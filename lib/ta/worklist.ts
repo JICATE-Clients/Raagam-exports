@@ -301,7 +301,7 @@ function isMissingTable(error: { code?: string; message?: string } | null): bool
  * which is why this returns an object even when the department half is
  * empty, rather than falling through to the overall `null`.
  */
-async function myDepartment(
+export async function myDepartment(
   sb: Awaited<ReturnType<typeof createClient>>,
   userId: string,
 ): Promise<{ id: string | null; name: string | null; employeeId: string | null } | null> {

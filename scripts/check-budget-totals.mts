@@ -236,9 +236,65 @@ check(
   refusalOf(lineAmount({ source: "expense", qty: null, rate: 5000 })),
   "Enter a quantity — use 1 for a lump sum",
 );
-// A RATE OF 0 IS LEGITIMATE and must not be refused: a free-issue trim and a
-// process the customer pays for are both real budget lines.
-check("a rate of 0 is a real line", lineAmount(line("material", 100, 0)), 0);
+// A TYPED 0 IS NOT A RATE (client 2026-09-21: "left blank, zero, or unentered"
+// is unrated). This reversed the earlier vector here ("a rate of 0 is a real
+// line"): a free line is FOC, a stated fact, not a 0 hoping to be read as one.
+check(
+  "a rate of 0 refuses, and says a free line is FOC",
+  refusalOf(lineAmount(line("material", 100, 0))),
+  "Enter a rate above 0 — tick FOC for a free line",
+);
+check("…in the rate box", (lineAmount(line("material", 100, 0)) as { field?: string }).field, "rate");
+check("…and a FOC line at 0 is still 0", lineAmount({ ...line("material", 100, 0), is_foc: true }), 0);
+
+// ---------------------------------------------------------------------------
+// 5b. AN UNRATED LINE SUPPRESSES THE PROFIT AND THE MARGIN OUTRIGHT
+//     (client 2026-09-21) — never a margin over the lines that ARE priced.
+// ---------------------------------------------------------------------------
+
+check("no unrated line, no notice", budgetTotals(LINES, ORDERS).unratedNotice, null);
+check(
+  "one unrated process line: profit refuses with the notice",
+  refusalOf(budgetTotals(HALF_TYPED, ORDERS).profit),
+  "1 rate missing: Line 3. Profit calculation suppressed.",
+);
+check("…and the margin with it", refusalOf(budgetTotals(HALF_TYPED, ORDERS).profitPct), refusalOf(budgetTotals(HALF_TYPED, ORDERS).profit));
+check("…while the cost still answers for what it has", budgetTotals(HALF_TYPED, ORDERS).cost, 250_000);
+const UNRATED = [
+  ...LINES,
+  { source: "fabric_process", qty: 1200, rate: null, description: "SINGLE JERSEY · DYEING" },
+  { source: "fabric_process", qty: 1150, rate: 0, description: "SINGLE JERSEY · COMPACTING" },
+  { source: "yarn", qty: 500, rate: null, description: "30'S COTTON" },
+];
+check(
+  "the client's sentence: per section, by name, purchase before process",
+  budgetTotals(UNRATED, ORDERS).unratedNotice,
+  "1 purchase rate missing: 30'S COTTON; 2 process rates missing: SINGLE JERSEY · DYEING, SINGLE JERSEY · COMPACTING. Profit calculation suppressed.",
+);
+check(
+  "a missing QUANTITY is said as unpriced, not as a missing rate",
+  budgetTotals([...LINES, { source: "yarn_process", qty: null, rate: 25, description: "DYEING" }], ORDERS).unratedNotice,
+  "1 process line unpriced: DYEING. Profit calculation suppressed.",
+);
+check(
+  "a missing exchange rate IS a missing rate",
+  budgetTotals([...LINES, { source: "yarn", qty: 10, rate: 3, currency_code: "USD", ex_rate: null, description: "LYCRA" }], ORDERS)
+    .unratedNotice,
+  "1 purchase rate missing: LYCRA. Profit calculation suppressed.",
+);
+check(
+  "more than four names are counted, not listed",
+  budgetTotals(
+    [...LINES, ...["A", "B", "C", "D", "E", "F"].map((d) => ({ source: "garment_process", qty: 1, rate: null, description: d }))],
+    ORDERS,
+  ).unratedNotice,
+  "6 process rates missing: A, B, C, D and 2 more. Profit calculation suppressed.",
+);
+check(
+  "a FOC line is rated — no notice",
+  budgetTotals([...LINES, { source: "material", qty: 100, rate: null, is_foc: true }], ORDERS).unratedNotice,
+  null,
+);
 
 // ---------------------------------------------------------------------------
 // 6. Money is rounded to two places, once

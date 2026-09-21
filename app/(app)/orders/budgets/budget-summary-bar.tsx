@@ -33,7 +33,8 @@
  *       Profit / Loss  green for a profit, red for a loss, grey while it cannot
  *                      be worked out — the tag's icon turns with it
  *                      (TrendingUp / TrendingDown);
- *       counts         red for unpriced lines, amber for lines waiting on sales.
+ *       counts         red banner naming unrated lines, amber for lines
+ *                      waiting on sales.
  *   - EVERY FIELD IS KEPT, label ABOVE figure: Currency, Conv, Avg Price,
  *     Order Qty, Gross Sales Value (INR); Expenses, Profit Value, Profit %.
  *     (Other Income left with its tab — client, 2026-09-19.)
@@ -59,6 +60,17 @@
  * (`budgetTotals` / `salesSummary`), word for word — and it WRAPS inside its
  * cell rather than being clipped. A NEW budget with no order yet shows a muted
  * dash instead (`isNoOrdersYet`): empty, not wrong.
+ *
+ * ## THE SUPPRESSION BANNER (client 2026-09-21)
+ *
+ * While any line is unrated, `budgetTotals` refuses the profit and the margin
+ * outright — no partial figure — and hands back `unratedNotice`, the sentence
+ * naming the lines ("2 process rates missing: SINGLE JERSEY · DYEING, … .
+ * Profit calculation suppressed."). That sentence is too long for a 176px
+ * cell, so the two profit cells print a SHORT refusal and the whole sentence
+ * is a full-width red banner under the strip, replacing the old "N lines
+ * unpriced" chip (which counted without naming, and stood beside a green
+ * margin it should have cancelled).
  */
 
 import type { ReactNode } from "react";
@@ -114,32 +126,41 @@ export function BudgetSummaryBar({
 
       <Group title="Profit / Loss" tone={profitTone} icon={<ProfitIcon className="h-3.5 w-3.5" aria-hidden />}>
         <Figure w="code" label="Expenses" value={totals.cost} />
-        <Figure w="term" label="Profit Value" value={totals.profit} lead signed />
-        <Figure w="hug" label="Profit %" value={totals.profitPct} suffix="%" lead signed />
+        <Figure w="term" label="Profit Value" value={suppressed(totals.profit, totals.unratedNotice)} lead signed />
+        <Figure w="hug" label="Profit %" value={suppressed(totals.profitPct, totals.unratedNotice)} suffix="%" lead signed />
       </Group>
 
-      {(totals.unpriced.length > 0 || totals.pending.length > 0) && (
-        <div className="flex flex-col justify-center gap-1.5">
-          {totals.unpriced.length > 0 && (
-            // NEVER SILENTLY EXCLUDED. A cost total that quietly ignored a
-            // half-typed line is smaller, plausible, and about to be approved.
-            <Chip tone="danger" icon={<AlertTriangle className="h-3.5 w-3.5" aria-hidden />}>
-              {totals.unpriced.length} {totals.unpriced.length === 1 ? "line" : "lines"} unpriced
-            </Chip>
-          )}
-          {totals.pending.length > 0 && (
-            // PRICED, BUT A PERCENTAGE OF A SALES VALUE NOBODY HAS YET. Said
-            // apart from "unpriced": it does not block Save, and the fix is on
-            // the ORDER (its price or exchange rate), not on this budget.
-            <Chip tone="warning" icon={<Clock3 className="h-3.5 w-3.5" aria-hidden />}>
-              {totals.pending.length} {totals.pending.length === 1 ? "line" : "lines"} waiting on sales
-            </Chip>
-          )}
+      {totals.unratedNotice && (
+        // NEVER SILENTLY EXCLUDED, AND NEVER PART-SUMMED. The engine's own
+        // sentence, whole, on its own line — it names every unrated line by
+        // section, which is what sends the operator to the right grid.
+        <div
+          role="status"
+          className="flex basis-full items-start gap-2 rounded-md border border-danger/40 bg-danger-soft px-3 py-1.5 text-[13px] font-semibold leading-snug text-danger"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{totals.unratedNotice}</span>
+        </div>
+      )}
+      {totals.pending.length > 0 && (
+        // PRICED, BUT A PERCENTAGE OF A SALES VALUE NOBODY HAS YET. Said
+        // apart from "unrated": it does not block Save, and the fix is on
+        // the ORDER (its price or exchange rate), not on this budget.
+        <div className="flex flex-col justify-center">
+          <Chip tone="warning" icon={<Clock3 className="h-3.5 w-3.5" aria-hidden />}>
+            {totals.pending.length} {totals.pending.length === 1 ? "line" : "lines"} waiting on sales
+          </Chip>
         </div>
       )}
     </div>
   );
 }
+
+/** A profit figure refused over unrated lines prints a SHORT refusal in its
+ *  cell; the banner below carries the sentence. Any other refusal is printed
+ *  as it is (the header's rule). */
+const suppressed = (v: number | Refusal, notice: string | null): number | Refusal =>
+  notice && isRefusal(v) && v.refused === notice ? { refused: "Suppressed — rates missing" } : v;
 
 type GroupTone = "sales" | "profit" | "loss" | "none";
 

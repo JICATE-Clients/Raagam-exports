@@ -53,10 +53,10 @@ import { Toggle } from "@/components/ui/toggle";
 import { Tabs } from "@/components/ui/tabs";
 import {
   Field,
-  FieldGrid,
   FieldRow,
   FieldError,
   FIELD_WIDTH_CSS,
+  fieldWidthStep,
   RequiredScope,
 } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -70,6 +70,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { isInactive } from "@/lib/masters/inactive";
+import { stageRank } from "@/lib/orders/fabric-bom/stage-routes";
 import { ProcessFoldList, type FoldListColumn } from "@/components/orders/process-fold-list";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
@@ -522,6 +523,18 @@ function withRowRules(columns: CostCol[]): CostCol[] {
  * EVERY cost grid's stacked row, below its `tableFrom` — the labels and cells
  * read off the SAME columns the table draws, never retyped beside them.
  *
+ * THE CARD KEEPS THE TABLE'S WIDTHS. Each cell is a `Field` at the step its
+ * column declared (`fieldWidthStep(c.width)`), in a wrapping `FieldRow` — so
+ * a row that is one 1,144px line as a table is the same thirteen boxes folded
+ * onto two lines as a card, and Reqd is still 88px wide in both. It was a
+ * `FieldGrid` of `size="sm"` cells before (user 2026-09-21, "field width
+ * issue in budget all the tab"): a QUARTER of the pane each, so under the
+ * threshold every four-digit box grew to ~280px and a line of thirteen stood
+ * four rows tall. `raagam-screen-layout`: width by the kind of value, and
+ * `FieldGrid` is legacy for new code. `align="start"` because a cell's error
+ * renders UNDER its control (`errNode`), and bottom alignment would lift that
+ * box out of the row the moment a rate is refused.
+ *
  * `required` IS DECLARED TWICE, as AGENTS.md requires of a grid that renders
  * its own row: the `Field` draws the star from `requiredFor(row)`, and the cell
  * carries its own `RequiredScope` from `withRowRules`, so the hold is on the
@@ -531,20 +544,20 @@ function withRowRules(columns: CostCol[]): CostCol[] {
 // grid-required-mobile: exempt -- every cost grid's renderMobileRow is costCard(), which declares `required` on each Field from requiredFor(row), and withRowRules() gives each such cell its own RequiredScope, so the star and the hold come from one declaration
 function costCard(columns: CostCol[], row: CostRow, i: number) {
   return (
-    <FieldGrid>
+    <FieldRow align="start" gap="tight">
       {columns.map((c, ci) =>
         c.showFor && !c.showFor(row) ? null : (
           <Field
             key={ci}
             label={c.labelFor ? c.labelFor(row) : c.header}
             required={c.requiredFor ? c.requiredFor(row) : c.required}
-            size="sm"
+            w={fieldWidthStep(c.width) ?? "hug"}
           >
             {c.cell(row, i)}
           </Field>
         ),
       )}
-    </FieldGrid>
+    </FieldRow>
   );
 }
 
@@ -639,6 +652,22 @@ export function BudgetScreen({
   useUnsavedGuard(dirty || isPending);
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
+  /**
+   * A CHILD TAB OPENS WITH THE CURSOR ON ITS FIRST RATE (client 2026-09-21).
+   * The section rail lands the cursor on a section switch, but Yarn → Fabric
+   * is a `Tabs` switch INSIDE one section, which re-mounts the panel and
+   * lands nothing — the cursor stayed on the tab button and the first key
+   * the operator pressed went to the strip. `goToSection` on the section the
+   * screen is already on runs the same landing the rail does (a `setTimeout(0)`
+   * after React has committed the new panel), and that landing prefers
+   * `[data-focus-land]` — the Rate column. A tab reached by ARROWING the strip
+   * is not opened (Tabs activates on Enter / click only), so this never pulls
+   * the cursor out from under an operator still reading the tab names.
+   */
+  const openTab = (setTab: (k: string) => void, key: string, section: BudgetSectionKey) => {
+    setTab(key);
+    shellRef.current?.goToSection(section);
+  };
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
@@ -1239,30 +1268,56 @@ export function BudgetScreen({
   // yarn grid and on CMTs — and the INR Rate and Amount beside it computed by
   // the same engine call.
 
+  /**
+   * A BOM FACT IS TEXT, NOT A BOX (user 2026-09-21, option A of the Rate
+   * emphasis mock-up: "the budget is totally for the price"). A pulled line's
+   * item, stage, colour, description, quantity and unit are the BOM's answer
+   * and cannot be typed here, so drawing them as read-only inputs put nine
+   * boxes on a row beside the ONE box that takes a value — and the eye spent
+   * its time telling boxes apart. `fact` / `factFigure` are that text; the
+   * control shape survives only on a hand-added line, where it can be typed.
+   * CMTs already did this for a style-bound row (`Truncated` on Style Ref No).
+   */
+  const fact = (v: string | null | undefined) => <Truncated className="text-sm">{v ?? ""}</Truncated>;
+  const factFigure = (v: string | number | null | undefined) => {
+    const n = typeof v === "number" ? v : v == null || v === "" ? null : Number(v);
+    return (
+      <span className="block text-right tabular-nums text-sm">
+        {n == null ? "" : Number.isFinite(n) ? fmtNumber(n) : String(v)}
+      </span>
+    );
+  };
+  const nameOf = (rows: { id: string; name: string }[], id: string | null) =>
+    id ? (rows.find((x) => x.id === id)?.name ?? "") : "";
+
   const itemCol = (header: string): CostCol => ({
     header,
-    cell: (r) => (
-      <RecordPicker
-        label={header}
-        compact
-        disabled={bomLocked(r)}
-        items={data.items}
-        value={r.item_id}
-        onChange={(id) => setCost(r.key, { item_id: id })}
-      />
-    ),
+    cell: (r) =>
+      bomLocked(r) ? (
+        fact(nameOf(data.items, r.item_id))
+      ) : (
+        <RecordPicker
+          label={header}
+          compact
+          items={data.items}
+          value={r.item_id}
+          onChange={(id) => setCost(r.key, { item_id: id })}
+        />
+      ),
   });
 
   const descCol = (header: string): CostCol => ({
     header,
-    cell: (r) => (
-      <Input
-        className="h-8"
-        readOnly={bomLocked(r)}
-        value={r.description}
-        onChange={(e) => setCost(r.key, { description: e.target.value })}
-      />
-    ),
+    cell: (r) =>
+      bomLocked(r) ? (
+        fact(r.description)
+      ) : (
+        <Input
+          className="h-8"
+          value={r.description}
+          onChange={(e) => setCost(r.key, { description: e.target.value })}
+        />
+      ),
   });
 
   const qtyCol = (header: string): CostCol => ({
@@ -1270,15 +1325,18 @@ export function BudgetScreen({
     requiredFor: qtyRequired,
     cell: (r) => (
       <>
-        <Input
-          {...errProps(r, "qty")}
-          className="h-8 text-right"
-          required={qtyRequired(r)}
-          readOnly={bomLocked(r)}
-          inputMode="decimal"
-          value={r.qty}
-          onChange={(e) => setCost(r.key, { qty: e.target.value })}
-        />
+        {bomLocked(r) ? (
+          factFigure(r.qty)
+        ) : (
+          <Input
+            {...errProps(r, "qty")}
+            className="h-8 text-right"
+            required={qtyRequired(r)}
+            inputMode="decimal"
+            value={r.qty}
+            onChange={(e) => setCost(r.key, { qty: e.target.value })}
+          />
+        )}
         {errNode(r, "qty")}
       </>
     ),
@@ -1286,16 +1344,18 @@ export function BudgetScreen({
 
   const unitCol: CostCol = {
     header: "Unit",
-    cell: (r) => (
-      <RecordPicker
-        label="Unit"
-        compact
-        disabled={bomLocked(r)}
-        items={data.uoms}
-        value={r.uom_id}
-        onChange={(id) => setCost(r.key, { uom_id: id })}
-      />
-    ),
+    cell: (r) =>
+      bomLocked(r) ? (
+        fact(nameOf(data.uoms, r.uom_id))
+      ) : (
+        <RecordPicker
+          label="Unit"
+          compact
+          items={data.uoms}
+          value={r.uom_id}
+          onChange={(id) => setCost(r.key, { uom_id: id })}
+        />
+      ),
   };
 
   /* FOC AND IMPORT ARE THE MERCHANDISER'S, ON EVERY LINE (user 2026-09-19:
@@ -1304,14 +1364,24 @@ export function BudgetScreen({
      a sourcing call the budget may change — so they are never locked with the
      BOM's facts, and a refresh keeps what was set (`operatorFacts`,
      pull-merge.ts). */
+  /* OFF THE TYPING PATH WHILE UNTICKED (client rule, 2026-09-21: "imports …
+     and non-essential controls are pushed to the end of the tab sequence so
+     merchandisers can enter rates without extra keypresses"). The house
+     mechanism is `data-focus-optional` (lib/focus.ts): Tab and Enter step
+     over the switch, ↑↓←→ and the mouse still reach it — never `tabIndex=-1`,
+     which would make it mouse-only. Marked only while OFF, the same shape as
+     Material ▸ Fabric ▸ Direct Purchase: once ticked the switch is back on
+     the path, so undoing it costs no arrow key. */
   const flagToggle = (r: CostRow, key: "is_foc" | "is_import", aria: string, className?: string) => (
-    <Toggle
-      checked={r[key]}
-      ariaLabel={aria}
-      disabled={!editable}
-      onChange={(v) => setCost(r.key, { [key]: v })}
-      className={className}
-    />
+    <span data-focus-optional={r[key] ? undefined : ""}>
+      <Toggle
+        checked={r[key]}
+        ariaLabel={aria}
+        disabled={!editable}
+        onChange={(v) => setCost(r.key, { [key]: v })}
+        className={className}
+      />
+    </span>
   );
   const toggleCol = (header: string, key: "is_foc" | "is_import", aria: string): CostCol => ({
     header,
@@ -1348,23 +1418,34 @@ export function BudgetScreen({
     header: "Curr",
     cell: (r) => (
       <>
-        <Select
-          {...errProps(r, "currency")}
-          compact
-          className="h-8"
-          disabled={!editable}
-          value={r.currency_code}
-          onChange={(e) => pickCurrency(r, e.target.value)}
-        >
-          <option value="">INR</option>
-          {data.currencies
-            .filter((c) => c.code !== "INR")
-            .map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code}
-              </option>
-            ))}
-        </Select>
+        {/* OFF THE TYPING PATH WHILE IT READS INR — the same rule as FOC /
+            Import above (client 2026-09-21: the import controls after the
+            rate). An INR line's Currency is the default nobody changes, so
+            Tab and Enter go straight from one Rate to the next; a line
+            quoted in dollars is one ← away, and once a currency is picked the
+            box (and the Ex Rate it unlocks) are back on the path. */}
+        {/* On a WRAPPER, not the `<Select>`: its desktop branch is a
+            `Combobox` with an explicit prop list, so a data attribute on the
+            `<Select>` lands nowhere (lib/focus.ts, "closest, NOT matches"). */}
+        <span data-focus-optional={r.currency_code ? undefined : ""}>
+          <Select
+            {...errProps(r, "currency")}
+            compact
+            className="h-8"
+            disabled={!editable}
+            value={r.currency_code}
+            onChange={(e) => pickCurrency(r, e.target.value)}
+          >
+            <option value="">INR</option>
+            {data.currencies
+              .filter((c) => c.code !== "INR")
+              .map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+          </Select>
+        </span>
         {errNode(r, "currency")}
       </>
     ),
@@ -1393,14 +1474,38 @@ export function BudgetScreen({
 
   /** The rate cell. Its header is the tab's own word — "Rate" on a purchase,
    *  "Charges" / "Charge" on a process — and its value is the same field. */
+  /* THE LANDING FIELD (client 2026-09-21: "active focus lands directly on
+     the Price / Rate input as soon as the tab opens"). `data-focus-land` is
+     read by `focusFirstField` (lib/focus.ts) alone — the section landing and
+     `openTab` below — so opening Purchase Rates or switching Yarn → Fabric
+     puts the cursor on the FIRST row's Rate rather than on the first cell that
+     happens to be typeable (Currency, on a pulled line whose item, qty, stage
+     and colour are all the BOM's). Every row carries it; the first on the Tab
+     path wins. */
   const rateCol = (header: string): CostCol => ({
     header,
     requiredFor: rateRequired,
+    /* THE ONE BOX ON THE ROW, and the column it stands in is tinted (option A
+       of the Rate emphasis mock-up, user 2026-09-21). `--cell-active` is the
+       tint the app already declares for "the cell that matters" — legible
+       under text in both themes, unlike `--primary-soft`. The class reaches
+       the header, every cell and the totals cell through `c.className`. */
+    className: "bg-[var(--cell-active)]",
     cell: (r) => (
       <>
         <Input
           {...errProps(r, "rate")}
-          className="h-8 text-right"
+          data-focus-land=""
+          /* Its own border and weight, AT REST: `ChildGrid` strips every
+             input's border until focus so a row does not read as a wall of
+             boxes — right for the facts, which are now text anyway, and
+             exactly wrong for the one cell the operator is here to fill.
+             The grid's rule is `<td> input:not(:focus):not(.border-danger)`,
+             specificity (0,3,1); this variant carries a THIRD `:not()` so it
+             is (0,4,0) and wins by the cascade alone. `!` would win too and
+             is the wrong tool: it would also paint over `.border-danger`,
+             the one marking a refused rate has. */
+          className="h-8 text-right font-semibold [&:not(:focus):not(.border-danger):not([hidden])]:border-primary/60 [&:not(:focus):not(.border-danger):not([hidden])]:bg-surface"
           required={rateRequired(r)}
           readOnly={!editable}
           inputMode="decimal"
@@ -1597,16 +1702,17 @@ export function BudgetScreen({
           compact
           options={stageOptions(kind, r.stage_id)}
           value={r.stage_id}
-          onChange={(id) => setCost(r.key, { stage_id: id || null })}
+          // Picking GREIGE takes the colour with it: the column hides at that
+          // stage (`colourCol.showFor`), and a colour a hidden box still held
+          // would be saved with nothing on screen to say so.
+          onChange={(id) =>
+            setCost(r.key, { stage_id: id || null, ...(isGreigeStageId(id || null) ? { combo: null } : {}) })
+          }
           canCreate={masterPerms.canCreate}
           canEdit={masterPerms.canEdit}
         />
       ) : (
-        <Input
-          className="h-8"
-          readOnly
-          value={data.lookups.find((l) => l.id === r.stage_id)?.name ?? ""}
-        />
+        fact(data.lookups.find((l) => l.id === r.stage_id)?.name)
       ),
   });
   /** A line's colourways: its own order's, or every picked order's for a
@@ -1618,15 +1724,34 @@ export function BudgetScreen({
       : [...new Set(pickedFacts.flatMap((o) => o.combos))];
     return r.combo && !list.includes(r.combo) ? [...list, r.combo] : list;
   };
+  /**
+   * NO COLOUR AT GREIGE (client rule, 2026-09-21): greige is the raw,
+   * uncoloured state — yarn off the spindle, cloth off the loom — so a
+   * Colour box beside a GREIGE / GREY stage asks a question that has no
+   * answer, and the operator was filling it anyway. The cell is hidden by
+   * `showFor` (`withRowRules`): an empty cell under the header in the table,
+   * no field at all in the card. It comes back the moment the stage is DYED,
+   * WASH or PRINT — or blank, so a hand-added line with no stage yet can still
+   * take one. "Is this greige" is `stageRank(...) === 0` (stage-routes.ts),
+   * the SAME test the pull uses to give a GREY yarn purchase no colour
+   * (service.ts "COLOUR ONLY FOR A COLOURED STAGE"), so screen and data agree.
+   */
+  const isGreigeStageId = (id: string | null) => {
+    const stage = id ? data.lookups.find((l) => l.id === id) : undefined;
+    return !!stage && stageRank(stage) === 0;
+  };
   const colourCol: CostCol = {
     header: "Colour",
-    cell: (r) => (
+    showFor: (r) => !isGreigeStageId(r.stage_id),
+    cell: (r) =>
+      bomLocked(r) ? (
+        fact(r.combo)
+      ) : (
       <Select
         compact
         className="h-8"
         aria-label="Colour"
         value={r.combo ?? ""}
-        disabled={bomLocked(r)}
         onChange={(e) => setCost(r.key, { combo: e.target.value || null })}
       >
         <option value=""></option>
@@ -1636,7 +1761,7 @@ export function BudgetScreen({
           </option>
         ))}
       </Select>
-    ),
+      ),
   };
 
   /*
@@ -1669,9 +1794,34 @@ export function BudgetScreen({
      = 1160: still 5px past the 1155 laptop pane, so `7xl` stays.
      Same day (user): FOC and Import split back into two `num` columns (72 +
      72 = 144 for the merged 88, +56) — 1144, + 72 = 1216, under the 1280 of
-     `7xl`, so still one table there and one-frame cards below it. */
-  const yarnPurchaseColumns: CostCol[] = withRowRules([
-    // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1272px table, so it never scrolls sideways
+     `7xl`, so still one table there and one-frame cards below it.
+     2026-09-21 (option A): Rate num -> hug (+16) — the one typed box on the
+     row is not the narrowest cell on it. 1160, + 72 = 1232, still under 1280.
+     2026-09-21 (user, "compact it"): STAYS `7xl`, and it is the one Budget grid
+     that does. Fabric Purchases re-cut back to `5xl` (its description had a
+     step to give); this one needs -61 to reach 1083 and no column has it —
+     Yarn is already the step Yarn Processes uses, Stage / Colour / Description
+     are at the label floor, FOC and Import are the user's own split. What
+     changed instead is the CARD it draws below 1280: `costCard` now keeps the
+     column widths (thirteen boxes folded onto two lines) rather than a
+     `FieldGrid` of quarter-pane cells. */
+  /**
+   * A COLUMN NO ROW ON THE GRID NEEDS IS NOT DRAWN AT ALL. `showFor` blanks a
+   * cell per row, which is the most a table can do while ANOTHER row still
+   * needs the column — but when every line is GREIGE that left a "Colour"
+   * header standing over an empty column (user 2026-09-21, screenshot 2977:
+   * "greige stage near colour column is displaying"). So the column list is
+   * cut to what the grid's rows can use: all greige, no Colour column; one
+   * dyed line, the column is back with the greige cells blank. A hand-added
+   * line with no stage yet counts as needing it. Filtered AFTER `withRowRules`
+   * so the check script still measures the full-width table above.
+   */
+  const usedColumns = (source: BudgetSource, cols: CostCol[]) => {
+    const rows = costs.filter((c) => c.source === source);
+    return cols.filter((c) => !c.showFor || rows.length === 0 || rows.some((r) => c.showFor!(r)));
+  };
+  const yarnPurchaseColumns: CostCol[] = usedColumns("yarn", withRowRules([
+    // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1216px table, so it never scrolls sideways
     { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.code },
     { ...stageCol("yarn_stage"), width: FIELD_WIDTH_CSS.hug },
     { ...colourCol, width: FIELD_WIDTH_CSS.hug },
@@ -1684,35 +1834,41 @@ export function BudgetScreen({
     { ...importCol, width: FIELD_WIDTH_CSS.num },
     { ...currencyCol, width: FIELD_WIDTH_CSS.num },
     { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
-    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
     { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
-  ]);
+  ]));
 
   /* Fabric Purchases — 176 + 200 + 88 + 72 + 72 + 72 + 88 + 88 + 112 = 968,
      + 72 = 1040 <= 1155 -> 5xl.
      2026-09-19: + Stage (hug 88, a `fabric_stage` picker) and Colour (hug 88,
      the order's colourways) after Fabric — Yarn Purchases' change, the same
      way ("now fabric ... is also missing stage and color ... this also same").
-     NOTHING else moved or narrowed: 1144, + 72 = 1216, so this grid too is a
-     table from `7xl` (1280) and one-frame cards below it — never a sideways
-     scroll. A pulled line arrives with GREIGE / DYED from its cloth source on
-     the Fabric BOM and the colourway lot it is (the budget service's
-     `fabricStageOf`). */
-  const fabricPurchaseColumns: CostCol[] = withRowRules([
-    // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1216px table, so it never scrolls sideways
+     NOTHING else moved or narrowed that day: 1144, + 72 = 1216, so this grid
+     was a table from `7xl` (1280) and one-frame cards below it. A pulled line
+     arrives with GREIGE / DYED from its cloth source on the Fabric BOM and the
+     colourway lot it is (the budget service's `fabricStageOf`).
+     2026-09-21 (user, "compact it"): RE-CUT BACK TO `5xl`. On the 1155px
+     laptop pane a `7xl` grid is ALWAYS cards, so this tab never showed its
+     table there. Fabric & Colour party -> range (-88): with Stage and Colour
+     in columns of their own, the text is the pulled slice label, and the
+     Fabric picker names the fabric — the same step Accessories gives its
+     Colour / Description. 176 + 88 + 88 + 112 + 88 + 72 + 72 + 72 + 88 + 88
+     + 112 = 1056, + 72 = 1128 <= 1155 -> 5xl, 27px of headroom.
+     Same day (option A): Rate num -> hug (+16) — 1072, + 72 = 1144, 11px. */
+  const fabricPurchaseColumns: CostCol[] = usedColumns("fabric", withRowRules([
     { ...itemCol("Fabric"), width: FIELD_WIDTH_CSS.term },
     { ...stageCol("fabric_stage"), width: FIELD_WIDTH_CSS.hug },
     { ...colourCol, width: FIELD_WIDTH_CSS.hug },
-    { ...descCol("Fabric & Colour"), width: FIELD_WIDTH_CSS.party },
+    { ...descCol("Fabric & Colour"), width: FIELD_WIDTH_CSS.range },
     { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
-    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
     { ...currencyCol, width: FIELD_WIDTH_CSS.num },
     { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
-  ]);
+  ]));
 
   /* Accessories Purchases — 144 + 112 + 72 + 88 + 88 + 72 + 88 + 72 + 88
      + 112 = 936, + 72 = 1008 <= 1155 -> 5xl. Brand / Specifications (88)
@@ -1722,7 +1878,8 @@ export function BudgetScreen({
      "FOC · Import" cell was a Phase 6 re-cut to buy width; with Brand /
      Specifications gone, both grids can afford the two columns again.
      Colour / Description keeps `range`, because on a trim the colour is the
-     fact that varies. */
+     fact that varies.
+     2026-09-21 (option A): Rate num -> hug (+16) — 1008, + 72 = 1080. */
   const accessoryPurchaseColumns: CostCol[] = withRowRules([
     { ...itemCol("Item"), width: FIELD_WIDTH_CSS.code },
     { ...descCol("Colour / Description"), width: FIELD_WIDTH_CSS.range },
@@ -1734,7 +1891,7 @@ export function BudgetScreen({
     { ...importCol, width: FIELD_WIDTH_CSS.num },
     { ...currencyCol, width: FIELD_WIDTH_CSS.num },
     { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
-    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
     { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
   ]);
@@ -1804,8 +1961,8 @@ export function BudgetScreen({
   /** One Fabric Processes group's lines — the first cell names the grain the
    *  group was split by, and is text: it came from the split, not a keyboard.
    *
-   *  176 + 88 + 72 + 144 + 72 + 88 + 72 + 88 + 112 = 912, + 72 = 984 <= 1155
-   *  -> 5xl. It sits in the fold's panel, ~50px narrower than the pane (the
+   *  176 + 88 + 72 + 144 + 72 + 88 + 88 + 88 + 112 = 928, + 72 = 1000 <= 1155
+   *  -> 5xl (Rate num -> hug on 2026-09-21, option A). It sits in the fold's panel, ~50px narrower than the pane (the
    *  panel's indent and the list's frame) — still 1,105 at the smallest pane,
    *  which this clears by 121. */
   const fabricLineColumns = (basis: string): CostCol[] =>
@@ -1820,7 +1977,7 @@ export function BudgetScreen({
       { ...rateTypeCol, width: FIELD_WIDTH_CSS.code },
       { ...currencyCol, width: FIELD_WIDTH_CSS.num },
       { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
-      { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+      { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
       { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
       { ...amountCol, width: FIELD_WIDTH_CSS.range },
     ]);
@@ -2085,108 +2242,18 @@ export function BudgetScreen({
     setCost(r.key, { ...patch, qty: String(q) });
   }
 
-  const orderItems = pickedFacts.map((o) => ({
-    id: o.id,
-    code: o.sc_no ?? o.order_code,
-    name: [o.sc_no ?? o.order_code, o.po_no].filter(Boolean).join(" · ") || "(order)",
-    inactive: false,
-  }));
+  /* `scopeCol` / `scopeOrderCol` / `scopeStyleCol` (Type · Order · Style) were
+     REMOVED from the grid on 2026-09-21 (user) — see `expenseColumns`. A
+     line's `scope` stays "sq" from the blank row; `rescope` is still what
+     the Rate Type select goes through, so a legacy scoped line re-fills the
+     way it always did. */
 
-  const scopeCol: CostCol = {
-    header: "Type",
-    cell: (r) => (
-      <Select
-        compact
-        className="h-8"
-        disabled={!editable}
-        value={r.scope}
-        onChange={(e) => {
-          const scope = e.target.value as Scope;
-          // SQ Wise drops the order and style; Order Wise keeps the order and
-          // drops the style; Style Wise keeps both until they are picked.
-          rescope(r, {
-            scope,
-            garment_order_id: scope === "sq" ? null : r.garment_order_id,
-            style_ref_no: scope === "style" ? r.style_ref_no : null,
-          });
-        }}
-      >
-        <option value="sq">SQ Wise</option>
-        <option value="order">Order Wise</option>
-        {/* NOT FOR A PERCENTAGE — no sales value exists per style, so a
-            style-scoped percent line could only ever refuse (engine). Offered
-            greyed rather than removed, so the operator sees why. */}
-        <option value="style" disabled={r.rate_type === "percent"}>
-          Style Wise
-        </option>
-      </Select>
-    ),
-  };
-
-  const scopeOrderCol: CostCol = {
-    header: "Order",
-    showFor: (r) => r.scope !== "sq",
-    requiredFor: (r) => r.scope !== "sq",
-    cell: (r) => (
-      <>
-        <RecordPicker
-          id={cellId(r, "order")}
-          label="Order"
-          compact
-          required={r.scope !== "sq"}
-          disabled={!editable}
-          items={orderItems}
-          value={r.garment_order_id}
-          onChange={(id) => rescope(r, { garment_order_id: id, style_ref_no: null })}
-        />
-        <FieldError id={`${cellId(r, "order")}-error`}>
-          {shown(r) && r.scope !== "sq" && !r.garment_order_id
-            ? "Choose the order this expense is for"
-            : null}
-        </FieldError>
-      </>
-    ),
-  };
-
-  const scopeStyleCol: CostCol = {
-    header: "Style",
-    showFor: (r) => r.scope === "style",
-    requiredFor: (r) => r.scope === "style",
-    cell: (r) => (
-      <>
-        <RecordPicker
-          id={cellId(r, "style")}
-          label="Style"
-          compact
-          required={r.scope === "style"}
-          disabled={!editable || !r.garment_order_id}
-          // KEYED BY THE STYLE'S REF — the line stores `style_ref_no`, the same
-          // text key the order's style lines and the CMT lines use.
-          items={(
-            (r.garment_order_id && orderById.get(r.garment_order_id)?.styles) ||
-            []
-          ).map((st) => ({
-            id: st.style_ref_no,
-            code: st.style_ref_no,
-            name: [st.style_ref_no, st.style_description].filter(Boolean).join(" · "),
-            inactive: false,
-          }))}
-          // A STATE OF THE RECORD, which is what a placeholder may still say.
-          placeholder={r.garment_order_id ? undefined : "Pick the order first"}
-          value={r.style_ref_no}
-          onChange={(id) => rescope(r, { style_ref_no: id })}
-        />
-        <FieldError id={`${cellId(r, "style")}-error`}>
-          {shown(r) && r.scope === "style" && r.garment_order_id && !r.style_ref_no
-            ? "Choose the style this expense is for"
-            : null}
-        </FieldError>
-      </>
-    ),
-  };
-
+  /* "Per Pcs", not "Qty" (client spec, 2026-09-21, Other Expenses rate
+     matrix: FLAT · PERCENTAGE · PER_PCS) — the word names the BASE the rate is
+     multiplied by, as the other two do. The stored code is still `per_unit`
+     (0573); an income's Basis list never offers it. */
   const RATE_TYPE_WORDS: Record<RateType, string> = {
-    per_unit: "Qty",
+    per_unit: "Per Pcs",
     flat: "Flat",
     percent: "Percentage",
   };
@@ -2236,21 +2303,76 @@ export function BudgetScreen({
    * 1 says so rather than leaving the box to be read as missing. Not on a
    * percentage at all: there is no quantity in "2% of sales".
    */
+  /**
+   * QTY IS FETCHED, NEVER TYPED (user 2026-09-21: "other expenses – qty field
+   * cut qty value need to fetch"). With Type / Order / Style gone from the
+   * grid (same day) an expense line is budget-wide, and its quantity is the
+   * pieces to be MADE — the group SQ Qty, the same figure the header's SQ Qty
+   * and every CMT line read (`scopeSqQty`, which still answers a legacy
+   * order- or style-scoped line by its own scope). A Flat line is 1; a
+   * Percentage has no quantity. The figure reaches the engine and the save
+   * through `expenseQty` on `enteredCosts` below, never through the row's
+   * own `qty` — an effect writing it back on open would overwrite nothing
+   * useful and mark every budget dirty. A refused SQ Qty is SAID under the
+   * cell, and the line's own refusal ("Enter a quantity") follows it.
+   */
+  /**
+   * THE RATE MATRIX (client spec, 2026-09-21) — three modes, one line shape,
+   * and what each column does is decided by the Rate Type alone:
+   *
+   *   Per Pcs     Qty = cut qty, fetched   Rate typed (per pc)   Value = Qty x Rate
+   *   Percentage  Qty = SALES VALUE (INR)  Rate typed (%)        Value = Sales x % / 100
+   *   Flat        no Qty, no Rate          VALUE TYPED           Value = the sum
+   *
+   * The engine already computes all three (`lineAmount`: `percent` is a share
+   * of `salesBase`, `flat` is the stored `rate` verbatim, `per_unit` is
+   * qty x rate). What the spec changes is the GRID: on a Flat line the sum is
+   * typed in the Value column itself (the spec: "Value / Amount Cell: EDITABLE
+   * ... merchandisers type lump sums directly") and Qty / Rate stand down; on
+   * a Percentage line the Qty column SHOWS the base — the sales value the
+   * percentage is of — so 3% reads beside the number it is 3% of. The Flat
+   * sum is still stored in `rate` (0573: "a flat line's amount is its rate"),
+   * so nothing moves in the schema; the spec's `manual_amount` is that column.
+   */
   const otherQtyCol: CostCol = {
     header: "Qty",
-    showFor: (r) => r.rate_type !== "percent",
-    requiredFor: qtyRequired,
-    cell: (r) =>
-      r.rate_type === "flat" ? (
-        <Input className="h-8 text-right" readOnly value="1" />
-      ) : (
-        qtyCol("Qty").cell(r, 0)
-      ),
+    labelFor: (r) => (r.rate_type === "percent" ? "Sales Value" : "Qty"),
+    showFor: (r) => r.rate_type !== "flat",
+    cell: (r) => {
+      if (r.rate_type === "percent") {
+        const base = salesBase(lineInput(r));
+        return (
+          <>
+            {factFigure(isRefusal(base) ? null : base)}
+            <FieldError>{isRefusal(base) ? base.refused : null}</FieldError>
+          </>
+        );
+      }
+      const q = scopeSqQty(r);
+      return (
+        <>
+          {factFigure(q == null || isRefusal(q) ? null : q)}
+          <FieldError>{q != null && isRefusal(q) ? q.refused : null}</FieldError>
+        </>
+      );
+    },
   };
 
   const otherRateCol: CostCol = {
     ...rateCol("Rate"),
     labelFor: (r) => (r.rate_type === "percent" ? "%" : "Rate"),
+    // A Flat line has no rate to type: its sum goes in the Value column.
+    showFor: (r) => r.rate_type !== "flat",
+  };
+
+  /** Value: computed on a Per Pcs / Percentage line; TYPED on a Flat line —
+   *  the same Rate box (it binds `rate`, which IS the flat charge), landed on
+   *  like any price. */
+  const otherValueCol: CostCol = {
+    ...amountCol,
+    header: "Value (INR)",
+    requiredFor: (r) => r.rate_type === "flat" && rateRequired(r),
+    cell: (r, i) => (r.rate_type === "flat" ? rateCol("Value (INR)").cell(r, i) : amountCol.cell(r, i)),
   };
 
   const valueCol: CostCol = { ...amountCol, header: "Value (INR)" };
@@ -2261,17 +2383,22 @@ export function BudgetScreen({
      `showFor`), so they are paid for on every row; the text cells take the
      steps that pay for them. "Order Wise" and "Percentage" are ~10
      characters, which `range` holds with its chevron. */
+  /* 2026-09-21 (user): DESCRIPTION, TYPE, ORDER AND STYLE REMOVED from the
+     grid. A budget is one order's (2026-09-19), so an expense is budget-wide
+     and the scope columns had one answer; the description column went with
+     them. `scope` / `style_ref_no` / `description` stay in the row and the
+     schema — a legacy line keeps what it saved and `scopeSqQty` still reads
+     it — the grid just no longer asks. Qty is fetched (`otherQtyCol`) and
+     `range` (it shows the INR sales value on a Percentage line), Rate `hug`
+     (option A). 144 + 112 + 72 + 112 + 88 + 112 = 640, + 72 = 712 <= 1155
+     -> 5xl. */
   const expenseColumns: CostCol[] = withRowRules([
     { ...headCol("expense_head", "Cost Head"), width: FIELD_WIDTH_CSS.code },
-    { ...descCol("Description"), width: FIELD_WIDTH_CSS.range },
-    { ...scopeCol, width: FIELD_WIDTH_CSS.range },
-    { ...scopeOrderCol, width: FIELD_WIDTH_CSS.range },
-    { ...scopeStyleCol, width: FIELD_WIDTH_CSS.range },
     { ...otherRateTypeCol("Rate Type", ["per_unit", "flat", "percent"]), width: FIELD_WIDTH_CSS.range },
     { ...otherUnitCol, width: FIELD_WIDTH_CSS.num },
-    { ...otherQtyCol, width: FIELD_WIDTH_CSS.num },
-    { ...otherRateCol, width: FIELD_WIDTH_CSS.num },
-    { ...valueCol, width: FIELD_WIDTH_CSS.range },
+    { ...otherQtyCol, width: FIELD_WIDTH_CSS.range },
+    { ...otherRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...otherValueCol, width: FIELD_WIDTH_CSS.range },
   ]);
 
   /* Other Incomes — whole-budget scope, so no Type. 200 + 176 + 144 + 88 +
@@ -2352,7 +2479,7 @@ export function BudgetScreen({
       <ChildGrid<CostRow>
         columns={fabricPurchaseColumns}
         rows={rowsOf("fabric")}
-        tableFrom="7xl"
+        tableFrom="5xl"
         flatRows
         renderMobileRow={(row, i) => costCard(fabricPurchaseColumns, row, i)}
         hideAdd={!editable}
@@ -2681,12 +2808,14 @@ export function BudgetScreen({
       onToggle={setFabricOpenKey}
       renderPanel={(g) => (
         <div className="space-y-3">
-          <FieldGrid>
+          <FieldRow align="start">
             {/* THE PANEL'S FIRST FIELD — the grain the lines below are split
-                by. Changing it re-splits them; see `refitFabricGroup`. */}
+                by. Changing it re-splits them; see `refitFabricGroup`.
+                `code` (144): the widest option is "Processwise", one word,
+                and a `size="sm"` share of the panel gave it ~280px. */}
             <Field
               label="For"
-              size="sm"
+              w="code"
               htmlFor={`bl-fold-${g.key}`}
               error={foldNotes[g.key] ?? null}
             >
@@ -2701,7 +2830,7 @@ export function BudgetScreen({
                 <option value="process">{BASIS_LABELS.process}</option>
               </Select>
             </Field>
-          </FieldGrid>
+          </FieldRow>
           {/* The group's lines come from the split, so this grid cannot grow —
               and it may be emptied, like every pulled grid. */}
           <ChildGrid<CostRow>
@@ -2726,7 +2855,16 @@ export function BudgetScreen({
 
   /** The lines that SAVE — the seeded blanks dropped. Totals, validity and the
    *  payload all read this one list, so what is counted is what is written. */
-  const enteredCosts = costs.filter((c) => !isBlankLine(c));
+  /** An expense Qty line's quantity is the group SQ Qty, FETCHED (see
+   *  `otherQtyCol`) — resolved here so the engine, the validity and the save
+   *  all read the same figure the cell shows. A refusal leaves the typed
+   *  value alone, so the line refuses in the engine with its own sentence. */
+  const expenseQty = (c: CostRow): CostRow => {
+    if (c.source !== "expense" || c.rate_type !== "per_unit") return c;
+    const q = scopeSqQty(c);
+    return q == null || isRefusal(q) ? c : { ...c, qty: String(q) };
+  };
+  const enteredCosts = costs.filter((c) => !isBlankLine(c)).map(expenseQty);
 
   const { totals, sales, general } = budgetFigures({
     lines: enteredCosts,
@@ -3085,7 +3223,7 @@ export function BudgetScreen({
             <SectionBody title={s.label}>
               <Tabs
                 value={purchaseTab}
-                onChange={setPurchaseTab}
+                onChange={(k) => openTab(setPurchaseTab, k, "purchase")}
                 items={PURCHASE_TABS.map((t) => ({
                   key: t.source,
                   label: t.label,
@@ -3114,7 +3252,7 @@ export function BudgetScreen({
             <SectionBody title={s.label}>
               <Tabs
                 value={processTab}
-                onChange={setProcessTab}
+                onChange={(k) => openTab(setProcessTab, k, "process")}
                 items={PROCESS_TABS.map((t) => ({
                   key: t.source,
                   label: t.label,

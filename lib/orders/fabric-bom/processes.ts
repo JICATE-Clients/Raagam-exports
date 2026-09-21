@@ -103,6 +103,7 @@ import { FABRIC_SOURCES, type FabricSource } from "./fabric-source";
    different from writing `!!combo`. One-way import: `./yarn-process` reaches
    nothing here, directly or transitively. */
 import { comboKey } from "./yarn-process";
+import { colorLossKey, colorLossesInput, type ColorLossDraft } from "./color-loss";
 
 /**
  * A process as the picker needs it: identity, the disable flag, and the one
@@ -315,6 +316,12 @@ export type FabricProcessRow = {
      it here". The fabric route was the one place that disagreed with that
      sentence, and now it does not. A price belongs on the Budget. */
   type_id: string | null;
+  /** ASSORT COLOR-WISE LOSS (0606) — this step loses a different % per
+   *  colourway, held in `color_losses` (text, like `loss_pct`). OPTIONAL so a
+   *  caller with no such column (IWO Fabric BOM) builds a well-formed row that
+   *  simply is not colour-wise. See `./color-loss.ts`. */
+  color_wise_loss?: boolean;
+  color_losses?: ColorLossDraft;
 };
 
 export const blankFabricProcess = (
@@ -332,6 +339,8 @@ export const blankFabricProcess = (
   loss_for_id: null,
   loss_pct: "",
   type_id: null,
+  color_wise_loss: false,
+  color_losses: {},
 });
 
 /**
@@ -671,7 +680,7 @@ export type GatheredProcessRow = FabricProcessRow & {
  *  [[raagam-audit-checks-can-be-blind]] is about, arriving through a file
  *  nobody suspects. The escape is the identical runtime string. */
 const routeKeyOf = (r: FabricProcessRow) =>
-  [r.item_id, r.component_id ?? "", r.stage_id ?? "", r.process_id ?? "", r.sub_category_id ?? "", r.loss_for_id ?? "", r.loss_pct.trim(), r.type_id ?? ""].join("\u0000");
+  [r.item_id, r.component_id ?? "", r.stage_id ?? "", r.process_id ?? "", r.sub_category_id ?? "", r.loss_for_id ?? "", r.loss_pct.trim(), r.type_id ?? "", colorLossKey(r.color_wise_loss, r.color_losses)].join("\u0000");
 
 export function gatherByRoute(rows: readonly FabricProcessRow[]): GatheredProcessRow[] {
   const out: GatheredProcessRow[] = [];
@@ -819,6 +828,11 @@ export const fabricBomProcessInput = z.object({
      imports with these same schemas, so a field left standing here would be a
      door the grid has closed and an import can still walk through. */
   type_id: z.string().uuid().nullable().default(null),
+  /* ASSORT COLOR-WISE LOSS (0606). `.default` so a payload written before the
+     field existed lands on "flat loss". Off ⇒ the map is emptied at save
+     (`colorLossesForStorage`) and by 0606's CHECK. */
+  color_wise_loss: z.coerce.boolean().default(false),
+  color_losses: colorLossesInput,
 });
 
 export type FabricBomProcessInput = z.infer<typeof fabricBomProcessInput>;

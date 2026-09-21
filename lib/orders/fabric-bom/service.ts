@@ -15,6 +15,7 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { FabricProcessLookups, FabricProcessOption } from "./processes";
 import type { FabricStageRole } from "./stage-routes";
 import type { FabricComposition, YarnProcessOption } from "./yarn-process";
+import { yarnStageTwins, type YarnStageLike, type YarnStageRole } from "./yarn-stage-routes";
 import type { FabricBom, OrderFabricSeedRow, OrderPalette } from "./types";
 import type { StyleComponentDecl } from "./component-map";
 
@@ -892,15 +893,40 @@ export async function getFabricProcessLookupRows(): Promise<FabricProcessLookups
  * memory is what leaves a picker silently empty, since PostgREST answers a
  * select over a MISSING column with an error rather than nulls.
  */
-async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
+/* EXPORTED (2026-09-21) for `yarnStageProblem` in actions.ts — the server
+   guard reads the SAME classification the screen was handed. */
+export async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
   const s = await createClient();
-  const { data, error } = await s
-    .from("processes")
-    .select("id, name, inactive, for_yarn")
-    .order("name");
+  const [{ data, error }, roles, fabricStages, yarnStages] = await Promise.all([
+    s.from("processes").select("id, name, inactive, for_yarn").order("name"),
+    /* THE STAGE CLASSIFICATION (2026-09-21) — the same rows the fabric loader
+       reads, mapped onto yarn-stage ids by code (`yarnStageTwins`). */
+    s.from("process_fabric_stages").select("process_id, stage_id, is_base"),
+    s.from("config_lookups").select("id, code, name").eq("kind", "fabric_stage"),
+    s.from("config_lookups").select("id, code, name").eq("kind", "yarn_stage"),
+  ]);
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — same reasoning as
   // `getFabricProcessRows` above, which is the sibling this was copied from.
+  // Failing the roles read silently would leave every yarn process
+  // UNCLASSIFIED, which the rule reads as "allowed everywhere" — a broken
+  // query indistinguishable from a master nobody has classified.
   if (error) throw new Error(`Could not load the Process master: ${error.message}`);
+  if (roles.error) throw new Error(`Could not load the yarn stage routes: ${roles.error.message}`);
+  if (fabricStages.error || yarnStages.error) {
+    throw new Error(`Could not load the stage lists: ${(fabricStages.error ?? yarnStages.error)!.message}`);
+  }
+  const twin = yarnStageTwins(
+    (fabricStages.data ?? []) as YarnStageLike[],
+    (yarnStages.data ?? []) as YarnStageLike[],
+  );
+  const rolesByProcess = new Map<string, YarnStageRole[]>();
+  for (const r of (roles.data ?? []) as { process_id: string; stage_id: string; is_base: boolean | null }[]) {
+    const yarnStageId = twin.get(r.stage_id);
+    if (!yarnStageId) continue; // a fabric-only stage (WASH, PRINT) has no yarn twin
+    const list = rolesByProcess.get(r.process_id) ?? [];
+    list.push({ stage_id: yarnStageId, is_base: r.is_base ?? false });
+    rolesByProcess.set(r.process_id, list);
+  }
   return ((data ?? []) as {
     id: string;
     name: string;
@@ -912,6 +938,7 @@ async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
     name: p.name,
     inactive: p.inactive ?? false,
     for_yarn: p.for_yarn ?? false,
+    stage_roles: rolesByProcess.get(p.id) ?? [],
   }));
 }
 

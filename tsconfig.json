@@ -52,6 +52,7 @@
     "scripts/check-amendment-diff.mts",
     "scripts/check-order-value.mts",
     "scripts/check-bom-requirement.mts",
+    "scripts/check-bom-colour-required.mts",
     "scripts/check-pack-composition.mts",
     "scripts/check-uom-prefill.mts",
     "scripts/check-pack-type-explosion.mts",

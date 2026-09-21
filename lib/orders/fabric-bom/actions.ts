@@ -12,12 +12,15 @@ import { isYarnDyed, missingFabricLineFields } from "./fabric-line-rules";
    readers share. See its own header for the drift that made it one function. */
 import { colouredStageIds, processRowInScope, stageRouteProblems } from "./processes";
 import { yarnShadesFrom } from "./yarn-dyed";
+import { colorLossesForStorage } from "./color-loss";
+import { yarnStageProblems } from "./yarn-stage-routes";
 import { fabricBomInput, type FabricBomFormInput, type FabricBomInput } from "./types";
 import {
   getBomYarnComposition,
   getFabricProcessLookupRows,
   getFabricProcessRows,
   getYarnStageRows,
+  getYarnProcessRows,
   getOrderFabricSeed,
   getOrderPalette,
   getOrderProduction,
@@ -525,6 +528,10 @@ function normalizeProcesses(
       loss_for_id: p.loss_for_id ?? null,
       loss_pct: p.loss_pct ?? null,
       type_id: p.type_id ?? null,
+      /* 0606 — ASSORT COLOR-WISE LOSS. A step already scoped to ONE colourway
+         has one loss by definition, so only an "All colours" step keeps the
+         map; off (or scoped) stores it empty, which 0606's CHECK requires. */
+      ...colorLossesForStorage(p.color_wise_loss && !p.combo, p.color_losses),
     });
   }
   return out;
@@ -957,6 +964,10 @@ function routesByFabricOf(
          weight — see `stagesForGroup`. */
       component_id: p.component_id ?? null,
       loss_pct: p.loss_pct ?? null,
+      /* 0606 — per-colourway losses, resolved by `stagesForGroup`; the same
+         gate `normalizeProcesses` stores through, so the stored purchase is
+         grossed by exactly what is saved. */
+      color_losses: colorLossesForStorage(p.color_wise_loss && !p.combo, p.color_losses).color_losses,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
       /* CARRIED SINCE 2026-09-16 (0564) for the same reason `component_id` is:
@@ -1173,6 +1184,8 @@ function normalizeYarns(
         combo: st.combo ?? null,
         loss_pct: st.loss_pct ?? null,
         dyed: !!st.stage_id && dyedYarnStages.has(st.stage_id),
+        /* 0606 — same gate the stored row goes through below. */
+        color_losses: colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses).color_losses,
       })),
       uomId ? (uomDecimals.get(uomId) ?? null) : null,
       /* WHERE EACH CLOTH COMES FROM (0564) — a fabric bought as greige or dyed
@@ -1220,6 +1233,7 @@ function normalizeYarns(
           combo: st.combo ?? null,
           description: st.description ?? null,
           loss_pct: st.loss_pct ?? null,
+          ...colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses),
           ...(st.process_id && !problem
             ? {
                 process_qty: stageProcessQty(st.combo ?? null, byCombo),
@@ -2023,6 +2037,36 @@ async function diaKnitServerProblem(
  * print steps ALONE, the symptom is one refusal the screen did not predict, not
  * lost data; the fix then is to read the order's prints here too.
  */
+/**
+ * THE YARN SIDE OF THE STAGE RULE (client 2026-09-21) — `yarnStageProblems`
+ * on the payload's yarn steps, against the master's classification mapped to
+ * yarn stages exactly as the screen reads it (`getYarnProcessRows`). Same
+ * function as the screen's Save gate, so the two cannot disagree. Yarn names
+ * are read for the sentence; the rule needs only ids.
+ */
+async function yarnStageProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  data: FabricBomInput,
+): Promise<string | null> {
+  const yarns = data.yarns.filter((y) => y.stages.some((st) => st.stage_id || st.process_id));
+  if (!yarns.length) return null;
+  const [options, stages] = await Promise.all([getYarnProcessRows(), getYarnStageRows()]);
+  const { data: items, error } = await s.from("items").select("id, name").in("id", yarns.map((y) => y.item_id));
+  if (error) return `Could not read the yarns: ${error.message}`;
+  const nameOf = new Map(((items ?? []) as { id: string; name: string | null }[]).map((i) => [i.id, i.name ?? "This yarn"]));
+  const problems = yarnStageProblems(
+    yarns.map((y) => ({
+      name: nameOf.get(y.item_id) ?? "This yarn",
+      stages: y.stages.map((st) => ({ stage_id: st.stage_id ?? null, process_id: st.process_id ?? null })),
+    })),
+    /* Yarn processes only — a fabric process on the same stage is no base a
+       yarn row can pick, so it must not be named as one. */
+    options.filter((p) => p.for_yarn).map((p) => ({ ...p, stage_roles: p.stage_roles ?? [] })),
+    stages,
+  );
+  return problems.length ? problems.join(" ") : null;
+}
+
 async function stageRouteProblem(
   s: Awaited<ReturnType<typeof createClient>>,
   data: FabricBomInput,
@@ -2390,6 +2434,8 @@ export async function createFabricBom(data: FabricBomFormInput): Promise<Result>
      document. */
   const routeProblem = await stageRouteProblem(s, p.data);
   if (routeProblem) return fail(routeProblem);
+  const yarnStageFault = await yarnStageProblem(s, p.data);
+  if (yarnStageFault) return fail(yarnStageFault);
 
   const diaProblem = await diaKnitServerProblem(s, p.data);
   if (diaProblem) return fail(diaProblem);
@@ -2459,6 +2505,8 @@ export async function updateFabricBom(id: string, data: FabricBomFormInput): Pro
      document. */
   const routeProblem = await stageRouteProblem(s, p.data);
   if (routeProblem) return fail(routeProblem);
+  const yarnStageFault = await yarnStageProblem(s, p.data);
+  if (yarnStageFault) return fail(yarnStageFault);
 
   const diaProblem = await diaKnitServerProblem(s, p.data);
   if (diaProblem) return fail(diaProblem);

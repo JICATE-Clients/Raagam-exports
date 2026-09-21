@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
+import Link from "next/link";
 import { getProcessOrder } from "@/lib/stores/process-service";
+import { createClient } from "@/lib/supabase/server";
 import { ProcessOrderActions } from "./process-order-actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -37,6 +39,15 @@ export default async function ProcessOrderDetailPage({
     can("stores", "edit"),
   ]);
   if (!order) notFound();
+
+  /* 0609 — the order this job-work is for, by its RE No. A failed read shows
+     the dash, never a uuid (the creatorName rule, one field along). */
+  let reNo: string | null = null;
+  if (order.sales_order_id) {
+    const sb = await createClient();
+    const { data } = await sb.from("sales_orders").select("order_number").eq("id", order.sales_order_id).maybeSingle();
+    reNo = (data as { order_number: string | null } | null)?.order_number ?? null;
+  }
 
   const lineColumns: Column<ProcessOrderLine>[] = [
     {
@@ -99,6 +110,18 @@ export default async function ProcessOrderDetailPage({
             <div>
               <dt className="text-xs text-muted-foreground">Process Type</dt>
               <dd className="capitalize">{order.process_type}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Order (RE No)</dt>
+              <dd>
+                {order.sales_order_id ? (
+                  <Link href="/orders/fabric-bom" className="text-primary hover:underline" title="Its steps are on the T&A tab of this order's Fabric BOM">
+                    {reNo ?? "—"}
+                  </Link>
+                ) : (
+                  "--"
+                )}
+              </dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Order Date</dt>

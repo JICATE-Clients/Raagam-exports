@@ -20,6 +20,18 @@ import type {
   YarnFabricRequirementReport,
 } from "@/lib/orders/fabric-bom/reports";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
+import { sectionAverageLoss } from "@/lib/orders/fabric-bom/color-loss";
+
+/** "Avg 4.34%" for a total row whose lines carry different losses — the PDF's
+ *  `avgLossText`, one figure on both renderers. */
+function avgLoss(
+  lines: readonly { lossPct: number | null | undefined }[],
+  planned: number,
+  ordered: number,
+): string {
+  const avg = sectionAverageLoss(lines, planned, ordered);
+  return avg == null ? "" : `Avg ${avg.toFixed(2)}%`;
+}
 /* THE STAGE COLOURS (client 2026-09-20) — one palette with the PDF. */
 import {
   COLOURWAY_BAND,
@@ -1067,7 +1079,7 @@ function RequirementReportView({
               <tr className="font-semibold" style={{ background: STAGE_STYLES.dyed.tint, color: STAGE_STYLES.dyed.ink }}>
                 <Td colSpan={4}>Total Yarn Dyeing Requirement</Td>
                 <Td right mono className="font-semibold">{fmtNumber(data.yarnDyeingTotal.plannedWt)}</Td>
-                <Td>{""}</Td>
+                <Td right mono>{avgLoss(data.yarnDyeing, data.yarnDyeingTotal.plannedWt, data.yarnDyeingTotal.toOrderedWt)}</Td>
                 <Td right mono className="font-semibold">{fmtNumber(data.yarnDyeingTotal.toOrderedWt)}</Td>
               </tr>
             )}
@@ -1247,7 +1259,10 @@ function RequirementReportView({
                   <tr className="font-semibold" style={{ background: tone.tint, color: tone.ink }}>
                     <Td colSpan={5}>Grand Total</Td>
                     <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
-                    <Td colSpan={2}>{""}</Td>
+                    {/* 0606 — "Avg" only when a colour-wise step put different
+                        losses in this section; same figure as the PDF. */}
+                    <Td right mono>{avgLoss(g.lines, g.plannedTotal, g.toOrderedTotal)}</Td>
+                    <Td>{""}</Td>
                     <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
                   </tr>
                 </tbody>

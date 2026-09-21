@@ -333,6 +333,9 @@ export interface FabricBomYarnStage {
   combo: string | null;
   description: string | null;
   loss_pct: number | null;
+  /** ASSORT COLOR-WISE LOSS (0606) — colourway → loss %; empty unless on. */
+  color_wise_loss?: boolean | null;
+  color_losses?: Record<string, number> | null;
   process_qty: number | null;
   uom_id: string | null;
   refusal_reason: string | null;
@@ -509,6 +512,10 @@ export interface FabricBomProcess {
      and is untouched. */
   /** `config_lookups` kind 'fabric_process_type' — deliberately unseeded. */
   type_id: string | null;
+  /** ASSORT COLOR-WISE LOSS (0606) — colourway → loss %; empty unless on. A
+   *  colourway absent from the map uses `loss_pct`. */
+  color_wise_loss?: boolean | null;
+  color_losses?: Record<string, number> | null;
 }
 
 /**

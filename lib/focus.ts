@@ -1356,6 +1356,24 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
 export function focusFirstField(root: HTMLElement | null): boolean {
   if (!root) return false;
   const items = focusablesIn(root).filter((el) => !isOffTabPath(el));
+  /**
+   * `[data-focus-land]` — THE FIELD A SURFACE WANTS THE CURSOR ON FIRST, when
+   * that is not its first field (client rule, 2026-09-21, Budget: "active
+   * focus lands directly on the Price / Rate input as soon as the tab opens";
+   * every cell before it on a pulled line is a BOM fact, read-only or
+   * disabled, and Currency defaults to INR). The first marked control that is
+   * ON the Tab path wins — a marker on a read-only box, or inside a
+   * `data-focus-optional` cell, is skipped like any other — so a grid stamps
+   * every row's Rate and the first row's is where the cursor lands. It is a
+   * preference for a LANDING only: Tab, Enter and the arrows read nothing
+   * from it, so it can never change the order of the fields once the operator
+   * is inside. Absent, the rule below is unchanged.
+   */
+  const landing = items.find((el) => el.matches("[data-focus-land]"));
+  if (landing) {
+    focusField(landing);
+    return true;
+  }
   const field =
     items.find(
       (el) =>

@@ -30,7 +30,7 @@ import { Calculator, ClipboardList, Package, Receipt, Workflow } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldGrid, FieldRow, FIELD_WIDTH_CSS, RequiredScope } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS, fieldWidthStep, RequiredScope } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
@@ -53,6 +53,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { sectionValidity } from "@/lib/screens/validity";
 import { isInactive } from "@/lib/masters/inactive";
+import { stageRank } from "@/lib/orders/fabric-bom/stage-routes";
 import { IWO_FOR_LABELS, type IwoFor } from "@/lib/orders/internal-work-orders/types";
 import { budgetTotals, isRefusal, lineAmount, lineInrRate } from "@/lib/orders/budget/totals";
 import { lineInputOf } from "@/lib/orders/budget/figures";
@@ -208,36 +209,58 @@ const qtyRequired = (r: CostRow) => r.rate_type === "per_unit" && !isBlankIwoBud
 const rateRequired = (r: CostRow) => !r.is_foc && !isBlankIwoBudgetLine(factsOf(r));
 const exRateRequired = (r: CostRow) => !!r.currency_code && !isBlankIwoBudgetLine(factsOf(r));
 
-type CostCol = ChildGridColumn<CostRow> & { requiredFor?: (r: CostRow) => boolean };
+type CostCol = ChildGridColumn<CostRow> & {
+  requiredFor?: (r: CostRow) => boolean;
+  /** Per-ROW presence — the cell is empty in the table and absent from the
+   *  card when this says no (the order Budget's `showFor`). */
+  showFor?: (r: CostRow) => boolean;
+};
 
 /** Per-ROW required: the column's star for the table header, the row's own
  *  `RequiredScope` for the hold (the order Budget's `withRowRules`). */
 function withRowRules(columns: CostCol[]): CostCol[] {
   return columns.map((c) => {
     const requiredFor = c.requiredFor;
-    if (!requiredFor) return c;
+    const showFor = c.showFor;
+    if (!requiredFor && !showFor) return c;
     return {
       ...c,
-      required: true,
-      cell: (r: CostRow, i: number) => (
-        <RequiredScope required={requiredFor(r)} label={c.header}>
-          {c.cell(r, i)}
-        </RequiredScope>
-      ),
+      required: requiredFor ? true : c.required,
+      cell: (r: CostRow, i: number) =>
+        showFor && !showFor(r) ? null : requiredFor ? (
+          <RequiredScope required={requiredFor(r)} label={c.header}>
+            {c.cell(r, i)}
+          </RequiredScope>
+        ) : (
+          c.cell(r, i)
+        ),
     };
   });
 }
 
+/**
+ * THE CARD KEEPS THE TABLE'S WIDTHS — each cell a `Field` at the step its
+ * column declared, in a wrapping `FieldRow` (the order Budget's `costCard`,
+ * and its note on why a `FieldGrid` of `size="sm"` cells was a quarter of the
+ * pane each; user 2026-09-21).
+ */
 // grid-required-mobile: exempt -- every cost grid's renderMobileRow is costCard(), which declares `required` on each Field from requiredFor(row), and withRowRules() gives each such cell its own RequiredScope — the order Budget's shape
 function costCard(columns: CostCol[], row: CostRow, i: number) {
   return (
-    <FieldGrid>
-      {columns.map((c, ci) => (
-        <Field key={ci} label={c.header} required={c.requiredFor ? c.requiredFor(row) : c.required} size="sm">
-          {c.cell(row, i)}
-        </Field>
-      ))}
-    </FieldGrid>
+    <FieldRow align="start" gap="tight">
+      {columns.map((c, ci) =>
+        c.showFor && !c.showFor(row) ? null : (
+          <Field
+            key={ci}
+            label={c.header}
+            required={c.requiredFor ? c.requiredFor(row) : c.required}
+            w={fieldWidthStep(c.width) ?? "hug"}
+          >
+            {c.cell(row, i)}
+          </Field>
+        ),
+      )}
+    </FieldRow>
   );
 }
 
@@ -684,6 +707,14 @@ export function IwoBudgetScreen({
 
   /** Stage of a yarn purchase — GREY / DYED, the line's own on a Yarn IWO. A
    *  native Select over stored data, so the inactive filter is at the call site. */
+  /** NO SHADE AT GREY (client rule, 2026-09-21) — the order Budget's
+   *  `colourCol.showFor`, same test (`stageRank === 0`), same reason: grey
+   *  yarn is uncoloured, so the box asks a question with no answer. Picking
+   *  GREY clears a shade the hidden box would otherwise still hold. */
+  const isGreigeStageId = (id: string | null) => {
+    const stage = id ? data.lookups.find((l) => l.id === id) : undefined;
+    return !!stage && stageRank(stage) === 0;
+  };
   const stageCol: CostCol = {
     header: "Stage",
     cell: (r) => (
@@ -693,7 +724,10 @@ export function IwoBudgetScreen({
         aria-label="Stage"
         disabled={bomLocked(r)}
         value={r.stage_id ?? ""}
-        onChange={(e) => setCost(r.key, { stage_id: e.target.value || null })}
+        onChange={(e) => {
+          const stage_id = e.target.value || null;
+          setCost(r.key, { stage_id, ...(isGreigeStageId(stage_id) ? { combo: "" } : {}) });
+        }}
       >
         <option value="" />
         {data.lookups
@@ -709,6 +743,8 @@ export function IwoBudgetScreen({
 
   const textCol = (header: string, key: "combo" | "specification" | "description", lockOnPull: boolean): CostCol => ({
     header,
+    // The Shade / Colour box stands down at GREY — see `isGreigeStageId`.
+    showFor: key === "combo" ? (r) => !isGreigeStageId(r.stage_id) : undefined,
     cell: (r) => (
       <Input
         className="h-8"
@@ -754,12 +790,16 @@ export function IwoBudgetScreen({
   const focCol: CostCol = {
     header: "FOC",
     cell: (r) => (
-      <Toggle
-        checked={r.is_foc}
-        ariaLabel="Free of cost"
-        disabled={!editable || (r.from_bom && r.source === "material")}
-        onChange={(v) => setCost(r.key, { is_foc: v })}
-      />
+      // Off the typing path while OFF (client 2026-09-21) — the order Budget's
+      // `flagToggle` note: Tab and Enter step over it, the arrows still reach it.
+      <span data-focus-optional={r.is_foc ? undefined : ""}>
+        <Toggle
+          checked={r.is_foc}
+          ariaLabel="Free of cost"
+          disabled={!editable || (r.from_bom && r.source === "material")}
+          onChange={(v) => setCost(r.key, { is_foc: v })}
+        />
+      </span>
     ),
   };
 
@@ -767,26 +807,30 @@ export function IwoBudgetScreen({
   const currencyCol: CostCol = {
     header: "Curr",
     cell: (r) => (
-      <Select
-        compact
-        className="h-8"
-        aria-label="Currency"
-        disabled={!editable}
-        value={r.currency_code}
-        onChange={(e) => {
-          const code = e.target.value === "INR" ? "" : e.target.value;
-          setCost(r.key, { currency_code: code, ex_rate: code && code === r.currency_code ? r.ex_rate : "" });
-        }}
-      >
-        <option value="">INR</option>
-        {data.currencies
-          .filter((c) => c.code !== "INR")
-          .map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.code}
-            </option>
-          ))}
-      </Select>
+      // Off the typing path while it reads INR — the order Budget's
+      // `currencyCol`, and on a wrapper for the reason given there.
+      <span data-focus-optional={r.currency_code ? undefined : ""}>
+        <Select
+          compact
+          className="h-8"
+          aria-label="Currency"
+          disabled={!editable}
+          value={r.currency_code}
+          onChange={(e) => {
+            const code = e.target.value === "INR" ? "" : e.target.value;
+            setCost(r.key, { currency_code: code, ex_rate: code && code === r.currency_code ? r.ex_rate : "" });
+          }}
+        >
+          <option value="">INR</option>
+          {data.currencies
+            .filter((c) => c.code !== "INR")
+            .map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code}
+              </option>
+            ))}
+        </Select>
+      </span>
     ),
   };
 
@@ -812,6 +856,8 @@ export function IwoBudgetScreen({
     requiredFor: rateRequired,
     cell: (r) => (
       <Input
+        // The section lands here (`focusFirstField`) — the order Budget's `rateCol`.
+        data-focus-land=""
         className="h-8 text-right"
         inputMode="decimal"
         aria-label={header}
@@ -883,7 +929,13 @@ export function IwoBudgetScreen({
   /* Yarn Purchases — code 144 + hug 88 (Stage) + hug 88 (Shade) + hug 88 (Reqd)
      + num 72 (Unit) + num 72 (FOC) + num 72 (Curr) + hug 88 (Ex Rate) + hug 88
      (Rate) + hug 88 (INR Rate) + range 112 (Amount) = 1000, + 72 = 1072. */
-  const iwoYarnPurchaseColumns: CostCol[] = withRowRules([
+  /** A column no row needs is not drawn — the order Budget's `usedColumns`:
+   *  all GREY, no Shade column; one DYED line and it is back. */
+  const usedColumns = (source: IwoBudgetSource, cols: CostCol[]) => {
+    const own = rows.filter((r) => r.source === source);
+    return cols.filter((c) => !c.showFor || own.length === 0 || own.some((r) => c.showFor!(r)));
+  };
+  const iwoYarnPurchaseColumns: CostCol[] = usedColumns("yarn", withRowRules([
     { ...itemCol("Yarn", ["YARN"]), width: FIELD_WIDTH_CSS.code },
     { ...stageCol, width: FIELD_WIDTH_CSS.hug },
     { ...textCol("Shade", "combo", true), width: FIELD_WIDTH_CSS.hug },
@@ -895,7 +947,7 @@ export function IwoBudgetScreen({
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
     { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
-  ]);
+  ]));
 
   /* Accessories Purchases — code 144 + hug 88 (Colour) + range 112 (Spec) +
      hug 88 + num 72 + num 72 + num 72 + hug 88 + hug 88 + hug 88 + range 112 =

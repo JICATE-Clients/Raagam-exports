@@ -47,7 +47,7 @@ const EMPTY: BomCeiling = {
   budgetCode: null,
 };
 
-type ReqRow = {
+export type ReqRow = {
   item_id: string | null;
   item_line_id: string | null;
   /** The TRIM's colour (0436). Part of how the minimum groups — see the rollup
@@ -58,7 +58,7 @@ type ReqRow = {
   refusal_reason: string | null;
 };
 
-type LineRow = { id: string; moq: number | null; round_to: number | null };
+export type LineRow = { id: string; moq: number | null; round_to: number | null };
 
 /**
  * WHICH BOM ANSWERS FOR THIS ORDER — the lookup both gates below start from.
@@ -83,27 +83,67 @@ async function recordedBomForOrder(
   s: Awaited<ReturnType<typeof createClient>>,
   salesOrderId: string,
 ): Promise<{ goIds: string[]; bom: { id: string; code: string | null } | null }> {
+  // The gates' long-standing behaviour on a failed read is "no BOM", and that
+  // is deliberately left alone here — changing how a live PO gate fails is its
+  // own decision, not a side effect of sharing the lookup.
+  try {
+    const found = await recordedBomsForOrders(s, [salesOrderId]);
+    return found.get(salesOrderId) ?? { goIds: [], bom: null };
+  } catch {
+    return { goIds: [], bom: null };
+  }
+}
+
+/**
+ * `recordedBomForOrder` for many orders at once — the SAME rule (recorded only,
+ * newest `amendment_no` across every garment-order document of the order), so
+ * the trims T&A tracker can never judge a different BOM than the PO gate does.
+ * The single-order form above is now a call to this one; there is no second
+ * copy of the choice to drift.
+ *
+ * Throws on a failed read: an empty map here would read as "no order has a
+ * BOM", which is a real and unremarkable answer (AGENTS.md, "A FAILED QUERY IS
+ * AN ERROR, NOT AN EMPTY LIST").
+ */
+export async function recordedBomsForOrders(
+  s: Awaited<ReturnType<typeof createClient>>,
+  salesOrderIds: readonly string[],
+): Promise<Map<string, { goIds: string[]; bom: { id: string; code: string | null } | null }>> {
+  const out = new Map<string, { goIds: string[]; bom: { id: string; code: string | null } | null }>();
+  if (salesOrderIds.length === 0) return out;
+
   // sales_orders -> the garment order documents raised against it. More than one
   // is possible (the document is amendable), so every one is a candidate and the
   // newest BOM across them wins.
-  const { data: goRows } = await s
+  const { data: goRows, error: goErr } = await s
     .from("garment_order_amendments")
-    .select("id")
-    .eq("sales_order_id", salesOrderId);
+    .select("id, sales_order_id")
+    .in("sales_order_id", [...salesOrderIds]);
+  if (goErr) throw new Error(`Garment orders could not be read: ${goErr.message}`);
 
-  const goIds = ((goRows ?? []) as { id: string }[]).map((r) => r.id);
-  if (goIds.length === 0) return { goIds, bom: null };
+  const soOfGo = new Map<string, string>();
+  for (const r of (goRows ?? []) as { id: string; sales_order_id: string }[]) {
+    soOfGo.set(r.id, r.sales_order_id);
+    const entry = out.get(r.sales_order_id) ?? { goIds: [], bom: null };
+    entry.goIds.push(r.id);
+    out.set(r.sales_order_id, entry);
+  }
+  if (soOfGo.size === 0) return out;
 
-  const { data: bomRows } = await s
+  const { data: bomRows, error: bomErr } = await s
     .from("material_bom_amendments")
-    .select("id, code, amendment_no, is_draft, garment_order_id")
-    .in("garment_order_id", goIds)
+    .select("id, code, amendment_no, garment_order_id")
+    .in("garment_order_id", [...soOfGo.keys()])
     .eq("is_draft", false)
-    .order("amendment_no", { ascending: false })
-    .limit(1);
+    .order("amendment_no", { ascending: false });
+  if (bomErr) throw new Error(`Material BOMs could not be read: ${bomErr.message}`);
 
-  const bom = ((bomRows ?? []) as { id: string; code: string | null }[])[0] ?? null;
-  return { goIds, bom };
+  // Rows arrive newest first, so the first one seen per order is the winner.
+  for (const b of (bomRows ?? []) as { id: string; code: string | null; garment_order_id: string }[]) {
+    const entry = out.get(soOfGo.get(b.garment_order_id) ?? "");
+    if (entry && !entry.bom) entry.bom = { id: b.id, code: b.code };
+  }
+  return out;
 }
 
 export async function bomCeilingForOrder(
@@ -168,9 +208,64 @@ export async function bomCeilingForOrder(
       .eq("amendment_id", bom.id),
   ]);
 
-  const lines = new Map(
-    ((lineRows ?? []) as LineRow[]).map((l) => [l.id, l]),
+  const { byItem, unanswered } = finalQuantityByItem(
+    (reqRows ?? []) as ReqRow[],
+    (lineRows ?? []) as LineRow[],
   );
+
+  /*
+   * WHAT IS ALREADY BOUGHT against this order, per material.
+   *
+   * `po_line_items` carries `sales_order_id` and `item_id` itself (0424), so
+   * this needs no join through the PO header except to read its status.
+   * CANCELLED POs do not consume the ceiling; everything else does, a draft
+   * included — a saved draft is a quantity somebody is about to act on.
+   */
+  let poQuery = s
+    .from("po_line_items")
+    .select("item_id, quantity, purchase_order:purchase_orders!inner(status)")
+    .eq("sales_order_id", salesOrderId)
+    .neq("purchase_orders.status", "cancelled");
+  if (exclude?.poId) poQuery = poQuery.neq("purchase_order_id", exclude.poId);
+  if (exclude?.lineId) poQuery = poQuery.neq("id", exclude.lineId);
+  const { data: poRows } = await poQuery;
+
+  const committedByItem = new Map<string, number>();
+  for (const r of (poRows ?? []) as { item_id: string | null; quantity: number | null }[]) {
+    if (!r.item_id) continue;
+    committedByItem.set(r.item_id, (committedByItem.get(r.item_id) ?? 0) + Number(r.quantity ?? 0));
+  }
+
+  return {
+    byItem,
+    committedByItem,
+    bomId: bom.id,
+    bomCode: bom.code,
+    unanswered,
+    enforced: !!budget,
+    budgetCode: budget?.code ?? null,
+  };
+}
+
+/**
+ * THE FINAL QUANTITY PER MATERIAL — the one figure a trim is bought against.
+ *
+ * Extracted from `bomCeilingForOrder` (2026-09-21) when the trims T&A tracker
+ * (`lib/orders/trim-ta/service.ts`) needed the same number as its "required
+ * BOM qty": a GRN completing a step against one figure while the PO gate caps
+ * against another would tell the store a trim is fully in that purchasing is
+ * still allowed to buy more of. One rule, two readers.
+ *
+ * `unresolvedItems` names every material with at least one REFUSED slice. Its
+ * `byItem` figure is a partial sum, which reads as correct and is not — the
+ * ceiling only counts them (`unanswered`), the tracker refuses to complete them.
+ */
+export function finalQuantityByItem(
+  reqRows: readonly ReqRow[],
+  lineRows: readonly LineRow[],
+): { byItem: Map<string, number>; unanswered: number; unresolvedItems: Set<string> } {
+  const lines = new Map(lineRows.map((l) => [l.id, l]));
+  const unresolvedItems = new Set<string>();
 
   /*
    * Summed per MATERIAL **AND TRIM COLOUR**, carrying the tail parameters of
@@ -205,9 +300,10 @@ export async function bomCeilingForOrder(
   >();
   let unanswered = 0;
 
-  for (const r of (reqRows ?? []) as ReqRow[]) {
+  for (const r of reqRows) {
     if (r.refusal_reason !== null || r.required_qty === null) {
       unanswered += 1;
+      if (r.item_id) unresolvedItems.add(r.item_id);
       continue;
     }
     if (!r.item_id) continue;
@@ -244,38 +340,7 @@ export async function bomCeilingForOrder(
     byItem.set(v.itemId, (byItem.get(v.itemId) ?? 0) + final);
   }
 
-  /*
-   * WHAT IS ALREADY BOUGHT against this order, per material.
-   *
-   * `po_line_items` carries `sales_order_id` and `item_id` itself (0424), so
-   * this needs no join through the PO header except to read its status.
-   * CANCELLED POs do not consume the ceiling; everything else does, a draft
-   * included — a saved draft is a quantity somebody is about to act on.
-   */
-  let poQuery = s
-    .from("po_line_items")
-    .select("item_id, quantity, purchase_order:purchase_orders!inner(status)")
-    .eq("sales_order_id", salesOrderId)
-    .neq("purchase_orders.status", "cancelled");
-  if (exclude?.poId) poQuery = poQuery.neq("purchase_order_id", exclude.poId);
-  if (exclude?.lineId) poQuery = poQuery.neq("id", exclude.lineId);
-  const { data: poRows } = await poQuery;
-
-  const committedByItem = new Map<string, number>();
-  for (const r of (poRows ?? []) as { item_id: string | null; quantity: number | null }[]) {
-    if (!r.item_id) continue;
-    committedByItem.set(r.item_id, (committedByItem.get(r.item_id) ?? 0) + Number(r.quantity ?? 0));
-  }
-
-  return {
-    byItem,
-    committedByItem,
-    bomId: bom.id,
-    bomCode: bom.code,
-    unanswered,
-    enforced: !!budget,
-    budgetCode: budget?.code ?? null,
-  };
+  return { byItem, unanswered, unresolvedItems };
 }
 
 /**

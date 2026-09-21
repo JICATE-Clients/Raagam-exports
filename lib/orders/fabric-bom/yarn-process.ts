@@ -140,6 +140,8 @@ import { z } from "zod";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import { isRefusal, type Refusal } from "./requirement";
 import { ydPartKey } from "./component-map";
+import { colorLossesInput, type ColorLossDraft } from "./color-loss";
+import { narrowYarnToStage, type YarnStageRole } from "./yarn-stage-routes";
 import {
   clothPurchaseLabel,
   routeForSource,
@@ -166,6 +168,12 @@ export type YarnProcessOption = {
   name: string;
   inactive: boolean;
   for_yarn: boolean;
+  /** WHICH YARN STAGES THIS PROCESS RUNS IN, and where it is the base (client
+   *  2026-09-21) — the master's `process_fabric_stages` classification mapped
+   *  onto `yarn_stage` ids by code (`./yarn-stage-routes.ts`). Empty =
+   *  unclassified = offered in every stage. Optional so IWO's loader and every
+   *  older vector stay well-formed. */
+  stage_roles?: readonly YarnStageRole[];
 };
 
 /**
@@ -275,6 +283,11 @@ export type YarnStageRow = {
    *  hold "1." or "" as a number, so the form keeps text and the boundary
    *  converts once. */
   loss_pct: string;
+  /** ASSORT COLOR-WISE LOSS (0606) — a different loss % per colourway, set in
+   *  the [Set Color Loss] dialog. Optional so older callers stay well-formed;
+   *  see `./color-loss.ts`. */
+  color_wise_loss?: boolean;
+  color_losses?: ColorLossDraft;
 };
 
 /**
@@ -310,6 +323,8 @@ export const blankYarnStage = (key: string): YarnStageRow => ({
   combo: "",
   description: "",
   loss_pct: "",
+  color_wise_loss: false,
+  color_losses: {},
 });
 
 /**
@@ -541,7 +556,36 @@ export type RouteStage = {
   /** Is this step a PRINT process (`processes.is_print`)? Carried for the same
    *  reason as the two above — see `routeForPrint`. Absent = not a print. */
   is_print?: boolean | null;
+  /** COLOUR-WISE LOSS (0606) — colourway → loss % for a step marked "Assort
+   *  Color-Wise Loss". A colourway absent from the map uses `loss_pct`. Absent
+   *  or empty = the flat loss, which is every step before 0606. Resolved in
+   *  `stagesForGroup` and nowhere else — see `lossForCombo`. */
+  color_losses?: Readonly<Record<string, number>> | null;
 };
+
+/**
+ * THE LOSS ONE STEP CHARGES ONE COLOURWAY (0606, client spec 2026-09-21).
+ *
+ * A dark shade runs a longer vat cycle than a light one, so a step may carry a
+ * loss per colourway. The colourway's own figure wins; a colourway with none
+ * falls back to the step's flat `loss_pct` — the "Default Stage %" the dialog
+ * shows — so a colourway added to the order after the losses were set is
+ * charged the stated default, never zero.
+ *
+ * Keys are matched through `comboKey`, the same trim + upper-case every other
+ * colour test in this file uses, so "Green " set on the screen and "GREEN" on
+ * the requirement are one colour.
+ */
+export function lossForCombo(stage: Pick<RouteStage, "loss_pct" | "color_losses">, combo: string): number | null {
+  const map = stage.color_losses;
+  if (map) {
+    const want = comboKey(combo);
+    for (const [k, v] of Object.entries(map)) {
+      if (comboKey(k) === want && typeof v === "number" && Number.isFinite(v)) return v;
+    }
+  }
+  return stage.loss_pct;
+}
 
 /**
  * THE PRINT STAGE LEAVES THE LADDER OF A GROUP THAT IS NOT PRINTED (client
@@ -637,7 +681,19 @@ export function stagesForGroup<S extends RouteStage>(
    *  walks the route whole, which is every pre-existing caller. */
   printed?: boolean,
 ): S[] | Refusal {
-  const forColour = stages.filter((s) => stageCoversCombo(s.combo, combo));
+  /* COLOUR-WISE LOSS IS RESOLVED HERE, ONCE (0606). Every ladder — the yarn
+     purchase, the cloth purchase, both report breakdowns — walks the list this
+     returns, so writing this colourway's own figure into `loss_pct` here is
+     what keeps them one computation. Resolved BEFORE the component check so
+     two panels are compared on the losses this colourway actually pays. A
+     step with no map is returned as the same object. */
+  const forColour = stages
+    .filter((s) => stageCoversCombo(s.combo, combo))
+    .map((s) =>
+      s.color_losses && Object.keys(s.color_losses).length
+        ? { ...s, loss_pct: lossForCombo(s, combo) }
+        : s,
+    );
   const named = resolveRouteComponents(forColour, componentIds);
   if (isRefusal(named)) return named;
   const resolved =
@@ -966,7 +1022,13 @@ export function yarnPurchase(
   routesByFabric: ReadonlyMap<string, readonly RouteStage[]>,
   /** The yarn's OWN typed steps (Yarn Process tab). `dyed` marks a step in a
    *  coloured stage — the hand-typed YARN DYEING — see "ONE DYEING LOSS" below. */
-  yarnOwnStages: readonly { combo: string | null; loss_pct: number | null; dyed?: boolean }[],
+  yarnOwnStages: readonly {
+    combo: string | null;
+    loss_pct: number | null;
+    dyed?: boolean;
+    /** 0606 — per-colourway losses, resolved by `stagesForGroup`. */
+    color_losses?: Readonly<Record<string, number>> | null;
+  }[],
   decimals: number | null,
   /** EACH FABRIC'S OWN SOURCE (0564) — see `./fabric-source.ts`. A fabric
    *  bought as cloth buys no yarn, so it leaves this sum entirely. Defaults
@@ -1370,10 +1432,19 @@ export function yarnStageStarted(
  */
 export function processesForYarn(
   options: readonly YarnProcessOption[],
-  opts: { currentValue?: string | null } = {},
+  opts: {
+    currentValue?: string | null;
+    /** 2026-09-21 — the Stage decides the Process, as on the fabric route.
+     *  Both optional and defaulting to no narrowing. */
+    stageId?: string | null;
+    isFirstOfStage?: boolean;
+  } = {},
 ): YarnProcessOption[] {
   const held = opts.currentValue ?? null;
-  const flagged = options.filter((p) => p.for_yarn);
+  const flagged = narrowYarnToStage(
+    options.filter((p) => p.for_yarn).map((p) => ({ ...p, stage_roles: p.stage_roles ?? [] })),
+    { stageId: opts.stageId, isFirstOfStage: opts.isFirstOfStage },
+  );
   if (!held || flagged.some((p) => p.id === held)) return flagged;
   const kept = options.find((p) => p.id === held);
   return kept ? [...flagged, kept] : flagged;
@@ -1421,6 +1492,9 @@ export const fabricBomYarnStageInput = z.object({
     .default(null)
     .transform((v) => (v ? v : null)),
   loss_pct: z.coerce.number().min(0).lt(100).nullable().default(null),
+  /* ASSORT COLOR-WISE LOSS (0606) — see `fabricBomProcessInput`'s twin. */
+  color_wise_loss: z.coerce.boolean().default(false),
+  color_losses: colorLossesInput,
 });
 
 /**

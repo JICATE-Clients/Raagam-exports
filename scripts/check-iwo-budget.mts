@@ -34,6 +34,8 @@ const FAB = "fab-sj";
 const KNIT = "p-knit";
 const DYE = "p-dye";
 const YDYE = "p-ydye";
+const FPUR = "p-fabric-purchase";
+const YPUR = "p-yarn-purchase";
 const names: Record<string, string> = { [COTTON]: "30'S COTTON", [FAB]: "SINGLE JERSEY", tape: "TAPE" };
 
 const input = (over: Partial<IwoPullInput>): IwoPullInput => ({
@@ -43,8 +45,10 @@ const input = (over: Partial<IwoPullInput>): IwoPullInput => ({
   kgUomId: KG,
   greyYarnStageId: GREY,
   processKinds: new Map([
-    [KNIT, { is_knitting: true, is_dyeing: false }],
-    [DYE, { is_knitting: false, is_dyeing: true }],
+    [KNIT, { is_knitting: true, is_dyeing: false, is_cloth_purchase: false }],
+    [DYE, { is_knitting: false, is_dyeing: true, is_cloth_purchase: false }],
+    [FPUR, { is_knitting: false, is_dyeing: false, is_cloth_purchase: true }],
+    [YPUR, { is_knitting: false, is_dyeing: false, is_cloth_purchase: true }],
   ]),
   name: (id) => names[id] ?? id,
   ...over,
@@ -160,6 +164,67 @@ check(
   },
 );
 
+check(
+  "§2 DYED · Yarn Dyeing, 0613's shape: ONE dyeing step For every shade is SPLIT per shade at each shade's own loss",
+  pulled(
+    input({
+      fabricBom: fbom({
+        yarns: [
+          yarn({
+            buy_stage_id: DYED,
+            colour_by: "yarn_dyeing",
+            purchase_qty: 216.375,
+            shades: [
+              { color_name: "NAVY", planned_kgs: 100, purchase_qty: null },
+              { color_name: "BLACK", planned_kgs: 100, purchase_qty: null },
+            ],
+            stages: [
+              // Σ shades: 100/0.9 + 100/0.95 = 216.3743 — the stored process_qty.
+              { ...step(DYE, null, 216.3743, 1), loss_pct: 10, color_losses: { NAVY: 10, BLACK: 5 } },
+              // A winding step For every shade is NOT split — one charge, as before.
+              { ...step("p-wind", null, 216.3743, 2), loss_pct: 0 },
+            ],
+          }),
+        ],
+      }),
+    }),
+  ),
+  {
+    lines: [
+      ["yarn", COTTON, null, null, null, 216.375, GREY],
+      ["yarn_process", COTTON, DYE, "NAVY", "color", 111.1111, GREY],
+      ["yarn_process", COTTON, DYE, "BLACK", "color", 105.2632, GREY],
+      ["yarn_process", COTTON, "p-wind", null, "process", 216.3743, GREY],
+    ],
+    skipped: [],
+  },
+);
+check(
+  "§2 …and when the shades cannot be re-run (no planned KGS stored) the step stays ONE summed line, never vanishes",
+  pulled(
+    input({
+      fabricBom: fbom({
+        yarns: [
+          yarn({
+            buy_stage_id: DYED,
+            colour_by: "yarn_dyeing",
+            purchase_qty: 216.375,
+            shades: [{ color_name: "NAVY", purchase_qty: null }],
+            stages: [{ ...step(DYE, null, 216.3743, 1), loss_pct: 10 }],
+          }),
+        ],
+      }),
+    }),
+  ),
+  {
+    lines: [
+      ["yarn", COTTON, null, null, null, 216.375, GREY],
+      ["yarn_process", COTTON, DYE, null, "process", 216.3743, GREY],
+    ],
+    skipped: [],
+  },
+);
+
 // §3 — a figure the BOM could not state is skipped and said, never a zero.
 check(
   "§3 a refused yarn is skipped with the BOM's own sentence",
@@ -210,6 +275,38 @@ check("§4 Fabric IWO: two dias of one fabric are one net, each step through the
   ],
   skipped: [],
 });
+// A PURCHASE IS NOT A PROCESS (client 2026-09-21): a route that opens with
+// FABRIC PURCHASE keeps the step's loss in the ladder (the buy is grossed by
+// it), but the cloth is bought, not processed — so no `fabric_process` line,
+// or the cloth is costed twice. Same on a yarn step named YARN PURCHASE.
+check(
+  "§4 a FABRIC PURCHASE step never becomes a fabric process line",
+  pulled(
+    input({
+      iwoFor: "fabric",
+      fabricBom: fbom({
+        lines: [{ item_id: FAB, req_kgs: 1000 }],
+        processes: [
+          { item_id: FAB, sno: 1, stage_id: GREY, process_id: FPUR, loss_pct: 2 },
+          { item_id: FAB, sno: 2, stage_id: DYED, process_id: DYE, loss_pct: 3 },
+        ],
+      }),
+    }),
+  ),
+  // Dyeing is still grossed by the purchase step's own loss.
+  { lines: [["fabric_process", FAB, DYE, null, "fabric", r4(1000 / 0.98 / 0.97), DYED]], skipped: [] },
+);
+check(
+  "§2 a YARN PURCHASE step never becomes a yarn process line",
+  pulled(input({ fabricBom: fbom({ yarns: [yarn({ stages: [step(YPUR, null, 1000, 1), step(YDYE, null, 990, 2)] })] }) })),
+  {
+    lines: [
+      ["yarn", COTTON, null, null, null, 1000, GREY],
+      ["yarn_process", COTTON, YDYE, null, "process", 990, GREY],
+    ],
+    skipped: [],
+  },
+);
 check(
   "§4 a fabric with no Req Wt is skipped, named",
   pulled(input({ iwoFor: "fabric", fabricBom: fbom({ lines: [{ item_id: FAB, req_kgs: null }] }) })),

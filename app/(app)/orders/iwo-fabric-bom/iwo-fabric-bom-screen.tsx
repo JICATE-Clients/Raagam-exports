@@ -19,8 +19,9 @@
  * Step 1: the list of IWOs, and the "Fabric BOM" section — header plus
  * Fabric Colour / Yarn Colour / Roll form prints / Dia panels.
  *
- * Step 2: Fabric Allocation (which cloth, in which colour) and Fabric
- * Consumption (form, GSM, finish dia, stage, and the typed Req Wt) — ONE list
+ * Step 2: Fabric Allocation (which cloth) and Fabric Consumption (stage, and
+ * what the stage asks for — colour, print, finish dia — plus form, GSM and
+ * the typed Req Wt) — ONE list
  * of fabric lines shown on two sections, as the order screen shows its lines
  * on Fabric Allocation and Manual.
  *
@@ -118,6 +119,7 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
+import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { fabricFormLabel } from "@/lib/orders/fabric-bom/component-map";
 import {
@@ -553,6 +555,9 @@ export function IwoFabricBomScreen({
         loss_for_id: r.loss_for_id,
         loss_pct: str(r.loss_pct),
         type_id: r.type_id,
+        /* 0613 — the stored map, as the form holds it (text). */
+        color_wise_loss: !!r.color_wise_loss,
+        color_losses: colorLossesToDraft(r.color_losses),
       })),
     );
     setYarnAnswers(
@@ -568,6 +573,8 @@ export function IwoFabricBomScreen({
               combo: st.combo ?? "",
               description: st.description ?? "",
               loss_pct: str(st.loss_pct),
+              color_wise_loss: !!st.color_wise_loss,
+              color_losses: colorLossesToDraft(st.color_losses),
             })),
           },
         ]),
@@ -674,9 +681,25 @@ export function IwoFabricBomScreen({
     data.processes.map((o) => [o.id, { is_knitting: o.is_knitting ?? false, is_dyeing: o.is_dyeing ?? false }]),
   );
   const routesByFabric = iwoRoutesByFabric(
-    procs.map((r) => ({ item_id: r.item_id, stage_id: r.stage_id, process_id: r.process_id, loss_pct: num(r.loss_pct) })),
+    procs.map((r) => ({
+      item_id: r.item_id,
+      stage_id: r.stage_id,
+      process_id: r.process_id,
+      loss_pct: num(r.loss_pct),
+      /* 0613 — gated exactly as the action stores it (an IWO step names no
+         colourway, so COLOR WISE alone keeps the map). */
+      color_losses: colorLossesFromDraft(r.color_wise_loss, r.color_losses),
+    })),
     processKinds,
   );
+
+  /** THE COLOURS OF ONE FABRIC'S LINES — what a COLOR WISE step on its route,
+   *  or on a yarn it is made of, lists in [Color Loss]. An IWO has no
+   *  colourways; a line's own Colour is its bucket (`iwoFabricGross`), so these
+   *  are the keys the engine will look the losses up by. Known from the lines,
+   *  before any weight is. */
+  const lineColoursOf = (fabricId: string): string[] =>
+    [...new Set(lines.filter((l) => l.item_id === fabricId).map((l) => normName(l.color_name)).filter(Boolean))];
 
   /** GREY or DYED (0592) — `stageRank` via `colouredStageIds`, the Fabric BOM's
    *  own test and the one the save runs; never the word DYED compared here. */
@@ -714,7 +737,12 @@ export function IwoFabricBomScreen({
       const dyed = !!l && isDyedLine(l);
       return iwoYarnModePurchase(
         dyed ? null : num(l?.planned_kgs ?? ""),
-        r.stages.map((st) => ({ combo: st.combo || null, loss_pct: num(st.loss_pct) })),
+        r.stages.map((st) => ({
+          combo: st.combo || null,
+          loss_pct: num(st.loss_pct),
+          // 0613 — the same gate the action's `build` stores through.
+          color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses),
+        })),
         data.kgUom?.id ?? null,
         data.kgUom?.decimals ?? null,
         r.name || "this yarn",
@@ -741,6 +769,8 @@ export function IwoFabricBomScreen({
         combo: st.combo || null,
         loss_pct: num(st.loss_pct),
         dyed: !!st.stage_id && dyedStageIds.has(st.stage_id),
+        // 0613 — the same gate the action's `build` stores through.
+        color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses),
       })),
       data.kgUom?.decimals ?? null,
       new Map(),
@@ -927,8 +957,12 @@ export function IwoFabricBomScreen({
           process_id: st.process_id,
           loss_for_id: st.loss_for_id,
           combo: st.combo || null,
-          description: st.description || null,
+          // No Descriptions column (screenshot 2982) — null, as the Fabric BOM sends.
+          description: null,
           loss_pct: num(st.loss_pct),
+          // 0613 — the order screen's gate: only a step For every colour.
+          color_wise_loss: !!st.color_wise_loss && !st.combo,
+          color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses) ?? {},
         })),
       }));
     const payload = {
@@ -993,6 +1027,9 @@ export function IwoFabricBomScreen({
         loss_for_id: r.loss_for_id,
         loss_pct: num(r.loss_pct),
         type_id: r.type_id,
+        // 0613 — an IWO step names no colourway, so COLOR WISE alone keeps the map.
+        color_wise_loss: !!r.color_wise_loss,
+        color_losses: colorLossesFromDraft(r.color_wise_loss, r.color_losses) ?? {},
       })),
       yarns: yarnMode ? yarnLinePayload : yarnRows.map((y, i) => ({
         sno: i + 1,
@@ -1003,8 +1040,10 @@ export function IwoFabricBomScreen({
           process_id: st.process_id,
           loss_for_id: st.loss_for_id,
           combo: st.combo || null,
-          description: st.description || null,
+          description: null,
           loss_pct: num(st.loss_pct),
+          color_wise_loss: !!st.color_wise_loss && !st.combo,
+          color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses) ?? {},
         })),
       })),
     };
@@ -1208,9 +1247,11 @@ export function IwoFabricBomScreen({
     return !v || declaredDias.includes(v.toUpperCase()) ? opts : [...opts, { value: v, label: v, sublabel: "not on the Dia panel" }];
   };
 
-  /** The Print cell — Allocation and Consumption share it, as they share the
-   *  Colour cell below. A select on a PRINT-stage line (or one still holding a
-   *  print, so the rule refusing it has a way out); "—" everywhere else. */
+  /** The Print cell — Fabric Consumption's, kept as a renderer beside the
+   *  Colour cell below (both stood on Allocation too until 2026-09-21; see
+   *  `allocationColumns`). A select on a PRINT-stage line (or one still
+   *  holding a print, so the rule refusing it has a way out); "—" everywhere
+   *  else. */
   const printCell = (r: LineRow) => {
     if (!owesPrint(r) && !r.print_name) return <span className="text-xs text-muted-foreground">—</span>;
     const held = r.print_name && !printNames.includes(normName(r.print_name)) ? [r.print_name] : [];
@@ -1251,9 +1292,10 @@ export function IwoFabricBomScreen({
     setDirty(true);
   };
 
-  /** The Colour cell — ONE renderer for Fabric Allocation and Fabric
-   *  Consumption, so the two surfaces of one line cannot disagree about what it
-   *  offers or when it holds the cursor. */
+  /** The Colour cell — one renderer, drawn by Fabric Consumption only since
+   *  2026-09-21 (it was on Allocation as well; see `allocationColumns`). Kept
+   *  a function so any second surface of the line reads the same offer and
+   *  the same hold. */
   const colourCell = (r: LineRow) => {
     // A name the line already holds survives a panel edit that removed it.
     const held = r.color_name && !fabricColourNames.includes(normName(r.color_name)) ? [r.color_name] : [];
@@ -1287,13 +1329,21 @@ export function IwoFabricBomScreen({
 
   /**
    * FABRIC ALLOCATION — the order screen's legacy row minus what only an order
-   * has (the style columns, and [Detail], which maps garment components). The
-   * Colour cell stands where the order's Style Color stood, reading this BOM's
-   * own Fabric Colour panel.
+   * has (the style columns, and [Detail], which maps garment components).
    *
-   * WIDTHS (check:grid-budget): term 176 + name 288 + hug 88 + code 144 +
-   * hug 88 (Print) + hug 88 + hug 88 + num 72 (Detail) = 1032 + 72 chrome =
-   * 1104 <= 1155.
+   * NO COLOUR, NO PRINT HERE (user 2026-09-21, screenshot 2972: "fabric
+   * consumption tab inside Colour * Print remove this two field"). Both used
+   * to stand on this grid AND on Fabric Consumption — one line, two boxes —
+   * but they are what the STAGE asks for, and the Stage lives on Consumption
+   * ("stage first, then what the stage asks for"). Here the operator could
+   * fill a Colour before any stage existed to owe or refuse it, and a GREIGE
+   * line then greeted them with "clear it" on the next tab. Allocation now
+   * names the cloth; Consumption plans it. `colourCell` / `printCell` are
+   * still shared renderers, so a second reader can be added back in one line.
+   *
+   * WIDTHS (check:grid-budget): term 176 + name 288 + hug 88 (Type) + hug 88
+   * (Mixing Uom) + hug 88 (No Of Colors) + num 72 (Detail) = 800 + 72 chrome =
+   * 872 <= 1155.
    */
   const allocationColumns: ChildGridColumn<LineRow>[] = [
     {
@@ -1349,23 +1399,6 @@ export function IwoFabricBomScreen({
       header: "Type",
       width: FIELD_WIDTH_CSS.hug,
       cell: (r) => <span className="text-sm">{fabricTypeOf(r.item_id) ?? ""}</span>,
-    },
-    {
-      header: "Colour",
-      width: FIELD_WIDTH_CSS.code,
-      // OWED ON A COLOURED STAGE, REFUSED ON GREIGE (Phase 2) — so the hold is
-      // per ROW under a column star that shows while any line owes it (the
-      // Mixing Uom shape below).
-      required: lines.some(owesColour),
-      cell: (r) => colourCell(r),
-    },
-    {
-      // PRINT-stage lines only (0599). Hug-wide, the name reveals on hover
-      // (the Select trigger's own ellipsis); Details shows it wider.
-      header: "Print",
-      width: FIELD_WIDTH_CSS.hug,
-      required: lines.some(owesPrint),
-      cell: (r) => printCell(r),
     },
     {
       header: "Mixing Uom",
@@ -1672,14 +1705,9 @@ export function IwoFabricBomScreen({
     setDirty(true);
   };
 
-  /** The purchase a yarn line leads to — its Planned Weight through its own
-   *  Yarn Process stages. Blank while it cannot be stated; Yarn Process says why. */
-  const purchaseFor = (l: YarnLineRow): number | null => {
-    const w = answerFor(l);
-    return w && !isRefusal(w) ? w.qty : null;
-  };
   /** The engine's whole answer for a line — the Shades popup reads its
-   *  per-shade purchases (Dyed Purchase) from the same call. */
+   *  per-shade purchases (Dyed Purchase) from it. The Yarn Lines grid itself
+   *  no longer shows the purchase weight (below). */
   const answerFor = (l: YarnLineRow) => {
     if (!l.item_id) return null;
     const r = yarnRows.find((y) => y.item_id === l.item_id);
@@ -1696,8 +1724,16 @@ export function IwoFabricBomScreen({
 
   /**
    * YARN LINES — screenshot 2937's main grid: Yarn Description, Stage, Planned
-   * Weight (KGS). Purchase Wt is the answer, read-only: what Yarn Process's
-   * stages make of the Planned Weight.
+   * Weight (KGS).
+   *
+   * NO PURCHASE WT COLUMN (user 2026-09-21, screenshot 2980: "Purchase Wt
+   * (KGS) field need to remove from yarn lines in IWO for yarn"). It used to
+   * stand last, read-only — the Planned Weight through the line's Yarn Process
+   * stages — so the answer sat on the line that asks the question. The
+   * operator entering a yarn line states what is PLANNED; what is BOUGHT is
+   * Yarn Process's answer and is read there (and per shade in [Shades]),
+   * where the stages that gross it are on screen beside it. `answerFor` is
+   * still the engine call the Shades popup reads.
    *
    * 0592: Colour by and [Shades] belong to a DYED line only. On a GREY line
    * they stand empty and out of the way (the button is disabled, so Tab never
@@ -1705,7 +1741,7 @@ export function IwoFabricBomScreen({
    * Σ shades, read-only.
    *
    * WIDTHS (check:grid-budget): name 288 + code 144 + code 144 + hug 88 +
-   * range 112 + range 112 = 888 + 72 chrome = 960 <= 1155.
+   * range 112 = 776 + 72 chrome = 848 <= 1155.
    */
   const yarnLineColumns: ChildGridColumn<YarnLineRow>[] = [
     {
@@ -1833,17 +1869,6 @@ export function IwoFabricBomScreen({
           />
         ),
     },
-    {
-      // Derived, never typed — `readOnly` also takes it off the Tab path.
-      header: "Purchase Wt (KGS)",
-      align: "right",
-      width: FIELD_WIDTH_CSS.range,
-      total: { kind: "sum", of: (r) => purchaseFor(r) ?? 0, format: kg },
-      cell: (r) => {
-        const q = purchaseFor(r);
-        return <Input className="h-8 text-right" readOnly aria-label="Purchase Wt (KGS)" value={q == null ? "" : kg(q)} />;
-      },
-    },
   ];
 
   // ---- Yarn Process list ------------------------------------------------------
@@ -1888,18 +1913,14 @@ export function IwoFabricBomScreen({
      */
     const combos = line
       ? [...new Set(keptIwoYarnShades(shadeFacts(line)).map((sh) => sh.color_name ?? "").filter(Boolean))]
-      : isRefusal(w)
-        ? []
-        : w.byCombo.map((c) => c.combo).filter(Boolean);
-    /* A dyeing step on a Yarn-Dyeing DYED line owes its shade — 0592's "one
-       dyeing step per shade", which `iwoYarnLineProblems` refuses the save
-       over. `is_dyeing` off the process master, the same flag the save reads. */
-    const owesCombo = (st: YarnStageRow) =>
-      !!line &&
-      isDyedLine(line) &&
-      line.colour_by === "yarn_dyeing" &&
-      !!st.process_id &&
-      !!processKinds.get(st.process_id)?.is_dyeing;
+      : /* On a For = Fabric BOM: the Colours of every line whose fabric is made
+           of this yarn — the buckets `iwoFabricGross` makes, read off the lines
+           for the same reason as the shades above (known before the weight). */
+        [...new Set(
+          [...compositionById.values()]
+            .filter((c) => c.components.some((x) => x.yarn_id === r.item_id))
+            .flatMap((c) => lineColoursOf(c.fabric_id)),
+        )];
     return (
       <>
         {isRefusal(w) && <p className="mb-1.5 text-xs text-danger">{w.refused}</p>}
@@ -1910,7 +1931,12 @@ export function IwoFabricBomScreen({
           stages={data.yarnStages}
           lossFor={data.processLookups.lossFor}
           combos={combos}
-          owesCombo={owesCombo}
+          /* 0613 — THE FABRIC BOM'S SHAPE (client screenshot 2979): For =
+             COLOR WISE turns Loss % into a [Color Loss] list over the shades
+             (Yarn IWO) or the lines' Colours (Fabric IWO); no Colour ▾. This
+             BOM's yarn-stage table holds the map since 0613. No Descriptions
+             column either (client screenshot 2982). */
+          colourLoss
           newKey={newKey}
           canCreate={perms.canCreate}
           canEdit={perms.canEdit}
@@ -2350,6 +2376,12 @@ export function IwoFabricBomScreen({
                   printDeclared={printDeclared}
                   fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
                   source="yarn_knit"
+                  /* 0613 — COLOR WISE lists this fabric's line Colours, each
+                     with its own loss (the order screen passes `r.combos`; an
+                     IWO's buckets are its lines' Colours). A GREIGE fabric has
+                     no Colour by rule, so the control says so rather than
+                     listing nothing. */
+                  lossColours={lineColoursOf(r.item_id)}
                   newKey={newKey}
                   canCreate={perms.canCreate}
                   canEdit={perms.canEdit}

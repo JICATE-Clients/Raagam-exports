@@ -191,7 +191,8 @@ check(
 // ---------------------------------------------------------------------------
 // §12 SHADES (0592, client audio 2026-09-19): GREY = one weight, no colour;
 // DYED = shades, and Colour by Dyed Purchase (each shade bought) or Yarn
-// Dyeing (the grey total bought once, a dyeing step per shade).
+// Dyeing (the grey total bought once, dyed by a step that covers every shade —
+// 0613; 0592's "a dyeing step per shade" is history, see §16).
 // ---------------------------------------------------------------------------
 
 const ctx = { isDyedStage: (id: string) => id === "dyed", yarnColours: ["NAVY", "Black "] };
@@ -243,12 +244,22 @@ check(
   ["Yarn line 1: it is bought already dyed — remove the dyeing step, or choose Colour by Yarn Dyeing."],
 );
 check(
-  "§12 Yarn Dyeing: every shade needs its own dyeing step",
+  "§12 Yarn Dyeing: a shade no dyeing step covers is named (a 0592 row scoped to NAVY leaves BLACK undyed)",
   msgs({ item_id: COTTON, buy_stage_id: "dyed", planned_kgs: null, colour_by: "yarn_dyeing", shades: [navy, black], steps: [dye("NAVY")] }),
-  ["Yarn line 1: add a Yarn Dyeing step For BLACK on Yarn Process."],
+  ["Yarn line 1: add a Yarn Dyeing step on Yarn Process — it dyes every shade (BLACK has none); For = Color Wise gives each shade its own loss %."],
 );
 check(
-  "§12 Yarn Dyeing: a dyeing step For every colour is refused — one per shade",
+  "§12 Yarn Dyeing: no dyeing step at all names every shade",
+  msgs({ item_id: COTTON, buy_stage_id: "dyed", planned_kgs: null, colour_by: "yarn_dyeing", shades: [navy, black], steps: [] }),
+  ["Yarn line 1: add a Yarn Dyeing step on Yarn Process — it dyes every shade (NAVY, BLACK have none); For = Color Wise gives each shade its own loss %."],
+);
+check(
+  "§12 Yarn Dyeing: ONE dyeing step For every shade is the answer (0613), not a refusal",
+  msgs({ item_id: COTTON, buy_stage_id: "dyed", planned_kgs: null, colour_by: "yarn_dyeing", shades: [navy, black], steps: [dye(null)] }),
+  [],
+);
+refute(
+  "§12 …and 0592's 'one dyeing step per shade' sentence is gone — there is no cell to satisfy it in",
   msgs({ item_id: COTTON, buy_stage_id: "dyed", planned_kgs: null, colour_by: "yarn_dyeing", shades: [navy], steps: [dye(null), dye("NAVY")] }),
   ["Yarn line 1: choose which shade each dyeing step is For — one dyeing step per shade."],
 );
@@ -578,43 +589,103 @@ check(
 }
 
 // ---------------------------------------------------------------------------
-// §15 THE REFUSAL MUST BE SATISFIABLE (client 2026-09-20)
+// §15 THE REFUSAL MUST BE SATISFIABLE (client 2026-09-20), TAKE TWO (0613)
 //
-// §12's "choose which shade each dyeing step is For" was refused while the
-// cell that names the shade was NOT ON SCREEN: `YarnProcessGrid`'s Colour cell
-// is revealed by the `For` label saying COLOR WISE, and a dyeing step whose
-// `For` was blank showed a dash instead. The planner could not fill it, could
-// not save, and had no control to press — AGENTS.md's "A HOLD REFUSES MOVEMENT
-// AND NEVER REFUSES CHOOSING", one screen along.
-//
-// The arithmetic vectors above cannot see that, so these read the source: the
-// grid must reveal the cell for a row that owes a shade, and the SCREEN must be
-// what says which rows do (only it knows the process master's `is_dyeing`).
-// Both were made to FAIL against the code as it stood before the fix.
+// The first cut of this section pinned that the grid's Colour cell was drawn
+// for a dyeing step that owed a shade (`owesCombo`), because 0592's rule
+// demanded a shade per dyeing step and the cell it lived in was hidden. 0613
+// removed the cell altogether — the IWO now has the Fabric BOM's shape, where
+// For = COLOR WISE turns the Loss % into a [Color Loss] list — so the same
+// principle now reads the other way round: the SCREEN must pass `colourLoss`
+// (so COLOR WISE opens the list, not a shade ▾ — client screenshot 2979) and
+// the RULE must not demand a shade on the step (§12 above proves the rule;
+// this proves the wiring, which the arithmetic vectors cannot see).
 // ---------------------------------------------------------------------------
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
-const gridSrc = read("../components/orders/yarn-process-grid.tsx");
-const colourCell = gridSrc.slice(gridSrc.indexOf('header: "Colour"'));
 const screenSrc = read("../app/(app)/orders/iwo-fabric-bom/iwo-fabric-bom-screen.tsx");
+const rulesSrc = read("../lib/orders/iwo-fabric-bom/lines.ts");
 
 check(
-  // The GUARD, not merely a mention of `owesCombo` anywhere in the cell: the
-  // bug was exactly that the dash won whenever `For` was not COLOR WISE.
-  "§15 the Colour cell's dash is guarded by `owesCombo` as well as the For label",
-  /if \(!owes && !isColorWise\(/.test(colourCell),
-  true,
-);
-check("§15 …and is `required` there, so the star and the hold come off one prop", /required=\{owes\}/.test(colourCell), true);
-check(
-  "§15 the IWO screen tells the grid which of its steps owe a shade",
-  /<YarnProcessGrid[\s\S]{0,800}?owesCombo=\{/.test(screenSrc),
+  "§15 the IWO screen gives YarnProcessGrid the Fabric BOM's colour-wise shape",
+  /<YarnProcessGrid[\s\S]{0,1200}?\bcolourLoss\b/.test(screenSrc),
   true,
 );
 check(
-  "§15 …and offers the line's own shades, which are known before the weight is",
+  "§15 …and FabricProcessGrid the line Colours to list",
+  /<FabricProcessGrid[\s\S]{0,2500}?lossColours=\{/.test(screenSrc),
+  true,
+);
+check("§15 …and no longer tells the grid which steps owe a shade (the cell is gone)", /owesCombo/.test(screenSrc), false);
+check(
+  "§15 the rule no longer demands a shade per dyeing step",
+  /one dyeing step per shade\./.test(rulesSrc.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")),
+  false,
+);
+check(
+  "§15 the shades are still offered from the line, known before the weight is",
   /const combos = line[\s\S]{0,200}?keptIwoYarnShades/.test(screenSrc),
   true,
+);
+
+// ---------------------------------------------------------------------------
+// §16 COLOUR-WISE LOSS ON AN IWO (0613; the order's 0606). One dyeing step
+// For every shade carries a loss per shade; each shade's bucket is grossed
+// by ITS figure, a shade not listed by the step's flat loss. Nothing in
+// `yarn.ts` branches on it — the map rides through to `stagesForGroup`.
+// ---------------------------------------------------------------------------
+
+const wise = shaded(
+  "yarn_dyeing",
+  two,
+  [{ combo: null, loss_pct: 10, color_losses: { NAVY: 10, BLACK: 5 } } as never],
+);
+check(
+  "§16 NAVY at 10%, BLACK at 5% — one step, two figures",
+  isRefusal(wise) ? wise : wise.byCombo.map((c) => [c.combo, r3(c.gross)]),
+  [
+    ["NAVY", r3(100 / 0.9)],
+    ["BLACK", r3(100 / 0.95)],
+  ],
+);
+refute(
+  "§16 …and NOT both at the flat 10%",
+  isRefusal(wise) ? wise : wise.byCombo.map((c) => r3(c.gross)),
+  [r3(100 / 0.9), r3(100 / 0.9)],
+);
+const partial = shaded("yarn_dyeing", two, [{ combo: null, loss_pct: 10, color_losses: { BLACK: 5 } } as never]);
+check(
+  "§16 a shade the map does not list pays the step's flat loss",
+  isRefusal(partial) ? partial : partial.byCombo.map((c) => [c.combo, r3(c.gross)]),
+  [
+    ["NAVY", r3(100 / 0.9)],
+    ["BLACK", r3(100 / 0.95)],
+  ],
+);
+check(
+  "§16 the grey lot is Σ shades at their own losses, rounded once",
+  isRefusal(wise) ? wise : wise.qty,
+  Math.ceil((100 / 0.9 + 100 / 0.95) * 1000) / 1000,
+);
+// For = Fabric: a COLOR WISE route step grosses each line Colour by its own
+// figure — the line's Colour is the bucket (`iwoFabricGross`).
+const twoColours = [
+  { item_id: FAB, req_kgs: 100, color_name: "NAVY" },
+  { item_id: FAB, req_kgs: 100, color_name: "WHITE" },
+];
+const routeWise = iwoRoutesByFabric(
+  [{ item_id: FAB, stage_id: "st-dyed", process_id: "p-dye", loss_pct: 10, color_losses: { NAVY: 10, WHITE: 2 } }],
+  noKinds,
+);
+const fabWise = yarnPurchase(COTTON, iwoFabricGross(twoColours, KG, name), comps, routeWise, [], 3, new Map(), []);
+check(
+  "§16 Fabric IWO: NAVY cloth at 10%, WHITE at 2%, through one COLOR WISE step",
+  isRefusal(fabWise) ? fabWise : fabWise.byCombo.map((c) => [c.combo, r3(c.gross)]),
+  // Each bucket rounds UP to the unit's 3dp, `yarnPurchase`'s own rule.
+  [
+    ["NAVY", Math.ceil((100 / 0.9) * 1000) / 1000],
+    ["WHITE", Math.ceil((100 / 0.98) * 1000) / 1000],
+  ],
 );
 
 if (failed) {

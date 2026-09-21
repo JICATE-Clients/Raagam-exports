@@ -35,6 +35,17 @@ import type {
   YarnFabricRequirementReport,
 } from "./reports";
 import { isReportRefusal } from "./report-refusal";
+import { sectionAverageLoss } from "./color-loss";
+
+/** "Avg 4.34%" for a total row whose lines carry different losses, else "". */
+function avgLossText(
+  lines: readonly { lossPct: number | null | undefined }[],
+  planned: number,
+  ordered: number,
+): string {
+  const avg = sectionAverageLoss(lines, planned, ordered);
+  return avg == null ? "" : `Avg ${avg.toFixed(2)}%`;
+}
 /* THE LETTERHEAD LOGO (2026-09-19) — loaded in the browser once per source and
    drawn into every PDF header below. A logo that fails to load prints nothing
    rather than stopping the download. */
@@ -811,7 +822,9 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       "",
       "Total :",
       fmtNumber(data.yarnDyeingTotal.plannedWt),
-      "",
+      /* "Avg" when the colours carry different losses — see
+         `sectionAverageLoss` for which average, and why not the spec's. */
+      avgLossText(data.yarnDyeing, data.yarnDyeingTotal.plannedWt, data.yarnDyeingTotal.toOrderedWt),
       fmtNumber(data.yarnDyeingTotal.toOrderedWt),
     ]);
   }
@@ -954,7 +967,8 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       "",
       ...([""]),
       fmtNumber(g.plannedTotal),
-      "",
+      /* 0606 — a colour-wise step puts different losses in one section. */
+      avgLossText(g.lines, g.plannedTotal, g.toOrderedTotal),
       ...([""]),
       fmtNumber(g.toOrderedTotal),
     ]);

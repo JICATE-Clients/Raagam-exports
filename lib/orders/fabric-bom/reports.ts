@@ -469,7 +469,12 @@ async function fetchProcessKindRows(
   /* `is_print` JOINED 2026-09-19 — which step prints, so an unprinted group's
      ladder leaves the print stage out (`routeForPrint`) exactly as the save
      path's does. */
-  const q = s.from("processes").select("id, name, is_knitting, is_dyeing, is_print");
+  /* `is_cloth_purchase` JOINED 2026-09-21 — which step BUYS the cloth (0583),
+     so the Budget can leave that section out of Process Rates: a purchase is
+     costed once, on Purchase Rates, at the roll weight this same report
+     states. The ledger still PRINTS the section — its loss is the purchase
+     loss, and the buyer reads it there. */
+  const q = s.from("processes").select("id, name, is_knitting, is_dyeing, is_print, is_cloth_purchase");
   return processIds ? q.in("id", processIds) : q;
 }
 
@@ -761,7 +766,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       itemIds.length
         ? s
             .from("order_fabric_bom_processes")
-            .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct")
+            .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct, color_wise_loss, color_losses")
             .eq("bom_id", bomId)
             .in("item_id", itemIds)
             .order("sno", { ascending: true })
@@ -863,6 +868,9 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     process_id: string | null;
     sub_category_id: string | null;
     loss_pct: string | number | null;
+    /* 0606 — per-colourway losses on an "Assort Color-Wise Loss" step. */
+    color_wise_loss?: boolean | null;
+    color_losses?: Record<string, number> | null;
   };
   const processRows = (processesRes.data ?? []) as unknown as ProcessRow[];
   const subNames = await fetchSubCategoryNames(s, processRows.map((p) => p.sub_category_id));
@@ -881,6 +889,9 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
          without it is every panel's steps stacked onto every weight. */
       component_id: p.component_id,
       loss_pct: p.loss_pct == null ? null : Number(p.loss_pct),
+      /* 0606 — resolved per colourway by `stagesForGroup`, the same filter
+         the save path's ladder walks, so the printed loss is the charged one. */
+      color_losses: p.color_wise_loss ? (p.color_losses ?? null) : null,
       stage_id: p.stage_id,
       process_id: p.process_id,
       sub_category_id: p.sub_category_id,
@@ -1105,14 +1116,27 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
 
   const stageLedger: StageLedgerRow[] = [];
   for (const p of processRows) {
-    stageLedger.push({
-      className: "Fabric",
+    const base = {
+      className: "Fabric" as const,
       itemName: itemNames.get(p.item_id) ?? "(fabric not found)",
-      combo: p.combo || null,
       componentName: p.component_id ? (componentNames.get(p.component_id) ?? "(component not found)") : null,
       stageName: p.stage_id ? (stageNames.get(p.stage_id) ?? null) : null,
       /* 0583 — with its sub-category, "DYEING [WITH BIOWASH]". */
       processName: p.process_id && processNames.has(p.process_id) ? stepName(p.process_id, p.sub_category_id) : null,
+    };
+    /* 0606 — AN "ASSORT COLOR-WISE LOSS" STEP IS ITEMISED PER COLOUR (spec
+       §4): one ledger line per colourway, each with its own loss. The map's
+       keys are the fabric's colourways as the dialog last saved them. */
+    const colourLosses = p.color_wise_loss ? Object.entries(p.color_losses ?? {}) : [];
+    if (colourLosses.length) {
+      for (const [combo, loss] of colourLosses.sort((a, b) => a[0].localeCompare(b[0]))) {
+        stageLedger.push({ ...base, combo, lossPct: Number(loss) });
+      }
+      continue;
+    }
+    stageLedger.push({
+      ...base,
+      combo: p.combo || null,
       lossPct: p.loss_pct == null ? null : Number(p.loss_pct),
     });
   }
@@ -1286,17 +1310,16 @@ export type StageBreakdownLine = {
  * reach keeps the positional label rather than borrowing another combo's
  * colour.
  *
- * ## ONE LOSS PER YARN TODAY, AND THAT IS A KNOWN GAP RATHER THAN A CHOICE
+ * ## EACH COLOUR CARRIES ITS OWN DYEING LOSS (0568)
  *
  * The legacy PDF carries a DIFFERENT dyeing loss per colour (GREEN 5.00, RED
- * 4.00, WHITE 3.00). Nothing in this schema can hold one: the yarn's own stage
- * grid (`order_fabric_bom_yarn_stages`) scopes a loss by ASSORT COLOURWAY
- * (`combo`, 0504 · 0529), not by yarn colour, and the two are different axes —
- * one colourway's cloth contains all three yarn colours. So every colour of a
- * yarn shows that yarn's own compounded stage loss, which is the honest
- * reading of what was typed, and the per-colour figure needs a client decision
- * and a column, not an inference here. `lossPct` 0 with no stages typed is
- * likewise real: no treatment was declared.
+ * 4.00, WHITE 3.00), and so does this block: `lossPct` is the shade's own
+ * `order_fabric_bom_yd_combination_colors.dyeing_loss_pct`, typed on Yarn
+ * Dyed Details beside the colour it is a property of. (This paragraph used to
+ * say no column could hold it; 0568 added one and the comment lagged.) A
+ * colour-wise STEP loss (0606) is a different axis — per ASSORT colourway, on
+ * a route step — and reaches the stage sections, not this block. `lossPct` 0
+ * is real: no dye loss was declared for that shade.
  */
 export type YarnDyeingLine = {
   yarnItemId: string;
@@ -1343,6 +1366,13 @@ export type StageBreakdownGroup = {
   /** Is this a PRINT process (`processes.is_print`)? (2026-09-19) — the
    *  Printing Requirement tab lifts exactly these sections out. */
   isPrint?: boolean;
+  /** Does this step BUY the cloth (`processes.is_cloth_purchase`, 0583)?
+   *  (2026-09-21) — the Budget's Process Rates leave exactly these sections
+   *  out: the cloth is costed ONCE, on Purchase Rates, at the roll weight
+   *  `clothPurchase` states (client: "Fabric Purchase … appearing inside the
+   *  Process Rates section as well … double-counting"). Printed here still —
+   *  its loss is the purchase loss, and the buyer reads it off this ledger. */
+  isClothPurchase?: boolean;
   /** THE STAGES THIS PROCESS'S STEPS RUN IN (2026-09-20) — for the report's
    *  stage colours (`sectionStyle` in ./report-colours.ts). Usually one;
    *  COMPACTING after dyeing and after printing is two. Empty when no step
@@ -1774,7 +1804,7 @@ export async function yarnFabricRequirementReport(
   const processesRes = fabricItemIds.length
     ? await s
         .from("order_fabric_bom_processes")
-        .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct")
+        .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct, color_wise_loss, color_losses")
         .eq("bom_id", bomId)
         .in("item_id", fabricItemIds)
         .order("sno", { ascending: true })
@@ -1794,6 +1824,8 @@ export async function yarnFabricRequirementReport(
     stage_id: string | null;
     process_id: string | null;
     sub_category_id: string | null;
+    color_wise_loss?: boolean | null;
+    color_losses?: Record<string, number> | null;
   }[];
   /* KEPT IN ASCENDING `sno` (fetch order) — CHRONOLOGICAL, Knitting first.
      `sno` is also how `minSnoByProcess` (below) orders the display groups. */
@@ -1808,6 +1840,8 @@ export async function yarnFabricRequirementReport(
          read without it did to every weight. */
       component_id: p.component_id,
       loss_pct: p.loss_pct == null ? null : Number(p.loss_pct),
+      /* 0606 — see the Entry Register's route builder above. */
+      color_losses: p.color_wise_loss ? (p.color_losses ?? null) : null,
       /* CARRIED SINCE 2026-09-19 — `routeForPrint` finds the print STAGE by
          it. The save path's route (`routesByFabricOf`) always carried it, so
          this is the report catching up, not a new reading. */
@@ -1894,13 +1928,22 @@ export async function yarnFabricRequirementReport(
     is_knitting: boolean | null;
     is_dyeing: boolean | null;
     is_print: boolean | null;
+    is_cloth_purchase: boolean | null;
   }[];
   const processNames = new Map<string, string>(processMasterRows.map((r) => [r.id, r.name]));
   /** WHAT KIND OF STEP EACH PROCESS IS (0564) — see `./fabric-source.ts`. */
-  const processKinds = new Map<string, { is_knitting: boolean; is_dyeing: boolean; is_print: boolean }>(
+  const processKinds = new Map<
+    string,
+    { is_knitting: boolean; is_dyeing: boolean; is_print: boolean; is_cloth_purchase: boolean }
+  >(
     processMasterRows.map((r) => [
       r.id,
-      { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false, is_print: r.is_print ?? false },
+      {
+        is_knitting: r.is_knitting ?? false,
+        is_dyeing: r.is_dyeing ?? false,
+        is_print: r.is_print ?? false,
+        is_cloth_purchase: r.is_cloth_purchase ?? false,
+      },
     ]),
   );
   /* 0583 — "DYEING [WITH BIOWASH]" section headings. */
@@ -2268,7 +2311,9 @@ export async function yarnFabricRequirementReport(
           const baseName = processNames.get(step.process_id) ?? "(process not found)";
           const subName = step.sub_category_id ? subNames.get(step.sub_category_id) : null;
           const name = subName ? `${baseName} [${subName}]` : baseName;
-          const isPrint = processKinds.get(step.process_id)?.is_print ?? false;
+          const kind = processKinds.get(step.process_id);
+          const isPrint = kind?.is_print ?? false;
+          const isClothPurchase = kind?.is_cloth_purchase ?? false;
           if (step.stage_id) {
             const at = stagesByProcess.get(step.process_id) ?? new Set<string>();
             at.add(step.stage_id);
@@ -2280,6 +2325,7 @@ export async function yarnFabricRequirementReport(
               processId: step.process_id,
               processName: name,
               isPrint,
+              isClothPurchase,
               lines: [],
               byColour: [],
               plannedTotal: 0,

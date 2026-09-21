@@ -12,11 +12,13 @@ import {
   ChevronRight,
   ChevronDown,
   Layers,
+  CalendarClock,
 } from "lucide-react";
+import { TrimTaSection } from "@/components/orders/trim-ta/trim-ta-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldError, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Field, FieldError, FieldGrid, FieldRow, RequiredScope, type FieldSize, type FieldWidth } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
@@ -136,6 +138,11 @@ import {
   type ProductionSlice,
   type RequirementBasis,
 } from "@/lib/orders/material-bom/requirement";
+import {
+  colourRequired,
+  missingItemColours,
+  type ColourWiseLineFacts,
+} from "@/lib/orders/material-bom/colour-required";
 import {
   combinationNames,
   consumptionFor,
@@ -2823,19 +2830,30 @@ export function MbaMasterScreen({
             const sl = byKey.get(rowKey);
             if (!sl) return null;
             const o = stored(sl);
+            /* OWED ON A COLOUR-WISE LINE (client 2026-09-21) — `colourRequired`,
+               the one switch the header star, this hold and the Save gate all
+               read. Not owed where the LINE already names a colour: every row
+               inherits it, and holding the cursor on a box the line answers
+               would cage the operator on a finished row (the Items/Pcs shape
+               one column over). */
+            const owed = colourRequired(grain) && !r.item_color_id;
             return (
-              <LookupDialogPicker
-                kind="fabric_color"
-                label="Item Color"
-                options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
-                value={o?.item_color_id ?? null}
-                onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-                compact
-              />
+              <RequiredScope required={owed} label="Item Color">
+                <LookupDialogPicker
+                  kind="fabric_color"
+                  label="Item Color"
+                  required={owed}
+                  options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
+                  value={o?.item_color_id ?? null}
+                  onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
+                  canCreate={masterPerms.canCreate}
+                  canEdit={masterPerms.canEdit}
+                  compact
+                />
+              </RequiredScope>
             );
           }}
+          colourRequired={colourRequired(grain) && !r.item_color_id}
           /* THE ONE OPEN BAND ON THIS LINE, scoped per line for the reason the
              state note gives: combination names repeat across materials.
 
@@ -3915,12 +3933,17 @@ export function MbaMasterScreen({
     needsPurchase: number | null;
   };
 
-  const { reqRows, lineTotals } = useMemo((): {
+  const { reqRows, lineTotals, colourFacts } = useMemo((): {
     reqRows: ReqRow[];
     lineTotals: Map<string, LineTotal>;
+    /** What `missingItemColours` reads — each line's chosen rows with the
+     *  colour each resolves to, gathered in the same pass that totals them so
+     *  the Save gate and the figures cannot disagree about which rows exist. */
+    colourFacts: ColourWiseLineFacts[];
   } => {
     const totals = new Map<string, LineTotal>();
-    if (!orderProd) return { reqRows: [], lineTotals: totals };
+    const colourFacts: ColourWiseLineFacts[] = [];
+    if (!orderProd) return { reqRows: [], lineTotals: totals, colourFacts };
     const out: ReqRow[] = [];
 
     for (const r of items) {
@@ -4051,6 +4074,18 @@ export function MbaMasterScreen({
          them would show a Final Quantity the purchase order is never checked
          against. Same store, same reading, same answer. */
       const slices = isRefusal(crossed) ? crossed : crossed.filter(rowFlags.chosen);
+      if (!isRefusal(slices)) {
+        /* THE SAME RESOLUTION THE ROW BELOW STORES BY — the slice's own tick,
+           then the line's — so a row this gate calls blank is one whose stored
+           `item_color_id` would be NULL. */
+        colourFacts.push({
+          sno: items.indexOf(r) + 1,
+          material,
+          grain: rowGrain,
+          item_color_id: r.item_color_id,
+          rows: slices.map((sl) => ({ label: sl.label, item_color_id: rowFlags.colour(sl) })),
+        });
+      }
       if (isRefusal(slices)) {
         push({ refusal: slices.refused });
         totals.set(r.key, {
@@ -4304,9 +4339,13 @@ export function MbaMasterScreen({
             },
       );
     }
-    return { reqRows: out, lineTotals: totals };
+    return { reqRows: out, lineTotals: totals, colourFacts };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, orderProd, data.items, data.uoms, data.conversions]);
+
+  /** ITEM COLOR OWED ON A COLOUR-WISE ROW (client 2026-09-21) — the Save
+   *  gate's half; the star and the hold are on the cell (`renderColour`). */
+  const colourMissing = missingItemColours(colourFacts);
 
   /**
    * WHAT IS STOPPING A SAVE, AND WHICH SECTION HOLDS IT — derived, never
@@ -4332,6 +4371,17 @@ export function MbaMasterScreen({
         empty: (f) => !f.garment_order_id,
       },
     ],
+    /* ITEM COLOR ON A COLOUR-WISE ROW (client 2026-09-21). The rule's own
+       sentence, one per line, filed under the Items section where the cell is.
+       The cell carries the star and the hold; this is what keeps Save honest
+       about it — and what makes a draft saved BEFORE the rule show red on its
+       next open rather than quietly passing. */
+    extra: colourMissing.map((m) => ({
+      section: "bom",
+      label: "Item Color",
+      message: m.message,
+      kind: "custom" as const,
+    })),
   });
 
   const revealFirstProblem = () => {
@@ -5538,13 +5588,36 @@ export function MbaMasterScreen({
    * other's. **Both numbers moved when the two columns went**; changing the
    * column list without re-deriving both is how the last cell wraps.
    */
-  const PROC_ROW_SPAN: Record<string, FieldSize> = {
-    Stage: "sm",
-    Process: "lg",
-    "Loss %": "sm",
+  /*
+   * WIDTH BY THE KIND OF VALUE, NOT A SHARE OF THE PANE (client 2026-09-21,
+   * screenshot 2976: three fields stretched across ~1640px — the `FieldGrid`
+   * 3/6/3 split above scaled with the pane, so on a wide monitor a percentage
+   * box was 400px). `raagam-screen-layout` ▸ "BUILD IT COMPACT THE FIRST TIME":
+   * a `FieldRow` of `<Field w=…>` steps from `lib/ui/sizes.ts`, so the row is
+   * the same width on every screen.
+   *
+   *   Stage    `code`  144px — GREIGE / DYED, one word
+   *   Process  `party` 200px — a process NAME ("TRIMS DYEING")
+   *   Loss %   `range` 112px — a percentage PLUS the loss-configuration opener
+   *                             beside it (the reason `num`'s 72px was too tight
+   *                             when this row was 3/6/3; that reason still holds)
+   *   Material `party` 200px — the orphan bucket only
+   *
+   * The 12-track arithmetic that used to live here is gone with `FieldGrid`;
+   * the cap on the card (`PROC_CARD_MAX_W` below) is what replaces it.
+   */
+  const PROC_ROW_W: Record<string, FieldWidth> = {
+    Stage: "code",
+    Process: "party",
+    "Loss %": "range",
+    Material: "party",
   };
-  const procFieldSize = (header: string, withMaterial: boolean): FieldSize =>
-    withMaterial ? "sm" : (PROC_ROW_SPAN[header] ?? "sm");
+  const procFieldW = (header: string): FieldWidth => PROC_ROW_W[header] ?? "hug";
+  /* Material 200 + Stage 144 + Process 200 + Loss 112 = 656px of fields, three
+     12px gaps = 36px, the card's padding and the ✕ gutter ≈ 72px → 764px; the
+     ordinary row (no Material) is 552px. `max-w-[48rem]` (768px) holds the
+     widest row and stops a wide pane stretching the card behind it. */
+  const PROC_CARD_MAX_W = "max-w-[48rem]";
 
   const procColumns: ChildGridColumn<ProcRow>[] = [
     /* THE SIX LIFECYCLE CELLS CAME OUT (client 2026-08-24: "just maintain the
@@ -6621,7 +6694,7 @@ export function MbaMasterScreen({
           )}
           {procGroups.length > 0 && (
             procGroups.map((g, gi) => (
-              <div key={g.id ?? "__orphans"} className="mt-3 rounded-lg border border-border first:mt-0">
+              <div key={g.id ?? "__orphans"} className={cn("mt-3 rounded-lg border border-border first:mt-0", PROC_CARD_MAX_W)}>
                 {/* The parent row. Numbered like legacy's S No, and the count is
                     the affordance a bare heading lacks — a material with no
                     processes reads as deliberate rather than unfinished. */}
@@ -6664,23 +6737,18 @@ export function MbaMasterScreen({
                     );
                   }}
                   renderMobileRow={(row, i) => (
-                    <FieldGrid>
+                    <FieldRow align="start" gap="tight">
                       {procColumns
                         /* MATERIAL IS THE HEADING — except in the orphan bucket,
                            where it is the only way to put the row back on a
                            material that still exists. */
                         .filter((c) => c.header !== "Material" || g.id === null)
                         .map((c, ci) => (
-                          <Field
-                            key={ci}
-                            label={c.header}
-                            required={c.required}
-                            size={procFieldSize(c.header, g.id === null)}
-                          >
+                          <Field key={ci} label={c.header} required={c.required} w={procFieldW(c.header)}>
                             {c.cell(row, i)}
                           </Field>
                         ))}
-                    </FieldGrid>
+                    </FieldRow>
                   )}
                   /* NO `seedRow`. One blank row per material would put a card
                      under every line the moment the tab opened — eleven
@@ -6776,6 +6844,24 @@ export function MbaMasterScreen({
               empty="Add a material with a basis and a ratio to see what the order needs."
             />
           )}
+        </SectionBody>
+      ),
+    },
+    {
+      /*
+       * TRIMS T&A — steps 12–17 of doc/order/materialbomtana.md (0608). A
+       * section of THIS editor, not a screen of its own (client 2026-09-21:
+       * "not a separate child — move it inside Material BOM as a tab"). It is
+       * read-mostly: its per-step edits save on their own and never touch this
+       * BOM's dirty state, and it is not in `sectionValidity` — nothing in it
+       * can block the BOM's Save.
+       */
+      key: "trims-ta",
+      label: "Trims T&A",
+      icon: CalendarClock,
+      content: (
+        <SectionBody title="Trims T&A">
+          <TrimTaSection garmentOrderId={form.garment_order_id} bomDirty={dirty} />
         </SectionBody>
       ),
     },
