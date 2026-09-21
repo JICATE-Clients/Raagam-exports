@@ -16,7 +16,9 @@ import { isRefusal } from "../lib/orders/material-bom/requirement.ts";
 import {
   iwoMbProblems,
   iwoMbQuantity,
+  isBlankIwoMbLine,
   keptIwoMbLines,
+  plannedQtyOf,
   type IwoMbLineFacts,
 } from "../lib/orders/iwo-material-bom/rules.ts";
 import {
@@ -272,6 +274,88 @@ check(
   "§10 a yarn the BOM could not weigh refuses, naming the Fabric BOM",
   iwoCeilingRefusal(yarnSaved({ lines: [{ ...YARN_LINE, purchase_qty: null }] }), want([["cotton", 1]])),
   "The Fabric BOM for work order U2/IWO/2627/0005 could not work out a purchase quantity for 30'S COTTON. Fix that line on IWO Fabric BOM first.",
+);
+
+// ---------------------------------------------------------------------------
+// §11 — THE ATTRIBUTE (0614): a breakup the planner types; the line's Planned
+// Qty is Σ its rows, and every consumer reads it through `plannedQtyOf`.
+// ---------------------------------------------------------------------------
+const WHITE = "c-white";
+const NAVY = "c-navy";
+const split = (patch: Partial<IwoMbLineFacts>): IwoMbLineFacts =>
+  line({
+    planned_qty: 999, // a stale line figure — must never be read under a split attribute
+    attribute: "colour",
+    slices: [
+      { item_color_id: WHITE, size: null, planned_qty: 60 },
+      { item_color_id: NAVY, size: null, planned_qty: 40 },
+    ],
+    ...patch,
+  });
+check("§11 Item wise reads the line's own figure", plannedQtyOf(line({ planned_qty: 100 })), 100);
+check("§11 a caller written before 0614 (no attribute) reads as Item", plannedQtyOf(line({ attribute: undefined })), 100);
+check("§11 Colour wise reads Σ the rows, never the stale line figure", plannedQtyOf(split({})), 100);
+check(
+  "§11 a blank row is not counted",
+  plannedQtyOf(split({ slices: [{ item_color_id: WHITE, size: null, planned_qty: 60 }, { item_color_id: null, size: null, planned_qty: null }] })),
+  60,
+);
+check("§11 no row with a quantity is NULL, not 0", plannedQtyOf(split({ slices: [{ item_color_id: WHITE, size: null, planned_qty: null }] })), null);
+check("§11 the quantity chain costs the SUM (100 × 1.10, the line rule)", q(split({}), [10]), { required: 110, purchase: 110 });
+check(
+  "§11 a split line with no rows says so, in the breakup's words",
+  iwoMbProblems([split({ slices: [] })], []).map((p) => p.message),
+  ["Line 1: Colour wise — add at least one row in the Breakup, with its Planned Qty."],
+);
+check(
+  "§11 Colour wise owes a Colour and a quantity per row",
+  iwoMbProblems([split({ slices: [{ item_color_id: null, size: null, planned_qty: 0 }] })], []).map((p) => p.message),
+  ["Line 1, Breakup row 1: choose the Colour.", "Line 1, Breakup row 1: Planned Qty must be a number more than 0."],
+);
+check(
+  "§11 Size wise owes a Size, and never asks for a Colour",
+  iwoMbProblems([split({ attribute: "size", slices: [{ item_color_id: null, size: "", planned_qty: 5 }] })], []).map((p) => p.message),
+  ["Line 1, Breakup row 1: enter the Size."],
+);
+check(
+  "§11 Colour + Size owes both",
+  iwoMbProblems([split({ attribute: "colour_size", slices: [{ item_color_id: null, size: null, planned_qty: 5 }] })], []).map((p) => p.message),
+  ["Line 1, Breakup row 1: choose the Colour.", "Line 1, Breakup row 1: enter the Size."],
+);
+check(
+  "§11 the same colour twice is one lot typed twice",
+  iwoMbProblems(
+    [split({ slices: [{ item_color_id: WHITE, size: null, planned_qty: 1 }, { item_color_id: WHITE, size: null, planned_qty: 2 }] })],
+    [],
+  ).map((p) => p.message),
+  ["Line 1, Breakup row 2: this colour is already on another row — merge them."],
+);
+check(
+  "§11 …but the same colour in two SIZES is two rows",
+  iwoMbProblems(
+    [
+      split({
+        attribute: "colour_size",
+        slices: [
+          { item_color_id: WHITE, size: "S", planned_qty: 1 },
+          { item_color_id: WHITE, size: "m", planned_qty: 2 },
+        ],
+      }),
+    ],
+    [],
+  ).map((p) => p.message),
+  [],
+);
+check("§11 a complete Colour wise line has no problem", iwoMbProblems([split({})], []).map((p) => p.message), []);
+check(
+  "§11 a split attribute alone makes a row not blank",
+  isBlankIwoMbLine(line({ item_id: null, consumption_uom_id: null, planned_qty: null, attribute: "colour", slices: [] })),
+  false,
+);
+check(
+  "§11 a blank breakup row leaves a blank line blank",
+  isBlankIwoMbLine(line({ item_id: null, consumption_uom_id: null, planned_qty: null, slices: [{ item_color_id: null, size: null, planned_qty: null }] })),
+  true,
 );
 
 if (failed) {

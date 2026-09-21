@@ -23,7 +23,7 @@ import { Boxes, ClipboardList, Layers, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldGrid, FieldRow, FIELD_WIDTH_CSS, RequiredScope } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS, fieldWidthStep, RequiredScope } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
@@ -50,16 +50,24 @@ import { sectionValidity } from "@/lib/screens/validity";
 import { materialsForCategory } from "@/lib/orders/material-bom-amendment/material-options";
 import { uomPatchForMaterial } from "@/lib/orders/material-bom/uom-prefill";
 import { isRefusal } from "@/lib/orders/material-bom/requirement";
-import { IWO_MB_STAGES } from "@/lib/orders/iwo-material-bom/types";
+import {
+  IWO_MB_ATTRIBUTE_LABELS,
+  IWO_MB_ATTRIBUTES,
+  IWO_MB_STAGES,
+  type IwoMbAttribute,
+} from "@/lib/orders/iwo-material-bom/types";
 import {
   isBlankIwoMbProcess,
   iwoMbProblems,
   iwoMbQuantity,
   keptIwoMbLines,
   keptIwoMbProcesses,
+  plannedQtyOf,
   type IwoMbLineFacts,
   type IwoMbProcessFacts,
 } from "@/lib/orders/iwo-material-bom/rules";
+import type { SheetOrigin } from "@/components/ui/sheet";
+import { blankBreakupRow, BreakupSheet, type BreakupRow } from "./breakup-sheet";
 import { deleteIwoMaterialBom, saveIwoMaterialBom } from "@/lib/orders/iwo-material-bom/actions";
 import type { IwoMaterialBomFormData, IwoMaterialBomTask } from "@/lib/orders/iwo-material-bom/service";
 
@@ -81,6 +89,9 @@ type ItemRow = {
   purchase_uom_id: string | null;
   uom_conversion_id: string | null;
   planned_qty: string;
+  /** 0614 — how the line breaks up, and its typed rows (see `breakup-sheet.tsx`). */
+  attribute: IwoMbAttribute;
+  slices: BreakupRow[];
   moq: string;
   round_to: string;
   is_advised: boolean;
@@ -107,6 +118,8 @@ const blankItem = (): ItemRow => ({
   purchase_uom_id: null,
   uom_conversion_id: null,
   planned_qty: "",
+  attribute: "item",
+  slices: [],
   moq: "",
   round_to: "",
   is_advised: false,
@@ -140,6 +153,8 @@ const itemFacts = (l: ItemRow): IwoMbLineFacts => ({
   purchase_uom_id: l.purchase_uom_id,
   uom_conversion_id: l.uom_conversion_id,
   planned_qty: num(l.planned_qty),
+  attribute: l.attribute,
+  slices: l.slices.map((sl) => ({ item_color_id: sl.item_color_id, size: sl.size.trim() || null, planned_qty: num(sl.planned_qty) })),
   moq: num(l.moq),
   round_to: num(l.round_to),
   is_advised: l.is_advised,
@@ -187,6 +202,9 @@ export function IwoMaterialBomScreen({
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
   const [items, setItems] = useState<ItemRow[]>([]);
   const [procs, setProcs] = useState<ProcRow[]>([]);
+  /** The line whose [Breakup] is open (0614), and the button it grew from. */
+  const [breakupFor, setBreakupFor] = useState<string | null>(null);
+  const [breakupOrigin, setBreakupOrigin] = useState<SheetOrigin | null>(null);
 
   /** Real edits only — an overlay's own guard is not read by `confirmDiscard()`,
    *  so this is what protects the typing and holds off the silent reload. */
@@ -247,6 +265,13 @@ export function IwoMaterialBomScreen({
       purchase_uom_id: r.purchase_uom_id,
       uom_conversion_id: r.uom_conversion_id,
       planned_qty: str(r.planned_qty),
+      attribute: r.attribute ?? "item",
+      slices: (r.iwo_material_bom_item_slices ?? []).map((sl) => ({
+        key: newKey(),
+        item_color_id: sl.item_color_id,
+        size: sl.size ?? "",
+        planned_qty: str(sl.planned_qty),
+      })),
       moq: str(r.moq),
       round_to: str(r.round_to),
       is_advised: !!r.is_advised,
@@ -330,7 +355,7 @@ export function IwoMaterialBomScreen({
       is_draft: asDraft,
       items: keptIwoMbLines(items.map(itemFacts))
         .filter((l) => !!l.item_id)
-        .map((l) => ({ ...l, item_id: l.item_id as string })),
+        .map((l) => ({ ...l, item_id: l.item_id as string, slices: [...(l.slices ?? [])] })),
       processes: keptIwoMbProcesses(procs.map(procFacts))
         .filter((p) => !!p.item_id)
         .map((p) => ({ ...p, item_id: p.item_id as string, stage: p.stage as "GREIGE" | "DYED" | null })),
@@ -437,10 +462,38 @@ export function IwoMaterialBomScreen({
    * (requirement grain), Combination and the slice grid are gone, and Planned
    * Qty — typed — stands where the calculated need stood. Advised is the order
    * screen's TBA switch under the SRS's own name.
+   *
+   * A FIXED-WIDTH TABLE, NOT CARDS (user 2026-09-21, screenshot 2985: "compact
+   * it"). It opened as `forceCards` + `FieldGrid size="sm"` — twelve quarter-pane
+   * boxes over three lines per item, ~200px tall for one row of facts. The
+   * `raagam-screen-layout` rule since 09-18: vocabulary widths on every column
+   * and a table from `5xl`; the card below the threshold keeps the SAME widths
+   * (`fieldWidthStep`), so a 1366 laptop folds the row instead of inflating it.
+   *
+   * THE ATTRIBUTE (0614, user 2026-09-21: "the attribute field is missing …
+   * add it too") — Item / Colour / Size / Colour + Size. Not the order BOM's
+   * explosion (no order to explode by) but a BREAKUP the planner types in the
+   * [Breakup] sheet; under a split attribute the Planned Qty cell IS the way
+   * in — a button carrying the rows' total — and the line's figure is Σ rows
+   * (`plannedQtyOf`, the one reader the rules, the chain and the save use).
+   *
+   * WIDTHS (check:grid-budget): hug 88 (Category) + term 176 (Material) +
+   * range 112 (Attribute) + hug 88 (Brand / Specs) + hug 88 (Colour) + num 72
+   * (Cons. Uom) + hug 88 (Planned Qty) + num 72 (Pur. Uom) + num 72 (MOQ) +
+   * num 72 (Round To) + code 144 (the three switches) = 1072 + 72 chrome =
+   * 1144 <= 1155.
+   *
+   * The re-cut that made it fit: the three switches share ONE cell (Budget's
+   * "FOC · Import" shape — three 36px tracks in a `code` cell against 3 × num
+   * = 216 apart); the two Uoms are `num`, as Budget's unit column is ("NOS"
+   * fits); Category and Material reveal the rest of a long name on hover (the
+   * picker trigger's own ellipsis + tooltip). Attribute took its 112 from
+   * Category (−56), Material (−24) and the two Uoms (−32).
    */
   const itemColumns: ChildGridColumn<ItemRow>[] = [
     {
       header: "Category",
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
         <RecordPicker
           label="Category"
@@ -462,6 +515,7 @@ export function IwoMaterialBomScreen({
     {
       header: "Material",
       required: true,
+      width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
         <RecordPicker
           label="Material"
@@ -488,7 +542,38 @@ export function IwoMaterialBomScreen({
       ),
     },
     {
+      /* SWITCHING THE ATTRIBUTE KEEPS THE ROWS. Colour → Colour + Size keeps
+         every colour row and asks for its size; back to Item keeps the rows
+         out of sight (the save drops them — `attribute = item` writes none)
+         so a mis-click costs nothing typed. A split line with no rows yet is
+         seeded with one blank row so the sheet opens ready to type. */
+      header: "Attribute",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (r) => (
+        <Select
+          compact
+          className="h-8"
+          aria-label="Attribute"
+          value={r.attribute}
+          onChange={(e) => {
+            const attribute = e.target.value as IwoMbAttribute;
+            patchItem(r.key, {
+              attribute,
+              slices: attribute !== "item" && r.slices.length === 0 ? [blankBreakupRow(newKey)] : r.slices,
+            });
+          }}
+        >
+          {IWO_MB_ATTRIBUTES.map((a) => (
+            <option key={a} value={a}>
+              {IWO_MB_ATTRIBUTE_LABELS[a]}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
       header: "Brand / Specs",
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
         <Input
           className="h-8"
@@ -500,6 +585,7 @@ export function IwoMaterialBomScreen({
     },
     {
       header: "Colour",
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
         <LookupDialogPicker
           kind="fabric_color"
@@ -515,6 +601,7 @@ export function IwoMaterialBomScreen({
     {
       header: "Cons. Uom",
       required: true,
+      width: FIELD_WIDTH_CSS.num,
       cell: (r) => (
         <RecordPicker
           label="Cons. Uom"
@@ -530,10 +617,39 @@ export function IwoMaterialBomScreen({
       header: "Planned Qty",
       required: true,
       align: "right",
-      cell: (r) => decimalCell(r.planned_qty, "Planned Qty", (v) => patchItem(r.key, { planned_qty: v }), true),
+      width: FIELD_WIDTH_CSS.hug,
+      cell: (r) => {
+        if (r.attribute === "item") {
+          return decimalCell(r.planned_qty, "Planned Qty", (v) => patchItem(r.key, { planned_qty: v }), true);
+        }
+        /* UNDER A SPLIT ATTRIBUTE THE CELL IS THE DOOR TO THE BREAKUP: a button
+           carrying the rows' total (or "Breakup" while there is none), so the
+           figure and the way to change it are one thing. `data-row-open` puts
+           it on the row's axis for Tab, Enter and ← →; the requiredness moves
+           onto the sheet's own cells and the Save gate, since a hold on a
+           button would cage the cursor on a box it cannot type into. */
+        const total = plannedQtyOf(itemFacts(r));
+        return (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-row-open
+            className="h-8 w-full justify-end tabular-nums"
+            aria-label={total == null ? "Breakup — enter the Planned Qty per row" : `Planned Qty ${fmtNumber(total)} — open the breakup`}
+            onClick={(ev) => {
+              setBreakupOrigin(ev.currentTarget.getBoundingClientRect());
+              setBreakupFor(r.key);
+            }}
+          >
+            {total == null ? "Breakup" : fmtNumber(total)}
+          </Button>
+        );
+      },
     },
     {
       header: "Pur. Uom",
+      width: FIELD_WIDTH_CSS.num,
       cell: (r) => (
         <RecordPicker
           label="Pur. Uom"
@@ -547,32 +663,31 @@ export function IwoMaterialBomScreen({
     {
       header: "MOQ",
       align: "right",
+      width: FIELD_WIDTH_CSS.num,
       cell: (r) => decimalCell(r.moq, "MOQ", (v) => patchItem(r.key, { moq: v })),
     },
     {
       header: "Round To",
       align: "right",
+      width: FIELD_WIDTH_CSS.num,
       cell: (r) => decimalCell(r.round_to, "Round To", (v) => patchItem(r.key, { round_to: v })),
     },
     {
-      // The order screen's TBA — "To be advised": spec or buyer approval
-      // pending (screenshot 2941's "Is Advised Item"). Recorded; the PO block
-      // is its own step (0584's header).
-      header: "Advised",
+      /* THREE SWITCHES, ONE CELL — the header names them left to right, each
+         track keeps its own accessible name. Advised is the order screen's TBA
+         ("To be advised": spec or buyer approval pending, screenshot 2941's "Is
+         Advised Item"; recorded, the PO block is its own step — 0584's header).
+         Process = send out for processing, which offers the material on the
+         Processes grid. FOC = free of charge. */
+      header: "Advised · Process · FOC",
+      width: FIELD_WIDTH_CSS.code,
       cell: (r) => (
-        <Toggle checked={r.is_advised} ariaLabel="Advised item" onChange={(v) => patchItem(r.key, { is_advised: v })} />
+        <div className="flex items-center gap-2">
+          <Toggle checked={r.is_advised} ariaLabel="Advised item" onChange={(v) => patchItem(r.key, { is_advised: v })} />
+          <Toggle checked={r.send_out} ariaLabel="Send out for processing" onChange={(v) => patchItem(r.key, { send_out: v })} />
+          <Toggle checked={r.is_foc} ariaLabel="Free of charge" onChange={(v) => patchItem(r.key, { is_foc: v })} />
+        </div>
       ),
-    },
-    {
-      // Send out for processing — offers the material on the Processes grid.
-      header: "Process",
-      cell: (r) => (
-        <Toggle checked={r.send_out} ariaLabel="Send out for processing" onChange={(v) => patchItem(r.key, { send_out: v })} />
-      ),
-    },
-    {
-      header: "FOC",
-      cell: (r) => <Toggle checked={r.is_foc} ariaLabel="Free of charge" onChange={(v) => patchItem(r.key, { is_foc: v })} />,
     },
   ];
 
@@ -704,7 +819,11 @@ export function IwoMaterialBomScreen({
       align: "right",
       cell: (r) => (
         <span className="tabular-nums text-sm">
-          {num(r.line.planned_qty) != null ? `${fmtNumber(num(r.line.planned_qty))} ${uomCode(r.line.consumption_uom_id)}` : ""}
+          {(() => {
+            // The line's own figure, or Σ its breakup (0614) — one reader.
+            const planned = plannedQtyOf(itemFacts(r.line));
+            return planned != null ? `${fmtNumber(planned)} ${uomCode(r.line.consumption_uom_id)}` : "";
+          })()}
         </span>
       ),
     },
@@ -817,23 +936,23 @@ export function IwoMaterialBomScreen({
       done: items.some((l) => !!l.item_id),
       content: (
         <SectionBody title="Items">
-          {/* TWELVE COLUMNS, so rule 4 of `raagam-screen-layout`: the row wraps
-              inside ONE frame (`forceCards` + `flatRows`) instead of scrolling
-              sideways. Labels and `required` are read off `itemColumns`, on the
+          {/* A TABLE FROM `5xl` (see `itemColumns`' width note); under it the
+              row folds into one frame (`flatRows`) keeping the table's own
+              widths. Labels and `required` are read off `itemColumns`, on the
               `Field` AND on the control. */}
           <ChildGrid<ItemRow>
             columns={itemColumns}
             rows={items}
-            forceCards
+            tableFrom="5xl"
             flatRows
             renderMobileRow={(row, i) => (
-              <FieldGrid>
+              <FieldRow align="start" gap="tight">
                 {itemColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                  <Field key={ci} label={c.header} required={c.required} w={fieldWidthStep(c.width) ?? "hug"}>
                     {c.cell(row, i)}
                   </Field>
                 ))}
-              </FieldGrid>
+              </FieldRow>
             )}
             onAdd={() => {
               setItems((xs) => [...xs, blankItem()]);
@@ -861,13 +980,19 @@ export function IwoMaterialBomScreen({
             tableFrom="5xl"
             flatRows
             renderMobileRow={(row, i) => (
-              <FieldGrid>
+              // The card keeps the table's widths — the Items grid's note.
+              <FieldRow align="start" gap="tight">
                 {processColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required ? !isBlankIwoMbProcess(procFacts(row)) : false} size="sm">
+                  <Field
+                    key={ci}
+                    label={c.header}
+                    required={c.required ? !isBlankIwoMbProcess(procFacts(row)) : false}
+                    w={fieldWidthStep(c.width) ?? "hug"}
+                  >
                     {c.cell(row, i)}
                   </Field>
                 ))}
-              </FieldGrid>
+              </FieldRow>
             )}
             onAdd={() => {
               setProcs((xs) => [...xs, blankProc()]);
@@ -944,6 +1069,26 @@ export function IwoMaterialBomScreen({
           isPending,
         }}
       />
+
+      {(() => {
+        const line = breakupFor ? (items.find((x) => x.key === breakupFor) ?? null) : null;
+        return (
+          <BreakupSheet
+            open={!!line}
+            onClose={() => setBreakupFor(null)}
+            origin={breakupOrigin}
+            materialName={line?.item_id ? (materialById.get(line.item_id)?.name ?? "") : ""}
+            attribute={line?.attribute ?? "item"}
+            uomCode={line ? uomCode(line.consumption_uom_id) : ""}
+            rows={line?.slices ?? []}
+            onChange={(next) => line && patchItem(line.key, { slices: next })}
+            colors={data.colors}
+            canCreateColour={perms.canCreate}
+            newKey={newKey}
+            readOnly={!perms.canEdit && !perms.canCreate}
+          />
+        );
+      })()}
     </>
   );
 }

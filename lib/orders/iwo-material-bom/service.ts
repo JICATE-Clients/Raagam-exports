@@ -48,7 +48,8 @@ export async function listIwoMaterialBomTasks(): Promise<IwoMaterialBomTask[]> {
     .from("internal_work_orders")
     .select(
       "id, code, iwo_date, iwo_for, reference_no, deli_date, status, created_by, created_at, " +
-        "iwo_material_boms(*, iwo_material_bom_items(*), iwo_material_bom_processes(*))",
+        // The breakup rows ride under each line (0614).
+        "iwo_material_boms(*, iwo_material_bom_items(*, iwo_material_bom_item_slices(*)), iwo_material_bom_processes(*))",
     )
     .eq("iwo_for", "accessories")
     .eq("location_id", locationId)
@@ -64,7 +65,12 @@ export async function listIwoMaterialBomTasks(): Promise<IwoMaterialBomTask[]> {
       bom: b
         ? {
             ...b,
-            iwo_material_bom_items: [...(b.iwo_material_bom_items ?? [])].sort((x, y) => x.sno - y.sno),
+            iwo_material_bom_items: [...(b.iwo_material_bom_items ?? [])]
+              .sort((x, y) => x.sno - y.sno)
+              .map((it) => ({
+                ...it,
+                iwo_material_bom_item_slices: [...(it.iwo_material_bom_item_slices ?? [])].sort((x, y) => x.sno - y.sno),
+              })),
             iwo_material_bom_processes: [...(b.iwo_material_bom_processes ?? [])].sort((x, y) => x.sno - y.sno),
           }
         : null,

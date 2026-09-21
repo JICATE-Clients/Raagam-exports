@@ -14,6 +14,36 @@ import { capsTextNullable } from "@/lib/validation/formats";
 /** The order BOM's process stages — `PROCESS_STAGE_OPTIONS`, spelled the same. */
 export const IWO_MB_STAGES = ["GREIGE", "DYED"] as const;
 
+/**
+ * THE ATTRIBUTE (0614, user 2026-09-21) — how a line is broken up. Not the
+ * order BOM's (which EXPLODES a line by the order's colourways and sizes; an
+ * IWO has no order to explode by) but a breakup the planner TYPES: one row per
+ * colour and/or size, each with its own Planned Qty, the line's Planned Qty
+ * being their sum. `item` is one Planned Qty as before, and what every row
+ * stored before 0614 reads as.
+ */
+export const IWO_MB_ATTRIBUTES = ["item", "colour", "size", "colour_size"] as const;
+export type IwoMbAttribute = (typeof IWO_MB_ATTRIBUTES)[number];
+export const IWO_MB_ATTRIBUTE_LABELS: Record<IwoMbAttribute, string> = {
+  item: "Item",
+  colour: "Colour",
+  size: "Size",
+  colour_size: "Colour + Size",
+};
+/** Does this attribute carry a Colour / a Size per row? */
+export const attributeHasColour = (a: IwoMbAttribute) => a === "colour" || a === "colour_size";
+export const attributeHasSize = (a: IwoMbAttribute) => a === "size" || a === "colour_size";
+
+/** One breakup row (0614). */
+export interface IwoMbItemSliceRow {
+  id: string;
+  item_line_id: string;
+  sno: number;
+  item_color_id: string | null;
+  size: string | null;
+  planned_qty: number;
+}
+
 export interface IwoMbItemRow {
   id: string;
   bom_id: string;
@@ -34,6 +64,9 @@ export interface IwoMbItemRow {
   required_qty: number | null;
   purchase_qty: number | null;
   refusal_reason: string | null;
+  /** 0614 — see `IWO_MB_ATTRIBUTES`. */
+  attribute: IwoMbAttribute;
+  iwo_material_bom_item_slices: IwoMbItemSliceRow[];
 }
 
 export interface IwoMbProcessRow {
@@ -69,6 +102,13 @@ export interface IwoMaterialBom {
 
 const uuidN = z.string().uuid().nullable().default(null);
 
+export const iwoMbItemSliceInput = z.object({
+  item_color_id: uuidN,
+  // Typed, so capitals (AGENTS.md, CAPITALS) — an IWO has no size range to pick from.
+  size: capsTextNullable(),
+  planned_qty: z.number().nullable().default(null),
+});
+
 export const iwoMbItemInput = z.object({
   category_id: uuidN,
   item_id: z.string().uuid({ message: "Choose the material" }),
@@ -78,7 +118,12 @@ export const iwoMbItemInput = z.object({
   consumption_uom_id: uuidN,
   purchase_uom_id: uuidN,
   uom_conversion_id: uuidN,
+  /* THE LINE'S OWN FIGURE under `attribute = item`; IGNORED otherwise — the
+     server writes Σ of the rows there (rules.ts `plannedQtyOf`), so a stale
+     line figure can never disagree with its own breakup. */
   planned_qty: z.number().nullable().default(null),
+  attribute: z.enum(IWO_MB_ATTRIBUTES).default("item"),
+  slices: z.array(iwoMbItemSliceInput).default([]),
   moq: z.number().nullable().default(null),
   round_to: z.number().nullable().default(null),
   is_advised: z.boolean().default(false),
