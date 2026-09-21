@@ -908,7 +908,15 @@ export function IwoFabricBomScreen({
       const row = expanded[p.row - 1]?.row ?? p.row;
       // The sentence carries the ordinal too ("Fabric line 3: …") — re-labelled
       // to the screen row, so a fabric with three dias is not "lines 3, 4, 5".
-      return { ...p, row, message: p.message.replace(/^Fabric line \d+:/, `Fabric line ${row}:`) };
+      let message = p.message.replace(/^Fabric line \d+:/, `Fabric line ${row}:`);
+      // A duplicate whose twin is IN THE SAME ROW is two breakup rows (client
+      // screenshot 2995: "the same … are on line 1" pointed at the row itself).
+      // Name the sheet, since that is where the fix is.
+      const twin = /are on line (\d+) — put the weight on one line\.$/.exec(message);
+      if (twin && (expanded[Number(twin[1]) - 1]?.row ?? Number(twin[1])) === row) {
+        message = message.replace(/are on line \d+ — put the weight on one line\.$/, "are twice in its breakup — open Req Wt and put the weight on one row.");
+      }
+      return { ...p, row, message };
     })
     // Two dias of one row failing the same test are ONE thing to fix.
     .filter((p, i, all) => all.findIndex((q) => q.row === p.row && q.field === p.field && q.message === p.message) === i);
