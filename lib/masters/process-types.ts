@@ -192,11 +192,15 @@ export const processFabricStageInput = z.object({
  */
 export function baseStageProblem(input: {
   for_fabric: boolean;
+  /** Since 2026-09-21 a yarn process is classified on the same grid. Optional
+   *  so every earlier caller and vector keeps its shape. */
+  for_yarn?: boolean;
   fabric_stages: readonly { stage_id: string | null; is_base: boolean }[];
 }): string | null {
-  /* A process that is not `for_fabric` HAS no stage route — `normalizeFabricStages`
-     drops the rows entirely — so there is nothing here to be wrong about. */
-  if (!input.for_fabric) return null;
+  /* A process that is neither `for_fabric` nor `for_yarn` HAS no stage route —
+     `normalizeFabricStages` drops the rows entirely — so there is nothing here
+     to be wrong about. */
+  if (!input.for_fabric && !input.for_yarn) return null;
   const based = new Set(
     input.fabric_stages.filter((s) => s.stage_id && s.is_base).map((s) => s.stage_id as string),
   );

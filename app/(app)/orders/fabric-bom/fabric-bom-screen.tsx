@@ -52,6 +52,7 @@ import {
   Waypoints,
   Ruler,
   Spool,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -207,6 +208,9 @@ import {
   type YarnRow,
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
+import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
+import { FabricTaTab } from "@/components/orders/fabric-ta/fabric-ta-tab";
+import { yarnStageProblems } from "@/lib/orders/fabric-bom/yarn-stage-routes";
 import type {
   BomTaskRow,
   FabricBomFormData,
@@ -2423,6 +2427,9 @@ export function FabricBomScreen({
            boundary converts once. */
         loss_pct: p.loss_pct == null ? "" : String(p.loss_pct),
         type_id: p.type_id,
+        /* 0606 — ASSORT COLOR-WISE LOSS, the map held as text like `loss_pct`. */
+        color_wise_loss: !!p.color_wise_loss,
+        color_losses: colorLossesToDraft(p.color_losses),
       })),
     );
     /* THE TWO SPLIT TOGGLES (0528). Straight across, same reason as the routes
@@ -2518,6 +2525,9 @@ export function FabricBomScreen({
                  `<Input>` cannot hold "1." or "" as a number, so the form keeps
                  text and the boundary converts once. */
               loss_pct: st.loss_pct == null ? "" : String(st.loss_pct),
+              /* 0606 — ASSORT COLOR-WISE LOSS. */
+              color_wise_loss: !!st.color_wise_loss,
+              color_losses: colorLossesToDraft(st.color_losses),
             })),
           },
         ]),
@@ -7243,6 +7253,10 @@ export function FabricBomScreen({
            read as one route and stacked every panel's steps (`stagesForGroup`). */
         component_id: p.component_id ?? null,
         loss_pct: loss,
+        /* 0606 — per-colourway losses, gated exactly as `normalizeProcesses`
+           stores them (only an "All colours" step), so the preview and the
+           stored purchase read the same figure. */
+        color_losses: colorLossesFromDraft(p.color_wise_loss && !p.combo, p.color_losses),
         stage_id: p.stage_id,
         process_id: p.process_id,
         /* CARRIED SINCE 2026-09-16 (0564), and the reason is the same one
@@ -7479,6 +7493,8 @@ export function FabricBomScreen({
         combo: st.combo || null,
         loss_pct: numOrNull(st.loss_pct),
         dyed: !!st.stage_id && dyedYarnStageIds.has(st.stage_id),
+        /* 0606 — same gate as `writeYarns`. */
+        color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses),
       })),
       uom?.decimal_places_allowed ?? null,
       /* WHERE EACH FABRIC COMES FROM (0564) — BYTE-FOR-BYTE the expression the
@@ -7706,6 +7722,14 @@ export function FabricBomScreen({
         message: b.message,
         kind: "custom" as const,
       })),
+      /* THE YARN SIDE OF THE STAGE RULE (client 2026-09-21): a yarn step its
+         Stage does not run, or a stage opened by a non-base step. The grid's
+         inline twins name the row; `writeYarns` refuses the same sentences. */
+      ...yarnStageProblems(
+        yarnRows.map((y) => ({ name: y.name, stages: y.stages })),
+        data.yarnProcesses.filter((p) => p.for_yarn).map((p) => ({ ...p, stage_roles: p.stage_roles ?? [] })),
+        data.yarnStages,
+      ).map((message) => ({ section: "yarns" as const, label: "Yarn Process", message, kind: "custom" as const })),
       /**
        * THE YARN ROWS MUST BE DERIVED BEFORE THIS DOCUMENT CAN BE SAVED.
        *
@@ -8251,6 +8275,8 @@ export function FabricBomScreen({
              behind both `For` columns; see the prop. */
           lossFor={data.processLookups.lossFor}
           combos={combos}
+          /* 0606 — ASSORT COLOR-WISE LOSS; this BOM's yarn-stage table holds it. */
+          colourLoss
           /* THE SCREEN'S OWN GENERATOR, so a process added to a reopened BOM
              cannot collide with the keys `openExisting` has already issued. */
           newKey={newKey}
@@ -10084,6 +10110,10 @@ export function FabricBomScreen({
                       /* 0583 — "DYEING [WITH BIOWASH]"; this BOM's route table
                          has the column to hold it. */
                       subCategories
+                      /* 0606 — ASSORT COLOR-WISE LOSS, over THIS fabric's own
+                         colourways (the same `r.combos` the Compo Color ▾
+                         lists), whether or not its route is split. */
+                      lossColours={r.combos}
                       /* 0557, doc/order/update.md §7.3 — a Yarn-Dyed
                          fabric's dyeing loss is carried on the Yarn
                          Process tab, so Fabric Process withholds
@@ -10128,6 +10158,22 @@ export function FabricBomScreen({
               screen, not the reasoning. Both process tabs now end at their grid,
               which is what "remove this unnecessary wording from each tab top"
               asked for; restore neither without the other. */}
+        </SectionBody>
+      ),
+    },
+    /* T&A — FABRIC STEPS 6–11 (0609, doc/order/fabricbom tanda.md). Yarn PO →
+       yarn GRN → knitting delivery → knitting receipt → process delivery →
+       finished roll in, dated back from cutting. Its own sidebar row for an
+       afternoon; moved here on the client's word (2026-09-21) because it is
+       this document's follow-through. `FabricTaTab` fetches its own data, so
+       the editor holds no tracker state. */
+    {
+      key: "ta",
+      label: "T&A",
+      icon: CalendarClock,
+      content: (
+        <SectionBody title="T&A">
+          <FabricTaTab garmentOrderId={form.garment_order_id} bomId={editId} />
         </SectionBody>
       ),
     },
@@ -10345,6 +10391,9 @@ export function FabricBomScreen({
            from the row, the schema and the table with it (0521). NO
            `description` either — 2026-09-04, the same shape (0528). */
         type_id: p.type_id,
+        /* 0606 — the server re-applies the "All colours only" gate. */
+        color_wise_loss: !!p.color_wise_loss && !p.combo,
+        color_losses: colorLossesFromDraft(p.color_wise_loss && !p.combo, p.color_losses) ?? {},
       })),
       /* THE TWO SPLIT TOGGLES (0528). Sent straight — `normalizeProcessScopes`
          is what decides which of these are worth a row (a fabric no longer
@@ -10384,8 +10433,14 @@ export function FabricBomScreen({
           loss_for_id: st.loss_for_id,
           /* THE `For` COLUMN'S ARITHMETIC (0504, restored 0529). */
           combo: st.combo || null,
-          description: st.description || null,
+          /* NO DESCRIPTION (client 2026-09-21) — the column is off this tab,
+             so nothing is sent for it: a note the operator cannot see must not
+             keep being saved. */
+          description: null,
           loss_pct: numOrNull(st.loss_pct),
+          /* 0606 — same gate as the fabric route's. */
+          color_wise_loss: !!st.color_wise_loss && !st.combo,
+          color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses) ?? {},
         })),
       })),
     };

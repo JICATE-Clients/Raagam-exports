@@ -18,7 +18,11 @@
  *     Fabric IWO buys its yarn GREY (the order pull's rule).
  *   - **yarn_process** — each step's stored `process_qty`, per shade where the
  *     step is For one. One line per (yarn, process, shade): two steps of one
- *     process on one lot are one charge.
+ *     process on one lot are one charge. A DYEING step on a Yarn-Dyeing line
+ *     that is For EVERY shade (0613's shape — one step, a loss per shade in
+ *     `color_losses`) is SPLIT into one line per shade here, so the budget
+ *     still carries one dyeing line (and one rate) per shade, which is what
+ *     0592's one-step-per-shade rule existed to give it. See `splitDyeing`.
  *   - **fabric_process** — NOT STORED on an IWO (the order reads it from its
  *     requirement report), so computed here the report's way: the fabric's Req
  *     Wt through its route, each step's weight = net × that step's
@@ -38,8 +42,8 @@
  * BOM's own sentence, so the operator is told what is missing.
  */
 
-import { comboUpliftBreakdown, isRefusal } from "@/lib/orders/fabric-bom/yarn-process";
-import { iwoFabricGross, iwoRoutesByFabric } from "@/lib/orders/iwo-fabric-bom/yarn";
+import { comboUpliftBreakdown, isRefusal, stageProcessQty } from "@/lib/orders/fabric-bom/yarn-process";
+import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase } from "@/lib/orders/iwo-fabric-bom/yarn";
 
 export type IwoBudgetSource = "yarn" | "yarn_process" | "fabric_process" | "material" | "material_process" | "expense";
 
@@ -75,12 +79,17 @@ export type IwoPullYarn = {
   refusal_reason: string | null;
   buy_stage_id: string | null;
   colour_by: "dyed_purchase" | "yarn_dyeing" | null;
-  shades: { color_name: string; purchase_qty: number | null }[];
+  /** `planned_kgs` (0613) is what `splitDyeing` re-runs the shade buckets from. */
+  shades: { color_name: string; planned_kgs?: number | null; purchase_qty: number | null }[];
   stages: {
     sno: number;
     stage_id: string | null;
     process_id: string | null;
     combo: string | null;
+    /** `loss_pct` + `color_losses` (0613): the step as the engine grosses it,
+     *  for `splitDyeing`. Optional so older vectors stay well-formed. */
+    loss_pct?: number | null;
+    color_losses?: Record<string, number> | null;
     process_qty: number | null;
     uom_id: string | null;
     refusal_reason: string | null;
@@ -113,7 +122,10 @@ export type IwoPullInput = {
   kgUomId: string | null;
   /** The `yarn_stage` row a grey purchase is stamped with (`stageRank` 0). */
   greyYarnStageId: string | null;
-  processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean }>;
+  /** The process master's kind flags, for every process a fabric route or a
+   *  yarn step names. `is_cloth_purchase` marks a step that BUYS the material
+   *  (FABRIC PURCHASE, DYED FABRIC PURCHASE, YARN PURCHASE — 0583 · 0612). */
+  processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean; is_cloth_purchase: boolean }>;
   name: (itemId: string) => string;
 };
 
@@ -222,19 +234,55 @@ export function pullIwoLines(input: IwoPullInput): IwoPullResult {
       });
     }
 
+    /**
+     * ONE DYEING LINE PER SHADE, STILL (0613). Under 0592 a Yarn-Dyeing line's
+     * dyeing steps each named a shade, and the loop below made a line per
+     * (process, shade) from the stored `combo`. 0613 gave the IWO the Fabric
+     * BOM's shape — ONE dyeing step For every shade, its per-shade losses in
+     * `color_losses` — so that step's stored `process_qty` is Σ shades and its
+     * `combo` is null. Splitting it here is what keeps the budget's grain: the
+     * shade's dyeing quantity IS a number the BOM computed (its bucket's gross,
+     * `byCombo`, the figure `stageProcessQty` summed into `process_qty`) — it
+     * is just not stored per shade, so it is re-run through the SAME pure
+     * function the save ran, `iwoYarnModePurchase`, over the stored shades and
+     * stored steps. Σ of the split = the stored `process_qty`, to the rounding.
+     *
+     * Only a DYEING step, only on a Yarn-Dyeing line, only when For every
+     * shade: a winding step For every shade stays one line, as it always was
+     * (a change nobody asked for), and a step still scoped to one shade (a
+     * 0592 row) already is that shade's line. If the re-run refuses — it
+     * cannot on a BOM that saved a quantity, but a defensive path is cheap —
+     * the step falls back to the one summed line rather than to nothing.
+     */
+    const dyeingBuckets =
+      input.iwoFor === "yarn" && y.colour_by === "yarn_dyeing" && y.shades.length
+        ? (() => {
+            const w = iwoYarnModePurchase(
+              null,
+              y.stages.map((st) => ({ combo: st.combo, loss_pct: st.loss_pct ?? null, color_losses: st.color_losses ?? null })),
+              input.kgUomId,
+              null,
+              yarnName,
+              {
+                colourBy: "yarn_dyeing",
+                shades: y.shades.map((sh) => ({ color_name: sh.color_name, planned_kgs: sh.planned_kgs ?? null })),
+              },
+            );
+            return isRefusal(w) ? null : w.byCombo;
+          })()
+        : null;
+    const splitDyeing = (st: (typeof y.stages)[number]): { combo: string; qty: number }[] | null => {
+      if (!dyeingBuckets || up(st.combo) || !input.processKinds.get(st.process_id as string)?.is_dyeing) return null;
+      return dyeingBuckets.map((b) => ({ combo: b.combo, qty: stageProcessQty(b.combo, dyeingBuckets) }));
+    };
+
     // One charge per (process, shade) on this yarn — steps sorted by sno, so the
     // first step's stage names the line.
     const byKey = new Map<string, IwoPulledLine>();
-    for (const st of [...y.stages].sort((a, b) => a.sno - b.sno)) {
-      if (!st.process_id) continue;
-      if (st.process_qty == null) {
-        skipped.push(`${yarnName}: a Yarn Process step — ${st.refusal_reason ?? "no weight on the Fabric BOM"}`);
-        continue;
-      }
-      const combo = up(st.combo);
+    const charge = (st: (typeof y.stages)[number], combo: string | null, qty: number) => {
       const key = `${st.process_id}|${combo ?? ""}`;
       const held = byKey.get(key);
-      if (held) held.qty = q4(held.qty + Number(st.process_qty));
+      if (held) held.qty = q4(held.qty + qty);
       else {
         byKey.set(key, {
           ...base,
@@ -243,11 +291,26 @@ export function pullIwoLines(input: IwoPullInput): IwoPullResult {
           process_id: st.process_id,
           combo,
           basis: combo ? "color" : "process",
-          qty: q4(Number(st.process_qty)),
+          qty: q4(qty),
           uom_id: st.uom_id,
           stage_id: st.stage_id,
         });
       }
+    };
+    for (const st of [...y.stages].sort((a, b) => a.sno - b.sno)) {
+      if (!st.process_id) continue;
+      // A PURCHASE IS NOT A PROCESS (client 2026-09-21) — the order Budget's
+      // rule (`pullCostLines`): the material is costed once, on Purchase
+      // Rates; a YARN PURCHASE step (the GREIGE base, 0611) is that same
+      // weight again, so it never becomes a `yarn_process` line.
+      if (input.processKinds.get(st.process_id)?.is_cloth_purchase) continue;
+      if (st.process_qty == null) {
+        skipped.push(`${yarnName}: a Yarn Process step — ${st.refusal_reason ?? "no weight on the Fabric BOM"}`);
+        continue;
+      }
+      const perShade = splitDyeing(st);
+      if (perShade) for (const sh of perShade) charge(st, sh.combo, sh.qty);
+      else charge(st, up(st.combo), Number(st.process_qty));
     }
     lines.push(...byKey.values());
   }
@@ -270,6 +333,10 @@ export function pullIwoLines(input: IwoPullInput): IwoPullResult {
       }
       for (const step of ladder.steps) {
         if (!step.process_id) continue;
+        // A PURCHASE IS NOT A PROCESS (client 2026-09-21): a route that opens
+        // with FABRIC PURCHASE keeps the step (its loss grosses the buy), but
+        // the cloth is bought, not processed — no `fabric_process` line.
+        if (input.processKinds.get(step.process_id)?.is_cloth_purchase) continue;
         // The order report's `toOrderedWt` (reports.ts), the same arithmetic —
         // so an IWO and an order cost one step of one route alike.
         const wt = Number((g.gross * step.factorAfter).toFixed(6));

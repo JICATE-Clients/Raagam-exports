@@ -111,7 +111,10 @@ async function syncProcessSubCategories(
  *   the grid above.
  */
 function normalizeFabricStages(data: ProcessInput): { stage_id: string; is_base: boolean }[] {
-  if (!data.for_fabric) return [];
+  /* A YARN PROCESS IS CLASSIFIED TOO (client 2026-09-21, "Yarn & YD stage
+     logic"): YARN DYEING enters DYED, YARN PURCHASE enters GREIGE. Same table,
+     same stages; the Yarn Process tab matches its `yarn_stage` rows by CODE. */
+  if (!data.for_fabric && !data.for_yarn) return [];
   const seen = new Set<string>();
   const out: { stage_id: string; is_base: boolean }[] = [];
   for (const s of data.fabric_stages) {

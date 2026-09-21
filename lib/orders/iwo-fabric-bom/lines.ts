@@ -148,12 +148,15 @@ export function iwoFabricLineProblems(
     else if (!(l.req_kgs > 0)) need("req_kgs", "consumption", "Req Wt must be a number more than 0.");
 
     const colour = (l.color_name ?? "").trim().toUpperCase();
+    // Colour and Print are filed under "consumption": since 2026-09-21 that is
+    // the ONLY grid drawing them (they came off Fabric Allocation), so a
+    // "go to problem" jump has to land there to find the box.
     if (l.stage_id) {
       const rank = stageRankOf(l.stage_id);
       if (rank === 0 && colour) {
-        need("color_name", "lines", "a GREIGE line has no colour — clear it (greige is one lot, dyed later).");
+        need("color_name", "consumption", "a GREIGE line has no colour — clear it (greige is one lot, dyed later).");
       } else if (rank != null && rank >= 1 && !colour) {
-        need("color_name", "lines", "choose the Colour — a dyed line is planned per colour.");
+        need("color_name", "consumption", "choose the Colour — a dyed line is planned per colour.");
       }
       /* COLOUR × DIA, AND PRINT (client ticket 2026-09-20, §3–§4). A DYED or
          WASHED line is planned per colour AND dia, so its Finish Dia is owed;
@@ -164,9 +167,9 @@ export function iwoFabricLineProblems(
         need("finish_dia", "consumption", "choose the Finish Dia — a dyed or printed line is planned per colour and dia.");
       }
       if (rank === 2 && !(l.print_name ?? "").trim()) {
-        need("print_name", "lines", "choose the Print — a printed line is planned per print, colour and dia.");
+        need("print_name", "consumption", "choose the Print — a printed line is planned per print, colour and dia.");
       } else if (rank !== 2 && rank != null && (l.print_name ?? "").trim()) {
-        need("print_name", "lines", "only a line in a Print stage carries a Print — clear it, or set the Stage to PRINT.");
+        need("print_name", "consumption", "only a line in a Print stage carries a Print — clear it, or set the Stage to PRINT.");
       }
       const first = stageOfFabric.get(l.item_id);
       if (!first) stageOfFabric.set(l.item_id, { row, stage_id: l.stage_id });
@@ -258,8 +261,22 @@ export function iwoFabricStages(lines: readonly IwoFabricLineFacts[]): Map<strin
  *   - **DYED** — the shades, a weight each, and HOW the colour is got
  *     (`colour_by`): **Dyed Purchase** buys each shade dyed, so a dyeing step
  *     here would dye it twice; **Yarn Dyeing** buys the grey total and dyes it,
- *     so EVERY shade needs a dyeing step For that shade — one step per shade is
- *     what gives the Budget one dyeing line (and one rate) per shade.
+ *     so EVERY shade needs a dyeing step that covers it.
+ *
+ * ONE DYEING STEP COVERS EVERY SHADE — 0613 REVERSED 0592'S "ONE STEP PER
+ * SHADE". 0592 made each dyeing step name its shade in a Colour ▾, which is how
+ * the Budget got one dyeing line (one rate) per shade. The client then gave the
+ * order Fabric BOM its colour-wise shape (0606: For = COLOR WISE turns Loss %
+ * into a [Color Loss] list, one loss per colour, NO Colour ▾) and asked for the
+ * same on the IWO (screenshot 2979, 2026-09-21). That shape has no cell to name
+ * a shade in, so a rule demanding one would be unsatisfiable — AGENTS.md's "a
+ * hold refuses movement and never refuses choosing", one screen along. So: a
+ * dyeing step with no For colour covers every shade; a step stored under 0592
+ * with a shade still covers that shade; the Budget pull splits a covering
+ * dyeing step per shade itself (`lib/orders/iwo-budget/pull.ts`), so the
+ * per-shade budget line survives the rule change. PROCESS WISE on the step is
+ * a legitimate answer too (every shade loses alike) — the same choice the
+ * order Fabric BOM offers.
  *
  * "Is this a dyeing step" is the process master's `is_dyeing` (0557; 0592 set
  * it on YARN DYEING) — read by the CALLER and handed in as `dyeing`, so this
@@ -389,13 +406,15 @@ export function iwoYarnLineProblems(
       say("it is bought already dyed — remove the dyeing step, or choose Colour by Yarn Dyeing.", "yarns");
     }
     if (l.colour_by === "yarn_dyeing") {
-      if (steps.some((s) => s.dyeing && !up(s.combo))) {
-        say("choose which shade each dyeing step is For — one dyeing step per shade.", "yarns");
-      }
-      for (const name of seen) {
-        if (!steps.some((s) => s.dyeing && up(s.combo) === name)) {
-          say(`add a Yarn Dyeing step For ${name} on Yarn Process.`, "yarns");
-        }
+      // A dyeing step with no For colour dyes every shade (0613); one scoped to
+      // a shade (a 0592 row) dyes that shade. Name the shades nobody dyes.
+      const undyed = [...seen].filter((name) => !steps.some((s) => s.dyeing && (!up(s.combo) || up(s.combo) === name)));
+      if (undyed.length) {
+        say(
+          `add a Yarn Dyeing step on Yarn Process — it dyes every shade (${undyed.join(", ")} ${undyed.length === 1 ? "has" : "have"} none); ` +
+            "For = Color Wise gives each shade its own loss %.",
+          "yarns",
+        );
       }
     }
   });

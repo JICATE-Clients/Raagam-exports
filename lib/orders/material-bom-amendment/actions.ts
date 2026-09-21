@@ -54,6 +54,7 @@ import {
   type ProcessLossRow,
 } from "@/lib/orders/material-bom/process-loss";
 import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
+import { missingItemColours, type ColourWiseLineFacts } from "@/lib/orders/material-bom/colour-required";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -114,6 +115,60 @@ const numOrNull = (v: unknown) =>
 // ---------------------------------------------------------------------------
 // Child normalizers (drop fully-empty rows + renumber sno)
 // ---------------------------------------------------------------------------
+
+/**
+ * ITEM COLOR OWED ON A COLOUR-WISE ROW (client 2026-09-21) — the server half of
+ * `colour-required.ts`, asked BEFORE the first write of a create or update so a
+ * refusal is a sentence and never a half-run save (the reason `orderLockProblem`
+ * sits where it does).
+ *
+ * THE ROWS ARE EXPLODED EXACTLY AS `requirementRows` EXPLODES THEM — grain,
+ * legacy basis, the size-wise tick, the combination crossing, the `chosen`
+ * filter — and the colour is resolved as that function stores it (the row's
+ * tick, then the line's). So a row this refuses is one whose stored
+ * `item_color_id` would have been NULL; nothing else.
+ *
+ * NAMED BY MATERIAL, which the payload does not carry: the names are looked up
+ * only once a line has actually failed, so a clean save costs no query.
+ */
+async function colourWiseProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  items: ReturnType<typeof normalizeItems>,
+  order: OrderProductionInput | null,
+): Promise<string | null> {
+  if (!order) return null;
+  const facts: ColourWiseLineFacts[] = [];
+  items.forEach((line, i) => {
+    if (!line.item_id) return;
+    const basis = line.requirement_basis as RequirementBasis | null;
+    const grain: Axis[] | null =
+      (line.requirement_grain as Axis[] | null) ?? (basis ? axesOfBasis(basis) : null);
+    if (!grain || !grain.includes("colour")) return;
+    const flags = sliceFlags(line.slices);
+    const asBasis = basisForAxes(grain);
+    const slices = asBasis
+      ? productionSlices(asBasis, order, undefined, (sl) => flags.sizeWise(sl))
+      : slicesForAxes(grain, order);
+    // A line the explosion refuses is refused by name on its own row — not here.
+    if (isRefusal(slices)) return;
+    const rows = crossCombinations(slices, combinationNames(line.slices)).filter((sl) => flags.chosen(sl));
+    facts.push({
+      sno: i + 1,
+      material: line.item_id,
+      grain,
+      item_color_id: line.item_color_id ?? null,
+      rows: rows.map((sl) => ({ label: sl.label, item_color_id: flags.colour(sl) })),
+    });
+  });
+  const missing = missingItemColours(facts);
+  if (missing.length === 0) return null;
+  // Only now the names — for the sentence, and only for the lines that failed.
+  const ids = [...new Set(missing.map((m) => facts.find((f) => f.sno === m.sno)?.material).filter(Boolean))] as string[];
+  const { data } = await s.from("items").select("id, name").in("id", ids);
+  const names = new Map(((data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]));
+  const named = missingItemColours(facts.map((f) => ({ ...f, material: names.get(f.material) ?? f.material })));
+  return named[0]?.message ?? missing[0].message;
+}
 
 function normalizeItems(data: MaterialBomAmendmentInput) {
   return data.items
@@ -1434,6 +1489,8 @@ export async function createMaterialBomAmendment(
   const order = p.data.garment_order_id
     ? await getOrderProduction(p.data.garment_order_id)
     : null;
+  const uncoloured = await colourWiseProblem(s, normalizeItems(p.data), order);
+  if (uncoloured) return fail(uncoloured);
 
   const amendment_no = await nextAmendmentNo(s, p.data.garment_order_id ?? null);
   const { data: created, error } = await s
@@ -1472,6 +1529,8 @@ export async function updateMaterialBomAmendment(
   const order = p.data.garment_order_id
     ? await getOrderProduction(p.data.garment_order_id)
     : null;
+  const uncoloured = await colourWiseProblem(s, normalizeItems(p.data), order);
+  if (uncoloured) return fail(uncoloured);
 
   const { error } = await s
     .from("material_bom_amendments")

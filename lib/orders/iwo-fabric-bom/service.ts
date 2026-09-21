@@ -15,7 +15,11 @@ import { kilogramUom } from "@/lib/uom/kilogram";
 // both order-agnostic): the route grid and the stage rules must read the SAME
 // master the order screen reads, kind flags included, or an IWO route and an
 // order route could compute one fabric's yarn two ways.
-import { getFabricProcessLookupRows, getFabricProcessRows } from "@/lib/orders/fabric-bom/service";
+import {
+  getFabricProcessLookupRows,
+  getFabricProcessRows,
+  getYarnProcessRows as loadYarnProcessRows,
+} from "@/lib/orders/fabric-bom/service";
 import type { FabricProcessLookups, FabricProcessOption } from "@/lib/orders/fabric-bom/processes";
 import type { YarnProcessOption } from "@/lib/orders/fabric-bom/yarn-process";
 import type { IwoFabricBom } from "./types";
@@ -197,15 +201,13 @@ export async function getIwoFabricBomFormData(): Promise<IwoFabricBomFormData> {
 
 type Db = Awaited<ReturnType<typeof createClient>>;
 
-/** Copied from the order service's private `getYarnProcessRows` — the Process
- *  master with `for_yarn`, `inactive` carried (never filtered) so a held value
- *  still resolves. A failed query is an error, not an empty list. */
-async function getYarnProcessRows(s: Db): Promise<YarnProcessOption[]> {
-  const { data, error } = await s.from("processes").select("id, name, inactive, for_yarn").order("name");
-  if (error) throw new Error(`Could not load the Process master: ${error.message}`);
-  return ((data ?? []) as { id: string; name: string; inactive: boolean | null; for_yarn: boolean | null }[]).map(
-    (p) => ({ id: p.id, code: null, name: p.name, inactive: p.inactive ?? false, for_yarn: p.for_yarn ?? false }),
-  );
+/** THE ORDER SERVICE'S OWN LOADER, not a copy any more (2026-09-21). It was a
+ *  copy without `stage_roles`, so on this screen every yarn process read as
+ *  unclassified and the Stage → Process rule silently fell open — the gap
+ *  screenshot 2973 caught on Fabric BOM, one screen over. One loader, both
+ *  screens, so the yarn tab answers a Stage the same way everywhere. */
+async function getYarnProcessRows(_s: Db): Promise<YarnProcessOption[]> {
+  return loadYarnProcessRows();
 }
 
 async function getYarnStageRows(s: Db): Promise<ConfigLookup[]> {

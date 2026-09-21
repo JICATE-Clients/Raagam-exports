@@ -66,9 +66,12 @@
  */
 
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import { ColorLossControl } from "@/components/orders/color-loss-control";
+import { colorLossSeed, isColorWiseFor } from "@/lib/orders/fabric-bom/color-loss";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
@@ -128,6 +131,7 @@ export function FabricProcessGrid({
   canEdit = false,
   readOnly = false,
   hideHeader = false,
+  lossColours = null,
 }: {
   /** The fabric these steps belong to — stamped onto every row added. */
   itemId: string;
@@ -224,6 +228,20 @@ export function FabricProcessGrid({
    *  route is split into several of these grids stacked in a row; see
    *  `ChildGrid`'s own `hideHeader` note for why. */
   hideHeader?: boolean;
+  /**
+   * ASSORT COLOR-WISE LOSS (0606, client spec 2026-09-21) — the fabric's OWN
+   * colourways. With it, a step whose Loss for = COLOR WISE shows a [Color
+   * Loss] button (each colour + its loss) in place of the Loss % box. The For
+   * field is the switch; there is no tick of its own. Independent of `colours`
+   * above — that scopes a STEP to one colour; this gives one step a loss per
+   * colour.
+   *
+   * OPT-IN like `subCategories`, and for the same reason: the value needs a
+   * column to land in. Fabric BOM's route table has `color_losses`; IWO
+   * Fabric BOM's does not, and a sheet whose figures the save then drops is
+   * the silent-loss shape. `null` draws no column.
+   */
+  lossColours?: readonly string[] | null;
 }) {
   const patch = (key: string, next: Partial<FabricProcessRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
@@ -497,7 +515,14 @@ export function FabricProcessGrid({
       width: "7rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
-        <div className="min-w-0">
+        <div
+          className={cn(
+            "min-w-0",
+            (stageRegressionBlocked(rowsInBranch(r), indexInBranch(r), lookups.stages) ||
+              yarnDyedStageBlocked(rowsInBranch(r), indexInBranch(r), processes, lookups.stages, fabricIsYarnDyed)) &&
+              "rounded-md ring-2 ring-danger",
+          )}
+        >
           <LookupDialogPicker
             kind="fabric_stage"
             label="Stage"
@@ -530,7 +555,7 @@ export function FabricProcessGrid({
               consequence, because that is the reason the rule exists and the
               operator cannot see a ledger from here. */}
           {stageRegressionBlocked(rowsInBranch(r), indexInBranch(r), lookups.stages) && (
-            <p className="mt-1 text-xs text-warning">
+            <p className="mt-1 px-1 text-xs font-medium text-danger">
               This route has already reached a later stage — a fabric cannot go
               back to{" "}
               {lookups.stages.find((s) => s.id === r.stage_id)?.name ?? "an earlier stage"}.
@@ -538,7 +563,7 @@ export function FabricProcessGrid({
           )}
           {/* 2026-09-20 — the Save gate's sentence, shortened for the cell. */}
           {yarnDyedStageBlocked(rowsInBranch(r), indexInBranch(r), processes, lookups.stages, fabricIsYarnDyed) && (
-            <p className="mt-1 text-xs text-warning">
+            <p className="mt-1 px-1 text-xs font-medium text-danger">
               This fabric is Yarn-Dyed — {stageName(r.stage_id)} is only for a route that starts with a
               dyed-roll purchase. Use WASH for its washing and finishing.
             </p>
@@ -587,7 +612,23 @@ export function FabricProcessGrid({
            why. Auto-deleting it would destroy a planner's route on a dropdown
            change, and refusing the source change would be the post-hoc block
            this module refuses everywhere else. */
-        <div className={`min-w-0${suppressedReason(r) ? " opacity-60" : ""}`}>
+        <div
+          className={cn(
+            "min-w-0",
+            suppressedReason(r) && "opacity-60",
+            /* HARD GATE, SHOWN AS ONE (client 2026-09-21): the cell a Save
+               rule refuses wears a red outline. Every predicate here is one
+               `stageRouteProblems` / `printRouteProblems` refuses on. */
+            (printBlocked(r, processes, printOk(r)) ||
+              dyeingBlocked(r, processes, fabricIsYarnDyed) ||
+              stageMismatchBlocked(r, processes, gatesFor(r)) ||
+              baseProcessRepeated(rowsInBranch(r), indexInBranch(r), processes) ||
+              processRepeatedInStage(rowsInBranch(r), indexInBranch(r)) ||
+              routeStartNotFirst(rowsInBranch(r), indexInBranch(r), processes) ||
+              baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, gatesFor(r))) &&
+              "rounded-md ring-2 ring-danger",
+          )}
+        >
           {(() => {
             const narrowed = processesForFabric(processes, {
               currentValue: r.process_id,
@@ -644,7 +685,7 @@ export function FabricProcessGrid({
               same "held value survives, tagged" idiom `printBlocked` shares
               with every disabled-row rule in this app. */}
           {printBlocked(r, processes, printOk(r)) && (
-            <div className="mt-0.5 text-xs text-warning">
+            <div className="mt-0.5 px-1 text-xs font-medium text-danger">
               {printDeclaredFor
                 ? /* Per branch: the order may print another colour, just not
                      this one — say which fact is missing. */
@@ -660,7 +701,7 @@ export function FabricProcessGrid({
           {/* Since 2026-09-19 this also BLOCKS SAVE (`stageRouteProblems`),
               so it is worded as the client's refusal, not as advice. */}
           {dyeingBlocked(r, processes, fabricIsYarnDyed) && (
-            <div className="mt-0.5 text-xs text-warning">
+            <div className="mt-0.5 px-1 text-xs font-medium text-danger">
               This fabric is Yarn-Dyed. Fabric Dyeing steps cannot be added to a
               yarn-dyed fabric route — remove this step.
             </div>
@@ -680,7 +721,7 @@ export function FabricProcessGrid({
               — so the twin could name a mismatch the narrowing had already
               permitted. */}
           {stageMismatchBlocked(r, processes, gatesFor(r)) && (
-            <div className="mt-0.5 text-xs text-warning">
+            <div className="mt-0.5 px-1 text-xs font-medium text-danger">
               {stageName(r.stage_id)} does not run {""}
               {processes.find((p) => p.id === r.process_id)?.name ?? "this process"} — the
               roll&apos;s weight would be booked to the {stageName(r.stage_id)} stock ledger in
@@ -705,7 +746,7 @@ export function FabricProcessGrid({
               gates: "is this process a base of this stage" is a question about
               the classification alone. */}
           {baseProcessRepeated(rowsInBranch(r), indexInBranch(r), processes) && (
-            <div className="mt-0.5 text-xs text-warning">
+            <div className="mt-0.5 px-1 text-xs font-medium text-danger">
               {processes.find((p) => p.id === r.process_id)?.name ?? "This step"} already
               moved this fabric into {stageName(r.stage_id)} — a stage is entered once.
             </div>
@@ -715,7 +756,7 @@ export function FabricProcessGrid({
               cell, one message. */}
           {!baseProcessRepeated(rowsInBranch(r), indexInBranch(r), processes) &&
             processRepeatedInStage(rowsInBranch(r), indexInBranch(r)) && (
-              <div className="mt-0.5 text-xs text-warning">
+              <div className="mt-0.5 px-1 text-xs font-medium text-danger">
                 {processes.find((p) => p.id === r.process_id)?.name ?? "This process"} is
                 already in the {stageName(r.stage_id)} stage — a stage runs each process once.
               </div>
@@ -726,13 +767,13 @@ export function FabricProcessGrid({
               (`routeStartOk`), so this only fires on a row saved before that,
               or one whose rows above were filled in afterwards. */}
           {routeStartNotFirst(rowsInBranch(r), indexInBranch(r), processes) && (
-            <div className="mt-0.5 text-xs text-warning">
+            <div className="mt-0.5 px-1 text-xs font-medium text-danger">
               {processes.find((p) => p.id === r.process_id)?.name ?? "This step"} can only be the
               initial step (Step 1) — move it to the first row.
             </div>
           )}
           {baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, gatesFor(r)) && (
-            <div className="mt-0.5 text-xs text-warning">
+            <div className="mt-0.5 px-1 text-xs font-medium text-danger">
               A {stageName(r.stage_id)} route opens with{" "}
               {baseProcessesForStage(baseCandidatesFor(r), r.stage_id)
                 .map((p) => p.name)
@@ -773,7 +814,18 @@ export function FabricProcessGrid({
           compact
           options={lookups.lossFor}
           value={r.loss_for_id}
-          onChange={(id) => patch(r.key, { loss_for_id: id || null })}
+          onChange={(id) => {
+            const next = id || null;
+            /* THE Loss for FIELD IS THE SWITCH (client 2026-09-21): COLOR WISE
+               turns the Loss % box into the [Color Loss] list, seeded with the
+               step's current loss for every colour; PROCESS WISE empties it. */
+            const wise = !!lossColours && isColorWiseFor(next, lookups.lossFor);
+            patch(r.key, {
+              loss_for_id: next,
+              color_wise_loss: wise,
+              color_losses: wise ? colorLossSeed(lossColours ?? [], r.color_losses, r.loss_pct) : {},
+            });
+          }}
           canCreate={canCreate && !readOnly}
           canEdit={canEdit && !readOnly}
         />
@@ -799,16 +851,35 @@ export function FabricProcessGrid({
        */
       header: "Loss %",
       align: "right",
-      width: "4.5rem",
-      cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          value={r.loss_pct}
-          disabled={readOnly}
-          onChange={(e) => patch(r.key, { loss_pct: e.target.value })}
-        />
-      ),
+      /* 7rem where the cell may hold the [Color Loss] button (0606); the
+         separate 8rem Color-wise Loss column it replaces is gone. */
+      width: lossColours ? "7rem" : "4.5rem",
+      cell: (r) =>
+        /* Loss for = COLOR WISE → each colour's loss in the list; PROCESS WISE
+           → the one box. A step whose Compo Color names ONE colour keeps the
+           box: one colour has one loss. `isColorWiseFor` is the rule both
+           process grids read. */
+        lossColours && !r.combo && isColorWiseFor(r.loss_for_id, lookups.lossFor) ? (
+          <ColorLossControl
+            driven
+            colours={lossColours}
+            baseLoss={r.loss_pct}
+            wise
+            losses={r.color_losses ?? {}}
+            stageLabel={(r.process_id ? processes.find((p) => p.id === r.process_id)?.name : null) || stageName(r.stage_id)}
+            readOnly={readOnly}
+            unavailable={lossColours.length === 0 ? "No colourway uses this fabric yet." : null}
+            onChange={(next) => patch(r.key, next)}
+          />
+        ) : (
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            value={r.loss_pct}
+            disabled={readOnly}
+            onChange={(e) => patch(r.key, { loss_pct: e.target.value })}
+          />
+        ),
     },
     /*
      * `Rate` WAS HERE AND THE CLIENT REMOVED IT (2026-09-03, screenshot 2663:

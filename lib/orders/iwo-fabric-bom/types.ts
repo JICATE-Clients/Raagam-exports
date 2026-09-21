@@ -122,6 +122,9 @@ export interface IwoFabricBomProcessRow {
   loss_for_id: string | null;
   loss_pct: number | null;
   type_id: string | null;
+  /** 0613 — For = COLOR WISE: a loss % per line Colour. Off ⇒ `{}`. */
+  color_wise_loss?: boolean | null;
+  color_losses?: Record<string, number> | null;
 }
 
 export interface IwoFabricBomYarnStageRow {
@@ -134,6 +137,10 @@ export interface IwoFabricBomYarnStageRow {
   combo: string | null;
   description: string | null;
   loss_pct: number | null;
+  /** 0613 — For = COLOR WISE: a loss % per shade (Yarn IWO) or per line
+   *  Colour (Fabric IWO). Off ⇒ `{}`. */
+  color_wise_loss?: boolean | null;
+  color_losses?: Record<string, number> | null;
   process_qty: number | null;
   uom_id: string | null;
   refusal_reason: string | null;

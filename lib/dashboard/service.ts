@@ -3,6 +3,7 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { getDashboardData } from "@/lib/orders/service";
+import { workFlowDef } from "@/lib/orders/work-flow/types";
 import { addDays, monthLabel, rangeWindow, today, trailing12 } from "./range";
 import { delta, fmtCompactInr, fmtCompactNumber, fmtPct } from "./format";
 import type {
@@ -1104,7 +1105,7 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
   const sb = await createClient();
   const t = today();
 
-  const [coreData, latePos, failedQc, lateShipments, overdueAr] = await Promise.all([
+  const [coreData, latePos, failedQc, lateShipments, overdueAr, workFlowLate] = await Promise.all([
     caps.orders ? core() : Promise.resolve(null),
     cell(caps.materials, async () =>
       rows(
@@ -1149,9 +1150,39 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
           .limit(3),
       ),
     ),
+    /* ORDER ENTRY ▸ T&A ▸ WORK FLOW (0607) — pre-production office milestones
+       past target and not done. The "milestones" alert above reads the old 0006
+       `ta_milestones`, which Order Entry never writes; that count is left as it
+       is (retiring it is its own decision) and this one reads what is live. */
+    cell(caps.orders, async () =>
+      rows(
+        await sb
+          .from("order_work_flow_milestones")
+          .select("code, target_date, so:sales_orders!sales_order_id(order_number)")
+          .neq("status", "done")
+          .lt("target_date", t)
+          .order("target_date", { ascending: true })
+          .limit(200),
+      ),
+    ),
   ]);
 
   const out: AlertItem[] = [];
+
+  if (workFlowLate.ok && workFlowLate.value.length > 0) {
+    const late = workFlowLate.value;
+    const firsts = late
+      .slice(0, 3)
+      .map((r) => `${s(embed(r, "so")?.order_number) || "?"} ${workFlowDef(s(r.code))?.label ?? s(r.code)}`);
+    out.push({
+      key: "work-flow",
+      title: `${late.length}${late.length >= 200 ? "+" : ""} pre-production milestone(s) overdue`,
+      body: `${firsts.join(" · ")}${late.length > 3 ? " …" : ""} — open the order's T&A ▸ Work Flow.`,
+      href: "/orders/garment-orders",
+      tone: "danger",
+      icon: "triangle-alert",
+    });
+  }
 
   if (coreData && coreData.overdueCount > 0) {
     out.push({

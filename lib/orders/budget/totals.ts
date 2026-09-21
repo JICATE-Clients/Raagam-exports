@@ -434,6 +434,17 @@ const BUDGET_HOME_CURRENCY = "INR";
  * Not "Enter a rate": a free-of-cost line is priced, at nothing, and the row
  * must read Qty x INR Rate = Amount like every other row. Showing a typed
  * notional rate beside an amount of 0 would be a row contradicting itself.
+ *
+ * ## A TYPED 0 IS NOT A RATE (client 2026-09-21)
+ *
+ * This REVERSES the rule that stood until then ("a rate of 0 is a real thing
+ * to budget — a free-issue trim, a process the customer pays for"). The client
+ * ruled that a purchase item or process stage "left blank, zero, or unentered"
+ * is UNRATED: the operator has not priced it, and a 0 that was really a
+ * placeholder costs a real dye lot at nothing and flatters the margin by that
+ * whole charge. The two legitimate cases the old rule named both have a
+ * proper home — a free line is FOC, which is a stated fact rather than a 0
+ * hoping to be read as one — so the refusal says which box to tick.
  */
 export function lineInrRate(line: BudgetLineInput): number | LineRefusal {
   if (line.is_foc === true) return 0;
@@ -442,6 +453,9 @@ export function lineInrRate(line: BudgetLineInput): number | LineRefusal {
   if (rate == null) return { refused: "Enter a rate", field: "rate" };
   if (rate < 0) {
     return { refused: "A rate cannot be negative — use Other income instead", field: "rate" };
+  }
+  if (rate === 0) {
+    return { refused: "Enter a rate above 0 — tick FOC for a free line", field: "rate" };
   }
 
   const code = (line.currency_code ?? "").trim().toUpperCase();
@@ -511,9 +525,8 @@ export function lineAmount(line: BudgetLineInput, base?: SalesBase): number | Li
     return isRefusal(charge) ? charge : money(charge);
   }
 
-  // 0 IS NOT AN ANSWER HERE EITHER, but only for qty — a rate of 0 is a real
-  // thing to budget (a free-issue trim, a process the customer pays for) and
-  // refusing it would make those unenterable.
+  // 0 IS NOT AN ANSWER HERE EITHER — for qty here, and for the rate inside
+  // `lineInrRate` (since 2026-09-21; a free line is FOC, not a 0).
   const reqd = lineReqd(line);
   if (isRefusal(reqd)) return reqd;
   if (line.is_foc === true) return 0;
@@ -681,10 +694,18 @@ export type BudgetTotals = {
   income: number | Refusal;
   /** What the grouped orders will sell for. Refuses rather than part-summing. */
   sales: number | Refusal;
-  /** sales + income − cost. Refuses whenever any of the three does. */
+  /** sales + income − cost. Refuses whenever any of the three does — AND
+   *  whenever a line is unpriced (`unratedNotice`): a margin over a cost that
+   *  is missing a dye charge is not a partial answer, it is the wrong one. */
   profit: number | Refusal;
   /** profit as a percentage of sales. Refuses when profit does, or sales is zero. */
   profitPct: number | Refusal;
+  /** THE SUPPRESSION NOTICE (client 2026-09-21) — one sentence naming the
+   *  unrated lines, by section, e.g. "2 process rates missing: SINGLE JERSEY
+   *  · DYEING, SINGLE JERSEY · COMPACTING. Profit calculation suppressed."
+   *  Null while every line is priced. The screen shows it as a banner; it is
+   *  also what `profit` refuses with. */
+  unratedNotice: string | null;
   /** Lines that could not produce an amount, with the reason. Never silently
    *  dropped from the total: they are EXCLUDED and counted here, so a budget
    *  cannot look complete while a line is unanswered. */
@@ -727,6 +748,19 @@ export type BudgetTotals = {
  * Not on all of them, and not by summing what it can. See the header: four
  * fifths of a sales figure produces a profit percentage that is wrong in the
  * flattering direction.
+ *
+ * ## AND SO DOES `profit`, ON THE FIRST UNPRICED LINE (client 2026-09-21)
+ *
+ * The cost total EXCLUDES an unpriced line (above) and says so — but until
+ * this date the profit and the margin were still computed from what remained,
+ * and shown, in green, beside a red "2 lines unpriced" chip. That is the same
+ * flattering part-sum the sales rule refuses, one row down: a budget whose
+ * dyeing is not yet rated reads as 22% instead of 14%, and 22% is what gets
+ * remembered. The client's rule: "if any active purchase item or process stage
+ * is left blank, zero, or unentered, suppress the Net Profit Amount and Profit
+ * Margin entirely" and say which — so `profit` and `profitPct` refuse with
+ * `unratedNotice`, the sentence that names the lines. `cost` still answers
+ * (it is honest about what it excludes, and the section totals need it).
  */
 export function budgetTotals(
   lines: readonly BudgetLineInput[],
@@ -794,17 +828,23 @@ export function budgetTotals(
   });
 
   const sales = groupSales(orders);
+  const unratedNotice = unratedNoticeOf(lines, unpriced);
 
   /* WHICH ONE REFUSED IS PART OF THE ANSWER. Sales keeps its own sentence (it
      already names the order); cost and income say which total could not be
-     made, since their sentence names only the line. */
+     made, since their sentence names only the line; an unrated line names
+     itself. Sales first: a budget with no orders yet is "empty", and the
+     screen draws that as a dash (`NO_ORDERS_YET`) — the notice still shows
+     beside it, as the banner. */
   const profit: number | Refusal = isRefusal(sales)
     ? sales
     : isRefusal(cost)
       ? { refused: `Cost can't be totalled — ${cost.refused}` }
       : isRefusal(income)
         ? { refused: `Income can't be totalled — ${income.refused}` }
-        : money(sales + income - cost);
+        : unratedNotice
+          ? { refused: unratedNotice }
+          : money(sales + income - cost);
 
   const profitPct: number | Refusal = isRefusal(profit)
     ? profit
@@ -815,7 +855,63 @@ export function budgetTotals(
         { refused: "No sales value to measure the margin against" }
       : Math.round((profit / (sales as number)) * 10000) / 100;
 
-  return { cost, costBySource, income, sales, profit, profitPct, unpriced, pending };
+  return { cost, costBySource, income, sales, profit, profitPct, unpriced, pending, unratedNotice };
+}
+
+/** Which of the client's two sections a source's rate is typed on. */
+const RATE_SECTION: Record<BudgetSource, "purchase" | "process" | "other"> = {
+  fabric: "purchase",
+  yarn: "purchase",
+  material: "purchase",
+  yarn_process: "process",
+  fabric_process: "process",
+  material_process: "process",
+  garment_process: "process",
+  cmt: "other",
+  expense: "other",
+  income: "other",
+};
+
+/** How many names a notice lists per section before "and N more". */
+const NOTICE_NAMES = 4;
+
+/**
+ * The profit-suppression sentence — see `budgetTotals`. Per section (purchase
+ * / process / other), in that order, each naming its lines: the line's own
+ * description (a pulled line reads "SINGLE JERSEY · DYEING") or "Line n". A
+ * section whose unpriced lines are ALL missing their rate (or exchange rate)
+ * says "rates missing"; one with a blank quantity or an unchosen source says
+ * "lines unpriced", since calling a missing quantity a missing rate would send
+ * the operator to the wrong box.
+ */
+export function unratedNoticeOf(
+  lines: readonly BudgetLineInput[],
+  unpriced: readonly { index: number; field?: LineField }[],
+): string | null {
+  if (unpriced.length === 0) return null;
+  const by = new Map<"purchase" | "process" | "other", { names: string[]; allRates: boolean }>();
+  for (const u of unpriced) {
+    const l = lines[u.index];
+    const source = budgetSourceOf(l?.source);
+    const section = isRefusal(source) ? "other" : RATE_SECTION[source];
+    const held = by.get(section) ?? { names: [], allRates: true };
+    held.names.push((l?.description ?? "").trim() || `Line ${u.index + 1}`);
+    if (u.field !== "rate" && u.field !== "ex_rate") held.allRates = false;
+    by.set(section, held);
+  }
+  const parts = (["purchase", "process", "other"] as const).flatMap((section) => {
+    const held = by.get(section);
+    if (!held) return [];
+    const n = held.names.length;
+    const prefix = section === "other" ? "" : `${section} `;
+    const what = held.allRates
+      ? `${prefix}${n === 1 ? "rate" : "rates"} missing`
+      : `${prefix}${n === 1 ? "line" : "lines"} unpriced`;
+    const shown = held.names.slice(0, NOTICE_NAMES).join(", ");
+    const more = n > NOTICE_NAMES ? ` and ${n - NOTICE_NAMES} more` : "";
+    return [`${n} ${what}: ${shown}${more}`];
+  });
+  return `${parts.join("; ")}. Profit calculation suppressed.`;
 }
 
 // ---------------------------------------------------------------------------

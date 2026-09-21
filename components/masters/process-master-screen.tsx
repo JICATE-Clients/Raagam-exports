@@ -260,7 +260,7 @@ export function ProcessMasterScreen({
    */
   function toggleFor(key: keyof typeof BLANK, checked: boolean) {
     set({ [key]: checked });
-    if (key === "for_fabric" && checked && stageRows.length === 0)
+    if ((key === "for_fabric" || key === "for_yarn") && checked && stageRows.length === 0)
       setStageRows([blankStage(newKey())]);
   }
   function addStage() {
@@ -271,6 +271,7 @@ export function ProcessMasterScreen({
      save cannot disagree about what a base tick may be. */
   const baseProblem = baseStageProblem({
     for_fabric: form.for_fabric,
+    for_yarn: form.for_yarn,
     fabric_stages: stageRows,
   });
 
@@ -331,7 +332,7 @@ export function ProcessMasterScreen({
            A stage picked with the box unticked is a complete classification.
            The action re-applies this (`normalizeFabricStages`), which is the
            guard; this is the courtesy. */
-        fabric_stages: form.for_fabric
+        fabric_stages: form.for_fabric || form.for_yarn
           ? stageRows
               .filter((s) => s.stage_id)
               .map((s) => ({ stage_id: s.stage_id, is_base: s.is_base }))
@@ -873,10 +874,13 @@ export function ProcessMasterScreen({
          * at a time, never from withholding by default. The blank row this grid
          * opens with is dropped on save, so leaving it untouched says nothing.
          */}
-        {form.for_fabric && (
+        {/* A YARN PROCESS IS CLASSIFIED HERE TOO (client 2026-09-21): YARN
+            DYEING enters DYED, YARN PURCHASE enters GREIGE. Same stages, same
+            grid — the Yarn Process tab reads them by stage CODE. */}
+        {(form.for_fabric || form.for_yarn) && (
           <div className="min-w-0 flex-[0_1_23rem]">
           <ChildGrid<StageRow>
-            label="Fabric Stages"
+            label={form.for_fabric ? "Fabric Stages" : "Stages"}
             /* NO `forceCards` / `renderMobileRow`, deliberately. A grid that
                renders its own row states every cell TWICE (once in `columns`,
                once in the row), and under `forceCards` the `columns` half is
@@ -952,7 +956,14 @@ export function ProcessMasterScreen({
                       type="checkbox"
                       className="h-4 w-4 cursor-pointer accent-primary"
                       checked={s.is_base}
-                      onChange={(e) => setStageAt(s.key, { is_base: e.target.checked })}
+                      /* ONE BASE PER PROCESS (client 2026-09-21, and 0611's
+                         index): ticking here unticks every other row, so the
+                         grid cannot show a state Save would refuse. */
+                      onChange={(e) =>
+                        setStageRows((ss) =>
+                          ss.map((o) => (o.key === s.key ? { ...o, is_base: e.target.checked } : e.target.checked ? { ...o, is_base: false } : o)),
+                        )
+                      }
                       aria-label="Base process for this stage"
                     />
                   </div>

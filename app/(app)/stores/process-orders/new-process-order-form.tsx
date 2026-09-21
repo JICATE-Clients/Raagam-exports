@@ -34,11 +34,14 @@ export function NewProcessOrderForm({
   items,
   uoms,
   locations,
+  salesOrders = [],
 }: {
   vendors: PickerItem[];
   items: PickerItem[];
   uoms: PickerItem[];
   locations: PickerItem[];
+  /** Live orders (RE No) — the same list the PO form offers (0609). */
+  salesOrders?: { id: string; order_number: string | null }[];
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -48,6 +51,7 @@ export function NewProcessOrderForm({
   const [vendorId, setVendorId] = useState("");
   const [processType, setProcessType] = useState<ProcessType>("dyeing");
   const [locationId, setLocationId] = useState("");
+  const [salesOrderId, setSalesOrderId] = useState("");
   const [orderDate, setOrderDate] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -60,6 +64,7 @@ export function NewProcessOrderForm({
     setVendorId("");
     setProcessType("dyeing");
     setLocationId("");
+    setSalesOrderId("");
     setOrderDate("");
     setExpectedDate("");
     setNotes("");
@@ -97,6 +102,7 @@ export function NewProcessOrderForm({
         vendor_id: vendorId,
         process_type: processType,
         location_id: locationId || null,
+        sales_order_id: salesOrderId || null,
         order_date: orderDate || null,
         expected_date: expectedDate || null,
         notes: notes.trim() || null,
@@ -141,6 +147,20 @@ export function NewProcessOrderForm({
                 <option value=""></option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              {/* 0609 — WHICH ORDER THIS JOB-WORK IS FOR. Optional, and the
+                  same list the PO form offers. It is what lets Orders ▸ Fabric
+                  T&A find this order's knitting and dyeing issues and receipts
+                  (steps 8–11); without it the documents still work, they just
+                  count toward no order. */}
+              <Label>Order (RE No)</Label>
+              <Select value={salesOrderId} onChange={(e) => setSalesOrderId(e.target.value)}>
+                <option value=""></option>
+                {salesOrders.map((o) => (
+                  <option key={o.id} value={o.id}>{o.order_number ?? "(no RE No)"}</option>
                 ))}
               </Select>
             </div>

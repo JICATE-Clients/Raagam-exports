@@ -46,8 +46,10 @@ export async function loadIwoPullInput(iwoId: string): Promise<IwoPullInput | { 
               "lines:iwo_fabric_bom_lines(item_id, req_kgs), " +
               "processes:iwo_fabric_bom_processes(item_id, sno, stage_id, process_id, loss_pct), " +
               "yarns:iwo_fabric_bom_yarns(item_id, purchase_qty, uom_id, refusal_reason, buy_stage_id, colour_by, " +
-              "shades:iwo_fabric_bom_yarn_shades(sno, color_name, purchase_qty), " +
-              "stages:iwo_fabric_bom_yarn_stages(sno, stage_id, process_id, combo, process_qty, uom_id, refusal_reason))",
+              // `planned_kgs`, `loss_pct`, `color_losses` (0613): what the pull
+              // re-runs a covering dyeing step's per-shade split from.
+              "shades:iwo_fabric_bom_yarn_shades(sno, color_name, planned_kgs, purchase_qty), " +
+              "stages:iwo_fabric_bom_yarn_stages(sno, stage_id, process_id, combo, loss_pct, color_losses, process_qty, uom_id, refusal_reason))",
           )
           .eq("iwo_id", iwoId)
           .maybeSingle(),
@@ -92,15 +94,34 @@ export async function loadIwoPullInput(iwoId: string): Promise<IwoPullInput | { 
     processes: { item_id: string; process_id: string; sno: number }[];
   } | null;
 
-  // The process master's kind flags for the fabric routes — READ, never
-  // coalesced from a failure (the IWO Fabric BOM action's rule).
-  const procIds = [...new Set((f?.processes ?? []).map((p) => p.process_id).filter(Boolean))] as string[];
-  const processKinds = new Map<string, { is_knitting: boolean; is_dyeing: boolean }>();
+  // The process master's kind flags for the fabric routes AND the yarn steps
+  // — READ, never coalesced from a failure (the IWO Fabric BOM action's rule).
+  // `is_cloth_purchase` (2026-09-21) is what keeps a purchase step off
+  // Process Rates on both sides; see `pullIwoLines`.
+  const procIds = [
+    ...new Set([
+      ...(f?.processes ?? []).map((p) => p.process_id),
+      ...(f?.yarns ?? []).flatMap((y) => (y.stages ?? []).map((st) => st.process_id)),
+    ]),
+  ].filter((id): id is string => !!id);
+  const processKinds = new Map<string, { is_knitting: boolean; is_dyeing: boolean; is_cloth_purchase: boolean }>();
   if (procIds.length) {
-    const { data, error } = await s.from("processes").select("id, is_knitting, is_dyeing").in("id", procIds);
+    const { data, error } = await s
+      .from("processes")
+      .select("id, is_knitting, is_dyeing, is_cloth_purchase")
+      .in("id", procIds);
     if (error) return { refused: `Could not read the process master: ${error.message}` };
-    for (const r of (data ?? []) as { id: string; is_knitting: boolean | null; is_dyeing: boolean | null }[]) {
-      processKinds.set(r.id, { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false });
+    for (const r of (data ?? []) as {
+      id: string;
+      is_knitting: boolean | null;
+      is_dyeing: boolean | null;
+      is_cloth_purchase: boolean | null;
+    }[]) {
+      processKinds.set(r.id, {
+        is_knitting: r.is_knitting ?? false,
+        is_dyeing: r.is_dyeing ?? false,
+        is_cloth_purchase: r.is_cloth_purchase ?? false,
+      });
     }
   }
 

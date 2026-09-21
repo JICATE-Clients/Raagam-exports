@@ -233,6 +233,7 @@ export function BomSliceGrid({
   onSet,
   onFlag,
   renderColour,
+  colourRequired = false,
   linePlaceholder,
   decimals,
   finalDecimals,
@@ -273,6 +274,11 @@ export function BomSliceGrid({
   onFlag: (rowKey: string, patch: BomSliceFlagPatch) => void;
   /** The line's own Item Color cell, wired for this row. Injected — see header. */
   renderColour: (rowKey: string) => ReactNode;
+  /** ITEM COLOR IS OWED ON EVERY ROW (client 2026-09-21: a colour-wise line
+   *  whose LINE names no colour). The header `*` only — the hold is on the
+   *  injected cell, from the same `colourRequired(grain)` the caller reads, so
+   *  this cannot draw a star the cell does not enforce. */
+  colourRequired?: boolean;
   linePlaceholder: { items: string; pieces: string; excess: string };
   /**
    * `decimal_places_allowed` of the line's CONSUMPTION unit — the same figure
@@ -360,7 +366,9 @@ export function BomSliceGrid({
           <div className={cn("flex min-h-8 items-center justify-center px-1 text-center", T_LABEL)}>
             Size
           </div>
-          <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>Item Color</div>
+          <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>
+            Item Color{colourRequired && <span className="ml-0.5 text-danger">*</span>}
+          </div>
           <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>Specification</div>
           <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>Size / Spec</div>
           {/* THE RED STAR IS EARNED. Items and Pcs left the line on 2026-08-21

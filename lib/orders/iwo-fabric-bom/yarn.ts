@@ -24,6 +24,13 @@
  * is matched against. Route steps name no colour (`combo` null), so they apply
  * to every bucket. A DYED Yarn IWO's shades are buckets the same way (0592,
  * `iwoYarnModePurchase`).
+ *
+ * COLOUR-WISE LOSS RIDES ON THOSE BUCKETS (0613, the order's 0606). A step
+ * whose For is COLOR WISE carries `color_losses` — line Colour or shade → % —
+ * and this file only CARRIES the map: it is resolved by `lossForCombo` inside
+ * `stagesForGroup`, which `comboUplift` / `yarnPurchase` walk per bucket. The
+ * keys match because both sides go through `comboKey`. Nothing here branches
+ * on it, so a step with no map grosses exactly as it did before.
  */
 
 import {
@@ -50,6 +57,8 @@ export type IwoRouteStep = {
   stage_id: string | null;
   process_id: string | null;
   loss_pct: number | null;
+  /** 0613 — per line-Colour losses of a COLOR WISE step; absent = flat loss. */
+  color_losses?: Readonly<Record<string, number>> | null;
 };
 
 /**
@@ -203,6 +212,8 @@ export function iwoRoutesByFabric(
       combo: null,
       component_id: null,
       loss_pct: p.loss_pct,
+      /* 0613 — resolved per bucket by `stagesForGroup`; see the file header. */
+      color_losses: p.color_losses ?? null,
       stage_id: p.stage_id,
       process_id: p.process_id,
       is_knitting: kind?.is_knitting ?? false,
@@ -247,7 +258,9 @@ export type IwoYarnModeAnswer = {
  *   - **GREY** (`colourBy` null, no shades) — one uncoloured bucket, every
  *     stage applies. The pre-0592 answer, unchanged.
  *   - **DYED · Yarn Dyeing** — ONE BUCKET PER SHADE, each grossed by the steps
- *     that cover it (its own dyeing step, and any step For every colour). The
+ *     that cover it — since 0613 that is ONE dyeing step For every shade,
+ *     carrying each shade's own loss (`color_losses`), where 0592 wanted one
+ *     step per shade; a stored step still scoped to a shade keeps working. The
  *     purchase is the grey lot: Σ shade gross, ROUNDED ONCE — the order rule
  *     ("grey yarn one lot"), since rounding each shade up and adding would buy
  *     a few grams per shade more than the dye house needs.
@@ -265,7 +278,12 @@ export type IwoYarnModeAnswer = {
  */
 export function iwoYarnModePurchase(
   plannedKgs: number | null,
-  ownStages: readonly { combo?: string | null; loss_pct: number | null }[],
+  ownStages: readonly {
+    combo?: string | null;
+    loss_pct: number | null;
+    /** 0613 — shade → loss % of a COLOR WISE step. Carried, never read here. */
+    color_losses?: Readonly<Record<string, number>> | null;
+  }[],
   kgUomId: string | null,
   decimals: number | null,
   yarnName: string,
@@ -279,7 +297,7 @@ export function iwoYarnModePurchase(
       return { refused: `Enter the Planned Weight for ${yarnName} on Yarn Lines.` };
     }
     const factor = comboUplift(
-      ownStages.map((s) => ({ combo: null, loss_pct: s.loss_pct })),
+      ownStages.map((s) => ({ combo: null, loss_pct: s.loss_pct, color_losses: s.color_losses ?? null })),
       "",
       [],
     );
@@ -291,7 +309,10 @@ export function iwoYarnModePurchase(
   if (!dyed.colourBy) return { refused: `Choose how ${yarnName} is coloured (Colour by) on Yarn Lines.` };
   if (dyed.shades.length === 0) return { refused: `Add the shades of ${yarnName} on Yarn Lines.` };
 
-  const steps = ownStages.map((s) => ({ combo: s.combo ?? null, loss_pct: s.loss_pct }));
+  /* Each shade is grossed on its OWN line of a COLOR WISE step's map (0613):
+     `comboUplift(steps, key)` resolves `color_losses[key]` — the shade's figure,
+     or the step's flat loss when the shade is not listed. */
+  const steps = ownStages.map((s) => ({ combo: s.combo ?? null, loss_pct: s.loss_pct, color_losses: s.color_losses ?? null }));
   const byCombo: YarnComboWeight[] = [];
   const shadeQty: Record<string, number> = {};
   let rawTotal = 0;

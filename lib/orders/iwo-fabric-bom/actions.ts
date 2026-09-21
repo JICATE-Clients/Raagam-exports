@@ -27,6 +27,8 @@ import {
   type IwoYdRepeatLike,
 } from "./yarn";
 import { kgUomOf } from "./service";
+import { getYarnProcessRows as loadYarnProcessRows } from "@/lib/orders/fabric-bom/service";
+import { yarnStageProblems } from "@/lib/orders/fabric-bom/yarn-stage-routes";
 // The ORDER Fabric BOM's pure engine and its order-agnostic loaders, reused as
 // they are — see yarn.ts for why the IWO must not compute a yarn weight any
 // other way. Nothing here edits the order module.
@@ -41,6 +43,7 @@ import {
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
+import { colorLossesForStorage } from "@/lib/orders/fabric-bom/color-loss";
 import {
   getBomYarnComposition,
   getFabricProcessLookupRows,
@@ -155,6 +158,11 @@ async function writeChildren(
           loss_for_id: r.loss_for_id,
           loss_pct: r.loss_pct,
           type_id: r.type_id,
+          /* 0613 — COLOUR-WISE LOSS, the order action's gate (`normalizeProcesses`):
+             an IWO step never names a colourway (`combo` is not a column here),
+             so the map is kept whenever the step says COLOR WISE; off stores it
+             empty, which the CHECK requires. */
+          ...colorLossesForStorage(r.color_wise_loss, r.color_losses),
         };
       });
     if (rows.length) {
@@ -335,6 +343,9 @@ async function writeYarns(
           combo: st.combo ?? null,
           description: st.description ?? null,
           loss_pct: st.loss_pct ?? null,
+          /* 0613 — the same gate `writeYarns` on the order uses: only a step For
+             every colour keeps a map (a step scoped to one shade has one loss). */
+          ...colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses),
           ...(st.process_id && !problem
             ? { process_qty: stageProcessQty(st.combo ?? null, byCombo), uom_id: refused ? null : weight.uom_id, refusal_reason: null }
             : { process_qty: null, uom_id: null, refusal_reason: problem }),
@@ -375,7 +386,13 @@ async function writeYarns(
       const shades = dyed ? keptIwoYarnShades(y.shades) : [];
       const weight = iwoYarnModePurchase(
         dyed ? null : y.planned_kgs,
-        stages.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
+        stages.map((st) => ({
+          combo: st.combo ?? null,
+          loss_pct: st.loss_pct ?? null,
+          // 0613 — gated exactly as the stored row is, so the stored purchase is
+          // grossed by what is saved.
+          color_losses: colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses).color_losses,
+        })),
         kg?.id ?? null,
         kg?.decimals ?? null,
         nameById.get(y.item_id) ?? "this yarn",
@@ -440,7 +457,10 @@ async function writeYarns(
       }
     }
     const routes = iwoRoutesByFabric(
-      p.processes.filter((r) => fabricIds.includes(r.item_id)),
+      p.processes
+        .filter((r) => fabricIds.includes(r.item_id))
+        // 0613 — the route's own colour-wise losses, gated as they are stored.
+        .map((r) => ({ ...r, color_losses: colorLossesForStorage(r.color_wise_loss, r.color_losses).color_losses })),
       kinds,
     );
 
@@ -470,6 +490,8 @@ async function writeYarns(
           combo: st.combo ?? null,
           loss_pct: st.loss_pct ?? null,
           dyed: !!st.stage_id && dyedYarnStages.has(st.stage_id),
+          /* 0613 — same gate the stored row goes through in `build`. */
+          color_losses: colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses).color_losses,
         })),
         kg?.decimals ?? null,
         // Every IWO fabric is knitted from yarn (the order screen's Source
@@ -559,6 +581,26 @@ async function iwoForOf(s: Db, iwoId: string): Promise<"yarn" | "fabric" | null>
   const { data } = await s.from("internal_work_orders").select("iwo_for").eq("id", iwoId).single();
   const f = (data as { iwo_for: string | null } | null)?.iwo_for;
   return f === "yarn" || f === "fabric" ? f : null;
+}
+
+/** A yarn step its Stage does not run, or a stage opened by a non-base step —
+ *  `yarnStageProblems`, yarn processes only, names read for the sentence. */
+async function yarnStageProblem(s: Db, p: IwoFabricBomParsed): Promise<string | null> {
+  const yarns = (p.yarns ?? []).filter((y) => y.stages.some((st) => st.stage_id || st.process_id));
+  if (!yarns.length) return null;
+  const [options, stages] = await Promise.all([loadYarnProcessRows(), getYarnStageRows()]);
+  const { data: items, error } = await s.from("items").select("id, name").in("id", yarns.map((y) => y.item_id));
+  if (error) return `Could not read the yarns: ${error.message}`;
+  const nameOf = new Map(((items ?? []) as { id: string; name: string | null }[]).map((i) => [i.id, i.name ?? "This yarn"]));
+  const problems = yarnStageProblems(
+    yarns.map((y) => ({
+      name: nameOf.get(y.item_id) ?? "This yarn",
+      stages: y.stages.map((st) => ({ stage_id: st.stage_id ?? null, process_id: st.process_id ?? null })),
+    })),
+    options.filter((o) => o.for_yarn).map((o) => ({ ...o, stage_roles: o.stage_roles ?? [] })),
+    stages,
+  );
+  return problems.length ? problems.join(" ") : null;
 }
 
 /** For = Yarn: the Yarn Lines rules (`lines.ts`), run again on the server —
@@ -740,6 +782,10 @@ export async function saveIwoFabricBom(
     facts = read;
     const yarnErr = yarnLineProblem(p, facts, await yarnColoursOf(s, bomId, p));
     if (yarnErr) return { ok: false, error: yarnErr };
+    /* THE YARN SIDE OF THE STAGE RULE (2026-09-21) — the same function the
+       order Fabric BOM's Save runs, on the same classification. */
+    const stageErr = await yarnStageProblem(s, p);
+    if (stageErr) return { ok: false, error: stageErr };
   }
   const lineErr = await lineProblem(s, p);
   if (lineErr) return { ok: false, error: lineErr };

@@ -181,13 +181,13 @@ The shape, and it is the same four props every time:
   forceCards                 // drop the table
   flatRows                   // ...and drop the per-row BOX — one frame, hairline rows
   renderMobileRow={(row, i) => (
-    <FieldGrid>
+    <FieldRow align="start" gap="tight">
       {columns.map((c, ci) => (
-        <Field key={ci} label={c.header} required={c.required} size="sm">
+        <Field key={ci} label={c.header} required={c.required} w={fieldWidthStep(c.width) ?? "hug"}>
           {c.cell(row, i)}
         </Field>
       ))}
-    </FieldGrid>
+    </FieldRow>
   )}
   onAdd={…} onRemove={…}
 />
@@ -197,6 +197,16 @@ Read the labels and cells off `columns` — never retype them beside it, or a ne
 leaves the card and the header disagreeing. `Field` supplies the label the `<th>` used
 to AND the `RequiredScope` that cards mode applies per column only when it renders the
 columns itself, so `required` must be forwarded or the cell's hold is silently lost.
+
+**THE CARD KEEPS THE TABLE'S WIDTHS** (user 2026-09-21, "field width issue in budget all
+the tab"). This snippet used to read `<FieldGrid>` + `size="sm"` — a QUARTER of the pane
+per cell — and every Budget cost grid copied it. Above `tableFrom` the grids were compact
+tables; the moment a pane fell under the threshold (a 1366 laptop is under `7xl`, a
+not-quite-maximised window is under `5xl`) the same thirteen columns became ~280px boxes
+stacked four to a row. `fieldWidthStep(c.width)` (`components/ui/field.tsx`) reads the
+column's own step back out of its `FIELD_WIDTH_CSS` width, so the card and the table are
+one declaration: Reqd is 88px in both, and a long line folds onto two lines instead of
+growing. `align="start"` because a cell's error renders under its control.
 
 **A fixed-width table is the FIRST choice at any column count** once every column declares
 a vocabulary width and the sum + 72px fits 1155px with `tableFrom="5xl"` (see "BUILD IT

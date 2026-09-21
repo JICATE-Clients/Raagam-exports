@@ -1,6 +1,6 @@
 import { requirePermission, can } from "@/lib/auth/server";
 import { listProcessOrders } from "@/lib/stores/process-service";
-import { getVendorsForPicker, getLocations, getItems, getUoms } from "@/lib/purchase/po-service";
+import { getVendorsForPicker, getLocations, getItems, getUoms, getOrdersForPicker } from "@/lib/purchase/po-service";
 import { NewProcessOrderForm } from "./new-process-order-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
@@ -28,13 +28,14 @@ function procStatusTone(status: ProcStatus): StatusTone {
 
 export default async function ProcessOrdersPage() {
   await requirePermission("stores", "view");
-  const [orders, vendors, items, uoms, locations, canCreate] = await Promise.all([
+  const [orders, vendors, items, uoms, locations, canCreate, salesOrders] = await Promise.all([
     listProcessOrders(),
     getVendorsForPicker(),
     getItems(),
     getUoms(),
     getLocations(),
     can("stores", "create"),
+    getOrdersForPicker(),
   ]);
 
   const columns: Column<ProcWithVendor>[] = [
@@ -85,7 +86,7 @@ export default async function ProcessOrdersPage() {
       <PageHeader
         title="Process Orders"
         description="Send materials to external processors (dyeing, printing, knitting, etc.)"
-        actions={canCreate ? <NewProcessOrderForm vendors={vendors} items={items} uoms={uoms} locations={locations} /> : undefined}
+        actions={canCreate ? <NewProcessOrderForm vendors={vendors} items={items} uoms={uoms} locations={locations} salesOrders={salesOrders} /> : undefined}
       />
 
       <DataTable

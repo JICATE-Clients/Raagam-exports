@@ -396,6 +396,28 @@ export const FIELD_WIDTH_CSS: Record<FieldWidth, string> = {
 };
 
 /**
+ * THE STEP A GRID COLUMN WAS SIZED WITH — `FIELD_WIDTH_CSS` read backwards.
+ *
+ * A `ChildGridColumn.width` is one of the seven lengths above, and below the
+ * grid's `tableFrom` the same column renders as a labelled `Field` in a card.
+ * That card must give the field the SAME step the table gave the column: the
+ * Budget cost grids drew their cards with `FieldGrid` + `size="sm"` (a quarter
+ * of the pane each), so the moment a pane fell under the threshold a four-digit
+ * Reqd box was ~280px wide and thirteen of them stacked four to a row (user
+ * 2026-09-21, "field width issue in budget all the tab"). Reading the step off
+ * the column is what keeps the two renderings one declaration.
+ *
+ * `undefined` for a column with no width, or a literal `"5rem"` outside the
+ * vocabulary — the caller falls back to its own default rather than guessing.
+ */
+const FIELD_WIDTH_STEP: ReadonlyMap<string, FieldWidth> = new Map(
+  (Object.entries(FIELD_WIDTH_CSS) as [FieldWidth, string][]).map(([step, css]) => [css, step]),
+);
+export function fieldWidthStep(css: string | undefined): FieldWidth | undefined {
+  return css ? FIELD_WIDTH_STEP.get(css) : undefined;
+}
+
+/**
  * A row of fields laid out by their WIDTHS instead of by twelfths.
  *
  * `FieldGrid` divides the row into 12 equal columns, so shrinking the control

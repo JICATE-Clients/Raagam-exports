@@ -23,6 +23,7 @@ import {
   CalendarClock,
   FileText,
   ClipboardList,
+  ListTodo,
   type LucideIcon,
 } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -157,6 +158,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
+import { WorkFlowPanel } from "@/components/orders/ta/work-flow-panel";
 import { FileAttachments, type AttachmentRow } from "@/components/ui/file-attachments";
 import { SketchThumbnail } from "@/components/ui/sketch-thumbnail";
 import { PageHeader } from "@/components/ui/page-header";
@@ -5076,7 +5078,10 @@ export function GarmentOrderScreen({
    * same as any other conditionally-rendered content within one section; no
    * second navigation model, because there is now only one section to
    * navigate within. */
-  const [taView, setTaView] = useState<"activity" | "approval">("activity");
+  /* "workflow" (0607) — the six office milestones, `WorkFlowPanel`. The FIRST
+     segment and the one the tab opens on (client 2026-09-21). A value of the
+     same state, not a hook: the panel owns its own state. */
+  const [taView, setTaView] = useState<"activity" | "approval" | "workflow">("workflow");
 
   const [taBypassByStage, setTaBypassByStage] = useState<Partial<Record<ProductionStage, StageWip>>>({});
   useEffect(() => {
@@ -10071,6 +10076,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   const taSegNav = () => (
     <div className="mb-1 flex flex-wrap items-center gap-2">
       <div className="inline-flex items-center gap-0.5 rounded-full border border-border bg-surface-muted p-0.5">
+        <button
+          type="button"
+          onClick={() => setTaView("workflow")}
+          className={cn(
+            "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
+            taView === "workflow" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
+          )}
+        >
+          <ListTodo className="h-3.5 w-3.5" aria-hidden />
+          Work Flow
+        </button>
         <button
           type="button"
           onClick={() => setTaView("activity")}
@@ -21248,6 +21264,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           </div>
           </div>
           )}
+
+          {/* WORK FLOW (0607) — the office milestones before production. Its
+             rows belong to the RE and save themselves; the order's Save
+             neither carries nor can overwrite them (see the panel's header). */}
+          {taView === "workflow" && <WorkFlowPanel amendmentId={editId} />}
         </div>
       ),
     },

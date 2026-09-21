@@ -695,6 +695,16 @@ const PULLED_DEFAULTS = {
  *   call the cloth purchase above reads (one per BOM, never two). Its weight is
  *   the stage ledger's `toOrderedWt`: the cloth SENT INTO the step, which is
  *   what a job worker weighs and invoices — see `fabricBomLines`.
+ *
+ * ## A PURCHASE STEP IS NEVER A PROCESS LINE (client 2026-09-21)
+ *
+ * Purchase Rates holds raw material — yarn, fabric, trims. Process Rates holds
+ * job work — knitting, dyeing, compacting, washing, printing. A route's opening
+ * purchase step (`processes.is_cloth_purchase`: FABRIC PURCHASE, DYED FABRIC
+ * PURCHASE, YARN PURCHASE) is the FIRST, not the second, so `yarn_process` and
+ * `fabric_process` both skip it. Before this, a bought cloth was costed twice:
+ * once as its `fabric` line and once as a "FABRIC PURCHASE" process at the
+ * same weight — "double-counting the fabric cost in the total order expenses".
  * - `material_process` — one line per Material BOM process row, weighed by
  *   that item's own stored requirement on that BOM.
  * - `garment_process` — one line per Style ▸ Process row, weighed by the
@@ -760,7 +770,9 @@ export async function pullCostLines(
       .from("order_fabric_bom_yarn_stages")
       .select(
         "sno, stage_id, process_qty, uom_id, combo, process_id, " +
-          "process:processes!process_id(name), " +
+          /* `is_cloth_purchase` (0583 · 0612) — a step that BUYS the yarn is
+             not a process charge; see the loop below. */
+          "process:processes!process_id(name, is_cloth_purchase), " +
           /* `stage_id` AND `loss_for_id` BOTH point at config_lookups, so the
              FK column is NAMED — a bare `config_lookups(name)` is a 300 that
              would empty this whole select (AGENTS.md). */
@@ -964,7 +976,7 @@ export async function pullCostLines(
     uom_id: string | null;
     combo: string | null;
     process_id: string | null;
-    process: { name: string } | null;
+    process: { name: string; is_cloth_purchase: boolean | null } | null;
     stage: { name: string | null; code: string | null } | null;
     yarn: {
       item_id: string | null;
@@ -981,6 +993,13 @@ export async function pullCostLines(
        a stage precisely so this test needs no second condition, and it is not
        counted as `skipped`: nothing was left out, because nothing was owed. */
     if (!r.process?.name) continue;
+    /* A PURCHASE IS NOT A PROCESS (client 2026-09-21, the Fabric Purchase
+       double count — same rule on the yarn side). YARN PURCHASE is the base
+       of the GREIGE yarn stage (0611), so a route opens with it and the step
+       carries the purchase weight — which is the `yarn` line above, already.
+       Purchase Rates holds raw material; Process Rates holds job work only.
+       Read off the master's flag (0612), never the name. */
+    if (r.process.is_cloth_purchase) continue;
     /* THE DOUBLE-COUNT RULE (client 2026-09-19): a hand-typed step in a
        coloured stage (DYED) on a yarn whose dyeing is already charged per
        shade above is the same dyeing — not pulled a second time. */
@@ -1398,6 +1417,17 @@ async function fabricBomLines(
     skipped += report.stageLedgerRefusals.length;
 
     for (const group of report.stageBreakdown) {
+      /* A PURCHASE IS NOT A PROCESS (client 2026-09-21): "Fabric Purchase was
+         incorrectly appearing inside the Process Rates section as well as the
+         Purchase Rates section … double-counting the fabric cost". A bought
+         cloth's route opens with FABRIC PURCHASE / DYED FABRIC PURCHASE
+         (`is_cloth_purchase`, 0583) and the ledger prints that section — its
+         loss is the purchase loss — so the pull used to make a
+         "SINGLE JERSEY · FABRIC PURCHASE" process line at the roll weight,
+         beside the `fabric` purchase line at the very same weight. The cloth
+         is costed ONCE, on Purchase Rates; Process Rates is job work only
+         (knitting, dyeing, compacting, washing, printing). */
+      if (group.isClothPurchase) continue;
       const byFabric = new Map<string, { name: string; qty: number }>();
       for (const l of group.lines) {
         /* A LINE WITH NO FABRIC ID cannot be keyed to a fabric, and a budget
@@ -1639,6 +1669,8 @@ export async function fabricProcessBreakdown(
     const u = uomsByBom.get(b.id);
     const uom = u && u.size === 1 ? [...u][0] : null;
     for (const g of report.stageBreakdown) {
+      // Not a process — see `fabricBomLines` (the cloth purchase double count).
+      if (g.isClothPurchase) continue;
       groups.push({
         garment_order_id: b.garment_order_id,
         process_id: g.processId,
