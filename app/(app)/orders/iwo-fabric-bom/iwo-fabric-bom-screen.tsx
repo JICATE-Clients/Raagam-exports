@@ -2645,6 +2645,10 @@ export function IwoFabricBomScreen({
               )
             : null
         }
+        onGoToPanels={() => {
+          setBreakupFor(null);
+          shellRef.current?.goToSection("bom");
+        }}
         newKey={newKey}
         readOnly={!perms.canEdit && !perms.canCreate}
       />

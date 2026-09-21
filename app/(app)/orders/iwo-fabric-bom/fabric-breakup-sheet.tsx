@@ -35,6 +35,7 @@
  */
 
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
@@ -63,6 +64,7 @@ export function FabricBreakupSheet({
   prints,
   diaOptionsFor,
   grossOf,
+  onGoToPanels,
   newKey,
   readOnly = false,
 }: {
@@ -86,6 +88,11 @@ export function FabricBreakupSheet({
   /** One row's Gross Yarn (its kgs through the fabric's route, at ITS colour's
    *  loss — 0613), or null while it cannot be stated. */
   grossOf: (row: PlanRow) => number | null;
+  /** Jump to the Fabric BOM section, where the panels are edited — the sheet
+   *  closes first. Without it a planner who needs a second colour is left
+   *  wondering why the list is one name long (client 2026-09-21: "still one
+   *  colour, one dia only listing"). */
+  onGoToPanels: () => void;
   newKey: () => string;
   readOnly?: boolean;
 }) {
@@ -235,12 +242,24 @@ export function FabricBreakupSheet({
       <p className="mb-2 text-sm text-muted-foreground">
         {PLAN_BY_LABELS[planBy]} wise: one row per {axes}, and the fabric&apos;s Req Wt is their total.
       </p>
-      {withColour && colours.length === 0 && (
-        <p className="mb-2 text-sm text-warning">The Fabric Colour panel (Fabric BOM section) is empty — add the colours there first.</p>
-      )}
-      {withDia && diaOptionsFor("").length === 0 && (
-        <p className="mb-2 text-sm text-warning">The Dia panel (Fabric BOM section) has no dia of this fabric&apos;s family — declare them there first.</p>
-      )}
+      {/* WHAT THE PICKERS OFFER, AND WHERE TO ADD MORE — said every time, not
+          only when a panel is empty: a Colour ▾ one name long reads as broken
+          unless the screen says the Fabric Colour panel holds one name. */}
+      <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        {withColour && (
+          <span>
+            Colours offered: {colours.length ? colours.join(", ") : <span className="text-warning">none — the Fabric Colour panel is empty</span>}.
+          </span>
+        )}
+        {withDia && (
+          <span>
+            Dias offered: {diaOptionsFor("").length ? diaOptionsFor("").map((o) => o.label).join(", ") : <span className="text-warning">none of this fabric&apos;s family on the Dia panel</span>}.
+          </span>
+        )}
+        <Button type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={onGoToPanels}>
+          Add more on Fabric BOM ▸ panels
+        </Button>
+      </p>
       <ChildGrid<PlanRow>
         columns={breakupColumns}
         rows={rows}
