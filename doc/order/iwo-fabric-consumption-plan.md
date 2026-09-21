@@ -17,7 +17,7 @@ exists. The real files are named in the table.
 
 | Spec | Status |
 |---|---|
-| §1A Piece Wt = W × L × GSM ÷ 10,000; Net Wt = Planned Pcs × Piece Wt on the **IWO** | **Contradicts the client's SRS — not built.** `internlwork order.md` §1/§4: an IWO "completely bypasses" garment panel logic — *"Garment Pcs = 0, Grams/Pc = 0 … the merchandiser inputs the Required Weight (Req Wt) directly in KGS"*. `iwo_fabric_bom_lines.req_kgs` is that typed figure; `iwoFabricGross` (`lib/orders/iwo-fabric-bom/yarn.ts`) replaces exactly one link of the order chain — where the gross comes from. The formula itself already exists where the client put it: the **order** Fabric BOM ▸ Manual ▸ Calculated mode (`lib/orders/fabric-bom/manual.ts`, `GRAMS_CONVERSION = 10_000`, tolerance on the length per 0524). Adding a piece-weight matrix to the IWO would re-introduce the garment logic the SRS says the IWO exists to skip. |
+| §1A Piece Wt = W × L × GSM ÷ 10,000; Net Wt = Planned Pcs × Piece Wt on the **IWO** | **Wrong formula, and not built.** The legacy IWO screen (recording 2026-09-21) DOES have a calculated weight — but as *Garments × Grams/Garment* on the dia row, gated by a fabric-level `Type: Direct ▾` whose default is Direct; not the pattern W × L × GSM the spec describes. The SRS's "bypassed" means Type = Direct. Not adopted here (this application derives Gross Yarn from Req Wt through the route, which is the figure that matters); revisit only if the client asks. Original note kept below for the SRS citation. `internlwork order.md` §1/§4: an IWO "completely bypasses" garment panel logic — *"Garment Pcs = 0, Grams/Pc = 0 … the merchandiser inputs the Required Weight (Req Wt) directly in KGS"*. `iwo_fabric_bom_lines.req_kgs` is that typed figure; `iwoFabricGross` (`lib/orders/iwo-fabric-bom/yarn.ts`) replaces exactly one link of the order chain — where the gross comes from. The formula itself already exists where the client put it: the **order** Fabric BOM ▸ Manual ▸ Calculated mode (`lib/orders/fabric-bom/manual.ts`, `GRAMS_CONVERSION = 10_000`, tolerance on the length per 0524). Adding a piece-weight matrix to the IWO would re-introduce the garment logic the SRS says the IWO exists to skip. |
 | §1B Backward compounding ÷(1 − L), 1000 / (0.98 × 0.90 × 0.95) = 1193.460 | **Exists.** `comboUplift` (`yarn-process.ts:790`) is `factor *= 1/(1 − loss/100)` per step, compounded; IWO's `iwoRoutesByFabric` / `iwoYarnModePurchase` feed the same function. `check:iwo-fabric-bom` §3/§4/§10 pin it and refute the ×(1+L) reading. |
 | §1C "both must pass `strategy = 'DIVIDE_SUBTRACT'`" | **False premise — do not build** (verified this morning). There is ONE engine and it divides; a strategy switch would only add the multiplicative branch the user refused on 2026-09-18. The accessories side (Material BOM) multiplies by design — a different engine, not a strategy. |
 | §2A Finish Dia de-duplicated by value: Circular 60" + Woven 60" = one `60` | **Exists on both screens.** Order: `declaredDiaOptions` keys on `diaKey` (text, upper-cased — a dia has been text since 0566, so `23 CM` is a legal value) and shows the families as a sublabel ("Circular · Woven"). IWO: `declaredDias` is `new Set(trim().toUpperCase())`, same identity, no sublabel. |
@@ -64,3 +64,28 @@ consumes it before storing it.
 - `npm run check:grid-budget` — no column widths change.
 - `npx tsc --noEmit`, `npm run check:hooks`.
 - Click-test on `localhost:3000/orders/iwo-fabric-bom`: a circular fabric's Finish Dia ▾ lists only circular dias; a woven line already holding a circular dia shows it tagged and Save refuses it by name.
+
+## 5. Plan by — BUILT 2026-09-21 (the client's "dia, weight, colour")
+
+Screenshots 2990 · 2992; design in the plan artifact (rev 5, "our application's
+shape"). One row per fabric on Fabric Consumption; a **Plan by ▾** (Fabric ·
+Colour · Dia · Colour + Dia — the IWO Material BOM's Attribute, 0614, with a
+fabric's axes; GREIGE offers Fabric · Dia only) and, under a split, the **Req Wt
+cell is a button** carrying Σ rows that opens the **[Breakup] sheet** — one flat
+`ChildGrid` with only the attribute's columns (Colour ▾ / Print ▾ where Colour is
+split on a Print stage / Finish Dia ▾ family-scoped / Req Wt / Gross Yarn per
+row). Split axes read as summaries on the row (`WHITE · RED`, `74 · 76`).
+
+- `lib/orders/iwo-fabric-bom/plan.ts` (pure): `reqKgsOf` (one reader),
+  `expandPlan` / `foldLines` (the boundary to 0592's one-line-per-(fabric,
+  colour, dia) — storage, `lines.ts`, engine, budget, reports unchanged; Plan by
+  is INFERRED from the lines, never stored), `replan` (switching keeps what was
+  typed), `replanForStage` (→ GREIGE merges colours per dia and SUMS; prints go
+  off a Print stage), `planByFor`. `check:iwo-fabric-bom` §18, 5 mutations caught.
+- From the legacy screen only the CONTENT was taken (a colour has dias with a
+  weight each; Print belongs to the colour). Not its nested grids, ⓘ pickers,
+  Req Qty / Measurement / Specification, or Type Direct/Calculated.
+- No Of Colors on Allocation stays TYPED: it seeds the Yarn Dyed repeat (yarn
+  colours in a stripe), which is not the count of dyeing shades.
+- Gross Yarn on the row is now Σ per colour of kgs × `comboUplift(route, colour)`,
+  so a 0613 colour-wise loss shows on the IWO.
