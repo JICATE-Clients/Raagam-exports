@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldError, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Field, FieldError, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
@@ -607,7 +607,7 @@ const WEIGHT_CLASS: Record<Weight, string | undefined> = {
   final: "[&_input]:border-transparent",
 };
 
-type GroupCell = { header: string; size: FieldSize; weight: Weight; align?: "end" };
+type GroupCell = { header: string; w: FieldWidth; weight: Weight; align?: "end" };
 
 /**
  * GRID DENSITY, and it is the difference between the mockup and the screen.
@@ -793,6 +793,38 @@ const H = {
  *   run 3  4+4+2+4+6+4+2+6     = 32
  */
 const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
+  /*
+   * SHRINK-WRAPPED, NOT SPANNED (client 2026-09-21, `erp-form-compact`). Every
+   * span arithmetic below — the 32-track, "every run sums to 32", the gutter
+   * table — is SUPERSEDED and kept as the record of why each cell is the width
+   * it is. The row is now a `FieldRow` and each cell a `FieldWidth`: a field is
+   * as wide as what it holds, not as wide as its share of the pane, so a
+   * 3-letter Uom is no longer ~167px on a wide monitor.
+   *
+   * THE ORDER IS UNTOUCHED — still the client's 2026-08-28 sequence, still one
+   * line. Only the widths changed, and each is the old span's reasoning in the
+   * vocabulary instead of in columns:
+   *
+   *   Category code 144 · Material name 288 · Attribute term 176 ·
+   *   Pur. Uom hug 88 · Cons. Uom hug 88 · MOQ num 72 · Round To num 72 ·
+   *   Combination hug 88 · TBA num 72 · Process num 72 · FOC num 72
+   *   = 1232 + 10 × 12 gap = 1352px
+   *
+   * - Material keeps the most room (the slashed spec clips soonest).
+   * - Attribute is a native `<Select>` with no reveal bubble, so it stays wider
+   *   than a code (`term`), as its own note below asks.
+   * - The two Uoms and Combination share ONE width, `hug` — the client asked
+   *   for Combination "same as consumption field size" (2026-08-24), and 88px
+   *   is the label floor that keeps "Cons. Uom" on one line.
+   * - MOQ / Round To are 3-4 digits and the three switches show no value: `num`.
+   *
+   * WHERE IT FITS: 1352px is inside the ~1390px pane the `wide` cap gives this
+   * section, so a wide monitor still reads one line. A narrower pane (a 1366
+   * laptop) WRAPS the tail onto a second line — `FieldRow` wraps rather than
+   * squeezing every field back to ~80px, which is the trade `erp-form-compact`
+   * makes on purpose. `nowrap` would put the row behind a sideways scrollbar,
+   * which the operator rejected on 2026-08-10.
+   */
   /*
    * ONE RUN NOW, AND IT IS THE WHOLE LINE (client 2026-08-21, screenshots 2461 /
    * 2462 / 2463).
@@ -1145,18 +1177,18 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * whole contract of this array.
    */
   [
-    { header: H.category, size: "md", weight: "key" },
+    { header: H.category, w: "code", weight: "key" },
     /* IT TAKES THE TWO COLUMNS TBA GAVE UP (2026-08-28). The run must total 32
        or the last field drops to a line of its own, so a cell that shrinks has
        to hand its span somewhere — and this is the field every note on this row
        says clips soonest: it holds the long slashed spec, and the 08-27 pass
        recorded it dropping to ~132px as "the trade the client chose". A switch
        needs none of that width and this does. */
-    { header: H.material, size: "lg", weight: "key" },
+    { header: H.material, w: "name", weight: "key" },
     /* A GRAIN READS "Style Ref No / Order Color / Order Size" — the longest
        value on the row after Material, and a native `<Select>` with no reveal
        bubble to rescue it, so it does not go below `md`. */
-    { header: H.attribute, size: "md", weight: "key" },
+    { header: H.attribute, w: "term", weight: "key" },
     /* THE LABELS ARE THE CONSTRAINT HERE, not the values: "NOS" and "PCS" would
        fit an `xs`. These are `sm` (~78px at 1366@110%) because the HEADERS have
        to sit on one line — and they only do because the client shortened them on
@@ -1166,8 +1198,8 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        Uom" (~53px) now. **Lengthening either header back reopens the wrap**,
        which is why the old figures are kept here as the reason rather than
        deleted as history. */
-    { header: H.purchaseUom, size: "sm", weight: "auto" },
-    { header: H.consumptionUom, size: "sm", weight: "auto" },
+    { header: H.purchaseUom, w: "hug", weight: "auto" },
+    { header: H.consumptionUom, w: "hug", weight: "auto" },
     /* THE TWO NUMERIC BOXES, and they now follow the units directly (client
        2026-08-28: "cons.uom - moq - round to - combination - tba this order").
        Both 08-28 instructions agree on this pair and on where it sits — the
@@ -1176,8 +1208,8 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        right-aligned; the labels ("MOQ" ~18px, "Round To" ~47px) are the
        smallest on the row and clear their 50px at 1366@110% with room. Nothing
        about them changed except where they sit. */
-    { header: H.moq, size: "xs", weight: "plain" },
-    { header: H.roundTo, size: "xs", weight: "plain" },
+    { header: H.moq, w: "num", weight: "plain" },
+    { header: H.roundTo, w: "num", weight: "plain" },
     /* AN ICON BUTTON, NOT A VALUE — the only field on the row with nothing to
        clip, which is what lets it take the smallest span without losing
        anything. The 08-24 instruction that matched it to the Consumption Uom
@@ -1186,7 +1218,7 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        reasoning outlived the adjacency: MOQ, Round To and TBA came up BETWEEN
        the two on 2026-08-28, so the cells are no longer neighbours and the
        shared `xs` is still right, because it was never a matching exercise. */
-    { header: H.combination, size: "xs", weight: "quiet" },
+    { header: H.combination, w: "hug", weight: "quiet" },
     /* A SWITCH SINCE 2026-08-28, so it takes the smallest span like every other
        control on this row that shows no value — the `md` it held was bought
        specifically to fit the words "Available Item", and there are no words
@@ -1199,13 +1231,13 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        IT IS HERE BECAUSE THE CLIENT PUT IT HERE, "next to the Round To"
        (2026-08-28), amending their own chain of minutes earlier which had it
        one place further along. That placement is unaffected by the resize. */
-    { header: H.tba, size: "xs", weight: "quiet" },
+    { header: H.tba, w: "num", weight: "quiet" },
     /* THE TWO SWITCHES, AND THEY CLOSE THE LINE. A `Toggle` draws a ~36px
        switch and shows no value, so 76px is the control with room to spare and
        the widest label ("Process", ~42px) sits on one line. Do not reach for
        `xs` for anything that holds a typed or picked value. */
-    { header: H.process, size: "xs", weight: "plain" },
-    { header: H.foc, size: "xs", weight: "plain" },
+    { header: H.process, w: "num", weight: "plain" },
+    { header: H.foc, w: "num", weight: "plain" },
   ],
   /*
    * ADVISED ITEMS (0588) — a run of their own, after the line it describes.
@@ -1235,7 +1267,7 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * (a hidden field is not rendered, never `hidden`), so the run is Est. Rate
    * alone on an Available line.
    */
-  [{ header: H.pendingReason, size: "lg", weight: "plain" }],
+  [{ header: H.pendingReason, w: "name", weight: "plain" }],
 ];
 
 export function MbaMasterScreen({
@@ -5519,32 +5551,37 @@ export function MbaMasterScreen({
    * LEGACY'S FIVE ON ONE LINE (client 2026-08-24: "make the 5 field in single
    * row in process") — NOW THREE, see the Descriptions/Notes removal below.
    *
-   * THE ROW MUST SUM TO THE TRACK, which is `FieldGrid`'s house 12 — under-fill
-   * it and the last field drops to a line of its own, which is the de-clutter
-   * rule's "defect that ships". `FIELD_SPAN` maps xs=2, sm=3, md=4, lg=6, so:
+   * SHRINK-WRAPPED, NOT SPANNED (client 2026-09-21, `erp-form-compact`). This
+   * was a `FieldGrid` of twelfths — Stage 3 + Process 6 + Loss % 3 — so on a
+   * 1440px pane a GREIGE/DYED dropdown came out ~340px and a bare percentage
+   * the same, and the row read as three holes. A fraction cannot be made
+   * compact, so the row left the twelfths track for `FieldRow` + `w=`:
    *
-   *     Stage 3 + Process 6 + Loss % 3  = 12
+   *     Stage range 112 + Process term 176 + Loss % num 72 + 2 × 12 gap = 384px
+   *     orphan bucket: + Material term 176 + 12 gap                     = 572px
    *
-   * The width goes to the one that holds a phrase — a process name ("TRIMS
-   * DYEING"). **Loss % is `sm` and not the `xs` a bare percentage would want**
-   * because its cell carries the loss CONFIGURATION opener beside the number;
-   * at `xs` the button and the figure share ~70px and the box stops being
-   * typeable. Narrowing it back is only safe if that opener goes too.
+   * - Stage is a short option list (GREIGE / DYED / a held third) — `range`.
+   * - Process holds a phrase ("TRIMS DYEING") — `term`, the widest on the row.
+   * - Loss % is a percent, one short word of label — `num`. The old note kept
+   *   it at `sm` for a loss-configuration opener sharing the cell; that opener
+   *   was never built (the cell is a bare `<Input>`), so the reason is gone.
+   *   Widen it again if the opener lands.
+   * - Material shows only in the orphan bucket, the only way to put a stranded
+   *   row back on a material that still exists — `term`, as Process.
    *
-   * THE ORPHAN BUCKET CARRIES FOUR, so it cannot use these numbers: it also
-   * shows Material, the only way to put a stranded row back on a material that
-   * still exists. Four fields at sm is 12 exactly, so that case is uniform
-   * instead — one rule per shape rather than one shape squeezed to fit the
-   * other's. **Both numbers moved when the two columns went**; changing the
-   * column list without re-deriving both is how the last cell wraps.
+   * `PROC_CARD_W` caps each material's card to that row (rule 4: a sub-grid is
+   * capped to the FORM's width, not the screen's) — 572 + the card's padding
+   * and corner ✕ is ~630px, so 40rem holds the widest shape with room.
    */
-  const PROC_ROW_SPAN: Record<string, FieldSize> = {
-    Stage: "sm",
-    Process: "lg",
-    "Loss %": "sm",
-  };
-  const procFieldSize = (header: string, withMaterial: boolean): FieldSize =>
-    withMaterial ? "sm" : (PROC_ROW_SPAN[header] ?? "sm");
+  const PROC_ROW_W = {
+    Material: "term",
+    Stage: "range",
+    Process: "term",
+    "Loss %": "num",
+  } satisfies Record<string, FieldWidth>;
+  const procFieldWidth = (header: string): FieldWidth =>
+    PROC_ROW_W[header as keyof typeof PROC_ROW_W] ?? "code";
+  const PROC_CARD_W = "max-w-[40rem]";
 
   const procColumns: ChildGridColumn<ProcRow>[] = [
     /* THE SIX LIFECYCLE CELLS CAME OUT (client 2026-08-24: "just maintain the
@@ -5983,8 +6020,12 @@ export function MbaMasterScreen({
               nobody can see. Garment Order takes `md` because its trigger shows
               an SC No and a customer name; Date keeps `xs`, which is all a
               DD-MM-YYYY control needs. */}
-          <FieldGrid>
-            <Field label="Date" required size="xs" htmlFor="mba-date">
+          {/* SHRINK-WRAPPED (2026-09-21, `erp-form-compact`): Date `code` 144 —
+              a DD/MM/YYYY box and its calendar glyph; Garment Order `name` 288 —
+              an SC No plus a customer name. 144 + 12 + 288 = 444px, packed left,
+              instead of two twelfths-of-the-pane boxes. */}
+          <FieldRow>
+            <Field label="Date" required w="code" htmlFor="mba-date">
               <Input
                 id="mba-date"
                 type="date"
@@ -5992,7 +6033,7 @@ export function MbaMasterScreen({
                 onChange={(e) => set({ amend_date: e.target.value })}
               />
             </Field>
-            <Field size="md">
+            <Field w="name">
               <RecordPicker
                 id="mba-order"
                 label="Garment Order (RE No)"
@@ -6003,7 +6044,7 @@ export function MbaMasterScreen({
                 required
               />
             </Field>
-          </FieldGrid>
+          </FieldRow>
 
           {/* THE MULTIPLIER, STATED. Every requirement on this screen is this
               number times a ratio, so leaving it off-screen makes each figure
@@ -6234,11 +6275,13 @@ export function MbaMasterScreen({
                 .filter(Boolean)
                 .join("  ·  ");
               return (
-                <FieldGrid>
-                  <Field label="" required={material.required} size="md">
+                <FieldRow>
+                  {/* The same `name` width the open row gives Material, so the
+                      picker does not jump as a line opens and closes. */}
+                  <Field label="" required={material.required} w="name">
                     {material.cell(row, i)}
                   </Field>
-                  <Field label="" size="xl">
+                  <Field label="" className="min-w-0 flex-1">
                     <div className="flex min-h-8 items-center">
                       {/* TWO BLANK STATES, NOT ONE. A named material with nothing
                           else typed is a line in progress; a line with no
@@ -6253,7 +6296,7 @@ export function MbaMasterScreen({
                       </Truncated>
                     </div>
                   </Field>
-                </FieldGrid>
+                </FieldRow>
               );
             }}
             renderMobileRow={(row, i) => {
@@ -6312,7 +6355,7 @@ export function MbaMasterScreen({
                   if (b.header === H.pendingReason && row.type !== TBA_MATERIAL_TYPE) return [];
                   const col = itemColumns.find((c) => c.header === b.header);
                   return col
-                    ? [{ col, size: b.size, weight: b.weight, align: b.align }]
+                    ? [{ col, w: b.w, weight: b.weight, align: b.align }]
                     : [];
                 });
                 /* A RUN CAN NOW BE EMPTY. Run 2 is Style alone since Item Color,
@@ -6337,7 +6380,7 @@ export function MbaMasterScreen({
                 // renderer destructures `align` off every member.
                 .map((col) => ({
                   col,
-                  size: "sm" as FieldSize,
+                  w: "code" as FieldWidth,
                   weight: "plain" as Weight,
                   align: undefined as "end" | undefined,
                 }));
@@ -6427,8 +6470,8 @@ export function MbaMasterScreen({
                          quieter than that or the record stops being one thing. */
                       className={cn("py-3", gi > 0 && "border-t border-border")}
                     >
-                      <FieldGrid cols={32}>
-                        {g.map(({ col, size, weight, align }, ci) => (
+                      <FieldRow>
+                        {g.map(({ col, w, weight, align }, ci) => (
                           <Field
                             key={ci}
                             label={col.header}
@@ -6439,7 +6482,7 @@ export function MbaMasterScreen({
                                `*` with no cursor hold behind it. Checked by
                                `audit_layout.py --check grid-required-mobile`. */
                             required={col.required}
-                            size={size}
+                            w={w}
                             /* `text-right` and not a flex rule: `Field` is a
                                plain block whose control is inline-level (Toggle
                                is `inline-flex w-fit`), so text alignment is what
@@ -6455,7 +6498,7 @@ export function MbaMasterScreen({
                             {col.cell(row, i)}
                           </Field>
                         ))}
-                      </FieldGrid>
+                      </FieldRow>
                     </div>
                   ))}
                   {sliceGrid(row)}
@@ -6621,7 +6664,10 @@ export function MbaMasterScreen({
           )}
           {procGroups.length > 0 && (
             procGroups.map((g, gi) => (
-              <div key={g.id ?? "__orphans"} className="mt-3 rounded-lg border border-border first:mt-0">
+              <div
+                key={g.id ?? "__orphans"}
+                className={cn("mt-3 rounded-lg border border-border first:mt-0", PROC_CARD_W)}
+              >
                 {/* The parent row. Numbered like legacy's S No, and the count is
                     the affordance a bare heading lacks — a material with no
                     processes reads as deliberate rather than unfinished. */}
@@ -6652,19 +6698,15 @@ export function MbaMasterScreen({
                       .filter(Boolean)
                       .join("  ·  ");
                     return (
-                      <FieldGrid>
-                        <Field label="" size="xl">
-                          <div className="flex min-h-8 items-center">
-                            <Truncated className="text-sm text-muted-foreground">
-                              {summary || "No process named yet"}
-                            </Truncated>
-                          </div>
-                        </Field>
-                      </FieldGrid>
+                      <div className="flex min-h-8 min-w-0 items-center">
+                        <Truncated className="text-sm text-muted-foreground">
+                          {summary || "No process named yet"}
+                        </Truncated>
+                      </div>
                     );
                   }}
                   renderMobileRow={(row, i) => (
-                    <FieldGrid>
+                    <FieldRow>
                       {procColumns
                         /* MATERIAL IS THE HEADING — except in the orphan bucket,
                            where it is the only way to put the row back on a
@@ -6675,12 +6717,12 @@ export function MbaMasterScreen({
                             key={ci}
                             label={c.header}
                             required={c.required}
-                            size={procFieldSize(c.header, g.id === null)}
+                            w={procFieldWidth(c.header)}
                           >
                             {c.cell(row, i)}
                           </Field>
                         ))}
-                    </FieldGrid>
+                    </FieldRow>
                   )}
                   /* NO `seedRow`. One blank row per material would put a card
                      under every line the moment the tab opened — eleven
@@ -6818,6 +6860,8 @@ export function MbaMasterScreen({
           tasks={tasks}
           noun="material"
           stat={styleStat}
+          quickStatus
+          extraFilters
           onOpen={openTask}
           canDelete={perms.canDelete}
           onDelete={del}
