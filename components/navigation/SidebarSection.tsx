@@ -34,7 +34,7 @@ export function SidebarSection({
           <span aria-hidden className="h-px flex-1 bg-border" />
         </div>
       )}
-      <div className={cn("space-y-px", rows && "ml-2.5 border-l border-border pl-1.5")}>
+      <div className={cn("space-y-px", rows && "ml-1.5 border-l border-border pl-1")}>
         {children}
       </div>
     </div>

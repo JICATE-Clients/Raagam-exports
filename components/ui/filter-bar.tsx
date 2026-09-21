@@ -35,6 +35,8 @@ export function FilterBar({
   activeCount = 0,
   onReset,
   right,
+  leading,
+  panel,
   searchRef,
   dateFilter,
 }: {
@@ -60,16 +62,26 @@ export function FilterBar({
   onReset?: () => void;
   /** Right-aligned status text (e.g. "3 of 12 · 0 missing"). */
   right?: ReactNode;
+  /** A compact control at the FRONT of the row, before the search box — e.g. a
+   *  segmented status switch. Opt-in; every screen that passes nothing is
+   *  unchanged. */
+  leading?: ReactNode;
+  /** A whole panel drawn INSTEAD of the default facet grid when Filters is
+   *  open — for a screen whose filters need their own layout (Material BOM's
+   *  grouped drawer). Opt-in; unmounted while closed, so it restarts from its
+   *  props each time it opens. */
+  panel?: ReactNode;
   /** Ref to the search input, so a parent can focus it (Ctrl+F shortcut). */
   searchRef?: RefObject<HTMLInputElement | null>;
 }) {
   const [open, setOpen] = useState(false);
   const showDate = !!dateFilter && dateFilter.enabled !== false;
-  const hasFilters = !!children || showDate;
+  const hasFilters = !!children || showDate || !!panel;
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
+        {leading}
         <Input
           uppercase
           ref={searchRef}
@@ -123,7 +135,8 @@ export function FilterBar({
         {right && <div className="text-xs text-muted-foreground">{right}</div>}
       </div>
 
-      {hasFilters && open && (
+      {hasFilters && open && panel}
+      {hasFilters && open && !panel && (
         <div className="grid grid-cols-1 gap-2 rounded-md border border-border bg-surface-muted/40 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {children}
           {/* Last, so adding it never reshuffles the facets a screen already had. */}

@@ -26,7 +26,7 @@ import {
   ListTodo,
   type LucideIcon,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import {
   ChildGrid,
   gridKeyNav,
@@ -132,7 +132,7 @@ import { sectionValidity, type Problem } from "@/lib/screens/validity";
 // The two flags a field the APP fills in has to carry, derived from one boolean
 // so a bypassed field can never also hold the cursor. See the note there.
 import { autoFilledField } from "@/lib/focus";
-import { Field, FieldGrid, FieldRow, FIELD_SPAN, RequiredScope } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, FIELD_SPAN, RequiredScope, useLocked } from "@/components/ui/field";
 import { MultiSelect } from "@/components/ui/multi-select";
 // `sortBySize` / `sizeFamily`: the Style master orders and bands its Sizes
 // dropdown with these, and Order Info now draws the same control — a second
@@ -5247,13 +5247,13 @@ export function GarmentOrderScreen({
       },
       {
         header: "Customer",
-        cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span>,
+        cell: (r) => <span className="text-xs">{r.customer?.name ?? "—"}</span>,
       },
       /* PO No — required on every order, and the number the BUYER calls it by.
          Without it two orders for one customer read as the same row. */
       {
         header: "PO No",
-        cell: (r) => <span className="text-sm">{r.po_no ?? "—"}</span>,
+        cell: (r) => <span className="font-mono text-xs">{r.po_no ?? "—"}</span>,
       },
       /* "Type" WITHDRAWN 2026-08-11 (client): "the company exclusively produces
          garments", so a Garment / Fabric / Made-ups toggle answers a question
@@ -5264,7 +5264,7 @@ export function GarmentOrderScreen({
       {
         header: "Date",
         cell: (r) => (
-          <span className="tabular-nums text-sm">{fmtDate(r.amend_date)}</span>
+          <span className="tabular-nums text-xs">{fmtDate(r.amend_date)}</span>
         ),
       },
       /* DELIVERY, WITH HOW SOON — `DaysOut` is the BOM queue's own suffix
@@ -5275,12 +5275,12 @@ export function GarmentOrderScreen({
         header: "Delivery",
         cell: (r) =>
           r.delivery_date ? (
-            <span className="whitespace-nowrap tabular-nums text-sm">
+            <span className="whitespace-nowrap tabular-nums text-xs">
               {fmtDate(r.delivery_date)}
               <DaysOut iso={r.delivery_date} />
             </span>
           ) : (
-            <span className="text-sm">—</span>
+            <span className="text-xs">—</span>
           ),
       },
       /**
@@ -5316,7 +5316,7 @@ export function GarmentOrderScreen({
         cell: (r) => {
           const q = orderQty(r);
           return (
-            <span className="block text-right tabular-nums text-sm">
+            <span className="block text-right font-mono tabular-nums text-xs">
               {q == null ? "—" : fmtNumber(q)}
             </span>
           );
@@ -5505,6 +5505,10 @@ export function GarmentOrderScreen({
         <DataTable
           columns={withCreatedColumns(columns, visibleRows)}
           rows={visibleRows}
+          /* HIGH-DENSITY LIST (2026-09-21): text-xs rows, 10px slate header,
+             hairline slate-100 rules — see `compact` on the primitive. RE No,
+             PO No and Quantity are `font-mono` in their own cells above. */
+          compact
           getKey={(r) => r.id}
           empty={
             rows.length > 0
@@ -15159,6 +15163,35 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * `PRICE_COLOUR_W`.
    */
   const STRUCTURE_ADD_W = "w-32";
+  /* The part rows' six tracks — Coordinate, Component, the two 6.5rem
+     fields (Roll form print last), the ✕, and "+ Add part" — shared with the
+     header row so every title and ghost stands in a real track.
+
+     THE SIXTH TRACK IS `auto` AND ONLY THE LAST PART FILLS IT (2026-09-21:
+     "+ Add part … inline with the Roll form print field"). Each part row is
+     its own grid, so on every other row the track is empty and 0px wide —
+     no hole. It comes AFTER the ✕ rather than between Roll form print and
+     the ✕, deliberately: in between, the last row's ✕ would sit one button
+     further right than every ✕ above it, or every other row would carry an
+     empty slot before its ✕. After, the ✕ column stays straight. */
+  const PART_TRACK =
+    "sm:grid-cols-[minmax(0,7.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,6.5rem)_auto_auto]";
+
+  /* ONE "+ Add part", two places — at the end of the last part row, or alone
+     when the fabric has no parts yet. `data-row-add` either way: it is what
+     Enter/Tab off the last row lands on (AGENTS.md, "Add a grid row"). */
+  const addPartButton = (r: ComboRow, st: ComboStructRow, className?: string) => (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      data-row-add
+      className={className}
+      onClick={() => addComp(r.key, st.key)}
+    >
+      + Add part
+    </Button>
+  );
 
   const componentGrid = (r: ComboRow, st: ComboStructRow) => {
     // `r`, not just its key: the Coordinate / Component / Fabric Color options
@@ -15256,12 +15289,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            undifferentiated block, and a frame around the first says that better
            than a line beside it.
 
-           THE SPACING IS THE GRID'S NOW. `gap-x-6` / `gap-y-3` on the row above
-           already separate the halves, so `pl-6` and `pt-3` would be a second
-           24px on top of the first. If the card is ever removed, this line and
+           THE SPACING IS THE GRID'S NOW. `gap-x-3` / `gap-y-2` on the row above
+           (was `gap-x-6` / `gap-y-3` until the 2026-09-21 compact pass) already
+           separate the halves, so a `pl-*` / `pt-*` here would be a second gap
+           on top of the first. If the card is ever removed, this line and
            its two paddings come back together — they are one decision. */
         /* A BASIS, BECAUSE THE ROW IS FLEX NOW (2026-09-11). The half beside
-           this one is `flex-1`, so this one has to say how wide it starts or it
+           this one was `flex-1` (`flex-none` since 2026-09-21), so this one has to say how wide it starts or it
            would size to the max-content of four pickers and take back the width
            the card was just given. 34rem is its own floor with a little room:
            four `minmax(104px,1fr)` columns, the ✕'s auto track and four 12px
@@ -15271,7 +15305,19 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            half — the card, on a zero basis, has nothing to give back — which is
            the same order of sacrifice the old 1.25 / 1 track made when it put the
            larger share on the fields. */
-        className="min-w-0 space-y-2 min-[1250px]:basis-[34rem]"
+        /* NOT `grow` (2026-09-21, tried and withdrawn the same day): the part
+           rows are capped `minmax(0,X)` tracks, so width handed to this half
+           only became blank space right of the ✕. Neither half grows now; the
+           row ends where its content does. */
+        /* AND NO `basis-[34rem]` EITHER (2026-09-21, "remove the excessive
+           empty horizontal space on the right"). The basis above was written
+           for `minmax(104px,1fr)` columns, whose max-content was "as wide as
+           a picker wants". `PART_TRACK` is four CAPPED `minmax(0,X)` tracks
+           now, so this half's own max-content is exactly its columns plus
+           the ✕ — and 544px of basis held ~32px of blank beyond them. On an
+           `auto` basis it is as wide as its parts; it still SHRINKS (default
+           shrink, `min-w-0`) when the row is squeezed below ~1450px. */
+        className="min-w-0 space-y-2"
         onKeyDown={(e) => gridKeyNav(e)}
       >
         {st.components.map((c, j) => (
@@ -15416,7 +15462,20 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                two columns — but neither is a shrink-proof floor any more. The ✕
                takes the row under them (`col-span-2 justify-self-end` on the
                Button) rather than being auto-placed into a field's column. */
-            className="grid grid-cols-2 items-center gap-x-2 gap-y-2 border-t border-border/60 pt-2 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(0,7.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,6.5rem)_auto]"
+            /* THE LINE BETWEEN PARTS IS SOLID NOW (2026-09-21: "a clean
+               horizontal separator line between the first row and the second
+               row … complete table-like structure"). It was `border-border/60`
+               — the same 1px as every input's edge at 60% strength, so under
+               one fabric part 1 and part 2 read as one block. Full `--border`
+               is the header row's own rule, so the parts read as table rows
+               under it. Still 1px and lighter than the 2px `border-strong`
+               ChildGrid draws BETWEEN FABRICS, which is what keeps "next part"
+               and "next fabric" telling apart. `pt-2` below it and the
+               container's `space-y-2` above it: 8px either side. */
+            className={cn(
+              "grid grid-cols-2 items-center gap-x-2 gap-y-2 border-t border-border pt-2 first:border-t-0 first:pt-0",
+              PART_TRACK,
+            )}
           >
             {/* NO `#N`, AND THEREFORE NO BAND (client 2026-08-17, screenshot
                 2332: "remove that #1, #2, all this kind of numbering, making huge
@@ -15798,6 +15857,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             >
               <Trash2 className="h-4 w-4 shrink-0" />
             </Button>
+            {/* INLINE ON THE LAST PART (see `PART_TRACK`'s sixth track).
+                `self-end` for the ✕'s reason: on part 0 the other cells carry
+                a label band, and this sits level with their CONTROLS. On a
+                phone it takes its own line at the start, `STRUCTURE_ADD_W`
+                wide, as the stacked "+ Add fabric" does. */}
+            {j === st.components.length - 1 &&
+              addPartButton(r, st, cn(STRUCTURE_ADD_W, "col-span-2 self-end sm:col-span-1 sm:w-auto"))}
             {/* "PROCESSED AS TRIM" WITHDRAWN (client 2026-08-17): "remove
                 Processed as Trim and the Garment Process child entry section
                 entirely, as these details are covered elsewhere."
@@ -15819,17 +15885,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 this row. */}
           </div>
         ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          data-row-add
-          /* Same box as "+ Add structure" below it — see `STRUCTURE_ADD_W`. */
-          className={STRUCTURE_ADD_W}
-          onClick={() => addComp(r.key, st.key)}
-        >
-          + Add part
-        </Button>
+        {/* NO PARTS YET: the button stands alone, at the start. Once a part
+            exists it moves onto that part's line (above) — so there is never a
+            row given over to the button beneath the parts. */}
+        {st.components.length === 0 && addPartButton(r, st, STRUCTURE_ADD_W)}
     </div>
     );
   };
@@ -15853,10 +15912,149 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   // matters is on the Structure control inside the row.
   const comboStructureColumns: ChildGridColumn<ComboStructRow>[] = [];
 
-  const structureGrid = (r: ComboRow) => (
+  const structureGrid = (r: ComboRow) => {
+    /* THE HEADER'S STARS ARE THE ROWS' OWN RULES, asked of every fabric. GSM,
+       Tolerance and Colour are required per fabric (Circular Knit; a Fabric
+       Type that offers a colour), so one shared title is starred when ANY
+       fabric under it owes a value — the hold on each cell is still that
+       cell's own. Same functions as the cells, so they cannot disagree. */
+    const anyGsm = r.structures.some(
+      (x) => structureRequiredCells(familyCodeOf(x.structure_id)).gsm,
+    );
+    const anyColour = r.structures.some(
+      (x) => componentColourEntry(x.item_sub_type) !== null,
+    );
+    /* A header ghost is there for its WIDTH only. At the button's own `h-8`
+       it made the header row 32px tall around ~16px of title — the empty band
+       under Structure … Roll form print (user, 2026-09-21, screenshot 120536:
+       "label up and down la spaces irukku … compact"). Zero height, no
+       vertical border or padding; width, padding-x and content are untouched,
+       so the track still measures exactly the row's button. */
+    const GHOST_CELL = "invisible h-0 border-y-0 py-0";
+    const head = (text: string, required = false) => (
+      /* `!mb-0`: the raagam skin adds 6px under every block label
+         (`label.block`, unlayered, hence `!`). Air between a label and ITS
+         box — and this title has no box under it, only the header's rule. */
+      <Label key={text} className="!mb-0">
+        {text}
+        {required && <span className="ml-0.5 text-danger">*</span>}
+      </Label>
+    );
+    return (
+    <div className="space-y-2">
+    {/* ONE BOX, ONE HEADER ROW (2026-09-21: "place the column labels only once
+       at the very top inside this common box").
+
+       THE BOX. `ChildGrid` draws its own `GRID_FRAME`; it is `frameless` here
+       so this is the only border, and the grid's "+ Add fabric" sits inside
+       it at the bottom. `flatRows` separates the fabrics with its 2px rule.
+
+       THE HEADER. All nine titles once, above every fabric, on the SAME
+       tracks the rows use — the fabric half's fixed five and `PART_TRACK` —
+       so a title can only sit over its own column. `pr-9` is the rows' ✕
+       (28px) plus `removeBeside`'s 8px gap, so the parts half is squeezed
+       identically in both between 1250px and ~1450px. `aria-hidden`: each
+       row keeps its labels as `sr-only` (see the row), which is what a
+       screen reader reads; this row is only what the eye reads.
+
+       NO CAPTION. The grid's own "Structure Details" band would sit between
+       this header and the rows, and the sheet's title already says
+       "Structure Details — <combo>". */}
+    {/* `w-fit` — THE BOX HUGS ITS COLUMNS (2026-09-21). The sheet is
+       `fullBleed`, so a block box ran to the pane's edge while every column
+       inside it is a fixed width: everything past Roll form print and the ✕
+       was empty box.
+
+       THE HEADER ROW IS WHAT SETS THIS WIDTH, NOT THE ROWS. `ChildGrid`'s
+       root is an `@container`, and a size container reports NO intrinsic
+       width to its parent — so fit-content here sees only the header. That is
+       why the header must be exactly as wide as a row: same fabric track,
+       same `PART_TRACK`, a ghost of the part row's bin in the ✕ track, and
+       `pr-9` for the fabric ✕. Drop any of those and the box is narrower
+       than its rows, which squeezes the parts half instead of hugging it.
+
+       FROM 1250px ONLY, where the header shows. Below it the header is
+       `hidden`, so there would be nothing to size by and the box would
+       collapse; there it stays a full-width block, as the stacked layout
+       wants anyway. */}
+    {/* THE ROW LINES ARE SHOWN AGAIN IN THIS BOX (user, 2026-09-21, screenshot
+       120126: "one line ku kela code venum row kku kela" — a line under every
+       row). They were never missing from the code: `ChildGrid` draws a 2px
+       `border-strong` rule on every fabric row after the first, and each part
+       row after the first carries its own `border-t`. The raagam SKIN hides
+       both — `[data-skin="raagam"] [data-grid-row]` sets `border-color:
+       transparent` app-wide (globals.css, client 2026-08-28: "below the new
+       material one line is there right remove that one").
+
+       SO THIS IS A SCOPED EXCEPTION, NOT A CHANGE TO THAT RULE. The skin's
+       decision stands everywhere else; this one box is a table with a header
+       row and a column divider, and its rows need their rules to read as one.
+       `!` because the skin's CSS is unlayered and outranks any utility.
+
+       AND EVERY LINE IS THIN (user, same day: "line ella lines um irukka mari
+       thin a iruntha pothum" — thin, like all the other lines). `ChildGrid`
+       draws the rule between FABRICS at `border-t-2`; the fabric row carries
+       `data-row-box`; `[data-row-box]+[data-row-box]` — a fabric row that
+       FOLLOWS another, exactly the rows `ChildGrid` rules — takes it to 1px
+       here. The sibling test matters: a bare `border-t` on every fabric row
+       would ADD a line on the first one, under the header's own rule. Every rule in this box — header, fabric, part,
+       and the column divider — is now the same 1px `--border`. `ChildGrid`
+       keeps its 2px everywhere else (client 2026-08-19, "still invisible at
+       1px", was about grids with no header or column lines to lean on). */}
+    <div className="relative max-w-full rounded-lg border border-border bg-surface px-3 pb-3 pt-2 min-[1250px]:w-fit [&_[data-grid-row]]:!border-border [&_[data-row-box]+[data-row-box]]:!border-t">
+    {/* THE FABRIC | PARTS DIVIDER, ONE LINE FROM TOP TO BOTTOM (2026-09-21:
+        "spans continuously from the top header down through all the rows").
+        Drawn per row it broke at every seam — each `flatRows` row is `py-3`
+        and the header sits `mb-2` above the first — and those are
+        `ChildGrid`'s rhythm, not this screen's to remove. So it is one
+        absolute line over the whole box instead, and the per-row borders
+        stay only as transparent 1px spacers.
+
+        `left-[50.5rem]` IS ARITHMETIC, NOT A MEASUREMENT: `px-3` (0.75rem)
+        + the fabric track (9.5 + 11 + 5 + 6 + 7 + 7.5 = 46rem, and five
+        `gap-x-2.5` = 3.125rem) + that half's `pr-2.5` (0.625rem). It was
+        42.875rem until Range took its own 7rem column (2026-09-21). It lands on
+        the transparent border exactly. Change the fabric track or those
+        paddings and this number moves with them. `border-border`, not
+        `slate-200`: the token holds in dark mode. From 1250px only, where
+        the halves sit side by side. */}
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 left-[50.5rem] hidden border-r border-border min-[1250px]:block"
+    />
+    <div
+      aria-hidden
+      className="mb-2 hidden items-end gap-x-2.5 border-b border-border pb-1 pr-9 min-[1250px]:flex"
+    >
+      <div className="grid flex-none grid-cols-[9.5rem_11rem_5rem_6rem_7rem_7.5rem] gap-x-2.5 self-stretch border-r border-transparent pr-2.5">
+        {head("Structure", true)}
+        {head("Composition", true)}
+        {head("GSM", anyGsm)}
+        {head("Tolerance", anyGsm)}
+        {head("Range")}
+        {head("Fabric Type", true)}
+      </div>
+      <div className={cn("grid min-w-0 gap-x-2", PART_TRACK)}>
+        {head("Coordinate", true)}
+        {head("Component", true)}
+        {head("Colour", anyColour)}
+        {head("Roll form print")}
+        {/* A GHOST OF THE PART ROW'S BIN, for width only — see the box. Same
+            `buttonClasses` as that `<Button variant="ghost" size="sm">`, so
+            the ✕ track measures the same here as in every row; a `<span>`,
+            `invisible`, so it is neither painted nor a Tab stop. */}
+        <span className={buttonClasses({ variant: "ghost", size: "sm", className: GHOST_CELL })}>
+          <Trash2 className="h-4 w-4 shrink-0" />
+        </span>
+        {/* …and of "+ Add part", which now ends the last part's line: the
+            widest row is the one carrying it, and the box must be that wide. */}
+        <span className={buttonClasses({ variant: "outline", size: "sm", className: GHOST_CELL })}>
+          + Add part
+        </span>
+      </div>
+    </div>
     <ChildGrid<ComboStructRow>
-      /* grid-caption: exempt -- the [Detail] overlay names no grid; this caption is the only thing that does. */
-      label="Structure Details"
+      frameless
       columns={comboStructureColumns}
       rows={r.structures}
       /*
@@ -15909,7 +16107,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          second copy of a number that already exists, and the 09-06 note is
          explicit that both offsets move if `LABEL_METRICS` or `Input`'s height
          do. This only names WHICH band. */
-      cornerRemoveAlign="header"
+      /* SUPERSEDED 2026-09-21 by `removeBeside` below — the note above is
+         kept for the history. With one header for the whole card, only the
+         FIRST fabric has a label band; a corner chip offset to "header" would
+         float above the inputs of every fabric after it. In the flow and
+         top-aligned, the chip lands level with the titles on the first fabric
+         (what 2026-09-08 asked for) and level with the inputs on the rest. */
+      removeBeside
       /* AND THE CLOSED ROW'S ✕ SITS BESIDE ITS CARD (operator instruction,
          2026-09-11). The two states of this grid want the chip in two places and
          say so in two props: the line above keeps an OPEN structure's chip up at
@@ -15968,6 +16172,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          container"). Nothing is lost there: the spec card that request was
          reaching for is what an OPEN row already draws. */
       onAdd={() => addStruct(r.key)}
+      /* The grid's own "+ Add fabric" is off; `AddFabricButton` stands below
+         the box instead — see it. `addLabel` / `addClassName` stay so the
+         grid still names its row kind if `hideAdd` ever comes off. */
+      hideAdd
       onRemove={(st) => mutStructs(r.key, (sts) => sts.filter((x) => x.key !== st.key))}
       addLabel="+ Add fabric"
       /* Same box as "+ Add component" inside it — see `STRUCTURE_ADD_W`. */
@@ -16070,10 +16278,28 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                the row wants ~1200px of content while the pane gives about 990px at
                the breakpoint. Neither half may wrap now, so what shows there is
                the overflow the track's own note already records as "squeezed and
-               deliberately unfixed". `flex-1` on a zero basis means the card
-               absorbs none of that shrink and the parts half absorbs all of it,
-               down to its own min-content. */
-            className="flex flex-col flex-nowrap gap-x-6 gap-y-3 min-[1250px]:flex-row min-[1250px]:items-end"
+               deliberately unfixed". The card is `flex-none` at its fixed track
+               (2026-09-21; it was `flex-1` on a zero basis), so it still absorbs
+               none of that shrink and the parts half absorbs all of it, down to
+               its own min-content. On a wide pane neither half grows: the spare
+               width sits after the row, not inside it. */
+            /* `gap-x-2.5 gap-y-2` (ultra-compact pass, 2026-09-21; was `gap-x-6
+               gap-y-3`). The width handed back goes straight to the parts half,
+               the one squeezed between 1250px and ~1450px (note above). */
+            /* ONE HEADER ROW FOR THE WHOLE BOX (2026-09-21) — see `structureGrid`.
+               From 1250px, where the halves sit side by side and the shared
+               header row is showing, every `Field` label in this row goes
+               `sr-only`: gone from the layout, still the accessible name and
+               still what the hold announces. Below 1250px the halves stack,
+               a single header could describe neither, and the labels show.
+
+               `items-start`, NOT `items-end` (the 2026-09-11 instruction).
+               Bottom-aligning mattered while each half carried its own label
+               band; with the labels out of the row, it would drop a fabric's
+               parts by the height of the Tolerance range hint whenever the
+               fabric half is the taller one. Top-aligned, every input row lines
+               up with the header above it. */
+            className="flex flex-col flex-nowrap gap-x-2.5 gap-y-2 min-[1250px]:flex-row min-[1250px]:items-start min-[1250px]:[&_[data-field-label]]:sr-only"
             /* FOCUS LEAVING THE ROW IS "they moved on" — `onBlur` bubbles in
                React, so one handler covers every field in the row and the
                nested part rows with it. `relatedTarget` inside this row is a
@@ -16145,11 +16371,19 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * padding, on a row whose floors are already tight above 1250px (see
               * the track's own note).
               *
-              * `px-4 py-6`, NOT `p-4` (operator instruction, 2026-09-11:
+              * `px-3 py-3.5` — `px-4 py-6` until the 2026-09-21 compact pass.
+              * The side padding went to 12px first; then the SAME DAY the
+              * operator asked for the vertical half too ("ultra-compact and
+              * high-density ... p-3.5 ... remove dead vertical space"), which
+              * REVERSES the 2026-09-11 instruction quoted next — the later ask
+              * wins, so `py` came down 24px -> 14px. `px` stays at 12 rather than
+              * the 14 a bare `p-3.5` would give, because 2px a side is width off
+              * the tight track. What 2026-09-11 said, for the record: NOT `p-4`
+              * (operator instruction, 2026-09-11:
               * "increase box height ... add more vertical padding ... to make it
               * vertically more spacious"). THE TWO AXES ANSWER DIFFERENT QUESTIONS
               * NOW and must not be collapsed back into one shorthand by a later
-              * tidy-up: the horizontal 16px is width taken off a track that has
+              * tidy-up: the horizontal padding is width taken off a track that has
               * none to spare between 1250px and ~1450px, while the vertical 24px
               * is free, because nothing on this card competes for height. Raising
               * `py` again is safe; raising `px` is not.
@@ -16169,7 +16403,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * costs — and a literal white would stay white in the dark theme
               * while everything around it inverted.
               */}
-            {/* `flex-1` — THIS IS THE HALF THAT GROWS (operator instruction,
+            {/* SUPERSEDED 2026-09-21 (see the note after this one) — kept for
+                the history. `flex-1` — THIS WAS THE HALF THAT GROWS (operator instruction,
                 2026-09-11: "increase the width of the bordered container ...
                 applying flex-1 or w-full so it expands neatly"). `w-full` was the
                 other option offered and would have done nothing: a grid item
@@ -16182,7 +16417,30 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 it used to override `items-start`. Drop it and the card becomes
                 content-height and bottom-aligned, with the parts table running
                 past it. */}
-            <div className="min-w-0 flex-1 space-y-2 self-stretch rounded-lg border border-border bg-surface px-4 py-6">
+            {/* NO LONGER THE HALF THAT GROWS (2026-09-21: "remove the excessive
+                gap in the middle"). Its five tracks are a FIXED 664px, so every
+                pixel `flex-1` handed it on a wide pane landed as blank card to
+                the right of Tolerance — the gap between the two halves was
+                inside this border, where no `gap-*` could reach it. Beside the
+                parts half it is now `flex-none`: exactly its track plus
+                padding; neither half grows, so the row ends where its content does.
+                Below 1250px the row is a column and the card still spans it. */}
+            {/* NO BORDER OF ITS OWN SINCE 2026-09-21 — the common box around the
+                whole grid carries it (see `structureGrid`). */}
+            {/* THE FABRIC | PARTS DIVIDER (2026-09-21: "a clean vertical
+                separator line between the left fabric group and the right
+                coordinate group"). A right border on this half, from 1250px
+                where the halves sit side by side — stacked, the line would
+                stand beside nothing. `self-stretch` runs it the row's full
+                height. `border-border`, not `slate-200`: the token holds in
+                dark mode. The header's fabric track carries the SAME `pr-2.5`
+                + 1px, so the box (sized by the header) stays exactly a row
+                wide and the line continues up through the titles. */}
+            {/* The line itself is now drawn ONCE for the whole box (see
+                `structureGrid`); this border is `transparent` and stays only
+                for its 1px, so the parts half starts where the header's
+                Coordinate does. */}
+            <div className="min-w-0 space-y-2 self-stretch min-[1250px]:flex-none min-[1250px]:border-r min-[1250px]:border-transparent min-[1250px]:pr-2.5">
             {/* ONE TRACK OF FIVE, IN THE ORDER THE OPERATOR NAMED THEM
                 (2026-09-11: "Structure*, Composition*, GSM*, Tolerance*,
                 Fabric Type*"). Every label starts on the same line and every box
@@ -16272,9 +16530,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 class, which is why the `w` prop can stay for the stacked case
                 below `lg`.
 
-                THE TRACK IS NOW EXACTLY 672px AND NO LONGER HAS A "FLOOR" — with
+                THE TRACK IS NOW EXACTLY 664px AND NO LONGER HAS A "FLOOR" — with
                 no `fr` left it is one width at every size above `lg`, not a range:
-                152 + 176 + 80 + 96 + 120 and four 12px gaps. The floors it
+                152 + 176 + 80 + 96 + 120 and four 10px gaps (`gap-x-2.5`, down
+                from `gap-x-3` in the 2026-09-21 compact pass; 672px at 12px). The floors it
                 replaces were ~604px (GSM and Fabric Type fixed, the other two
                 still `1fr`), ~634px (the uniform group), 666px (five bespoke
                 columns) and ~705px (Tolerance standing outside with a rule and
@@ -16294,7 +16553,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 300px — the worst mobile break in this module. Below `lg` the five
                 stack one per line at full width, which is the same answer the
                 outer track at `min-[1250px]` gives the two halves. */}
-            <div className="grid items-start gap-x-3 gap-y-2 lg:grid-cols-[9.5rem_11rem_5rem_6rem_7.5rem]">
+            <div className="grid items-start gap-x-2.5 gap-y-2 lg:grid-cols-[9.5rem_11rem_5rem_6rem_7rem_7.5rem]">
               {/* `term` (176px), NOT `name` (288px) — client 2026-08-19, asking for
                   Structure and Composition "as xs(2) size" like the part row below.
 
@@ -16500,13 +16759,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 w="num"
                 className="w-full"
               >
-                <Input
-                  type="number"
-                  className="text-right"
-                  value={st.gsm}
-                  onChange={(e) => patchStruct(r.key, st.key, { gsm: e.target.value })}
-                  onBlur={() => carryDownGsm(r.key, st.key)}
-                />
+                {/* NAMED FOR THE HOLD on fabrics with no title above them —
+                    same local scope as the part row's Colour cell. */}
+                <RequiredScope required={need.gsm} label="GSM">
+                  <Input
+                    type="number"
+                    aria-label="GSM"
+                    className="text-right"
+                    value={st.gsm}
+                    onChange={(e) => patchStruct(r.key, st.key, { gsm: e.target.value })}
+                    onBlur={() => carryDownGsm(r.key, st.key)}
+                  />
+                </RequiredScope>
               </Field>
               {/* TOLERANCE IS BACK IN THE TRACK, BETWEEN GSM AND FABRIC TYPE
                   (operator instruction, 2026-09-11: the row is
@@ -16572,22 +16836,45 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 required={need.gsm_tolerance}
                 w="num"
                 className="w-full"
-                hint={
-                  range ? (
-                    <span className="block text-center tabular-nums">({range})</span>
-                  ) : null
-                }
               >
+                <RequiredScope required={need.gsm_tolerance} label="Tolerance">
+                  <Input
+                    type="number"
+                    aria-label="Tolerance"
+                    className="w-full text-right"
+                    value={st.gsm_tolerance}
+                    onChange={(e) =>
+                      patchStruct(r.key, st.key, {
+                        gsm_tolerance: e.target.value,
+                      })
+                    }
+                    onBlur={() => carryDownGsm(r.key, st.key)}
+                  />
+                </RequiredScope>
+              </Field>
+              {/* RANGE IS A FIELD AGAIN (user, 2026-09-21, screenshot 115052:
+                  the "(255 - 265)" under Tolerance → "change this number into a
+                  field, field name Range"). Its own labelled column between
+                  Tolerance and Fabric Type, `w="range"` — the vocabulary's own
+                  step for "a derived pair: 195 - 205".
+
+                  STILL DERIVED, NEVER TYPED. `gsmRange` computes it from the two
+                  boxes beside it and it has no column (0408), so the box is
+                  `readOnly`: nothing to save, nothing to hold, and `Input`
+                  takes a read-only box off the Tab path itself (`tabIndex=-1`)
+                  — Tab still goes GSM → Tolerance → Fabric Type. `readOnly`
+                  also exempts it from the capitals rule, correctly: it was not
+                  typed. Empty until GSM has a value, like the hint was.
+
+                  This reverses the 2026-09-11 "range as helper text under the
+                  box" and the older removal of the read-only Gsm Range box
+                  (see the notes below); the later instruction wins. */}
+              <Field label="Range" w="range" className="w-full">
                 <Input
-                  type="number"
-                  className="w-full text-right"
-                  value={st.gsm_tolerance}
-                  onChange={(e) =>
-                    patchStruct(r.key, st.key, {
-                      gsm_tolerance: e.target.value,
-                    })
-                  }
-                  onBlur={() => carryDownGsm(r.key, st.key)}
+                  readOnly
+                  aria-label="Range"
+                  className="w-full text-center tabular-nums"
+                  value={range}
                 />
               </Field>
               {/*
@@ -16631,7 +16918,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 w="term"
                 className="w-full"
               >
+                <RequiredScope required={need.item_sub_type} label="Fabric Type">
                 <Select
+                  aria-label="Fabric Type"
                   required={need.item_sub_type}
                   value={st.item_sub_type}
                   onChange={(e) => {
@@ -16747,6 +17036,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     </option>
                   ))}
                 </Select>
+                </RequiredScope>
               </Field>
               {/*
                 * ONE SLOT, ON THE FABRIC, ASKING WHAT THE TYPE CALLS FOR
@@ -16921,7 +17211,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         );
       }}
     />
-  );
+    </div>
+    <AddFabricButton onAdd={() => addStruct(r.key)} className={STRUCTURE_ADD_W} />
+    </div>
+    );
+  };
 
   /**
    * ONE WIDTH FOR THE TWO "+ Add" BUTTONS (client 2026-08-17, again 2026-08-18:
@@ -22627,7 +22921,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         footer={<SubSheetFooter onDone={() => setDetailComboKey(null)} />}
       >
         {detailCombo && (
-          <div className="space-y-4">
+          /* `space-y-3` (compact pass, 2026-09-21; was `space-y-4`).
+
+             `text-xs` INSIDE EVERY BOX, not only the labels (same pass: "text-xs
+             micro-typography for all labels and inputs"). Labels, hints and
+             errors were already `text-xs`; the controls are `text-sm` from `md`
+             up. A descendant rule on this overlay rather than a prop, because
+             `DataPicker` exposes no `inputClassName` and ~160 pickers share it.
+             Gated at `md` like the primitive's own `md:text-sm`: below it the
+             controls keep `text-base`, which is what stops iOS zooming on focus. */
+          <div className="space-y-3 md:[&_input]:text-xs md:[&_select]:text-xs md:[&_textarea]:text-xs">
             {detailHeader(detailCombo)}
             {structureGrid(detailCombo)}
           </div>
@@ -23008,6 +23311,36 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
  * type — a hint that says "0 solid, 0 melange" is noise, and on a saved
  * amendment there is no order read to derive it from at all.
  */
+/**
+ * "+ Add fabric", BELOW the Structure Details box rather than inside it (user,
+ * 2026-09-21: "add fabric button a table kku kela kondu va").
+ *
+ * WHY IT IS NOT `ChildGrid`'s OWN BUTTON ANY MORE. That one renders inside the
+ * grid's card, and the card is inside the bordered box — so it could only ever
+ * sit within the border. The grid now passes `hideAdd` and this stands after
+ * the box.
+ *
+ * THE TWO THINGS `ChildGrid` DID FOR ITS BUTTON, AND WHO DOES THEM NOW:
+ * - Hide it on a LOCKED record (approved order, the read-only eye) — ChildGrid
+ *   folds `useLocked()` into its `hideAdd`. This reads the same hook, which is
+ *   why it is a component: the Structure Details markup is built below the
+ *   editor's `if (mode === "list")` return, where a hook call would be the
+ *   "hooks above every early return" crash AGENTS.md records five times.
+ * - Keep the keyboard contract. `data-row-add` makes it a Tab stop after the
+ *   last part (`isRowAdd`), and `landOnAddedRow` still puts the cursor in the
+ *   new fabric: it walks up from the button to the first ancestor holding a
+ *   `data-grid-body`, which is the wrapper around this and the box.
+ */
+function AddFabricButton({ onAdd, className }: { onAdd: () => void; className?: string }) {
+  const locked = useLocked();
+  if (locked) return null;
+  return (
+    <Button type="button" variant="outline" size="sm" data-row-add className={className} onClick={onAdd}>
+      + Add fabric
+    </Button>
+  );
+}
+
 function FabricTypeHint({ counts }: { counts: FabricTypeCounts | null }) {
   if (!counts) return null;
   const named = [

@@ -9,7 +9,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
-import { DaysOut } from "@/components/orders/bom-queue";
+import { DaysOut, StatusSegment } from "@/components/orders/bom-queue";
 import type { StatusTone } from "@/lib/ui/tone";
 import {
   budgetStatusText,
@@ -93,6 +93,16 @@ export function BudgetQueue({
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | QueueStatus>("");
+  /* THE PENDING / UPDATED BOX, FABRIC BOM'S OWN (user 2026-09-21: "update and
+     pending options displayed to be like fabric bom") — the same component, at
+     the front of the search row. A budget has five states, not a BOM's two
+     ends, so the two words are read as the question the box asks on the BOM
+     queues — is the work still to do, or done:
+       Pending = "Not budgeted" (no budget on the order yet — the work waiting)
+       Updated = a budget exists, whatever its approval state
+     Its OWN state, as on `BomQueue`: it never moves the Filters panel's Status
+     facet, which still reaches Draft / Submitted / Approved / Rejected. */
+  const [quickFilter, setQuickFilter] = useState<"" | "pending" | "updated">("");
 
   /** Ready orders, in work order and then by delivery, soonest first. */
   const ready = useMemo(
@@ -112,12 +122,14 @@ export function BudgetQueue({
     const needle = query.trim().toLowerCase();
     return ready.filter((o) => {
       if (statusFilter && statusOf(o) !== statusFilter) return false;
+      if (quickFilter === "pending" && statusOf(o) !== "none") return false;
+      if (quickFilter === "updated" && statusOf(o) === "none") return false;
       if (!needle) return true;
       return [o.re_no, o.order_code, o.po_no, o.customer_name].some((v) =>
         (v ?? "").toLowerCase().includes(needle),
       );
     });
-  }, [ready, query, statusFilter]);
+  }, [ready, query, statusFilter, quickFilter]);
 
   /** Counted per state, in work order. A state with no orders is shown and not
    *  choosable, `BomQueue`'s rule, so the options never reshuffle. */
@@ -175,6 +187,7 @@ export function BudgetQueue({
         onSearch={setQuery}
         searchPlaceholder="Search RE No, PO or customer…"
         activeCount={statusFilter ? 1 : 0}
+        leading={<StatusSegment value={quickFilter} onChange={setQuickFilter} />}
         onReset={statusFilter ? () => setStatusFilter("") : undefined}
         right={`${summary} · ${filtered.length} of ${ready.length}`}
       >

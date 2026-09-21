@@ -4,12 +4,21 @@ import { useMemo, useState } from "react";
 import { today as todayAtFactory } from "@/lib/calendar";
 import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
-import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
+import { createdMeta, creatorName, hasCreatedInfo } from "@/components/ui/created-columns";
+import {
+  BomFilterDrawer,
+  NO_FACETS,
+  type BomFilterValues,
+  type QueueFacets,
+  type Urgency,
+} from "@/components/orders/bom-filter-drawer";
+import { matchesCreatedDate } from "@/lib/date-filter";
 import {
   BOM_STATUSES,
   BOM_STATUS_RANK,
@@ -170,14 +179,146 @@ const QUEUE_THEME: Partial<Record<BomStatus, { pill: string; edge: string }>> = 
   },
 };
 
+/** The queue's status pill — exported so a caller's own surface (Fabric BOM's
+ *  preview drawer) paints the same shade the card beside it does. */
+export function BomQueuePill({ status }: { status: BomStatus }) {
+  return (
+    <StatusPill tone={queueTone(status)} className={QUEUE_THEME[status]?.pill}>
+      {bomStatusText(status)}
+    </StatusPill>
+  );
+}
+
+/**
+ * PENDING / UPDATED, FIRST ON THE SEARCH ROW (user, 2026-09-21: "1st pending
+ * update and search box filter this order") — before the search box and the
+ * Filters button, not after them.
+ *
+ * THIS REVERSES PART OF 2026-08-21, deliberately. The note on the Filters
+ * panel below records the client rejecting a rail of chips for the counts in
+ * the panel's Status facet. That facet stays — it is still the only way to
+ * reach Draft and Recalculate, and it still carries the counts. This is a
+ * shortcut to the two ends of the queue with its OWN state (`quickFilter`), not
+ * connected to the Filters panel — see the note where that state is declared.
+ *
+ * `bg-slate-100` as asked, with a token fallback in dark mode, where slate-100
+ * would be a white bar. `h-9`, the height of the search box and Filters button
+ * beside it (LAYOUT.md §10).
+ *
+ * ONE BOX (user, 2026-09-21: "pending and update one box convert this box is
+ * toogle type") — Pending on the left, Updated on the right. The switch that
+ * stood between them came out the same day ("remove toggle icon"): the two
+ * box is now ONE button holding both words ("The Update and Pending should be
+ * in the same box"): a click anywhere flips between them, the current one
+ * standing out as a white pill inside the box.
+ * No "All" and no Reset link on this row ("all and reset remove"); the queue
+ * opens unfiltered as it always has, neither word lit until one is chosen, and
+ * the Filters panel's Status facet still reaches All, Draft and Recalculate.
+ */
+export function StatusSegment({
+  value,
+  onChange,
+}: {
+  /* A plain string, not `BomStatus`: the Budgets queue draws this same box
+     over its own vocabulary (2026-09-21, "update and pending options … like
+     fabric bom"), and only the two words below are ever compared. */
+  value: string;
+  onChange: (v: "pending" | "updated") => void;
+}) {
+  const word = (s: "pending" | "updated", text: string) => (
+    <span
+      className={cn(
+        "rounded-md px-2 py-1 transition-colors",
+        value === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+      )}
+    >
+      {text}
+    </span>
+  );
+  return (
+    /* ONE BUTTON, SO ONE BOX — the whole box is the click target and flips
+       Pending ↔ Updated. From unfiltered, the first click lands on Pending. */
+    <button
+      type="button"
+      onClick={() => onChange(value === "pending" ? "updated" : "pending")}
+      aria-label={`Status: ${value === "updated" ? "Updated" : value === "pending" ? "Pending" : "all"} — press to switch`}
+      className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-border bg-slate-100 p-0.5 text-xs font-medium dark:bg-surface-muted"
+    >
+      {word("pending", "Pending")}
+      {word("updated", "Updated")}
+    </button>
+  );
+}
+
+/**
+ * THE QUEUE'S EIGHT EXTRA FACETS (user, 2026-09-21: "add filter field from
+ * Customer to Created By") — every one read off the `BomTaskRow` the card
+ * already carries, so none costs a query.
+ *
+ * The facet SHAPE and the panel that edits it live in
+ * `components/orders/bom-filter-drawer.tsx`; the MATCHING stays here.
+ *
+ * Delivery Urgency reads the same factory-day arithmetic as `DaysOut`, so the
+ * "· 4d" on a card and the "Due within 7 days" it is filtered under cannot
+ * disagree. Created By compares `creatorName`, which never returns a uuid — a
+ * row whose creator is unknown matches only "All", never a blank option.
+ */
+function activeFacetCount(f: QueueFacets): number {
+  return Object.values(f).filter(Boolean).length;
+}
+
+function distinctSorted(values: (string | null | undefined)[]): string[] {
+  return [...new Set(values.map((v) => v?.trim()).filter((v): v is string => !!v))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
+function daysToDelivery(iso: string | null): number | null {
+  if (!iso) return null;
+  const at = Date.parse(`${iso.slice(0, 10)}T00:00:00`);
+  const now = Date.parse(`${todayAtFactory()}T00:00:00`);
+  if (Number.isNaN(at) || Number.isNaN(now)) return null;
+  return Math.round((at - now) / 86_400_000);
+}
+
+function matchesUrgency(t: BomTaskRow, u: Urgency): boolean {
+  if (!u) return true;
+  const d = daysToDelivery(t.delivery_date);
+  if (u === "none") return d == null;
+  if (d == null) return false;
+  if (u === "late") return d < 0;
+  if (u === "week") return d >= 0 && d <= 7;
+  if (u === "month") return d > 7 && d <= 30;
+  return d > 30;
+}
+
+function matchesFacets(t: BomTaskRow, f: QueueFacets): boolean {
+  if (f.customer && t.customer_name?.trim() !== f.customer) return false;
+  if (f.delivery && !matchesCreatedDate(t.delivery_date, f.delivery)) return false;
+  if (!matchesUrgency(t, f.urgency)) return false;
+  if (f.orderDate && !matchesCreatedDate(t.amend_date, f.orderDate)) return false;
+  if (f.qty === "known" && t.production_qty == null) return false;
+  if (f.qty === "missing" && t.production_qty != null) return false;
+  if (f.styles === "single" && t.style_count > 1) return false;
+  if (f.styles === "multiple" && t.style_count <= 1) return false;
+  if (f.started === "none" && t.bom_id) return false;
+  if (f.started === "empty" && (!t.bom_id || t.bom_line_count > 0)) return false;
+  if (f.started === "lines" && (!t.bom_id || t.bom_line_count === 0)) return false;
+  if (f.createdBy && creatorName(t) !== f.createdBy) return false;
+  return true;
+}
+
 export function BomQueue({
   tasks,
   noun,
   stat,
   onOpen,
+  onPreview,
   canDelete = false,
   onDelete,
   onReports,
+  quickStatus = false,
+  extraFilters = false,
   isPending = false,
 }: {
   tasks: BomTaskRow[];
@@ -193,6 +334,14 @@ export function BomQueue({
   /** The card's middle figure — see `bomCardStats`. */
   stat: (t: BomTaskRow) => CardStat;
   onOpen: (t: BomTaskRow) => void;
+  /**
+   * WHAT A CARD TAP DOES, WHEN IT IS NOT "OPEN THE EDITOR" — opt-in, and only
+   * Fabric BOM passes it (2026-09-21: a right-edge detail drawer, with the
+   * editor one "Open BOM" press further on). This deliberately reverses the
+   * 2026-09-18 "a tap opens the BOM itself" for Fabric BOM ONLY; Material BOM
+   * passes nothing and its tap still goes straight to the editor.
+   */
+  onPreview?: (t: BomTaskRow) => void;
   canDelete?: boolean;
   onDelete?: (t: BomTaskRow) => void;
   /** A document report reachable straight off the card, without opening the
@@ -200,21 +349,44 @@ export function BomQueue({
    *  Gated the same way `onDelete` already is: only a row that HAS a document
    *  gets the button. */
   onReports?: (t: BomTaskRow) => void;
+  /** The Pending / Updated segment at the front of the search row — opt-in
+   *  (Material BOM, 2026-09-21; Fabric BOM the same day, to match it). */
+  quickStatus?: boolean;
+  /** The eight facets beside Status in the Filters panel — opt-in (Material
+   *  BOM, 2026-09-21); Fabric BOM passes nothing and is unchanged. */
+  extraFilters?: boolean;
   isPending?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | BomStatus>("");
+  /* THE PENDING / UPDATED BOX KEEPS ITS OWN STATE (user, 2026-09-21: "Pending
+     and Update should not be connected to the filters"). It used to write
+     `statusFilter`, so a click moved the panel's Status facet and lit the
+     Filters badge. Now the two are independent and both apply: the box narrows
+     the queue, the panel narrows it further, and neither changes the other. */
+  const [quickFilter, setQuickFilter] = useState<"" | BomStatus>("");
+  const [f, setF] = useState<QueueFacets>(NO_FACETS);
+
+  /* THE FACETS OFFER ONLY WHAT THE QUEUE HOLDS — a customer or creator with no
+     order in the queue is an option that can only produce an empty list. */
+  const customerOptions = useMemo(
+    () => distinctSorted(tasks.map((t) => t.customer_name)),
+    [tasks],
+  );
+  const creatorOptions = useMemo(() => distinctSorted(tasks.map((t) => creatorName(t))), [tasks]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return tasks.filter((t) => {
       if (statusFilter && t.status !== statusFilter) return false;
+      if (quickStatus && quickFilter && t.status !== quickFilter) return false;
+      if (extraFilters && !matchesFacets(t, f)) return false;
       if (!needle) return true;
       return [t.sc_no, t.order_code, t.po_no, t.customer_name].some((v) =>
         (v ?? "").toLowerCase().includes(needle),
       );
     });
-  }, [tasks, query, statusFilter]);
+  }, [tasks, query, statusFilter, quickStatus, quickFilter, extraFilters, f]);
 
   /**
    * HOW MANY ORDERS SIT IN EACH STATE, IN THE ORDER THE WORK SHOULD BE DONE —
@@ -304,8 +476,32 @@ export function BomQueue({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search RE No, PO or customer…"
-        activeCount={statusFilter ? 1 : 0}
-        onReset={statusFilter ? () => setStatusFilter("") : undefined}
+        activeCount={(statusFilter ? 1 : 0) + (extraFilters ? activeFacetCount(f) : 0)}
+        leading={
+          quickStatus ? (
+            <StatusSegment value={quickFilter} onChange={setQuickFilter} />
+          ) : undefined
+        }
+        onReset={statusFilter && !quickStatus ? () => setStatusFilter("") : undefined}
+        panel={
+          extraFilters ? (
+            <BomFilterDrawer
+              value={{ ...f, status: statusFilter }}
+              onChange={(next: BomFilterValues) => {
+                const { status, ...facets } = next;
+                setStatusFilter(status as "" | BomStatus);
+                setF({ ...facets, urgency: facets.urgency as Urgency });
+              }}
+              statusOptions={statusCounts.map((c) => ({
+                value: c.status,
+                label: `${bomStatusText(c.status)} (${c.count})`,
+                disabled: c.count === 0,
+              }))}
+              customerOptions={customerOptions}
+              creatorOptions={creatorOptions}
+            />
+          ) : undefined
+        }
         right={
           queueSummary ? (
             <>
@@ -316,25 +512,30 @@ export function BomQueue({
           )
         }
       >
-        <div>
-          <Label htmlFor="bom-status">Status</Label>
-          <Select
-            id="bom-status"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "" | BomStatus)}
-          >
-            <option value="">All ({tasks.length})</option>
-            {statusCounts.map((c) => (
-              <option
-                key={c.status}
-                value={c.status}
-                disabled={c.count === 0 && c.status !== statusFilter}
-              >
-                {bomStatusText(c.status)} ({c.count})
-              </option>
-            ))}
-          </Select>
-        </div>
+        {/* THE PLAIN STATUS FACET — every queue that does not ask for the
+            grouped drawer (Fabric BOM). Material BOM's Status lives in the
+            drawer's first group instead. */}
+        {!extraFilters && (
+          <div>
+            <Label htmlFor="bom-status">Status</Label>
+            <Select
+              id="bom-status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as "" | BomStatus)}
+            >
+              <option value="">All ({tasks.length})</option>
+              {statusCounts.map((c) => (
+                <option
+                  key={c.status}
+                  value={c.status}
+                  disabled={c.count === 0 && c.status !== statusFilter}
+                >
+                  {bomStatusText(c.status)} ({c.count})
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
       </FilterBar>
 
       {/* ONE CARD PER GARMENT ORDER (operator request, 2026-08-17). This list is
@@ -376,11 +577,7 @@ export function BomQueue({
             {t.po_no ? <span className="font-mono"> · {t.po_no}</span> : null}
           </>
         )}
-        pill={(t) => (
-          <StatusPill tone={queueTone(t.status)} className={QUEUE_THEME[t.status]?.pill}>
-            {bomStatusText(t.status)}
-          </StatusPill>
-        )}
+        pill={(t) => <BomQueuePill status={t.status} />}
         stats={(t) => bomCardStats(t, stat(t))}
         /* THE QUEUE CARD (operator, 2026-09-18, reference screenshot) — see
            `queue` on `MobileCardList`. A tap opens the BOM straight away; no
@@ -402,7 +599,7 @@ export function BomQueue({
         /* "Created " IN WORDS — in the drawer the pair sits alone beside the
            buttons, with no column header to say what the date is. */
         footerNote={showCreated ? (t) => `Created ${createdMeta(t)}` : undefined}
-        onEdit={onOpen}
+        onEdit={onPreview ?? onOpen}
         canDelete={canDelete}
         /* Only an order that HAS a BOM has anything to delete — that is the
            "Pending" case, and it is the whole reason the queue lists ORDERS.

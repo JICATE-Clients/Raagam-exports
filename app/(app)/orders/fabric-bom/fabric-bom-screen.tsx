@@ -234,6 +234,7 @@ import {
   type YdCombinationRow,
 } from "@/components/orders/yarn-dyed-panels";
 import { FabricBomReportsSheet } from "@/components/orders/fabric-bom-reports-sheet";
+import { FabricBomDrawer } from "@/components/orders/fabric-bom-drawer";
 import { yarnShadesFrom, type YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
 import {
   isYarnDyed,
@@ -1696,6 +1697,11 @@ export function FabricBomScreen({
    *  the queue card's Reports action, straight off the list, with no editor
    *  open at all. */
   const [reportsBomId, setReportsBomId] = useState<string | null>(null);
+  /** The queue card last tapped, and whether its detail drawer is out
+   *  (2026-09-21 — `FabricBomDrawer`). Two pieces of state rather than one
+   *  nullable row so the panel keeps its content while it slides away. */
+  const [previewTask, setPreviewTask] = useState<BomTaskRow | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   /** The [Detail] button's own rect, so its sheet grows out of that button —
    *  same mechanism as `componentsOrigin` below (AGENTS.md,
    *  "A sub-detail Sheet's size"). */
@@ -10519,7 +10525,18 @@ export function FabricBomScreen({
           tasks={tasks}
           noun="fabric"
           stat={lineStat}
+          /* THE SAME PENDING / UPDATED BOX AS MATERIAL BOM (2026-09-21: "the
+             Update and Pending options displayed exactly like they are in
+             Material"). One component, so the two queues cannot drift. */
+          quickStatus
           onOpen={openTask}
+          /* A TAP OPENS THE DETAIL DRAWER, not the editor (2026-09-21) — the
+             editor is the drawer's "Open BOM". Fabric BOM only; Material BOM's
+             queue passes no `onPreview` and is unchanged. */
+          onPreview={(t) => {
+            setPreviewTask(t);
+            setPreviewOpen(true);
+          }}
           canDelete={perms.canDelete}
           /* `bom_id` is non-null here by `canDeleteRow` — a Pending row has no
              document, and the card hides the ✕ on exactly those. */
@@ -10631,6 +10648,22 @@ export function FabricBomScreen({
           which only helps a Sheet rendered from here rather than from inside
           a grid cell — moot for a read-only document, but the established
           mounting point for every sub-detail this screen opens. */}
+      <FabricBomDrawer
+        task={previewTask}
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        onOpenBom={(t) => {
+          setPreviewOpen(false);
+          openTask(t);
+        }}
+        /* The drawer steps aside for the Reports sheet rather than stacking
+           under it — one overlay at a time, one Escape to dismiss it. */
+        onReports={(id) => {
+          setPreviewOpen(false);
+          setReportsBomId(id);
+        }}
+      />
+
       <FabricBomReportsSheet
         bomId={reportsBomId}
         open={!!reportsBomId}
