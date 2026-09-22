@@ -15187,7 +15187,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
      a button's min-content and max-content are the same width, so the
      squeeze below ~1450px (see the parts half's own notes) is unchanged. */
   const PART_TRACK =
-    "sm:grid-cols-[minmax(0,7.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,5.5rem)_max-content_max-content]";
+    "sm:grid-cols-[minmax(0,5.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,5.5rem)_max-content_max-content]";
 
   /* ONE "+ Add part", two places — beside the last part's ✕, or alone when
      the fabric has no parts yet. Compact: it hugs its label (see
@@ -15395,9 +15395,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                its old size (AGENTS.md's compact standard), and a fixed width on
                the cell trades the too-wide bug for a scrollbar.
 
-               THE TWO PAIRS ARE SIZED BY WHAT THEY HOLD. Coordinate and Component
-               carry part names — "FRONT BODY" is the long one — so they cap at
-               120px; Colour ("BROWN") is a shorter value and caps at 104px;
+               THE FOUR ARE SIZED BY WHAT THEY HOLD. Component carries part names
+               — "FRONT BODY" is the long one — so it caps at 120px. Coordinate
+               caps at 88px (5.5rem, down from 7.5rem — client 2026-09-22:
+               "coordinate field and roll form print field text size kku set
+               aagara mari compact tight-en pannidu"): its vocabulary is TOP /
+               BOTTOM / PIECES, six letters at most, ~52px at the control's
+               size plus the compact 20px affordance and its paddings, and the
+               header "Coordinate *" is ~72px, so 88px hugs the widest of those
+               with nothing spare. Colour ("BROWN") is a shorter value and caps at 104px;
                Roll form print caps at 88px (5.5rem, down from 6.5rem — client
                2026-09-22: "roll form print field aa konjam small compact aa
                change pannidu"), the shortest of the four because it is the one
@@ -15409,7 +15415,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                every one of the four truncates with an ellipsis and reveals on
                hover, because all four are pickers or a Combobox (LAYOUT.md §14).
 
-               THE SUM, AGAINST THE PANE: 120 + 120 + 104 + 88 = 432 (448 before Roll form print went to 5.5rem), plus four
+               THE SUM, AGAINST THE PANE: 88 + 120 + 104 + 88 = 400 (448 before Coordinate and Roll form print went to 5.5rem), plus four
                8px gaps and the ✕'s ~32px is ~512px inside this half's
                `basis-[34rem]` (544px) — ~32px of slack where the previous track
                had none. Below that the caps collapse rather than scroll.
@@ -15460,7 +15466,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                per-call-site override of a shared measurement.
 
                THE CAP IS STATED TWICE ON PURPOSE — here on the track and again as
-               `sm:max-w-[7.5rem]` / `[6.5rem]` / `[5.5rem]` on each of the four
+               `sm:max-w-[5.5rem]` / `[7.5rem]` / `[6.5rem]` / `[5.5rem]` on each of the four
                `Field`s. The track alone is sufficient: `Field` is
                `cn(FIELD_WIDTH[w], "min-w-0", className)`, so `className="w-full"`
                makes the cell exactly its track and the `w-full` control inside it
@@ -15495,6 +15501,19 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                container's `space-y-2` above it: 8px either side. */
             className={cn(
               "grid grid-cols-2 items-center gap-x-2 gap-y-2 border-t border-border pt-2 first:border-t-0 first:pt-0",
+              /* THE RULE RUNS UNDER THE FABRIC ✕ (client 2026-09-22, "without
+                 any gaps or breaks"). This grid is as wide as the parts half,
+                 which ends at "+ Add part"; the fabric's ✕ chip sits 8px past
+                 that in `ChildGrid`'s beside-layout, so every part rule
+                 stopped 36px short of where the FABRIC rules (`ChildGrid`'s
+                 own `border-t`, full row width) end — the action column looked
+                 cut off the table. `-mr-9 pr-9` is 36px (`gap-2` + the 28px
+                 chip) of border with NO width change: padding widens the box
+                 and the negative margin gives it back, so the parts half's
+                 max-content — and with it every track — is exactly what it
+                 was. Side by side only; stacked below 1250px there is no chip
+                 beside the row. */
+              "min-[1250px]:-mr-9 min-[1250px]:pr-9",
               PART_TRACK,
             )}
           >
@@ -15590,7 +15609,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 * The HOLD is unaffected on every row, because it comes from
                 * `RequiredScope` inside `Field`, never from the label text.
                 */}
-              <Field label={j === 0 ? "Coordinate" : undefined} required w="term" className="w-full sm:max-w-[7.5rem]">
+              <Field label={j === 0 ? "Coordinate" : undefined} required w="term" className="w-full sm:max-w-[5.5rem]">
                 {/* The style's own coordinates (client 2026-08-12). */}
                 <RecordPicker
                   label="Coordinate"
@@ -16042,6 +16061,32 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     <div
       aria-hidden
       className="pointer-events-none absolute inset-y-0 left-[50.5rem] hidden border-r border-border min-[1250px]:block"
+    />
+    {/* THE PARTS | ACTIONS DIVIDER, the same line one column group along
+        (client 2026-09-22: "align the vertical separator/border line so it
+        runs continuously from the top to the bottom of the table without any
+        gaps or breaks. Keep the Delete icons, '+ Add part' buttons, and the
+        right-side Close (X) buttons properly aligned within the same action
+        column"). Everything right of Roll form print — a part's 🗑, the last
+        part's "+ Add part", the fabric's ✕ — is one action column, and this
+        rule is what makes it read as one rather than as three things that
+        happen to end the row.
+
+        `left-[77.875rem]` IS THE SAME ARITHMETIC CONTINUED: the first line
+        at 50.5rem, + the row's `gap-x-2.5` (0.625rem) to the parts half, +
+        its four field tracks (5.5 + 7.5 + 6.5 + 5.5 = 25rem and three
+        `gap-x-2` = 1.5rem), + half of the `gap-x-2` before the 🗑 (0.25rem),
+        so it splits that gap. Change `PART_TRACK`'s field caps and this
+        number moves with them.
+
+        FROM 1500px, NOT 1250px. The fabric half is `flex-none`, so the first
+        line's position never moves; the parts half SHRINKS between 1250px
+        and ~1450px (its own notes), and a line placed by arithmetic over
+        columns that are shrinking would cut through Roll form print. Above
+        ~1450px every track is at its cap and the number is exact. */}
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 left-[77.875rem] hidden border-r border-border min-[1500px]:block"
     />
     <div
       aria-hidden
