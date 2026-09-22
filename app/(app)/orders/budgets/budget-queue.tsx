@@ -100,9 +100,11 @@ export function BudgetQueue({
      queues — is the work still to do, or done:
        Pending = "Not budgeted" (no budget on the order yet — the work waiting)
        Updated = a budget exists, whatever its approval state
+       Draft   = a budget exists and is still being written (user 2026-09-22,
+                 the third word on every one of the three queues)
      Its OWN state, as on `BomQueue`: it never moves the Filters panel's Status
      facet, which still reaches Draft / Submitted / Approved / Rejected. */
-  const [quickFilter, setQuickFilter] = useState<"" | "pending" | "updated">("");
+  const [quickFilter, setQuickFilter] = useState<"" | "pending" | "updated" | "draft">("");
 
   /** Ready orders, in work order and then by delivery, soonest first. */
   const ready = useMemo(
@@ -124,6 +126,7 @@ export function BudgetQueue({
       if (statusFilter && statusOf(o) !== statusFilter) return false;
       if (quickFilter === "pending" && statusOf(o) !== "none") return false;
       if (quickFilter === "updated" && statusOf(o) === "none") return false;
+      if (quickFilter === "draft" && statusOf(o) !== "draft") return false;
       if (!needle) return true;
       return [o.re_no, o.order_code, o.po_no, o.customer_name].some((v) =>
         (v ?? "").toLowerCase().includes(needle),
@@ -187,7 +190,7 @@ export function BudgetQueue({
         onSearch={setQuery}
         searchPlaceholder="Search RE No, PO or customer…"
         activeCount={statusFilter ? 1 : 0}
-        leading={<StatusSegment value={quickFilter} onChange={setQuickFilter} />}
+        leading={<StatusSegment value={quickFilter} onChange={setQuickFilter} draft />}
         onReset={statusFilter ? () => setStatusFilter("") : undefined}
         right={`${summary} · ${filtered.length} of ${ready.length}`}
       >

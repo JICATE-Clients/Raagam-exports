@@ -30,7 +30,7 @@
  * beside it for the same reason.
  */
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Coins,
@@ -580,12 +580,16 @@ export function BudgetScreen({
   data,
   perms,
   masterPerms,
+  openId = null,
 }: {
   budgets: OrderBudget[];
   data: BudgetFormData;
   perms: Perms;
   /** The head pickers add and rename `config_lookups` rows — MASTER data. */
   masterPerms: { canCreate: boolean; canEdit: boolean };
+  /** A budget to open in the editor on arrival (`/orders/budgets?budget=<id>`,
+   *  from the Approval queue's Edit icon). Read once, on mount. */
+  openId?: string | null;
 }) {
   const router = useRouter();
   const { success, error: toastError, toast } = useToast();
@@ -650,6 +654,17 @@ export function BudgetScreen({
   const driftSeq = useRef(0);
 
   useUnsavedGuard(dirty || isPending);
+
+  /* OPEN-ON-ARRIVAL. A one-shot on mount: the id comes from the URL,
+     `openExisting` is the SAME handler a click runs, and the param is then
+     dropped from the address so a reload lands on the list, not back in the
+     editor the operator just closed. An unknown id opens nothing. */
+  useEffect(() => {
+    if (!openId) return;
+    openExisting(openId);
+    router.replace("/orders/budgets");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
   /**
