@@ -190,6 +190,76 @@ const nextConfig: NextConfig = {
   // path (which Serwist needs) is unaffected.
   turbopack: {},
 
+  /**
+   * THE THIRD OOM, AND THE ONE LEVER THE TWO ABOVE NEVER PULLED
+   * (Vercel build 2026-09-22, commit 539da4a: SIGKILL, "At least one Out of
+   * Memory (OOM) event was detected", 4 cores / 8 GB).
+   *
+   * ## IT FAILED SLOWLY, WHICH IS A DIFFERENT SYMPTOM
+   *
+   * The 08-25 OOM died in ~3 minutes and the 09-19 one in ~85 seconds. This one
+   * ground for FORTY-THREE MINUTES (16:34:16 compile start → 17:17:36 SIGKILL)
+   * without printing a single compile line. That is not the build getting
+   * bigger; it is the `--max-old-space-size=3072` cap above doing its job too
+   * well. Measured locally on this tree, the worker reaches the ceiling within
+   * two minutes of compiling and then oscillates against it — 2.99 → 3.09 →
+   * 2.92 GB — so V8 spends its time in mark-compact instead of in webpack. RSS
+   * kept climbing past 3.96 GB on native memory the cap does not bound, and on
+   * an 8 GB box that plus the main process is what the kernel kills.
+   *
+   * A build that gets SLOWER before it dies is a heap ceiling, not growth
+   * alone. Growth is why the ceiling was reached: master gained 300 files and
+   * +28,296 lines across app/ components/ lib/ in the three days after the cap
+   * was measured, so the ~2.5 GB of headroom that commit left is spent.
+   *
+   * ## THE CACHE, WHICH NEXT'S OWN MEMORY GUIDE NAMES AND THIS FILE SKIPPED
+   *
+   * `webpackBuildWorker` and `webpackMemoryOptimizations` were both already on.
+   * The third item in `docs/01-app/02-guides/memory-usage.md` — "Disable
+   * Webpack cache" — was not, and it is the one that matches the evidence:
+   * webpack's filesystem cache "saves generated Webpack modules in memory
+   * and/or to disk … it will also increase the memory usage". Vercel restores
+   * it (`Restored build cache from previous deployment` is line 4 of that
+   * build's log), so the worker deserialises a previous deployment's module
+   * graph into the very heap that is already at its ceiling. Swapping it for a
+   * memory cache means nothing is read in at the start or written out at the
+   * end.
+   *
+   * IT COSTS COLD BUILDS. Every deploy now recompiles from scratch, so wall
+   * time goes UP on a build that would have had a warm cache — which is the
+   * trade being made deliberately: a slower green build beats a 43-minute red
+   * one. `next build` is the only thing affected (`dev` is Turbopack and never
+   * reaches here); the guard is on `!dev` regardless, because HMR without a
+   * cache is not a trade anyone wants.
+   *
+   * ## THIS FUNCTION IS ALSO WHY `webpackBuildWorker` MUST STAY EXPLICIT
+   *
+   * Serwist already set `config.webpack`, which is what silently disabled the
+   * build worker before 08-25 — see the note on `experimental` above. Declaring
+   * one here changes nothing about that (it was already set), but it removes
+   * the last reason anyone might think deleting Serwist's injection would
+   * restore the default. It cannot; the default is gone either way.
+   *
+   * Serwist composes rather than overwrites — `@serwist/next`'s `index.mjs`
+   * calls `nextConfig.webpack(config, options)` first and then adds its own
+   * plugin — so the service worker is unaffected. The check that matters after
+   * touching this file is not that the build passes, it is that `public/sw.js`
+   * is still emitted: a silently missing SW is a PWA that stops updating.
+   *
+   * IF IT RECURS, the remaining levers are Vercel's Enhanced Builds (16 GB, a
+   * paid setting) and dropping the `--webpack` pin entirely — serwist 9.5.11
+   * now names two Turbopack routes of its own (`@serwist/turbopack`, and
+   * "configurator mode"), and a Rust bundler does not have a Node heap to run
+   * out of. Do NOT raise the cap: 4 GB of heap plus ~2.4 GB of native plus the
+   * main process is ~8.9 GB on an 8 GB box, so it would die sooner.
+   */
+  webpack: (config, { dev }) => {
+    if (config.cache && !dev) {
+      config.cache = Object.freeze({ type: "memory" });
+    }
+    return config;
+  },
+
   images: {
     remotePatterns: [
       // Supabase Storage (style images, attachments)
