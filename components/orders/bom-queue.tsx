@@ -225,20 +225,64 @@ export function BomQueuePill({ status }: { status: BomStatus }) {
  */
 type QuickWord = "pending" | "updated" | "draft";
 /**
- * ICON + WORD, THE CHOSEN ONE ON A SOFT TINT (user 2026-09-22, option H of
- * the eight mocked up that morning — "4th one apply"). Clock / tick / pencil
- * say what each state means without reading, and the lit word takes the
- * SAME tone the queue's own status pill gives that state — Pending danger,
- * Updated success, Draft warning — so the box and the cards under it agree.
- * The unlit words stay muted on the plain surface; nothing else in the row
- * carries colour, so the one tinted word is the whole answer to "what am I
- * looking at".
+ * ICON + WORD, THE CHOSEN ONE IN THE THEME'S COLOUR (user 2026-09-22, option
+ * H of the eight mocked up that morning — "4th one apply" — and then, the
+ * same afternoon, screenshot 144250 of the topbar "T" menu's COLOUR list:
+ * "intha colour theme-kkum set aagara maari pending / updated / draft field
+ * colour kondu va"). Clock / tick / pencil say what each state means without
+ * reading. The lit word is `bg-primary text-primary-foreground` — the pair
+ * the primary Button wears, read from the two tokens every colour preset
+ * overrides (`lib/appearance.ts`: `--primary`, `--primary-soft`), so under
+ * Navy, Ocean, Teal or Graphite the box is that colour, and its contrast is
+ * the preset's own, already proven by `check:themes`.
+ *
+ * THE PER-STATE TONE (Pending danger / Updated success / Draft warning) WAS
+ * THE MORNING'S ANSWER AND IS SUPERSEDED. It matched the cards' status pill,
+ * which was a real argument; the later instruction is that the box follows
+ * the theme, which a red/green/amber word cannot. The pill on the cards keeps
+ * its tones — that is the card saying what state IT is in — and the box says
+ * only which word is chosen.
+ *
+ * THE BOX IS PLAIN; ONLY THE CHOSEN WORD IS THE THEME COLOUR (user
+ * 2026-09-22, settled on the fourth ask of the hour: "background-ku colour
+ * vendaam, button colour mattum change aaganum, namba enna theme select
+ * pandromo athukku set aagara maari"). The two cuts before it are worth
+ * one line each so neither comes back: the box on `--primary-soft` (a 4%
+ * tint that reads as white, so the theme switch looked like it did nothing)
+ * and then the whole box in `bg-primary` with a white pill (which the user
+ * read as "background colour", and did not want). So: `bg-surface` and the
+ * ordinary `border-border`, exactly the box every other control in the
+ * header row sits in, and the chosen word is the Button's own pair —
+ * `bg-primary text-primary-foreground` — which is what follows the preset.
  */
-const QUICK: Record<QuickWord, { text: string; icon: typeof Clock; lit: string }> = {
-  pending: { text: "Pending", icon: Clock, lit: "bg-danger-soft text-danger" },
-  updated: { text: "Updated", icon: Check, lit: "bg-success-soft text-success" },
-  draft: { text: "Draft", icon: Pencil, lit: "bg-warning-soft text-warning" },
+const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
+  pending: { text: "Pending", icon: Clock },
+  updated: { text: "Updated", icon: Check },
+  draft: { text: "Draft", icon: Pencil },
 };
+/* THE PRIMARY BUTTON'S OWN MARKERS, NOT JUST ITS TOKENS (user 2026-09-22,
+   screenshot 145813 under Steel: "steel colour set aagi appo pending update
+   draft um steel colour la button change aaganum"). `bg-primary` alone is the
+   preset's flat colour; a GRADIENT preset (Steel, Raagam Gradient, …) paints
+   its buttons through `.ty-btn-primary` (`gradientCss` in lib/appearance.ts),
+   so a pill wearing only the token sat flat beside a "+ New Fabric BOM" that
+   ran graphite → blue. With the marker it takes the same gradient, hover and
+   pressed rules the Button does, under every preset, flat or not.
+
+   `bg-(--primary)`, NOT `bg-primary` — THE ONE THING THAT ACTUALLY MADE IT
+   FOLLOW THE THEME (user 2026-09-22, fourth and fifth asks: "teal theme
+   change panna … teal colour la, navy select panna navy colour la"). Same
+   CSS — `background-color: var(--primary)` — but a different CLASS NAME, and
+   the class name is what mattered: the raagam skin paints every
+   `button[class*="bg-primary"]` a FIXED light-blue gradient (globals.css,
+   "THE RIGHT-HAND BUTTONS …", #cfe8f7 → #93c9e8), which is the #9ecfeb pill
+   in screenshot 145813 under Steel, and would have been the same light blue
+   under Navy and Teal. That rule is Save's look under the skin and stays;
+   this pill is a filter, not a Save, and the ask is that it show the theme.
+   A class the attribute selector cannot match is how it opts out — the
+   `hover:` reads the hover token the same way for the same reason. */
+const QUICK_LIT =
+  "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
 
 export function StatusSegment({
   value,
@@ -282,9 +326,7 @@ export function StatusSegment({
             onClick={() => onChange(value === s ? words[(i + 1) % words.length] : s)}
             className={cn(
               "inline-flex h-full items-center gap-1.5 rounded-md px-2.5 transition-colors",
-              value === s
-                ? cn("font-semibold", QUICK[s].lit)
-                : "text-muted-foreground hover:bg-surface-muted",
+              value === s ? QUICK_LIT : "text-muted-foreground hover:bg-surface-muted",
             )}
           >
             <Icon className="h-3.5 w-3.5" aria-hidden />
