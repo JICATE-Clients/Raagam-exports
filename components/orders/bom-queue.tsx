@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Check, Clock, Pencil } from "lucide-react";
 import { today as todayAtFactory } from "@/lib/calendar";
 import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -211,15 +212,32 @@ export function BomQueuePill({ status }: { status: BomStatus }) {
  * box is now ONE button holding both words ("The Update and Pending should be
  * in the same box"): a click anywhere flips between them, the current one
  * standing out as a white pill inside the box.
- * No "All" and no Reset link on this row ("all and reset remove"); the queue
- * opens unfiltered as it always has, neither word lit until one is chosen, and
- * the Filters panel's Status facet still reaches All, Draft and Recalculate.
+ * No "All" and no Reset link on this row ("all and reset remove"); the
+ * Filters panel's Status facet still reaches All, Draft and Recalculate.
+ *
+ * THE QUEUE OPENS ON PENDING (user 2026-09-22: "material bom, fabric bom,
+ * approval, budgeting — intha tab la lam pending status la default aa open
+ * la irukkanum"). It opened unfiltered, neither word lit, until then. Pending
+ * is the work still to do, which is what an operator opening a work queue is
+ * there for; Updated and Draft are one click away, and the box below steps
+ * from unfiltered to Pending first for the same reason. Budget Approval
+ * already opened on Pending; this makes the other three agree with it.
  */
 type QuickWord = "pending" | "updated" | "draft";
-const QUICK_TEXT: Record<QuickWord, string> = {
-  pending: "Pending",
-  updated: "Updated",
-  draft: "Draft",
+/**
+ * ICON + WORD, THE CHOSEN ONE ON A SOFT TINT (user 2026-09-22, option H of
+ * the eight mocked up that morning — "4th one apply"). Clock / tick / pencil
+ * say what each state means without reading, and the lit word takes the
+ * SAME tone the queue's own status pill gives that state — Pending danger,
+ * Updated success, Draft warning — so the box and the cards under it agree.
+ * The unlit words stay muted on the plain surface; nothing else in the row
+ * carries colour, so the one tinted word is the whole answer to "what am I
+ * looking at".
+ */
+const QUICK: Record<QuickWord, { text: string; icon: typeof Clock; lit: string }> = {
+  pending: { text: "Pending", icon: Clock, lit: "bg-danger-soft text-danger" },
+  updated: { text: "Updated", icon: Check, lit: "bg-success-soft text-success" },
+  draft: { text: "Draft", icon: Pencil, lit: "bg-warning-soft text-warning" },
 };
 
 export function StatusSegment({
@@ -241,7 +259,7 @@ export function StatusSegment({
 }) {
   const words: QuickWord[] = draft ? ["pending", "updated", "draft"] : ["pending", "updated"];
   const current = words.includes(value as QuickWord) ? (value as QuickWord) : null;
-  const label = current ? QUICK_TEXT[current] : "all";
+  const label = current ? QUICK[current].text : "all";
   return (
     /* ONE BOX, A BUTTON PER WORD. It used to be ONE button whose whole face
        flipped Pending ↔ Updated ("pending and update one box convert this box
@@ -252,22 +270,28 @@ export function StatusSegment({
     <div
       role="group"
       aria-label={`Status: ${label}`}
-      className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-border bg-slate-100 p-0.5 text-xs font-medium dark:bg-surface-muted"
+      className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 text-xs font-medium"
     >
-      {words.map((s, i) => (
-        <button
-          key={s}
-          type="button"
-          aria-pressed={value === s}
-          onClick={() => onChange(value === s ? words[(i + 1) % words.length] : s)}
-          className={cn(
-            "rounded-md px-2 py-1 transition-colors",
-            value === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-          )}
-        >
-          {QUICK_TEXT[s]}
-        </button>
-      ))}
+      {words.map((s, i) => {
+        const Icon = QUICK[s].icon;
+        return (
+          <button
+            key={s}
+            type="button"
+            aria-pressed={value === s}
+            onClick={() => onChange(value === s ? words[(i + 1) % words.length] : s)}
+            className={cn(
+              "inline-flex h-full items-center gap-1.5 rounded-md px-2.5 transition-colors",
+              value === s
+                ? cn("font-semibold", QUICK[s].lit)
+                : "text-muted-foreground hover:bg-surface-muted",
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" aria-hidden />
+            {QUICK[s].text}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -389,7 +413,9 @@ export function BomQueue({
      `statusFilter`, so a click moved the panel's Status facet and lit the
      Filters badge. Now the two are independent and both apply: the box narrows
      the queue, the panel narrows it further, and neither changes the other. */
-  const [quickFilter, setQuickFilter] = useState<"" | BomStatus>("");
+  /* `"pending"`, not `""` — see `StatusSegment`'s note: the queue opens on the
+     work still to do (user 2026-09-22). */
+  const [quickFilter, setQuickFilter] = useState<"" | BomStatus>("pending");
   const [f, setF] = useState<QueueFacets>(NO_FACETS);
 
   /* THE FACETS OFFER ONLY WHAT THE QUEUE HOLDS — a customer or creator with no
