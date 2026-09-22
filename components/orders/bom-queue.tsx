@@ -267,9 +267,22 @@ const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
    its buttons through `.ty-btn-primary` (`gradientCss` in lib/appearance.ts),
    so a pill wearing only the token sat flat beside a "+ New Fabric BOM" that
    ran graphite → blue. With the marker it takes the same gradient, hover and
-   pressed rules the Button does, under every preset, flat or not. */
+   pressed rules the Button does, under every preset, flat or not.
+
+   `bg-(--primary)`, NOT `bg-primary` — THE ONE THING THAT ACTUALLY MADE IT
+   FOLLOW THE THEME (user 2026-09-22, fourth and fifth asks: "teal theme
+   change panna … teal colour la, navy select panna navy colour la"). Same
+   CSS — `background-color: var(--primary)` — but a different CLASS NAME, and
+   the class name is what mattered: the raagam skin paints every
+   `button[class*="bg-primary"]` a FIXED light-blue gradient (globals.css,
+   "THE RIGHT-HAND BUTTONS …", #cfe8f7 → #93c9e8), which is the #9ecfeb pill
+   in screenshot 145813 under Steel, and would have been the same light blue
+   under Navy and Teal. That rule is Save's look under the skin and stays;
+   this pill is a filter, not a Save, and the ask is that it show the theme.
+   A class the attribute selector cannot match is how it opts out — the
+   `hover:` reads the hover token the same way for the same reason. */
 const QUICK_LIT =
-  "ty-btn-solid ty-btn-primary bg-primary font-semibold text-primary-foreground shadow-sm";
+  "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
 
 export function StatusSegment({
   value,
