@@ -215,38 +215,60 @@ export function BomQueuePill({ status }: { status: BomStatus }) {
  * opens unfiltered as it always has, neither word lit until one is chosen, and
  * the Filters panel's Status facet still reaches All, Draft and Recalculate.
  */
+type QuickWord = "pending" | "updated" | "draft";
+const QUICK_TEXT: Record<QuickWord, string> = {
+  pending: "Pending",
+  updated: "Updated",
+  draft: "Draft",
+};
+
 export function StatusSegment({
   value,
   onChange,
+  draft = false,
 }: {
   /* A plain string, not `BomStatus`: the Budgets queue draws this same box
      over its own vocabulary (2026-09-21, "update and pending options … like
-     fabric bom"), and only the two words below are ever compared. */
+     fabric bom"), and only the words below are ever compared. */
   value: string;
-  onChange: (v: "pending" | "updated") => void;
+  onChange: (v: QuickWord) => void;
+  /** A THIRD WORD, DRAFT, AFTER UPDATED (user, 2026-09-22: "pending update
+   *  pakkathala draft nu oru field add"), asked for on Material BOM first and
+   *  then on Fabric BOM, Budgeting and Approval the same morning — so every
+   *  caller passes it today. Kept opt-in so a future two-state queue can draw
+   *  the box without a word that could only ever show an empty list. */
+  draft?: boolean;
 }) {
-  const word = (s: "pending" | "updated", text: string) => (
-    <span
-      className={cn(
-        "rounded-md px-2 py-1 transition-colors",
-        value === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-      )}
-    >
-      {text}
-    </span>
-  );
+  const words: QuickWord[] = draft ? ["pending", "updated", "draft"] : ["pending", "updated"];
+  const current = words.includes(value as QuickWord) ? (value as QuickWord) : null;
+  const label = current ? QUICK_TEXT[current] : "all";
   return (
-    /* ONE BUTTON, SO ONE BOX — the whole box is the click target and flips
-       Pending ↔ Updated. From unfiltered, the first click lands on Pending. */
-    <button
-      type="button"
-      onClick={() => onChange(value === "pending" ? "updated" : "pending")}
-      aria-label={`Status: ${value === "updated" ? "Updated" : value === "pending" ? "Pending" : "all"} — press to switch`}
+    /* ONE BOX, A BUTTON PER WORD. It used to be ONE button whose whole face
+       flipped Pending ↔ Updated ("pending and update one box convert this box
+       is toogle type"); a third word has no "other side" to flip to, so each
+       word now picks itself. Clicking the lit word steps to the next one —
+       which on the two-word box is exactly the flip it always was. From
+       unfiltered, Pending is still the first landing. */
+    <div
+      role="group"
+      aria-label={`Status: ${label}`}
       className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-border bg-slate-100 p-0.5 text-xs font-medium dark:bg-surface-muted"
     >
-      {word("pending", "Pending")}
-      {word("updated", "Updated")}
-    </button>
+      {words.map((s, i) => (
+        <button
+          key={s}
+          type="button"
+          aria-pressed={value === s}
+          onClick={() => onChange(value === s ? words[(i + 1) % words.length] : s)}
+          className={cn(
+            "rounded-md px-2 py-1 transition-colors",
+            value === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+          )}
+        >
+          {QUICK_TEXT[s]}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -313,11 +335,11 @@ export function BomQueue({
   noun,
   stat,
   onOpen,
-  onPreview,
   canDelete = false,
   onDelete,
   onReports,
   quickStatus = false,
+  quickDraft = false,
   extraFilters = false,
   isPending = false,
 }: {
@@ -333,15 +355,16 @@ export function BomQueue({
   noun: string;
   /** The card's middle figure — see `bomCardStats`. */
   stat: (t: BomTaskRow) => CardStat;
-  onOpen: (t: BomTaskRow) => void;
   /**
-   * WHAT A CARD TAP DOES, WHEN IT IS NOT "OPEN THE EDITOR" — opt-in, and only
-   * Fabric BOM passes it (2026-09-21: a right-edge detail drawer, with the
-   * editor one "Open BOM" press further on). This deliberately reverses the
-   * 2026-09-18 "a tap opens the BOM itself" for Fabric BOM ONLY; Material BOM
-   * passes nothing and its tap still goes straight to the editor.
+   * A CARD TAP OPENS THE EDITOR, on every queue, and there is no prop to
+   * route it elsewhere. There was one — `onPreview`, 2026-09-21, which sent
+   * Fabric BOM's tap to a right-edge detail drawer with the editor one "Open
+   * BOM" press further on — and the client had it removed the same day
+   * ("direct aa intha page visible aana pothum"). That was the second drawer
+   * taken off this card (the first is recorded in `mobile-card-list.tsx`'s
+   * `queue` prop), so the hook for a third is deliberately gone with it.
    */
-  onPreview?: (t: BomTaskRow) => void;
+  onOpen: (t: BomTaskRow) => void;
   canDelete?: boolean;
   onDelete?: (t: BomTaskRow) => void;
   /** A document report reachable straight off the card, without opening the
@@ -352,6 +375,8 @@ export function BomQueue({
   /** The Pending / Updated segment at the front of the search row — opt-in
    *  (Material BOM, 2026-09-21; Fabric BOM the same day, to match it). */
   quickStatus?: boolean;
+  /** Adds the Draft word to the Pending / Updated box (Material BOM). */
+  quickDraft?: boolean;
   /** The eight facets beside Status in the Filters panel — opt-in (Material
    *  BOM, 2026-09-21); Fabric BOM passes nothing and is unchanged. */
   extraFilters?: boolean;
@@ -479,7 +504,11 @@ export function BomQueue({
         activeCount={(statusFilter ? 1 : 0) + (extraFilters ? activeFacetCount(f) : 0)}
         leading={
           quickStatus ? (
-            <StatusSegment value={quickFilter} onChange={setQuickFilter} />
+            quickDraft ? (
+              <StatusSegment value={quickFilter} onChange={setQuickFilter} draft />
+            ) : (
+              <StatusSegment value={quickFilter} onChange={setQuickFilter} />
+            )
           ) : undefined
         }
         onReset={statusFilter && !quickStatus ? () => setStatusFilter("") : undefined}
@@ -599,7 +628,7 @@ export function BomQueue({
         /* "Created " IN WORDS — in the drawer the pair sits alone beside the
            buttons, with no column header to say what the date is. */
         footerNote={showCreated ? (t) => `Created ${createdMeta(t)}` : undefined}
-        onEdit={onPreview ?? onOpen}
+        onEdit={onOpen}
         canDelete={canDelete}
         /* Only an order that HAS a BOM has anything to delete — that is the
            "Pending" case, and it is the whole reason the queue lists ORDERS.

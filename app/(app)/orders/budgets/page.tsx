@@ -16,8 +16,15 @@ import { BudgetScreen } from "./budget-screen";
  * quantities, BOM readiness and the budget covering it, so the queue costs no
  * extra query.
  */
-export default async function BudgetsPage() {
+export default async function BudgetsPage({
+  searchParams,
+}: {
+  /** `?budget=<id>` opens that budget in the editor on arrival — the Approval
+   *  queue's Edit icon lands here (2026-09-22). */
+  searchParams: Promise<{ budget?: string }>;
+}) {
   await requirePermission("orders", "view");
+  const { budget: openId } = await searchParams;
 
   const [budgets, data, canCreate, canEdit, canDelete, mCreate, mEdit, canApprove] = await Promise.all([
     listOrderBudgets(),
@@ -42,6 +49,7 @@ export default async function BudgetsPage() {
       data={data}
       perms={{ canCreate, canEdit, canDelete, canApprove }}
       masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
+      openId={openId ?? null}
     />
   );
 }

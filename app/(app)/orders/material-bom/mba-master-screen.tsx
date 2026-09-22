@@ -6157,6 +6157,25 @@ export function MbaMasterScreen({
                unpredictable distance down the page — and moved it again every
                time a different line was opened. */
             masterDetail
+            /* OPENS ON THE FIRST LINE RATHER THAN NOTHING (client 2026-09-22:
+               "material bom inside the item while opening in close state make
+               it the first item should defaultly open"). This rail mounted on
+               `ALL_FOLDED`, so an existing BOM arrived as a list of names over
+               an empty pane and the operator's first act on every record was a
+               click to see anything at all — the exact state Fabric BOM ▸
+               Components reported on 2026-09-04 and answered with this prop.
+               Same fix, same reasoning: `child-grid.tsx`'s note on
+               `defaultOpenKey` carries why a navigation rail opening on its
+               first item is NOT a reversal of "a grid opens with everything
+               folded" (2026-08-19, a data-entry grid's sections).
+
+               THE FIRST LINE, NOT THE LAST. `items` is set in the same event as
+               `setMode("edit")` (`openAdd` / `openEdit`), so the grid mounts
+               with the rows already in hand and `items[0]` is the line the
+               operator reads first. `?? null` is unreachable in practice — both
+               openers seed at least one row — and would resolve to the last
+               row, which is the prop's own fallback, not a second default. */
+            defaultOpenKey={items[0]?.key ?? null}
             /* THE RAIL NO LONGER FOLDS (client 2026-08-28: "left bar with that 3
                buttons always stays left it should not go hide"). REVERSES
                2026-08-20 / screenshot 2402, which folded it because "the rail and
@@ -6910,6 +6929,7 @@ export function MbaMasterScreen({
           noun="material"
           stat={styleStat}
           quickStatus
+          quickDraft
           extraFilters
           onOpen={openTask}
           canDelete={perms.canDelete}

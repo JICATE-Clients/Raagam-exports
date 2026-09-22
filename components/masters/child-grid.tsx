@@ -2277,9 +2277,13 @@ export function ChildGrid<T extends { key: string }>({
    * List-then-detail UI opening on its first item is the ordinary case, not
    * the exception `openRowKey`'s note is guarding against.
    *
-   * OPT-IN AND UNDEFINED BY DEFAULT, so every existing caller — Material
-   * BOM's own `masterDetail` rail included — keeps mounting on `ALL_FOLDED`
-   * exactly as before. Only a caller that names a row here changes.
+   * OPT-IN AND UNDEFINED BY DEFAULT, so every existing caller keeps mounting
+   * on `ALL_FOLDED` exactly as before. Only a caller that names a row here
+   * changes — and Material BOM's own `masterDetail` rail, the one this prop
+   * was first written AROUND rather than for, opted in on 2026-09-22 for the
+   * same complaint one screen over ("while opening in close state make it the
+   * first item should defaultly open"). Every `masterDetail` rail in the app
+   * now names its first row; a new one should too.
    */
   defaultOpenKey?: string | null;
   /**

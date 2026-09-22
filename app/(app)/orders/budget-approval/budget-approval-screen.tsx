@@ -21,7 +21,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X, Undo2 } from "lucide-react";
+import { Ban, Check, Pencil, X, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -34,6 +34,8 @@ import { DetailSection } from "@/components/masters/detail-section";
 import { StatusPill } from "@/components/ui/status-pill";
 import { StatusSegment } from "@/components/orders/bom-queue";
 import { Truncated } from "@/components/ui/truncated";
+import { Tooltip } from "@/components/ui/tooltip";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -53,7 +55,7 @@ import {
 import { decideBudget, reopenBudget } from "@/lib/orders/budget/actions";
 import { kpisFromJson } from "@/lib/orders/budget/amendment";
 import { lineInputOf, orderInputsOfSnapshot } from "@/lib/orders/budget/figures";
-import { getApprovalPanel } from "@/lib/approvals/actions";
+import { actOnRun, getApprovalPanel } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
@@ -123,6 +125,25 @@ export function BudgetApprovalScreen({
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [remark, setRemark] = useState("");
+  /**
+   * EDIT · CANCEL · APPROVE ON THE ROW (user 2026-09-22, from the artifact
+   * mock-up) — three coloured icons at the end of every line, so a decision
+   * does not need the sheet opened first. `rowAct` is the row a Cancel or
+   * Approve icon was pressed on and which of the two; the small confirm sheet
+   * below it asks for the comment before anything is written.
+   *
+   * CANCEL IS THE NEGATIVE DECISION — a rejection with a reason — not a new
+   * transition. 0505 records at length that a *cancelled run* leaves the
+   * budget `submitted` with no live approval, "a loose end … ask the client
+   * whether cancelling an approval should return the budget to draft". So the
+   * icon does what the sheet's Reject does; the author then sends the rejected
+   * budget back to draft from Rework, as before.
+   */
+  const [rowAct, setRowAct] = useState<{
+    row: BudgetApprovalRow;
+    kind: "approve" | "cancel";
+  } | null>(null);
+  const [rowComment, setRowComment] = useState("");
 
   /**
    * THE APPROVAL PANEL for whichever budget is open (0500–0505).
@@ -173,19 +194,21 @@ export function BudgetApprovalScreen({
      the two words mean:
        Pending = Submitted, awaiting a decision (still what the screen opens on)
        Updated = decided — Approved or Rejected
+       Draft   = not yet submitted (user 2026-09-22, the third word on every
+                 one of the three queues)
      ONE FILTER, TWO CONTROLS, and deliberately connected, unlike the BOM
      queues' box and Filters panel: those can both apply, but here the
      dropdown opens on "All", so an independent box left at Updated beside a
      dropdown at Draft would show nothing, silently. So a word in the box sets
      the dropdown back to All, and picking a state in the dropdown turns the
      box off. The dropdown still reaches Draft and each state on its own. */
-  const [quick, setQuick] = useState<"" | "pending" | "updated">("pending");
+  const [quick, setQuick] = useState<"" | "pending" | "updated" | "draft">("pending");
   const [filter, setFilter] = useState<BudgetStatus | "all">("all");
   const [search, setSearch] = useState("");
 
   // The remark is typed and unsaved until a decision is taken, so it is real
   // unsaved work — a silent auto-reload mid-sentence loses it.
-  useUnsavedGuard(!!remark.trim() || isPending);
+  useUnsavedGuard(!!remark.trim() || !!rowComment.trim() || isPending);
 
   const budget = useMemo(
     () => budgets.find((b) => b.id === openId) ?? null,
@@ -244,12 +267,61 @@ export function BudgetApprovalScreen({
     });
   }
 
+  function closeRowAct() {
+    setRowAct(null);
+    setRowComment("");
+  }
+
+  /**
+   * THE ROW ICON GOES THROUGH THE SAME DOOR THE SHEET DOES. A budget with a
+   * live run is decided by `actOnRun` — with the run's `lock_version`, and only
+   * if `approval_can_act` says this user may (the predicate the inbox is built
+   * from; a role check here is how a queue and a gate drift apart). One with no
+   * run — submitted before the engine was installed, or whose run was cancelled
+   * — takes the legacy `decideBudget` path the sheet's Decide block also keeps.
+   * The panel is read ON CLICK, not per row: the list can hold dozens of
+   * budgets and one is being decided.
+   */
+  function decideRow() {
+    if (!rowAct) return;
+    const { row, kind } = rowAct;
+    const comment = rowComment.trim();
+    if (kind === "cancel" && !comment) return;
+    start(async () => {
+      const p = await getApprovalPanel(WORKFLOWS.order_budget.subjectTable, row.id);
+      let res;
+      if (p.run && p.run.status === "in_progress") {
+        if (!p.verdict?.can_act) {
+          toastError("This budget is waiting on someone else's step, not yours");
+          return;
+        }
+        res = await actOnRun({
+          runId: p.run.id,
+          action: kind === "approve" ? "approve" : "reject",
+          lockVersion: p.run.lock_version,
+          comment: comment || undefined,
+          subjectPath: "/orders/budget-approval",
+        });
+      } else {
+        res = await decideBudget(row.id, kind === "approve" ? "approved" : "rejected", comment || null);
+      }
+      if (res.ok) {
+        success(kind === "approve" ? "Budget approved" : "Budget cancelled");
+        closeRowAct();
+        router.refresh();
+      } else {
+        toastError(res.error);
+      }
+    });
+  }
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (filter !== "all" && r.status !== filter) return false;
       if (quick === "pending" && r.status !== "submitted") return false;
       if (quick === "updated" && r.status !== "approved" && r.status !== "rejected") return false;
+      if (quick === "draft" && r.status !== "draft") return false;
       if (!q) return true;
       return [r.code, r.description]
         .filter(Boolean)
@@ -302,6 +374,74 @@ export function BudgetApprovalScreen({
         <StatusPill tone={budgetStatusTone(r.status)}>{budgetStatusText(r.status)}</StatusPill>
       ),
     },
+    /* THE THREE ICONS, each in its own colour (the mock-up the client
+       approved): Edit blue, Cancel red, Approve green. Not `RowActions` — that
+       cluster is View / Edit / Delete, and two of these are decisions. Every
+       icon is drawn on every row so the column never jitters; one that cannot
+       apply is disabled and its tooltip says why. `w-32`: three icon buttons
+       and two gaps, narrower than the default `w-40`. */
+    rowActionsColumn<BudgetApprovalRow>(
+      (r) => {
+        const editable = canEdit && (r.status === "draft" || r.status === "rejected");
+        const decidable = canApprove && r.status === "submitted";
+        const label = r.code ?? r.id.slice(0, 8);
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <Tooltip
+              label={
+                editable
+                  ? "Edit"
+                  : canEdit
+                    ? `Edit — a ${budgetStatusText(r.status).toLowerCase()} budget is not editable`
+                    : "Edit — you cannot edit budgets"
+              }
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Edit ${label}`}
+                className="text-primary hover:bg-primary/10 hover:text-primary disabled:text-muted-foreground"
+                disabled={!editable || isPending}
+                onClick={() => router.push(`/orders/budgets?budget=${r.id}`)}
+              >
+                <Pencil />
+              </Button>
+            </Tooltip>
+            <Tooltip label={decidable ? "Cancel" : "Cancel — only a submitted budget"}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Cancel ${label}`}
+                className="text-danger hover:bg-danger/10 hover:text-danger disabled:text-muted-foreground"
+                disabled={!decidable || isPending}
+                onClick={() => {
+                  setRowComment("");
+                  setRowAct({ row: r, kind: "cancel" });
+                }}
+              >
+                <Ban />
+              </Button>
+            </Tooltip>
+            <Tooltip label={decidable ? "Approve" : "Approve — only a submitted budget"}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Approve ${label}`}
+                className="text-success hover:bg-success/10 hover:text-success disabled:text-muted-foreground"
+                disabled={!decidable || isPending}
+                onClick={() => {
+                  setRowComment("");
+                  setRowAct({ row: r, kind: "approve" });
+                }}
+              >
+                <Check />
+              </Button>
+            </Tooltip>
+          </div>
+        );
+      },
+      "w-32",
+    ),
   ];
 
   return (
@@ -333,6 +473,7 @@ export function BudgetApprovalScreen({
               setQuick(v);
               setFilter("all");
             }}
+            draft
           />
           {/* caps-input: exempt -- a search QUERY is not a stored value. */}
           <Input uppercase={false}
@@ -370,6 +511,69 @@ export function BudgetApprovalScreen({
           }
         />
       </div>
+
+      {/* THE ROW DECISION'S CONFIRM — one textarea and two buttons, so `sm` and
+          not full-screen, the size `ApprovalActionBar` chose for the same
+          question. Cancel needs a reason (the database refuses a rejection
+          without one, and the author is told what to change); Approve does
+          not ("yes" is complete on its own — `decideBudget`). */}
+      <Sheet
+        open={rowAct !== null}
+        onClose={closeRowAct}
+        title={
+          rowAct
+            ? `${rowAct.kind === "approve" ? "Approve" : "Cancel"} budget ${
+                rowAct.row.code ?? rowAct.row.id.slice(0, 8)
+              }?`
+            : ""
+        }
+        size="sm"
+        fullScreen={false}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={closeRowAct} disabled={isPending}>
+              Back
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={rowAct?.kind === "cancel" ? "danger" : "approve"}
+              onClick={decideRow}
+              disabled={isPending || (rowAct?.kind === "cancel" && !rowComment.trim())}
+            >
+              {rowAct?.kind === "approve" ? (
+                <>
+                  <Check className="h-4 w-4" aria-hidden />
+                  Approve
+                </>
+              ) : (
+                <>
+                  <Ban className="h-4 w-4" aria-hidden />
+                  Cancel budget
+                </>
+              )}
+            </Button>
+          </div>
+        }
+      >
+        <Field
+          label={rowAct?.kind === "cancel" ? "Reason" : "Comment"}
+          required={rowAct?.kind === "cancel"}
+          htmlFor="ba-row-comment"
+        >
+          <Textarea
+            id="ba-row-comment"
+            rows={4}
+            value={rowComment}
+            onChange={(e) => setRowComment(e.target.value)}
+          />
+        </Field>
+        {rowAct?.kind === "cancel" && (
+          <p className="text-xs text-muted-foreground">
+            The requester sees this, and it is what tells them what to change.
+          </p>
+        )}
+      </Sheet>
 
       <Sheet
         open={!!budget}
