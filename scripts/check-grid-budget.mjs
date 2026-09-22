@@ -81,6 +81,28 @@ import { join, relative } from "node:path";
 const MIN_PANE = 1155;
 
 /**
+ * THE PANEL BESIDE A `Tabs side` RAIL, on the client's own screen.
+ *
+ * A grid that stands beside the side rail (`components/ui/tabs.tsx`, `side`)
+ * does not get the pane: the rail takes 192px of it, by container query from
+ * 76rem. The client's and the operator's machines are 1920 @ 125% — a ~1,312
+ * CSS px pane — so the panel there is 1,120, and a `5xl` table wider than that
+ * is STILL a table (its container is over 1,024) that runs off the right edge.
+ * Budget ▸ Fabric Purchases sat at 1,144 and Yarn Processes at 1,152 while this
+ * script reported both `ok` against 1,155 (2026-09-22, screenshot 2998): the
+ * laptop bound is the looser one for exactly the grids that matter most.
+ *
+ * So a file that renders `<Tabs side …>` has EVERY sized array in it held to
+ * this panel instead. Conservative on purpose — a grid in that file that is
+ * not inside the rail's panel (Budget's CMTs, Other Expenses) is held 35px
+ * tighter than it needs to be, and a script that has to know which section a
+ * `…Columns` array is rendered in would be reading JSX it cannot read. Verified
+ * by being made to FAIL first, against Fabric Purchases as committed the day
+ * before.
+ */
+const SIDE_RAIL_PANEL = 1120;
+
+/**
  * What `#` and the row's `✕` cost outside the declared columns.
  *
  * TWO CELLS, AND A GRID CAN GIVE ONE OF THEM BACK. `child-grid.tsx` emits the
@@ -221,6 +243,8 @@ let checked = 0;
 
 for (const file of files) {
   const src = readFileSync(file, "utf8");
+  /** See `SIDE_RAIL_PANEL`: a file rendering the side rail holds every grid to it. */
+  const besideSideRail = /<Tabs\s[^>]*\bside\b/.test(src);
   const found = grids(src);
   if (found.length === 0) continue;
 
@@ -327,6 +351,14 @@ for (const file of files) {
           `      ${widths.length} columns = ${rem}rem + ${chrome}px chrome = ${px}px\n` +
           `      exceeds the ${MIN_PANE}px minimum pane by ${px - MIN_PANE}px, so the table\n` +
           `      scrolls sideways on a 1366x768 laptop at 100%. Trim ${((px - MIN_PANE) / 16).toFixed(2)}rem.`,
+      );
+    } else if (besideSideRail && px > SIDE_RAIL_PANEL) {
+      failed++;
+      console.error(
+        `FAIL  ${relative(".", file)}  ${g.columns}\n` +
+          `      ${widths.length} columns = ${rem}rem + ${chrome}px chrome = ${px}px\n` +
+          `      exceeds the ${SIDE_RAIL_PANEL}px panel beside this file's <Tabs side> rail by ${px - SIDE_RAIL_PANEL}px,\n` +
+          `      so the table scrolls sideways on the client's 1920 @ 125% screen. Trim ${((px - SIDE_RAIL_PANEL) / 16).toFixed(2)}rem.`,
       );
     } else if (threshold !== null && threshold > MIN_PANE - THRESHOLD_MARGIN) {
       failed++;

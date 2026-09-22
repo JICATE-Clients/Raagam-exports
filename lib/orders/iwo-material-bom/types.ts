@@ -24,11 +24,13 @@ export const IWO_MB_STAGES = ["GREIGE", "DYED"] as const;
  */
 export const IWO_MB_ATTRIBUTES = ["item", "colour", "size", "colour_size"] as const;
 export type IwoMbAttribute = (typeof IWO_MB_ATTRIBUTES)[number];
+/** The menu's own words (user 2026-09-22, screenshot 3014: "Item wise, etc") —
+ *  so a message or a caption built from them never appends its own "wise". */
 export const IWO_MB_ATTRIBUTE_LABELS: Record<IwoMbAttribute, string> = {
-  item: "Item",
-  colour: "Colour",
-  size: "Size",
-  colour_size: "Colour + Size",
+  item: "Item wise",
+  colour: "Colour wise",
+  size: "Size wise",
+  colour_size: "Colour + Size wise",
 };
 /** Does this attribute carry a Colour / a Size per row? */
 export const attributeHasColour = (a: IwoMbAttribute) => a === "colour" || a === "colour_size";

@@ -59,9 +59,12 @@ import {
   gramsFor,
   requiredKg,
   manualProblem,
+  mappedFormsOf,
+  mappedPanelsFor,
   unassignedCombos,
   netKg,
   panelTaken,
+  samePanels,
   takenPanels,
   type ManualPanel,
   type ManualSizeInput,
@@ -1325,6 +1328,46 @@ check(
   manualProblem(entry({ assort_color_wise: true, combos: ["WHITE"] }), NEEDED, null),
   null,
 );
+
+// ---------------------------------------------------------------------------
+// THE COMPONENTS TAB'S ANSWER, BY ROLL FORM — `mappedPanelsFor` /
+// `mappedFormsOf` (user 2026-09-22, screenshot 3008: "auto list based on the
+// type open width / tubular"). A Manual entry (style, fabric, form) READS the
+// panels the tab mapped to its cloth in its form; it does not choose again.
+// Pinned: the form filter, "any form" while the entry has none, a line with no
+// form stated offered under either (permissive), the style scope (blank line
+// = every style), dedup on the pair, and the fabric's forms in line order.
+// Each made to FAIL first (form filter inverted, dedup dropped, strict form).
+// ---------------------------------------------------------------------------
+
+const JERSEY = "f-jersey";
+const RIBF = "f-rib";
+const PC = "coord-pieces";
+const mline = (component_id: string, item_id: string, fabric_form: string | null, style_ref_no: string | null = "ST1", coordinate_id: string | null = PC) =>
+  ({ style_ref_no, item_id, coordinate_id, component_id, fabric_form });
+const MAP = [
+  mline(FRONT, JERSEY, "open"),
+  mline(FRONT, JERSEY, "open"), // a second colourway of the same panel
+  mline("c-back", JERSEY, "open"),
+  mline("c-sleeve", JERSEY, "tubular"),
+  mline(RIB, RIBF, "tubular"),
+  mline("c-pocket", JERSEY, null), // form not stated yet
+];
+const names = (ps: ManualPanel[]) => ps.map((p) => p.component_id);
+
+check("Open Width entry of the jersey: the panels cut open, plus the unstated one, each once", names(mappedPanelsFor(MAP, "ST1", JERSEY, "open_width")), [FRONT, "c-back", "c-pocket"]);
+check("Tubular entry of the jersey: the sleeve, plus the unstated one", names(mappedPanelsFor(MAP, "ST1", JERSEY, "tubular")), ["c-sleeve", "c-pocket"]);
+check("no form on the entry yet: everything mapped to the cloth", names(mappedPanelsFor(MAP, "ST1", JERSEY, null)), [FRONT, "c-back", "c-sleeve", "c-pocket"]);
+check("another cloth's panels never arrive", names(mappedPanelsFor(MAP, "ST1", RIBF, "tubular")), [RIB]);
+check("another style's mapping never arrives", names(mappedPanelsFor(MAP, "ST2", JERSEY, null)), []);
+check("a line with a blank style maps under every style", names(mappedPanelsFor([mline(FRONT, JERSEY, "open", null)], "ST2", JERSEY, "open_width")), [FRONT]);
+check("the pair is the identity: TOP's and BOTTOM's ALL BODY are two panels", mappedPanelsFor([mline("c-all", JERSEY, "open", "ST1", "top"), mline("c-all", JERSEY, "open", "ST1", "bottom")], "ST1", JERSEY, null).length, 2);
+check("no cloth: nothing", mappedPanelsFor(MAP, "ST1", null, null), []);
+check("the forms the tab cuts the jersey in, in line order", mappedFormsOf(MAP, "ST1", JERSEY), ["open_width", "tubular"]);
+check("the rib in one", mappedFormsOf(MAP, "ST1", RIBF), ["tubular"]);
+check("and none while no line states one", mappedFormsOf([mline(FRONT, JERSEY, null)], "ST1", JERSEY), []);
+check("samePanels ignores order", samePanels([{ coordinate_id: PC, component_id: FRONT }, { coordinate_id: PC, component_id: RIB }], [{ coordinate_id: PC, component_id: RIB }, { coordinate_id: PC, component_id: FRONT }]), true);
+check("and sees a missing one", samePanels([{ coordinate_id: PC, component_id: FRONT }], [{ coordinate_id: PC, component_id: FRONT }, { coordinate_id: PC, component_id: RIB }]), false);
 
 console.log(failed === 0 ? "\nOK — every fabric requirement vector holds." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

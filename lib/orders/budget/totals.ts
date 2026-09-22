@@ -914,6 +914,37 @@ export function unratedNoticeOf(
   return `${parts.join("; ")}. Profit calculation suppressed.`;
 }
 
+/** One section's share of the unpriced lines — see `unratedSummaryOf`. */
+export type UnratedPart = { key: "purchase" | "process" | "other"; label: string; count: number };
+
+/**
+ * THE SAME FACT AS `unratedNoticeOf`, COUNTED RATHER THAN NAMED (2026-09-22,
+ * screenshots 2998 / 2999). The sentence names every line with its full
+ * description — 22 yarns with their compositions, six lines deep — and at
+ * that length it is scrolled past, not read; it also took ~150px from the
+ * grid it was about. The status line under the strip prints THIS: a total
+ * and a count per section, in the order the rail lists them, so the number
+ * the operator watches go down is the only thing on the line. The sentence
+ * survives behind "Which lines?" and on a blocked Save, where naming is the
+ * whole point. Same `RATE_SECTION` map, so the two can never disagree about
+ * which section a line belongs to.
+ */
+export function unratedSummaryOf(
+  lines: readonly BudgetLineInput[],
+  unpriced: readonly { index: number; field?: LineField }[],
+): { total: number; parts: UnratedPart[] } {
+  const counts = { purchase: 0, process: 0, other: 0 };
+  for (const u of unpriced) {
+    const source = budgetSourceOf(lines[u.index]?.source);
+    counts[isRefusal(source) ? "other" : RATE_SECTION[source]]++;
+  }
+  const labels = { purchase: "Purchases", process: "Processes", other: "CMT & other" } as const;
+  const parts = (["purchase", "process", "other"] as const)
+    .filter((k) => counts[k] > 0)
+    .map((k) => ({ key: k, label: labels[k], count: counts[k] }));
+  return { total: unpriced.length, parts };
+}
+
 // ---------------------------------------------------------------------------
 // General — the budget's one-page summary
 // ---------------------------------------------------------------------------
@@ -1014,10 +1045,32 @@ export function generalSummary(totals: BudgetTotals, sqQty: number | Refusal): G
     total: { amount: totals.cost, pctOfSales: pctOf(totals.cost, totals.sales) },
     sales: totals.sales,
     income: totals.income,
-    profit: totals.profit,
-    marginPct: totals.profitPct,
+    // THE SHORT REFUSAL, NOT THE SENTENCE (2026-09-22, screenshot 3010). The
+    // engine's `unratedNotice` names every unrated line, and printed whole
+    // inside a 144px tile it ran to forty lines of red — the Net Profit and
+    // Margin tiles became a column each. A tile has room for a state, not a
+    // list: the status line under the summary bar says which lines, once.
+    profit: suppressedRefusal(totals.profit, totals),
+    marginPct: suppressedRefusal(totals.profitPct, totals),
     costPerPiece,
   };
+}
+
+/**
+ * A profit figure refused over unrated lines, said SHORT: "Suppressed — 39
+ * rates missing". The full sentence (`unratedNotice`) is for the blocked-Save
+ * toast and the "Which lines?" list, where naming is the point; a cell or a
+ * tile has room for the state and the count. Any other refusal passes through
+ * as it is. One helper for the summary bar and the General tab, so the two
+ * cannot word the same state two ways.
+ */
+export function suppressedRefusal(
+  v: number | Refusal,
+  totals: Pick<BudgetTotals, "unratedNotice" | "unpriced">,
+): number | Refusal {
+  if (!totals.unratedNotice || !isRefusal(v) || v.refused !== totals.unratedNotice) return v;
+  const n = totals.unpriced.length;
+  return { refused: `Suppressed — ${n} ${n === 1 ? "rate" : "rates"} missing` };
 }
 
 // ---------------------------------------------------------------------------

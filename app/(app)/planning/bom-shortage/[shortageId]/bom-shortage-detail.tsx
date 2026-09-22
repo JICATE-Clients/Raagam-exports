@@ -547,7 +547,7 @@ export function BomShortageDetail({
           )}
         </CardHeader>
         <CardBody className="space-y-4">
-          <DataTable
+          <DataTable paginate={false}
             columns={itemColumns}
             rows={shortage.items}
             getKey={(r) => r.id}
@@ -562,7 +562,7 @@ export function BomShortageDetail({
                 <p className="text-xs font-bold text-muted-foreground">
                   Sizes for item #{it.sno}
                 </p>
-                <DataTable
+                <DataTable paginate={false}
                   columns={sizeColumns}
                   rows={it.sizes as SizeRow[]}
                   getKey={(r) => r.id}

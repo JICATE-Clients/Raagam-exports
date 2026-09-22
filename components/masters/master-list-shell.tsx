@@ -435,7 +435,7 @@ export function MasterListShell<Row>({
     initialFilters: filterConfig.initialFilters,
   });
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   useCreateIntent(() => {
     if (perms.canCreate) onAdd?.();
@@ -576,6 +576,7 @@ export function MasterListShell<Row>({
         <DataTable
           columns={tableColumns}
           rows={pg.paged}
+          paginate={false}
           getKey={(r) => getKey(r)}
           rowClassName={rowClassName}
           empty={empty}

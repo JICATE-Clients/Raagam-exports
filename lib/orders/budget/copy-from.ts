@@ -160,3 +160,63 @@ export function copyRatesFrom<T extends CopyLine>(
 
   return { lines, matched, ambiguous };
 }
+
+// ---------------------------------------------------------------------------
+// Last rate — one line's most recent price, offered under its blank box
+// ---------------------------------------------------------------------------
+
+/** An earlier budget's priced lines, newest first — see `lastRateFor`. */
+export type RateHistoryBudget = {
+  code: string | null;
+  status: string;
+  lines: readonly CopyLine[];
+};
+
+/** What the hint under a blank Rate offers: the fact, and where it is from. */
+export type LastRate = RateFact & { budget: string };
+
+/**
+ * THE MOST RECENT RATE THIS LINE HAD ON AN EARLIER BUDGET — or nothing.
+ *
+ * "Copy From" (above) fills a whole budget from ONE budget the operator
+ * chose. This is the same identity and the same ambiguity rule applied one
+ * line at a time, for the hint under a blank Rate ("last ₹ 412 · BG-3",
+ * 2026-09-22): a merchandiser pricing 16'S GREY MELANGE knows it was ₹412
+ * last month, and the screen should say so rather than send them looking.
+ *
+ * Three things the rule keeps from `copyRatesFrom`, deliberately:
+ *
+ * - THE NEWEST BUDGET THAT PRICED THE LINE ANSWERS, AND ANSWERS ALONE. The
+ *   budgets arrive newest first, approved ones before the rest (the loader's
+ *   order); the first one holding the identity is the answer, and a budget
+ *   further back is never consulted — last season's rate is not "the last
+ *   rate" once a newer one exists.
+ * - TWO DIFFERENT RATES IN THAT BUDGET IS NO ANSWER. Same as `ambiguous`:
+ *   picking either would be a number nobody chose for this line. The hint
+ *   simply does not appear.
+ * - THE RATE IS ONE FACT with its currency, exchange rate and rate type —
+ *   applying it writes all four, as Copy From does. FOC / Import never
+ *   travel; a target that is FOC is not offered anything.
+ *
+ * NEVER APPLIED ON ITS OWN. This returns a suggestion; the screen writes it
+ * only on a click or a keystroke, so an untouched line stays honestly blank
+ * (AGENTS.md, Near misses: "never edits the text on its own").
+ */
+export function lastRateFor(target: CopyLine, history: readonly RateHistoryBudget[]): LastRate | null {
+  if (target.is_foc) return null;
+  const id = identityOf(target);
+  if (!id) return null;
+  const spec = norm(target.specification);
+  for (const b of history) {
+    const all = b.lines.filter(
+      (l) => !l.is_foc && l.rate != null && Number.isFinite(l.rate) && identityOf(l) === id,
+    );
+    if (all.length === 0) continue;
+    const sameSpec = spec ? all.filter((c) => norm(c.specification) === spec) : [];
+    const pool = sameSpec.length > 0 ? sameSpec : all;
+    const fact = factOf(pool[0]);
+    if (!pool.every((c) => sameFact(factOf(c), fact))) return null;
+    return { ...fact, budget: b.code ?? "" };
+  }
+  return null;
+}

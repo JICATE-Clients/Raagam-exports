@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-
-const DEFAULT_PAGE_SIZE_OPTIONS = [10, 30, 50, 100];
+import { PAGE_SIZE_OPTIONS } from "@/lib/page-size";
 
 /**
  * Prev/Next control for `usePagination`, plus a rows-per-page picker.
@@ -9,6 +8,10 @@ const DEFAULT_PAGE_SIZE_OPTIONS = [10, 30, 50, 100];
  * `DataTable`/mobile card block already shows its own empty state. Still
  * shows the rows-per-page picker even when everything fits on one page, so
  * switching to a smaller page size is always available.
+ *
+ * The picker writes the APP-WIDE page size (`lib/page-size.ts`) whenever its
+ * `onPageSizeChange` comes from `usePagination` — so "Rows" under one list is
+ * the same choice as the "Rows per page" section of the topbar "T" menu.
  */
 export function PaginationBar({
   page,
@@ -17,7 +20,7 @@ export function PaginationBar({
   pageSize,
   onPageChange,
   onPageSizeChange,
-  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+  pageSizeOptions = PAGE_SIZE_OPTIONS,
 }: {
   page: number;
   pageCount: number;
@@ -25,7 +28,7 @@ export function PaginationBar({
   pageSize: number;
   onPageChange: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
-  pageSizeOptions?: number[];
+  pageSizeOptions?: readonly number[];
 }) {
   if (total === 0) return null;
 

@@ -62,7 +62,8 @@ export async function listInternalWorkOrders(): Promise<IwoRow[]> {
         // place a work order's BOM and budget are seen together).
         "iwo_budgets(id, status, iwo_budget_lines(source, qty, rate, rate_type, currency_code, ex_rate, is_foc))",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   if (error) throw new Error(`Internal work orders: ${error.message}`);
   type Ref = { id: string; is_draft: boolean };
   type BudgetRaw = {

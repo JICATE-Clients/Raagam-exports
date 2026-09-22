@@ -188,7 +188,7 @@ export default async function ReceivableDetailPage({
           <CardTitle>Receipts ({receipts.length})</CardTitle>
         </CardHeader>
         <CardBody className="p-0">
-          <DataTable
+          <DataTable paginate={false}
             columns={receiptColumns}
             rows={receipts}
             getKey={(r) => r.id}

@@ -204,7 +204,7 @@ export function ProcessAmendments({
         )}
       </CardHeader>
       <CardBody className="space-y-3">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={amendments}
           getKey={(a) => a.id}

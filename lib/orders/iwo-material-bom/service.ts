@@ -53,7 +53,8 @@ export async function listIwoMaterialBomTasks(): Promise<IwoMaterialBomTask[]> {
     )
     .eq("iwo_for", "accessories")
     .eq("location_id", locationId)
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   if (error) throw new Error(`IWO Material BOM: ${error.message}`);
 
   type Raw = Omit<IwoMaterialBomTask, "bom"> & { iwo_material_boms: IwoMaterialBom | IwoMaterialBom[] | null };
@@ -96,11 +97,15 @@ export type IwoMaterialBomFormData = {
   vendors: PickerRow[];
   /** config_lookups kind `fabric_color` — the one colour master. */
   colors: ConfigLookup[];
+  /** config_lookups kind `size` — the Sizes master the garment order's size
+   *  range picks from; a breakup row's Size is picked from it (0614's typed
+   *  text column keeps the picked NAME — user 2026-09-22, "size from master"). */
+  sizes: ConfigLookup[];
 };
 
 export async function getIwoMaterialBomFormData(): Promise<IwoMaterialBomFormData> {
   const s = await createClient();
-  const [itemRes, classRes, catRes, uomRes, convRes, procRes, colorRes, vendors] = await Promise.all([
+  const [itemRes, classRes, catRes, uomRes, convRes, procRes, colorRes, sizeRes, vendors] = await Promise.all([
     s
       .from("items")
       .select("id, code, name, is_active, item_class_id, category_id, has_alternate_uom, base_uom_id, purchase_uom_id")
@@ -111,9 +116,10 @@ export async function getIwoMaterialBomFormData(): Promise<IwoMaterialBomFormDat
     s.from("material_uom_conversions").select("id, item_id, alt_qty, alt_uom_id, base_qty, base_uom_id").order("sno"),
     s.from("processes").select("id, name, inactive, for_trims").eq("for_trims", true).order("name"),
     s.from("config_lookups").select("id, kind, code, name, notes, is_active").eq("kind", "fabric_color").order("name"),
+    s.from("config_lookups").select("id, kind, code, name, notes, is_active").eq("kind", "size").order("name"),
     listVendorsForPicker(),
   ]);
-  for (const r of [itemRes, classRes, catRes, uomRes, convRes, procRes, colorRes]) {
+  for (const r of [itemRes, classRes, catRes, uomRes, convRes, procRes, colorRes, sizeRes]) {
     if (r.error) throw new Error(`IWO Material BOM form: ${r.error.message}`);
   }
 
@@ -173,5 +179,6 @@ export async function getIwoMaterialBomFormData(): Promise<IwoMaterialBomFormDat
     })),
     vendors: vendors.map((v) => ({ id: v.id, code: v.code ?? null, name: v.name, inactive: !!v.inactive })),
     colors: (colorRes.data ?? []) as unknown as ConfigLookup[],
+    sizes: (sizeRes.data ?? []) as unknown as ConfigLookup[],
   };
 }

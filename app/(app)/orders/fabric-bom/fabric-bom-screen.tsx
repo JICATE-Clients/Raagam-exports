@@ -135,8 +135,11 @@ import {
   gramsFor,
   manualProblem,
   componentIdsOf,
+  mappedFormsOf,
+  mappedPanelsFor,
   panelKeyOf,
   panelTaken,
+  samePanels,
   takenPanels,
   type ManualPanel,
   unassignedCombos,
@@ -4002,7 +4005,16 @@ export function FabricBomScreen({
        BODY arrive here as two — and were merged into one row by the `Set` that
        used to stand in this spot. The order's own `sno` is the order they come
        in, which is the order they are listed and grouped in. */
-    const declared = declaredPanelsFor(styleDecls, e.style_ref_no.trim() || null, e.structure_id);
+    /* THE TAB'S OWN MAPPING FIRST, BY ROLL FORM (user 2026-09-22, screenshot
+       3008): where Fabric BOM ▸ Components maps panels to this cloth, the list
+       is those panels in this entry's form (`mappedPanelsFor`, the read
+       `fabricDefaultsFor` seeds from) — an Open Width entry is not offered a
+       panel the tab cuts Tubular. The declaration by structure stays the
+       fallback for a cloth the tab maps nothing to yet. */
+    const styleRef = e.style_ref_no.trim() || null;
+    const declared = mappedPanelsFor(lines, styleRef, e.item_id, null).length
+      ? mappedPanelsFor(lines, styleRef, e.item_id, e.width_form || null)
+      : declaredPanelsFor(styleDecls, styleRef, e.structure_id);
 
     /* A HELD PANEL THE DECLARATION NO LONGER LISTS SURVIVES, appended last —
        `availablePanels`' own rule one module over, and the one that matters most
@@ -4521,36 +4533,75 @@ export function FabricBomScreen({
    * Lines) — so a hand-picked entry and an auto-seeded one can never disagree
    * about what a fabric defaults to.
    *
-   * COMPONENTS: `unallocatedComponentsFor` composes the style's declared
-   * panels for this structure with what's already taken by a sibling entry —
-   * empty on a genuinely fresh structure, so the first entry for a fabric
-   * pre-ticks everything declared and a follow-up split entry pre-ticks only
-   * what is left.
+   * COMPONENTS ARE THE COMPONENTS TAB'S ANSWER, BY ROLL FORM (user
+   * 2026-09-22, screenshot 3008: "the components need to auto list based on
+   * the type open width / tubular"). That tab already maps every panel to
+   * its cloth AND says whether that cloth is cut Open Width or Tubular
+   * (`order_fabric_bom_lines.item_id` + `fabric_form`, 0495), so an entry
+   * (style, fabric, roll form) LISTS the panels mapped to its cloth in its
+   * form — `mappedPanelsFor` (manual.ts) — minus what a sibling entry already
+   * holds. A jersey cut Open Width for the body and Tubular for the sleeve
+   * is two entries with two lists, not one entry with a blank form.
+   *
+   * THE DECLARATION BY STRUCTURE IS THE FALLBACK, not the rule: a cloth the
+   * Components tab maps nothing to (named on Manual by hand before that tab
+   * is filled) still pre-ticks the style's declared panels for its structure
+   * (`unallocatedComponentsFor`), as it did before 09-22 — empty on a fresh
+   * structure, so a split entry pre-ticks only what is left.
    *
    * ROLL FORM (client screenshots 2705/2706: Manual's Roll form and the
    * Components tab's own "Type" were two independent blanks for the same
-   * fabric): rolled up across every Components-tab line naming this fabric
-   * (`fabricGroups`, `rollUp` — the exact call `fabricRouteRows.form` already
-   * makes) and translated from `fabric_form`'s vocabulary ('open'/'tubular')
-   * to `width_form`'s ('open_width'/'tubular'). `width_form` is still its OWN
-   * column — it answers a different question from `fabric_form` and one
-   * module's note already argues why they were kept apart — this only reads
-   * one to DEFAULT the other. Two lines disagreeing rolls up to "(mixed)",
-   * which resolves to no default rather than a guess — the same "abstain
-   * rather than pick one" rule `solePanel` and `rollUp` itself follow
-   * everywhere else in this file.
+   * fabric): the form the tab cuts this fabric in — `mappedFormsOf`, the
+   * `fabric_form` vocabulary ('open'/'tubular') translated to `width_form`'s
+   * ('open_width'/'tubular'). `width_form` is still its OWN column — it
+   * answers a different question from `fabric_form` and one module's note
+   * already argues why they were kept apart — this only reads one to DEFAULT
+   * the other. Pass `widthForm` to ask for THAT form's list (the seed, one
+   * entry per form); omit it and the fabric's one form is the default, or —
+   * two forms — the one whose panels are still unclaimed, else no default
+   * rather than a guess (`solePanel`'s "abstain rather than pick one").
    */
-  const fabricDefaultsFor = (styleRefNo: string, id: string, exceptKey?: string) => {
+  const fabricDefaultsFor = (styleRefNo: string, id: string, exceptKey?: string, widthForm?: string) => {
     const structureId = fabrics.find((f) => f.id === id)?.category_id ?? null;
-    /* THE PAIRS THEMSELVES (0569), no longer flattened to component ids: the
-       declaration is what says which coordinate each panel belongs to, so a
-       seeded entry carries it without anybody having to choose. */
-    const panels = unallocatedComponentsFor(styleRefNo, structureId, exceptKey);
-    const agreedForm = rollUp(
-      (fabricGroups.find((g) => g.item_id === id)?.lines ?? []).map((l) => l.fabric_form ?? ""),
+    const styleRef = styleRefNo.trim() || null;
+    const taken = takenPanels(
+      entries.map((x) => ({ key: x.key, style_ref_no: x.style_ref_no.trim() || null, panels: x.panels })),
+      { key: exceptKey ?? "__fabric_defaults__", style_ref_no: styleRef },
     );
-    const widthForm = agreedForm === "open" ? "open_width" : agreedForm === "tubular" ? "tubular" : "";
-    return { structureId, panels, widthForm };
+    const free = (ps: ManualPanel[]) => ps.filter((p) => !panelTaken(taken, p));
+    const forms = mappedFormsOf(lines, styleRef, id);
+    let form = widthForm ?? "";
+    if (!form) {
+      const open = forms.filter((f) => free(mappedPanelsFor(lines, styleRef, id, f)).length > 0);
+      form = forms.length === 1 ? forms[0] : open.length === 1 ? open[0] : "";
+    }
+    const mapped = mappedPanelsFor(lines, styleRef, id, form || null);
+    /* THE PAIRS THEMSELVES (0569), no longer flattened to component ids: the
+       mapping (or the declaration) is what says which coordinate each panel
+       belongs to, so a seeded entry carries it without anybody having to
+       choose. */
+    const panels = mappedPanelsFor(lines, styleRef, id, null).length
+      ? free(mapped)
+      : unallocatedComponentsFor(styleRefNo, structureId, exceptKey);
+    return { structureId, panels, widthForm: form };
+  };
+
+  /**
+   * THE ROLL FORM CHANGED — THE LIST FOLLOWS WHILE IT IS STILL THE TAB'S. An
+   * entry whose panels are exactly what `fabricDefaultsFor` listed for its
+   * old form (or nothing yet) re-lists for the new one; a list the planner
+   * has edited is theirs and stays — "a default, never data loss"
+   * (`setEntryFabric`'s own rule, one function down).
+   */
+  const setEntryForm = (e: ManualEntryRow, widthForm: string) => {
+    const patch: Partial<ManualEntryRow> = { width_form: widthForm };
+    if (e.item_id) {
+      const before = fabricDefaultsFor(e.style_ref_no, e.item_id, e.key, e.width_form).panels;
+      if (e.panels.length === 0 || samePanels(e.panels, before)) {
+        patch.panels = fabricDefaultsFor(e.style_ref_no, e.item_id, e.key, widthForm).panels;
+      }
+    }
+    setEntryCell(e.key, patch);
   };
 
   /**
@@ -4651,26 +4702,41 @@ export function FabricBomScreen({
       const styleRef = l.style_ref_no.trim();
       /* PER (STYLE, FABRIC, YD PART) since 0596 — a yarn-dyed cloth allocated
          as TOP and BOTTOM is two piece weights, so each part gets its own
-         entry. The part is "" on every other fabric, so their key is as before. */
+         entry. The part is "" on every other fabric, so their key is as before.
+         AND PER ROLL FORM since 2026-09-22 (screenshot 3008): a cloth the
+         Components tab cuts both Open Width and Tubular is two entries, each
+         listing the panels of its own form (`fabricDefaultsFor`). A cloth
+         whose lines state no form yet is one entry, form blank, listing
+         everything mapped to it. */
       const part = ydPartKey(l.yd_part);
-      const seedKey = `${styleRef}${SEP}${l.item_id}${SEP}${part}`;
-      if (seen.has(seedKey) || manualSeededFabrics.current.has(seedKey)) continue;
-      seen.add(seedKey);
-      manualSeededFabrics.current.add(seedKey);
-      if (
-        entriesForStyle(styleRef).some(
-          (e) => e.item_id === l.item_id && ydPartKey(e.yd_part) === part,
+      const forms = mappedFormsOf(lines, styleRef || null, l.item_id);
+      for (const form of forms.length ? forms : [""]) {
+        const seedKey = `${styleRef}${SEP}${l.item_id}${SEP}${part}${SEP}${form}`;
+        if (seen.has(seedKey) || manualSeededFabrics.current.has(seedKey)) continue;
+        seen.add(seedKey);
+        manualSeededFabrics.current.add(seedKey);
+        /* An entry of this fabric with the SAME form — or with none yet, which
+           the catch-up below and `setEntryForm` will settle — already stands
+           for it; never a second row beside it. */
+        if (
+          entriesForStyle(styleRef).some(
+            (e) => e.item_id === l.item_id && ydPartKey(e.yd_part) === part && (!e.width_form || e.width_form === form),
+          )
         )
-      )
-        continue;
-      const d = fabricDefaultsFor(styleRef, l.item_id);
-      const entry = blankManualEntry(newKey(), styleRef);
-      entry.item_id = l.item_id;
-      entry.yd_part = l.yd_part;
-      entry.structure_id = d.structureId;
-      entry.panels = d.panels;
-      entry.width_form = d.widthForm;
-      toAdd.push(entry);
+          continue;
+        const d = fabricDefaultsFor(styleRef, l.item_id, undefined, form);
+        const entry = blankManualEntry(newKey(), styleRef);
+        entry.item_id = l.item_id;
+        entry.yd_part = l.yd_part;
+        entry.structure_id = d.structureId;
+        /* The sibling seeded a moment ago in this same pass is not in
+           `entries` yet, so its panels are not "taken" by the read above —
+           a per-form list keeps the two apart on its own, and a fabric with
+           no stated form seeds one entry only. */
+        entry.panels = d.panels;
+        entry.width_form = d.widthForm;
+        toAdd.push(entry);
+      }
     }
     const widthFormCatchUp = new Map<string, string>();
     for (const e of entries) {
@@ -4746,12 +4812,25 @@ export function FabricBomScreen({
       );
       if (remainder.length === 0) continue;
       for (const p of remainder) autoSplitOffered.current.add(`${key}${SEP}${panelKeyOf(p)}`);
-      const entry = blankManualEntry(newKey(), styleRef);
-      entry.item_id = itemId;
-      entry.structure_id = group[0].structure_id;
-      entry.width_form = fabricDefaultsFor(styleRef, itemId).widthForm;
-      entry.panels = remainder;
-      toAdd.push(entry);
+      /* ONE ROW PER ROLL FORM OF THE REMAINDER (2026-09-22): a panel the
+         Components tab cuts Tubular lands on a Tubular row, and the rest on
+         the fabric's default — the same split the seed makes. */
+      const byForm = new Map<string, ManualPanel[]>();
+      for (const p of remainder) {
+        const form =
+          mappedFormsOf(lines, styleRef || null, itemId).find((f) =>
+            mappedPanelsFor(lines, styleRef || null, itemId, f).some((m) => panelKeyOf(m) === panelKeyOf(p)),
+          ) ?? fabricDefaultsFor(styleRef, itemId).widthForm;
+        byForm.set(form, [...(byForm.get(form) ?? []), p]);
+      }
+      for (const [form, panels] of byForm) {
+        const entry = blankManualEntry(newKey(), styleRef);
+        entry.item_id = itemId;
+        entry.structure_id = group[0].structure_id;
+        entry.width_form = form;
+        entry.panels = panels;
+        toAdd.push(entry);
+      }
     }
     if (toAdd.length === 0) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -4914,7 +4993,7 @@ export function FabricBomScreen({
           compact
           aria-label="Roll form"
           value={e.width_form}
-          onChange={(ev) => setEntryCell(e.key, { width_form: ev.target.value })}
+          onChange={(ev) => setEntryForm(e, ev.target.value)}
         >
           {/* BLANK IS A REAL STATE here, unlike the mode beside it: the column is
               nullable because an entry may not have been told yet whether the
@@ -9915,7 +9994,10 @@ export function FabricBomScreen({
                            identical column. `Route per Compo Color` still says
                            what the control does and still cannot be read as the
                            Manual tab's weight scoping. */
-                        label="Compo Color"
+                        /* "COMBO", NOT "COMPO" (client 2026-09-22, screenshot
+                           2997) — one-letter transcription slip, fixed on all
+                           three surfaces at once. */
+                        label="Combo Color"
                         checked={scope.assort_color_wise}
                         disabled={readOnly || r.combos.length < 2}
                         onChange={(next) =>

@@ -234,7 +234,7 @@ function ItemsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={bom.items}
           getKey={(r) => r.id}
@@ -639,7 +639,7 @@ function ConsumptionsTab({
           </div>
         )}
 
-        <DataTable
+        <DataTable paginate={false}
           columns={consColumns}
           rows={bom.consumptions}
           getKey={(r) => r.id}
@@ -669,7 +669,7 @@ function ConsumptionsTab({
                 )}
               </div>
 
-              <DataTable
+              <DataTable paginate={false}
                 columns={sizeColumns}
                 rows={cons.sizes}
                 getKey={(r) => r.id}
@@ -1029,7 +1029,7 @@ function ProcessesTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={procColumns}
           rows={bom.processes}
           getKey={(r) => r.id}
@@ -1051,7 +1051,7 @@ function ProcessesTab({
                 )}
               </div>
 
-              <DataTable
+              <DataTable paginate={false}
                 columns={stageColumns}
                 rows={proc.stages}
                 getKey={(r) => r.id}

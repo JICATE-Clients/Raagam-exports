@@ -244,7 +244,7 @@ function OrdersTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={plan.orders}
           getKey={(r) => r.id}
@@ -257,7 +257,7 @@ function OrdersTab({
             <p className="text-xs font-bold text-muted-foreground">
               Split details — Order {o.plan_no} ({o.customer_name ?? o.sc_no ?? o.id})
             </p>
-            <DataTable
+            <DataTable paginate={false}
               columns={[
                 { header: "S No",      cell: (d) => <span className="tabular-nums text-sm">{d.sno}</span> },
                 { header: "Location",  cell: (d) => <span className="text-sm">{d.location_name ?? "--"}</span> },

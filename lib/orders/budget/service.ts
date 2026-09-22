@@ -44,6 +44,8 @@ import type {
 } from "./types";
 
 export type PickerRow = { id: string; code: string | null; name: string; inactive: boolean };
+/** An item with the units its master declares — see `getItemRows`. */
+export type ItemPickerRow = PickerRow & { base_uom_id: string | null; purchase_uom_id: string | null };
 
 // ---------------------------------------------------------------------------
 // What an order will sell for
@@ -422,7 +424,8 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
           "sq_detail:sq_details!sq_detail_id(code, sq_description)",
       )
       .eq("is_draft", false)
-      .order("created_at", { ascending: false }),
+      // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+      .order("created_at", { ascending: true }),
     s
       .from("order_budget_orders")
       .select("garment_order_id, budget:order_budgets(id, code, status)"),
@@ -1743,7 +1746,8 @@ export async function listOrderBudgets(): Promise<OrderBudget[]> {
   const { data, error } = await s
     .from("order_budgets")
     .select(BUDGET_SELECT)
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — an empty budget list reads
   // as "nothing budgeted yet", which is believable and wrong. Thrown, so the
   // route's error boundary names it.
@@ -1831,14 +1835,28 @@ export async function listBudgetsForApproval(): Promise<BudgetApprovalRow[]> {
 // Option lists
 // ---------------------------------------------------------------------------
 
-async function getItemRows(): Promise<PickerRow[]> {
+/**
+ * THE ITEM CARRIES ITS UNITS (2026-09-22). A hand-added budget line used to
+ * ask for its Unit in a picker of its own; the master already knows what a
+ * yarn is bought in (`purchase_uom_id`) and counted in (`base_uom_id`), so
+ * the screen fills the unit the moment the item is picked and shows it as
+ * text — the picker is drawn only for an item whose master says nothing.
+ */
+async function getItemRows(): Promise<ItemPickerRow[]> {
   const s = await createClient();
-  const { data } = await s.from("items").select("id, code, name, is_active").order("name");
-  return ((data ?? []) as (Omit<PickerRow, "inactive"> & { is_active: boolean })[]).map((r) => ({
+  const { data } = await s
+    .from("items")
+    .select("id, code, name, is_active, base_uom_id, purchase_uom_id")
+    .order("name");
+  return (
+    (data ?? []) as (Omit<ItemPickerRow, "inactive"> & { is_active: boolean })[]
+  ).map((r) => ({
     id: r.id,
     code: r.code,
     name: r.name,
     inactive: isInactive(r),
+    base_uom_id: r.base_uom_id ?? null,
+    purchase_uom_id: r.purchase_uom_id ?? null,
   }));
 }
 
@@ -1937,7 +1955,7 @@ async function getCurrencies(): Promise<CurrencyRow[]> {
 
 export type BudgetFormData = {
   orders: BudgetableOrder[];
-  items: PickerRow[];
+  items: ItemPickerRow[];
   uoms: PickerRow[];
   currencies: CurrencyRow[];
   processes: ProcessPickerRow[];

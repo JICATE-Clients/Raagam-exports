@@ -195,7 +195,7 @@ export function OurBankMasterScreen({
     initialFilters: { status: "" },
   });
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   function openAdd() {
     setEditId(null);
@@ -366,6 +366,7 @@ export function OurBankMasterScreen({
         <DataTable
           columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
+          paginate={false}
           getKey={(r) => r.id}
           rowClassName={(r) => (isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined)}
           empty="No bank records yet."

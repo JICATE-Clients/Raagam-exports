@@ -97,7 +97,8 @@ export async function listCadTasks(): Promise<CadTaskRow[]> {
       // draft order's styles and components are still being typed, so a marker
       // measured against them would be measured against a moving target.
       .eq("is_draft", false)
-      .order("created_at", { ascending: false }),
+      // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+      .order("created_at", { ascending: true }),
     s
       .from("order_cad_markers")
       .select(
@@ -160,7 +161,8 @@ export async function listCadMarkers(): Promise<CadMarker[]> {
         "customer:customers(id,code,name), sales_order:sales_orders(id,order_number)), " +
         "layouts:order_cad_marker_layouts(*, weights:order_cad_component_weights(*))",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST. `data ?? []` over a 400 is
   // what turned a broken embed into "there are no orders yet" on the amendment

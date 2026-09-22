@@ -93,7 +93,7 @@ function BalancesTab({ balances }: { balances: BalanceWithItem[] }) {
   ];
 
   return (
-    <DataTable
+    <DataTable paginate={false}
       columns={columns}
       rows={balances}
       getKey={(b) => `${b.store_id}-${b.item_id}`}
@@ -170,7 +170,7 @@ function LedgerTab({ ledger }: { ledger: LedgerWithItem[] }) {
   ];
 
   return (
-    <DataTable
+    <DataTable paginate={false}
       columns={columns}
       rows={ledger}
       getKey={(e) => e.id}
@@ -463,7 +463,7 @@ function AccessTab({
 
   return (
     <div className="space-y-4">
-      <DataTable
+      <DataTable paginate={false}
         columns={accessColumns}
         rows={accessRows}
         getKey={(a) => a.id}

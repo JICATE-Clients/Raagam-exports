@@ -10,7 +10,7 @@
  *
  * Runs under `tsx` for `check-budget-totals.mts`'s reason.
  */
-import { copyRatesFrom, type CopyLine } from "../lib/orders/budget/copy-from.ts";
+import { copyRatesFrom, lastRateFor, type CopyLine } from "../lib/orders/budget/copy-from.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -181,6 +181,36 @@ const src = (over: Partial<CopyLine> = {}): CopyLine => {
   const r = copyRatesFrom([t], [src({ rate: 310, description: "SOMETHING ELSE" })]);
   check("description is never copied", r.lines[0].description, "30S COMBED");
   check("an unmatched target line comes back as the same object", copyRatesFrom([t], []).lines[0] === t, true);
+}
+
+// ---- 8. last rate — the hint under a blank box --------------------------------
+{
+  const history = [
+    { code: "BG-3", status: "approved", lines: [src({ rate: 412 })] },
+    { code: "BG-1", status: "approved", lines: [src({ rate: 380 })] },
+  ];
+  const r = lastRateFor(line(), history);
+  check("the NEWEST budget that priced the line answers", [r?.rate, r?.budget], [412, "BG-3"]);
+  check("  …as one fact: INR, no ex rate, per unit", [r?.currency_code, r?.ex_rate, r?.rate_type], [null, null, "per_unit"]);
+}
+{
+  const history = [
+    { code: "BG-3", status: "approved", lines: [src({ rate: 412 }), src({ rate: 420 })] },
+    { code: "BG-1", status: "approved", lines: [src({ rate: 380 })] },
+  ];
+  check("two different rates in the newest budget = no hint (never a budget further back)", lastRateFor(line(), history), null);
+}
+{
+  const history = [{ code: "BG-2", status: "approved", lines: [src({ source: "yarn_process", process_id: "p-dye", rate: 120 })] }];
+  check("identity is the whole key: a dyeing charge is not a yarn price", lastRateFor(line(), history), null);
+  check("  …and finds its own line", lastRateFor(line({ source: "yarn_process", process_id: "p-dye" }), history)?.rate, 120);
+}
+{
+  const history = [{ code: "BG-2", status: "approved", lines: [src({ rate: 7.2, currency_code: "USD", ex_rate: 84, rate_type: "per_unit" })] }];
+  const r = lastRateFor(line(), history);
+  check("a dollar rate travels with its currency and exchange rate", [r?.rate, r?.currency_code, r?.ex_rate], [7.2, "USD", 84]);
+  check("a FOC target is offered nothing", lastRateFor(line({ is_foc: true }), history), null);
+  check("a FOC earlier line offers nothing", lastRateFor(line(), [{ code: "x", status: "draft", lines: [src({ rate: 1, is_foc: true })] }]), null);
 }
 
 console.log(failed === 0 ? "\nOK — every copy-from vector holds." : `\n${failed} copy-from vector(s) FAILED.`);

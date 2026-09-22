@@ -135,7 +135,7 @@ export function DefectDetailMasterScreen({
     initialFilters: { status: "", group: "" },
   });
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   function openAdd() {
     setEditId(null);
@@ -313,6 +313,7 @@ export function DefectDetailMasterScreen({
         <DataTable
           columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
+          paginate={false}
           getKey={(r) => r.id}
           empty="No defect detail records yet."
         />

@@ -699,7 +699,7 @@ function LinesTab({
         />
       )}
 
-      <DataTable
+      <DataTable paginate={false}
         columns={lineColumns}
         rows={lines}
         getKey={(l) => l.id}

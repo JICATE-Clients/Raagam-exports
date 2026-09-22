@@ -51,7 +51,8 @@ export async function listMaterialExcessPlans(): Promise<MaterialExcessPlanRow[]
   const { data } = await supabase
     .from("material_excess_plans")
     .select("*, customers(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<MaterialExcessPlanRow>(row, { customers: "customer_name" }),
@@ -108,7 +109,8 @@ export async function listMaterialRates(): Promise<MaterialRateRow[]> {
   const { data } = await supabase
     .from("material_rates")
     .select("*, customers(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<MaterialRateRow>(row, { customers: "customer_name" }),
@@ -151,7 +153,8 @@ export async function listFabricOrders(): Promise<FabricOrderRow[]> {
   const { data } = await supabase
     .from("fabric_orders")
     .select("*, customers(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<FabricOrderRow>(row, { customers: "customer_name" }),
@@ -282,7 +285,8 @@ export async function listFabricConsumptions(): Promise<FabricConsumption[]> {
   const { data } = await supabase
     .from("fabric_consumptions")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators((data ?? []) as FabricConsumption[]);
 }
@@ -360,7 +364,8 @@ export async function listExcessOrders(): Promise<ExcessOrder[]> {
   const { data } = await supabase
     .from("excess_orders")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators((data ?? []) as ExcessOrder[]);
 }

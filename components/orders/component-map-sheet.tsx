@@ -1111,7 +1111,13 @@ export function ComponentMapBody({
          THE STYLE RIDES WITH IT (`onPatchLine` applies `styleForCombo`), written
          on the CHANGE and never in an effect — an effect would rewrite every
          stored line's style when a saved BOM is opened. */
-      header: "Compo Color",
+      /* "COMBO COLOR", NOT "COMPO COLOR" (client, screenshot 2997, 2026-09-22):
+         the 09-16 rename was transcribed with a `p`. The value is `combo`, the
+         doc says "Combo" throughout (`doc/order/check.md` §3), and the same
+         one-letter fix went to the Fabric Process column and the Manual tab's
+         `Route per Combo Color` toggle in the same change — all three surfaces
+         name the one value, so they cannot spell it two ways. */
+      header: "Combo Color",
       /* 11rem, UP FROM 6rem (client 2026-09-18). The narrowest column held the
          longest value: GOA-0032's "WHITE NAVY STRIPES" read "WHITE …", and this
          is the one value that says which colourway the row is. 11rem was still

@@ -923,7 +923,7 @@ export function PoDetail({
           )}
         </CardHeader>
         <CardBody className="space-y-4">
-          <DataTable
+          <DataTable paginate={false}
             columns={lineColumns}
             rows={po.lines}
             getKey={(r) => r.id}

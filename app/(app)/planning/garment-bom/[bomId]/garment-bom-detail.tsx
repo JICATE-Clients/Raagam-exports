@@ -305,7 +305,7 @@ function ProcessTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={procColumns}
           rows={processes}
           getKey={(r) => r.id}
@@ -335,7 +335,7 @@ function ProcessTab({
                 )}
               </div>
 
-              <DataTable
+              <DataTable paginate={false}
                 columns={compColumns}
                 rows={proc.components}
                 getKey={(r) => r.id}
@@ -423,7 +423,7 @@ function ProcessTab({
                       )}
                     </div>
 
-                    <DataTable
+                    <DataTable paginate={false}
                       columns={placeColumns}
                       rows={comp.placements}
                       getKey={(r) => r.id}

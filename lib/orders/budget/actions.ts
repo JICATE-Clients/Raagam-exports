@@ -26,6 +26,7 @@ import {
 } from "./service";
 import { isRefusal } from "./totals";
 import { mergePulled, pullMergeIsEmpty, pullMergeSize } from "./pull-merge";
+import type { RateHistoryBudget } from "./copy-from";
 import { budgetBaseline, kpisToJson } from "./amendment";
 import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
@@ -808,6 +809,50 @@ export async function loadBudgetLinesForCopy(
     return { ok: false, error: "That budget has no lines to copy" };
   }
   return { ok: true, lines };
+}
+
+/**
+ * EVERY OTHER BUDGET'S PRICED LINES, for the hint under a blank Rate
+ * (`lastRateFor`, copy-from.ts; 2026-09-22).
+ *
+ * Newest first — approved budgets ahead of the rest, then by budget date —
+ * because the rule takes the FIRST budget that priced a line and never looks
+ * further, so this order IS the rule's notion of "last". The budget being
+ * edited is left out: its own lines are not its history.
+ *
+ * Only what the identity and the fact need is selected (no notes, no
+ * quantities), capped at the 30 most recent budgets: a hint is a memory of
+ * recent pricing, not an archive query. Read-only and gated on `view`, like
+ * `loadBudgetLinesForCopy`; nothing is written until the operator saves.
+ */
+export async function loadRateHistory(
+  excludeBudgetId: string | null,
+): Promise<{ ok: true; budgets: RateHistoryBudget[] } | { ok: false; error: string }> {
+  if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+  let q = s
+    .from("order_budgets")
+    .select(
+      "id, code, status, budget_date, created_at, " +
+        "lines:order_budget_lines(source, item_id, description, specification, currency_code, ex_rate, rate, " +
+        "is_foc, is_import, process_id, cost_head_id, combo, style_ref_no, component_id, rate_type)",
+    )
+    .order("budget_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (excludeBudgetId) q = q.neq("id", excludeBudgetId);
+  const { data, error } = await q;
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — though here the screen
+  // shows nothing either way; the message is for the console, not a toast.
+  if (error) return { ok: false, error: `Could not read earlier budgets: ${error.message}` };
+  type Row = { code: string | null; status: BudgetStatus; lines: RateHistoryBudget["lines"] | null };
+  const rows = ((data ?? []) as unknown as Row[]).map((b) => ({
+    code: b.code,
+    status: b.status,
+    lines: (b.lines ?? []).filter((l) => l.rate != null && !l.is_foc),
+  }));
+  const rank = (st: string) => (st === "approved" ? 0 : 1);
+  return { ok: true, budgets: [...rows].sort((a, b) => rank(a.status) - rank(b.status)) };
 }
 
 // ---------------------------------------------------------------------------

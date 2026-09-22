@@ -16,7 +16,8 @@ export async function listProcessOrders(): Promise<ProcWithVendor[]> {
   const { data } = await supabase
     .from("process_orders")
     .select("*, vendors(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const vendor = row.vendors as { name: string } | null;
@@ -66,7 +67,8 @@ export async function listProcessIssues(
   let query = supabase
     .from("process_material_issues")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   if (processOrderId) {
     query = query.eq("process_order_id", processOrderId);
@@ -83,7 +85,8 @@ export async function listProcessReceipts(
   let query = supabase
     .from("process_material_receipts")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   if (processOrderId) {
     query = query.eq("process_order_id", processOrderId);

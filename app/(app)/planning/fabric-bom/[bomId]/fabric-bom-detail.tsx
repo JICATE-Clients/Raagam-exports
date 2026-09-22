@@ -205,7 +205,7 @@ function DyeColorsTab({
         </div>
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={filtered}
           getKey={(r) => r.id}
@@ -602,7 +602,7 @@ function FabricsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={parentColumns}
           rows={bom.fabrics}
           getKey={(r) => r.id}
@@ -624,7 +624,7 @@ function FabricsTab({
                 )}
               </div>
 
-              <DataTable
+              <DataTable paginate={false}
                 columns={clothColumns}
                 rows={fab.cloths}
                 getKey={(r) => r.id}
@@ -813,7 +813,7 @@ function ComponentsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={parentColumns}
           rows={bom.components}
           getKey={(r) => r.id}
@@ -849,7 +849,7 @@ function ComponentsTab({
                 )}
               </div>
 
-              <DataTable
+              <DataTable paginate={false}
                 columns={comboColumns}
                 rows={comp.combos}
                 getKey={(r) => r.id}

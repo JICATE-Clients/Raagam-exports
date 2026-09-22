@@ -152,7 +152,7 @@ export function ProcessMasterScreen({
     initialFilters: { status: "", for: "", billingOn: "" },
   });
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   // Real-time duplicate check on the process name (mirrors the on-save guard).
   const dupError = useDuplicateName({
@@ -492,7 +492,8 @@ export function ProcessMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No process records yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
+        paginate={false} getKey={(r) => r.id} empty="No process records yet." />
       </div>
 
       {/* mobile cards */}

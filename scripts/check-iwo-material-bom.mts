@@ -305,22 +305,39 @@ check("§11 the quantity chain costs the SUM (100 × 1.10, the line rule)", q(sp
 check(
   "§11 a split line with no rows says so, in the breakup's words",
   iwoMbProblems([split({ slices: [] })], []).map((p) => p.message),
-  ["Line 1: Colour wise — add at least one row in the Breakup, with its Planned Qty."],
+  ["Line 1: Colour wise — add at least one row under the line, with its Planned Qty."],
+);
+/* THE IWO EXCEPTION (client spec 2026-09-22): the colour is NEVER owed here —
+   advance trims are booked before the shade is approved — so the only refusal
+   on a colour-wise row is its quantity. The order Material BOM's rule
+   (`colour-required.ts`) is deliberately not imported. */
+check(
+  "§11 Colour wise owes a quantity per row and never the Colour (the IWO exception)",
+  iwoMbProblems([split({ slices: [{ item_color_id: null, size: null, planned_qty: 0 }] })], []).map((p) => p.message),
+  ["Line 1, Colour wise row 1: Planned Qty must be a number more than 0."],
 );
 check(
-  "§11 Colour wise owes a Colour and a quantity per row",
-  iwoMbProblems([split({ slices: [{ item_color_id: null, size: null, planned_qty: 0 }] })], []).map((p) => p.message),
-  ["Line 1, Breakup row 1: choose the Colour.", "Line 1, Breakup row 1: Planned Qty must be a number more than 0."],
+  "§11 a colour-wise row with no colour yet saves as a pending shade",
+  iwoMbProblems([split({ slices: [{ item_color_id: null, size: null, planned_qty: 50 }] })], []).map((p) => p.message),
+  [],
+);
+check(
+  "§11 two pending-shade rows are two colours not yet fixed, not a duplicate",
+  iwoMbProblems(
+    [split({ slices: [{ item_color_id: null, size: null, planned_qty: 1 }, { item_color_id: null, size: null, planned_qty: 2 }] })],
+    [],
+  ).map((p) => p.message),
+  [],
 );
 check(
   "§11 Size wise owes a Size, and never asks for a Colour",
   iwoMbProblems([split({ attribute: "size", slices: [{ item_color_id: null, size: "", planned_qty: 5 }] })], []).map((p) => p.message),
-  ["Line 1, Breakup row 1: enter the Size."],
+  ["Line 1, Size wise row 1: enter the Size."],
 );
 check(
-  "§11 Colour + Size owes both",
+  "§11 Colour + Size owes the Size only",
   iwoMbProblems([split({ attribute: "colour_size", slices: [{ item_color_id: null, size: null, planned_qty: 5 }] })], []).map((p) => p.message),
-  ["Line 1, Breakup row 1: choose the Colour.", "Line 1, Breakup row 1: enter the Size."],
+  ["Line 1, Colour + Size wise row 1: enter the Size."],
 );
 check(
   "§11 the same colour twice is one lot typed twice",
@@ -328,7 +345,7 @@ check(
     [split({ slices: [{ item_color_id: WHITE, size: null, planned_qty: 1 }, { item_color_id: WHITE, size: null, planned_qty: 2 }] })],
     [],
   ).map((p) => p.message),
-  ["Line 1, Breakup row 2: this colour is already on another row — merge them."],
+  ["Line 1, Colour wise row 2: this colour is already on another row — merge them."],
 );
 check(
   "§11 …but the same colour in two SIZES is two rows",

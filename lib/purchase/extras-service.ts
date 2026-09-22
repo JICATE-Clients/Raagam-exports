@@ -107,7 +107,8 @@ export async function listPurchaseIndents(): Promise<PurchaseIndentWithRefs[]> {
   const { data } = await s
     .from("purchase_indents")
     .select("*, sales_orders(order_number)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as PurchaseIndent),
     order_number: joined(r, "sales_orders", "order_number"),
@@ -139,7 +140,8 @@ export async function listOverBudget(): Promise<OverBudgetWithRefs[]> {
   const { data } = await s
     .from("over_budget_confirmations")
     .select("*, purchase_orders(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as OverBudgetConfirmation),
     po_code: joined(r, "purchase_orders", "code"),
@@ -157,7 +159,8 @@ export async function listRateAmendments(): Promise<RateAmendmentWithRefs[]> {
   const { data } = await s
     .from("po_rate_amendments")
     .select("*, purchase_orders(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as PoRateAmendment),
     po_code: joined(r, "purchase_orders", "code"),
@@ -176,7 +179,8 @@ export async function listPoCancellations(): Promise<PoCancellationWithRefs[]> {
   const { data } = await s
     .from("po_cancellations")
     .select("*, purchase_orders(code, vendors!vendor_id(name))")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => {
     const po = r.purchase_orders as Record<string, unknown> | null;
     const vendor = po?.vendors as Record<string, unknown> | null;
@@ -196,7 +200,8 @@ export async function listLabStandards(): Promise<LabTestStandard[]> {
   const { data } = await s
     .from("lab_test_standards")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators((data ?? []) as LabTestStandard[]);
 }
 export interface LabTestWithRefs extends LabTest {
@@ -207,7 +212,8 @@ export async function listLabTests(): Promise<LabTestWithRefs[]> {
   const { data } = await s
     .from("lab_tests")
     .select("*, lab_test_standards(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as LabTest),
     standard_name: joined(r, "lab_test_standards", "name"),

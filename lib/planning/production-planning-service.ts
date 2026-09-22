@@ -19,7 +19,8 @@ export async function listCapacityPlans(): Promise<CapacityPlan[]> {
   const { data } = await supabase
     .from("capacity_plans")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators((data ?? []) as CapacityPlan[]);
 }
@@ -71,7 +72,8 @@ export async function listProductionPlans(): Promise<ProductionPlan[]> {
   const { data } = await supabase
     .from("production_plans")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators((data ?? []) as ProductionPlan[]);
 }

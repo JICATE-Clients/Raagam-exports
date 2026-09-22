@@ -5,6 +5,7 @@ import { Type } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { useTypeScale } from "@/components/shell/type-scale-toggle";
+import { PAGE_SIZE_OPTIONS, usePageSize } from "@/lib/page-size";
 import {
   ACCENTS,
   ACCENT_ATTR,
@@ -83,6 +84,12 @@ function usePreference(pref: ReturnType<typeof createPreference>) {
  *   Look    New look / Classic      — sizes and weights (lib/type-scale.ts)
  *   Font    five faces              — each name drawn in its own face
  *   Colour  six hues                — each with a swatch
+ *   Rows    10 / 30 / 50 / 100      — rows per page on every list (lib/page-size.ts)
+ *
+ * Rows per page is here because it is the one GLOBAL home for a choice every
+ * list otherwise offers locally: the "Rows" picker under a paginated list
+ * writes the same key, so either control changes every list at once (user,
+ * 2026-09-22: "global pagination option").
  *
  * Choosing applies at once, so the screen behind the menu IS the preview, and
  * any font meets any colour. The sun/moon button beside it stays light/dark;
@@ -95,6 +102,7 @@ export function AppearanceMenu() {
   const { scale, setScale } = useTypeScale();
   const [font, setFont] = usePreference(fontPref);
   const [accent, setAccent] = usePreference(accentPref);
+  const [pageSize, setPageSize] = usePageSize();
   const compact = scale === "compact";
 
   const items: DropdownItem[] = [
@@ -118,17 +126,25 @@ export function AppearanceMenu() {
         onClick: () => setAccent(a.id),
       }),
     ),
+    ...PAGE_SIZE_OPTIONS.map(
+      (n): DropdownItem => ({
+        label: `${n} rows`,
+        section: "Rows per page",
+        checked: pageSize === n,
+        onClick: () => setPageSize(n),
+      }),
+    ),
   ];
 
   const fontLabel = FONTS.find((f) => f.id === font)?.label ?? FONTS[0].label;
   const accentLabel = ACCENTS.find((a) => a.id === accent)?.label ?? ACCENTS[0].label;
-  const summary = `${compact ? "New look" : "Classic"} · ${fontLabel} · ${accentLabel}`;
+  const summary = `${compact ? "New look" : "Classic"} · ${fontLabel} · ${accentLabel} · ${pageSize} rows`;
 
   return (
     <span title={`Appearance: ${summary}`}>
       <DropdownMenu
         items={items}
-        label={`Appearance: ${summary}. Change look, font or colour.`}
+        label={`Appearance: ${summary}. Change look, font, colour or rows per page.`}
         trigger={<Type className="h-4 w-4" />}
         triggerClassName={cn(
           "flex h-8 w-8 items-center justify-center rounded-md hover:bg-surface-muted hover:text-foreground",

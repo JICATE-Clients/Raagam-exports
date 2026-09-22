@@ -141,7 +141,7 @@ export default async function GrnDetailPage({
           )}
         </CardHeader>
         <CardBody className="p-0">
-          <DataTable
+          <DataTable paginate={false}
             columns={lineColumns}
             rows={lines}
             getKey={(r) => r.id}

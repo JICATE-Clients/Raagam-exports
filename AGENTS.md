@@ -333,6 +333,54 @@ another document, where a seeded row would sit beside computed ones and look lik
 which with a `// default-row: exempt -- <reason>` comment. Full rules in the
 `erp-table-default-row` skill.
 
+## Pagination (STANDING)
+
+**Every listing pages itself, and there is ONE "Rows per page" for the whole app**
+(user, 2026-09-22: "add global pagination option for our application"). A
+`<DataTable>` shows one page of the operator's chosen size with a `PaginationBar`
+beneath, and the size is a single localStorage preference (`lib/page-size.ts`) —
+written by the "Rows" picker under any list and by the **Rows per page** section of
+the topbar "T" menu, which are the same control. Before this, 18 lists paginated by
+hand with a `useState(10)` each (pick 50 on Customers, open Vendors, back on 10) and
+~190 printed every row.
+
+**IT LIVES IN THE PRIMITIVE, AND THE PRIMITIVE CANNOT BE A CLIENT COMPONENT.** 58
+server pages call `<DataTable>` with `cell` FUNCTIONS in `columns`, and a function
+cannot cross the server→client boundary — but a rendered element can. So
+`data-table.tsx` stays server-safe, renders every `<tr>` and stacked card as it always
+did, and hands the finished elements to `DataTableFrame` (`"use client"`), which holds
+the page and slices both layouts by one index. No call site changed to get paged; a
+new listing is paged without knowing the rule exists. The same lesson the mobile-cards
+fallback in that file already records: a per-screen fix leaves a remainder.
+
+- **A table that is PART OF A DOCUMENT passes `paginate={false}`** — a PO's lines, a
+  GRN's lines, the T&A milestone grid, a report's print area. A 15-line GRN shown as
+  10 + Next is a document with lines hidden. The line is the one "Created Date /
+  Created User" already draws by path: `[id]` routes, tab panels and report views
+  are documents, everything else lists them. 84 tags in 46 files were swept on
+  2026-09-22: every `[id]` route, plus `tna-data-grid`, `report-view` and
+  `ioc-costing-tabs`.
+- **A screen that slices its own rows also passes `false`** (`MasterListShell` and
+  the 15 masters that render `rows={pg.paged}`): it owns its pager, and the inner
+  one would only ever see a single page anyway. Say so rather than rely on it.
+- **`usePagination(rows)` is global; `usePagination(rows, n)` is pinned.** The bare
+  form reads and writes the app-wide size. `ChildGrid` is the one pinned caller — a
+  grid's `pageSize` prop is part of that grid's layout, not what the operator meant
+  by choosing 50 on a listing. Never pass `10` to pin a listing back to a local size.
+- **The bar renders only past one page.** A listing that fits is pixel-identical to
+  before; a small table inside a sheet or a card gains nothing. Same rule `ChildGrid`
+  applies to its own pager ("1–1 of 1" is chrome explaining that the one visible row
+  is the one visible row, client 2026-08-04).
+- **It is a display slice, not a query.** The server still fetches every row it did
+  before; a list of 3,000 rows is now 3,000 rows in the RSC payload showing 10.
+  Server-side (keyset) paging is the next step for a listing that grows past what one
+  fetch should carry, and it belongs in the SERVICE (`lib/**/service.ts`), keyed on
+  the `created_at` order "Listings in ENTRY order" already fixes — not in the table.
+
+**Not yet enforced by a script.** A new `[id]`-route table that forgets
+`paginate={false}` pages a document. Until `audit_layout.py` gains a
+`--check paginate-document`, a detail page gets this right by reading this section.
+
 ## Created Date / Created User (STANDING)
 
 **Every listing of records shows who made the row and when** — two columns, in that

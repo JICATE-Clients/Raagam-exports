@@ -43,7 +43,8 @@ export async function getPackingAdvices(): Promise<PackingAdvice[]> {
       "*, customer:customers(id,name), sales_order:sales_orders(id,order_number), " +
         "country:countries(id,name), lines:packing_advice_lines(*)",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST.
   if (error) throw new Error(`Packing advices could not be read: ${error.message}`);
 
@@ -86,7 +87,8 @@ export async function listPackingOrders(salesOrderId?: string): Promise<PackingO
     )
     .not("sales_order_id", "is", null);
   if (salesOrderId) q = q.eq("sales_order_id", salesOrderId);
-  const { data, error } = await q.order("created_at", { ascending: false });
+  // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+  const { data, error } = await q.order("created_at", { ascending: true });
   if (error) throw new Error(`Orders could not be read: ${error.message}`);
 
   const out: PackingOrder[] = [];

@@ -213,7 +213,7 @@ function ItemsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={itemColumns}
           rows={ppm.items}
           getKey={(r) => r.id}
