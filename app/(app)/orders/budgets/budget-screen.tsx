@@ -3213,6 +3213,13 @@ export function BudgetScreen({
        *  tab is otherwise invisible from here. */
       const tabProblems = (source: string) =>
         totals.unpriced.filter((u) => enteredCosts[u.index]?.source === source).length;
+      /** The rail row's second line: how many lines the tab holds, or that it
+       *  holds none — so an empty tab and a fully-rated one no longer look
+       *  alike (both draw no badge). */
+      const tabMeta = (source: string) => {
+        const n = lines.filter((c) => c.source === source).length;
+        return n === 0 ? "no lines" : `${n} ${n === 1 ? "line" : "lines"}`;
+      };
       if (s.key === "purchase") {
         return {
           key: s.key,
@@ -3221,7 +3228,13 @@ export function BudgetScreen({
           done: lines.length > 0,
           content: (
             <SectionBody title={s.label}>
+              {/* A SIDE RAIL BESIDE THE GRID, NOT A STRIP ABOVE IT (user
+                  2026-09-21, screenshot 204339 — the Material BOM's item
+                  listing as the reference). `side` on the primitive; it only
+                  switches in on a pane wide enough for the grids to stay
+                  tables beside it — see `Tabs` for the 92rem arithmetic. */}
               <Tabs
+                side
                 value={purchaseTab}
                 onChange={(k) => openTab(setPurchaseTab, k, "purchase")}
                 items={PURCHASE_TABS.map((t) => ({
@@ -3229,6 +3242,7 @@ export function BudgetScreen({
                   label: t.label,
                   done: lines.some((c) => c.source === t.source),
                   problems: tabProblems(t.source),
+                  meta: tabMeta(t.source),
                   content:
                     t.source === "yarn"
                       ? yarnPurchaseGrid
@@ -3251,6 +3265,7 @@ export function BudgetScreen({
           content: (
             <SectionBody title={s.label}>
               <Tabs
+                side
                 value={processTab}
                 onChange={(k) => openTab(setProcessTab, k, "process")}
                 items={PROCESS_TABS.map((t) => ({
@@ -3258,6 +3273,7 @@ export function BudgetScreen({
                   label: t.label,
                   done: lines.some((c) => c.source === t.source),
                   problems: tabProblems(t.source),
+                  meta: tabMeta(t.source),
                   content:
                     t.source === "yarn_process"
                       ? yarnProcessGrid

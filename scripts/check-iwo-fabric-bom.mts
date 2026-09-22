@@ -21,6 +21,16 @@ import {
 } from "../lib/orders/fabric-bom/yarn-process.ts";
 import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase, iwoYarnShades } from "../lib/orders/iwo-fabric-bom/yarn.ts";
 import {
+  blankPlanRow,
+  expandPlan,
+  foldLines,
+  planByFor,
+  replan,
+  replanForStage,
+  reqKgsOf,
+  type PlanLine,
+} from "../lib/orders/iwo-fabric-bom/plan.ts";
+import {
   iwoFabricLineProblems,
   iwoFabricStages,
   iwoGreigeRouteProblems,
@@ -697,8 +707,8 @@ check(
 // ---------------------------------------------------------------------------
 
 const actionSrc = read("../lib/orders/iwo-fabric-bom/actions.ts");
-check("§17 the IWO Finish Dia picker is scoped by the line's family", /diaOptionsFor\(soleDia\(r\)\.dia, lineKnitCode\(r\)\)/.test(screenSrc), true);
-check("§17 …and the [Dias] sheet reads the SAME scoped list", /optionsFor=\{\(held\) => diaOptionsFor\(held, diasLine \? lineKnitCode\(diasLine\)/.test(screenSrc), true);
+check("§17 the IWO Finish Dia picker is scoped by the line's family", /diaOptionsFor\(r\.finish_dia, lineKnitCode\(r\)\)/.test(screenSrc), true);
+check("§17 …and the [Breakup] sheet reads the SAME scoped list", /diaOptionsFor=\{\(held\) => diaOptionsFor\(held, breakupLine \? lineKnitCode\(breakupLine\)/.test(screenSrc), true);
 // ONE ROW PER FABRIC (client 2026-09-21): `+ Dia` inserted a second LINE of the
 // same fabric, so the fabric showed twice. The dias now live on the row and are
 // expanded to one stored line each at the boundary — `expandLine`.
@@ -707,6 +717,139 @@ check("§17 …the payload, the rules and the engine read the EXPANDED lines", (
 check("§17 …and the one-dia prefill counts within that family", /defaultDiaFor\(lineKnitCode\(/.test(screenSrc), true);
 check("§17 the screen's Save gate refuses a wrong-family dia", /diaKnitBlockers\.map/.test(screenSrc), true);
 check("§17 …and so does the action, with the same sentence", /diaKnitProblem\(l\.finish_dia, knitOf\.get/.test(actionSrc), true);
+
+// ---------------------------------------------------------------------------
+// §18 PLAN BY (client 2026-09-21, screenshots 2990 · 2992) — the Material
+// BOM's Attribute with a fabric's axes. ONE ROW PER FABRIC on screen, ONE
+// STORED LINE PER (fabric, colour, dia) underneath: `plan.ts` is the boundary
+// and these prove it — fold ∘ expand is identity, the greige re-plan merges
+// per dia and SUMS (the user's decision: "greige is one lot"), a split with
+// only a blank row still expands to ONE line the rules can refuse, Print
+// rides on a row only where Colour is split, and inference picks the
+// narrowest attribute. Each was made to FAIL first by mutating the rule.
+// ---------------------------------------------------------------------------
+
+let k = 0;
+const nk = () => `k${++k}`;
+const pl = (over: Partial<PlanLine>): PlanLine => ({ plan_by: "fabric", color_name: "", print_name: "", finish_dia: "", req_kgs: "", rows: [], ...over });
+const facts = (l: PlanLine) => expandPlan(l).map((f) => [f.color_name, f.print_name, f.finish_dia, f.req_kgs]);
+
+check("§18 Fabric: one line, all four off the row", facts(pl({ color_name: "WHITE", finish_dia: "74", req_kgs: "500" })), [["WHITE", null, "74", 500]]);
+check(
+  "§18 Colour + Dia: one line per row, colour and dia off the row",
+  facts(pl({ plan_by: "colour_dia", rows: [
+    { key: "a", color_name: "WHITE", print_name: "", dia: "74", req_kgs: "400" },
+    { key: "b", color_name: "WHITE", print_name: "", dia: "76", req_kgs: "200" },
+    { key: "c", color_name: "RED", print_name: "", dia: "74", req_kgs: "750" },
+  ] })),
+  [["WHITE", null, "74", 400], ["WHITE", null, "76", 200], ["RED", null, "74", 750]],
+);
+check(
+  "§18 Colour only: the dia comes off the FABRIC row for every line",
+  facts(pl({ plan_by: "colour", finish_dia: "74", rows: [
+    { key: "a", color_name: "WHITE", print_name: "", dia: "", req_kgs: "400" },
+    { key: "b", color_name: "RED", print_name: "", dia: "", req_kgs: "750" },
+  ] })),
+  [["WHITE", null, "74", 400], ["RED", null, "74", 750]],
+);
+check(
+  "§18 Dia only: the colour (and print) come off the FABRIC row for every line",
+  facts(pl({ plan_by: "dia", color_name: "WHITE", print_name: "AOP", rows: [
+    { key: "a", color_name: "", print_name: "", dia: "74", req_kgs: "400" },
+    { key: "b", color_name: "", print_name: "", dia: "76", req_kgs: "200" },
+  ] })),
+  [["WHITE", "AOP", "74", 400], ["WHITE", "AOP", "76", 200]],
+);
+check(
+  "§18 Print rides on the ROW only where Colour is split",
+  facts(pl({ plan_by: "colour_dia", print_name: "IGNORED", rows: [{ key: "a", color_name: "WHITE", print_name: "AOP", dia: "74", req_kgs: "1" }] })),
+  [["WHITE", "AOP", "74", 1]],
+);
+check(
+  "§18 a split with only a blank row expands to ONE refusable line, never to nothing",
+  facts(pl({ plan_by: "colour_dia", rows: [blankPlanRow("a")] })),
+  [[null, null, null, null]],
+);
+check(
+  "§18 …and a blank row beside real rows is dropped",
+  facts(pl({ plan_by: "colour_dia", rows: [{ key: "a", color_name: "WHITE", print_name: "", dia: "74", req_kgs: "1" }, blankPlanRow("b")] })).length,
+  1,
+);
+check("§18 reqKgsOf: Fabric is the typed figure", reqKgsOf(pl({ req_kgs: "500" })), 500);
+check("§18 reqKgsOf: a split is Σ rows", reqKgsOf(pl({ plan_by: "colour", rows: [
+  { key: "a", color_name: "WHITE", print_name: "", dia: "", req_kgs: "400" },
+  { key: "b", color_name: "RED", print_name: "", dia: "", req_kgs: "750.5" },
+] })), 1150.5);
+check("§18 reqKgsOf: NULL while no row carries a weight (so 'enter the Req Wt' still fires)", reqKgsOf(pl({ plan_by: "colour", rows: [blankPlanRow("a")] })), null);
+
+// fold ∘ expand = identity, and the attribute is inferred from the lines
+const stored = [
+  { color_name: "WHITE", print_name: null, finish_dia: "74", req_kgs: 400 },
+  { color_name: "WHITE", print_name: null, finish_dia: "76", req_kgs: 200 },
+  { color_name: "RED", print_name: null, finish_dia: "74", req_kgs: 750 },
+];
+const folded = foldLines(stored, nk);
+check("§18 fold: colours > 1 and dias > 1 → Colour + Dia", folded.plan_by, "colour_dia");
+check("§18 fold ∘ expand = identity", expandPlan(folded), stored);
+check("§18 fold: one line → Fabric, the cells on the row", (() => { const f = foldLines([stored[0]], nk); return [f.plan_by, f.color_name, f.finish_dia, f.req_kgs]; })(), ["fabric", "WHITE", "74", "400"]);
+check("§18 fold: colours > 1, one dia → Colour, the dia on the row", (() => { const f = foldLines([stored[0], stored[2]], nk); return [f.plan_by, f.finish_dia, f.rows.map((r) => r.color_name)]; })(), ["colour", "74", ["WHITE", "RED"]]);
+check("§18 fold: one colour, dias > 1 → Dia, the colour on the row", (() => { const f = foldLines([stored[0], stored[1]], nk); return [f.plan_by, f.color_name, f.rows.map((r) => r.dia)]; })(), ["dia", "WHITE", ["74", "76"]]);
+check("§18 fold: greige lines (no colour) in two dias → Dia", foldLines([{ color_name: null, print_name: null, finish_dia: "34", req_kgs: 80 }, { color_name: null, print_name: null, finish_dia: "36", req_kgs: 40 }], nk).plan_by, "dia");
+
+// switching the attribute keeps what was typed
+const single = pl({ color_name: "WHITE", finish_dia: "74", req_kgs: "500", rows: [blankPlanRow("z")] });
+check("§18 replan Fabric → Colour + Dia seeds the first row from the fabric row", replan(single, "colour_dia", nk).rows.map((r) => [r.color_name, r.dia, r.req_kgs]), [["WHITE", "74", "500"]]);
+check("§18 replan Fabric → Colour keeps the dia ON the row (and, hidden, on the seed row)", (() => { const r = replan(single, "colour", nk); return [r.finish_dia, r.rows[0].color_name, r.rows[0].dia]; })(), ["74", "WHITE", "74"]);
+
+// THE PATH IN SCREENSHOT 2993: Colour + Dia → Colour → Colour + Dia. The first
+// cut cleared each row's dia on the way out and stamped one dia on every row
+// on the way back, so WHITE 74 400 + WHITE 76 100 became WHITE 74 twice and
+// the unique-triple rule refused a plan the operator had not typed.
+const twoDias = pl({ plan_by: "colour_dia", rows: [
+  { key: "a", color_name: "WHITE", print_name: "", dia: "74", req_kgs: "400" },
+  { key: "b", color_name: "WHITE", print_name: "", dia: "76", req_kgs: "100" },
+] });
+const viaColour = replan(twoDias, "colour", nk);
+check("§18 hiding the dia axis keeps each row's dia", viaColour.rows.map((r) => r.dia), ["74", "76"]);
+check("§18 …the fabric row takes the first row's dia", viaColour.finish_dia, "74");
+check("§18 …and the expansion MERGES rows that differ only on the hidden axis: WHITE 74 500, one line", facts(viaColour), [["WHITE", null, "74", 500]]);
+check("§18 …so switching back restores the two rows exactly", facts(replan(viaColour, "colour_dia", nk)), facts(twoDias));
+check(
+  "§18 rows identical on EVERY axis are a true duplicate and stay two lines (refused by name)",
+  facts(pl({ plan_by: "colour_dia", rows: [
+    { key: "a", color_name: "WHITE", print_name: "", dia: "74", req_kgs: "400" },
+    { key: "b", color_name: "WHITE", print_name: "", dia: "74", req_kgs: "100" },
+  ] })).length,
+  2,
+);
+check("§18 replan a split → Fabric copies the first row back and Σ as the figure", (() => { const r = replan(folded, "fabric", nk); return [r.color_name, r.finish_dia, r.req_kgs]; })(), ["WHITE", "74", "1350"]);
+check("§18 replan Colour → Colour + Dia keeps every colour row and asks for its dia", (() => {
+  const r = replan(pl({ plan_by: "colour", finish_dia: "74", rows: [{ key: "a", color_name: "WHITE", print_name: "", dia: "", req_kgs: "1" }, { key: "b", color_name: "RED", print_name: "", dia: "", req_kgs: "2" }] }), "colour_dia", nk);
+  return r.rows.map((x) => [x.color_name, x.dia]);
+})(), [["WHITE", "74"], ["RED", "74"]]);
+
+// the Stage decides: what is offered, and what a change does to the plan
+check("§18 GREIGE offers Fabric and Dia only", planByFor(0), ["fabric", "dia"]);
+check("§18 a coloured stage offers all four", planByFor(1).length, 4);
+check(
+  "§18 → GREIGE merges colours per dia and SUMS (WHITE 400 + RED 750 in 74\" = 1150), Plan by becomes Dia",
+  (() => { const r = replanForStage(folded, 0, nk); return [r.plan_by, r.rows.map((x) => [x.color_name, x.dia, x.req_kgs])]; })(),
+  ["dia", [["", "74", "1150"], ["", "76", "200"]]],
+);
+refute("§18 …and never drops a weight", (() => { const r = replanForStage(folded, 0, nk); return reqKgsOf(r); })(), null);
+check("§18 → GREIGE from Colour (one dia on the row) becomes Fabric with Σ", (() => {
+  const r = replanForStage(pl({ plan_by: "colour", finish_dia: "74", rows: [{ key: "a", color_name: "WHITE", print_name: "", dia: "", req_kgs: "400" }, { key: "b", color_name: "RED", print_name: "", dia: "", req_kgs: "750" }] }), 0, nk);
+  return [r.plan_by, r.color_name, r.finish_dia, r.req_kgs];
+})(), ["fabric", "", "74", "1150"]);
+check("§18 off a Print stage the prints go, colours stay", (() => {
+  const r = replanForStage(pl({ plan_by: "colour_dia", rows: [{ key: "a", color_name: "WHITE", print_name: "AOP", dia: "74", req_kgs: "1" }] }), 1, nk);
+  return r.rows.map((x) => [x.color_name, x.print_name]);
+})(), [["WHITE", ""]]);
+
+// the wiring
+check("§18 the Req Wt cell is the door under a split", /reqKgsOf\(r\);[\s\S]{0,900}?openBreakup\(r,/.test(screenSrc), true);
+check("§18 …and Plan by is offered by the Stage", /planByFor\(fabricStageRank\(r\.stage_id\)\)/.test(screenSrc), true);
+check("§18 …and a Stage change re-plans", /replanForStage\(x, rank, newKey\)/.test(screenSrc), true);
 
 if (failed) {
   console.error(`\n${failed} IWO Fabric BOM vector(s) failed.`);
