@@ -382,26 +382,25 @@ export function BudgetApprovalScreen({
        and two gaps, narrower than the default `w-40`. */
     rowActionsColumn<BudgetApprovalRow>(
       (r) => {
-        const editable = canEdit && (r.status === "draft" || r.status === "rejected");
+        /* EDIT OPENS THE BUDGET WHATEVER ITS STATE. The editor already knows
+           which states it may change — a submitted or approved one opens
+           read-only with a line saying why (`budget-screen.tsx`, `editable`)
+           — so gating the icon here was a second rule that only made the
+           button look dead on the rows this queue mostly holds (2026-09-22). */
         const decidable = canApprove && r.status === "submitted";
         const label = r.code ?? r.id.slice(0, 8);
         return (
           <div className="flex items-center justify-end gap-1">
-            <Tooltip
-              label={
-                editable
-                  ? "Edit"
-                  : canEdit
-                    ? `Edit — a ${budgetStatusText(r.status).toLowerCase()} budget is not editable`
-                    : "Edit — you cannot edit budgets"
-              }
-            >
+            <Tooltip label={canEdit ? "Edit" : "Edit — you cannot edit budgets"}>
               <Button
                 variant="ghost"
                 size="icon"
                 aria-label={`Edit ${label}`}
-                className="text-primary hover:bg-primary/10 hover:text-primary disabled:text-muted-foreground"
-                disabled={!editable || isPending}
+                /* NO BACKGROUND, on hover either (user 2026-09-22): the blue
+                   pencil stands on its own, and `hover:bg-transparent` is what
+                   overrides the ghost variant's grey. */
+                className="text-primary hover:bg-transparent hover:text-primary-hover disabled:text-muted-foreground"
+                disabled={!canEdit || isPending}
                 onClick={() => router.push(`/orders/budgets?budget=${r.id}`)}
               >
                 <Pencil />

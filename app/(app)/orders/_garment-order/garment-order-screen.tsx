@@ -15161,25 +15161,56 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * would move two buttons nobody asked about. One constant per SET that has to
    * line up is the pattern this file already follows for `PRICE_W` and
    * `PRICE_COLOUR_W`.
+   *
+   * "+ Add part" LEFT THE SET (client 2026-09-22: "add part button aa compact
+   * pannidu"). The pair matched while both buttons stood at the foot of their
+   * grids, one under the other; the part button sits beside the last part's
+   * ✕ now, where a 128px box was wider than the two fields before it and read
+   * as one. It hugs its label (`w-auto`, the control's own `px-3`) — width
+   * and nothing else, `h-8 text-xs` unchanged, so it still sits level with
+   * the row's controls. `STRUCTURE_ADD_W` stays the fabric button's, matching
+   * the Style(s) pair's shape at the foot of the box.
    */
   const STRUCTURE_ADD_W = "w-32";
   /* The part rows' six tracks — Coordinate, Component, the two 6.5rem
      fields (Roll form print last), the ✕, and "+ Add part" — shared with the
      header row so every title and ghost stands in a real track.
 
-     THE SIXTH TRACK IS `auto` AND ONLY THE LAST PART FILLS IT (2026-09-21:
-     "+ Add part … inline with the Roll form print field"). Each part row is
-     its own grid, so on every other row the track is empty and 0px wide —
-     no hole. It comes AFTER the ✕ rather than between Roll form print and
-     the ✕, deliberately: in between, the last row's ✕ would sit one button
-     further right than every ✕ above it, or every other row would carry an
-     empty slot before its ✕. After, the ✕ column stays straight. */
-  const PART_TRACK =
-    "sm:grid-cols-[minmax(0,7.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,6.5rem)_auto_auto]";
+     THE SIXTH TRACK IS EMPTY ON EVERY PART BUT THE LAST (2026-09-21:
+     "+ Add part … inline with the Roll form print field"; reaffirmed by the
+     client 2026-09-22 after one hour on its own line under the parts: "add
+     part button side la than venum, delete icon pakkathula" — beside the
+     delete icon, on the row). Each part row is its own grid, so on every
+     other row the track holds nothing. It comes AFTER the ✕ rather than
+     between Roll form print and the ✕, deliberately: in between, the last
+     row's ✕ would sit one button further right than every ✕ above it, or
+     every other row would carry an empty slot before its ✕. After, the ✕
+     column stays straight —
 
-  /* ONE "+ Add part", two places — at the end of the last part row, or alone
-     when the fabric has no parts yet. `data-row-add` either way: it is what
-     Enter/Tab off the last row lands on (AGENTS.md, "Add a grid row"). */
+     — PROVIDED THE LAST TWO TRACKS ARE `max-content`, NOT `auto` (client
+     2026-09-22, screenshot 103417: "the delete icons should be aligned in
+     the same line"). They were `auto`, and the note above used to claim an
+     empty `auto` track is "0px wide". It is not. The parts half is as wide
+     as its WIDEST row — the last one, carrying "+ Add part" — and on every
+     row above it that button's width is free space, which CSS Grid's
+     "stretch auto tracks" step hands out EQUALLY to every `auto` track,
+     empty or not. So the ✕ track on parts 1..n-1 was ~50px wider than on
+     part n, the button stretched to fill it, and its centred icon sat ~25px
+     right of the last row's — that is the drift in the screenshot.
+     `max-content` tracks take no free space, so the ✕ stands at the same x
+     on every row and the slack sits after the row, where the fabric ✕
+     already expects it (the header's `pr-9`). Nothing shrinks differently:
+     a button's min-content and max-content are the same width, so the
+     squeeze below ~1450px (see the parts half's own notes) is unchanged. */
+  const PART_TRACK =
+    "sm:grid-cols-[minmax(0,7.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,5.5rem)_max-content_max-content]";
+
+  /* ONE "+ Add part", two places — beside the last part's ✕, or alone when
+     the fabric has no parts yet. Compact: it hugs its label (see
+     `STRUCTURE_ADD_W` for why it left that width). `data-row-add` either
+     way: it is what Enter/Tab off the last row lands on (AGENTS.md, "Add a
+     grid row"), and what `enterNestedGrid` clicks to open the first part of
+     an empty fabric. */
   const addPartButton = (r: ComboRow, st: ComboStructRow, className?: string) => (
     <Button
       type="button"
@@ -15382,13 +15413,19 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
                THE TWO PAIRS ARE SIZED BY WHAT THEY HOLD. Coordinate and Component
                carry part names — "FRONT BODY" is the long one — so they cap at
-               120px; Colour ("BROWN") and Roll form print are shorter values and
-               cap at 104px. Nothing here is measured against a longest VALUE:
+               120px; Colour ("BROWN") is a shorter value and caps at 104px;
+               Roll form print caps at 88px (5.5rem, down from 6.5rem — client
+               2026-09-22: "roll form print field aa konjam small compact aa
+               change pannidu"), the shortest of the four because it is the one
+               that is nearly always EMPTY (all 31 stored parts had a null
+               `print_id` at the 08-21 catalog) and its header, "Roll form
+               print" at `text-xs`, is ~80px, so 88px is the least that keeps
+               the title on one line. Nothing here is measured against a longest VALUE:
                these are the compact standard's short-options and text bands, and
                every one of the four truncates with an ellipsis and reveals on
                hover, because all four are pickers or a Combobox (LAYOUT.md §14).
 
-               THE SUM, AGAINST THE PANE: 120 + 120 + 104 + 104 = 448, plus four
+               THE SUM, AGAINST THE PANE: 120 + 120 + 104 + 88 = 432 (448 before Roll form print went to 5.5rem), plus four
                8px gaps and the ✕'s ~32px is ~512px inside this half's
                `basis-[34rem]` (544px) — ~32px of slack where the previous track
                had none. Below that the caps collapse rather than scroll.
@@ -15439,7 +15476,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                per-call-site override of a shared measurement.
 
                THE CAP IS STATED TWICE ON PURPOSE — here on the track and again as
-               `sm:max-w-[7.5rem]` / `sm:max-w-[6.5rem]` on each of the four
+               `sm:max-w-[7.5rem]` / `[6.5rem]` / `[5.5rem]` on each of the four
                `Field`s. The track alone is sufficient: `Field` is
                `cn(FIELD_WIDTH[w], "min-w-0", className)`, so `className="w-full"`
                makes the cell exactly its track and the `w-full` control inside it
@@ -15808,7 +15845,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   prints that tab declared, so the two are one vocabulary — and two
                   names for one vocabulary, on one screen, is the thing the client
                   used the word "standardized" about. */}
-              <Field label={j === 0 ? "Roll form print" : undefined} w="term" className="w-full sm:max-w-[6.5rem]">
+              <Field label={j === 0 ? "Roll form print" : undefined} w="term" className="w-full sm:max-w-[5.5rem]">
                 {/* `print_id` is a uuid, so this stays a picker. The asymmetry
                     with Colour beside it is the columns', not a choice. */}
                 <RecordPicker
@@ -15857,13 +15894,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             >
               <Trash2 className="h-4 w-4 shrink-0" />
             </Button>
-            {/* INLINE ON THE LAST PART (see `PART_TRACK`'s sixth track).
-                `self-end` for the ✕'s reason: on part 0 the other cells carry
-                a label band, and this sits level with their CONTROLS. On a
-                phone it takes its own line at the start, `STRUCTURE_ADD_W`
-                wide, as the stacked "+ Add fabric" does. */}
+            {/* INLINE ON THE LAST PART, BESIDE ITS ✕ (see `PART_TRACK`'s sixth
+                track). `self-end` for the ✕'s reason: on part 0 the other
+                cells carry a label band, and this sits level with their
+                CONTROLS. On a phone it takes its own line at the start, as
+                the stacked "+ Add fabric" does. */}
             {j === st.components.length - 1 &&
-              addPartButton(r, st, cn(STRUCTURE_ADD_W, "col-span-2 self-end sm:col-span-1 sm:w-auto"))}
+              addPartButton(r, st, "col-span-2 w-auto self-end justify-self-start sm:col-span-1")}
             {/* "PROCESSED AS TRIM" WITHDRAWN (client 2026-08-17): "remove
                 Processed as Trim and the Garment Process child entry section
                 entirely, as these details are covered elsewhere."
@@ -15886,9 +15923,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           </div>
         ))}
         {/* NO PARTS YET: the button stands alone, at the start. Once a part
-            exists it moves onto that part's line (above) — so there is never a
-            row given over to the button beneath the parts. */}
-        {st.components.length === 0 && addPartButton(r, st, STRUCTURE_ADD_W)}
+            exists it moves onto that part's line, beside the ✕ (above) — so
+            there is never a row given over to the button beneath the parts. */}
+        {st.components.length === 0 && addPartButton(r, st, "w-auto")}
     </div>
     );
   };
@@ -16046,9 +16083,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         <span className={buttonClasses({ variant: "ghost", size: "sm", className: GHOST_CELL })}>
           <Trash2 className="h-4 w-4 shrink-0" />
         </span>
-        {/* …and of "+ Add part", which now ends the last part's line: the
-            widest row is the one carrying it, and the box must be that wide. */}
-        <span className={buttonClasses({ variant: "outline", size: "sm", className: GHOST_CELL })}>
+        {/* …and of "+ Add part", which ends the last part's line: the widest
+            row is the one carrying it, and the box must be that wide. Same
+            label, same `w-auto` hug as the real one, so the track measures
+            the same. */}
+        <span className={buttonClasses({ variant: "outline", size: "sm", className: cn(GHOST_CELL, "w-auto") })}>
           + Add part
         </span>
       </div>
