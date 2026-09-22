@@ -15501,19 +15501,53 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                container's `space-y-2` above it: 8px either side. */
             className={cn(
               "grid grid-cols-2 items-center gap-x-2 gap-y-2 border-t border-border pt-2 first:border-t-0 first:pt-0",
-              /* THE RULE RUNS UNDER THE FABRIC ✕ (client 2026-09-22, "without
-                 any gaps or breaks"). This grid is as wide as the parts half,
-                 which ends at "+ Add part"; the fabric's ✕ chip sits 8px past
-                 that in `ChildGrid`'s beside-layout, so every part rule
-                 stopped 36px short of where the FABRIC rules (`ChildGrid`'s
-                 own `border-t`, full row width) end — the action column looked
-                 cut off the table. `-mr-9 pr-9` is 36px (`gap-2` + the 28px
-                 chip) of border with NO width change: padding widens the box
-                 and the negative margin gives it back, so the parts half's
-                 max-content — and with it every track — is exactly what it
-                 was. Side by side only; stacked below 1250px there is no chip
-                 beside the row. */
-              "min-[1250px]:-mr-9 min-[1250px]:pr-9",
+              /* THE RULE RUNS THE FULL ROW, STRUCTURE TO ✕ (client 2026-09-22,
+                 screenshot 111451: "fix the horizontal separator lines so that
+                 they stretch completely across the entire row width from left
+                 to right, rather than stopping halfway … from the 'Structure'
+                 input all the way to the delete/action buttons"). This grid is
+                 only as wide as the parts half, so its own `border-t` began at
+                 Coordinate — halfway across the box — and stopped at "+ Add
+                 part", 36px short of the fabric ✕; the fabric rules
+                 (`ChildGrid`'s `border-t`, full row width) ran edge to edge
+                 above and below it, and the two read as different tables.
+
+                 SO FROM 1250px THE BORDER IS OFF AND A `::before` DRAWS THE
+                 LINE, absolutely, with the row `relative` as its box:
+                 `left-[calc(-50.375rem-1px)]` reaches back over the row's
+                 `gap-x-2.5` (0.625rem), the fabric half's transparent 1px
+                 `border-r` and its `pr-2.5` + 46rem of tracks + five 0.625rem
+                 gaps (49.75rem) — the same arithmetic the fabric | parts
+                 divider is placed by — to the fabric row's left edge, where
+                 `ChildGrid`'s own rules begin. `right-[-2.25rem]` is `gap-2`
+                 + the 28px chip, so it ends where they end. A pseudo, NOT the
+                 `-mr-9 pr-9` that stood here for an hour: a margin trick can
+                 only stretch the box to the right, and stretching it left
+                 would lay this row's box over the fabric half and take its
+                 clicks. `pointer-events-none`: a line, nothing else.
+
+                 A `border-t` ON THE PSEUDO, NOT `h-px bg-border` (client
+                 2026-09-22: "lines lam olliya irukkanum, already irukka line
+                 maari" — every line as thin as the existing one). Both are
+                 1px in CSS and they do not paint the same: Chrome snaps a
+                 border to whole device pixels, and at the 125% zoom this
+                 screen is read at that is ONE device pixel — while a 1px
+                 background box lands on 1.25 device pixels and is
+                 anti-aliased across two, reading as a thicker, softer line
+                 beside the fabric rules, the header rule and the vertical
+                 dividers, all of which are borders. Same primitive as its
+                 neighbours, so it can only ever be the same weight.
+                 `first:before:hidden` for the reason `first:border-t-0` is
+                 there — the fabric's own rule is above the first part.
+
+                 THE FABRIC HALF IS `relative z-[1]` for this (its own
+                 comment), so a fabric whose half runs to a second line — Yarn
+                 Color on a yarn-dyed fabric, the advisory — paints over the
+                 line rather than under it. Below 1250px the halves stack, the
+                 pseudo is off and the plain `border-t` is back. */
+              "min-[1250px]:relative min-[1250px]:border-t-0",
+              "min-[1250px]:before:pointer-events-none min-[1250px]:before:absolute min-[1250px]:before:top-0 min-[1250px]:before:h-0 min-[1250px]:before:border-t min-[1250px]:before:border-border min-[1250px]:before:content-['']",
+              "min-[1250px]:before:left-[calc(-50.375rem_-_1px)] min-[1250px]:before:-right-9 min-[1250px]:first:before:hidden",
               PART_TRACK,
             )}
           >
@@ -16062,32 +16096,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       aria-hidden
       className="pointer-events-none absolute inset-y-0 left-[50.5rem] hidden border-r border-border min-[1250px]:block"
     />
-    {/* THE PARTS | ACTIONS DIVIDER, the same line one column group along
-        (client 2026-09-22: "align the vertical separator/border line so it
-        runs continuously from the top to the bottom of the table without any
-        gaps or breaks. Keep the Delete icons, '+ Add part' buttons, and the
-        right-side Close (X) buttons properly aligned within the same action
-        column"). Everything right of Roll form print — a part's 🗑, the last
-        part's "+ Add part", the fabric's ✕ — is one action column, and this
-        rule is what makes it read as one rather than as three things that
-        happen to end the row.
-
-        `left-[77.875rem]` IS THE SAME ARITHMETIC CONTINUED: the first line
-        at 50.5rem, + the row's `gap-x-2.5` (0.625rem) to the parts half, +
-        its four field tracks (5.5 + 7.5 + 6.5 + 5.5 = 25rem and three
-        `gap-x-2` = 1.5rem), + half of the `gap-x-2` before the 🗑 (0.25rem),
-        so it splits that gap. Change `PART_TRACK`'s field caps and this
-        number moves with them.
-
-        FROM 1500px, NOT 1250px. The fabric half is `flex-none`, so the first
-        line's position never moves; the parts half SHRINKS between 1250px
-        and ~1450px (its own notes), and a line placed by arithmetic over
-        columns that are shrinking would cut through Roll form print. Above
-        ~1450px every track is at its cap and the number is exact. */}
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-y-0 left-[77.875rem] hidden border-r border-border min-[1500px]:block"
-    />
+    {/* NO PARTS | ACTIONS DIVIDER. One was drawn here for an hour on
+        2026-09-22 (a second absolute rule at 77.875rem, before the part ✕ /
+        "+ Add part" / fabric ✕ column, from 1500px) and the client had it
+        removed on sight ("antha line aa remove pannidu"). The fabric | parts
+        rule above is the only vertical line in this box. The part rows'
+        rules still run under the fabric ✕ (`-mr-9 pr-9` on the row), which
+        is the half of that change that stayed. */}
     <div
       aria-hidden
       className="mb-2 hidden items-end gap-x-2.5 border-b border-border pb-1 pr-9 min-[1250px]:flex"
@@ -16508,7 +16523,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 `structureGrid`); this border is `transparent` and stays only
                 for its 1px, so the parts half starts where the header's
                 Coordinate does. */}
-            <div className="min-w-0 space-y-2 self-stretch min-[1250px]:flex-none min-[1250px]:border-r min-[1250px]:border-transparent min-[1250px]:pr-2.5">
+            {/* `relative z-[1]` from 1250px: the part rows beside this half
+                draw their separator lines right across it (their `::before`,
+                see `componentGrid`), and this half is a DOM-earlier sibling,
+                so without a stacking context those lines would paint over
+                anything it puts on a second line — the Yarn Color field of a
+                yarn-dyed fabric, the GSM advisory. Raised, its controls (which
+                carry the input background) sit on top of the line and the
+                empty area beneath the fields still shows it. No background
+                here, deliberately: a `bg-surface` would hide the lines under
+                the whole half, which is the look being asked for. */}
+            <div className="min-w-0 space-y-2 self-stretch min-[1250px]:relative min-[1250px]:z-[1] min-[1250px]:flex-none min-[1250px]:border-r min-[1250px]:border-transparent min-[1250px]:pr-2.5">
             {/* ONE TRACK OF FIVE, IN THE ORDER THE OPERATOR NAMED THEM
                 (2026-09-11: "Structure*, Composition*, GSM*, Tolerance*,
                 Fabric Type*"). Every label starts on the same line and every box
