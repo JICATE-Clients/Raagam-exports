@@ -1,6 +1,14 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { orderLockMessage } from "@/lib/orders/budget/amendment";
+import {
+  amendmentBanner,
+  areaOpen,
+  outOfScopeMessage,
+  scopeFromJson,
+  type AmendmentArea,
+  type OrderAmendmentState,
+} from "@/lib/orders/amendments/amendment-entry";
 
 /**
  * WHICH GARMENT ORDERS ARE LOCKED, AND WHAT THE BANNER SAYS — for the editors'
@@ -25,16 +33,29 @@ import { orderLockMessage } from "@/lib/orders/budget/amendment";
  *
  * ## A FAILED READ SHOWS NO BANNER — AND LOCKS NOTHING LESS
  *
- * This is display only. The write path fails CLOSED (`assertOrderUnlocked`,
+ * This is display only. The write path fails CLOSED (`assertOrderWritable`,
  * then the triggers), so an unreadable lock here costs a banner, never a
  * write. Failing the whole page over a banner would take the editor down with
  * it, which is the worse trade.
+ *
+ * ## THE THIRD STATE (0604 · 0616): `amending`
+ *
+ * An order under an open Amendment Entry is not in this map by default — it
+ * is writable, in the entry's scope. Pass `area` and the map ALSO carries the
+ * amending orders whose entry does NOT open that document, with the
+ * out-of-scope sentence: a Fabric BOM under a Price Change amendment reads as
+ * locked with the entry named, and under a BOM Revision reads as open. The
+ * Order Entry editor asks `orderAmendmentStates` instead, because it unlocks
+ * PARTS of itself (`UnlockScope`) rather than all or nothing.
  */
 export async function orderLockMessages(
   /** Omit for every approved order — they are few, and the list screens need all. */
   orderIds?: readonly string[],
+  /** The document the caller edits; adds the amending orders it is closed on. */
+  area?: AmendmentArea,
 ): Promise<Record<string, string>> {
   if (orderIds && orderIds.length === 0) return {};
+  const scoped = area ? await amendingClosedOn(area, orderIds) : {};
   try {
     const s = await createClient();
     /* Every APPROVED document — not narrowed by `orderIds`, because the one
@@ -107,9 +128,82 @@ export async function orderLockMessages(
         approvedAt: b?.decided_at ?? null,
       });
     }
-    return out;
+    return { ...scoped, ...out };
   } catch (e) {
     console.error("[order-locks]", e instanceof Error ? e.message : e);
+    return scoped;
+  }
+}
+
+export type { OrderAmendmentState };
+
+/**
+ * Every AMENDING document, keyed by id, with its entry's frozen scope — the
+ * Order Entry editor's half of the third state. Same grain as the lock: the
+ * entry is on every document of the RE (`open_order_amendment` stamps them
+ * all), so no sibling walk is needed here.
+ *
+ * Display only, like the lock map: a failed read shows no banner and unlocks
+ * nothing — `assertOrderWritable` and the trigger still refuse.
+ */
+export async function orderAmendmentStates(
+  orderIds?: readonly string[],
+): Promise<Record<string, OrderAmendmentState>> {
+  if (orderIds && orderIds.length === 0) return {};
+  try {
+    const s = await createClient();
+    let q = s
+      .from("garment_order_amendments")
+      /* `!re_amendment_id`: the two tables point at each other (the entry's
+         garment_order_id, the document's re_amendment_id), so a bare embed is
+         the PGRST201 ambiguity AGENTS.md records. The COLUMN is named. */
+      .select(
+        "id, entry:order_budget_revisions!re_amendment_id(id, entry_no, amendment_type, amendment_types, scope)",
+      )
+      .eq("re_status", "amending");
+    if (orderIds) q = q.in("id", [...orderIds]);
+    const { data, error } = await q;
+    if (error) {
+      console.error("[order-locks] reading amending orders:", error.message);
+      return {};
+    }
+    type Entry = {
+      id: string;
+      entry_no: string | null;
+      amendment_type: string;
+      amendment_types: string[] | null;
+      scope: unknown;
+    };
+    const out: Record<string, OrderAmendmentState> = {};
+    for (const r of (data ?? []) as unknown as { id: string; entry: Entry | Entry[] | null }[]) {
+      const e = Array.isArray(r.entry) ? (r.entry[0] ?? null) : r.entry;
+      if (!e) continue;
+      const types = e.amendment_types?.length ? e.amendment_types : [e.amendment_type];
+      const scope = scopeFromJson(e.scope);
+      out[r.id] = {
+        entryId: e.id,
+        entryNo: e.entry_no,
+        types,
+        scope,
+        banner: amendmentBanner({ entryNo: e.entry_no, types, scope }),
+      };
+    }
+    return out;
+  } catch (e) {
+    console.error("[order-locks] amending:", e instanceof Error ? e.message : e);
     return {};
   }
+}
+
+/** The amending orders whose entry does NOT open `area`, with the refusal. */
+async function amendingClosedOn(
+  area: AmendmentArea,
+  orderIds?: readonly string[],
+): Promise<Record<string, string>> {
+  const states = await orderAmendmentStates(orderIds);
+  const out: Record<string, string> = {};
+  for (const [id, st] of Object.entries(states)) {
+    if (!areaOpen(st.scope, area)) out[id] = outOfScopeMessage(st, area);
+  }
+  return out;
 }

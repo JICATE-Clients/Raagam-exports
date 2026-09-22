@@ -50,6 +50,7 @@
   "exclude": [
     "node_modules",
     "scripts/check-amendment-diff.mts",
+    "scripts/check-amendment-scope.mts",
     "scripts/check-order-value.mts",
     "scripts/check-bom-requirement.mts",
     "scripts/check-bom-colour-required.mts",

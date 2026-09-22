@@ -1,4 +1,4 @@
-import { requirePermission, can } from "@/lib/auth/server";
+import { requireUser, can } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
 import { getMyQueue, getStrandedRuns, canAct } from "@/lib/approvals/service";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
@@ -36,10 +36,16 @@ import {
  * length" with exactly that cause.
  */
 export default async function ApprovalsPage() {
-  // Signed-in only. `requirePermission` with the module's own view right would
-  // be the lockout described above; `dashboard:view` is what every signed-in
-  // user in this app already holds.
-  await requirePermission("dashboard", "view");
+  // Signed-in only — `requireUser()`, not a permission. This used to be
+  // `requirePermission("dashboard", "view")` on the belief that every signed-in
+  // user holds `dashboard:view`. They do not: the 2026-09-22 audit (four real
+  // non-super-admin logins) found only 5 of 13 roles hold it, so Accountant,
+  // Store Keeper, HR Manager, Logistics Executive, Supervisor, CAD Technician,
+  // Cutting Room Head and HR Executive were bounced to the dashboard with a
+  // "No access" banner — and a flow naming any of them as an approver escalated
+  // past them on SLA without them ever seeing the request. The lockout this
+  // comment block warns against had arrived through a different key.
+  await requireUser();
 
   /**
    * SWEEP BEFORE READING (0601), not after.

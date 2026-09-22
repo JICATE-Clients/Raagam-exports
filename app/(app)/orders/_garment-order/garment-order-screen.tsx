@@ -24,6 +24,7 @@ import {
   FileText,
   ClipboardList,
   ListTodo,
+  Pencil,
   type LucideIcon,
 } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -132,7 +133,8 @@ import { sectionValidity, type Problem } from "@/lib/screens/validity";
 // The two flags a field the APP fills in has to carry, derived from one boolean
 // so a bypassed field can never also hold the cursor. See the note there.
 import { autoFilledField } from "@/lib/focus";
-import { Field, FieldGrid, FieldRow, FIELD_SPAN, RequiredScope, useLocked } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, FIELD_SPAN, RequiredScope, UnlockScope, useLocked } from "@/components/ui/field";
+import { openAreasOf, type OrderAmendmentState } from "@/lib/orders/amendments/amendment-entry";
 import { MultiSelect } from "@/components/ui/multi-select";
 // `sortBySize` / `sizeFamily`: the Style master orders and bands its Sizes
 // dropdown with these, and Order Info now draws the same control — a second
@@ -165,6 +167,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { addDays } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useOpenIntent } from "@/lib/use-open-intent";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { isInactive } from "@/lib/masters/inactive";
 // The Style master's own rules, imported rather than re-derived: Order Info now
@@ -371,6 +374,14 @@ interface Props {
    * the `if (mode === "list")` return below.
    */
   orderLocks: Record<string, string>;
+  /**
+   * Orders under an OPEN AMENDMENT ENTRY (0604 · 0616), keyed by amendment id.
+   * Resolved by the loader (`orderAmendmentStates`) for the same reason as
+   * `orderLocks`: this screen reads it with a plain const. The editor opens
+   * LOCKED with the entry's areas lifted (`UnlockScope`), so the fields the
+   * operator can type in are the fields the trigger will accept.
+   */
+  orderAmendments: Record<string, OrderAmendmentState>;
   /** The RE No this order WOULD get, resolved on the server so the box is
    *  filled on first paint rather than a round trip later. See the loader. */
   initialOrderNo?: string | null;
@@ -1880,6 +1891,7 @@ export function GarmentOrderScreen({
   initialOrderNo = null,
   purpose = "entry",
   orderLocks,
+  orderAmendments,
 }: Props) {
   /** Read this, never `purpose` directly, so every site asks the same question. */
   const amending = purpose === "amend";
@@ -2896,6 +2908,14 @@ export function GarmentOrderScreen({
   // Not while VIEWING: nothing there can be typed, so pinning the guard would
   // only hold the silent auto-update off for as long as someone reads an order.
   useUnsavedGuard((mode === "edit" && !viewOnly) || isPending);
+  /* OPEN ONE ORDER FROM A LINK — `?open=<garment order id>` (0616, the
+     Amendment Entry page's "Open order"). ABOVE THE `if (mode === "list")`
+     RETURN, like every hook in this file — the rule its own comments record
+     five times. An id not in `rows` opens nothing. */
+  useOpenIntent((orderId) => {
+    const r = rows.find((x) => x.id === orderId);
+    if (r) openEdit(r);
+  });
 
   /**
    * THE SC NO BOX. Two sources, never both: a saved order shows its STORED
@@ -5331,6 +5351,8 @@ export function GarmentOrderScreen({
         cell: (r) =>
           orderLocks[r.id] ? (
             <StatusPill tone="success">Approved</StatusPill>
+          ) : orderAmendments[r.id] ? (
+            <StatusPill tone="warning">Amending {orderAmendments[r.id].entryNo ?? ""}</StatusPill>
           ) : (
             <StatusPill tone="neutral">Open</StatusPill>
           ),
@@ -5403,6 +5425,40 @@ export function GarmentOrderScreen({
                 disabled: !soId,
                 onClick: () => soId && router.push(orderReportHref(soId, ORDER_REPORTS[0])),
               },
+              /* AMEND — the spec's `[Amend]` on an approved row (doc/order/
+                 amedment.md §1). Only an APPROVED order needs the door: an open
+                 one is edited directly, and one already amending is opened from
+                 the register. Lands on Orders ▸ Order Amendments with the RE
+                 pre-picked; the entry is raised there. */
+              ...(orderLocks[r.id] && perms.canEdit
+                ? [
+                    {
+                      label: "Amend",
+                      icon: Pencil,
+                      onClick: () => router.push(`/orders/order-amendments/new?order=${r.id}`),
+                    },
+                  ]
+                : orderAmendments[r.id]
+                  ? [
+                      {
+                        label: `Amendment ${orderAmendments[r.id].entryNo ?? ""}`.trim(),
+                        icon: Pencil,
+                        onClick: () =>
+                          router.push(`/orders/order-amendments/${orderAmendments[r.id].entryId}`),
+                      },
+                      /* AMEND AGAIN (0618): a second raise supersedes the open
+                         entry and adds categories to it. */
+                      ...(perms.canEdit
+                        ? [
+                            {
+                              label: "Amend again",
+                              icon: Pencil,
+                              onClick: () => router.push(`/orders/order-amendments/new?order=${r.id}`),
+                            },
+                          ]
+                        : []),
+                    ]
+                  : []),
             ];
           })()}
           /* THE EYE OPENS THE ORDER, READ ONLY — see `openView`. Replaces the
@@ -20202,6 +20258,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                      it: the column heading already names the value, so the
                      affordance slot can give its 8px back to the text. */
                   cell: () => (
+                    /* A Price Change opens the header's money terms (0604). */
+                    <UnlockScope area="money_terms">
                     <CurrencyPicker
                       label="Currency"
                       compact
@@ -20227,6 +20285,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                       canCreate={masterPerms.canCreate}
                       canEdit={masterPerms.canEdit}
                     />
+                    </UnlockScope>
                   ),
                 },
                 {
@@ -20239,6 +20298,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   width: "6rem",
                   align: "right",
                   cell: () => (
+                    <UnlockScope area="money_terms">
                     <Input
                       id="pr-exrate"
                       required
@@ -20249,6 +20309,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                       value={form.ex_rate}
                       onChange={(e) => set({ ex_rate: e.target.value })}
                     />
+                    </UnlockScope>
                   ),
                 },
                 {
@@ -22177,7 +22238,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 update.md §6.1; same-day delivery is allowed, so this is
                 inclusive where `Date`'s ceiling is exclusive). */}
             <Field label="Deli.Dt" w="code" htmlFor="hd-deli" required>
-              <Input id="hd-deli" type="date" min={today()} required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
+              {/* THE ONE FIELD A DELIVERY DATE EXTENSION OPENS (0604): the
+                  header's `delivery_date` column, lifted out of the lock by
+                  name while the rest of Order Info stays read-only. */}
+              <UnlockScope area="delivery_date">
+                <Input id="hd-deli" type="date" min={today()} required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
+              </UnlockScope>
             </Field>
             {/* RECEIVED DATE (client 2026-09-09) — the header's own
                 `received_date` column, withdrawn from the write path
@@ -22244,7 +22310,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * (`styleOptionsFor`). Yr narrowed nothing and fed nothing.
               */}
             <Field label="Excess %" w="num" htmlFor="hd-excess">
-              <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
+              {/* A quantity amendment opens the header's `excess_pct` (0604). */}
+              <UnlockScope area="excess_pct">
+                <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
+              </UnlockScope>
             </Field>
             {/**
               * PACK AND MULT. ORD ARE A CELL EACH — as switches, and adjacent
@@ -22815,7 +22884,19 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            below the `if (mode === "list")` return. The server guard and 0576's
            triggers are the lock; this is the banner, the read-only fields and
            a Save that explains. Order Amendment (purpose="amend") locks too. */
-        locked={editId && orderLocks[editId] ? { message: orderLocks[editId] } : false}
+        locked={
+          editId && orderLocks[editId]
+            ? { message: orderLocks[editId] }
+            : editId && orderAmendments[editId]
+              ? /* AMENDING (0604 · 0616): locked, with the entry's areas lifted.
+                   `openAreasOf` is a pure function over the frozen scope — no
+                   hook, this is below the `if (mode === "list")` return. */
+                {
+                  message: orderAmendments[editId].banner,
+                  open: openAreasOf(orderAmendments[editId].scope),
+                }
+              : false
+        }
         /* THE EYE — every field read-only, one Close, no step guards. */
         viewOnly={viewOnly}
         // No `header`: the route's own PageHeader above already names the

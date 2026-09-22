@@ -76,6 +76,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useOpenIntent } from "@/lib/use-open-intent";
 import { sectionValidity } from "@/lib/screens/validity";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import {
@@ -675,6 +676,9 @@ export function BudgetScreen({
   };
 
   useUnsavedGuard(dirty || isPending);
+  /* OPEN ONE BUDGET FROM A LINK — `?open=<budget id>` (0616, the Amendment
+     Entry page's "Open budget"). Above every early return, like every hook. */
+  useOpenIntent((budgetId) => openExisting(budgetId));
 
   /* OPEN-ON-ARRIVAL. Keyed on the id, NOT run once on mount: the Approval
      queue reaches here by `router.push`, and when this page is already in

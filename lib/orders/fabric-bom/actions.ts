@@ -82,7 +82,7 @@ import {
   type OrderProductionInput,
 } from "@/lib/orders/material-bom/requirement";
 import { kilogramUom } from "@/lib/uom/kilogram";
-import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
+import { assertOrderWritable } from "@/lib/orders/budget/lock";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -97,12 +97,18 @@ function fail(msg: string): Result {
  * a sentence before a save has half-run. Every order the save touches is
  * checked: the one the BOM is stored against AND the one the form names, so
  * re-pointing a BOM can neither leave a locked order nor join one.
+ *
+ * THE AREA IS NAMED (0604 · 0616): under an open Amendment Entry the order is
+ * `amending` and this document is writable only if the entry's categories open
+ * the Fabric BOM. `writePalette` writes the ORDER's colour tables, which a BOM
+ * Revision does not open — it is diff-based, so an unchanged palette writes
+ * nothing, and a changed one is refused by the trigger with the entry named.
  */
 async function orderLockProblem(
   ...orderIds: (string | null | undefined)[]
 ): Promise<string | null> {
   for (const id of new Set(orderIds.filter((v): v is string => !!v))) {
-    const lock = await assertOrderUnlocked(id);
+    const lock = await assertOrderWritable(id, "fabric_bom");
     if (!lock.ok) return lock.error;
   }
   return null;

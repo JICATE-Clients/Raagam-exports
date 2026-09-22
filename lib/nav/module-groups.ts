@@ -550,6 +550,24 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/orders/ta-worklist", label: "TA Worklist", description: "Your department's activities due today, and what is running late" },
         ],
       },
+      // ORDER AMENDMENTS — A SUB-MODULE ROW OF ITS OWN (doc/order/amedment.md
+      // §1, user 2026-09-22: "we dont have amendments separate sub module so
+      // create separate"). THIS IS NOT THE "AMENDMENTS" ROW REMOVED ON 09-04.
+      // That row grouped three legacy document screens (Order Amendment,
+      // Process Amendment, Approve Amendment — still under `retired`); this
+      // one is the REGISTER of Amendment Entries raised on APPROVED orders
+      // (0604 · 0616): who asked, what kind of change, the margin delta against
+      // the approved baseline, and where it stands with the approver.
+      //
+      // A `link`, not a `group`: the register IS the sub-module, and the entry
+      // page beneath it (`/orders/order-amendments/[entryId]`) is a document
+      // page, not a second sidebar row — the same shape as `/orders/[orderId]`.
+      // A `group` would have put one card on a hub in front of one screen.
+      //
+      // The route is `order-amendments`, not `amendments`: `/orders/amendments`
+      // is the legacy amend door over `GarmentOrderScreen` (a child of
+      // `retired`), and this row's "Open order" lands there with `?open=<id>`.
+      { kind: "link", href: "/orders/order-amendments", label: "Order Amendments" },
       // THE REGISTER IS OFF THE MENU (client 2026-08-17). It is the fourth child
       // of `retired` at the bottom of this table, and the note there says why the
       // group now holds two different kinds of screen.

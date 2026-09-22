@@ -53,7 +53,7 @@ import {
   requiredWithProcessLoss,
   type ProcessLossRow,
 } from "@/lib/orders/material-bom/process-loss";
-import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
+import { assertOrderWritable } from "@/lib/orders/budget/lock";
 import { missingItemColours, type ColourWiseLineFacts } from "@/lib/orders/material-bom/colour-required";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
@@ -68,13 +68,18 @@ function fail(msg: string): Result {
  * sentence before a save has half-run. Both the order the BOM is stored
  * against and the one the form names are checked, so re-pointing a BOM can
  * neither leave a locked order nor join one. A BOM with no order is never
- * locked — `assertOrderUnlocked` passes a null, as 0576's trigger does.
+ * locked — `assertOrderWritable` passes a null, as 0576's trigger does.
+ *
+ * THE AREA IS NAMED (0604 · 0616): under an open Amendment Entry the order is
+ * `amending`, and this document is writable only if the entry's categories
+ * open the Material BOM (a BOM Revision or a quantity change do; a Price
+ * Change does not). The refusal then names the entry and its type.
  */
 async function orderLockProblem(
   ...orderIds: (string | null | undefined)[]
 ): Promise<string | null> {
   for (const id of new Set(orderIds.filter((v): v is string => !!v))) {
-    const lock = await assertOrderUnlocked(id);
+    const lock = await assertOrderWritable(id, "material_bom");
     if (!lock.ok) return lock.error;
   }
   return null;

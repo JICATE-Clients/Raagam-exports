@@ -28,7 +28,7 @@ export default async function FabricBomPage() {
     can("orders", "edit"),
     can("orders", "delete"),
     // Orders locked by an approved budget (Phase 5) — the editor's banner.
-    orderLockMessages(),
+    orderLockMessages(undefined, "fabric_bom"),
   ]);
 
   // No wrapper here — the screen renders its own PageHeader, and the editor is

@@ -115,7 +115,31 @@ async function noticeFor(
       .maybeSingle();
     const code = ((data as { code: string | null } | null)?.code ?? "").trim();
     const name = code ? `Budget ${code}` : "A budget";
-    const kpis = kpisFromJson((run.context as Record<string, unknown> | null)?.kpis);
+    const ctx = run.context as Record<string, unknown> | null;
+    const kpis = kpisFromJson(ctx?.kpis);
+    /* AN AMENDMENT SAYS SO (doc/order/amedment.md §5): the MD's push names the
+       entry, the order, who asked, and the margin it moves — the spec's payload
+       in a sentence. The KPI lines follow as they do for any budget. Read off
+       the run's frozen context, never recomputed. */
+    const am = amendmentOf(ctx?.amendment);
+    if (am) {
+      const pct = (v: number | null) => (v == null ? "unknown" : `${v.toFixed(2)}%`);
+      const delta = am.margin_delta_pct == null ? "" : ` (${am.margin_delta_pct > 0 ? "+" : ""}${am.margin_delta_pct.toFixed(2)}%)`;
+      const who = am.origin === "BY_CUSTOMER" ? "by the customer" : "by us";
+      return {
+        title: `Amendment ${am.entry_no ?? ""} on ${am.order_ref ?? "an order"} needs your approval${am.margin_delta_pct != null && am.margin_delta_pct < 0 ? " — margin down" : ""}`.replace("  ", " "),
+        body: [
+          `${am.types_label} ${who}${am.customer_name ? ` · ${am.customer_name}` : ""}`,
+          `Margin ${pct(am.original_margin_pct)} → ${pct(am.amended_margin_pct)}${delta}`,
+          am.remarks ? `"${am.remarks}"` : null,
+          kpis ? kpiNotificationBody(kpis) : null,
+        ]
+          .filter((l): l is string => !!l)
+          .join("\n"),
+        href,
+        type: am.margin_delta_pct != null && am.margin_delta_pct < 0 ? "warning" : "info",
+      };
+    }
     return {
       title: sentBack ? `${name} was sent back for your approval` : `${name} needs your approval`,
       body: kpis ? kpiNotificationBody(kpis) : undefined,
@@ -129,5 +153,35 @@ async function noticeFor(
     title: sentBack ? `${label} was sent back for your approval` : `${label} needs your approval`,
     href,
     type: "info",
+  };
+}
+
+/** The amendment block `submitBudget` puts on the run's context — read back
+ *  field by field, so a context written by an older build reads as "none". */
+function amendmentOf(v: unknown): {
+  entry_no: string | null;
+  order_ref: string | null;
+  customer_name: string | null;
+  origin: string;
+  types_label: string;
+  remarks: string | null;
+  original_margin_pct: number | null;
+  amended_margin_pct: number | null;
+  margin_delta_pct: number | null;
+} | null {
+  if (typeof v !== "object" || v === null) return null;
+  const a = v as Record<string, unknown>;
+  const str = (x: unknown) => (typeof x === "string" && x.trim() !== "" ? x : null);
+  const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
+  return {
+    entry_no: str(a.entry_no),
+    order_ref: str(a.order_ref),
+    customer_name: str(a.customer_name),
+    origin: str(a.origin) ?? "BY_US",
+    types_label: str(a.types_label) ?? "an amendment",
+    remarks: str(a.remarks),
+    original_margin_pct: num(a.original_margin_pct),
+    amended_margin_pct: num(a.amended_margin_pct),
+    margin_delta_pct: num(a.margin_delta_pct),
   };
 }

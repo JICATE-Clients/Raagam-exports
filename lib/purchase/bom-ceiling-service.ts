@@ -757,10 +757,15 @@ export async function refuseReopenedBudget(
 
       const order = reNo ? `RE ${reNo}` : "This order";
       const budget = reopened.budgetCode ? `budget ${reopened.budgetCode}` : "its budget";
+      /* THE HARD LOCK OF THE AMENDMENT SPEC (§5): while a revised budget is
+         not yet re-approved, no PO. Named by the Amendment Entry when the
+         merchandiser's door raised it (0616), by the revision otherwise. */
+      const why = reopened.entryNo
+        ? `Amendment ${reopened.entryNo} (${reopened.typesLabel}) is open on it: ${reopened.reason.trim()}`
+        : `${budget} was reopened for revision ${reopened.revisionNo} (${reopened.reason.trim()})`;
       return (
-        `${order} cannot be purchased for right now — ${budget} was reopened for ` +
-        `revision ${reopened.revisionNo} (${reopened.reason.trim()}). ` +
-        `Raise the purchase order once the budget is approved again.`
+        `${order} cannot be purchased for right now — ${why}. ` +
+        `Raise the purchase order once the revised budget is approved.`
       );
     }
   }

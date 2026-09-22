@@ -68,6 +68,15 @@ const AMBIGUOUS = {
   // an FK to a table that already has one to the same target, and this entry is
   // that rule being followed rather than a bug being cleaned up after.
   workers: { departments: ["department_id", "prod_dept_id"] },
+  // 0604 pointed `garment_order_amendments.re_amendment_id` at
+  // `order_budget_revisions`, whose `garment_order_id` already pointed back —
+  // so the pair is ambiguous in BOTH directions: PGRST201 lists a one-to-many
+  // and a many-to-one for the same two names (probed live 2026-09-22). The
+  // register (`lib/orders/order-amendments/service.ts`) names
+  // `!garment_order_id`; the amending-state map (`lib/orders/order-locks.ts`)
+  // names `!re_amendment_id`. Declared both ways.
+  order_budget_revisions: { garment_order_amendments: ["garment_order_id", "re_amendment_id"] },
+  garment_order_amendments: { order_budget_revisions: ["re_amendment_id", "garment_order_id"] },
   // 0590 put `stage_id` on `order_budget_lines`, which already had
   // `cost_head_id` (0575) to the same table. Nothing embeds either today (lines
   // are read as `order_budget_lines(*)`); declared the day the second FK lands,

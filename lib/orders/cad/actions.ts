@@ -15,7 +15,7 @@ import {
   type SeedTargetLine,
 } from "./weights";
 import { kilogramUom } from "@/lib/uom/kilogram";
-import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
+import { assertOrderWritable } from "@/lib/orders/budget/lock";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -483,7 +483,8 @@ export async function seedFabricBomFromCad(garmentOrderId: string): Promise<CadS
      BOM's consumption, and "fabric weight" is exactly what an approved budget
      protects. Checked before the first line is updated, so a locked order is
      refused whole rather than half-seeded. */
-  const lock = await assertOrderUnlocked(garmentOrderId);
+  // The CAD handoff writes the FABRIC BOM, so that is the area it names (0616).
+  const lock = await assertOrderWritable(garmentOrderId, "fabric_bom");
   if (!lock.ok) return { ok: false, error: lock.error };
 
   const plan = await planSeed(garmentOrderId);

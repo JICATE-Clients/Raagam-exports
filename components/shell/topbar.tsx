@@ -14,6 +14,7 @@ import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { AppearanceMenu } from "@/components/shell/appearance-menu";
+import { InstallMenuItem } from "@/components/pwa/install-menu-item";
 import { Select } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { bugPortalUrl, bugReporterConfigured } from "@/lib/bug-reporter";
@@ -418,6 +419,11 @@ export function Topbar({
                     <Bug className="h-4 w-4" /> My bug reports
                   </a>
                 )}
+                {/* Install as an app — from the menu, not only the toast the
+                    operator may have dismissed (client 2026-09-22). The row
+                    reads the same store as the toast, so it can never claim
+                    "installed" while the toast is still offering to. */}
+                <InstallMenuItem onDone={() => setMenuOpen(false)} />
                 <form action={signOut}>
                   <button
                     type="submit"
