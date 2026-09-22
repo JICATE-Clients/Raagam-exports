@@ -103,8 +103,10 @@ export function BudgetQueue({
        Draft   = a budget exists and is still being written (user 2026-09-22,
                  the third word on every one of the three queues)
      Its OWN state, as on `BomQueue`: it never moves the Filters panel's Status
-     facet, which still reaches Draft / Submitted / Approved / Rejected. */
-  const [quickFilter, setQuickFilter] = useState<"" | "pending" | "updated" | "draft">("");
+     facet, which still reaches Draft / Submitted / Approved / Rejected.
+     OPENS ON PENDING (user 2026-09-22), as the BOM queues and Budget Approval
+     do — the orders not yet budgeted are the work this screen exists for. */
+  const [quickFilter, setQuickFilter] = useState<"" | "pending" | "updated" | "draft">("pending");
 
   /** Ready orders, in work order and then by delivery, soonest first. */
   const ready = useMemo(
