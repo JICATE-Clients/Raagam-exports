@@ -14,6 +14,20 @@
  * approver. There is no third column to drift. The margin delta is two stored
  * KPI sets compared (`marginDelta`) — nothing here computes a profit.
  *
+ * ONE LIST, GROUPED BY ORDER (user 2026-09-22, screenshot 3024: "the table
+ * and created order messed view"). Until then the page carried TWO lists that
+ * said the same thing — an "orders that can be amended" strip naming every RE
+ * No and customer, and a 12-column table naming them again on every entry,
+ * with five of those columns wrapping. The order is the register's SUBJECT
+ * and is now said ONCE: a line spanning the table (`DataTable`'s `spanRow`)
+ * carrying RE No, customer, delivery and the approved budget, with its entries
+ * beneath it minus the order columns. An amendable order with nothing raised
+ * yet is a line with no rows under it — that is all the strip ever meant. The
+ * spec's seven columns (doc/order/amedment.md §1) stand; the duplicate `Date`
+ * (it IS Created Date, the spec says so) is gone, and the created pair stays
+ * last per the standing rule. Every code column declares a width and
+ * `whitespace-nowrap`, so nothing wraps.
+ *
  * [ + Raise Amendment ] opens the door sheet; the order list's [Amend] lands
  * here with `?raise=<order id>` and the sheet pre-picked. A row opens the
  * entry page (`/orders/order-amendments/<id>`), which carries the variance
@@ -21,7 +35,7 @@
  * timeline.
  */
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ClipboardList, FileText, Layers, Package, Plus, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -51,6 +65,24 @@ import {
 } from "@/lib/orders/amendments/amendment-entry";
 import { abandonOrderAmendment } from "@/lib/orders/order-amendments/actions";
 import type { AmendableOrder, AmendmentRegisterRow } from "@/lib/orders/order-amendments/service";
+
+/** The order line's facts — from `AmendableOrder` when the order can be amended now, else from its entries. */
+type OrderHead = {
+  key: string;
+  order_id: string | null;
+  re_no: string | null;
+  customer_name: string | null;
+  delivery_date: string | null;
+  budget_code: string | null;
+  approved_at: string | null;
+  /** Set when the order is amendable right now — it carries the Amend button. */
+  amendable: AmendableOrder | null;
+};
+
+/** One flat array for `DataTable`: an order line, then its entries. */
+type RegisterLine =
+  | { kind: "order"; id: string; head: OrderHead; count: number }
+  | ({ kind: "entry" } & AmendmentRegisterRow);
 
 /** "+2.10%" / "-3.45%" in percentage points, toned; a refusal says why in words. */
 export function MarginDeltaCell({ margin }: { margin: MarginDelta }) {
@@ -126,6 +158,78 @@ export function AmendmentRegisterScreen({
     });
   }, [rows, query, customer, origin, status]);
 
+  /* THE LIST: one line per order, its entries beneath, in ENTRY order. An
+     order the filters emptied is dropped with its entries; an amendable order
+     with nothing raised yet shows only while no origin / status filter is on
+     (it has no entry those facets could match) and it passes customer and
+     search itself. Orders with entries come first, oldest entry first; the
+     never-amended ones follow by approval date. */
+  const lines = useMemo<RegisterLine[]>(() => {
+    const q = query.trim().toLowerCase();
+    const groups = new Map<string, { head: OrderHead; entries: AmendmentRegisterRow[] }>();
+    for (const r of filtered) {
+      const key = r.garment_order_id ?? (r.budget_id ? `budget:${r.budget_id}` : r.id);
+      let g = groups.get(key);
+      if (!g) {
+        g = {
+          head: {
+            key,
+            order_id: r.garment_order_id,
+            re_no: r.re_no ?? r.order_code ?? (r.budget_code ? `Budget ${r.budget_code}` : null),
+            customer_name: r.customer_name,
+            delivery_date: null,
+            budget_code: r.budget_code,
+            approved_at: null,
+            amendable: null,
+          },
+          entries: [],
+        };
+        groups.set(key, g);
+      }
+      g.entries.push(r);
+    }
+    for (const o of orders) {
+      const g = groups.get(o.id);
+      if (g) {
+        g.head.delivery_date = o.delivery_date;
+        g.head.budget_code = o.budget_code ?? g.head.budget_code;
+        g.head.approved_at = o.approved_at;
+        g.head.amendable = o;
+        continue;
+      }
+      if (origin || status) continue;
+      if (customer && o.customer_name !== customer) continue;
+      if (q && ![o.re_no, o.code, o.customer_name].some((v) => v?.toLowerCase().includes(q))) continue;
+      groups.set(o.id, {
+        head: {
+          key: o.id,
+          order_id: o.id,
+          re_no: o.re_no ?? o.code,
+          customer_name: o.customer_name,
+          delivery_date: o.delivery_date,
+          budget_code: o.budget_code,
+          approved_at: o.approved_at,
+          amendable: o,
+        },
+        entries: [],
+      });
+    }
+    const sorted = [...groups.values()].sort((a, b) => {
+      const ea = a.entries[0]?.created_at;
+      const eb = b.entries[0]?.created_at;
+      if (ea && eb) return ea.localeCompare(eb);
+      if (ea) return -1;
+      if (eb) return 1;
+      return (a.head.approved_at ?? "").localeCompare(b.head.approved_at ?? "");
+    });
+    const out: RegisterLine[] = [];
+    for (const g of sorted) {
+      out.push({ kind: "order", id: `order:${g.head.key}`, head: g.head, count: g.entries.length });
+      for (const r of [...g.entries].sort((a, b) => a.amend_no - b.amend_no)) out.push({ kind: "entry", ...r });
+    }
+    return out;
+  }, [filtered, orders, query, customer, origin, status]);
+
   const activeCount = (customer ? 1 : 0) + (origin ? 1 : 0) + (status ? 1 : 0);
 
   function abandon(r: AmendmentRegisterRow) {
@@ -150,10 +254,25 @@ export function AmendmentRegisterScreen({
     });
   }
 
-  const columns: Column<AmendmentRegisterRow>[] = [
-    {
-      header: "Entry No",
-      cell: (r) => (
+  /* Cells only ever see an ENTRY line: order lines are rendered by `spanRow`
+     on both layouts, so `entryCol` narrows the union once here rather than in
+     every cell. Widths are declared so the code columns cannot wrap (that was
+     five wrapping columns in screenshot 3024); Change Type is the one column
+     left to take the remaining width, through `Truncated`. */
+  const entryCol = (
+    header: string,
+    cell: (r: AmendmentRegisterRow) => ReactNode,
+    extra?: Pick<Column<RegisterLine>, "align" | "className">,
+  ): Column<RegisterLine> => ({
+    header,
+    cell: (l) => (l.kind === "entry" ? cell(l) : null),
+    ...extra,
+  });
+
+  const columns: Column<RegisterLine>[] = [
+    entryCol(
+      "Entry No",
+      (r) => (
         <button
           type="button"
           className="font-mono text-xs font-medium text-primary hover:underline"
@@ -162,26 +281,26 @@ export function AmendmentRegisterScreen({
           {r.entry_no ?? `Rev ${r.amend_no}`}
         </button>
       ),
-    },
-    { header: "Date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.created_at)}</span> },
-    {
-      header: "Order No / RE",
-      cell: (r) => <span className="font-mono text-xs">{r.re_no ?? r.order_code ?? (r.budget_code ? `Budget ${r.budget_code}` : "—")}</span>,
-    },
-    { header: "Customer", cell: (r) => <Truncated>{r.customer_name ?? "—"}</Truncated> },
-    {
-      header: "Amend Ver",
+      { className: "w-[9.5rem] whitespace-nowrap" },
+    ),
+    entryCol("Amend Ver", (r) => <span className="tabular-nums">#{r.amend_no}</span>, {
       align: "right",
-      cell: (r) => <span className="tabular-nums text-sm">Amend #{r.amend_no}</span>,
-    },
-    { header: "Origin", cell: (r) => <span className="text-sm">{originLabel(r.origin)}</span> },
-    { header: "Change Type", cell: (r) => <Truncated>{amendmentTypesLabel(r.types)}</Truncated> },
-    { header: "Margin Delta", align: "right", cell: (r) => <MarginDeltaCell margin={r.margin} /> },
-    {
-      header: "Status",
-      cell: (r) => <StatusPill tone={entryStatusTone(r.status)}>{entryStatusLabel(r.status)}</StatusPill>,
-    },
-    rowActionsColumn((r) => {
+      className: "w-[6rem] whitespace-nowrap",
+    }),
+    entryCol("Origin", (r) => originLabel(r.origin), { className: "w-[7.5rem] whitespace-nowrap" }),
+    entryCol("Change Type", (r) => <Truncated>{amendmentTypesLabel(r.types)}</Truncated>),
+    entryCol("Margin Delta", (r) => <MarginDeltaCell margin={r.margin} />, {
+      align: "right",
+      className: "w-[7rem] whitespace-nowrap",
+    }),
+    entryCol(
+      "Status",
+      (r) => <StatusPill tone={entryStatusTone(r.status)}>{entryStatusLabel(r.status)}</StatusPill>,
+      { className: "w-[9rem] whitespace-nowrap" },
+    ),
+    rowActionsColumn((l) => {
+      if (l.kind !== "entry") return null;
+      const r = l;
       const open = r.status === "draft" || r.status === "rejected" || r.status === "pending_approval";
       return (
         <RowActions
@@ -225,6 +344,38 @@ export function AmendmentRegisterScreen({
       );
     }),
   ];
+
+  /* The order line. Said once, above its entries: RE No, customer, delivery,
+     the approved budget, and — when the order can be amended right now — its
+     own Amend, "Amend again" while an entry is already open. An order the
+     register knows only through its entries (no longer amendable: pending
+     approval, or cancelled) gets no button; its entries say where it stands. */
+  const orderLine = (l: RegisterLine) => {
+    if (l.kind !== "order") return null;
+    const h = l.head;
+    const o = h.amendable;
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <span className="font-mono text-xs font-semibold text-foreground">{h.re_no ?? "—"}</span>
+          <Truncated className="max-w-[18rem] text-sm font-medium">{h.customer_name ?? "—"}</Truncated>
+          <span className="text-xs text-muted-foreground">
+            {h.delivery_date ? `delivery ${fmtDate(h.delivery_date)}` : null}
+            {h.delivery_date && h.budget_code ? " · " : null}
+            {h.budget_code
+              ? `budget ${h.budget_code}${h.approved_at ? ` approved ${fmtDate(h.approved_at)}` : ""}`
+              : null}
+            {l.count === 0 ? " · nothing raised yet" : null}
+          </span>
+        </div>
+        {o && perms.canEdit && (
+          <Button variant="outline" size="sm" onClick={() => router.push(raiseHref(o.id))}>
+            <Plus className="h-3.5 w-3.5" /> {o.amending ? "Amend again" : "Amend"}
+          </Button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -291,55 +442,16 @@ export function AmendmentRegisterScreen({
         </div>
       </FilterBar>
 
-      {/* APPROVED ORDERS, READY TO AMEND (user 2026-09-22: "i have approved on
-          budget but in order amendment its not listing"). The table below is
-          the register of ENTRIES; an approved order is the thing an entry is
-          raised ON, and until 09-22 it was visible only inside the Raise
-          sheet's picker — so an operator who had just approved a budget saw an
-          empty page and read it as broken. Listed here with its own Amend, and
-          the empty state beneath says which of the two lists is empty. */}
-      {orders.length > 0 && (
-        <div className="rounded-md border border-border bg-surface px-3 py-2">
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Orders that can be amended ({orders.length})
-            </span>
-          </div>
-          <ul className="divide-y divide-border/60 text-sm">
-            {orders.map((o) => (
-              <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-                <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                  <span className="font-mono text-xs font-medium">{o.re_no ?? o.code ?? "—"}</span>
-                  <Truncated className="max-w-[16rem]">{o.customer_name ?? "—"}</Truncated>
-                  <span className="text-xs text-muted-foreground">
-                    {o.amending
-                      ? `amending — ${o.amending.entry_no ?? "open entry"} (${amendmentTypesLabel(o.amending.types)})`
-                      : `${o.budget_code ? `budget ${o.budget_code}` : "budget"}${o.approved_at ? ` approved ${fmtDate(o.approved_at)}` : ""}`}
-                    {o.delivery_date ? ` · delivery ${fmtDate(o.delivery_date)}` : ""}
-                  </span>
-                </span>
-                {perms.canEdit && (
-                  <Button variant="outline" size="sm" onClick={() => router.push(raiseHref(o.id))}>
-                    <Plus className="h-3.5 w-3.5" /> {o.amending ? "Amend again" : "Amend"}
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {/* dup-check: exempt -- a dated amendment entry; a second entry on the same RE is how a revision is raised */}
       <DataTable
-        columns={withCreatedColumns(columns, filtered)}
-        rows={filtered}
-        getKey={(r) => r.id}
+        columns={withCreatedColumns(columns, lines)}
+        rows={lines}
+        getKey={(l) => l.id}
+        spanRow={orderLine}
         empty={
-          rows.length > 0
-            ? "No amendment matches these filters."
-            : orders.length > 0
-              ? "No amendment has been raised yet — pick an order above and press Amend."
-              : "No amendment has been raised yet, and no order is approved to amend. An order becomes amendable once a budget that names it is approved (Orders ▸ Order Management ▸ Approval)."
+          rows.length > 0 || orders.length > 0
+            ? "No order or amendment matches these filters."
+            : "No amendment has been raised yet, and no order is approved to amend. An order becomes amendable once a budget that names it is approved (Orders ▸ Order Management ▸ Approval)."
         }
       />
 

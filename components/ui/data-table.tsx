@@ -35,6 +35,7 @@ export function DataTable<T>({
   onToggleAll,
   bare = false,
   rowClassName,
+  spanRow,
   dense = false,
   compact = false,
   paginate = true,
@@ -69,6 +70,21 @@ export function DataTable<T>({
    * Applied last so it wins over the hover and selected states above it.
    */
   rowClassName?: (row: T, index: number) => string | undefined;
+  /**
+   * A ROW THAT SPANS THE TABLE. When this returns a node for a row, that row
+   * is rendered as ONE cell across every column (and as a heading card on
+   * mobile) instead of through `columns` — a group line standing over the
+   * rows beneath it.
+   *
+   * Added for Orders ▸ Order Amendments (user 2026-09-22): the register is
+   * entries, but its subject is the ORDER, and saying the order once as a
+   * line above its entries is what let the screen drop the "orders that can
+   * be amended" strip that repeated every RE No and customer above the table.
+   * The caller keeps the rows in one array (`[order, entry, entry, order, …]`
+   * as a union type), so pagination, keys and `rowClassName` all still see
+   * one flat list, and a group line pages together with the rows under it.
+   */
+  spanRow?: (row: T, index: number) => ReactNode | null | undefined;
   /**
    * TIGHT ROWS (operator, 2026-09-15, Orders ▸ Advised Items: "compact,
    * tighten properly"). `px-2 py-1` on every header and cell instead of
@@ -178,9 +194,26 @@ export function DataTable<T>({
     </tr>
   );
 
+  const span = columns.length + (selectable ? 1 : 0);
   const trs = rows.map((row, ri) => {
     const href = onRowHref?.(row);
     const key = getKey(row, ri);
+    const spanned = spanRow?.(row, ri);
+    if (spanned != null) {
+      return (
+        <tr
+          key={key}
+          className={cn(
+            "border-b border-border bg-surface-muted/50 last:border-0",
+            rowClassName?.(row, ri),
+          )}
+        >
+          <td colSpan={span} className={cn(pad, "align-middle")}>
+            {spanned}
+          </td>
+        </tr>
+      );
+    }
     return (
       <tr
         key={key}
@@ -271,6 +304,21 @@ export function DataTable<T>({
   const cards = rows.map((row, ri) => {
     const key = getKey(row, ri);
     const href = onRowHref?.(row);
+    const spanned = spanRow?.(row, ri);
+    if (spanned != null) {
+      return (
+        <div
+          key={key}
+          className={cn(
+            "bg-surface-muted/50 px-3 py-2",
+            "[&:not(:first-child)]:border-t-2 [&:not(:first-child)]:border-border-strong",
+            rowClassName?.(row, ri),
+          )}
+        >
+          {spanned}
+        </div>
+      );
+    }
     return (
       <div
         key={key}
