@@ -5,7 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { getDefaultTaskOwners } from "@/lib/ta/task-owner-defaults";
-import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
+import { assertOrderWritable } from "@/lib/orders/budget/lock";
+import { scopeAllowsRewrite, type FrozenScope } from "@/lib/orders/amendments/amendment-entry";
 import { notifyCadOfNewOrder } from "@/lib/orders/cad/notify";
 import {
   amendmentInput,
@@ -1507,7 +1508,15 @@ async function writeChildren(
   s: Awaited<ReturnType<typeof createClient>>,
   amendmentId: string,
   data: AmendmentInput,
+  /** The open Amendment Entry's frozen scope, or null outside one (0616). */
+  scope: FrozenScope | null = null,
 ): Promise<Result> {
+  /* WHICH GRIDS THIS SAVE MAY REWRITE. Outside an amendment: all of them. Inside
+     one: only a table the scope opens for insert AND delete; T&A is outside the
+     lock altogether and is always written. A table the scope does not open is
+     neither deleted nor reinserted. */
+  const mayRewrite = (table: string) =>
+    !scope || UNLOCKED_CHILD_TABLES.has(table) || scopeAllowsRewrite(scope, table);
   /**
    * `garment_order_amendment_charges` (2026-08-10) and
    * `garment_order_amendment_style_prices` (2026-08-12) are deliberately ABSENT.
@@ -1614,13 +1623,15 @@ async function writeChildren(
     ["garment_order_amendment_files", normalizeFiles(data, styleRows)],
   ];
 
-  // Delete-all-then-reinsert each child grid wholesale.
-  for (const [t] of inserts) {
+  // Delete-all-then-reinsert each child grid wholesale — the grids the scope
+  // opens, or every grid outside an amendment.
+  const writable = inserts.filter(([t]) => mayRewrite(t));
+  for (const [t] of writable) {
     const { error } = await s.from(t).delete().eq("amendment_id", amendmentId);
     if (error) return fail(error.message);
   }
 
-  for (const [table, rows] of inserts) {
+  for (const [table, rows] of writable) {
     if (!rows.length) continue;
     const { error } = await s
       .from(table)
@@ -1628,10 +1639,21 @@ async function writeChildren(
     if (error) return fail(error.message);
   }
 
-  const comboResult = await writeComboTree(s, amendmentId, data, comboRows);
-  if (!comboResult.ok) return comboResult;
+  /* The two nested trees hang off grids above; they were deleted with their
+     parents (cascade) and are rebuilt only when the parent was rewritten. */
+  if (mayRewrite("garment_order_amendment_combos")) {
+    const comboResult = await writeComboTree(s, amendmentId, data, comboRows);
+    if (!comboResult.ok) return comboResult;
+  }
+  if (!mayRewrite("garment_order_amendment_quantities")) return { ok: true };
   return writeAssortTree(s, amendmentId, data);
 }
+
+/** Child tables 0576 does NOT lock — T&A is execution, and is always written. */
+const UNLOCKED_CHILD_TABLES = new Set([
+  "garment_order_amendment_ta_activities",
+  "garment_order_amendment_ta_approvals",
+]);
 
 /**
  * Quantities ▸ Assort — the two levels beneath a quantity row (0414).
@@ -2053,8 +2075,16 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
       .limit(1)
       .maybeSingle();
     if (sibErr) return fail(`Could not check whether this order is locked: ${sibErr.message}`);
-    const lock = await assertOrderUnlocked((sib as { id: string } | null)?.id);
+    const lock = await assertOrderWritable((sib as { id: string } | null)?.id, "order");
     if (!lock.ok) return fail(lock.error);
+    /* A NEW DOCUMENT ON AN RE UNDER AMENDMENT is refused by the insert trigger
+       too (no scope opens `garment_order_amendments` for INSERT). Said here,
+       before a sales_orders row is minted for it. */
+    if (lock.amendment) {
+      return fail(
+        `Amendment ${lock.amendment.entryNo ?? ""} is open on this RE — save the amended order from Orders ▸ Order Amendments instead of raising a new document`.replace("  ", " "),
+      );
+    }
   }
 
   /**
@@ -2182,8 +2212,17 @@ export async function updateAmendment(
      triggers refusing it halfway would read as a half-run save rather than as
      a lock. Order Amendment saves through here too, and is locked on purpose
      (user 2026-09-18) — changes go through the budget's Amendment Protocol. */
-  const lock = await assertOrderUnlocked(id);
+  const lock = await assertOrderWritable(id, "order");
   if (!lock.ok) return fail(lock.error);
+  /* THE SCOPED SAVE (0604 · 0616). Under an open Amendment Entry the order is
+     `amending`, and the trigger accepts only the entry's frozen scope: named
+     header columns, and child grids the scope opens for BOTH insert and delete
+     (this save rewrites each grid wholesale). So the header patch is narrowed
+     to the open columns and every grid outside the scope is left untouched —
+     not written unchanged, SKIPPED, because "delete every row and put the same
+     rows back" is two writes the trigger refuses. Null = no amendment: the
+     save is exactly what it was. */
+  const scope: FrozenScope | null = lock.amendment?.scope ?? null;
   const p = amendmentInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   /* Requiredness that Zod cannot state: whether a part's Colour is mandatory
@@ -2208,12 +2247,21 @@ export async function updateAmendment(
    * carrying null would clear a stored FK and orphan the document from its own
    * number. Drop the key rather than send it.
    */
-  const { sales_order_id, ...patch } = headerOnly(p.data);
-  const { error } = await s
-    .from("garment_order_amendments")
-    .update(sales_order_id ? { ...patch, sales_order_id } : patch)
-    .eq("id", id);
-  if (error) return fail(error.message);
+  const { sales_order_id, ...fullPatch } = headerOnly(p.data);
+  const headerScope = scope?.garment_order_amendments;
+  const patch: Record<string, unknown> =
+    scope && (!headerScope || headerScope.columns !== null)
+      ? Object.fromEntries(
+          Object.entries(fullPatch).filter(([k]) => headerScope?.columns?.includes(k) ?? false),
+        )
+      : fullPatch;
+  if (Object.keys(patch).length > 0) {
+    const { error } = await s
+      .from("garment_order_amendments")
+      .update(sales_order_id && !scope ? { ...patch, sales_order_id } : patch)
+      .eq("id", id);
+    if (error) return fail(error.message);
+  }
 
   /**
    * Mirror the few header fields `sales_orders` also holds, or All Orders shows
@@ -2244,7 +2292,7 @@ export async function updateAmendment(
       .eq("id", sales_order_id);
   }
 
-  const childRes = await writeChildren(s, id, p.data);
+  const childRes = await writeChildren(s, id, p.data, scope);
   if (!childRes.ok) return childRes;
   await writeAudit({
     action: "garment_order_amendment.updated",
@@ -2317,9 +2365,15 @@ export async function loadOrderSeed(salesOrderId: string): Promise<SeedResult> {
  */
 export async function deleteAmendment(id: string): Promise<Result> {
   if (!(await can("orders", "delete"))) return fail("Forbidden");
-  // An approved order cannot be deleted from under its budget (Phase 5).
-  const lock = await assertOrderUnlocked(id);
+  // An approved order cannot be deleted from under its budget (Phase 5), and
+  // neither can one under amendment — no scope opens the document for DELETE.
+  const lock = await assertOrderWritable(id, "order");
   if (!lock.ok) return fail(lock.error);
+  if (lock.amendment) {
+    return fail(
+      `Amendment ${lock.amendment.entryNo ?? ""} is open on this order — abandon it from Orders ▸ Order Amendments before deleting the order`,
+    );
+  }
   const s = await createClient();
   const { error } = await s.rpc("delete_garment_order_document", { p_id: id });
   if (error) return fail(error.message);

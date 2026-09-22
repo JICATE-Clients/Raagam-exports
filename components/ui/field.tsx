@@ -3,6 +3,7 @@ import {
   createContext,
   isValidElement,
   useContext,
+  useMemo,
   type ReactNode,
 } from "react";
 import { Label } from "@/components/ui/label";
@@ -110,18 +111,70 @@ export function useRequiredHold(
  *
  * Default UNLOCKED, so nothing outside a `LockScope` changes at all.
  */
-const LockCtx = createContext(false);
+/**
+ * `locked` is the record's lock; `open` is the ONE exception to "a lock only
+ * ever adds" — the AREAS an open Amendment Entry names (0604 · 0616). Outside
+ * an amendment `open` is empty, so nothing about any existing screen changes.
+ */
+type LockState = { locked: boolean; open: ReadonlySet<string> };
+const NO_AREAS: ReadonlySet<string> = new Set();
+const LockCtx = createContext<LockState>({ locked: false, open: NO_AREAS });
 
-export function LockScope({ locked, children }: { locked: boolean; children: ReactNode }) {
+export function LockScope({
+  locked,
+  open,
+  children,
+}: {
+  locked: boolean;
+  /**
+   * The areas a nested `UnlockScope` may lift the lock in — the frozen scope
+   * of the open Amendment Entry, resolved on the SERVER and handed down, never
+   * derived in the browser. Only read when `locked`.
+   */
+  open?: readonly string[];
+  children: ReactNode;
+}) {
   // A lock only ever ADDS: an unlocked scope inside a locked one stays locked,
   // so no nested surface can quietly re-open a record its parent has closed.
+  // The `open` set is the amendment's and belongs to the surface that declares
+  // the lock — an inner LockScope inherits it rather than resetting it.
   const outer = useContext(LockCtx);
-  return <LockCtx.Provider value={outer || locked}>{children}</LockCtx.Provider>;
+  const openSet = useMemo(() => (open ? new Set(open) : null), [open]);
+  const value = useMemo<LockState>(
+    () => ({
+      locked: outer.locked || locked,
+      open: openSet && !outer.locked ? openSet : outer.open,
+    }),
+    [outer, locked, openSet],
+  );
+  return <LockCtx.Provider value={value}>{children}</LockCtx.Provider>;
+}
+
+/**
+ * THE ONE EXCEPTION TO "A LOCK ONLY EVER ADDS": an area the open Amendment
+ * Entry names. Lifts the lock for its children only when `area` is in the
+ * surface's `open` set — a set the server resolved from the entry's frozen
+ * scope, so the fields the operator sees as editable are the fields the
+ * trigger will accept. Outside an amendment (empty set) it is a no-op.
+ */
+export function UnlockScope({ area, children }: { area: string; children: ReactNode }) {
+  const outer = useContext(LockCtx);
+  const value = useMemo<LockState>(
+    () => (outer.locked && outer.open.has(area) ? { locked: false, open: outer.open } : outer),
+    [outer, area],
+  );
+  return <LockCtx.Provider value={value}>{children}</LockCtx.Provider>;
 }
 
 /** True inside a locked record — the control renders read-only / disabled. */
 export function useLocked(): boolean {
-  return useContext(LockCtx);
+  return useContext(LockCtx).locked;
+}
+
+/** Is this area open under the current lock? For a section header to say so. */
+export function useAreaOpen(area: string): boolean {
+  const ctx = useContext(LockCtx);
+  return !ctx.locked || ctx.open.has(area);
 }
 
 /**

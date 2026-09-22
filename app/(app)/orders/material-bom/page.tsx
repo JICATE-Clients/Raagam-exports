@@ -34,7 +34,7 @@ export default async function MaterialBomPage() {
       can("masters", "create"),
       can("masters", "edit"),
       // Orders locked by an approved budget (Phase 5) — the editor's banner.
-      orderLockMessages(),
+      orderLockMessages(undefined, "material_bom"),
     ]);
 
   // No wrapper and no PageHeader here — the screen renders its own, and the

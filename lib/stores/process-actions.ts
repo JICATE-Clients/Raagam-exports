@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
+import { refuseReopenedBudget } from "@/lib/purchase/bom-ceiling-service";
 import {
   processOrderInput,
   processIssueInput,
@@ -35,6 +36,14 @@ export async function createProcessOrder(
   const parsed = processOrderInput.safeParse(data);
   if (!parsed.success)
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  /* THE AMENDMENT HARD LOCK (doc/order/amedment.md §5): a process order — the
+     knitting / dyeing programme — is not raised for an order whose revised
+     budget is not yet approved. The same gate the purchase order answers to
+     (`refuseReopenedBudget`), so both say the same sentence and name the entry.
+     A programme with no order named is general work and is not checked. */
+  const reopened = await refuseReopenedBudget([{ sales_order_id: parsed.data.sales_order_id ?? null }]);
+  if (reopened) return { ok: false, error: reopened };
 
   const user = await getAppUser();
   const supabase = await createClient();
@@ -83,6 +92,18 @@ export async function issueProcessOrder(id: string): Promise<ActionResult> {
   if (!(await can("stores", "edit"))) throw new Error("Forbidden");
 
   const supabase = await createClient();
+  /* ISSUING is the act that sends work out, so the amendment lock is asked
+     here too — a draft raised before the amendment must not be issued during
+     it. Read off the stored row; a failed read refuses (see the gate). */
+  const { data: po, error: poErr } = await supabase
+    .from("process_orders")
+    .select("sales_order_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (poErr) return { ok: false, error: `Could not read the process order: ${poErr.message}` };
+  const reopened = await refuseReopenedBudget([{ sales_order_id: (po as { sales_order_id: string | null } | null)?.sales_order_id ?? null }]);
+  if (reopened) return { ok: false, error: reopened };
+
   const { error } = await supabase
     .from("process_orders")
     .update({ status: "issued" })

@@ -16,7 +16,7 @@ import {
 import { ChevronLeft, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
-import { LockScope } from "@/components/ui/field";
+import { LockScope, UnlockScope } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -548,8 +548,14 @@ export function MasterFullScreen({
    * sentence on screen before anything is typed rather than an error after.
    *
    * `false` / omitted = unlocked, and nothing about the surface changes.
+   *
+   * **`open`** (0604 · 0616) — the areas an open Amendment Entry names. The
+   * lock stays on the whole record and `UnlockScope` lifts it inside those
+   * areas only; a SECTION whose key is in the set is unlocked whole (its
+   * content is wrapped for it), a header FIELD is wrapped by the screen. The
+   * banner then reads the entry, not the refusal, and Save is live.
    */
-  locked?: { message: ReactNode } | false;
+  locked?: { message: ReactNode; open?: readonly string[] } | false;
   /**
    * OPENED TO READ, NOT TO CHANGE — the row's Eye (client 2026-09-19, Order
    * Entry: the Eye used to open a sheet of raw columns; "open the full order
@@ -1035,10 +1041,13 @@ export function MasterFullScreen({
    * was two separate silences for two separate reasons — and if the button was
    * disabled, Enter and Ctrl+S resolved to whatever button was last instead.
    */
-  const blocked = !!locked || (!footer.canSave && !!footer.onBlockedSave);
+  /* A lock with an open scope is an AMENDMENT: Save is the way the in-scope
+     change reaches the database, so it is not blocked by the lock. */
+  const scopedOpen = !!locked && !!locked.open && locked.open.length > 0;
+  const blocked = (!!locked && !scopedOpen) || (!footer.canSave && !!footer.onBlockedSave);
   const fireSave = () => {
     if (viewOnly || footer.isPending) return;
-    if (locked) {
+    if (locked && !scopedOpen) {
       // THE LOCK OUTRANKS EVERY OTHER ANSWER — a locked record with a blank
       // field is not "fill this in", it is "this cannot be changed".
       toastError(
@@ -1705,7 +1714,13 @@ export function MasterFullScreen({
               </h2>
             )}
             <SectionNamedByRail.Provider value={!railCollapsed}>
-              <LockScope locked={!!locked || viewOnly}>{active?.content}</LockScope>
+              <LockScope locked={!!locked || viewOnly} open={locked ? locked.open : undefined}>
+                {active && locked && locked.open?.includes(active.key) ? (
+                  <UnlockScope area={active.key}>{active.content}</UnlockScope>
+                ) : (
+                  active?.content
+                )}
+              </LockScope>
             </SectionNamedByRail.Provider>
           </div>
         </div>

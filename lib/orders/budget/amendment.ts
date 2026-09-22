@@ -117,19 +117,20 @@ function istDay(value: string): string {
 
 /**
  * Why a locked order refuses an edit — ONE sentence, and the SQL trigger
- * (`refuse_when_order_locked`) raises the same words.
+ * (`refuse_when_order_locked` via `order_lock_message`, 0604) raises the same
+ * words. The spec's own headline (doc/order/amendment.md §1), sentence case:
  *
- *   RE <no> is locked — its budget <code> was approved on <dd/mm/yyyy>.
- *   Reopen the budget (Amendment Protocol) to change it.
+ *   Selected budget has been approved — RE <no>, budget <code>, approved on
+ *   <dd/mm/yyyy>. Direct edits are disabled. Please use Garment Order Amendment.
  *
- * It names the way out, because the operator reading it did not approve the
- * budget and may not know one exists. Fallbacks, each of which the trigger
- * mirrors (a blank counts as missing):
+ * It names the way out, and the way out is now a door the merchandiser can
+ * open (Orders ▸ Order Amendments) rather than the approver's Reopen. The RE
+ * No and the date stay: the operator reading this has several orders open.
+ * Fallbacks, each of which the trigger mirrors (a blank counts as missing):
  *
- *   - no RE No         → "This order is locked — …"
- *   - no budget code   → "… its budget was approved on …" (budget codes are
- *                        not generated today, so this is the COMMON case)
- *   - no approval date → "… its budget <code> has been approved. …"
+ *   - no RE No, no code, no date → "Selected budget has been approved. Direct…"
+ *   - budget codes are not generated today, so "budget <code>" is usually absent
+ *   - the first present fact follows " — ", the rest follow ", "
  */
 export function orderLockMessage(v: {
   reNo: string | null;
@@ -140,10 +141,12 @@ export function orderLockMessage(v: {
   const code = (v.budgetCode ?? "").trim();
   const at = (v.approvedAt ?? "").trim();
 
-  const head = reNo ? `RE ${reNo} is locked` : "This order is locked";
-  const budget = code ? `its budget ${code}` : "its budget";
-  const when = at ? `was approved on ${fmtDate(istDay(at))}` : "has been approved";
-  return `${head} — ${budget} ${when}. Reopen the budget (Amendment Protocol) to change it.`;
+  const facts: string[] = [];
+  if (reNo) facts.push(`RE ${reNo}`);
+  if (code) facts.push(`budget ${code}`);
+  if (at) facts.push(`approved on ${fmtDate(istDay(at))}`);
+  const tail = facts.length > 0 ? ` — ${facts.join(", ")}` : "";
+  return `Selected budget has been approved${tail}. Direct edits are disabled. Please use Garment Order Amendment.`;
 }
 
 // ---------------------------------------------------------------------------

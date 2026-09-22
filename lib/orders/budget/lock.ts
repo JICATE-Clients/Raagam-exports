@@ -1,6 +1,14 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { orderLockMessage } from "./amendment";
+import {
+  amendmentTypesLabel,
+  areaOpen,
+  outOfScopeMessage,
+  scopeFromJson,
+  type AmendmentArea,
+  type FrozenScope,
+} from "@/lib/orders/amendments/amendment-entry";
 
 /**
  * THE APPROVAL LOCK, READ FROM THE SERVER — the courtesy half (0576).
@@ -68,19 +76,73 @@ export async function orderLockOf(orderId: string): Promise<OrderLock | null> {
   };
 }
 
+/** The open Amendment Entry scoping an order — `order_amendment_scope_of` (0604 · 0616). */
+export type OrderAmendment = {
+  entryId: string;
+  entryNo: string | null;
+  types: string[];
+  scope: FrozenScope;
+};
+
 /**
- * The guard a write action calls BEFORE its first write.
+ * Is an Amendment Entry open over this order's RE No? Null when none is.
+ *
+ * READ THROUGH `order_amendment_scope_of()` — the same `order_amendment_of`
+ * the trigger consults, at the same RE grain, returning the FROZEN scope the
+ * trigger will enforce. Re-deriving the scope here from the seed would let a
+ * later seed edit widen what the screen shows without widening what the
+ * database accepts.
+ */
+export async function orderAmendmentOf(orderId: string): Promise<OrderAmendment | null> {
+  const s = await createClient();
+  const { data, error } = await s.rpc("order_amendment_scope_of", { p_order: orderId });
+  if (error) throw new Error(`Could not read whether this order is being amended: ${error.message}`);
+  const row = ((data ?? []) as {
+    entry_id: string;
+    entry_no: string | null;
+    amendment_type: string;
+    amendment_types: string[] | null;
+    scope: unknown;
+  }[])[0];
+  if (!row) return null;
+  return {
+    entryId: row.entry_id,
+    entryNo: row.entry_no,
+    types: row.amendment_types?.length ? row.amendment_types : [row.amendment_type],
+    scope: scopeFromJson(row.scope),
+  };
+}
+
+/**
+ * The guard a write action calls BEFORE its first write — with the AREA it is
+ * about to write, because since 0604 "locked" has three answers:
+ *
+ *   open      → pass
+ *   approved  → refuse with the lock sentence
+ *   amending  → pass if the open entry's scope opens this AREA, else refuse
+ *               with the out-of-scope sentence (the trigger's own words)
+ *
+ * NO CALL SITE MAY PASS A CONSTANT "ANY": a guard phrased as "restrict only in
+ * case X" leaks through every state that is not X. Each action names the
+ * document it writes. Inside an open area the trigger still judges every row
+ * and column — this is the courtesy that stops a half-run save, not the lock.
  *
  * `null` / `undefined` passes: a Material BOM with no order is not locked by
  * any budget (0576's parent trigger lets it through too).
  */
-export async function assertOrderUnlocked(
+export async function assertOrderWritable(
   orderId: string | null | undefined,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!orderId) return { ok: true };
+  area: AmendmentArea,
+): Promise<{ ok: true; amendment: OrderAmendment | null } | { ok: false; error: string }> {
+  if (!orderId) return { ok: true, amendment: null };
   try {
     const lock = await orderLockOf(orderId);
-    return lock ? { ok: false, error: orderLockMessage(lock) } : { ok: true };
+    if (lock) return { ok: false, error: orderLockMessage(lock) };
+    const amendment = await orderAmendmentOf(orderId);
+    if (amendment && !areaOpen(amendment.scope, area)) {
+      return { ok: false, error: outOfScopeMessage(amendment, area) };
+    }
+    return { ok: true, amendment };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not check the order's lock" };
   }
@@ -93,6 +155,10 @@ export type ReopenedBudget = {
   revisionNo: number;
   /** The Amendment Protocol reason the operator gave for reopening. */
   reason: string;
+  /** The Amendment Entry No (AMD/26-27/0001) when the merchandiser's door raised it; null from Budget ▸ Reopen before 0604. */
+  entryNo: string | null;
+  /** Its Change Categories — "Price Change", "Quantity Addition + …". */
+  typesLabel: string;
 };
 
 /**
@@ -113,7 +179,7 @@ export async function reopenedBudgetForOrder(orderId: string): Promise<ReopenedB
     .from("order_budget_orders")
     .select(
       "budget:order_budgets!inner(id, code, status, " +
-        "revisions:order_budget_revisions(revision_no, reason))",
+        "revisions:order_budget_revisions(revision_no, reason, entry_no, amendment_type, amendment_types))",
     )
     .eq("garment_order_id", orderId);
   if (error) throw new Error(`Could not read whether this order's budget is reopened: ${error.message}`);
@@ -123,14 +189,29 @@ export async function reopenedBudgetForOrder(orderId: string): Promise<ReopenedB
       id: string;
       code: string | null;
       status: string;
-      revisions: { revision_no: number; reason: string }[] | null;
+      revisions: {
+        revision_no: number;
+        reason: string;
+        entry_no: string | null;
+        amendment_type: string;
+        amendment_types: string[] | null;
+      }[] | null;
     } | null;
   };
   for (const r of (data ?? []) as unknown as Row[]) {
     const b = r.budget;
     if (!b || b.status === "approved" || !b.revisions?.length) continue;
     const last = [...b.revisions].sort((a, c) => c.revision_no - a.revision_no)[0];
-    return { budgetId: b.id, budgetCode: b.code, revisionNo: last.revision_no, reason: last.reason };
+    return {
+      budgetId: b.id,
+      budgetCode: b.code,
+      revisionNo: last.revision_no,
+      reason: last.reason,
+      entryNo: last.entry_no,
+      typesLabel: amendmentTypesLabel(
+        last.amendment_types?.length ? last.amendment_types : [last.amendment_type],
+      ),
+    };
   }
   return null;
 }

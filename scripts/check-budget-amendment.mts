@@ -134,34 +134,34 @@ check(
 check(
   "the full sentence",
   orderLockMessage({ reNo: "2627/0001", budgetCode: "BDG-0007", approvedAt: "2026-09-18" }),
-  "RE 2627/0001 is locked — its budget BDG-0007 was approved on 18/09/2026. Reopen the budget (Amendment Protocol) to change it.",
+  "Selected budget has been approved — RE 2627/0001, budget BDG-0007, approved on 18/09/2026. Direct edits are disabled. Please use Garment Order Amendment.",
 );
 /* 19:00 UTC on the 18th is 00:30 IST on the 19th — the day it was approved in
    the business's own calendar, whatever zone the server runs in. */
 check(
   "a timestamp is dated in IST, not the runtime's zone",
   orderLockMessage({ reNo: "2627/0001", budgetCode: "BDG-0007", approvedAt: "2026-09-18T19:00:00Z" }),
-  "RE 2627/0001 is locked — its budget BDG-0007 was approved on 19/09/2026. Reopen the budget (Amendment Protocol) to change it.",
+  "Selected budget has been approved — RE 2627/0001, budget BDG-0007, approved on 19/09/2026. Direct edits are disabled. Please use Garment Order Amendment.",
 );
 check(
   "…and an evening approval in IST stays on its own day",
   orderLockMessage({ reNo: "X", budgetCode: null, approvedAt: "2026-09-18T18:29:00+00:00" }),
-  "RE X is locked — its budget was approved on 18/09/2026. Reopen the budget (Amendment Protocol) to change it.",
+  "Selected budget has been approved — RE X, approved on 18/09/2026. Direct edits are disabled. Please use Garment Order Amendment.",
 );
 check(
   "no budget code (none are generated today) drops the code, not the sentence",
   orderLockMessage({ reNo: "2627/0001", budgetCode: "  ", approvedAt: "2026-09-18" }),
-  "RE 2627/0001 is locked — its budget was approved on 18/09/2026. Reopen the budget (Amendment Protocol) to change it.",
+  "Selected budget has been approved — RE 2627/0001, approved on 18/09/2026. Direct edits are disabled. Please use Garment Order Amendment.",
 );
 check(
   "no RE No",
   orderLockMessage({ reNo: null, budgetCode: "BDG-0007", approvedAt: "2026-09-18" }),
-  "This order is locked — its budget BDG-0007 was approved on 18/09/2026. Reopen the budget (Amendment Protocol) to change it.",
+  "Selected budget has been approved — budget BDG-0007, approved on 18/09/2026. Direct edits are disabled. Please use Garment Order Amendment.",
 );
 check(
   "no approval date",
   orderLockMessage({ reNo: "2627/0001", budgetCode: "BDG-0007", approvedAt: null }),
-  "RE 2627/0001 is locked — its budget BDG-0007 has been approved. Reopen the budget (Amendment Protocol) to change it.",
+  "Selected budget has been approved — RE 2627/0001, budget BDG-0007. Direct edits are disabled. Please use Garment Order Amendment.",
 );
 
 // ---------------------------------------------------------------------------

@@ -88,6 +88,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { today as calendarToday } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useOpenIntent } from "@/lib/use-open-intent";
 import { sectionValidity } from "@/lib/screens/validity";
 import { fmtDate, fmtNumber } from "@/lib/format";
 /* THE QUEUE, WHOLE — the filter bar, the counted Status facet, the summary
@@ -1301,6 +1302,13 @@ export function FabricBomScreen({
    * as the operator sits on the screen.
    */
   useUnsavedGuard(dirty || isPending);
+  /* OPEN ONE RECORD FROM A LINK — `?open=<garment order id>` (0616, the
+     Amendment Entry page's "Open …" buttons). Above every early return, like
+     every hook; an id this unit cannot see opens nothing. */
+  useOpenIntent((orderId) => {
+    const t = tasks.find((x) => x.id === orderId);
+    if (t) openTask(t);
+  });
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
   const newKey = nextKey;

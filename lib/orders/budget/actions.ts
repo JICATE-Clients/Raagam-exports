@@ -30,6 +30,10 @@ import type { RateHistoryBudget } from "./copy-from";
 import { budgetBaseline, kpisToJson } from "./amendment";
 import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
+import { listFabricBomTasks } from "@/lib/orders/fabric-bom/service";
+import { listMaterialBomTasks } from "@/lib/orders/material-bom-amendment/service";
+import { bomStatusText } from "@/lib/orders/bom-status";
+import { amendmentTypesLabel, marginDelta } from "@/lib/orders/amendments/amendment-entry";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -176,9 +180,96 @@ async function refuseUnreadyOrders(
     const why = bomRefusalOf(fabric.has(id), material.has(id));
     return why ? [`${label.get(id) ?? "an order"}: ${why}`] : [];
   });
-  return refused.length === 0
+  if (refused.length > 0) return fail(`Save both BOMs before budgeting — ${refused.join("; ")}`);
+
+  /**
+   * THE FRESHNESS GATE (doc/order/amedment.md §3–§4; plan 5.1). `mergePulled`
+   * below compares the budget to the BOMs — and the BOMs to NOTHING. A Fabric
+   * BOM computed for the pre-amendment quantities agrees with a budget pulled
+   * from it, so an amended order could be re-approved on old figures with a
+   * clean zero variance: acceptance criterion 4 failing silently, which is the
+   * worst way for it to fail. `bomStatusOf` already answers "the order moved
+   * under this BOM" (`recalculate`, from `computed_basis_hash`) for the queue
+   * and the order list; here it is only ASKED. Nothing new is computed.
+   *
+   * `unresolved` (a BOM saved before the hash existed) is NOT refused: there is
+   * nothing to compare, and claiming it moved would be as much of a guess as
+   * claiming it did not.
+   */
+  const [fabTasks, matTasks] = await Promise.all([listFabricBomTasks(), listMaterialBomTasks()]);
+  const stale = ids.flatMap((id) => {
+    const out: string[] = [];
+    const f = fabTasks.find((t) => t.id === id);
+    const m = matTasks.find((t) => t.id === id);
+    if (f?.status === "recalculate") out.push(`${label.get(id) ?? "an order"}: the Fabric BOM reads ${bomStatusText(f.status)} — the order moved since it was computed`);
+    if (m?.status === "recalculate") out.push(`${label.get(id) ?? "an order"}: the Material BOM reads ${bomStatusText(m.status)} — the order moved since it was computed`);
+    return out;
+  });
+  return stale.length === 0
     ? null
-    : fail(`Save both BOMs before budgeting — ${refused.join("; ")}`);
+    : fail(`Recalculate before sending this for approval — ${stale.join("; ")}. Open the document, save it, then Refresh from BOMs here`);
+}
+
+/**
+ * THE AMENDMENT THIS BUDGET REVISES, if any (0604 · 0616) — for the approval
+ * run's context and the MD's notification (doc/order/amedment.md §5). The open
+ * entry on any of the budget's orders, with the margin the approved baseline
+ * recorded and the margin the summary now proposes. Read, never computed: both
+ * margins are stored `budgetKpis`.
+ */
+async function amendmentContextOf(
+  s: Awaited<ReturnType<typeof createClient>>,
+  orderIds: readonly string[],
+  submitted: ReturnType<typeof kpisToJson>,
+): Promise<Record<string, unknown> | null> {
+  if (orderIds.length === 0) return null;
+  const { data, error } = await s
+    .from("order_budget_revisions")
+    .select(
+      "id, entry_no, source, amendment_type, amendment_types, reason, baseline, " +
+        "order:garment_order_amendments!garment_order_id(id, code, customer:customers(name), sales_order:sales_orders(order_number))",
+    )
+    .in("garment_order_id", [...orderIds])
+    .eq("outcome", "open")
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  type Row = {
+    id: string;
+    entry_no: string | null;
+    source: string;
+    amendment_type: string;
+    amendment_types: string[] | null;
+    reason: string;
+    baseline: { kpis?: unknown } | null;
+    order: {
+      id: string;
+      code: string | null;
+      customer: { name: string | null } | { name: string | null }[] | null;
+      sales_order: { order_number: string | null } | { order_number: string | null }[] | null;
+    } | null;
+  };
+  const r = data as unknown as Row;
+  const one = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
+  const types = r.amendment_types?.length ? r.amendment_types : [r.amendment_type];
+  const m = marginDelta({ baselineKpis: r.baseline?.kpis, submittedKpis: submitted });
+  const num = (v: unknown) => (typeof v === "number" ? v : null);
+  return {
+    event: "ORDER_AMENDMENT_RAISED",
+    entry_id: r.id,
+    entry_no: r.entry_no,
+    order_id: r.order?.id ?? null,
+    order_ref: one(r.order?.sales_order)?.order_number ?? r.order?.code ?? null,
+    customer_name: one(r.order?.customer)?.name ?? null,
+    origin: r.source === "customer" ? "BY_CUSTOMER" : "BY_US",
+    types,
+    types_label: amendmentTypesLabel(types),
+    remarks: r.reason,
+    original_margin_pct: num(m.original),
+    amended_margin_pct: num(m.amended),
+    margin_delta_pct: num(m.delta),
+    action_required: num(m.delta) != null && (m.delta as number) < 0 ? "MD_APPROVAL_GATED" : "APPROVAL",
+  };
 }
 
 /**
@@ -376,6 +467,7 @@ export async function submitBudget(id: string): Promise<Result> {
 
   const { totals } = figures;
   const summary = kpisToJson(figures.kpis);
+  const amendment = await amendmentContextOf(s, orderIds, summary);
 
   /* THE SNAPSHOT IS REWRITTEN FROM THE SAME FACTS. The approval screen values
      the orders from `order_budget_orders.sales_value` (the approver sees what
@@ -451,6 +543,11 @@ export async function submitBudget(id: string): Promise<Result> {
          `submitted_summary` stores. The same JSON, so the push, the queue and
          the stored record cannot disagree. */
       kpis: summary,
+      /* THE AMENDMENT (spec §5's payload): the entry, who asked, the two
+         margins and their delta. A flow may route on `amendment.margin_delta_pct`
+         (data, not code); the push reads it for the MD's sentence. Absent on a
+         first-time budget. */
+      ...(amendment ? { amendment } : {}),
     },
     /* The unit narrows WHO holds the approving role (0500). A budget with no
        location falls back to every holder of the role, which is right: an

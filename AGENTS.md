@@ -1244,6 +1244,45 @@ action under `lib/orders/` is rendered only from files that read the registry.
 `load<Thing>Report`. Verified by being made to FAIL first, against the Fabric BOM
 sheet as committed before the registry.
 
+## Order Amendments (STANDING)
+
+**An approved order is changed only through an Amendment Entry, and the entry's
+scope is enforced in the database.** `Orders ▸ Order Amendments` is the register
+(0604 · 0616, 2026-09-22): the merchandiser raises an entry on an APPROVED RE —
+who asked, one or more Change Categories, mandatory remarks — and the RE moves to
+`amending` with the UNION of those categories' `(table, columns)` allowlists
+frozen on the entry. `refuse_when_order_locked()` reads that frozen scope, so a
+stale tab, `lib/data-io` or a second window is refused the same way the screen
+is. `open` / `amending` / `approved` are the three states; `sync_re_status_from_budget`
+never drags an amending order back to `open`.
+
+- **The TS mirror is `lib/orders/amendments/amendment-entry.ts`** and
+  `npm run check:amendment-scope` (inside `build:check`) holds it to 0604's seed.
+  Edit the seed and the mirror together, or the build fails — deliberately.
+- **A write action names its AREA**: `assertOrderWritable(orderId, "order" |
+  "fabric_bom" | "material_bom")`. Never a constant "any" — a guard phrased as
+  "restrict only in case X" leaks through every state that is not X.
+- **The Order Entry save is scope-aware**: the header patch is narrowed to the
+  open columns and a grid the scope does not open for insert AND delete is
+  SKIPPED, not rewritten unchanged — "delete every row and put the same rows
+  back" is two writes the trigger refuses.
+- **`UnlockScope area` is the one exception to "a lock only ever adds"**, and it
+  lifts the lock only for an area in the set the SERVER resolved from the frozen
+  scope (`MasterFullScreen locked.open`). Sections unlock whole by rail key; three
+  header fields unlock by name (`delivery_date`, `excess_pct`, `money_terms`).
+- **Propagation is stale-and-gate, never a silent recompute.** Hand-authored rows
+  are never rewritten; `refuseUnreadyOrders` refuses a budget whose BOM reads
+  `recalculate`, and the entry page lists what to open and save.
+- **The register's Status is derived** (`entryStatusOf`: outcome × budget status)
+  and its Margin Delta is two stored KPI sets compared — nothing there computes a
+  profit. Re-approval closes the entry IN THE TRIGGER (`approval_apply_terminal`);
+  Abandon restores V0 only when `order_amendment_changes` is empty, otherwise the
+  RE stays open for a fresh approval. A snapshot RESTORE is deliberately not built.
+- **`order_budget_revisions` ↔ `garment_order_amendments` is PGRST201-ambiguous
+  in BOTH directions** since 0604 — always `!garment_order_id` / `!re_amendment_id`
+  (declared in `check-embeds.mjs`). And `check:embeds` cannot see a select held in
+  a `const`: keep the literal at the `.from()` call.
+
 ## Build the UI compact the first time (STANDING)
 
 **A screen is width-laid-out from its first commit — never built loose and compacted

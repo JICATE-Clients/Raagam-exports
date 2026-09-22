@@ -43,6 +43,7 @@ import type { CardStat } from "@/components/masters/mobile-card-list";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useOpenIntent } from "@/lib/use-open-intent";
 import { sectionValidity } from "@/lib/screens/validity";
 import { RecordPicker } from "@/components/masters/record-picker";
 /* `NominatedVendorPicker` AND `nominatedVendorOptions` WERE BOTH IMPORTED HERE,
@@ -1455,6 +1456,13 @@ export function MbaMasterScreen({
    * as the operator sits on the screen.
    */
   useUnsavedGuard(dirty || isPending);
+  /* OPEN ONE RECORD FROM A LINK — `?open=<garment order id>` (0616, the
+     Amendment Entry page's "Open …" buttons). Above every early return, like
+     every hook; an id this unit cannot see opens nothing. */
+  useOpenIntent((orderId) => {
+    const t = tasks.find((x) => x.id === orderId);
+    if (t) openTask(t);
+  });
 
   /**
    * The style a line names, and the panels it declares (0423).
