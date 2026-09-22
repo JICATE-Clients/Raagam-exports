@@ -260,7 +260,16 @@ const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
   updated: { text: "Updated", icon: Check },
   draft: { text: "Draft", icon: Pencil },
 };
-const QUICK_LIT = "bg-primary font-semibold text-primary-foreground shadow-sm";
+/* THE PRIMARY BUTTON'S OWN MARKERS, NOT JUST ITS TOKENS (user 2026-09-22,
+   screenshot 145813 under Steel: "steel colour set aagi appo pending update
+   draft um steel colour la button change aaganum"). `bg-primary` alone is the
+   preset's flat colour; a GRADIENT preset (Steel, Raagam Gradient, …) paints
+   its buttons through `.ty-btn-primary` (`gradientCss` in lib/appearance.ts),
+   so a pill wearing only the token sat flat beside a "+ New Fabric BOM" that
+   ran graphite → blue. With the marker it takes the same gradient, hover and
+   pressed rules the Button does, under every preset, flat or not. */
+const QUICK_LIT =
+  "ty-btn-solid ty-btn-primary bg-primary font-semibold text-primary-foreground shadow-sm";
 
 export function StatusSegment({
   value,
