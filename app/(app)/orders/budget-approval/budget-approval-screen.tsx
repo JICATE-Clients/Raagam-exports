@@ -32,6 +32,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { StatusPill } from "@/components/ui/status-pill";
+import { StatusSegment } from "@/components/orders/bom-queue";
 import { Truncated } from "@/components/ui/truncated";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
@@ -166,7 +167,20 @@ export function BudgetApprovalScreen({
   const panel = loaded && loaded.forId === openId ? loaded : null;
   /** Default: what is waiting. The queue lists everything so an approver can
    *  answer "what did I approve last week?", but the work is what opens. */
-  const [filter, setFilter] = useState<BudgetStatus | "all">("submitted");
+  /* THE PENDING / UPDATED BOX, MATERIAL BOM'S OWN (user 2026-09-21: "Update
+     and Pending options displayed exactly like they are in the Material") —
+     the same `StatusSegment`, first on the search row. On an approval queue
+     the two words mean:
+       Pending = Submitted, awaiting a decision (still what the screen opens on)
+       Updated = decided — Approved or Rejected
+     ONE FILTER, TWO CONTROLS, and deliberately connected, unlike the BOM
+     queues' box and Filters panel: those can both apply, but here the
+     dropdown opens on "All", so an independent box left at Updated beside a
+     dropdown at Draft would show nothing, silently. So a word in the box sets
+     the dropdown back to All, and picking a state in the dropdown turns the
+     box off. The dropdown still reaches Draft and each state on its own. */
+  const [quick, setQuick] = useState<"" | "pending" | "updated">("pending");
+  const [filter, setFilter] = useState<BudgetStatus | "all">("all");
   const [search, setSearch] = useState("");
 
   // The remark is typed and unsaved until a decision is taken, so it is real
@@ -234,12 +248,14 @@ export function BudgetApprovalScreen({
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (filter !== "all" && r.status !== filter) return false;
+      if (quick === "pending" && r.status !== "submitted") return false;
+      if (quick === "updated" && r.status !== "approved" && r.status !== "rejected") return false;
       if (!q) return true;
       return [r.code, r.description]
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q));
     });
-  }, [rows, filter, search]);
+  }, [rows, filter, quick, search]);
 
   const columns: Column<BudgetApprovalRow>[] = [
     {
@@ -311,6 +327,13 @@ export function BudgetApprovalScreen({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
+          <StatusSegment
+            value={quick}
+            onChange={(v) => {
+              setQuick(v);
+              setFilter("all");
+            }}
+          />
           {/* caps-input: exempt -- a search QUERY is not a stored value. */}
           <Input uppercase={false}
             className="w-64"
@@ -321,15 +344,18 @@ export function BudgetApprovalScreen({
           <Select
             className="w-48"
             value={filter}
-            onChange={(e) => setFilter(e.target.value as BudgetStatus | "all")}
+            onChange={(e) => {
+              setFilter(e.target.value as BudgetStatus | "all");
+              setQuick("");
+            }}
           >
+            <option value="all">All</option>
             <option value="submitted">Awaiting approval</option>
             {BUDGET_STATUSES.filter((s) => s !== "submitted").map((s) => (
               <option key={s} value={s}>
                 {budgetStatusText(s)}
               </option>
             ))}
-            <option value="all">All</option>
           </Select>
         </div>
 
@@ -338,7 +364,7 @@ export function BudgetApprovalScreen({
           rows={filtered}
           getKey={(r) => r.id}
           empty={
-            filter === "submitted"
+            quick === "pending" || filter === "submitted"
               ? "Nothing is waiting for approval."
               : "No budgets in this state."
           }

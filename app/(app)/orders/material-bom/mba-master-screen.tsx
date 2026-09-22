@@ -801,9 +801,10 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * as wide as what it holds, not as wide as its share of the pane, so a
    * 3-letter Uom is no longer ~167px on a wide monitor.
    *
-   * THE ORDER IS UNTOUCHED — still the client's 2026-08-28 sequence, still one
-   * line. Only the widths changed, and each is the old span's reasoning in the
-   * vocabulary instead of in columns:
+   * THE WIDTHS, each the old span's reasoning in the vocabulary instead of in
+   * columns (MOQ · Round To · TBA · Process · FOC have since moved after the
+   * Final quantity — see `FIELD_GROUPS_AFTER_FINAL`; the arithmetic below is
+   * the eleven-field row as it stood that morning):
    *
    *   Category code 144 · Material name 288 · Attribute term 176 ·
    *   Pur. Uom hug 88 · Cons. Uom hug 88 · MOQ num 72 · Round To num 72 ·
@@ -1200,16 +1201,6 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        deleted as history. */
     { header: H.purchaseUom, w: "hug", weight: "auto" },
     { header: H.consumptionUom, w: "hug", weight: "auto" },
-    /* THE TWO NUMERIC BOXES, and they now follow the units directly (client
-       2026-08-28: "cons.uom - moq - round to - combination - tba this order").
-       Both 08-28 instructions agree on this pair and on where it sits — the
-       amendment that followed ("TBA next to the Round To, remaining all the
-       same") moved only the cell AFTER them. 3-4 digits in an `xs` cell,
-       right-aligned; the labels ("MOQ" ~18px, "Round To" ~47px) are the
-       smallest on the row and clear their 50px at 1366@110% with room. Nothing
-       about them changed except where they sit. */
-    { header: H.moq, w: "num", weight: "plain" },
-    { header: H.roundTo, w: "num", weight: "plain" },
     /* AN ICON BUTTON, NOT A VALUE — the only field on the row with nothing to
        clip, which is what lets it take the smallest span without losing
        anything. The 08-24 instruction that matched it to the Consumption Uom
@@ -1219,25 +1210,6 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        the two on 2026-08-28, so the cells are no longer neighbours and the
        shared `xs` is still right, because it was never a matching exercise. */
     { header: H.combination, w: "hug", weight: "quiet" },
-    /* A SWITCH SINCE 2026-08-28, so it takes the smallest span like every other
-       control on this row that shows no value — the `md` it held was bought
-       specifically to fit the words "Available Item", and there are no words
-       any more.
-
-       THE TWO COLUMNS GO TO MATERIAL, above. The run's whole contract is that
-       it still totals 32; a cell that shrinks without saying where its span
-       went is how the sums drifted to 28 and 36 once already.
-
-       IT IS HERE BECAUSE THE CLIENT PUT IT HERE, "next to the Round To"
-       (2026-08-28), amending their own chain of minutes earlier which had it
-       one place further along. That placement is unaffected by the resize. */
-    { header: H.tba, w: "num", weight: "quiet" },
-    /* THE TWO SWITCHES, AND THEY CLOSE THE LINE. A `Toggle` draws a ~36px
-       switch and shows no value, so 76px is the control with room to spare and
-       the widest label ("Process", ~42px) sits on one line. Do not reach for
-       `xs` for anything that holds a typed or picked value. */
-    { header: H.process, w: "num", weight: "plain" },
-    { header: H.foc, w: "num", weight: "plain" },
   ],
   /*
    * ADVISED ITEMS (0588) — a run of their own, after the line it describes.
@@ -1267,7 +1239,72 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * (a hidden field is not rendered, never `hidden`), so the run is Est. Rate
    * alone on an Available line.
    */
-  [{ header: H.pendingReason, w: "name", weight: "plain" }],
+];
+
+/**
+ * THE FIELDS DECIDED ONCE THE FINAL QUANTITY IS KNOWN — drawn AFTER it (client
+ * 2026-09-21: "MOQ, Round 2, TBA, Process and EOC should be moved to the end,
+ * after the Final Quantity field … these fields are only decided or known after
+ * arriving at the Final Quantity figure. Moving them reduces unnecessary tab
+ * stops across the screen").
+ *
+ * The renderer draws `FIELD_GROUPS`, then the per-attribute grid, then the
+ * figure strip that ends on Final quantity — and THEN this run. DOM order is
+ * Tab order, so an operator now types the line's identity and its units, fills
+ * the consumption grid, reads the Final quantity, and only then reaches these.
+ *
+ * THIS REVERSES THE 2026-08-28 ORDER ("cons.uom - moq - round to - combination
+ * - tba", then "TBA next to the Round To", then "TBA after the combination")
+ * that the note on `FIELD_GROUPS` records step by step. The later instruction
+ * wins; restoring any of those positions needs a new one. The five keep their
+ * order among themselves: MOQ · Round To · TBA · Process · FOC ("EOC" in the
+ * instruction is FOC — there is no EOC field).
+ *
+ * PENDING REASON CAME WITH TBA. It exists only while TBA is on and is mandatory
+ * then, so it stays directly after the switch that summons it — left in the
+ * old run it would appear ABOVE the strip, far from the toggle that made it.
+ *
+ *   MOQ num 72 · Round To num 72 · TBA num 72 · Process num 72 · FOC num 72
+ *   (+ Pending Reason name 288 while TBA is on) = 360 / 648 + gaps
+ *
+ * THE ROW ABOVE IS NOW SIX FIELDS — Category code 144 · Material name 288 ·
+ * Attribute term 176 · Pur. Uom hug 88 · Cons. Uom hug 88 · Combination hug 88
+ * = 872 + 5 × 12 = 932px — so it fits one line on a 1366 laptop too, which
+ * the eleven-field row could not.
+ */
+const FIELD_GROUPS_AFTER_FINAL: readonly (readonly GroupCell[])[] = [
+  [
+    /* THE TWO NUMERIC BOXES, and they now follow the units directly (client
+       2026-08-28: "cons.uom - moq - round to - combination - tba this order").
+       Both 08-28 instructions agree on this pair and on where it sits — the
+       amendment that followed ("TBA next to the Round To, remaining all the
+       same") moved only the cell AFTER them. 3-4 digits in an `xs` cell,
+       right-aligned; the labels ("MOQ" ~18px, "Round To" ~47px) are the
+       smallest on the row and clear their 50px at 1366@110% with room. Nothing
+       about them changed except where they sit. */
+    { header: H.moq, w: "num", weight: "plain" },
+    { header: H.roundTo, w: "num", weight: "plain" },
+    /* A SWITCH SINCE 2026-08-28, so it takes the smallest span like every other
+       control on this row that shows no value — the `md` it held was bought
+       specifically to fit the words "Available Item", and there are no words
+       any more.
+
+       THE TWO COLUMNS GO TO MATERIAL, above. The run's whole contract is that
+       it still totals 32; a cell that shrinks without saying where its span
+       went is how the sums drifted to 28 and 36 once already.
+
+       IT IS HERE BECAUSE THE CLIENT PUT IT HERE, "next to the Round To"
+       (2026-08-28), amending their own chain of minutes earlier which had it
+       one place further along. That placement is unaffected by the resize. */
+    { header: H.tba, w: "num", weight: "quiet" },
+    /* THE TWO SWITCHES, AND THEY CLOSE THE LINE. A `Toggle` draws a ~36px
+       switch and shows no value, so 76px is the control with room to spare and
+       the widest label ("Process", ~42px) sits on one line. Do not reach for
+       `xs` for anything that holds a typed or picked value. */
+    { header: H.process, w: "num", weight: "plain" },
+    { header: H.foc, w: "num", weight: "plain" },
+    { header: H.pendingReason, w: "name", weight: "plain" },
+  ],
 ];
 
 export function MbaMasterScreen({
@@ -6347,7 +6384,7 @@ export function MbaMasterScreen({
                * the withdrawal pattern this file records for Type, Alternate Uom
                * and Combination.
                */
-              const groups = FIELD_GROUPS.map((g) => {
+              const toCells = (g: readonly GroupCell[]) => {
                 const cells = g.flatMap((b) => {
                   // PENDING REASON EXISTS ONLY WHILE THE LINE IS TO BE ADVISED
                   // — required when shown, so it must not be shown otherwise
@@ -6371,8 +6408,13 @@ export function MbaMasterScreen({
                    widest slot for the reason the table gives: a size list is the
                    longest of the three. */
                 return cells;
-              });
-              const named = new Set(FIELD_GROUPS.flat().map((b) => b.header));
+              };
+              const groups = FIELD_GROUPS.map(toCells);
+              /* DRAWN AFTER THE FINAL QUANTITY — see `FIELD_GROUPS_AFTER_FINAL`. */
+              const afterFinal = FIELD_GROUPS_AFTER_FINAL.map(toCells).filter((g) => g.length > 0);
+              const named = new Set(
+                [...FIELD_GROUPS, ...FIELD_GROUPS_AFTER_FINAL].flat().map((b) => b.header),
+              );
               const orphans = itemColumns
                 .filter((c) => !named.has(c.header))
                 // `align` carried explicitly so an orphan and a declared cell
@@ -6387,6 +6429,66 @@ export function MbaMasterScreen({
               const withCells = groups.filter((g) => g.length > 0);
               const runs = orphans.length ? [...withCells, orphans] : withCells;
               const t = lineTotals.get(row.key);
+              type Run = ReturnType<typeof toCells>;
+              /** One run of fields. `after` marks a run drawn under the Final
+               *  quantity strip, which always takes the seam above it. */
+              const renderRun = (g: Run, gi: number, after: boolean) => (
+                <div
+                  key={gi}
+                  /* THE SEAM IS THE GAP FIRST AND THE LINE SECOND, and
+                     getting that round the wrong way is a mistake this very
+                     screen has already made once. On 2026-08-17 the item
+                     line and its detail band were split with a 1px
+                     `border-t` and the client reported no change at all
+                     (screenshot 2325, "why is there no update"): at this
+                     density a hairline reads exactly like the gap between
+                     two ordinary rows.
+                     `py-2` repeated it. A field row's own fields sit 8px
+                     apart (`FieldGrid`'s `gap-y-2`), so 8px of padding put
+                     24px BETWEEN runs against 16px WITHIN one — a ratio of
+                     1.5, which the eye does not read as a boundary, and 22
+                     fields went back to looking like one wall (client
+                     2026-08-20, screenshot 2404). `py-3` makes it 32 against
+                     16, and proximity does the grouping before any line is
+                     drawn. The hairline stays as confirmation, not as the
+                     whole signal.
+                     `border-border`, not `border-border-strong`: the strong
+                     token separates one MATERIAL from the next (`ChildGrid`
+                     draws it at 2px), and a run inside a record must read as
+                     quieter than that or the record stops being one thing. */
+                  className={cn("py-3", (gi > 0 || after) && "border-t border-border", after && "mt-2")}
+                >
+                  <FieldRow>
+                    {g.map(({ col, w, weight, align }, ci) => (
+                      <Field
+                        key={ci}
+                        label={col.header}
+                        /* `required` MUST be forwarded as well as declared on
+                           the column: cards mode calls this function instead
+                           of the `columns.map()` that wraps each cell in
+                           `RequiredScope`, so without it the header draws a
+                           `*` with no cursor hold behind it. Checked by
+                           `audit_layout.py --check grid-required-mobile`. */
+                        required={col.required}
+                        w={w}
+                        /* `text-right` and not a flex rule: `Field` is a
+                           plain block whose control is inline-level (Toggle
+                           is `inline-flex w-fit`), so text alignment is what
+                           moves it — and the label rides along, which is
+                           what makes the cell read as deliberately
+                           right-hand rather than as a stray control. */
+                        className={cn(
+                          DENSE,
+                          WEIGHT_CLASS[weight],
+                          align === "end" && "text-right",
+                        )}
+                      >
+                        {col.cell(row, i)}
+                      </Field>
+                    ))}
+                  </FieldRow>
+                </div>
+              );
 
               return (
                 /* CAPPED, AND LEFT-ALIGNED AGAINST THE LIST. A run fills 12
@@ -6444,65 +6546,12 @@ export function MbaMasterScreen({
                       </span>
                     )}
                   </div>
-                  {runs.map((g, gi) => (
-                    <div
-                      key={gi}
-                      /* THE SEAM IS THE GAP FIRST AND THE LINE SECOND, and
-                         getting that round the wrong way is a mistake this very
-                         screen has already made once. On 2026-08-17 the item
-                         line and its detail band were split with a 1px
-                         `border-t` and the client reported no change at all
-                         (screenshot 2325, "why is there no update"): at this
-                         density a hairline reads exactly like the gap between
-                         two ordinary rows.
-                         `py-2` repeated it. A field row's own fields sit 8px
-                         apart (`FieldGrid`'s `gap-y-2`), so 8px of padding put
-                         24px BETWEEN runs against 16px WITHIN one — a ratio of
-                         1.5, which the eye does not read as a boundary, and 22
-                         fields went back to looking like one wall (client
-                         2026-08-20, screenshot 2404). `py-3` makes it 32 against
-                         16, and proximity does the grouping before any line is
-                         drawn. The hairline stays as confirmation, not as the
-                         whole signal.
-                         `border-border`, not `border-border-strong`: the strong
-                         token separates one MATERIAL from the next (`ChildGrid`
-                         draws it at 2px), and a run inside a record must read as
-                         quieter than that or the record stops being one thing. */
-                      className={cn("py-3", gi > 0 && "border-t border-border")}
-                    >
-                      <FieldRow>
-                        {g.map(({ col, w, weight, align }, ci) => (
-                          <Field
-                            key={ci}
-                            label={col.header}
-                            /* `required` MUST be forwarded as well as declared on
-                               the column: cards mode calls this function instead
-                               of the `columns.map()` that wraps each cell in
-                               `RequiredScope`, so without it the header draws a
-                               `*` with no cursor hold behind it. Checked by
-                               `audit_layout.py --check grid-required-mobile`. */
-                            required={col.required}
-                            w={w}
-                            /* `text-right` and not a flex rule: `Field` is a
-                               plain block whose control is inline-level (Toggle
-                               is `inline-flex w-fit`), so text alignment is what
-                               moves it — and the label rides along, which is
-                               what makes the cell read as deliberately
-                               right-hand rather than as a stray control. */
-                            className={cn(
-                              DENSE,
-                              WEIGHT_CLASS[weight],
-                              align === "end" && "text-right",
-                            )}
-                          >
-                            {col.cell(row, i)}
-                          </Field>
-                        ))}
-                      </FieldRow>
-                    </div>
-                  ))}
+                  {runs.map((g, gi) => renderRun(g, gi, false))}
                   {sliceGrid(row)}
                   {qtyRibbon(row, t)}
+                  {/* AFTER THE FINAL QUANTITY, in the DOM and so on the Tab path
+                      (client 2026-09-21) — see `FIELD_GROUPS_AFTER_FINAL`. */}
+                  {afterFinal.map((g, gi) => renderRun(g, gi, true))}
                 </div>
               );
             }}
