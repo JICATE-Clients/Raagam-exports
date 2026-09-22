@@ -642,16 +642,22 @@ export function BudgetScreen({
 
   useUnsavedGuard(dirty || isPending);
 
-  /* OPEN-ON-ARRIVAL. A one-shot on mount: the id comes from the URL,
-     `openExisting` is the SAME handler a click runs, and the param is then
-     dropped from the address so a reload lands on the list, not back in the
-     editor the operator just closed. An unknown id opens nothing. */
+  /* OPEN-ON-ARRIVAL. Keyed on the id, NOT run once on mount: the Approval
+     queue reaches here by `router.push`, and when this page is already in
+     the client cache Next re-renders it with new props rather than
+     remounting it, so a mount-only effect never saw the id (2026-09-22,
+     "edit button work aagamattikuthu"). `openExisting` is the SAME handler a
+     click runs, and the param is then dropped from the address so a reload
+     lands on the list, not back in the editor the operator just closed —
+     which also returns `openId` to null, so the next Edit is a fresh change.
+     An unknown id opens nothing. */
   useEffect(() => {
     if (!openId) return;
     openExisting(openId);
     router.replace("/orders/budgets");
+    // `openExisting` is re-created every render; the id is the only trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [openId]);
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
   const keySeq = useRef(0);
