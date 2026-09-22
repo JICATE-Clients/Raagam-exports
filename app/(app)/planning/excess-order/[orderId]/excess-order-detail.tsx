@@ -173,7 +173,7 @@ function ItemsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={order.items}
           getKey={(r) => r.id}

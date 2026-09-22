@@ -130,7 +130,7 @@ export function TnaDataGrid({
   ];
 
   return (
-    <DataTable<TnaMilestone>
+    <DataTable<TnaMilestone> paginate={false}
       columns={columns}
       rows={rows as TnaMilestone[]}
       getKey={(r) => r.rowUid}

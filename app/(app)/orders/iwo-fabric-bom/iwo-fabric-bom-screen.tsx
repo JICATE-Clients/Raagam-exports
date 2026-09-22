@@ -64,7 +64,6 @@ import { Layers, ListChecks, Scale, Shirt, Spool, Waypoints } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldGrid, FieldRow, FIELD_WIDTH_CSS, RequiredScope } from "@/components/ui/field";
 import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -120,7 +119,7 @@ import {
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
 import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
-import { diaKey, diaKnitProblem, knitLabel, knitTypesOfDia } from "@/lib/orders/fabric-bom/dia-knit";
+import { diaKnitProblem, knitLabel } from "@/lib/orders/fabric-bom/dia-knit";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { fabricFormLabel } from "@/lib/orders/fabric-bom/component-map";
 import {
@@ -139,21 +138,21 @@ import {
 } from "@/lib/orders/iwo-fabric-bom/lines";
 import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
-import { FabricBreakupSheet } from "./fabric-breakup-sheet";
 import {
-  blankPlanRow,
-  expandPlan,
-  foldLines,
-  PLAN_BY_LABELS,
-  planByFor,
-  planHasColour,
-  planHasDia,
-  planSummary,
-  replan,
-  replanForStage,
-  reqKgsOf,
-  type PlanBy,
-  type PlanRow,
+  derivePlanRows,
+  expandPlanCells,
+  familyDias,
+  foldPlanCells,
+  isPlaceholderFacts,
+  NO_CELLS,
+  planCellsForStage,
+  plannedColours,
+  planReqKgs,
+  setPlanCell,
+  stalePlanRows,
+  type PlanAxes,
+  type PlanCells,
+  type PlanDisplayRow,
 } from "@/lib/orders/iwo-fabric-bom/plan";
 import { YarnDyedSheet, type YdCombinationRow } from "@/components/orders/yarn-dyed-panels";
 import type { YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
@@ -189,46 +188,33 @@ type LineRow = {
   key: string;
   structure_id: string | null;
   item_id: string | null;
-  color_name: string;
   fabric_form: string;
   mixing_uom_id: string | null;
   no_of_colors: string;
   gsm: string;
   stage_id: string | null;
-  /** PRINT-stage lines only (0599). */
-  print_name: string;
   /**
-   * PLAN BY (client 2026-09-21, screenshots 2990 · 2992) — the Material BOM's
-   * Attribute (0614) with a fabric's axes: Fabric · Colour · Dia · Colour +
-   * Dia. ONE ROW PER FABRIC ON SCREEN, ONE STORED LINE PER (FABRIC, COLOUR,
-   * DIA): `color_name` / `print_name` / `finish_dia` / `req_kgs` are the
-   * fabric row's own cells and apply to every stored line for an axis that
-   * is NOT split; `rows` carry the split axes. `plan.ts` is the boundary —
-   * `expandPlan` gives the payload, the rules and the yarn engine 0592's
-   * grain unchanged, `foldLines` folds it back on load. Under a split the
-   * Req Wt cell is a button carrying Σ rows (`reqKgsOf`, the one reader).
+   * ONE ROW PER FABRIC ON SCREEN, ONE STORED LINE PER (FABRIC, COLOUR, DIA,
+   * PRINT). The consumption card's rows are DERIVED from the BOM's panels
+   * (user 2026-09-22, screenshot 3000 — see plan.ts): the operator types only
+   * a weight per derived row, and `cells` holds the weighted ones, keyed by
+   * their axes. Stage, Form and GSM are the fabric's, said once in the card
+   * header. `expandPlanCells` gives the payload, the rules and the yarn
+   * engine 0592's grain unchanged; `foldPlanCells` folds it back on load.
    */
-  finish_dia: string;
-  req_kgs: string;
-  plan_by: PlanBy;
-  rows: PlanRow[];
+  cells: PlanCells;
 };
 
 const blankLine = (): LineRow => ({
   key: newKey(),
   structure_id: null,
   item_id: null,
-  color_name: "",
   fabric_form: "",
   mixing_uom_id: null,
   no_of_colors: "",
   gsm: "",
   stage_id: null,
-  print_name: "",
-  finish_dia: "",
-  req_kgs: "",
-  plan_by: "fabric",
-  rows: [blankPlanRow(newKey())],
+  cells: NO_CELLS,
 });
 
 
@@ -269,12 +255,13 @@ const str = (n: number | null | undefined) => (n == null ? "" : String(n));
 const kg = (n: number) =>
   n.toLocaleString("en-IN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
-/** ONE STORED LINE PER BREAKUP ROW — the boundary between the screen's
- *  one-row-per-fabric and 0592's grain (`expandPlan`, plan.ts). Every rule,
- *  the engine and the payload read THIS, so a fabric planned in three colours
- *  is three lines to all of them. */
+/** ONE STORED LINE PER WEIGHTED CELL — the boundary between the screen's
+ *  one-row-per-fabric and 0592's grain (`expandPlanCells`, plan.ts). Every
+ *  rule, the engine and the payload read THIS, so a fabric weighed in three
+ *  colours is three lines to all of them — and a fabric with NO weight is one
+ *  placeholder line the rules refuse by name, never nothing. */
 const expandLine = (l: LineRow): IwoFabricLineFacts[] =>
-  expandPlan(l).map((f) => ({
+  expandPlanCells(l.cells).map((f) => ({
     structure_id: l.structure_id,
     item_id: l.item_id,
     fabric_form: l.fabric_form || null,
@@ -445,9 +432,6 @@ export function IwoFabricBomScreen({
   /** The yarn line whose [Shades] popup is open, and the button it grew from. */
   const [shadesFor, setShadesFor] = useState<string | null>(null);
   const [shadesOrigin, setShadesOrigin] = useState<SheetOrigin | null>(null);
-  /** The fabric row whose [Breakup] is open, and the button it grew from. */
-  const [breakupFor, setBreakupFor] = useState<string | null>(null);
-  const [breakupOrigin, setBreakupOrigin] = useState<SheetOrigin | null>(null);
   const [openFabricId, setOpenFabricId] = useState<string | null | undefined>(undefined);
   /** Fabric Allocation ▸ [Detail] (0599): the FABRIC whose Yarn Dyed Details
    *  is open (or null), and the button it grew from. */
@@ -541,19 +525,18 @@ export function IwoFabricBomScreen({
       dia: r.dia ?? "",
     }));
     setDias(d.length ? d : [blankDia()]);
-    // ONE ROW PER FABRIC: stored lines that differ only by colour / print /
-    // dia fold into one row, its Plan by inferred (`foldLines`, plan.ts).
-    // Grouped on every other field, which a fabric's lines share by
-    // construction of `expandPlan`.
+    // ONE ROW PER FABRIC: its stored lines (one per colour / dia / print)
+    // fold into the row's `cells` (`foldPlanCells`, plan.ts). Grouped by the
+    // FABRIC alone — Stage, Form and GSM are the fabric's, said once on its
+    // card, so the first line's answer stands for all and the next Save
+    // writes it on every line (a BOM saved before 2026-09-22 could hold two
+    // GSMs on one fabric; it cannot after).
     const ls: LineRow[] = [];
     const groups = new Map<string, IwoFabricBom["iwo_fabric_bom_lines"]>();
     for (const r of b.iwo_fabric_bom_lines ?? []) {
-      const group = [r.structure_id, r.item_id, r.fabric_form, r.mixing_uom_id, str(r.no_of_colors), str(r.gsm), r.stage_id]
-        .map((v) => v ?? "")
-        .join("\u0000");
-      const held = groups.get(group);
+      const held = groups.get(r.item_id);
       if (held) held.push(r);
-      else groups.set(group, [r]);
+      else groups.set(r.item_id, [r]);
     }
     for (const rs of groups.values()) {
       const r = rs[0];
@@ -566,7 +549,7 @@ export function IwoFabricBomScreen({
         no_of_colors: str(r.no_of_colors),
         gsm: str(r.gsm),
         stage_id: r.stage_id,
-        ...foldLines(rs, newKey),
+        cells: foldPlanCells(rs),
       });
     }
     setLines(ls.length ? ls : [blankLine()]);
@@ -757,7 +740,7 @@ export function IwoFabricBomScreen({
    *  are the keys the engine will look the losses up by. Known from the lines,
    *  before any weight is. */
   const lineColoursOf = (fabricId: string): string[] =>
-    [...new Set(lines.filter((l) => l.item_id === fabricId).map((l) => normName(l.color_name)).filter(Boolean))];
+    [...new Set(lines.filter((l) => l.item_id === fabricId).flatMap((l) => plannedColours(l.cells)))];
 
   /** GREY or DYED (0592) — `stageRank` via `colouredStageIds`, the Fabric BOM's
    *  own test and the one the save runs; never the word DYED compared here. */
@@ -836,20 +819,15 @@ export function IwoFabricBomScreen({
     );
   };
 
-  /** Gross Yarn for one line: its Req Wt through its fabric's route losses
-   *  (`comboUplift`, divide by 1 — L, compounded). Blank while either is unknown. */
-  /* PER COLOUR, then summed — a route step marked COLOR WISE (0613) charges
-     each colour its own loss, and `comboUplift(route, colour)` is where that
-     is resolved. Null while any stored line of the fabric has no weight. */
+  /** Gross Yarn for one card row: its weight through its fabric's route losses
+   *  (`comboUplift`, divide by 1 — L, compounded), PER COLOUR — a route step
+   *  marked COLOR WISE (0613) charges each colour its own loss, and
+   *  `comboUplift(route, colour)` is where that is resolved. Null while the
+   *  row has no weight; the card's totals band sums the rows. */
   const grossOf = (itemId: string | null, kgs: number | null, colour: string | null): number | null => {
     if (!itemId || kgs == null || !(kgs > 0)) return null;
     const factor = comboUplift(routesByFabric.get(itemId) ?? [], colour ?? "", []);
     return isRefusal(factor) ? null : kgs * factor;
-  };
-  const grossYarnFor = (l: LineRow): number | null => {
-    const parts = expandPlan(l).map((f) => grossOf(l.item_id, f.req_kgs, f.color_name));
-    if (!parts.length || parts.some((g) => g == null)) return null;
-    return (parts as number[]).reduce((a, b) => a + b, 0);
   };
 
   const setYarnStages = (yarnId: string, next: YarnStageRow[]) => {
@@ -895,103 +873,87 @@ export function IwoFabricBomScreen({
     return st ? stageRank(st) : null;
   };
 
+  /** The Fabric Colour panel's names — a coloured card's first axis. */
+  const fabricColourNames = [...new Set(palette.fabric.map((r) => normName(r.value)).filter(Boolean))];
+
+  /** The Roll form prints panel's names — a PRINT-stage card's third axis. */
+  const printNames = [...new Set(palette.print.map((r) => normName(r.value)).filter(Boolean))];
+
+
   /** The line rules (`lines.ts`) — the same function the action runs. */
-  /* Run over the EXPANDED lines (one per dia), the rows re-labelled to the
-     screen row each came from. */
+  /* Run over the EXPANDED lines (one per weighted cell), the rows re-labelled
+     to the screen row each came from. */
   const expanded = expandLines(lines);
   const lineProblems = iwoFabricLineProblems(
     expanded.map((x) => x.facts),
     (id) => fabricTypeOf(id),
     fabricStageRank,
   )
-    .map((p) => {
-      const row = expanded[p.row - 1]?.row ?? p.row;
+    .flatMap((p) => {
+      const at = expanded[p.row - 1];
+      const row = at?.row ?? p.row;
       // The sentence carries the ordinal too ("Fabric line 3: …") — re-labelled
-      // to the screen row, so a fabric with three dias is not "lines 3, 4, 5".
+      // to the screen row, so a fabric with three colours is not "lines 3, 4, 5".
       let message = p.message.replace(/^Fabric line \d+:/, `Fabric line ${row}:`);
-      // A duplicate whose twin is IN THE SAME ROW is two breakup rows (client
-      // screenshot 2995: "the same … are on line 1" pointed at the row itself).
-      // Name the sheet, since that is where the fix is.
-      const twin = /are on line (\d+) — put the weight on one line\.$/.exec(message);
-      if (twin && (expanded[Number(twin[1]) - 1]?.row ?? Number(twin[1])) === row) {
-        message = message.replace(/are on line \d+ — put the weight on one line\.$/, "are twice in its breakup — open Req Wt and put the weight on one row.");
+      /* A FABRIC WITH NO WEIGHT EXPANDS TO ONE PLACEHOLDER LINE (plan.ts), so
+         the existing "enter the Req Wt" is what refuses it — reworded here to
+         the card's own truth (a weight on at least one of its rows), and the
+         placeholder's colour / dia / print problems dropped: they are about
+         a stored line that does not exist yet, and the card offers no box to
+         answer them in. The action refuses with the same first sentence. */
+      if (at && isPlaceholderFacts(at.facts)) {
+        if (p.field !== "req_kgs") return [];
+        const l = lines[row - 1];
+        const rank = l ? fabricStageRank(l.stage_id) : null;
+        const noPrints = rank === 2 && !printDeclared;
+        message = `Fabric line ${row}: ${
+          noPrints
+            ? "declare a print on the Roll form prints panel (Fabric BOM section), then enter a weight on at least one row."
+            : "enter a weight on at least one row."
+        }`;
       }
-      return { ...p, row, message };
+      return [{ ...p, row, message }];
     })
-    // Two dias of one row failing the same test are ONE thing to fix.
+    // Two cells of one row failing the same test are ONE thing to fix.
     .filter((p, i, all) => all.findIndex((q) => q.row === p.row && q.field === p.field && q.message === p.message) === i);
 
-  /** The Dia panel's values — what Finish Dia offers (Phase 2, the order
-   *  screen's `declaredDiaOptions`): one option per dia (`diaKey`, capitals
-   *  like the stored value) carrying the FAMILIES it is declared under, so the
-   *  list can be scoped to one fabric's family. */
+  /** The Dia panel's values, as `dia-knit.ts` and `familyDias` read them. */
   const diaDeclarations = dias.map((d) => ({ knit_type: d.knit_type || null, dia: d.dia }));
-  const declaredDiaOptions = (() => {
-    const kinds = new Map<string, string[]>();
-    for (const d of dias) {
-      const key = diaKey(d.dia);
-      if (!key) continue;
-      const seen = kinds.get(key) ?? [];
-      if (d.knit_type && !seen.includes(d.knit_type)) seen.push(d.knit_type);
-      kinds.set(key, seen);
-    }
-    return [...kinds].map(([value, codes]) => ({
-      value,
-      label: value,
-      sublabel: codes.length ? codes.map(knitLabel).join(" · ") : undefined,
-      codes,
-    }));
-  })();
   /** A line's fabric family — its Structure's code (`circular` / `flat_knit` /
    *  `woven`), the same code a Dia panel row stores. Null = no family set, so
    *  nothing to scope by. */
   const lineKnitCode = (l: { structure_id: string | null }): string | null =>
     l.structure_id ? (data.structures.find((x) => x.id === l.structure_id)?.knit_code ?? null) : null;
-  /**
-   * THE DIAS ONE FABRIC MAY PICK — ITS OWN KNIT FAMILY'S ONLY (client
-   * 2026-09-19: "if the fabric is circular, circular dias only; if flat, flat
-   * only"). The order screen's rule, which this copy had not received: a
-   * Fabric IWO with a circular jersey and a woven cloth offered every declared
-   * dia to both. `dia-knit.ts` is the one rule, read here and by the Save gate
-   * and the action. With no family on the structure every declared dia stays
-   * on offer, as before; an UNTYPED dia is not offered to a typed fabric.
-   * A held value always survives, tagged — dropping it would show the cell
-   * empty and the next Save would blank it (AGENTS.md, "Disabled rows").
-   */
-  const diaOptionsFor = (held: string, knit: string | null) => {
-    const scoped = (knit ? declaredDiaOptions.filter((o) => o.codes.includes(knit)) : declaredDiaOptions).map(
-      ({ codes: _codes, ...o }) => o,
-    );
-    const v = held.trim();
-    if (!v || scoped.some((o) => o.value === diaKey(v))) return scoped;
-    const kinds = knitTypesOfDia(v, diaDeclarations);
-    const sublabel =
-      knit && kinds.length && !kinds.includes(knit)
-        ? `${kinds.map(knitLabel).join(" / ")} — not ${knitLabel(knit)}`
-        : kinds.length
-          ? kinds.map(knitLabel).join(" / ")
-          : "not on the Dia panel";
-    return [...scoped, { value: v, label: v, sublabel }];
-  };
   /** A line holding a dia of the WRONG family — refused at Save, here and in
    *  the action (`diaKnitProblem`, the sentence the server returns too). */
   const diaKnitBlockers = lines.flatMap((l, i) =>
-    [...new Set(expandPlan(l).map((f) => f.finish_dia ?? ""))].flatMap((dia) => {
+    [...new Set(expandPlanCells(l.cells).map((f) => f.finish_dia ?? ""))].flatMap((dia) => {
       const p = l.item_id && dia ? diaKnitProblem(dia, lineKnitCode(l), diaDeclarations, fabricById.get(l.item_id)?.name ?? "This fabric") : null;
       return p ? [{ row: i + 1, message: p }] : [];
     }),
   );
-  /** THE ONE DIA A NEW LINE OPENS WITH — the order screen's `defaultDiaFor`
-   *  (client spec point 5: "automatically prepopulate the Dia field … but
-   *  remain editable"), counted PER FAMILY since 2026-09-19: a circular jersey
-   *  on a BOM declaring one circular and one woven dia opens on its one
-   *  circular dia, never on the woven one. Two or more in the family → blank;
-   *  a guessed diameter standing in a cell that decides the knitting programme
-   *  is worse than an empty one. */
-  const defaultDiaFor = (knit: string | null) => {
-    const scoped = knit ? declaredDiaOptions.filter((o) => o.codes.includes(knit)) : declaredDiaOptions;
-    return scoped.length === 1 ? scoped[0].value : "";
-  };
+  /** What the panels declare for one fabric — the axes its card derives from. */
+  const planAxesFor = (l: LineRow): PlanAxes => ({
+    rank: fabricStageRank(l.stage_id),
+    colours: fabricColourNames,
+    dias: familyDias(diaDeclarations, lineKnitCode(l)),
+    prints: printNames,
+  });
+  /** The rows the panels no longer name — kept, tagged, refused (plan.ts). */
+  const staleBlockers = lines.flatMap((l, i) =>
+    stalePlanRows(l.cells, planAxesFor(l)).map((r) => {
+      const what = [r.color_name, r.finish_dia, r.print_name].filter(Boolean).join(" · ") || "a row with no colour or dia";
+      const kgs = r.req_kgs.trim();
+      return {
+        row: i + 1,
+        message:
+          `Fabric line ${i + 1}: ${what}${kgs ? ` (${kgs} KGS)` : ""} is no longer declared — clear its weight, ` +
+          (fabricStageRank(l.stage_id) === 0
+            ? "or change the Stage back."
+            : "or declare it again on the Fabric BOM section's panels."),
+      };
+    }),
+  );
 
   /** Each fabric's line Stage — what decides whether its route stops at Greige. */
   const fabricStageOf = iwoFabricStages(expanded.map((x) => x.facts));
@@ -1070,6 +1032,7 @@ export function IwoFabricBomScreen({
         kind: "custom" as const,
       })),
       ...diaKnitBlockers.map((b) => ({ section: "consumption", label: `Fabric line ${b.row}`, message: b.message, kind: "custom" as const })),
+      ...staleBlockers.map((b) => ({ section: "consumption", label: `Fabric line ${b.row}`, message: b.message, kind: "custom" as const })),
       ...routeBlockers.map((b) => ({ section: "process", label: "Fabric Process", message: b.message, kind: "custom" as const })),
       ...yarnLineIssues.map((y) => ({
         section: y.section ?? "yarnLines",
@@ -1343,21 +1306,9 @@ export function IwoFabricBomScreen({
 
   // ---- Fabric Allocation + Fabric Consumption --------------------------------
 
-  /** The Fabric Colour panel's names — what a line's Colour offers. */
-  const fabricColourNames = [...new Set(palette.fabric.map((r) => normName(r.value)).filter(Boolean))];
-
   /** A Mixing Uom is owed only on a yarn-dyed CLOTH (the order screen's rule,
    *  `missingFabricLineFields`); the header star shows while any line owes it. */
   const owesMixing = (r: LineRow) => !!r.item_id && isYarnDyed(fabricTypeOf(r.item_id));
-
-  /** A coloured Stage (DYED / WASH / PRINT) owes its Colour (Phase 2) — and,
-   *  since the 2026-09-20 ticket, its Finish Dia. */
-  const owesColour = (r: LineRow) => !!r.item_id && (fabricStageRank(r.stage_id) ?? 0) >= 1;
-  const owesDia = owesColour;
-  /** A PRINT-stage line owes its Print (0599). */
-  const owesPrint = (r: LineRow) => !!r.item_id && fabricStageRank(r.stage_id) === 2;
-  /** The Roll form prints panel's names — what a line's Print offers. */
-  const printNames = [...new Set(palette.print.map((r) => normName(r.value)).filter(Boolean))];
 
   /** [Detail] → Yarn Dyed Details for the line's fabric — the order screen's
    *  `openDetail`, copied: seeded HERE, in the open handler, and never through
@@ -1400,105 +1351,29 @@ export function IwoFabricBomScreen({
   const ydYarnName = (id: string | null) => (id ? ((comp?.yarns ?? []).find((y) => y.id === id)?.name ?? "") : "");
 
 
-  /** The Print cell — Fabric Consumption's, kept as a renderer beside the
-   *  Colour cell below (both stood on Allocation too until 2026-09-21; see
-   *  `allocationColumns`). A select on a PRINT-stage line (or one still
-   *  holding a print, so the rule refusing it has a way out); "—" everywhere
-   *  else. */
-  const printCell = (r: LineRow) => {
-    if (!owesPrint(r) && !r.print_name) return <span className="text-xs text-muted-foreground">—</span>;
-    const held = r.print_name && !printNames.includes(normName(r.print_name)) ? [r.print_name] : [];
-    return (
-      <RequiredScope required={owesPrint(r)} label="Print">
-        <Select
-          compact
-          className="h-8"
-          aria-label="Print"
-          required={owesPrint(r)}
-          value={r.print_name}
-          onChange={(e) => patchLine(r.key, { print_name: e.target.value })}
-        >
-          <option value="" />
-          {[...printNames, ...held].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </Select>
-      </RequiredScope>
-    );
-  };
   /** What Fabric Consumption's own cells still owe — `lineProblems`, the rules
-   *  Save runs, narrowed to the fields this grid shows. */
+   *  Save runs, narrowed to the fields the cards show. */
   const CONSUMPTION_FIELDS = new Set(["stage_id", "print_name", "color_name", "finish_dia", "req_kgs", "gsm"]);
   const consumptionNeeds = lineProblems.filter((p) => CONSUMPTION_FIELDS.has(p.field));
-  /** Consumption draws its Print column only while a line needs it. */
-  const showPrintColumn = lines.some((l) => owesPrint(l) || !!l.print_name.trim());
-  /** THE COLOUR COLUMN GOES WITH THE COLOUR (client 2026-09-21, screenshot
-   *  2989: a greige-only plan showed a column of dashes — "no need to show in
-   *  UI also"). The Print column's gate, one column along: drawn once any line
-   *  is in a coloured stage, or still holds a colour to clear. */
-  const showColourColumn = lines.some((l) => owesColour(l) || !!l.color_name.trim() || planHasColour(l.plan_by));
 
   /** ONE STAGE PER FABRIC (Phase 2's rule): choosing it on one line sets it on
-   *  every line of that fabric, so a breakup row never lags behind and trips
-   *  the "one Stage" refusal. A line with no fabric changes alone. */
+   *  every line of that fabric. A line with no fabric changes alone. */
   const setFabricStage = (r: LineRow, stageId: string | null) => {
-    /* THE STAGE DECIDES THE FIELDS — RESTRICTED, NOT WARNED (the yarn grid's
-       2026-09-21 rule, "changing Stage CLEARS a process the new stage would
-       not offer", applied here on the client's word, screenshot 2987: "stage
-       is greige means the colour field must hide"). A colour typed before the
-       Stage was set to GREIGE used to stay in the box, and the box stayed on
-       screen only so the refusal ("a GREIGE line has no colour — clear it")
-       had a way out. Clearing it here means the Colour cell reads "—" the
-       moment GREIGE is picked, and a Print goes the same way off a Print
-       stage. Every line of the fabric moves together — one Stage per fabric. */
+    /* THE STAGE DECIDES THE ROWS — RESTRICTED, NOT WARNED (the yarn grid's
+       2026-09-21 rule, applied here on the client's word, screenshot 2987:
+       "stage is greige means the colour field must hide"). The card derives
+       its rows from the Stage, so GREIGE draws no Colour column the moment it
+       is picked. And the weights FOLLOW the Stage (`planCellsForStage`,
+       plan.ts): to GREIGE the cells sharing a dia merge, summing — greige is
+       one lot, and a weight typed under a colour is not thrown away when the
+       colour goes; off a Print stage the prints merge the same way. */
     const rank = fabricStageRank(stageId);
-    /* And the PLAN follows the Stage (`replanForStage`, plan.ts): to GREIGE the
-       colour axis is dropped and rows sharing a dia are merged, summing their
-       weights — greige is one lot, and a weight typed under a colour is not
-       thrown away when the colour goes. */
     setLines((xs) =>
       xs.map((x) =>
-        x.key === r.key || (r.item_id && x.item_id === r.item_id) ? { ...x, stage_id: stageId, ...replanForStage(x, rank, newKey) } : x,
+        x.key === r.key || (r.item_id && x.item_id === r.item_id) ? { ...x, stage_id: stageId, cells: planCellsForStage(x.cells, rank) } : x,
       ),
     );
     setDirty(true);
-  };
-
-  /** The Colour cell — one renderer, drawn by Fabric Consumption only since
-   *  2026-09-21 (it was on Allocation as well; see `allocationColumns`). Kept
-   *  a function so any second surface of the line reads the same offer and
-   *  the same hold. */
-  const colourCell = (r: LineRow) => {
-    // A name the line already holds survives a panel edit that removed it.
-    const held = r.color_name && !fabricColourNames.includes(normName(r.color_name)) ? [r.color_name] : [];
-    // NOTHING TO FILL ON A GREIGE LINE: a "—", not a disabled box, so Tab walks
-    // straight past it (user 2026-09-20, the stage decides the fields). A box
-    // comes back while it still holds a colour — the rule refusing that colour
-    // needs a way to clear it.
-    if (fabricStageRank(r.stage_id) === 0 && !r.color_name) {
-      return <span className="text-xs text-muted-foreground">—</span>;
-    }
-    return (
-      <RequiredScope required={owesColour(r)} label="Colour">
-        <Select
-          compact
-          className="h-8"
-          aria-label="Colour"
-          required={owesColour(r)}
-          value={r.color_name}
-          onChange={(e) => patchLine(r.key, { color_name: e.target.value })}
-        >
-          <option value="" />
-          {[...fabricColourNames, ...held].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </Select>
-      </RequiredScope>
-    );
   };
 
   /**
@@ -1512,8 +1387,8 @@ export function IwoFabricBomScreen({
    * ("stage first, then what the stage asks for"). Here the operator could
    * fill a Colour before any stage existed to owe or refuse it, and a GREIGE
    * line then greeted them with "clear it" on the next tab. Allocation now
-   * names the cloth; Consumption plans it. `colourCell` / `printCell` are
-   * still shared renderers, so a second reader can be added back in one line.
+   * names the cloth; Consumption plans it — and since 2026-09-22 it does not
+   * ask for a colour or a dia at all: its rows are derived from the panels.
    *
    * WIDTHS (check:grid-budget): term 176 + name 288 + hug 88 (Type) + hug 88
    * (Mixing Uom) + hug 88 (No Of Colors) + num 72 (Detail) = 800 + 72 chrome =
@@ -1559,11 +1434,6 @@ export function IwoFabricBomScreen({
             patchLine(r.key, {
               item_id: id,
               structure_id: (id ? fabricById.get(id)?.category_id : null) ?? r.structure_id,
-              // ONE DIA DECLARED IN THIS FABRIC'S FAMILY → PREFILLED, and still
-              // editable (`defaultDiaFor`, the order screen's rule).
-              ...(id && r.plan_by === "fabric" && !r.finish_dia.trim()
-                ? { finish_dia: defaultDiaFor(lineKnitCode({ structure_id: (fabricById.get(id)?.category_id ?? r.structure_id) ?? null })) }
-                : {}),
             })
           }
         />
@@ -1644,255 +1514,103 @@ export function IwoFabricBomScreen({
     },
   ];
 
-  /** The lines Fabric Consumption shows: those that name a fabric. */
-  const consumptionRows = lines;
-
-
   /**
    * FABRIC CONSUMPTION — screenshot 2940 / SRS §4: the garment breakdown is
-   * bypassed, so the weight is TYPED. Rows are the Allocation lines; Plan by
-   * adds another line of the same fabric here.
+   * bypassed, so the weight is TYPED. ONE CARD PER FABRIC, ITS ROWS DERIVED
+   * (user 2026-09-22, screenshot 3000; plan.ts): the card header carries what
+   * the fabric says once — Stage, Form, GSM — and the grid beneath one row per
+   * (Fabric Colour × finish dia of the fabric's family), × Roll form print on
+   * a PRINT stage, dias only on GREIGE. The operator types a weight per row
+   * and nothing else; a row left blank is not stored. The Yarn Process idiom:
+   * nothing is added here, nothing removed.
    *
-   * STAGE FIRST, THEN WHAT THE STAGE ASKS FOR (user 2026-09-20: "if the dyed
-   * is chosen ask three field color, dia, weight … print … wash also same").
-   * Colour and Finish Dia used to stand LEFT of Stage, so choosing DYED sent
-   * the cursor on to Req Wt with the two fields it now owed behind it —
-   * nothing asked for them until Save refused. Now Tab / Enter off Stage lands
-   * on the first field it owes and the mandatory hold keeps the cursor there:
-   *   GREIGE          → Colour "—", Finish Dia, Req Wt
-   *   DYED / WASH     → Colour*, Finish Dia*, Req Wt*
-   *   PRINT           → Print*, Colour*, Finish Dia*, Req Wt*
+   * WIDTHS (check:grid-budget): term 176 (Colour) + code 144 (Print) + hug 88
+   * (Finish Dia) + range 112 (Req Wt) + range 112 (Gross Yarn) = 632 + 40
+   * chrome (`#` only — no ✕) = 672 <= 1155. Colour and Print are drawn only on
+   * the stages that ask for them, so a GREIGE card is dia · weight · gross.
    *
-   * WIDTHS (check:grid-budget): code 144 (Fabric) + hug 88 (Stage) + range
-   * 112 (Plan by) + hug 88 (Print) + code 144 (Colour) + hug 88 (Finish Dia)
-   * + range 112 (Req Wt) + hug 88 (Form) + num 72 (GSM) + range 112 (Gross
-   * Yarn) = 1048, and 1120 with the grid's chrome <= 1155. Fabric is read-only here
-   * (picked on Allocation) and reveals its full name on hover.
+   * THE READ-ONLY CELLS ARE TEXT, NOT BOXES (the order Manual grid's Size
+   * column): a `readOnly` input would still sit on the row's arrow axis, and
+   * Tab is meant to walk the weights and nothing else.
    */
-  const consumptionColumns: ChildGridColumn<LineRow>[] = [
-    {
-      header: "Fabric",
-      width: FIELD_WIDTH_CSS.code,
-      cell: (r) => <Truncated className="text-sm">{fabricById.get(r.item_id ?? "")?.name ?? ""}</Truncated>,
-    },
-    {
-      header: "Stage",
-      required: true,
-      // `hug` since Plan by joined the row (2026-09-21): GREIGE / DYED / WASH /
-      // PRINT all fit 88px, and the 56px it gives back is what keeps the grid
-      // inside the 1155px pane (check:grid-budget).
-      width: FIELD_WIDTH_CSS.hug,
-      // OWED ONLY ONCE THE LINE NAMES A FABRIC (`iwoFabricLineProblems` skips a
-      // line without one). Every allocation line is shown here now, the seeded
-      // blank one included, so the column's star stays and this row's own
-      // scope decides the hold — a blank line never cages the cursor.
-      cell: (r) => (
-        <RequiredScope required={!!r.item_id} label="Stage">
-          <LookupDialogPicker
-            kind="fabric_stage"
-            label="Stage"
-            compact
-            required={!!r.item_id}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            options={data.fabricStages}
-            value={r.stage_id}
-            onChange={(id) => setFabricStage(r, id)}
-          />
-        </RequiredScope>
-      ),
-    },
-    {
-      /* PLAN BY (client 2026-09-21) — the Material BOM's Attribute, with a
-         fabric's axes. The Stage decides what is offered (`planByFor`: greige
-         cannot be planned by colour); switching keeps what was typed
-         (`replan`). Under a split the Req Wt cell is the door to the
-         [Breakup] sheet and the split axes read as summaries. */
-      header: "Plan by",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (r) => {
-        const offered = planByFor(fabricStageRank(r.stage_id));
-        return (
-          <Select
-            compact
-            className="h-8"
-            aria-label="Plan by"
-            value={r.plan_by}
-            onChange={(e) => patchLine(r.key, replan(r, e.target.value as PlanBy, newKey))}
-          >
-            {(offered.includes(r.plan_by) ? offered : [...offered, r.plan_by]).map((p) => (
-              <option key={p} value={p}>
-                {PLAN_BY_LABELS[p]}
-              </option>
-            ))}
-          </Select>
-        );
-      },
-    },
-    ...(showPrintColumn
+  const cardRowsFor = (l: LineRow) => derivePlanRows(l.cells, planAxesFor(l));
+  const setCellWeight = (l: LineRow, row: PlanDisplayRow, v: string) => patchLine(l.key, { cells: setPlanCell(l.cells, row, v) });
+  const cardCell = (r: PlanDisplayRow, value: string) => (
+    <span className={cn("text-sm", !r.declared && "text-danger")}>
+      {value || <span className="text-muted-foreground">—</span>}
+      {!r.declared && <span className="ml-1 text-xs">(not declared)</span>}
+    </span>
+  );
+  const consumptionColumns = (l: LineRow, rank: number | null): ChildGridColumn<PlanDisplayRow>[] => [
+    ...(rank !== 0
       ? [
           {
-            // PRINT asks for it — the column appears once any line is in a
-            // Print stage (or still holds a print to clear).
-            header: "Print",
-            width: FIELD_WIDTH_CSS.hug,
-            required: lines.some((l) => owesPrint(l) && !planHasColour(l.plan_by)),
-            cell: (r: LineRow) =>
-              planHasColour(r.plan_by) && owesPrint(r) ? (
-                <Input className="h-8" readOnly aria-label="Prints" value={planSummary(r.rows, (x) => x.print_name)} />
-              ) : (
-                printCell(r)
-              ),
-          },
-        ]
-      : []),
-    ...(showColourColumn
-      ? [
-          {
-            // DYED / WASH / PRINT ask for it; a GREIGE line among coloured ones
-            // shows "—" (user 2026-09-20: "if the dyed is chosen ask three
-            // field color, dia, weight"); a greige-only grid has no column.
             header: "Colour",
+            width: FIELD_WIDTH_CSS.term,
+            cell: (r: PlanDisplayRow) => cardCell(r, r.color_name),
+          },
+        ]
+      : []),
+    ...(rank === 2
+      ? [
+          {
+            header: "Print",
             width: FIELD_WIDTH_CSS.code,
-            required: lines.some((l) => owesColour(l) && !planHasColour(l.plan_by)),
-            cell: (r: LineRow) =>
-              planHasColour(r.plan_by) ? (
-                /* Split by colour — the colours live in [Breakup]; here the
-                   summary, read-only (off the Tab path). */
-                <Input className="h-8" readOnly aria-label="Colours" value={planSummary(r.rows, (x) => x.color_name)} />
-              ) : (
-                colourCell(r)
-              ),
+            cell: (r: PlanDisplayRow) => cardCell(r, r.print_name),
           },
         ]
       : []),
     {
-      // PICKS FROM THE DIA PANEL (Phase 2, the order screen's Finish Dia): a
-      // Combobox, so typed text is a SEARCH, never a stored value. Under a
-      // dia split the dias live in [Breakup] and this is their summary.
       header: "Finish Dia",
       width: FIELD_WIDTH_CSS.hug,
-      // OWED ON A DYED / WASHED / PRINTED LINE (ticket 2026-09-20 §3): such a
-      // line is planned per colour AND dia. A per-row hold under a column star,
-      // the Colour cell's shape.
-      required: lines.some((l) => owesDia(l) && !planHasDia(l.plan_by)),
-      cell: (r) =>
-        planHasDia(r.plan_by) ? (
-          <Input className="h-8" readOnly aria-label="Finish Dias" value={planSummary(r.rows, (x) => x.dia)} />
-        ) : (
-          <RequiredScope required={owesDia(r)} label="Finish Dia">
-            <Combobox
-              compact
-              inputClassName="h-8"
-              required={owesDia(r)}
-              options={diaOptionsFor(r.finish_dia, lineKnitCode(r))}
-              value={r.finish_dia}
-              onChange={(v) => patchLine(r.key, { finish_dia: v })}
-              clearable
-            />
-          </RequiredScope>
-        ),
+      cell: (r) => cardCell(r, r.finish_dia),
     },
     {
+      // NOT STARRED: a derived row may be unused, and a hold here would cage
+      // the cursor on every blank combination. The rule is per fabric — one
+      // weighted row at least — and `lineProblems` says so under the card.
       header: "Req Wt (KGS)",
-      required: true,
       align: "right",
       width: FIELD_WIDTH_CSS.range,
-      total: { kind: "sum", of: (r) => reqKgsOf(r) || 0, format: kg },
-      cell: (r) => {
-        if (r.plan_by === "fabric") {
-          // Owed only on a line naming a fabric — see Stage above.
-          return (
-            <RequiredScope required={!!r.item_id} label="Req Wt (KGS)">
-              <Input
-                className="h-8 text-right"
-                inputMode="decimal"
-                required={!!r.item_id}
-                aria-label="Req Wt (KGS)"
-                value={r.req_kgs}
-                onChange={(e) => patchLine(r.key, { req_kgs: e.target.value })}
-              />
-            </RequiredScope>
-          );
-        }
-        /* UNDER A SPLIT THE CELL IS THE DOOR TO THE BREAKUP (the Material BOM's
-           Planned Qty, 0614): a button carrying the rows' total (or "Breakup"
-           while there is none), so the figure and the way to change it are one
-           thing. `data-row-open` puts it on the row's axis for Tab, Enter and
-           ← →; the requiredness moves onto the sheet's own cells and the Save
-           gate, since a hold on a button would cage the cursor on a box it
-           cannot type into. */
-        const total = reqKgsOf(r);
-        return (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-row-open
-            className="h-8 w-full justify-end tabular-nums"
-            disabled={!r.item_id}
-            aria-label={total == null ? "Breakup — enter the Req Wt per row" : `Req Wt ${kg(total)} — open the breakup`}
-            onClick={(ev) => openBreakup(r, ev.currentTarget.getBoundingClientRect())}
-          >
-            {total == null ? "Breakup" : kg(total)}
-          </Button>
-        );
-      },
-    },
-    {
-      header: "Form",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (r) => (
-        <Select
-          compact
-          className="h-8"
-          aria-label="Form"
-          value={r.fabric_form}
-          onChange={(e) => patchLine(r.key, { fabric_form: e.target.value })}
-        >
-          <option value="" />
-          {FABRIC_FORM_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
-    {
-      header: "GSM",
-      align: "right",
-      width: FIELD_WIDTH_CSS.num,
+      total: { kind: "sum", of: (r) => num(r.req_kgs) || 0, format: kg },
       cell: (r) => (
         <Input
           className="h-8 text-right"
           inputMode="decimal"
-          aria-label="GSM"
-          value={r.gsm}
-          onChange={(e) => patchLine(r.key, { gsm: e.target.value })}
+          aria-label={`Req Wt (KGS) — ${[r.color_name, r.finish_dia, r.print_name].filter(Boolean).join(" · ") || "this fabric"}`}
+          value={r.req_kgs}
+          onChange={(e) => setCellWeight(l, r, e.target.value)}
         />
       ),
     },
     {
-      // SRS §4's "Gross Yarn Reqd" — Req Wt through this fabric's Fabric
-      // Process losses (divide by 1 — L, compounded: the order engine's
-      // `comboUplift`). Derived, never typed; `readOnly` keeps it off Tab.
+      // SRS §4's "Gross Yarn Reqd" — this row's weight through the fabric's
+      // Fabric Process losses (divide by 1 — L, compounded, per colour: the
+      // order engine's `comboUplift`). Derived, never typed.
       header: "Gross Yarn (KGS)",
       align: "right",
       width: FIELD_WIDTH_CSS.range,
-      total: { kind: "sum", of: (r) => grossYarnFor(r) ?? 0, format: kg },
+      total: { kind: "sum", of: (r) => grossOf(l.item_id, num(r.req_kgs), r.color_name || null) ?? 0, format: kg },
       cell: (r) => {
-        const g = grossYarnFor(r);
-        return <Input className="h-8 text-right" readOnly aria-label="Gross Yarn (KGS)" value={g == null ? "" : kg(g)} />;
+        const g = grossOf(l.item_id, num(r.req_kgs), r.color_name || null);
+        return <span className="text-sm tabular-nums">{g == null ? <span className="text-muted-foreground">—</span> : kg(g)}</span>;
       },
     },
   ];
-
-  const openBreakup = (l: LineRow, origin: SheetOrigin) => {
-    setBreakupOrigin(origin);
-    setBreakupFor(l.key);
-  };
-  const breakupLine = breakupFor ? (lines.find((l) => l.key === breakupFor) ?? null) : null;
+  /** The card's rows below the table breakpoint — the axes as the title, one box. */
+  const cardRowMobile = (l: LineRow, r: PlanDisplayRow) => (
+    <FieldGrid>
+      <Field label={[r.color_name, r.print_name, r.finish_dia].filter(Boolean).join(" · ") || "Weight"} size="sm">
+        <Input
+          className="h-8 text-right"
+          inputMode="decimal"
+          aria-label="Req Wt (KGS)"
+          value={r.req_kgs}
+          onChange={(e) => setCellWeight(l, r, e.target.value)}
+        />
+      </Field>
+    </FieldGrid>
+  );
 
   // ---- Yarn Lines (For = Yarn, step 4) -----------------------------------------
 
@@ -2157,7 +1875,7 @@ export function IwoFabricBomScreen({
         ls.map((l) => (l.structure_id ? (data.structures.find((x) => x.id === l.structure_id)?.knit ?? "") : "")),
       ),
       form: rollUp(ls.map((l) => fabricFormLabel(l.fabric_form))),
-      colours: [...new Set(ls.map((l) => l.color_name.trim()).filter(Boolean))],
+      colours: [...new Set(ls.flatMap((l) => plannedColours(l.cells)))],
     };
   });
   type FabricRouteRow = (typeof fabricRouteRows)[number];
@@ -2179,28 +1897,11 @@ export function IwoFabricBomScreen({
 
   /** Stacked cards below the table width — every label and `required` read
    *  off the column list, so the card and the header cannot disagree. */
-  // grid-required-mobile: exempt -- both line grids render cards through lineCard(), which declares `required` on each Field from the column (and per row for Mixing Uom), so the star and the hold come from one declaration
+  // grid-required-mobile: exempt -- the Allocation grid renders cards through lineCard(), which declares `required` on each Field from the column (and per row for Mixing Uom), so the star and the hold come from one declaration; the Consumption cards' one typed cell is not required (plan.ts)
   const lineCard = (columns: ChildGridColumn<LineRow>[], row: LineRow, i: number) => (
     <FieldGrid>
       {columns.map((c, ci) => (
-        <Field
-          key={ci}
-          label={c.header}
-          required={
-            c.header === "Mixing Uom"
-              ? owesMixing(row)
-              : c.header === "Colour" && c.required
-                ? owesColour(row)
-                : c.header === "Finish Dia"
-                  ? owesDia(row)
-                  : c.header === "Print"
-                    ? owesPrint(row)
-                    : c.header === "Stage" || c.header === "Req Wt (KGS)"
-                      ? !!row.item_id
-                      : c.required
-          }
-          size="sm"
-        >
+        <Field key={ci} label={c.header} required={c.header === "Mixing Uom" ? owesMixing(row) : c.required} size="sm">
           {c.cell(row, i)}
         </Field>
       ))}
@@ -2400,45 +2101,133 @@ export function IwoFabricBomScreen({
       key: "consumption",
       label: "Fabric Consumption",
       icon: Scale,
-      done: consumptionRows.some((l) => (reqKgsOf(l) ?? 0) > 0),
+      done: lines.some((l) => (planReqKgs(l.cells) ?? 0) > 0),
       content: (
         <SectionBody title="Fabric Consumption">
-          {/* EVERY ALLOCATION LINE, FILLED OR NOT, so the fields are on screen
-              the moment the tab opens (the operator reported it "blank, no
-              fields" when it drew only lines that already named a fabric).
-              The Fabric cell stays empty until one is picked on Allocation. */}
+          {!lines.some((l) => l.item_id) && (
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Name a fabric on Fabric Allocation first — each one gets its own card here.
+              </p>
+              <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => shellRef.current?.goToSection("lines")}>
+                Go to Fabric Allocation
+              </Button>
+            </div>
+          )}
           {/* WHERE IT ASKS, MADE VISIBLE (user 2026-09-20, screenshot 2969:
-              "where it will ask, I couldn't find it"). A box the Stage owes and
-              the line has not filled carries `data-required-empty` — the
+              "where it will ask, I couldn't find it"). A box the card owes and
+              the operator has not filled carries `data-required-empty` — the
               marker the cursor hold already reads — but nothing drew it, so
               the only signs were a header star and a grey Save. Each such box
-              now gets a red ring (a ring, not a border: the grid clears input
-              borders at rest), and the list under the grid names each line
+              gets a red ring (a ring, not a border: the grid clears input
+              borders at rest), and the list under the cards names each line
               and what it lacks, from the same rules Save runs. */}
-          <div className="[&_[data-required-empty]]:ring-1 [&_[data-required-empty]]:ring-danger">
-          {/* default-row: exempt -- rows ARE Fabric Allocation's lines (never empty there); a line is added here only as + Dia, a copy of an existing fabric's line */}
-          <ChildGrid<LineRow>
-            columns={consumptionColumns}
-            rows={consumptionRows}
-            tableFrom="5xl"
-            flatRows
-            renderMobileRow={(row, i) => lineCard(consumptionColumns, row, i)}
-            hideAdd
-            onAdd={() => false}
-            // A dia line added by mistake comes off here too, not only on
-            // Allocation; the grid keeps the last line (keepOne).
-            onRemove={(r) => {
-              setLines((xs) => xs.filter((x) => x.key !== r.key));
-              setDirty(true);
-            }}
-          />
+          <div className="space-y-4 [&_[data-required-empty]]:ring-1 [&_[data-required-empty]]:ring-danger">
+            {lines.map((l) => {
+              if (!l.item_id) return null;
+              const rank = fabricStageRank(l.stage_id);
+              const axes = planAxesFor(l);
+              const rows = cardRowsFor(l);
+              const declared = rows.filter((r) => r.declared).length;
+              const fabric = fabricById.get(l.item_id);
+              const family = knitLabel(lineKnitCode(l));
+              /* NOTHING TO DERIVE — SAY WHICH PANEL, never a blank grid. The
+                 Stage comes first (its own star and hold ask for it); after
+                 that each empty axis names the panel that fills it. Rows the
+                 panels no longer name still draw beneath, so a weight can be
+                 cleared or re-declared. */
+              const empty =
+                rank == null
+                  ? null
+                  : rank === 2 && axes.prints.length === 0
+                    ? "Declare the prints on the Roll form prints panel — a PRINT card has one row per colour, print and dia."
+                    : rank !== 0 && axes.colours.length === 0
+                      ? "Declare the colours on the Fabric Colour panel — a coloured card has one row per colour and dia."
+                      : rank !== 0 && axes.dias.length === 0
+                        ? `Declare a ${family ? `${family} ` : ""}dia on the Dia panel — a coloured card has one row per colour and dia.`
+                        : null;
+              return (
+                /* ONE CARD PER FABRIC. Capped so the table hugs its columns
+                   (632px + 40px `#` chrome = 672px, + 2 × 12px card padding =
+                   696px <= 44rem = 704px) rather than a grid stretched across the
+                   pane with a blank half — the sub-sheet lesson of 2026-09-03.
+                   The grid keeps `ChildGrid`'s default @lg switch, since a
+                   `tableFrom` tier (1024px up) would force the card wider than
+                   its own table for no gain. */
+                <div key={l.key} className="max-w-[44rem] rounded-md border">
+                  <div className="border-b px-3 py-2">
+                    <div className="flex items-baseline gap-2">
+                      <Truncated className="text-sm font-semibold">{fabric?.name ?? ""}</Truncated>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {[family, fabricTypeOf(l.item_id)].filter(Boolean).join(" · ")}
+                      </span>
+                    </div>
+                    {/* WHAT THE FABRIC SAYS ONCE — Stage decides the rows; Form
+                        and GSM are the fabric's (user 2026-09-22: once per
+                        fabric, not per row), stored on every one of its lines. */}
+                    <FieldRow className="mt-2">
+                      <Field label="Stage" w="code" required>
+                        <LookupDialogPicker
+                          kind="fabric_stage"
+                          label="Stage"
+                          compact
+                          required
+                          canCreate={perms.canCreate}
+                          canEdit={perms.canEdit}
+                          options={data.fabricStages}
+                          value={l.stage_id}
+                          onChange={(id) => setFabricStage(l, id)}
+                        />
+                      </Field>
+                      <Field label="Form" w="hug">
+                        <Select compact aria-label="Form" value={l.fabric_form} onChange={(e) => patchLine(l.key, { fabric_form: e.target.value })}>
+                          <option value="" />
+                          {FABRIC_FORM_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="GSM" w="num">
+                        <Input className="text-right" inputMode="decimal" aria-label="GSM" value={l.gsm} onChange={(e) => patchLine(l.key, { gsm: e.target.value })} />
+                      </Field>
+                    </FieldRow>
+                  </div>
+                  {empty && declared === 0 && (
+                    <div className="px-3 py-2">
+                      <p className="text-sm text-muted-foreground">{empty}</p>
+                      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => shellRef.current?.goToSection("bom")}>
+                        Go to Fabric BOM
+                      </Button>
+                    </div>
+                  )}
+                  {rows.length > 0 && (
+                    /* default-row: exempt -- rows are DERIVED from the panels (one per colour × dia), never added; a blank weight is simply not stored */
+                    <ChildGrid<PlanDisplayRow>
+                      columns={consumptionColumns(l, rank)}
+                      rows={rows}
+                      startIndex={0}
+                      flatRows
+                      frameless
+                      hideAdd
+                      hideRemove
+                      onAdd={() => false}
+                      onRemove={() => {}}
+                      totalsLabel="Fabric subtotal"
+                      renderMobileRow={(r) => cardRowMobile(l, r)}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
           {consumptionNeeds.length > 0 && (
             <div className="mt-2 rounded-md border border-danger bg-danger-soft px-3 py-2 text-xs text-danger">
               <div className="font-semibold">Still needed before Save</div>
               <ul className="mt-0.5 space-y-0.5">
-                {consumptionNeeds.map((p, i) => (
-                  <li key={i}>{p.message}</li>
+                {[...consumptionNeeds.map((p) => p.message), ...staleBlockers.map((b) => b.message)].map((m, i) => (
+                  <li key={i}>{m}</li>
                 ))}
               </ul>
             </div>
@@ -2630,35 +2419,6 @@ export function IwoFabricBomScreen({
           onBlockedSave: revealFirstProblem,
           isPending,
         }}
-      />
-
-      <FabricBreakupSheet
-        open={!!breakupLine}
-        onClose={() => setBreakupFor(null)}
-        origin={breakupOrigin}
-        fabricName={breakupLine?.item_id ? (fabricById.get(breakupLine.item_id)?.name ?? "") : ""}
-        planBy={breakupLine?.plan_by ?? "fabric"}
-        printStage={!!breakupLine && fabricStageRank(breakupLine.stage_id) === 2}
-        rows={breakupLine?.rows ?? []}
-        onChange={(next) => breakupLine && patchLine(breakupLine.key, { rows: next.length ? next : [blankPlanRow(newKey())] })}
-        colours={fabricColourNames}
-        prints={printNames}
-        diaOptionsFor={(held) => diaOptionsFor(held, breakupLine ? lineKnitCode(breakupLine) : null)}
-        grossOf={(row) =>
-          breakupLine
-            ? grossOf(
-                breakupLine.item_id,
-                num(row.req_kgs),
-                planHasColour(breakupLine.plan_by) ? row.color_name || null : breakupLine.color_name || null,
-              )
-            : null
-        }
-        onGoToPanels={() => {
-          setBreakupFor(null);
-          shellRef.current?.goToSection("bom");
-        }}
-        newKey={newKey}
-        readOnly={!perms.canEdit && !perms.canCreate}
       />
 
       <YarnShadesSheet

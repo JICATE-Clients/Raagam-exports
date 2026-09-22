@@ -251,7 +251,7 @@ function ColorPrintTab({
           )}
         </CardHeader>
         <CardBody className="space-y-4">
-          <DataTable
+          <DataTable paginate={false}
             columns={colorColumns}
             rows={order.colors}
             getKey={(r) => r.id}
@@ -340,7 +340,7 @@ function ColorPrintTab({
           )}
         </CardHeader>
         <CardBody className="space-y-4">
-          <DataTable
+          <DataTable paginate={false}
             columns={structureColumns}
             rows={order.structures}
             getKey={(r) => r.id}
@@ -571,7 +571,7 @@ function StylesEditTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={order.styles}
           getKey={(r) => r.id}

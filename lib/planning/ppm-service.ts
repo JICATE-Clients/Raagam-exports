@@ -63,7 +63,8 @@ export async function listGarmentPpms(): Promise<GarmentPpmRow[]> {
   const { data } = await supabase
     .from("garment_ppms")
     .select("*, customers(name), sales_orders(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<GarmentPpmRow>(row, {
@@ -227,7 +228,8 @@ export async function listProcessingPpms(): Promise<ProcessingPpmRow[]> {
   const { data } = await supabase
     .from("processing_ppms")
     .select("*, customers(name), sales_orders(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<ProcessingPpmRow>(row, {
@@ -296,7 +298,8 @@ export async function listPurchasePpms(): Promise<PurchasePpmRow[]> {
   const { data } = await supabase
     .from("purchase_ppms")
     .select("*, customers(name), sales_orders(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<PurchasePpmRow>(row, {
@@ -356,7 +359,8 @@ export async function listPpmCancels(): Promise<PpmCancelRow[]> {
   const { data } = await supabase
     .from("ppm_cancels")
     .select("*, customers(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<PpmCancelRow>(row, { customers: "customer_name" }),
@@ -413,7 +417,8 @@ export async function listPpmCompletions(): Promise<PpmCompletionRow[]> {
   const { data } = await supabase
     .from("ppm_completions")
     .select("*, customers(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<PpmCompletionRow>(row, { customers: "customer_name" }),
@@ -444,7 +449,8 @@ export async function listGarmentPpmCancellations(): Promise<GarmentPpmCancellat
   const { data } = await supabase
     .from("garment_ppm_cancellations")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators((data ?? []) as GarmentPpmCancellation[]);
 }

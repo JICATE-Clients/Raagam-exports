@@ -33,7 +33,8 @@ export async function listAssets(): Promise<AssetWithRefs[]> {
   const { data } = await s
     .from("assets")
     .select("*, locations(code), items(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as Asset),
     location_code: joined(r, "locations", "code"),
@@ -61,7 +62,8 @@ export async function getAssetAssignments(assetId: string): Promise<AssetAssignm
     .from("asset_assignments")
     .select("*")
     .eq("asset_id", assetId)
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return (data ?? []) as AssetAssignment[];
 }
 
@@ -86,7 +88,8 @@ export async function listCourierDespatches(): Promise<CourierDespatchWithRefs[]
   const { data } = await s
     .from("courier_despatches")
     .select("*, couriers(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as CourierDespatch),
     courier_name: joined(r, "couriers", "name"),

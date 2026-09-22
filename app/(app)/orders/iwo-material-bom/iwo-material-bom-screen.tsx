@@ -8,9 +8,21 @@
  * THE ORDER SCREEN IS NOT TOUCHED. `app/(app)/orders/material-bom/` stays as it
  * is; this copies its shape — the rail, an Items grid, a Processes grid, a
  * read-only Requirement — and drops what only an order has: the garment-order
- * picker, the production strip, the per-colourway / per-size slice grid, the
- * Attribute (requirement grain), garment parts and combinations. The planner
- * TYPES the Planned Qty (SRS §5: "piece-level consumption is overridden").
+ * picker, the production strip, the order's explosion, garment parts and
+ * combinations. The planner TYPES the Planned Qty (SRS §5: "piece-level
+ * consumption is overridden"), or types it per colour / size under the line
+ * (0614, `breakup-grid.tsx`).
+ *
+ * WITHDRAWN FROM THE ITEMS TAB (user 2026-09-22): FOC, Advised item, Round To,
+ * then Brand / Specs, Colour and MOQ the same morning. Withdrawn, not deleted —
+ * the columns, `iwoMbItemInput` and `ItemRow` keep them and the screen
+ * round-trips a stored value untouched, because the save rewrites the item
+ * list from the payload and a field the form stops carrying is one the next
+ * save would blank (the order screen's `Required By` shape). Two consequences
+ * a reader should know: a line saved Advised before this still blocks its
+ * purchase orders (0586), and a stored MOQ still lifts the purchase figure
+ * (`iwoMbQuantity`) — nothing on this screen can set or clear either any
+ * more. A colour on a colour-wise line is now only ever on its rows.
  *
  * EVERY QUANTITY IS THE ORDER BOM'S ARITHMETIC — Planned × (1 + loss%), the
  * purchase pack, MOQ, Round To — through `lib/orders/iwo-material-bom/rules.ts`,
@@ -38,11 +50,11 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
-import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
@@ -66,12 +78,14 @@ import {
   type IwoMbLineFacts,
   type IwoMbProcessFacts,
 } from "@/lib/orders/iwo-material-bom/rules";
-import type { SheetOrigin } from "@/components/ui/sheet";
-import { blankBreakupRow, BreakupSheet, type BreakupRow } from "./breakup-sheet";
+import { blankBreakupRow, BreakupGrid, type BreakupRow } from "./breakup-grid";
 import { deleteIwoMaterialBom, saveIwoMaterialBom } from "@/lib/orders/iwo-material-bom/actions";
 import type { IwoMaterialBomFormData, IwoMaterialBomTask } from "@/lib/orders/iwo-material-bom/service";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+/** Add / Modify on the Colour and Size pickers write a MASTER list — the order
+ *  Material BOM's `masterPerms`, gated by `masters`, not `orders`. */
+type MasterPerms = { canCreate: boolean; canEdit: boolean };
 
 // React keys from a module counter, as the order screens do — not a ref.
 let keySeq = 0;
@@ -83,15 +97,17 @@ type ItemRow = {
   key: string;
   category_id: string | null;
   item_id: string | null;
-  specification: string;
-  item_color_id: string | null;
   consumption_uom_id: string | null;
   purchase_uom_id: string | null;
   uom_conversion_id: string | null;
   planned_qty: string;
-  /** 0614 — how the line breaks up, and its typed rows (see `breakup-sheet.tsx`). */
+  /** 0614 — how the line breaks up, and its rows (see `breakup-grid.tsx`). */
   attribute: IwoMbAttribute;
   slices: BreakupRow[];
+  /** CARRIED, NOT SHOWN (user 2026-09-22) — loaded from the record, sent back
+   *  as loaded, no cell edits them. See the file header. */
+  specification: string;
+  item_color_id: string | null;
   moq: string;
   round_to: string;
   is_advised: boolean;
@@ -173,10 +189,12 @@ export function IwoMaterialBomScreen({
   tasks,
   data,
   perms,
+  masterPerms,
 }: {
   tasks: IwoMaterialBomTask[];
   data: IwoMaterialBomFormData;
   perms: Perms;
+  masterPerms: MasterPerms;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -202,9 +220,10 @@ export function IwoMaterialBomScreen({
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
   const [items, setItems] = useState<ItemRow[]>([]);
   const [procs, setProcs] = useState<ProcRow[]>([]);
-  /** The line whose [Breakup] is open (0614), and the button it grew from. */
-  const [breakupFor, setBreakupFor] = useState<string | null>(null);
-  const [breakupOrigin, setBreakupOrigin] = useState<SheetOrigin | null>(null);
+  /** The lines whose breakup (0614) is FOLDED — absent means open, the order
+   *  screen's `closedSlices`: a default of closed would hide the rows a new
+   *  split line is about to ask for. */
+  const [closedBreakups, setClosedBreakups] = useState<Set<string>>(() => new Set());
 
   /** Real edits only — an overlay's own guard is not read by `confirmDiscard()`,
    *  so this is what protects the typing and holds off the silent reload. */
@@ -473,22 +492,25 @@ export function IwoMaterialBomScreen({
    * THE ATTRIBUTE (0614, user 2026-09-21: "the attribute field is missing …
    * add it too") — Item / Colour / Size / Colour + Size. Not the order BOM's
    * explosion (no order to explode by) but a BREAKUP the planner types in the
-   * [Breakup] sheet; under a split attribute the Planned Qty cell IS the way
-   * in — a button carrying the rows' total — and the line's figure is Σ rows
-   * (`plannedQtyOf`, the one reader the rules, the chain and the save use).
+   * rows UNDER the line (`breakup-grid.tsx`); under a split attribute the
+   * Planned Qty cell is read-only Σ of those rows (`plannedQtyOf`, the one
+   * reader the rules, the chain and the save use).
    *
-   * WIDTHS (check:grid-budget): hug 88 (Category) + term 176 (Material) +
-   * range 112 (Attribute) + hug 88 (Brand / Specs) + hug 88 (Colour) + num 72
-   * (Cons. Uom) + hug 88 (Planned Qty) + num 72 (Pur. Uom) + num 72 (MOQ) +
-   * num 72 (Round To) + code 144 (the three switches) = 1072 + 72 chrome =
-   * 1144 <= 1155.
+   * CARDS, NOT A TABLE, SINCE 2026-09-22 — and the same widths. The rows of a
+   * split line list under it the way the order Material BOM lists its
+   * Attribute rows (user: "use the same logic and UI for listing it"), and a
+   * `ChildGrid` table cannot carry a panel under a row (a second `<tr>` falls
+   * outside the row's `data-grid-row`, so Tab never reaches it —
+   * `process-fold-list.tsx`'s note). A `flatRows` card is what this grid
+   * already drew under `5xl`: one `FieldRow` at the vocabulary widths below,
+   * folding on a narrow pane instead of inflating — not the quarter-pane boxes
+   * of screenshot 2985.
    *
-   * The re-cut that made it fit: the three switches share ONE cell (Budget's
-   * "FOC · Import" shape — three 36px tracks in a `code` cell against 3 × num
-   * = 216 apart); the two Uoms are `num`, as Budget's unit column is ("NOS"
-   * fits); Category and Material reveal the rest of a long name on hover (the
-   * picker trigger's own ellipsis + tooltip). Attribute took its 112 from
-   * Category (−56), Material (−24) and the two Uoms (−32).
+   * WIDTHS (the card's `FieldRow`, kept at the table's steps): hug 88
+   * (Category) + term 176 (Material) + range 112 (Attribute) + num 72
+   * (Cons. Uom) + hug 88 (Planned Qty) + num 72 (Pur. Uom) + num 72 (Process)
+   * = 680. Round To, the Advised / FOC switches, Brand / Specs, Colour and MOQ
+   * left on 2026-09-22 (file header).
    */
   const itemColumns: ChildGridColumn<ItemRow>[] = [
     {
@@ -572,33 +594,6 @@ export function IwoMaterialBomScreen({
       ),
     },
     {
-      header: "Brand / Specs",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (r) => (
-        <Input
-          className="h-8"
-          aria-label="Brand / Specs"
-          value={r.specification}
-          onChange={(e) => patchItem(r.key, { specification: e.target.value })}
-        />
-      ),
-    },
-    {
-      header: "Colour",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (r) => (
-        <LookupDialogPicker
-          kind="fabric_color"
-          label="Colour"
-          compact
-          options={data.colors}
-          canCreate={perms.canCreate}
-          value={r.item_color_id}
-          onChange={(id) => patchItem(r.key, { item_color_id: id })}
-        />
-      ),
-    },
-    {
       header: "Cons. Uom",
       required: true,
       width: FIELD_WIDTH_CSS.num,
@@ -622,28 +617,20 @@ export function IwoMaterialBomScreen({
         if (r.attribute === "item") {
           return decimalCell(r.planned_qty, "Planned Qty", (v) => patchItem(r.key, { planned_qty: v }), true);
         }
-        /* UNDER A SPLIT ATTRIBUTE THE CELL IS THE DOOR TO THE BREAKUP: a button
-           carrying the rows' total (or "Breakup" while there is none), so the
-           figure and the way to change it are one thing. `data-row-open` puts
-           it on the row's axis for Tab, Enter and ← →; the requiredness moves
-           onto the sheet's own cells and the Save gate, since a hold on a
-           button would cage the cursor on a box it cannot type into. */
+        /* UNDER A SPLIT ATTRIBUTE THE CELL IS Σ THE ROWS BENEATH, read-only —
+           the order screen's line figure. The star stays (the record still
+           needs the quantity) and a `readOnly` box never holds, so the
+           requiredness is enforced on the rows' own cells and the Save gate;
+           `tabIndex={-1}` comes with `readOnly`, so Tab goes from Cons. Uom
+           straight on to Pur. Uom and reaches the rows after the line. */
         const total = plannedQtyOf(itemFacts(r));
         return (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-row-open
-            className="h-8 w-full justify-end tabular-nums"
-            aria-label={total == null ? "Breakup — enter the Planned Qty per row" : `Planned Qty ${fmtNumber(total)} — open the breakup`}
-            onClick={(ev) => {
-              setBreakupOrigin(ev.currentTarget.getBoundingClientRect());
-              setBreakupFor(r.key);
-            }}
-          >
-            {total == null ? "Breakup" : fmtNumber(total)}
-          </Button>
+          <Input
+            className="h-8 text-right"
+            readOnly
+            aria-label="Planned Qty — the total of the rows under the line"
+            value={total == null ? "" : fmtNumber(total)}
+          />
         );
       },
     },
@@ -661,32 +648,13 @@ export function IwoMaterialBomScreen({
       ),
     },
     {
-      header: "MOQ",
-      align: "right",
+      /* Process = send out for processing, which offers the material on the
+         Processes grid. It shared this cell with Advised and FOC until
+         2026-09-22 (file header). */
+      header: "Process",
       width: FIELD_WIDTH_CSS.num,
-      cell: (r) => decimalCell(r.moq, "MOQ", (v) => patchItem(r.key, { moq: v })),
-    },
-    {
-      header: "Round To",
-      align: "right",
-      width: FIELD_WIDTH_CSS.num,
-      cell: (r) => decimalCell(r.round_to, "Round To", (v) => patchItem(r.key, { round_to: v })),
-    },
-    {
-      /* THREE SWITCHES, ONE CELL — the header names them left to right, each
-         track keeps its own accessible name. Advised is the order screen's TBA
-         ("To be advised": spec or buyer approval pending, screenshot 2941's "Is
-         Advised Item"; recorded, the PO block is its own step — 0584's header).
-         Process = send out for processing, which offers the material on the
-         Processes grid. FOC = free of charge. */
-      header: "Advised · Process · FOC",
-      width: FIELD_WIDTH_CSS.code,
       cell: (r) => (
-        <div className="flex items-center gap-2">
-          <Toggle checked={r.is_advised} ariaLabel="Advised item" onChange={(v) => patchItem(r.key, { is_advised: v })} />
-          <Toggle checked={r.send_out} ariaLabel="Send out for processing" onChange={(v) => patchItem(r.key, { send_out: v })} />
-          <Toggle checked={r.is_foc} ariaLabel="Free of charge" onChange={(v) => patchItem(r.key, { is_foc: v })} />
-        </div>
+        <Toggle checked={r.send_out} ariaLabel="Send out for processing" onChange={(v) => patchItem(r.key, { send_out: v })} />
       ),
     },
   ];
@@ -804,15 +772,8 @@ export function IwoMaterialBomScreen({
       cell: (r) => (
         <div className="min-w-0">
           <Truncated className="text-sm">{materialById.get(r.line.item_id ?? "")?.name ?? ""}</Truncated>
-          {r.line.specification.trim() && (
-            <Truncated className="block text-xs text-muted-foreground">{r.line.specification}</Truncated>
-          )}
         </div>
       ),
-    },
-    {
-      header: "Colour",
-      cell: (r) => <span className="text-sm">{data.colors.find((c) => c.id === r.line.item_color_id)?.name ?? ""}</span>,
     },
     {
       header: "Planned",
@@ -850,17 +811,6 @@ export function IwoMaterialBomScreen({
           <span className="tabular-nums text-sm font-medium">{`${fmtNumber(q.purchase)} ${uomCode(q.purchase_uom_id)}`}</span>
         );
       },
-    },
-    {
-      // What the tick DOES, not only that it is set: purchase orders for this
-      // work order refuse the material until it is unticked (0586).
-      header: "Purchase",
-      cell: (r) =>
-        r.line.is_advised ? (
-          <StatusPill tone="warning">Advised · PO blocked</StatusPill>
-        ) : (
-          <span className="text-xs text-muted-foreground">Open</span>
-        ),
     },
   ];
 
@@ -936,25 +886,161 @@ export function IwoMaterialBomScreen({
       done: items.some((l) => !!l.item_id),
       content: (
         <SectionBody title="Items">
-          {/* A TABLE FROM `5xl` (see `itemColumns`' width note); under it the
-              row folds into one frame (`flatRows`) keeping the table's own
-              widths. Labels and `required` are read off `itemColumns`, on the
-              `Field` AND on the control. */}
+          {/* ONE-LINE CARDS AT THE TABLE'S OWN WIDTHS (see `itemColumns`' note),
+              in one frame (`flatRows`). Labels and `required` are read off
+              `itemColumns`, on the `Field` AND on the control. A split line
+              lists its rows beneath its fields, INSIDE the card, so they are
+              part of the row for Tab and the arrows. */}
+          {/* THE ORDER MATERIAL BOM'S ITEM LISTING (user 2026-09-22, screenshot
+              3018: "the material same item listing UI need to apply here … now
+              lists rendering one by one"). `foldRows` opens ONE line at a time
+              and `masterDetail` stands the others in a list beside it, so a
+              ten-line BOM never pushes the open line down the page — the same
+              two props, the same list item and the same folded row the order
+              screen uses. The pane appears with the SECOND line (`mdActive`
+              in `child-grid.tsx`: a list of one is not a list). */}
           <ChildGrid<ItemRow>
             columns={itemColumns}
             rows={items}
-            tableFrom="5xl"
+            forceCards
             flatRows
-            renderMobileRow={(row, i) => (
-              <FieldRow align="start" gap="tight">
-                {itemColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} w={fieldWidthStep(c.width) ?? "hug"}>
-                    {c.cell(row, i)}
+            foldRows
+            masterDetail
+            renderListItem={(row) => {
+              /* INERT BY CONTRACT (see `renderListItem` on the grid): text, a
+                 dot and a figure; the fields live in the pane next door. */
+              const name = row.item_id ? (materialById.get(row.item_id)?.name ?? null) : null;
+              const q = name ? quantityFor(row) : null;
+              const state = !name ? "idle" : q && isRefusal(q) ? "warn" : "ok";
+              const attr = row.attribute !== "item" ? IWO_MB_ATTRIBUTE_LABELS[row.attribute] : null;
+              const planned = plannedQtyOf(itemFacts(row));
+              return (
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 shrink-0 rounded-full",
+                      state === "ok" && "bg-success",
+                      state === "warn" && "bg-warning",
+                      state === "idle" && "bg-border-strong opacity-50",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <Truncated className={cn("block text-[12.5px] leading-tight", name ? "font-medium text-foreground" : "text-muted-foreground")}>
+                      {name ?? "New material"}
+                    </Truncated>
+                    {(attr || planned != null) && (
+                      <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                        {[attr, planned != null ? `${fmtNumber(planned)} ${uomCode(row.consumption_uom_id)}`.trim() : null].filter(Boolean).join(" · ")}
+                      </Truncated>
+                    )}
+                  </span>
+                  {/* THE FIGURE THE LINE PRODUCES — a refusal in words, never a
+                      dash that reads as zero. The order screen's own rule. */}
+                  <span className="shrink-0 text-right leading-tight">
+                    {q && isRefusal(q) ? (
+                      <span className="text-[10px] font-medium text-warning">Needs attention</span>
+                    ) : q ? (
+                      <>
+                        <span className="block text-[12px] font-semibold tabular-nums text-accent">{fmtNumber(q.purchase)}</span>
+                        <span className="block text-[9px] tracking-wide text-muted-foreground">{uomCode(q.purchase_uom_id)}</span>
+                      </>
+                    ) : null}
+                  </span>
+                </div>
+              );
+            }}
+            /* WHAT A FOLDED LINE SHOWS — ONE REAL FIELD, not a nicety: Tab lands
+               on fields, so a folded row rendering none would be reachable by
+               mouse alone, and focusing it is what opens it again. The Material
+               picker is the right one: the line's identity. `label=""` keeps the
+               row's line box (a `Label` with no children has none). */
+            renderFoldedRow={(row, i) => {
+              const material = itemColumns.find((c) => c.header === "Material")!;
+              const planned = plannedQtyOf(itemFacts(row));
+              const summary = [
+                row.attribute !== "item" ? IWO_MB_ATTRIBUTE_LABELS[row.attribute] : null,
+                planned != null ? `${fmtNumber(planned)} ${uomCode(row.consumption_uom_id)}`.trim() : null,
+              ]
+                .filter(Boolean)
+                .join("  ·  ");
+              return (
+                <FieldRow>
+                  <Field label="" required={material.required} w="term">
+                    {material.cell(row, i)}
                   </Field>
-                ))}
-              </FieldRow>
+                  <Field label="" className="min-w-0 flex-1">
+                    <div className="flex min-h-8 items-center">
+                      <Truncated className="text-sm text-muted-foreground">
+                        {summary || (row.item_id ? "Nothing else filled in yet" : "New material — not filled in")}
+                      </Truncated>
+                    </div>
+                  </Field>
+                </FieldRow>
+              );
+            }}
+            renderMobileRow={(row, i) => (
+              <div>
+                {/* WHICH LINE AM I FILLING IN? — the pane leads with the line's
+                    name at the section heading's own weight, and the figure it
+                    produces on the right (the order screen's pane header). */}
+                <div className="mb-2 flex items-baseline gap-3 pr-9">
+                  <Truncated className="min-w-0 text-[15px] font-bold tracking-tight text-foreground">
+                    {row.item_id ? (materialById.get(row.item_id)?.name ?? "") : "New material"}
+                  </Truncated>
+                  {(() => {
+                    const q = row.item_id ? quantityFor(row) : null;
+                    return q && !isRefusal(q) ? (
+                      <span className="ml-auto shrink-0 text-right">
+                        <span className="text-base font-semibold tabular-nums text-accent">{fmtNumber(q.purchase)}</span>{" "}
+                        <span className="text-[10px] tracking-wide text-muted-foreground">{uomCode(q.purchase_uom_id)}</span>
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
+                <FieldRow align="start" gap="tight">
+                  {itemColumns.map((c, ci) => (
+                    <Field key={ci} label={c.header} required={c.required} w={fieldWidthStep(c.width) ?? "hug"}>
+                      {c.cell(row, i)}
+                    </Field>
+                  ))}
+                </FieldRow>
+                {row.attribute !== "item" && (
+                  <BreakupGrid
+                    attribute={row.attribute}
+                    uomCode={uomCode(row.consumption_uom_id)}
+                    rows={row.slices}
+                    onChange={(next) => patchItem(row.key, { slices: next })}
+                    colors={data.colors}
+                    sizes={data.sizes}
+                    masterPerms={masterPerms}
+                    newKey={newKey}
+                    open={!closedBreakups.has(row.key)}
+                    onToggle={() =>
+                      setClosedBreakups((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(row.key)) next.delete(row.key);
+                        else next.add(row.key);
+                        return next;
+                      })
+                    }
+                  />
+                )}
+              </div>
             )}
+            /* FINISH THE LINE FIRST (the order screen's gate): under
+               `masterDetail` a new line opens and folds the current one, so an
+               unfinished line would fold with its problem out of sight. The
+               same rules Save runs, on the last line alone; the toast names
+               what is missing and the grid declines the add (`false`). */
             onAdd={() => {
+              const last = items[items.length - 1];
+              if (last) {
+                const missing = iwoMbProblems([itemFacts(last)], []).filter((p) => p.section === "items");
+                if (missing.length) {
+                  toastError(missing[0].message.replace(/^Line 1/, "The open line"));
+                  return false;
+                }
+              }
               setItems((xs) => [...xs, blankItem()]);
               setDirty(true);
             }}
@@ -1069,26 +1155,6 @@ export function IwoMaterialBomScreen({
           isPending,
         }}
       />
-
-      {(() => {
-        const line = breakupFor ? (items.find((x) => x.key === breakupFor) ?? null) : null;
-        return (
-          <BreakupSheet
-            open={!!line}
-            onClose={() => setBreakupFor(null)}
-            origin={breakupOrigin}
-            materialName={line?.item_id ? (materialById.get(line.item_id)?.name ?? "") : ""}
-            attribute={line?.attribute ?? "item"}
-            uomCode={line ? uomCode(line.consumption_uom_id) : ""}
-            rows={line?.slices ?? []}
-            onChange={(next) => line && patchItem(line.key, { slices: next })}
-            colors={data.colors}
-            canCreateColour={perms.canCreate}
-            newKey={newKey}
-            readOnly={!perms.canEdit && !perms.canCreate}
-          />
-        );
-      })()}
     </>
   );
 }

@@ -42,12 +42,13 @@ export async function getWorkTypeOptions(): Promise<WorkTypeOption[]> {
 // ---------- masters ----------
 export async function listWorkTypes(): Promise<WorkType[]> {
   const s = await createClient();
-  const { data } = await s.from("work_types").select("*").order("created_at", { ascending: false });
+  // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+  const { data } = await s.from("work_types").select("*").order("created_at", { ascending: true });
   return withCreators((data ?? []) as WorkType[]);
 }
 export async function listSewingOperations(): Promise<SewingOperation[]> {
   const s = await createClient();
-  const { data } = await s.from("sewing_operations").select("*").order("created_at", { ascending: false });
+  const { data } = await s.from("sewing_operations").select("*").order("created_at", { ascending: true });
   return withCreators((data ?? []) as SewingOperation[]);
 }
 
@@ -60,7 +61,8 @@ export async function listJobOrders(): Promise<JobOrderWithRefs[]> {
   const { data } = await s
     .from("production_job_orders")
     .select("*, sales_orders(order_number)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as ProductionJobOrder),
     order_number: joined(r, "sales_orders", "order_number"),
@@ -91,7 +93,8 @@ export async function listPieceRates(): Promise<PieceRateWithRefs[]> {
   const { data } = await s
     .from("contractor_piece_rates")
     .select("*, contractors(name), work_types(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as ContractorPieceRate),
     contractor_name: joined(r, "contractors", "name"),
@@ -108,7 +111,8 @@ export async function listPackingLists(): Promise<PackingListWithRefs[]> {
   const { data } = await s
     .from("packing_lists")
     .select("*, sales_orders(order_number)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as PackingList),
     order_number: joined(r, "sales_orders", "order_number"),
@@ -138,7 +142,8 @@ export async function listInspections(): Promise<InspectionWithRefs[]> {
   const { data } = await s
     .from("inspections")
     .select("*, sales_orders(order_number)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as Inspection),
     order_number: joined(r, "sales_orders", "order_number"),
@@ -154,7 +159,8 @@ export async function listDespatches(): Promise<DespatchWithRefs[]> {
   const { data } = await s
     .from("despatches")
     .select("*, sales_orders(order_number)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as Despatch),
     order_number: joined(r, "sales_orders", "order_number"),

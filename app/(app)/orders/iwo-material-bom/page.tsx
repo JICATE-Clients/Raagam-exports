@@ -10,13 +10,25 @@ import { IwoMaterialBomScreen } from "./iwo-material-bom-screen";
 export default async function IwoMaterialBomPage() {
   await requirePermission("orders", "view");
 
-  const [tasks, data, canCreate, canEdit, canDelete] = await Promise.all([
+  const [tasks, data, canCreate, canEdit, canDelete, mCreate, mEdit] = await Promise.all([
     listIwoMaterialBomTasks(),
     getIwoMaterialBomFormData(),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
+    // The Colour and Size pickers add to / modify a MASTER list in place, so
+    // they are gated by the masters permission — the order Material BOM's
+    // `masterPerms`, not the orders one (user 2026-09-22: "same concept").
+    can("masters", "create"),
+    can("masters", "edit"),
   ]);
 
-  return <IwoMaterialBomScreen tasks={tasks} data={data} perms={{ canCreate, canEdit, canDelete }} />;
+  return (
+    <IwoMaterialBomScreen
+      tasks={tasks}
+      data={data}
+      perms={{ canCreate, canEdit, canDelete }}
+      masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
+    />
+  );
 }

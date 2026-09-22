@@ -1,110 +1,112 @@
 /**
- * IWO Fabric BOM ▸ Fabric Consumption ▸ PLAN BY — a fabric's breakup by colour
- * and/or finish dia (client 2026-09-21, screenshots 2990 · 2992; design in
- * `doc/order/iwo-fabric-consumption-plan.md` and the plan artifact, rev 5).
+ * IWO Fabric BOM ▸ Fabric Consumption — DERIVED ROWS, one card per fabric
+ * (user 2026-09-22, screenshot 3000; plan `piped-splashing-pixel`).
  *
- * ## ONE ROW PER FABRIC ON SCREEN, ONE STORED LINE PER (FABRIC, COLOUR, DIA)
+ * ## THE ROWS ARE NOT TYPED — THEY ARE DERIVED FROM THE BOM'S OWN PANELS
  *
- * The stored grain is 0592's and does not move: `iwo_fabric_bom_lines` holds
- * one row per (fabric, colour, dia) with its own `req_kgs` and `print_name`,
- * unique on the triple. The SCREEN used to hold that same grain, so a fabric
- * in two colours was two rows and Fabric Allocation showed the fabric twice —
- * the bug reported for dias on 2026-09-21 and fixed with `[Dias]`, back again
- * for colours. Now the screen holds one row per fabric and this file is the
- * boundary between the two shapes:
+ * A fabric's consumption is planned per colour and per finish dia, and both
+ * axes are already DECLARED on the Fabric BOM section: the Fabric Colour
+ * panel and the Dia panel (per BOM, not per fabric — 0581 gives neither an
+ * item id). So the consumption card of a coloured fabric shows one row per
+ * (Fabric Colour × dia declared for the fabric's knit family) — PRINT adds the
+ * Prints panel as a third axis — a GREIGE fabric one row per family dia, and
+ * the operator types ONLY the weight. Nothing is added, nothing is removed:
+ * add a colour to the panel and every coloured card grows a row; a weight
+ * left blank is simply not stored. The same idiom as Yarn Process (rows from
+ * `material_mixings`) and the order Manual grid's size rows (`manualSizeRows`,
+ * `fabric-bom-screen.tsx`).
  *
- *   - `expandPlan` — the screen's row → the stored-line facts every existing
- *     reader (the rules in `lines.ts`, the yarn engine's `iwoFabricGross`, the
- *     payload) was already written against. Nothing downstream changed.
- *   - `foldLines` — stored lines → the screen's row, on load.
+ * This replaces the 09-21 "Plan by" attribute (Fabric · Colour · Dia · Colour
+ * + Dia, with a [Breakup] sheet) — the Material BOM's shape, carried over
+ * because the IWO has no order to explode by. The client's own screen
+ * (recording 09-21, screenshot 2992) nests colours under the fabric and dias
+ * under the colour; every combination on one card is that content flattened.
  *
- * ## THE MATERIAL BOM'S ATTRIBUTE, WITH A FABRIC'S AXES (0614)
+ * ## ONE STORED LINE PER (FABRIC, COLOUR, DIA, PRINT) — UNCHANGED
  *
- * IWO Material BOM ▸ Items answers "one line, several sub-quantities" with an
- * Attribute on the row (Item · Colour · Size · Colour + Size), the quantity
- * cell as the door to a [Breakup] sheet, and ONE reader (`plannedQtyOf`) for
- * the line's figure. This is that shape: `plan_by` is Fabric · Colour · Dia ·
- * Colour + Dia, the Req Wt cell is the door, `reqKgsOf` is the reader.
+ * The stored grain is 0592/0599's and does not move: `iwo_fabric_bom_lines`
+ * holds one row per (fabric, colour, dia, print) with its own `req_kgs`,
+ * unique on the four. The rules in `lines.ts`, the yarn engine
+ * (`iwoFabricGross`), the action, the Budget pull and the reports were all
+ * written against that grain and are untouched. This file is the boundary:
  *
- * What a fabric adds is that its Stage already decides its fields: a coloured
- * stage owes a Colour and a Finish Dia on EVERY stored line, GREIGE owes no
- * colour at all. So `planByFor` is what a stage offers, and `replanForStage`
- * is what happens to a plan when the Stage changes — weights are never thrown
- * away (summed per dia on the way to GREIGE, since greige is one lot).
+ *   - `expandPlanCells` — the card's weighted cells → the stored-line facts.
+ *   - `foldPlanCells`   — stored lines → the card's cells, on load.
  *
- * ## THE ATTRIBUTE IS NOT STORED — IT IS INFERRED
+ * ## CELLS ARE KEYED BY NAME, AND A LOST DECLARATION IS SHOWN, NEVER DROPPED
  *
- * The Material BOM stores `attribute` on its line because a line is one row
- * there. Here a fabric is MANY rows, and there is no parent row to carry it,
- * so `foldLines` infers it from the lines: colours > 1 and dias > 1 → Colour
- * + Dia, colours > 1 → Colour, dias > 1 → Dia, else Fabric. One line is
- * "Fabric" whichever way it was typed, which is true — it IS one line.
+ * `PlanCells` is a record keyed by the normalised (colour, dia, print) —
+ * exactly `lines.ts`'s duplicate key minus the item — because that is what
+ * the unique index is keyed on, and a panel row's screen key does not
+ * survive a reload. A cell whose axes are no longer declared (a colour
+ * deleted from the panel, a dia removed, the Stage switched to GREIGE) is
+ * still a stored weight, so `derivePlanRows` keeps it on the card tagged
+ * `declared: false` and Save refuses it by name. The alternative — dropping
+ * the row because the panel changed — is 400 kg vanishing because a name was
+ * retyped, which is the silent loss the order Manual grid's `declared: false`
+ * rows exist to prevent.
+ *
+ * ## A FABRIC WITH NO WEIGHT STILL REACHES THE RULES
+ *
+ * The weight is not required per row (a derived row may legitimately be
+ * unused, and a cursor hold on every blank combination would cage the
+ * operator). The rule is per FABRIC — at least one weighted row — and it
+ * needs no new rule: `expandPlanCells` of an empty card emits ONE placeholder
+ * fact with `req_kgs: null`, so `iwoFabricLineProblems` refuses it with its
+ * existing "enter the Req Wt" (which fires first — the rule order there is
+ * weight, then colour, dia, print). The screen relabels that one sentence and
+ * drops the placeholder's colour/dia/print problems, which are about a row
+ * that does not exist. A placeholder never reaches the table.
  *
  * Client-safe, pure: the screen previews with these and `check:iwo-fabric-bom`
- * §18 proves them (fold ∘ expand = identity, the greige re-plan, the empty
- * split, the inference).
+ * §18 proves them (derive, fold ∘ expand = identity both ways, the placeholder,
+ * the undeclared cell, the stage merges).
  */
 
+import { diaKey } from "@/lib/orders/fabric-bom/dia-knit";
 import { comboKey } from "@/lib/orders/fabric-bom/yarn-process";
 
-export const PLAN_BY = ["fabric", "colour", "dia", "colour_dia"] as const;
-export type PlanBy = (typeof PLAN_BY)[number];
+/** `${COLOUR}\0${DIA}\0${PRINT}` — `lines.ts`'s duplicate key without the item. */
+export type CellKey = string;
 
-export const PLAN_BY_LABELS: Record<PlanBy, string> = {
-  fabric: "Fabric",
-  colour: "Colour",
-  dia: "Dia",
-  colour_dia: "Colour + Dia",
+export const cellKey = (colour: string | null | undefined, dia: string | null | undefined, print: string | null | undefined): CellKey =>
+  [comboKey(colour), diaKey(dia), comboKey(print)].join("\u0000");
+
+/** One weighted cell as the card edits it — the axes as DECLARED (capitals,
+ *  like the panels), the weight as TYPED (text, so "12." is not rewritten
+ *  under the caret). */
+export type PlanCell = { color_name: string; finish_dia: string; print_name: string; req_kgs: string };
+
+/** A fabric's weighted cells. A blank weight is an ABSENT key — that is what
+ *  makes "a row left blank is not stored" fall out of `setPlanCell`. */
+export type PlanCells = Readonly<Record<CellKey, PlanCell>>;
+
+export const NO_CELLS: PlanCells = Object.freeze({});
+
+/** What the panels declare for one fabric: its Stage's rank (`stageRank` — 0
+ *  greige, 1 dyed/washed, 2 print, null while no Stage), the Fabric Colour
+ *  names, the dias of its knit family (`familyDias`), the Prints names. */
+export type PlanAxes = {
+  rank: number | null;
+  colours: readonly string[];
+  dias: readonly string[];
+  prints: readonly string[];
 };
 
-/** Does this attribute split the colour / the dia axis into the sheet? */
-export const planHasColour = (p: PlanBy): boolean => p === "colour" || p === "colour_dia";
-export const planHasDia = (p: PlanBy): boolean => p === "dia" || p === "colour_dia";
-
-/**
- * WHAT A STAGE OFFERS. GREIGE has no colour (Phase 2's rule: "greige is one
- * lot, dyed later"), so it cannot be planned by colour; a coloured stage may
- * be planned any of the four ways. `rank` is `stageRank` — 0 greige, ≥ 1
- * coloured, null while no Stage is chosen (offer everything: the Stage rule
- * will speak when it is set).
- */
-export function planByFor(rank: number | null): readonly PlanBy[] {
-  return rank === 0 ? (["fabric", "dia"] as const) : PLAN_BY;
-}
-
-/** One breakup row as the sheet edits it — every value the TEXT typed. */
-export type PlanRow = { key: string; color_name: string; print_name: string; dia: string; req_kgs: string };
-
-export const blankPlanRow = (key: string): PlanRow => ({ key, color_name: "", print_name: "", dia: "", req_kgs: "" });
-
-/** Is this row worth storing? The sheet seeds a blank row, and an untouched
- *  seed is dropped when the plan has other rows to stand on. */
-export const isBlankPlanRow = (r: PlanRow): boolean =>
-  !r.color_name.trim() && !r.print_name.trim() && !r.dia.trim() && !r.req_kgs.trim();
-
-/** The rows a plan keeps: every row while there is one, else the ones that say
- *  something — so a plan with real rows never stores a blank one beside them,
- *  and a plan with only a blank row still expands to ONE line the rules can
- *  refuse by name ("enter the Req Wt") rather than to nothing. */
-export const keptPlanRows = (rows: readonly PlanRow[]): PlanRow[] =>
-  rows.length <= 1 ? [...rows] : rows.filter((r) => !isBlankPlanRow(r));
-
-/**
- * The fabric row as this file reads it — the row-level cells (which apply to
- * every stored line for an axis that is NOT split) and the breakup rows (which
- * carry the split axes). Text throughout, like the screen.
- */
-export type PlanLine = {
-  plan_by: PlanBy;
-  color_name: string;
-  print_name: string;
-  finish_dia: string;
-  req_kgs: string;
-  rows: PlanRow[];
-};
+/** One row of the card. `declared` false = a stored weight whose axes the
+ *  panels no longer name; shown after the declared rows, refused on Save. */
+export type PlanDisplayRow = PlanCell & { key: CellKey; declared: boolean };
 
 /** One stored line's plan fields, as `lines.ts` reads them. */
 export type PlanFacts = {
+  color_name: string | null;
+  print_name: string | null;
+  finish_dia: string | null;
+  req_kgs: number | null;
+};
+
+/** A stored line as `foldPlanCells` reads it — numbers, as the DB holds them. */
+export type StoredPlanLine = {
   color_name: string | null;
   print_name: string | null;
   finish_dia: string | null;
@@ -116,231 +118,185 @@ const num = (v: string): number | null => {
   return t === "" ? null : Number(t);
 };
 const text = (v: string): string | null => v.trim() || null;
+const str = (n: number | null | undefined): string => (n == null ? "" : String(n));
+
+/** One Dia panel row as this file reads it. */
+export type DiaDeclaration = { knit_type: string | null | undefined; dia: string | null | undefined };
 
 /**
- * THE LINE'S REQ WT — ITS OWN FIGURE, OR THE SUM OF ITS BREAKUP. The Material
- * BOM's `plannedQtyOf`: one reader for the rules, the Save gate, the payload,
- * the engine input and the totals, so a fabric broken up by colour can never
- * be grossed on a stale figure typed before it was. NULL while no row carries
- * a weight, so "enter the Req Wt" still fires rather than 0 reading as an
- * answer. NaN (a non-number typed) passes through, refused by name downstream.
+ * THE DIAS A FABRIC IS OFFERED — those declared under its knit family, each
+ * once (`diaKey`: circular 60 and woven 60 are one "60"), in panel order. A
+ * fabric with no family (no structure yet) sees every declared dia — the
+ * `diaOptionsFor` rule, and the one `diaKnitProblem` also stands down on. An
+ * UNTYPED dia is not offered to a typed fabric (the same rule).
  */
-export function reqKgsOf(l: Pick<PlanLine, "plan_by" | "req_kgs" | "rows">): number | null {
-  if (l.plan_by === "fabric") return num(l.req_kgs);
-  const ns = keptPlanRows(l.rows)
-    .map((r) => num(r.req_kgs))
+export function familyDias(decls: readonly DiaDeclaration[], knit: string | null): string[] {
+  const out: string[] = [];
+  for (const d of decls) {
+    const key = diaKey(d.dia);
+    if (!key) continue;
+    if (knit != null && d.knit_type !== knit) continue;
+    if (!out.includes(key)) out.push(key);
+  }
+  return out;
+}
+
+/**
+ * THE CARD'S ROWS. Declared rows first, in panel order — colour-major, then
+ * dia, then print (rank 2 only) — each carrying the weight its cell holds;
+ * then every cell the declaration no longer names, tagged `declared: false`.
+ *
+ *   rank ≥ 1 — colours × dias (× prints at rank 2; no prints → no rows, the
+ *              card says which panel to fill);
+ *   rank 0   — dias only, greige has no colour; no dia declared → ONE row with
+ *              a blank dia (`lines.ts` lets a greige line go without one);
+ *   rank null — no declared rows: the Stage's own hold says what is missing.
+ */
+export function derivePlanRows(cells: PlanCells, axes: PlanAxes): PlanDisplayRow[] {
+  const declared: PlanDisplayRow[] = [];
+  const seen = new Set<CellKey>();
+  const push = (colour: string, dia: string, print: string) => {
+    const key = cellKey(colour, dia, print);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const held = cells[key];
+    declared.push({
+      key,
+      declared: true,
+      color_name: held?.color_name ?? colour,
+      finish_dia: held?.finish_dia ?? dia,
+      print_name: held?.print_name ?? print,
+      req_kgs: held?.req_kgs ?? "",
+    });
+  };
+  if (axes.rank === 0) {
+    if (axes.dias.length === 0) push("", "", "");
+    for (const dia of axes.dias) push("", dia, "");
+  } else if (axes.rank != null) {
+    const prints = axes.rank === 2 ? axes.prints : [""];
+    for (const colour of axes.colours) for (const dia of axes.dias) for (const print of prints) push(colour, dia, print);
+  }
+  const stale: PlanDisplayRow[] = [];
+  for (const [key, c] of Object.entries(cells)) {
+    if (!seen.has(key)) stale.push({ ...c, key, declared: false });
+  }
+  return [...declared, ...stale];
+}
+
+/** The card's rows the panels no longer name — the message, and the blocker. */
+export const stalePlanRows = (cells: PlanCells, axes: PlanAxes): PlanDisplayRow[] =>
+  derivePlanRows(cells, axes).filter((r) => !r.declared);
+
+/**
+ * A KEYSTROKE ON A ROW'S WEIGHT. The first materialises the cell from the
+ * row's own axes (the order Manual grid's `setSizeCell`); a blank removes the
+ * key — which is also how an undeclared row is cleared.
+ */
+export function setPlanCell(cells: PlanCells, row: Pick<PlanDisplayRow, "key" | "color_name" | "finish_dia" | "print_name">, req_kgs: string): PlanCells {
+  if (req_kgs.trim() === "") {
+    if (!(row.key in cells)) return cells;
+    const next: Record<CellKey, PlanCell> = { ...cells };
+    delete next[row.key];
+    return next;
+  }
+  return { ...cells, [row.key]: { color_name: row.color_name, finish_dia: row.finish_dia, print_name: row.print_name, req_kgs } };
+}
+
+/** The one placeholder an empty card expands to — see the header. */
+export const isPlaceholderFacts = (f: Pick<PlanFacts, "req_kgs">): boolean => f.req_kgs === null;
+
+/**
+ * THE CARD'S CELLS → THE STORED-LINE FACTS, one per weighted cell in cell
+ * order. NO cells → exactly one placeholder with every field null, so the
+ * fabric still reaches the payload, the engine and the rules — a `[]` here
+ * would make a fabric with no weight vanish rather than be refused.
+ */
+export function expandPlanCells(cells: PlanCells): PlanFacts[] {
+  const out: PlanFacts[] = [];
+  for (const c of Object.values(cells)) {
+    out.push({ color_name: text(c.color_name), print_name: text(c.print_name), finish_dia: text(c.finish_dia), req_kgs: num(c.req_kgs) });
+  }
+  return out.length ? out : [{ color_name: null, print_name: null, finish_dia: null, req_kgs: null }];
+}
+
+/**
+ * STORED LINES OF ONE FABRIC → THE CARD'S CELLS. Keyed by the normalised
+ * axes, the cell keeping the stored spelling; a line with no weight cannot
+ * exist (the action runs the rules on drafts too) and is skipped rather than
+ * stored as a blank.
+ */
+export function foldPlanCells(lines: readonly StoredPlanLine[]): PlanCells {
+  const out: Record<CellKey, PlanCell> = {};
+  for (const r of lines) {
+    if (r.req_kgs == null) continue;
+    out[cellKey(r.color_name, r.finish_dia, r.print_name)] = {
+      color_name: r.color_name ?? "",
+      finish_dia: r.finish_dia ?? "",
+      print_name: r.print_name ?? "",
+      req_kgs: str(r.req_kgs),
+    };
+  }
+  return out;
+}
+
+/** Merge cells that share `keyOf`, summing their weights (a non-number typed
+ *  poisons the sum to NaN, refused by name downstream). */
+function mergeCells(cells: PlanCells, keyOf: (c: PlanCell) => CellKey, strip: (c: PlanCell) => PlanCell): PlanCells {
+  const out: Record<CellKey, PlanCell> = {};
+  for (const c of Object.values(cells)) {
+    const key = keyOf(c);
+    const held = out[key];
+    if (held) {
+      const sum = (num(held.req_kgs) ?? 0) + (num(c.req_kgs) ?? 0);
+      held.req_kgs = Number.isFinite(sum) ? String(Number(sum.toFixed(4))) : String(sum);
+    } else out[key] = strip(c);
+  }
+  return out;
+}
+
+/**
+ * THE STAGE CHANGED — A WEIGHT IS NEVER THROWN AWAY (the 09-21 rule). To
+ * GREIGE (rank 0): greige is one lot, so cells that share a dia MERGE and
+ * their weights SUM. Off a Print stage (rank ≠ 2): cells that share a colour
+ * and dia merge across prints. GREIGE → coloured is the identity — a greige
+ * cell has no colour to gain, so `derivePlanRows` shows it as not declared
+ * until the weight is retyped per colour.
+ */
+export function planCellsForStage(cells: PlanCells, rank: number | null): PlanCells {
+  let next = cells;
+  if (rank === 0) {
+    next = mergeCells(
+      next,
+      (c) => cellKey("", c.finish_dia, ""),
+      (c) => ({ ...c, color_name: "", print_name: "" }),
+    );
+  } else if (rank !== 2) {
+    next = mergeCells(
+      next,
+      (c) => cellKey(c.color_name, c.finish_dia, ""),
+      (c) => ({ ...c, print_name: "" }),
+    );
+  }
+  return next;
+}
+
+/**
+ * THE FABRIC'S REQ WT — the sum of its weighted cells, one reader for the
+ * Save gate, the section dot and the totals. NULL while no cell carries a
+ * weight, so "enter a weight" fires rather than 0 reading as an answer. NaN
+ * (a non-number typed) passes through, refused by name downstream.
+ */
+export function planReqKgs(cells: PlanCells): number | null {
+  const ns = Object.values(cells)
+    .map((c) => num(c.req_kgs))
     .filter((n): n is number => n != null);
   if (ns.length === 0) return null;
   const sum = ns.reduce((a, b) => a + b, 0);
   return Number.isFinite(sum) ? Number(sum.toFixed(4)) : sum;
 }
 
-/**
- * THE SCREEN'S ROW → ONE STORED LINE PER BREAKUP ROW. An axis that is split
- * comes off the breakup row; one that is not comes off the fabric row. Print
- * rides with the colour: on a Print stage it is per breakup row only where the
- * colour axis is split, otherwise the fabric row's one Print applies to every
- * line (the legacy screen puts Print on the colour, and the 09-20 ticket's
- * "planned per print, colour and dia" is that reading).
- */
-export function expandPlan(l: PlanLine): PlanFacts[] {
-  if (l.plan_by === "fabric") {
-    return [{ color_name: text(l.color_name), print_name: text(l.print_name), finish_dia: text(l.finish_dia), req_kgs: num(l.req_kgs) }];
-  }
-  const colour = planHasColour(l.plan_by);
-  const dia = planHasDia(l.plan_by);
-  /* A HIDDEN AXIS MERGES, A VISIBLE ONE REFUSES (client screenshot 2993). A
-     row keeps every axis it was typed with even while the attribute hides one
-     (`replan` never clears), so under Colour a plan typed as WHITE 74" 400 +
-     WHITE 76" 100 is two rows that differ only on the hidden dia — one stored
-     line, WHITE 74" 500, is the only honest reading, and switching back to
-     Colour + Dia restores the two. Rows identical on EVERY axis are a true
-     duplicate the operator typed, left separate so the unique-triple rule in
-     `lines.ts` refuses them by name. */
-  const groups = new Map<string, { visible: PlanFacts; hidden: Set<string>; rows: PlanRow[] }>();
-  for (const r of keptPlanRows(l.rows)) {
-    const visible: PlanFacts = {
-      color_name: text(colour ? r.color_name : l.color_name),
-      print_name: text(colour ? r.print_name : l.print_name),
-      finish_dia: text(dia ? r.dia : l.finish_dia),
-      req_kgs: num(r.req_kgs),
-    };
-    const key = [comboKey(visible.color_name), comboKey(visible.print_name), comboKey(visible.finish_dia)].join(" ");
-    const hidden = [colour ? "" : comboKey(r.color_name) + "|" + comboKey(r.print_name), dia ? "" : comboKey(r.dia)].join(" ");
-    const g = groups.get(key);
-    if (g) {
-      g.hidden.add(hidden);
-      g.rows.push(r);
-    } else groups.set(key, { visible, hidden: new Set([hidden]), rows: [r] });
-  }
-  const out: PlanFacts[] = [];
-  for (const g of groups.values()) {
-    if (g.rows.length > 1 && g.hidden.size > 1) {
-      const ns = g.rows.map((r) => num(r.req_kgs)).filter((n): n is number => n != null);
-      const sum = ns.length ? Number(ns.reduce((a, b) => a + b, 0).toFixed(4)) : null;
-      out.push({ ...g.visible, req_kgs: sum });
-    } else {
-      for (const r of g.rows) out.push({ ...g.visible, req_kgs: num(r.req_kgs) });
-    }
-  }
-  return out;
-}
-
-/** A stored line as `foldLines` reads it — numbers, as the DB holds them. */
-export type StoredPlanLine = {
-  color_name: string | null;
-  print_name: string | null;
-  finish_dia: string | null;
-  req_kgs: number | null;
-};
-
-const str = (n: number | null | undefined): string => (n == null ? "" : String(n));
-
-/**
- * STORED LINES OF ONE FABRIC → THE SCREEN'S ROW, the attribute INFERRED (see
- * the header). The row-level cells are filled for an axis that is not split
- * (every line then agrees on it, by construction of `expandPlan`); the rows
- * carry the split axes in stored order. One line → Fabric, with the cells on
- * the row and one row kept in `rows` so a later switch to a split starts from
- * what was typed (the Material BOM's "switching keeps the rows").
- */
-export function foldLines(lines: readonly StoredPlanLine[], newKey: () => string): PlanLine {
-  const rows: PlanRow[] = lines.map((r) => ({
-    key: newKey(),
-    color_name: r.color_name ?? "",
-    print_name: r.print_name ?? "",
-    dia: r.finish_dia ?? "",
-    req_kgs: str(r.req_kgs),
-  }));
-  const first = lines[0];
-  const colours = new Set(lines.map((r) => comboKey(r.color_name)));
-  const dias = new Set(lines.map((r) => comboKey(r.finish_dia)));
-  const plan_by: PlanBy =
-    lines.length <= 1 ? "fabric" : colours.size > 1 && dias.size > 1 ? "colour_dia" : colours.size > 1 ? "colour" : dias.size > 1 ? "dia" : "colour_dia";
-  return {
-    plan_by,
-    color_name: planHasColour(plan_by) ? "" : (first?.color_name ?? ""),
-    print_name: planHasColour(plan_by) ? "" : (first?.print_name ?? ""),
-    finish_dia: planHasDia(plan_by) ? "" : (first?.finish_dia ?? ""),
-    req_kgs: plan_by === "fabric" ? str(first?.req_kgs) : "",
-    rows: rows.length ? rows : [blankPlanRow(newKey())],
-  };
-}
-
-/**
- * SWITCHING THE ATTRIBUTE KEEPS WHAT WAS TYPED (the Material BOM's rule).
- * Fabric → a split seeds the first row from the fabric row's own cells; a
- * split → Fabric copies the first row's values back onto the fabric row and
- * leaves `rows` in place, out of sight, so a mis-click costs nothing. Between
- * splits the rows stay as they are (Colour → Colour + Dia keeps every colour
- * row and asks for its dia). A split with no rows is seeded with one blank
- * row so the sheet opens ready to type.
- */
-export function replan(l: PlanLine, plan_by: PlanBy, newKey: () => string): PlanLine {
-  if (plan_by === l.plan_by) return l;
-  if (l.plan_by === "fabric") {
-    /* Under Fabric the ROW's cells are the truth and `rows` is what an earlier
-       split left behind. A split of two or more kept rows is restored as it
-       was; otherwise one row is seeded from the row's own cells — never a
-       stale single row, which would put back a colour the operator has since
-       changed on the row. */
-    const kept = keptPlanRows(l.rows);
-    const seed: PlanRow = { key: newKey(), color_name: l.color_name, print_name: l.print_name, dia: l.finish_dia, req_kgs: l.req_kgs };
-    const rows = kept.length >= 2 ? l.rows : [seed];
-    return {
-      ...l,
-      plan_by,
-      color_name: planHasColour(plan_by) ? "" : l.color_name,
-      print_name: planHasColour(plan_by) ? "" : l.print_name,
-      finish_dia: planHasDia(plan_by) ? "" : l.finish_dia,
-      req_kgs: "",
-      rows,
-    };
-  }
-  if (plan_by === "fabric") {
-    const first = keptPlanRows(l.rows)[0];
-    return {
-      ...l,
-      plan_by,
-      color_name: planHasColour(l.plan_by) ? (first?.color_name ?? "") : l.color_name,
-      print_name: planHasColour(l.plan_by) ? (first?.print_name ?? "") : l.print_name,
-      finish_dia: planHasDia(l.plan_by) ? (first?.dia ?? "") : l.finish_dia,
-      req_kgs: str(reqKgsOf(l)),
-    };
-  }
-  /* Split → split: A ROW KEEPS EVERY AXIS IT WAS TYPED WITH. An axis that
-     leaves the split is merely HIDDEN — `expandPlan` reads the fabric row for
-     it and merges rows that differ only there — so switching back restores
-     the rows exactly (client screenshot 2993: Colour + Dia → Colour → Colour +
-     Dia used to stamp one dia onto every row). An axis that joins the split
-     fills a row only where the row has none. The fabric row takes the first
-     row's value for an axis that leaves, so the summary and the expansion
-     agree. */
-  const gainsColour = planHasColour(plan_by) && !planHasColour(l.plan_by);
-  const losesColour = !planHasColour(plan_by) && planHasColour(l.plan_by);
-  const gainsDia = planHasDia(plan_by) && !planHasDia(l.plan_by);
-  const losesDia = !planHasDia(plan_by) && planHasDia(l.plan_by);
-  const first = keptPlanRows(l.rows)[0];
-  return {
-    ...l,
-    plan_by,
-    color_name: losesColour ? (first?.color_name ?? "") : gainsColour ? "" : l.color_name,
-    print_name: losesColour ? (first?.print_name ?? "") : gainsColour ? "" : l.print_name,
-    finish_dia: losesDia ? (first?.dia ?? "") : gainsDia ? "" : l.finish_dia,
-    rows: l.rows.map((r) => ({
-      ...r,
-      color_name: gainsColour && !r.color_name.trim() ? l.color_name : r.color_name,
-      print_name: gainsColour && !r.print_name.trim() ? l.print_name : r.print_name,
-      dia: gainsDia && !r.dia.trim() ? l.finish_dia : r.dia,
-    })),
-  };
-}
-
-/**
- * THE STAGE CHANGED — RESTRICTED, NOT WARNED (the row's own rule, "the stage
- * decides the fields"). To GREIGE (rank 0): the colour axis is dropped, the
- * attribute becomes Fabric / Dia, and rows that now share a dia are MERGED,
- * summing their weights — greige is one lot, and a weight typed under a colour
- * is not thrown away when the colour goes. Prints go the same way off a Print
- * stage (rank 2). To a coloured stage from greige: the plan is kept as it is —
- * the Colour cell (on the row, or per breakup row) is then owed and held,
- * which is the rules' job, not this file's.
- */
-export function replanForStage(l: PlanLine, rank: number | null, newKey: () => string): PlanLine {
-  let next: PlanLine = { ...l, rows: l.rows.map((r) => ({ ...r })) };
-  if (rank === 0) {
-    if (planHasColour(next.plan_by)) {
-      const merged = new Map<string, PlanRow>();
-      for (const r of keptPlanRows(next.rows)) {
-        const key = comboKey(r.dia);
-        const held = merged.get(key);
-        const kg = num(r.req_kgs);
-        if (held) {
-          const sum = (num(held.req_kgs) ?? 0) + (kg ?? 0);
-          held.req_kgs = kg == null && num(held.req_kgs) == null ? "" : String(Number(sum.toFixed(4)));
-        } else merged.set(key, { ...r, key: newKey(), color_name: "", print_name: "" });
-      }
-      const rows = [...merged.values()];
-      next = { ...next, plan_by: next.plan_by === "colour_dia" ? "dia" : "fabric", rows: rows.length ? rows : [blankPlanRow(newKey())] };
-      if (next.plan_by === "fabric") {
-        const first = next.rows[0];
-        next = { ...next, finish_dia: next.finish_dia || first?.dia || "", req_kgs: str(reqKgsOf({ plan_by: "dia", req_kgs: "", rows: next.rows })) };
-      }
-    }
-    next = { ...next, color_name: "", print_name: "", rows: next.rows.map((r) => ({ ...r, color_name: "", print_name: "" })) };
-  }
-  if (rank !== 2) {
-    next = { ...next, print_name: "", rows: next.rows.map((r) => ({ ...r, print_name: "" })) };
-  }
-  return next;
-}
-
-/** "WHITE · RED" / "74 · 76" — what the fabric row shows for a split axis. */
-export function planSummary(rows: readonly PlanRow[], pick: (r: PlanRow) => string): string {
-  return [...new Set(keptPlanRows(rows).map((r) => pick(r).trim()).filter(Boolean))].join(" · ");
-}
-
-/** The colours a plan names — Fabric Allocation's derived No Of Colors. */
-export function plannedColours(l: PlanLine): string[] {
-  return [...new Set(expandPlan(l).map((f) => comboKey(f.color_name)).filter(Boolean))];
+/** The colours a fabric's weighted cells name — the `iwoFabricGross` buckets,
+ *  and what a COLOR WISE loss step lists. */
+export function plannedColours(cells: PlanCells): string[] {
+  return [...new Set(Object.values(cells).map((c) => comboKey(c.color_name)).filter(Boolean))];
 }

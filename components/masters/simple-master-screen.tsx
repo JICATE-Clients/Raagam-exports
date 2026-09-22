@@ -311,7 +311,7 @@ export function SimpleMasterScreen<Row>({
     },
   });
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   const blankValues = useMemo(() => {
     const v: SimpleValues = {};

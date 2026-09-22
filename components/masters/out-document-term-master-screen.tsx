@@ -111,7 +111,7 @@ export function OutDocumentTermMasterScreen({
     initialFilters: { type: "", process: "", itemClass: "" },
   });
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   function openAdd() {
     setEditId(null);
@@ -298,7 +298,8 @@ export function OutDocumentTermMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No out document terms yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
+        paginate={false} getKey={(r) => r.id} empty="No out document terms yet." />
       </div>
 
       {/* mobile cards */}

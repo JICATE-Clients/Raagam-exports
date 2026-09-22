@@ -98,7 +98,7 @@ export function StockUnitMasterScreen({
     },
   );
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -279,7 +279,8 @@ export function StockUnitMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No stock units yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
+        paginate={false} getKey={(r) => r.id} empty="No stock units yet." />
       </div>
 
       {/* mobile cards */}

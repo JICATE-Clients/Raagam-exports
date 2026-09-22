@@ -108,7 +108,7 @@ export default async function PnlDetailPage({
           <CardTitle>Cost breakdown ({costs.length} line{costs.length !== 1 ? "s" : ""})</CardTitle>
         </CardHeader>
         <CardBody className="p-0">
-          <DataTable
+          <DataTable paginate={false}
             columns={costColumns}
             rows={costs}
             getKey={(c) => c.id}

@@ -106,7 +106,7 @@ export default async function GanQualityPage({
           <CardTitle>Quality Checks ({checks.length})</CardTitle>
         </CardHeader>
         <CardBody>
-          <DataTable
+          <DataTable paginate={false}
             columns={withCreatedColumns(columns, checks)}
             rows={checks}
             getKey={(r) => r.id}

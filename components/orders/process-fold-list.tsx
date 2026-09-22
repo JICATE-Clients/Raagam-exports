@@ -50,14 +50,39 @@ import { cn } from "@/lib/utils";
  * already holds the rows these panels edit, and an accordion whose state lived
  * here could not be pointed at a row by anything else.
  *
- * ## THE SUMMARY CELLS ARE READ-ONLY BY CONSTRUCTION
+ * ## THE SUMMARY CELLS ARE READ-ONLY BY DEFAULT — AND ONE MAY HOLD A CONTROL
  *
  * Every column here is a derived description of the subject — the fabric's name,
- * its knit family, the colourways it serves. The one focusable thing in the row
- * is the chevron, which is what makes the responsive pair below free: the narrow
- * layout is a second rendering of the SAME text, and a hidden twin with no
- * fields in it cannot confuse Tab. (`ChildGrid` needs `renderMobileRow` for the
- * opposite reason — its cells are controls.)
+ * its knit family, the colourways it serves — and the one focusable thing in the
+ * row is the chevron. That is what makes the responsive pair below free: the
+ * narrow layout is a second rendering of the SAME text.
+ *
+ * A column marked `control` breaks that rule on purpose (2026-09-22, Budget ▸
+ * Fabric Processes, screenshot 3007). A fabric process is priced at a grain —
+ * per fabric, per colour, once — and that grain, "For", is a property of the
+ * GROUP: it was drawn read-only in the row and then AGAIN as the panel's only
+ * field, a labelled Select alone on a line with ~900px of blank beside it, 76px
+ * above the first line it governed. The row is the one place it belongs, so the
+ * cell may now render the Select.
+ *
+ * Two things had to be true for that to be safe, and both already were:
+ *
+ * - THE HIDDEN TWIN CANNOT CONFUSE TAB. This header used to say a twin "with
+ *   no fields in it" was the reason the pair was free; it is not. `tabFieldsIn`
+ *   (child-grid.tsx) and `focusablesIn` (lib/focus.ts) both filter on
+ *   `offsetParent !== null`, precisely so `ChildGrid`'s own table / cards twin
+ *   can hold controls in both renderings. A `display: none` Select is not on
+ *   the Tab path. The control therefore renders in BOTH twins, like a grid cell.
+ * - A CLICK ON THE CONTROL IS NOT A CLICK ON THE ROW. The row toggles on click;
+ *   the control cell stops the click where it is (`stopPropagation`, which also
+ *   covers a `Combobox` list PORTALED out of the row — React bubbles a portal's
+ *   events up the component tree, not the DOM, so a DOM `closest()` test could
+ *   not see it). And because a list commits on `mousedown` and can unmount
+ *   before `click` fires — leaving the browser to fire that click on the
+ *   nearest ancestor the pointer is still over, which is the row — the row's
+ *   own handler ALSO stands down while focus sits inside a control cell: after
+ *   a pick, focus is back on the control; on a genuine row click, mousedown
+ *   has already moved focus to the row.
  */
 
 export interface FoldListColumn<T> {
@@ -73,6 +98,12 @@ export interface FoldListColumn<T> {
   /** Track width, e.g. "8rem". Omit to take the remaining space. */
   width?: string;
   align?: "left" | "right";
+  /**
+   * The cell holds a CONTROL (a Select, a picker) rather than text — see the
+   * header. Clicks inside it do not toggle the fold; it is on the Tab path like
+   * any field in the row.
+   */
+  control?: boolean;
   cell: (row: T, index: number) => ReactNode;
 }
 
@@ -237,6 +268,18 @@ export function ProcessFoldList<T extends { key: string }>({
                      marker is what keeps that true if one arrives. */
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest("[data-row-remove]")) return;
+                    // A `control` cell's click never reaches here directly (it
+                    // stops propagation), but a click the browser re-targets to
+                    // the row after a portaled list unmounts does — see the
+                    // header. Focus tells the two apart.
+                    const held = document.activeElement;
+                    if (
+                      held &&
+                      e.currentTarget.contains(held) &&
+                      held.closest("[data-fold-control]")
+                    ) {
+                      return;
+                    }
                     onToggle(open ? null : row.key);
                   }}
                 >
@@ -255,6 +298,8 @@ export function ProcessFoldList<T extends { key: string }>({
                     {columns.map((c, ci) => (
                       <div
                         key={ci}
+                        data-fold-control={c.control ? "" : undefined}
+                        onClick={c.control ? (e) => e.stopPropagation() : undefined}
                         className={cn(
                           "flex min-h-7 min-w-0 flex-col justify-center",
                           c.width ? "shrink-0" : "flex-1",
@@ -275,7 +320,13 @@ export function ProcessFoldList<T extends { key: string }>({
                         <span className="w-24 shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
                           {c.cardLabel ?? c.header}
                         </span>
-                        <div className="min-w-0 flex-1">{c.cell(row, i)}</div>
+                        <div
+                          className="min-w-0 flex-1"
+                          data-fold-control={c.control ? "" : undefined}
+                          onClick={c.control ? (e) => e.stopPropagation() : undefined}
+                        >
+                          {c.cell(row, i)}
+                        </div>
                       </div>
                     ))}
                   </div>

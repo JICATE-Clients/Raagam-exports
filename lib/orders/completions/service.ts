@@ -28,7 +28,8 @@ export async function getCompletions(): Promise<CompletionRow[]> {
   const { data } = await supabase
     .from("order_completions")
     .select("*, sales_orders(order_number, buyers(name))")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators((data ?? []) as unknown as CompletionRow[]);
 }
 

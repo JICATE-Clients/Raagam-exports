@@ -13,7 +13,8 @@ export async function listSqDetails(): Promise<SqDetailRow[]> {
   const { data } = await s
     .from("sq_details")
     .select("*, buyers:customer_id(name), opportunities(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
@@ -44,18 +45,21 @@ export async function getSqQuantities(sqDetailId: string): Promise<SqQuantity[]>
 
 export async function listSqGroups(): Promise<SqGroup[]> {
   const s = await createClient();
-  const { data } = await s.from("sq_groups").select("*").order("created_at", { ascending: false });
+  // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+  const { data } = await s.from("sq_groups").select("*").order("created_at", { ascending: true });
   return withCreators((data ?? []) as SqGroup[]);
 }
 
 export async function listSqDetailNotes(sqDetailId: string): Promise<SqDetailNote[]> {
   const s = await createClient();
-  const { data } = await s.from("sq_detail_notes").select("*").eq("sq_detail_id", sqDetailId).order("entry_date", { ascending: false });
+  // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+  const { data } = await s.from("sq_detail_notes").select("*").eq("sq_detail_id", sqDetailId).order("entry_date", { ascending: true });
   return withCreators((data ?? []) as SqDetailNote[]);
 }
 
 export async function listSqCancellations(): Promise<SqCancellation[]> {
   const s = await createClient();
-  const { data } = await s.from("sq_cancellations").select("*").order("created_at", { ascending: false });
+  // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+  const { data } = await s.from("sq_cancellations").select("*").order("created_at", { ascending: true });
   return withCreators((data ?? []) as SqCancellation[]);
 }

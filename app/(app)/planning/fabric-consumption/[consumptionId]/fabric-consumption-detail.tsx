@@ -234,7 +234,7 @@ function ComponentsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={consumption.components}
           getKey={(r) => r.id}
@@ -403,7 +403,7 @@ function ConsumptionsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={consumption.entries}
           getKey={(r) => r.id}

@@ -148,25 +148,35 @@ export function iwoMbProblems(
       if (l.planned_qty == null) out.push({ section: "items", message: `${at}: enter the Planned Qty.` });
       else if (!(l.planned_qty > 0)) out.push({ section: "items", message: `${at}: Planned Qty must be a number more than 0.` });
     } else {
-      /* THE BREAKUP (0614): every kept row owes what its attribute names — a
-         Colour, a Size, or both — and a quantity; two rows of one (colour,
-         size) would be one lot typed twice. A breakup with no rows is a line
-         with no Planned Qty, said in the breakup's words. */
+      /* THE BREAKUP (0614): every kept row owes a quantity, and a Size where
+         its attribute names one; two rows of one (colour, size) would be one
+         lot typed twice. A breakup with no rows is a line with no Planned Qty,
+         said in the breakup's words.
+
+         THE COLOUR IS NEVER OWED — THE IWO EXCEPTION (client spec 2026-09-22).
+         On the order Material BOM a colour-wise row must name its Item Color
+         (`colour-required.ts`); an IWO books advance trims — cartons, polybags,
+         raw thread, an un-dyed button — weeks before the buyer's shades are
+         approved, so a colour-wise row with no colour yet is the ordinary
+         case, not an unanswered one (the SRS's own "PENDING SHADE" line). The
+         column is still drawn only under a colour-wise attribute; it is just
+         not starred, not held and not refused. A blank colour is therefore
+         also outside the duplicate test: two pending rows may be two colours
+         not yet fixed, and refusing them would force a guess. */
       const label = IWO_MB_ATTRIBUTE_LABELS[attribute];
       const rows = keptIwoMbSlices(l.slices);
       if (rows.length === 0) {
-        out.push({ section: "items", message: `${at}: ${label} wise — add at least one row in the Breakup, with its Planned Qty.` });
+        out.push({ section: "items", message: `${at}: ${label} — add at least one row under the line, with its Planned Qty.` });
       }
       const seen = new Set<string>();
       rows.forEach((s, j) => {
-        const row = `${at}, Breakup row ${j + 1}`;
-        if (attributeHasColour(attribute) && !s.item_color_id) out.push({ section: "items", message: `${row}: choose the Colour.` });
+        const row = `${at}, ${label} row ${j + 1}`;
         if (attributeHasSize(attribute) && !s.size?.trim()) out.push({ section: "items", message: `${row}: enter the Size.` });
         if (s.planned_qty == null) out.push({ section: "items", message: `${row}: enter the Planned Qty.` });
         else if (!(s.planned_qty > 0)) out.push({ section: "items", message: `${row}: Planned Qty must be a number more than 0.` });
         const key = `${attributeHasColour(attribute) ? (s.item_color_id ?? "") : ""}|${attributeHasSize(attribute) ? (s.size ?? "").trim().toUpperCase() : ""}`;
         if ((attributeHasColour(attribute) ? s.item_color_id : true) && (attributeHasSize(attribute) ? s.size?.trim() : true)) {
-          if (seen.has(key)) out.push({ section: "items", message: `${row}: this ${label.toLowerCase()} is already on another row — merge them.` });
+          if (seen.has(key)) out.push({ section: "items", message: `${row}: this ${label.toLowerCase().replace(/ wise$/, "")} is already on another row — merge them.` });
           seen.add(key);
         }
       });
@@ -218,7 +228,7 @@ export function iwoMbQuantity<C extends PackRow>(
   // The line's own figure, or Σ its breakup (0614) — one reader, `plannedQtyOf`.
   const planned = plannedQtyOf(line);
   if (planned == null || !(planned > 0)) {
-    return { refused: (line.attribute ?? "item") === "item" ? "Enter the Planned Qty" : "Enter the Planned Qty on each Breakup row" };
+    return { refused: (line.attribute ?? "item") === "item" ? "Enter the Planned Qty" : "Enter the Planned Qty on each row under the line" };
   }
 
   const lossRows: ProcessLossRow[] = processLoss.map((p, i) => ({

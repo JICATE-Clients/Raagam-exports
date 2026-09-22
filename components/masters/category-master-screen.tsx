@@ -321,7 +321,7 @@ export function CategoryMasterScreen({
     },
   );
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   /**
    * Has the operator ASKED to save yet? Until they have, the footer says nothing
@@ -565,7 +565,8 @@ export function CategoryMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No category records yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
+        paginate={false} getKey={(r) => r.id} empty="No category records yet." />
       </div>
 
       {/* mobile cards */}

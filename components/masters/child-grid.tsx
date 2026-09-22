@@ -2718,6 +2718,27 @@ export function ChildGrid<T extends { key: string }>({
    * sharing a row with another one has an edge to line up with instead.
    */
   const hugsContent = !fill && columns.length > 0 && columns.every((c) => c.width);
+  /**
+   * THE TABLE'S OWN WIDTH, STATED — WITHOUT IT `table-fixed` IS A NO-OP.
+   * `table-layout: fixed` only takes effect on a table whose `width` is not
+   * `auto` (CSS 2.1 §17.5.2.1); `w-auto table-fixed` below therefore ran the
+   * AUTOMATIC algorithm, under which a `<col>` width is a floor, not a size,
+   * and a cell holding one long `white-space: nowrap` value (a `<Truncated>`
+   * is exactly that — `overflow: hidden` does not shrink a min-content
+   * contribution) pushed its column out to the value's full length. Budget ▸
+   * Accessories Purchases showed it (2026-09-22, screenshot 2998): an Item
+   * column declared 144px drawn at ~340px, the table 200px past its pane, and
+   * INR Rate / Amount reachable only by a sideways scroll — the exact thing a
+   * declared width exists to rule out. Summing the columns into an explicit
+   * `calc()` is what makes the fixed algorithm run: every column is then its
+   * declared step and its text truncates inside it. The two chrome columns are
+   * the same literals the `<colgroup>` below states.
+   */
+  const hugWidth = hugsContent
+    ? `calc(${[!hideIndex && "2.5rem", ...columns.map((c) => c.width), !hideRemove && "2rem"]
+        .filter(Boolean)
+        .join(" + ")})`
+    : undefined;
 
   /**
    * THE CARD HUGS ONLY AT THE WIDTH WHERE THE TABLE IS ACTUALLY SHOWN.
@@ -2746,9 +2767,20 @@ export function ChildGrid<T extends { key: string }>({
    * The scroll wrapper below keeps the unconditional `w-fit`: it is `hidden`
    * under the same breakpoint, so it can only hug when it is on screen.
    *
-   * `cards`, `inline` and `across` are unchanged — none of them renders a table
-   * at any width, so `hugsContent` there is the caller saying "these columns are
+   * `inline` and `across` are unchanged — neither renders a table at any
+   * width, so `hugsContent` there is the caller saying "these columns are
    * short" about a layout that has no columns, and it has always meant `w-fit`.
+   *
+   * `cards` HUGS ONLY WHEN THIS GRID DRAWS THE ROW ITSELF. A `forceCards` grid
+   * with a `renderMobileRow` is the collapse above with no breakpoint to hide
+   * behind: the caller's row is a `FieldRow` / `FieldGrid` — a
+   * `@container/section` root, so `contain: inline-size`, so zero width to a
+   * fit-content parent — and the card settles on its widest picker, one field
+   * per line at every pane width. IWO Material BOM ▸ Items showed it the day it
+   * went `forceCards` with vocabulary-width columns (user 2026-09-22,
+   * screenshots 3012 / 3013: eleven fields stacked down the left edge). The
+   * grid's own stacked cells are not container roots, so a cards grid without
+   * a render prop keeps the hug it always had.
    */
   const cardHug =
     mode === "responsive"
@@ -2762,7 +2794,9 @@ export function ChildGrid<T extends { key: string }>({
           : narrow
             ? "@md:w-fit"
             : "@lg:w-fit"
-      : "w-fit";
+      : mode === "cards" && renderMobileRow
+        ? undefined
+        : "w-fit";
 
   /**
    * The row keys this grid was handed on its FIRST render — the stored rows.
@@ -2911,6 +2945,7 @@ export function ChildGrid<T extends { key: string }>({
               // container, which is what `overflow-x-auto` on the wrapper is for.
               hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
             )}
+            style={hugWidth ? { width: hugWidth } : undefined}
           >
             {/* COLUMN WIDTHS, DECOUPLED FROM WHETHER `<thead>` RENDERS.
                 `<th style={width}>` is what actually sizes a column (the

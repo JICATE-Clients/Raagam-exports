@@ -125,6 +125,104 @@ export function componentIdsOf(panels: readonly ManualPanel[]): string[] {
   return [...new Set(panels.map((p) => p.component_id))];
 }
 
+/**
+ * THE COMPONENTS TAB'S ANSWER FOR ONE ENTRY — the panels the order maps to
+ * this fabric IN THIS ROLL FORM (user 2026-09-22, screenshot 3008: "the
+ * components need to auto list based on the type open width / tubular").
+ *
+ * Fabric BOM ▸ Components already states, per panel and colourway, WHICH cloth
+ * it is cut from and whether that cloth reaches cutting slit or as a tube
+ * (`order_fabric_bom_lines.item_id` + `fabric_form`, 0495 — the client called
+ * the form mandatory there). A Manual entry is (style, fabric, roll form), so
+ * its components are a READ of that mapping, not a second choice: an Open
+ * Width entry of the jersey lists the panels the tab cut Open Width from the
+ * jersey, a Tubular entry the tubular ones. Until 2026-09-22 the seed read the
+ * style's DECLARATION by structure instead (`declaredPanelsFor`), which cannot
+ * tell two cloths of one structure apart and knows nothing of the form — so a
+ * jersey used both ways got every panel on one entry, and a blank roll form
+ * where the tab said "(mixed)".
+ *
+ * `widthForm` is the ENTRY's vocabulary (`open_width` / `tubular`) and the
+ * line's is `fabric_form` (`open` / `tubular`) — `fabricFormOfWidthForm`
+ * translates, one place. Blank / null = "any form": an entry that has not said
+ * yet lists everything the tab maps to its cloth. A line with no form stated
+ * is offered under either, PERMISSIVELY (the 0527 reading) — a half-filled tab
+ * must not hide a panel.
+ *
+ * DEDUPED ON THE (COORDINATE, COMPONENT) PAIR, the same identity `panelKeyOf`
+ * and `takenPanels` read — a panel on three colourways is one panel to plan.
+ * Empty when the tab maps NOTHING to this fabric, and the caller falls back to
+ * the declaration by structure: a cloth named on Manual by hand before the
+ * Components tab is filled is still planned, as it always was.
+ */
+export type MappedPanelLine = {
+  style_ref_no: string | null;
+  item_id: string | null;
+  coordinate_id: string | null;
+  component_id: string | null;
+  fabric_form: string | null;
+};
+
+export const fabricFormOfWidthForm = (widthForm: string | null | undefined): string =>
+  widthForm === "open_width" ? "open" : widthForm === "tubular" ? "tubular" : "";
+export const widthFormOfFabricForm = (fabricForm: string | null | undefined): string =>
+  fabricForm === "open" ? "open_width" : fabricForm === "tubular" ? "tubular" : "";
+
+export function mappedPanelsFor(
+  lines: readonly MappedPanelLine[],
+  styleRefNo: string | null,
+  itemId: string | null,
+  widthForm: string | null,
+): ManualPanel[] {
+  if (!itemId) return [];
+  const want = styleKeyOf(styleRefNo);
+  const form = fabricFormOfWidthForm(widthForm);
+  const seen = new Set<string>();
+  const out: ManualPanel[] = [];
+  for (const l of lines) {
+    if (l.item_id !== itemId || !l.component_id) continue;
+    /* A blank style on the line means "every style" (`takenPanels`' reading),
+       so it maps under any entry; a named one must match. */
+    const own = styleKeyOf(l.style_ref_no);
+    if (own !== null && want !== null && own !== want) continue;
+    if (form && l.fabric_form && l.fabric_form !== form) continue;
+    const p: ManualPanel = { coordinate_id: l.coordinate_id ?? null, component_id: l.component_id };
+    const key = panelKeyOf(p);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * THE ROLL FORMS THE TAB CUTS ONE FABRIC IN — `open_width` / `tubular`, each
+ * once, in line order; `[]` while no line of the fabric states one. A fabric
+ * cut both ways is TWO Manual entries (one per form, each with its own
+ * panels), which is what the seed reads this for.
+ */
+export function mappedFormsOf(lines: readonly MappedPanelLine[], styleRefNo: string | null, itemId: string | null): string[] {
+  if (!itemId) return [];
+  const want = styleKeyOf(styleRefNo);
+  const out: string[] = [];
+  for (const l of lines) {
+    if (l.item_id !== itemId) continue;
+    const own = styleKeyOf(l.style_ref_no);
+    if (own !== null && want !== null && own !== want) continue;
+    const w = widthFormOfFabricForm(l.fabric_form);
+    if (w && !out.includes(w)) out.push(w);
+  }
+  return out;
+}
+
+/** The same panels, in any order — whether an entry's list is still the one
+ *  the tab gave it (and so may follow a roll-form change) or the planner's. */
+export function samePanels(a: readonly ManualPanel[], b: readonly ManualPanel[]): boolean {
+  if (a.length !== b.length) return false;
+  const keys = new Set(a.map(panelKeyOf));
+  return b.every((p) => keys.has(panelKeyOf(p)));
+}
+
 /** One size row of one entry, as much of it as the arithmetic needs. */
 export type ManualSizeInput = {
   /** `config_lookups` id. NULL is a size the order no longer states. */

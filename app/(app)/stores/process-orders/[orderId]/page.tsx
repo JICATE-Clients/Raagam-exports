@@ -144,7 +144,7 @@ export default async function ProcessOrderDetailPage({
           <CardTitle>Line Items ({order.lines.length})</CardTitle>
         </CardHeader>
         <CardBody>
-          <DataTable
+          <DataTable paginate={false}
             columns={lineColumns}
             rows={order.lines}
             getKey={(r) => r.id}

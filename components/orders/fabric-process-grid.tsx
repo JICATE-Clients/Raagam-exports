@@ -419,7 +419,10 @@ export function FabricProcessGrid({
                `combo`, the order's assort colourway, on all three surfaces.
                So this is the third name this column has carried in one day and
                the first one the client chose for it. */
-            header: "Compo Color",
+            /* SPELLED "COMBO" SINCE 2026-09-22 (client, screenshot 2997) — the
+               09-16 rename above was transcribed as "Compo"; same fix on the
+               Components tab column and the Manual tab toggle. */
+            header: "Combo Color",
             width: "8rem",
             /* NOT `required`, AND IT WAS UNTIL 2026-09-16 — the whole
                declaration went, not just the hold. `ChildGridColumn.required`
@@ -444,7 +447,7 @@ export function FabricProcessGrid({
                 <Select
                   compact
                   className="h-8"
-                  aria-label="Compo Color"
+                  aria-label="Combo Color"
                   value={held}
                   disabled={readOnly}
                   onChange={(e) => patch(r.key, { combo: e.target.value || null })}

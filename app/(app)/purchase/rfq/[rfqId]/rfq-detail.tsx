@@ -187,7 +187,7 @@ export function RfqDetail({
           {rfq.lines.length === 0 ? (
             <p className="text-sm text-muted-foreground">No lines on this RFQ.</p>
           ) : (
-            <DataTable
+            <DataTable paginate={false}
               columns={lineColumns}
               rows={rfq.lines}
               getKey={(r) => r.id}

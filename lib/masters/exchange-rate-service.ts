@@ -12,7 +12,8 @@ export async function listExchangeRateEntries(
     .from("exchange_rate_entries")
     .select("*, lines:exchange_rate_lines(id, sno, currency_code, ex_rate)")
     .eq("register", register)
-    .order("entry_no", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("entry_no", { ascending: true });
   return withCreators(((data ?? []) as ExchangeRateEntry[]).map((e) => ({
     ...e,
     lines: [...(e.lines ?? [])].sort((a, b) => a.sno - b.sno),

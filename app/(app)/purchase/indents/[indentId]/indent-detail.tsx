@@ -122,7 +122,7 @@ export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, ca
               <Button type="submit" disabled={isPending}>Add</Button>
             </form>
           )}
-          <DataTable columns={columns} rows={lines} getKey={(r) => r.id} empty="No lines yet." />
+          <DataTable paginate={false} columns={columns} rows={lines} getKey={(r) => r.id} empty="No lines yet." />
         </CardBody>
       </Card>
 

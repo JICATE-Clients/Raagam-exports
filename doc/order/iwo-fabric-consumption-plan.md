@@ -65,7 +65,35 @@ consumes it before storing it.
 - `npx tsc --noEmit`, `npm run check:hooks`.
 - Click-test on `localhost:3000/orders/iwo-fabric-bom`: a circular fabric's Finish Dia ▾ lists only circular dias; a woven line already holding a circular dia shows it tagged and Save refuses it by name.
 
-## 5. Plan by — BUILT 2026-09-21 (the client's "dia, weight, colour")
+## 6. Derived cards — BUILT 2026-09-22 (supersedes §5)
+
+User, screenshot 3000: the Plan by attribute was "not a good fit … we can plan it
+like derived values". A pasted "Grouped Fabric Consumption UI & Auto-Derivation
+Engine" spec made it concrete, and two of its claims were corrected against the
+repo: the Fabric Colour and Dia panels are per BOM, not per fabric (0581), and
+Form / GSM are typed once per fabric (user's choice), not per row.
+
+- **One card per fabric** on Fabric Consumption. Header: fabric name + family ·
+  type, then Stage ▾ · Form ▾ · GSM (the fabric's, stored on every line).
+- **Rows are DERIVED**: a coloured stage = Fabric Colour × the fabric's family
+  dias (× Roll form prints on PRINT); GREIGE = dias only. Colour / Print / Dia
+  are text; **Req Wt is the one typed cell**; Gross Yarn per row; the totals
+  band is the card subtotal. No `+ Add`, no ✕.
+- A blank weight is not stored. A weight whose axes the panels no longer name is
+  KEPT on the card tagged "(not declared)" and Save refuses it by name.
+- A fabric with no weighted row expands to ONE placeholder line, so the existing
+  `req_kgs` rule refuses it on screen and in the action ("enter a weight on at
+  least one row").
+- Stage change keeps every weight: → GREIGE merges per dia and sums; off PRINT
+  merges the prints; GREIGE → coloured is the identity (cells show as not
+  declared until retyped per colour).
+- `lib/orders/iwo-fabric-bom/plan.ts` rewritten (`derivePlanRows`, `setPlanCell`,
+  `expandPlanCells`, `foldPlanCells`, `planCellsForStage`, `familyDias`,
+  `stalePlanRows`, `planReqKgs`, `plannedColours`); `fabric-breakup-sheet.tsx`
+  deleted; storage, `lines.ts`, the engine and the action untouched.
+  `check:iwo-fabric-bom` §18 rewritten (fail-first under four mutations).
+
+## 5. Plan by — BUILT 2026-09-21, SUPERSEDED 2026-09-22 by §6 (history)
 
 Screenshots 2990 · 2992; design in the plan artifact (rev 5, "our application's
 shape"). One row per fabric on Fabric Consumption; a **Plan by ▾** (Fabric ·

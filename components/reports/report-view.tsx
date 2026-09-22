@@ -54,7 +54,7 @@ export function ReportView<T>({
         {showChart ? (
           <ReportChart config={config} />
         ) : (
-          <DataTable columns={columns} rows={config.rows} getKey={getKey} empty={empty} />
+          <DataTable paginate={false} columns={columns} rows={config.rows} getKey={getKey} empty={empty} />
         )}
       </div>
     </div>

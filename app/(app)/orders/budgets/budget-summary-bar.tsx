@@ -71,29 +71,62 @@
  * is a full-width red banner under the strip, replacing the old "N lines
  * unpriced" chip (which counted without naming, and stood beside a green
  * margin it should have cancelled).
+ *
+ * THE BANNER BECAME A STATUS LINE (2026-09-22, screenshots 2998 / 2999). On
+ * a real order the sentence ran six lines — 22 yarn names with their
+ * compositions — and took ~150px from the grid it was about; nobody found
+ * the 23rd line from it. The line now says the COUNT, by section ("39 rates
+ * missing — Purchases 22 · Processes 16 · CMT & other 1"), and carries two
+ * controls: **Next missing**, which puts the cursor on the next unpriced
+ * line's own box (across tabs and sections), and **Which lines?**, which
+ * opens the full list — one entry per line, each a link to its box — so the
+ * naming the old banner did is still there, on request. The engine's
+ * sentence is unchanged and still what a blocked Save says.
+ *
+ * The list is a plain positioned panel, NOT a dialog: it has no `role`
+ * that `lib/reload-guard.ts`'s DOM scan would read as a modal (a bubble of
+ * links must never hold the silent auto-update), and it closes on Escape
+ * from inside it, on picking a line, or on its own ✕.
  */
 
-import type { ReactNode } from "react";
-import { AlertTriangle, Clock3, IndianRupee, Scale, TrendingDown, TrendingUp } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowDown, Clock3, IndianRupee, Scale, TrendingDown, TrendingUp, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
 import { FIELD_WIDTH } from "@/components/ui/field";
 import type { FieldWidth } from "@/lib/ui/sizes";
 import { fmtNumber } from "@/lib/format";
 import {
   isNoOrdersYet,
   isRefusal,
+  suppressedRefusal,
   type BudgetTotals,
   type Refusal,
   type SalesSummary,
+  type UnratedPart,
 } from "@/lib/orders/budget/totals";
 import { cn } from "@/lib/utils";
+
+/** The unpriced lines as the status line needs them — see the header. */
+export type UnratedStatus = {
+  total: number;
+  parts: UnratedPart[];
+  /** One entry per unpriced line, in the order Next missing walks them. */
+  lines: { key: string; label: string; go: () => void }[];
+  /** Put the cursor on the next unpriced line after the one holding it. */
+  onNext: () => void;
+};
 
 export function BudgetSummaryBar({
   totals,
   sales,
+  unrated,
 }: {
   totals: BudgetTotals;
   sales: SalesSummary;
+  unrated?: UnratedStatus;
 }) {
+  const [listOpen, setListOpen] = useState(false);
   const qty: number | string | Refusal = isRefusal(sales.qty)
     ? sales.qty
     : // THE UNIT RIDES WITH THE QUANTITY. "1,200" over a group that is half
@@ -126,20 +159,98 @@ export function BudgetSummaryBar({
 
       <Group title="Profit / Loss" tone={profitTone} icon={<ProfitIcon className="h-3.5 w-3.5" aria-hidden />}>
         <Figure w="code" label="Expenses" value={totals.cost} />
-        <Figure w="term" label="Profit Value" value={suppressed(totals.profit, totals.unratedNotice)} lead signed />
-        <Figure w="hug" label="Profit %" value={suppressed(totals.profitPct, totals.unratedNotice)} suffix="%" lead signed />
+        <Figure w="term" label="Profit Value" value={suppressedRefusal(totals.profit, totals)} lead signed />
+        <Figure w="hug" label="Profit %" value={suppressedRefusal(totals.profitPct, totals)} suffix="%" lead signed />
       </Group>
 
       {totals.unratedNotice && (
-        // NEVER SILENTLY EXCLUDED, AND NEVER PART-SUMMED. The engine's own
-        // sentence, whole, on its own line — it names every unrated line by
-        // section, which is what sends the operator to the right grid.
+        // NEVER SILENTLY EXCLUDED, AND NEVER PART-SUMMED. One line: the
+        // count by section (see the header), a way to the next line, and the
+        // engine's naming sentence behind "Which lines?". Without `unrated`
+        // (a caller with no cursor to steer) the sentence prints as before.
         <div
           role="status"
-          className="flex basis-full items-start gap-2 rounded-md border border-danger/40 bg-danger-soft px-3 py-1.5 text-[13px] font-semibold leading-snug text-danger"
+          className="relative flex basis-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-danger/40 bg-danger-soft px-3 py-1 text-[13px] font-semibold leading-snug text-danger"
         >
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>{totals.unratedNotice}</span>
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {unrated ? (
+            <>
+              <span>
+                {unrated.total} {unrated.total === 1 ? "rate" : "rates"} missing
+                {unrated.parts.length > 0 && (
+                  <span className="font-medium">
+                    {" — "}
+                    {unrated.parts.map((p) => `${p.label} ${p.count}`).join(" · ")}
+                  </span>
+                )}
+                . Profit suppressed until every line is rated.
+              </span>
+              <span className="grow" />
+              <button
+                type="button"
+                className="text-[12.5px] font-medium underline underline-offset-2 hover:text-danger/80"
+                aria-expanded={listOpen}
+                onClick={() => setListOpen((o) => !o)}
+              >
+                Which lines?
+              </button>
+              {/* `size="sm"` — this is the summary bar, not a header row
+                  (toolbar-size: exempt -- a status line inside the pinned summary bar, sized to its 13px text). */}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 border-danger/50 text-danger hover:bg-danger/10"
+                onClick={unrated.onNext}
+              >
+                Next missing
+                <ArrowDown className="ml-1 h-3.5 w-3.5" aria-hidden />
+              </Button>
+              {listOpen && (
+                <div
+                  className="absolute bottom-full right-0 z-20 mb-1 max-h-72 w-[26rem] max-w-[90vw] overflow-y-auto rounded-md border border-border bg-surface p-2 text-foreground shadow-lg"
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.stopPropagation();
+                      setListOpen(false);
+                    }
+                  }}
+                >
+                  <div className="mb-1 flex items-center justify-between px-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {unrated.total} unpriced {unrated.total === 1 ? "line" : "lines"}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Close"
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      onClick={() => setListOpen(false)}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+                  <ul className="divide-y divide-border">
+                    {unrated.lines.map((l) => (
+                      <li key={l.key}>
+                        <button
+                          type="button"
+                          className="block w-full px-1 py-1 text-left text-[13px] font-normal hover:bg-surface-muted"
+                          onClick={() => {
+                            setListOpen(false);
+                            l.go();
+                          }}
+                        >
+                          <Truncated>{l.label}</Truncated>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : (
+            <span>{totals.unratedNotice}</span>
+          )}
         </div>
       )}
       {totals.pending.length > 0 && (
@@ -155,12 +266,6 @@ export function BudgetSummaryBar({
     </div>
   );
 }
-
-/** A profit figure refused over unrated lines prints a SHORT refusal in its
- *  cell; the banner below carries the sentence. Any other refusal is printed
- *  as it is (the header's rule). */
-const suppressed = (v: number | Refusal, notice: string | null): number | Refusal =>
-  notice && isRefusal(v) && v.refused === notice ? { refused: "Suppressed — rates missing" } : v;
 
 type GroupTone = "sales" | "profit" | "loss" | "none";
 

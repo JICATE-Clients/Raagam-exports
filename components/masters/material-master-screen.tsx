@@ -255,7 +255,7 @@ export function MaterialMasterScreen({
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [categories, classLabel, filterValues.itemClass]);
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const selectedClassCode = itemClasses.find((c) => c.id === form.item_class_id)?.code ?? null;
@@ -2215,7 +2215,8 @@ export function MaterialMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No materials yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
+        paginate={false} getKey={(r) => r.id} empty="No materials yet." />
       </div>
 
       {/* mobile cards — the shared list, so the eye (view) and delete
