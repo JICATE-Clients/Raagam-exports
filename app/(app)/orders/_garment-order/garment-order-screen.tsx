@@ -15203,7 +15203,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
      a button's min-content and max-content are the same width, so the
      squeeze below ~1450px (see the parts half's own notes) is unchanged. */
   const PART_TRACK =
-    "sm:grid-cols-[minmax(0,7.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,5.5rem)_max-content_max-content]";
+    "sm:grid-cols-[minmax(0,5.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,5.5rem)_max-content_max-content]";
 
   /* ONE "+ Add part", two places — beside the last part's ✕, or alone when
      the fabric has no parts yet. Compact: it hugs its label (see
@@ -15411,9 +15411,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                its old size (AGENTS.md's compact standard), and a fixed width on
                the cell trades the too-wide bug for a scrollbar.
 
-               THE TWO PAIRS ARE SIZED BY WHAT THEY HOLD. Coordinate and Component
-               carry part names — "FRONT BODY" is the long one — so they cap at
-               120px; Colour ("BROWN") is a shorter value and caps at 104px;
+               THE FOUR ARE SIZED BY WHAT THEY HOLD. Component carries part names
+               — "FRONT BODY" is the long one — so it caps at 120px. Coordinate
+               caps at 88px (5.5rem, down from 7.5rem — client 2026-09-22:
+               "coordinate field and roll form print field text size kku set
+               aagara mari compact tight-en pannidu"): its vocabulary is TOP /
+               BOTTOM / PIECES, six letters at most, ~52px at the control's
+               size plus the compact 20px affordance and its paddings, and the
+               header "Coordinate *" is ~72px, so 88px hugs the widest of those
+               with nothing spare. Colour ("BROWN") is a shorter value and caps at 104px;
                Roll form print caps at 88px (5.5rem, down from 6.5rem — client
                2026-09-22: "roll form print field aa konjam small compact aa
                change pannidu"), the shortest of the four because it is the one
@@ -15425,7 +15431,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                every one of the four truncates with an ellipsis and reveals on
                hover, because all four are pickers or a Combobox (LAYOUT.md §14).
 
-               THE SUM, AGAINST THE PANE: 120 + 120 + 104 + 88 = 432 (448 before Roll form print went to 5.5rem), plus four
+               THE SUM, AGAINST THE PANE: 88 + 120 + 104 + 88 = 400 (448 before Coordinate and Roll form print went to 5.5rem), plus four
                8px gaps and the ✕'s ~32px is ~512px inside this half's
                `basis-[34rem]` (544px) — ~32px of slack where the previous track
                had none. Below that the caps collapse rather than scroll.
@@ -15476,7 +15482,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                per-call-site override of a shared measurement.
 
                THE CAP IS STATED TWICE ON PURPOSE — here on the track and again as
-               `sm:max-w-[7.5rem]` / `[6.5rem]` / `[5.5rem]` on each of the four
+               `sm:max-w-[5.5rem]` / `[7.5rem]` / `[6.5rem]` / `[5.5rem]` on each of the four
                `Field`s. The track alone is sufficient: `Field` is
                `cn(FIELD_WIDTH[w], "min-w-0", className)`, so `className="w-full"`
                makes the cell exactly its track and the `w-full` control inside it
@@ -15511,6 +15517,53 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                container's `space-y-2` above it: 8px either side. */
             className={cn(
               "grid grid-cols-2 items-center gap-x-2 gap-y-2 border-t border-border pt-2 first:border-t-0 first:pt-0",
+              /* THE RULE RUNS THE FULL ROW, STRUCTURE TO ✕ (client 2026-09-22,
+                 screenshot 111451: "fix the horizontal separator lines so that
+                 they stretch completely across the entire row width from left
+                 to right, rather than stopping halfway … from the 'Structure'
+                 input all the way to the delete/action buttons"). This grid is
+                 only as wide as the parts half, so its own `border-t` began at
+                 Coordinate — halfway across the box — and stopped at "+ Add
+                 part", 36px short of the fabric ✕; the fabric rules
+                 (`ChildGrid`'s `border-t`, full row width) ran edge to edge
+                 above and below it, and the two read as different tables.
+
+                 SO FROM 1250px THE BORDER IS OFF AND A `::before` DRAWS THE
+                 LINE, absolutely, with the row `relative` as its box:
+                 `left-[calc(-50.375rem-1px)]` reaches back over the row's
+                 `gap-x-2.5` (0.625rem), the fabric half's transparent 1px
+                 `border-r` and its `pr-2.5` + 46rem of tracks + five 0.625rem
+                 gaps (49.75rem) — the same arithmetic the fabric | parts
+                 divider is placed by — to the fabric row's left edge, where
+                 `ChildGrid`'s own rules begin. `right-[-2.25rem]` is `gap-2`
+                 + the 28px chip, so it ends where they end. A pseudo, NOT the
+                 `-mr-9 pr-9` that stood here for an hour: a margin trick can
+                 only stretch the box to the right, and stretching it left
+                 would lay this row's box over the fabric half and take its
+                 clicks. `pointer-events-none`: a line, nothing else.
+
+                 A `border-t` ON THE PSEUDO, NOT `h-px bg-border` (client
+                 2026-09-22: "lines lam olliya irukkanum, already irukka line
+                 maari" — every line as thin as the existing one). Both are
+                 1px in CSS and they do not paint the same: Chrome snaps a
+                 border to whole device pixels, and at the 125% zoom this
+                 screen is read at that is ONE device pixel — while a 1px
+                 background box lands on 1.25 device pixels and is
+                 anti-aliased across two, reading as a thicker, softer line
+                 beside the fabric rules, the header rule and the vertical
+                 dividers, all of which are borders. Same primitive as its
+                 neighbours, so it can only ever be the same weight.
+                 `first:before:hidden` for the reason `first:border-t-0` is
+                 there — the fabric's own rule is above the first part.
+
+                 THE FABRIC HALF IS `relative z-[1]` for this (its own
+                 comment), so a fabric whose half runs to a second line — Yarn
+                 Color on a yarn-dyed fabric, the advisory — paints over the
+                 line rather than under it. Below 1250px the halves stack, the
+                 pseudo is off and the plain `border-t` is back. */
+              "min-[1250px]:relative min-[1250px]:border-t-0",
+              "min-[1250px]:before:pointer-events-none min-[1250px]:before:absolute min-[1250px]:before:top-0 min-[1250px]:before:h-0 min-[1250px]:before:border-t min-[1250px]:before:border-border min-[1250px]:before:content-['']",
+              "min-[1250px]:before:left-[calc(-50.375rem_-_1px)] min-[1250px]:before:-right-9 min-[1250px]:first:before:hidden",
               PART_TRACK,
             )}
           >
@@ -15606,7 +15659,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 * The HOLD is unaffected on every row, because it comes from
                 * `RequiredScope` inside `Field`, never from the label text.
                 */}
-              <Field label={j === 0 ? "Coordinate" : undefined} required w="term" className="w-full sm:max-w-[7.5rem]">
+              <Field label={j === 0 ? "Coordinate" : undefined} required w="term" className="w-full sm:max-w-[5.5rem]">
                 {/* The style's own coordinates (client 2026-08-12). */}
                 <RecordPicker
                   label="Coordinate"
@@ -16059,6 +16112,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       aria-hidden
       className="pointer-events-none absolute inset-y-0 left-[50.5rem] hidden border-r border-border min-[1250px]:block"
     />
+    {/* NO PARTS | ACTIONS DIVIDER. One was drawn here for an hour on
+        2026-09-22 (a second absolute rule at 77.875rem, before the part ✕ /
+        "+ Add part" / fabric ✕ column, from 1500px) and the client had it
+        removed on sight ("antha line aa remove pannidu"). The fabric | parts
+        rule above is the only vertical line in this box. The part rows'
+        rules still run under the fabric ✕ (`-mr-9 pr-9` on the row), which
+        is the half of that change that stayed. */}
     <div
       aria-hidden
       className="mb-2 hidden items-end gap-x-2.5 border-b border-border pb-1 pr-9 min-[1250px]:flex"
@@ -16479,7 +16539,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 `structureGrid`); this border is `transparent` and stays only
                 for its 1px, so the parts half starts where the header's
                 Coordinate does. */}
-            <div className="min-w-0 space-y-2 self-stretch min-[1250px]:flex-none min-[1250px]:border-r min-[1250px]:border-transparent min-[1250px]:pr-2.5">
+            {/* `relative z-[1]` from 1250px: the part rows beside this half
+                draw their separator lines right across it (their `::before`,
+                see `componentGrid`), and this half is a DOM-earlier sibling,
+                so without a stacking context those lines would paint over
+                anything it puts on a second line — the Yarn Color field of a
+                yarn-dyed fabric, the GSM advisory. Raised, its controls (which
+                carry the input background) sit on top of the line and the
+                empty area beneath the fields still shows it. No background
+                here, deliberately: a `bg-surface` would hide the lines under
+                the whole half, which is the look being asked for. */}
+            <div className="min-w-0 space-y-2 self-stretch min-[1250px]:relative min-[1250px]:z-[1] min-[1250px]:flex-none min-[1250px]:border-r min-[1250px]:border-transparent min-[1250px]:pr-2.5">
             {/* ONE TRACK OF FIVE, IN THE ORDER THE OPERATOR NAMED THEM
                 (2026-09-11: "Structure*, Composition*, GSM*, Tolerance*,
                 Fabric Type*"). Every label starts on the same line and every box
