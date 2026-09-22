@@ -25,7 +25,7 @@ const PRIMARY =
  * is reserved for success — an Approve is the one ordinary button that says so.
  */
 const variants: Record<Variant, string> = {
-  primary: `ty-btn-solid ${PRIMARY}`,
+  primary: `ty-btn-solid ty-btn-primary ${PRIMARY}`,
   approve: `ty-btn-solid ty-btn-approve ${PRIMARY}`,
   outline:
     "ty-btn-outline border border-border bg-surface text-foreground hover:bg-surface-muted font-semibold",

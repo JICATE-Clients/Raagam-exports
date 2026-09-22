@@ -114,7 +114,7 @@ export function AssetDetail({ assetId, status, assignments, itemName, canEdit, c
               <Button type="submit" disabled={isPending}>Assign</Button>
             </form>
           )}
-          <DataTable columns={columns} rows={assignments} getKey={(r) => r.id} empty="No assignments yet." />
+          <DataTable paginate={false} columns={columns} rows={assignments} getKey={(r) => r.id} empty="No assignments yet." />
         </CardBody>
       </Card>
 

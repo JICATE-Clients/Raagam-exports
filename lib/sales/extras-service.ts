@@ -49,7 +49,8 @@ export async function listAllCostSheets(): Promise<CostSheetRow[]> {
   const { data } = await s
     .from("cost_sheets")
     .select("id, opportunity_id, version, status, created_at, created_by, opportunities(title, code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     id: r.id as string,
     opportunity_id: (r.opportunity_id as string | null) ?? null,
@@ -67,7 +68,8 @@ export async function listAllQuotes(): Promise<QuoteRow[]> {
   const { data } = await s
     .from("quotes")
     .select("id, opportunity_id, fob_price, status, created_at, created_by, opportunities(title, code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     id: r.id as string,
     opportunity_id: (r.opportunity_id as string | null) ?? null,
@@ -85,7 +87,8 @@ export async function listAllSamples(): Promise<SampleRow[]> {
   const { data } = await s
     .from("samples")
     .select("id, opportunity_id, type, status, created_at, created_by, opportunities(title, code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     id: r.id as string,
     opportunity_id: (r.opportunity_id as string | null) ?? null,

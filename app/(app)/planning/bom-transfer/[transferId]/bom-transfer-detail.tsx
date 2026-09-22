@@ -553,7 +553,7 @@ export function BomTransferDetail({
           )}
         </CardHeader>
         <CardBody className="space-y-4">
-          <DataTable
+          <DataTable paginate={false}
             columns={itemColumns}
             rows={transfer.items}
             getKey={(r) => r.id}
@@ -568,7 +568,7 @@ export function BomTransferDetail({
                 <p className="text-xs font-bold text-muted-foreground">
                   Sizes for item #{it.sno}
                 </p>
-                <DataTable
+                <DataTable paginate={false}
                   columns={sizeColumns}
                   rows={it.sizes as SizeRow[]}
                   getKey={(r) => r.id}

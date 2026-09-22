@@ -6,6 +6,7 @@ import type { EntryFacts, FabricSheetNames, StoredFabricRequirement, StoredYarn 
    route, two documents. */
 import { yarnFabricRequirementReport, isReportRefusal } from "@/lib/orders/fabric-bom/reports";
 import type { ClothPurchaseLine } from "@/lib/orders/fabric-bom/reports";
+import { companyAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 
 /**
  * Reading one order's Fabric Requirement.
@@ -111,9 +112,36 @@ export const isFabricSheetRefusal = (v: unknown): v is FabricSheetRefusal =>
   v !== null &&
   typeof (v as FabricSheetRefusal).refused === "string";
 
-export async function getFabricRequirementSheet(
+type CurrentGarmentOrder = {
+  id: string;
+  po_no: string | null;
+  po_date: string | null;
+  delivery_date: string | null;
+  excess_pct: number | null;
+  customer: { name: string } | null;
+};
+
+type CurrentFabricBom = {
+  id: string;
+  code: string | null;
+  bom_date: string | null;
+  computed_at: string | null;
+  computed_for_qty: number | null;
+};
+
+/**
+ * THE ORDER'S CURRENT FABRIC BOM — the latest garment order on the RE Number,
+ * then its latest NON-DRAFT Fabric BOM (see "THE LATEST NON-DRAFT BOM" above).
+ *
+ * Exported so every per-order Fabric BOM report resolves "current" by this ONE
+ * rule — the Fabric Requirement sheet here, and the Entry Register / Yarn &
+ * Fabric / Printing reports at `/orders/<id>/reports/<key>`. Two copies of the
+ * query would be two answers to "which BOM is this order's", and the day they
+ * disagree the order's reports print different revisions side by side.
+ */
+export async function currentFabricBom(
   salesOrderId: string,
-): Promise<FabricRequirementSheetData | FabricSheetRefusal> {
+): Promise<{ go: CurrentGarmentOrder; bom: CurrentFabricBom } | FabricSheetRefusal> {
   const s = await createClient();
 
   const { data: goRows, error: goErr } = await s
@@ -127,16 +155,7 @@ export async function getFabricRequirementSheet(
   // render a document with no cloth on it and no way to tell that apart from an
   // order that genuinely needs none — the failure `getAmendments` records.
   if (goErr) return { refused: `Could not read the order: ${goErr.message}` };
-  const go = ((goRows ?? []) as unknown as unknown[])[0] as
-    | {
-        id: string;
-        po_no: string | null;
-        po_date: string | null;
-        delivery_date: string | null;
-        excess_pct: number | null;
-        customer: { name: string } | null;
-      }
-    | undefined;
+  const go = ((goRows ?? []) as unknown as unknown[])[0] as CurrentGarmentOrder | undefined;
 
   if (!go) return { refused: "This RE Number has no garment order behind it." };
 
@@ -150,15 +169,7 @@ export async function getFabricRequirementSheet(
     .limit(1);
 
   if (bomErr) return { refused: `Could not read the Fabric BOM: ${bomErr.message}` };
-  const bom = ((bomRows ?? []) as unknown as unknown[])[0] as
-    | {
-        id: string;
-        code: string | null;
-        bom_date: string | null;
-        computed_at: string | null;
-        computed_for_qty: number | null;
-      }
-    | undefined;
+  const bom = ((bomRows ?? []) as unknown as unknown[])[0] as CurrentFabricBom | undefined;
 
   if (!bom) {
     return {
@@ -166,6 +177,17 @@ export async function getFabricRequirementSheet(
         "This order has no recorded Fabric BOM yet — raise one on Orders ▸ Fabric BOM before printing its requirement.",
     };
   }
+
+  return { go, bom };
+}
+
+export async function getFabricRequirementSheet(
+  salesOrderId: string,
+): Promise<FabricRequirementSheetData | FabricSheetRefusal> {
+  const current = await currentFabricBom(salesOrderId);
+  if (isFabricSheetRefusal(current)) return current;
+  const { go, bom } = current;
+  const s = await createClient();
 
   const [reqRes, yarnRes, entryRes, scRes, coRes] = await Promise.all([
     s
@@ -315,7 +337,9 @@ export async function getFabricRequirementSheet(
        avoid. */
     company: {
       name: str("name") ?? str("company_name"),
-      address: str("address") ?? str("address_line1"),
+      /* Built from street1..3 / city / state / pin — the columns the Company
+         Profile actually saves (2026-09-19; `address` never existed). */
+      address: companyAddressOf(co),
       gstin: str("gstin"),
     },
     rows,

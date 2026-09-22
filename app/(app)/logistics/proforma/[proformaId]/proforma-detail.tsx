@@ -226,7 +226,7 @@ export function ProformaDetail({ proforma, lines, canEdit, canDelete }: Props) {
           )}
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable
+          <DataTable paginate={false}
             columns={lineColumns}
             rows={lines}
             getKey={(l) => l.id}

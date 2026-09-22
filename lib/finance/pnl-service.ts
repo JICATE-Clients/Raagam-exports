@@ -32,7 +32,8 @@ export async function listShipmentPnl(): Promise<ShipmentPnlRow[]> {
       supabase
         .from("shipments")
         .select("id, code, buyer_id, total_value, status, currency_code, buyers(name)")
-        .order("created_at", { ascending: false }),
+        // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+        .order("created_at", { ascending: true }),
       supabase
         .from("receivables")
         .select("shipment_id, amount_inr, status")

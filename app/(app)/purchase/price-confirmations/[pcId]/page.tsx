@@ -159,7 +159,7 @@ export default async function PriceConfirmationDetailPage({
           <CardTitle>Items ({pc.items.length})</CardTitle>
         </CardHeader>
         <CardBody>
-          <DataTable
+          <DataTable paginate={false}
             columns={itemColumns}
             rows={pc.items}
             getKey={(r) => r.id}

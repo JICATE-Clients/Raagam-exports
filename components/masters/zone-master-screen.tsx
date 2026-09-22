@@ -365,7 +365,7 @@ export function ZoneMasterScreen({
     },
   );
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   // Real-time duplicate check on the zone name (mirrors the on-save guard).
   const dupError = useDuplicateName({
@@ -589,6 +589,7 @@ export function ZoneMasterScreen({
         <DataTable
           columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
+          paginate={false}
           getKey={(r) => r.id}
           rowClassName={(r) => (isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined)}
           empty="No zone records yet."

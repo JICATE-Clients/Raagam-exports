@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { capsTextNullable } from "@/lib/validation/formats";
 
 export const IWO_STATUSES = [
   "draft",
@@ -29,28 +30,46 @@ export function iwoStatusTone(status: IwoStatus): StatusTone {
   }
 }
 
-// Legacy "Type" and "For" dropdowns (For options provisional — confirm).
-export const IWO_TYPES = ["Order Related", "Non-Order Related"] as const;
-export const IWO_FOR_OPTIONS = ["Garments", "Fabric", "Yarn", "Made-ups"] as const;
+/**
+ * WHAT THE IWO PROCURES — the header's `For` (client 2026-09-18, screenshot
+ * 2936). Three kinds, and GARMENT IS DELIBERATELY NOT ONE: garment work goes
+ * through ordinary Order Entry. The value decides which BOM plans the work
+ * order — IWO Fabric BOM for Yarn / Fabric (0581), IWO Material BOM for
+ * Accessories (0584) — each of whose guards refuses an IWO of the other kind,
+ * and `iwo_for_lock` refuses a change of For once a BOM exists.
+ */
+export const IWO_FOR = ["yarn", "fabric", "accessories"] as const;
+export type IwoFor = (typeof IWO_FOR)[number];
+
+export const IWO_FOR_LABELS: Record<IwoFor, string> = {
+  yarn: "Yarn",
+  fabric: "Fabric",
+  accessories: "Accessories",
+};
+
+export const isIwoFor = (v: string | null | undefined): v is IwoFor =>
+  (IWO_FOR as readonly string[]).includes(v ?? "");
+
+// ---------------------------------------------------------------------------
+// Stored rows
+// ---------------------------------------------------------------------------
 
 export interface InternalWorkOrder {
   id: string;
+  /** U2/IWO/2627/0005 — assigned by `assign_iwo_number()` on insert. */
   code: string | null;
+  /** The old RE No link (0578) — KEPT, no longer written (0597). */
   sales_order_id: string | null;
+  /** Reference (RE No), TYPED (0597, user 2026-09-20) — optional; an IWO
+   *  usually precedes any buyer order. */
+  reference_no: string | null;
   location_id: string | null;
-  title: string | null;
-  instructions: string | null;
   status: IwoStatus;
   issued_at: string | null;
-  // legacy header fields (0125)
-  iwo_type: string | null;
-  iwo_for: string | null;
+  iwo_for: IwoFor;
   iwo_date: string;
-  item_class_id: string | null;
-  owner_of_trial_id: string | null;
-  customer_id: string | null;
-  reference: string | null;
-  style_id: string | null;
+  /** No longer asked for or shown (user 2026-09-20); stored values kept. */
+  style_ref_no: string | null;
   deli_date: string | null;
   remarks: string | null;
   created_by: string | null;
@@ -58,50 +77,24 @@ export interface InternalWorkOrder {
   updated_at: string;
 }
 
-export interface IwoLine {
-  id: string;
-  iwo_id: string;
-  description: string;
-  quantity: number;
-  unit: string | null;
-  notes: string | null;
-  sort_order: number;
-  created_at: string;
-}
-
-const nullableText = z.string().optional().nullable();
-const uuidN = z.string().uuid().nullable().default(null);
+// ---------------------------------------------------------------------------
+// What the screen sends — THE HEADER, AND NOTHING ELSE (2026-09-19).
+//
+// An IWO is a header; what it procures is planned on its BOM: IWO Fabric BOM
+// for Yarn / Fabric (0581), IWO Material BOM for Accessories (0584). The line
+// grids this schema used to carry, and their tables, went with 0582 / 0585.
+// ---------------------------------------------------------------------------
 
 export const iwoInput = z.object({
-  // legacy trial/work-order header (sales order optional — may be Non-Order Related)
-  sales_order_id: uuidN,
-  location_id: uuidN,
-  title: nullableText,
-  instructions: nullableText,
-  iwo_type: nullableText,
-  iwo_for: nullableText,
   iwo_date: z.string().min(1, "Date is required"),
-  item_class_id: uuidN,
-  owner_of_trial_id: uuidN,
-  customer_id: uuidN,
-  reference: nullableText,
-  style_id: uuidN,
-  deli_date: nullableText,
-  remarks: nullableText,
+  iwo_for: z.enum(IWO_FOR, { message: "Choose what this work order is For" }),
+  // TYPED, capitalised like every stored value (0597). No Style (2026-09-20).
+  reference_no: capsTextNullable(),
+  deli_date: z.string().nullable().default(null),
+  remarks: capsTextNullable(),
 });
-/** `z.input`, not `z.infer` — what callers SEND, before
- *  `createInternalWorkOrder` parses it. Every `uuidN` field carries
- *  `.default(null)`, so it is optional going in; `z.infer` made all of them
- *  required and broke the new-IWO form, which no longer sends
- *  `owner_of_trial_id` (its Employee-master picker was withdrawn 2026-08-01,
- *  though the column and its existing values survive). */
-export type IwoInput = z.input<typeof iwoInput>;
 
-export const iwoLineInput = z.object({
-  description: z.string().min(1, "Description required"),
-  quantity: z.coerce.number().nonnegative().default(0),
-  unit: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
-  sort_order: z.coerce.number().int().nonnegative().default(0),
-});
-export type IwoLineInput = z.infer<typeof iwoLineInput>;
+/** `z.input`, not `z.infer` — what callers SEND, before the action parses it;
+ *  every `.default()` field is optional going in. */
+export type IwoInput = z.input<typeof iwoInput>;
+export type IwoParsed = z.infer<typeof iwoInput>;

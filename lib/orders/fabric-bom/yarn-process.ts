@@ -139,6 +139,9 @@
 import { z } from "zod";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import { isRefusal, type Refusal } from "./requirement";
+import { ydPartKey } from "./component-map";
+import { colorLossesInput, type ColorLossDraft } from "./color-loss";
+import { narrowYarnToStage, type YarnStageRole } from "./yarn-stage-routes";
 import {
   clothPurchaseLabel,
   routeForSource,
@@ -165,6 +168,12 @@ export type YarnProcessOption = {
   name: string;
   inactive: boolean;
   for_yarn: boolean;
+  /** WHICH YARN STAGES THIS PROCESS RUNS IN, and where it is the base (client
+   *  2026-09-21) — the master's `process_fabric_stages` classification mapped
+   *  onto `yarn_stage` ids by code (`./yarn-stage-routes.ts`). Empty =
+   *  unclassified = offered in every stage. Optional so IWO's loader and every
+   *  older vector stay well-formed. */
+  stage_roles?: readonly YarnStageRole[];
 };
 
 /**
@@ -195,6 +204,9 @@ export type FabricComposition = {
  */
 export type FabricGross = {
   fabric_id: string;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this weight is
+   *  for, so it is grossed by THAT part's stripes. Absent/blank = the only part. */
+  yd_part?: string | null;
   combo: string | null;
   /** Net cloth required for this slice, in `uom_id`. NULL when the requirement
    *  engine refused it — carried, not dropped, so the yarn row can say WHY it
@@ -230,6 +242,14 @@ export type FabricGross = {
    * steps only, never every component's steps stacked.
    */
   component_ids?: readonly string[];
+  /**
+   * IS THIS SLICE PRINTED? (2026-09-19.) `printedGroup` over the BOM's lines
+   * for this (fabric, colourway, components) — see `routeForPrint` for what a
+   * `false` removes. Optional, and absent means "don't know", which walks the
+   * route whole: a caller that has not been taught about prints gets the
+   * arithmetic it always got.
+   */
+  printed?: boolean;
 };
 
 /** The bucket key for a colourway. One function so the screen, the engine and
@@ -263,6 +283,11 @@ export type YarnStageRow = {
    *  hold "1." or "" as a number, so the form keeps text and the boundary
    *  converts once. */
   loss_pct: string;
+  /** ASSORT COLOR-WISE LOSS (0606) — a different loss % per colourway, set in
+   *  the [Set Color Loss] dialog. Optional so older callers stay well-formed;
+   *  see `./color-loss.ts`. */
+  color_wise_loss?: boolean;
+  color_losses?: ColorLossDraft;
 };
 
 /**
@@ -298,6 +323,8 @@ export const blankYarnStage = (key: string): YarnStageRow => ({
   combo: "",
   description: "",
   loss_pct: "",
+  color_wise_loss: false,
+  color_losses: {},
 });
 
 /**
@@ -318,6 +345,24 @@ export const blankYarnStage = (key: string): YarnStageRow => ({
  * freely, and a purchase list that shuffled itself every time would be
  * unreadable against yesterday's copy.
  */
+/**
+ * THE COMPOSITIONS WHOSE YARN IS ACTUALLY BOUGHT (client 2026-09-19, Rule 2).
+ *
+ * A cloth bought as greige or dyed rolls buys no yarn — so its yarns must not
+ * appear on the Yarn Process tab or be stored as a yarn row at all. Until now
+ * `deriveYarnRows` listed them anyway and the save stored a row with a null
+ * purchase and the refusal "every fabric using this yarn is bought as cloth";
+ * that empty row hid the report's Total Yarn Purchase Requirement and made the
+ * Budget warn about "skipped" figures nothing owed. The screen and the save
+ * both filter through this one function, so the tab and the stored rows agree.
+ */
+export function compositionsBuyingYarn<C extends { fabric_id: string }>(
+  compositions: readonly C[],
+  sourceOf: (fabricId: string) => FabricSource,
+): C[] {
+  return compositions.filter((c) => sourceBuysYarn(sourceOf(c.fabric_id)));
+}
+
 export function deriveYarnRows(
   compositions: readonly FabricComposition[],
   yarnNames: ReadonlyMap<string, { name: string; inactive: boolean }>,
@@ -505,7 +550,75 @@ export type RouteStage = {
      the safe direction. */
   is_knitting?: boolean | null;
   is_dyeing?: boolean | null;
+  /** Which of the process's sub-categories (0583) — a LABEL only; the
+   *  arithmetic never reads it. */
+  sub_category_id?: string | null;
+  /** Is this step a PRINT process (`processes.is_print`)? Carried for the same
+   *  reason as the two above — see `routeForPrint`. Absent = not a print. */
+  is_print?: boolean | null;
+  /** COLOUR-WISE LOSS (0606) — colourway → loss % for a step marked "Assort
+   *  Color-Wise Loss". A colourway absent from the map uses `loss_pct`. Absent
+   *  or empty = the flat loss, which is every step before 0606. Resolved in
+   *  `stagesForGroup` and nowhere else — see `lossForCombo`. */
+  color_losses?: Readonly<Record<string, number>> | null;
 };
+
+/**
+ * THE LOSS ONE STEP CHARGES ONE COLOURWAY (0606, client spec 2026-09-21).
+ *
+ * A dark shade runs a longer vat cycle than a light one, so a step may carry a
+ * loss per colourway. The colourway's own figure wins; a colourway with none
+ * falls back to the step's flat `loss_pct` — the "Default Stage %" the dialog
+ * shows — so a colourway added to the order after the losses were set is
+ * charged the stated default, never zero.
+ *
+ * Keys are matched through `comboKey`, the same trim + upper-case every other
+ * colour test in this file uses, so "Green " set on the screen and "GREEN" on
+ * the requirement are one colour.
+ */
+export function lossForCombo(stage: Pick<RouteStage, "loss_pct" | "color_losses">, combo: string): number | null {
+  const map = stage.color_losses;
+  if (map) {
+    const want = comboKey(combo);
+    for (const [k, v] of Object.entries(map)) {
+      if (comboKey(k) === want && typeof v === "number" && Number.isFinite(v)) return v;
+    }
+  }
+  return stage.loss_pct;
+}
+
+/**
+ * THE PRINT STAGE LEAVES THE LADDER OF A GROUP THAT IS NOT PRINTED (client
+ * 2026-09-19: "the system must isolate that specific color's weight").
+ *
+ * A route is declared once per fabric, but a print is declared per colourway
+ * and component on the order. So on a fabric where NAVY is AOP and WHITE is
+ * plain, one route carries `… → DYEING → PRINTING → DIP-WASH → COMPACTING`,
+ * and until now WHITE's weight was grossed by the printing loss and the
+ * post-print finishing too — a silent over-buy on every unprinted colourway,
+ * and a printing figure that counted cloth nobody sends to the printer.
+ *
+ * WHAT LEAVES IS THE WHOLE STAGE THE PRINT STEP SITS IN, not just the print
+ * step: DIP-WASH, GUM CUTTING and the second COMPACTING are post-print
+ * finishing (0570's Printed stage) and only happen to printed cloth. The stage
+ * is found FROM THE ROUTE — whichever stage holds an `is_print` step — so no
+ * stage lookup is needed and the order of `stages` does not matter (a report
+ * walking the route backwards gets the same answer).
+ *
+ * `printed` UNDEFINED CHANGES NOTHING, and that is every caller that has not
+ * been taught about prints (IWO Fabric BOM, the vectors): the route is walked
+ * whole, as it always was. Only an explicit `false` isolates.
+ *
+ * Same shape as `routeForSource`: steps are REMOVED, never zeroed — a 0% step
+ * multiplies by exactly 1 and would change nothing (`./fabric-source.ts`).
+ */
+export function routeForPrint<S extends RouteStage>(stages: readonly S[], printed: boolean | undefined): S[] {
+  if (printed !== false) return [...stages];
+  const printStages = new Set(
+    stages.filter((s) => s.is_print && s.stage_id).map((s) => s.stage_id as string),
+  );
+  return stages.filter((s) => !s.is_print && !(s.stage_id && printStages.has(s.stage_id)));
+}
 
 /**
  * THE STEPS THAT TREAT ONE (COLOURWAY, COMPONENT-SET) — the single filter every
@@ -564,8 +677,23 @@ export function stagesForGroup<S extends RouteStage>(
    *  to Rule 1, so every pre-0564 call site walks the route whole, exactly as
    *  it always has. */
   source: FabricSource = "yarn_knit",
+  /** IS THIS GROUP PRINTED? (2026-09-19) — see `routeForPrint`. Undefined
+   *  walks the route whole, which is every pre-existing caller. */
+  printed?: boolean,
 ): S[] | Refusal {
-  const forColour = stages.filter((s) => stageCoversCombo(s.combo, combo));
+  /* COLOUR-WISE LOSS IS RESOLVED HERE, ONCE (0606). Every ladder — the yarn
+     purchase, the cloth purchase, both report breakdowns — walks the list this
+     returns, so writing this colourway's own figure into `loss_pct` here is
+     what keeps them one computation. Resolved BEFORE the component check so
+     two panels are compared on the losses this colourway actually pays. A
+     step with no map is returned as the same object. */
+  const forColour = stages
+    .filter((s) => stageCoversCombo(s.combo, combo))
+    .map((s) =>
+      s.color_losses && Object.keys(s.color_losses).length
+        ? { ...s, loss_pct: lossForCombo(s, combo) }
+        : s,
+    );
   const named = resolveRouteComponents(forColour, componentIds);
   if (isRefusal(named)) return named;
   const resolved =
@@ -581,8 +709,9 @@ export function stagesForGroup<S extends RouteStage>(
      cloth is bought as. Suppressing first would make two routes that the
      operator must reconcile look identical, and the entry would be grossed by
      a sequence neither panel declares. What a source changes is which
-     declared steps COST something, never what was declared. */
-  return routeForSource(resolved, source);
+     declared steps COST something, never what was declared. The print filter
+     runs last for the same reason. */
+  return routeForPrint(routeForSource(resolved, source), printed);
 }
 
 /**
@@ -654,8 +783,10 @@ export function comboUplift(
    *  `comboUpliftBreakdown` below and for the same reason the third one is
    *  shared: the two must walk the IDENTICAL stage list. */
   source: FabricSource = "yarn_knit",
+  /** Same fifth argument as `stagesForGroup` (2026-09-19). */
+  printed?: boolean,
 ): number | Refusal {
-  const treating = stagesForGroup(stages, combo, componentIds, source);
+  const treating = stagesForGroup(stages, combo, componentIds, source, printed);
   if (isRefusal(treating)) return treating;
   let factor = 1;
   for (const s of treating) {
@@ -695,6 +826,9 @@ export type StageUpliftStep = {
   stage_id: string | null;
   process_id: string | null;
   loss_pct: number;
+  /** 0583 — present only when the step names a sub-category, so a ladder with
+   *  none keeps its exact pre-0583 shape. */
+  sub_category_id?: string | null;
   /** The running factor BEFORE this stage is applied (1 for the first stage
    *  that treats this colourway). */
   factorBefore: number;
@@ -714,8 +848,10 @@ export function comboUpliftBreakdown(
    *  charge knitting on would be the report and the purchase disagreeing in
    *  the one place a reader would not think to check. */
   source: FabricSource = "yarn_knit",
+  /** Same fifth argument as `comboUplift`, for the identical-list reason. */
+  printed?: boolean,
 ): { factor: number; steps: StageUpliftStep[] } | Refusal {
-  const treating = stagesForGroup(stages, combo, componentIds, source);
+  const treating = stagesForGroup(stages, combo, componentIds, source, printed);
   if (isRefusal(treating)) return treating;
   let factor = 1;
   const steps: StageUpliftStep[] = [];
@@ -729,6 +865,7 @@ export function comboUpliftBreakdown(
     steps.push({
       stage_id: s.stage_id ?? null,
       process_id: s.process_id ?? null,
+      ...(s.sub_category_id ? { sub_category_id: s.sub_category_id } : {}),
       loss_pct: loss,
       factorBefore,
       factorAfter: factor,
@@ -800,6 +937,9 @@ export type YarnFabricWeight = {
  */
 export type YarnShade = {
   fabric_id: string;
+  /** YD PART (0596) — which allocation of the fabric declared this shade.
+   *  Absent/blank = the fabric's only part. See `ydPartKey`. */
+  yd_part?: string | null;
   yarn_id: string;
   /** The assort colourway whose combination declared this shade. */
   combo: string | null;
@@ -840,9 +980,18 @@ export function shadeDyeFactor(
   fabricId: string,
   yarnId: string,
   combo: string,
+  /** YD PART (0596): a Top knitted 80/20 and a Bottom knitted 70/30 from one
+   *  cloth are two sets of shades; each weight is grossed by its own part's.
+   *  Omitted = the only part, which is every document before 0596. */
+  ydPart: string | null = null,
 ): number | Refusal {
+  const part = ydPartKey(ydPart);
   const mine = shades.filter(
-    (h) => h.fabric_id === fabricId && h.yarn_id === yarnId && comboKey(h.combo) === combo,
+    (h) =>
+      h.fabric_id === fabricId &&
+      h.yarn_id === yarnId &&
+      comboKey(h.combo) === combo &&
+      ydPartKey(h.yd_part) === part,
   );
   if (mine.length === 0) return 1;
 
@@ -871,7 +1020,15 @@ export function yarnPurchase(
   fabrics: readonly FabricGross[],
   compositions: ReadonlyMap<string, FabricComposition>,
   routesByFabric: ReadonlyMap<string, readonly RouteStage[]>,
-  yarnOwnStages: readonly { combo: string | null; loss_pct: number | null }[],
+  /** The yarn's OWN typed steps (Yarn Process tab). `dyed` marks a step in a
+   *  coloured stage — the hand-typed YARN DYEING — see "ONE DYEING LOSS" below. */
+  yarnOwnStages: readonly {
+    combo: string | null;
+    loss_pct: number | null;
+    dyed?: boolean;
+    /** 0606 — per-colourway losses, resolved by `stagesForGroup`. */
+    color_losses?: Readonly<Record<string, number>> | null;
+  }[],
   decimals: number | null,
   /** EACH FABRIC'S OWN SOURCE (0564) — see `./fabric-source.ts`. A fabric
    *  bought as cloth buys no yarn, so it leaves this sum entirely. Defaults
@@ -967,21 +1124,38 @@ export function yarnPurchase(
        can name the FABRIC: "its components run different routes" is only a
        useful sentence once the reader knows whose. The yarn's own stages are
        appended after, unfiltered — they carry no `component_id`. */
-    const route = stagesForGroup(routesByFabric.get(f.fabric_id) ?? [], combo, f.component_ids ?? []);
+    const route = stagesForGroup(
+      routesByFabric.get(f.fabric_id) ?? [],
+      combo,
+      f.component_ids ?? [],
+      "yarn_knit",
+      /* 2026-09-19 — an unprinted slice's yarn is not grossed by the print
+         stage's losses (`routeForPrint`). */
+      f.printed,
+    );
     if (isRefusal(route)) {
       return { refused: `${comp.fabric_name || "One fabric"}: ${route.refused}` };
     }
-    const factor = comboUplift([...route, ...yarnOwnStages], combo);
-    if (isRefusal(factor)) return factor;
-
     /* THE DYE HOUSE'S LOSS, LAST (0568) — and the order of these two markups
        is the physical order read backwards. `factor` walks the CLOTH's route
        back from the cutting floor to grey-knitted weight; the yarn was dyed
        BEFORE it was knitted, so its own loss grosses what comes out of that,
        never the other way round. Legacy's own numbers pin it: 1021.000 kg of
        cloth-at-knitting becomes 1067.311 kg of grey yarn, not the reverse. */
-    const dye = shadeDyeFactor(shades, f.fabric_id, yarnId, combo);
+    const dye = shadeDyeFactor(shades, f.fabric_id, yarnId, combo, f.yd_part ?? null);
     if (isRefusal(dye)) return { refused: `${comp.fabric_name || "One fabric"}: ${dye.refused}` };
+
+    /* ONE DYEING LOSS, NOT TWO (client decision 2026-09-19). When this
+       slice's shades carry a dye-house loss (`dye` above 1), that loss IS the
+       yarn's dyeing loss — so a hand-typed YARN DYEING step (a yarn step in a
+       coloured stage) leaves the PURCHASE arithmetic here, or the grey yarn
+       would be grossed for dyeing twice. The step itself is KEPT: it still
+       carries its `process_qty` to the Budget's Yarn Processes tab, where the
+       dyeing charge per kg is typed. With no shade loss the typed step counts
+       exactly as before. */
+    const ownSteps = dye > 1 ? yarnOwnStages.filter((st) => !st.dyed) : yarnOwnStages;
+    const factor = comboUplift([...route, ...ownSteps], combo);
+    if (isRefusal(factor)) return factor;
 
     const gross = net * factor * dye;
     byFabric.push({ fabric_id: f.fabric_id, combo, net, gross, factor: factor * dye });
@@ -1003,18 +1177,23 @@ export function yarnPurchase(
   }
 
   const byCombo: YarnComboWeight[] = [];
-  let qty = 0;
 
-  /* ROUNDED PER COLOURWAY, still — a purchase per colour is a real lot, and
-     rounding a total DOWN buys less yarn than the order needs. Unchanged from
-     before the restructure. */
+  /* GREY YARN IS ONE LOT, SO IT IS ROUNDED ONCE (client 2026-09-19). Grey
+     yarn is bought and knitted with no colour on it — the colour split begins
+     at dyeing — so the purchase is ONE total per yarn, rounded UP once. It
+     used to round each colourway up and add the results, which bought up to
+     (colourways − 1) extra units of the last decimal and made the stored
+     figure differ from the sum a reader works out. `byCombo` still carries
+     each colourway's own rounded-up share: the colour-scoped yarn steps are
+     charged on those (`stageProcessQty`), and a dyeing lot IS per colour. */
+  let exact = 0;
   for (const [combo, gross] of [...comboGross].sort((a, b) => a[0].localeCompare(b[0]))) {
-    const rounded = ceilToPrecision(gross, dp);
-    byCombo.push({ combo, net: comboNet.get(combo) ?? 0, gross: rounded });
-    qty += rounded;
+    byCombo.push({ combo, net: comboNet.get(combo) ?? 0, gross: ceilToPrecision(gross, dp) });
+    exact += gross;
   }
+  const qty = ceilToPrecision(exact, dp);
 
-  return { qty: ceilToPrecision(qty, dp), uom_id: uomId, byCombo, byFabric };
+  return { qty, uom_id: uomId, byCombo, byFabric };
 }
 
 /** One purchased cloth's line of the answer, per colourway — the same shape
@@ -1113,6 +1292,7 @@ export function clothPurchase(
       combo,
       f.component_ids ?? [],
       source,
+      f.printed,
     );
     if (isRefusal(route)) return { refused: `${fabricName}: ${route.refused}` };
     /* `comboUplift` OVER THE ALREADY-RESOLVED LIST, exactly as `yarnPurchase`
@@ -1252,10 +1432,19 @@ export function yarnStageStarted(
  */
 export function processesForYarn(
   options: readonly YarnProcessOption[],
-  opts: { currentValue?: string | null } = {},
+  opts: {
+    currentValue?: string | null;
+    /** 2026-09-21 — the Stage decides the Process, as on the fabric route.
+     *  Both optional and defaulting to no narrowing. */
+    stageId?: string | null;
+    isFirstOfStage?: boolean;
+  } = {},
 ): YarnProcessOption[] {
   const held = opts.currentValue ?? null;
-  const flagged = options.filter((p) => p.for_yarn);
+  const flagged = narrowYarnToStage(
+    options.filter((p) => p.for_yarn).map((p) => ({ ...p, stage_roles: p.stage_roles ?? [] })),
+    { stageId: opts.stageId, isFirstOfStage: opts.isFirstOfStage },
+  );
   if (!held || flagged.some((p) => p.id === held)) return flagged;
   const kept = options.find((p) => p.id === held);
   return kept ? [...flagged, kept] : flagged;
@@ -1303,6 +1492,9 @@ export const fabricBomYarnStageInput = z.object({
     .default(null)
     .transform((v) => (v ? v : null)),
   loss_pct: z.coerce.number().min(0).lt(100).nullable().default(null),
+  /* ASSORT COLOR-WISE LOSS (0606) — see `fabricBomProcessInput`'s twin. */
+  color_wise_loss: z.coerce.boolean().default(false),
+  color_losses: colorLossesInput,
 });
 
 /**

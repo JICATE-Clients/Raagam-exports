@@ -607,8 +607,17 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Order Execution",
         description: "Work orders, advised items and packing advice",
         children: [
-          { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise internal work orders" },
-          { href: "/orders/advised-items", label: "Advised Items", description: "Select an accepted order and prepare its advised items" },
+          { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise a work order, then its BOM and budget" },
+          /* NO IWO FABRIC BOM / MATERIAL BOM / BUDGET ENTRIES (user 2026-09-20).
+             Each work order has exactly ONE BOM and ONE budget, so those entries
+             were three extra lists of the same work orders. They open from the
+             work order now ("Open Fabric BOM" / "Open Material BOM" / "Open
+             Budget" in its row menu and editor), and the work order list shows
+             where both stand. The routes are unchanged — /orders/iwo-fabric-bom,
+             /orders/iwo-material-bom, /orders/iwo-budgets — and the approval
+             inbox still opens a budget directly. To restore the entries, revert
+             the commit that removed these three lines. */
+          { href: "/orders/advised-items", label: "Advised Items", description: "Material BOM lines waiting on buyer specs, by RE No; convert to unlock purchase" },
           { href: "/orders/packing-advice", label: "Packing List Advice", description: "Prepare packing list advice for an order" },
         ],
       },

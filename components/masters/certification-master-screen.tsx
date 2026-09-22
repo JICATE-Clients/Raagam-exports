@@ -93,7 +93,7 @@ export function CertificationMasterScreen({
     },
   );
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   // Real-time duplicate check on the name (mirrors the on-save guard).
   const dupError = useDuplicateName({
@@ -292,6 +292,7 @@ export function CertificationMasterScreen({
         <DataTable
           columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
+          paginate={false}
           getKey={(r) => r.id}
           empty="No certification records yet."
         />

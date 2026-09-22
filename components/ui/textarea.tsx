@@ -1,5 +1,5 @@
 import { forwardRef, type TextareaHTMLAttributes } from "react";
-import { useRequiredHold } from "@/components/ui/field";
+import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { holdEmpty } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -35,9 +35,13 @@ export const Textarea = forwardRef<
   }
 >(({ className, uppercase, onChange, ...props }, ref) => {
   const caps = uppercase ?? !props.readOnly;
+  // A locked record is read-only (`LockScope`, field.tsx). Caps keep reading the
+  // caller's own prop, as in input.tsx.
+  const locked = useLocked();
+  const readOnly = props.readOnly || locked;
   // Mandatory and blank holds the cursor — see input.tsx. A textarea owns Enter
   // ("new line"), so only Tab and the arrows are ever refused here anyway.
-  const hold = useRequiredHold(!props.readOnly && !props.disabled && holdEmpty(props.value), {
+  const hold = useRequiredHold(!readOnly && !props.disabled && holdEmpty(props.value), {
     required: props.required,
   });
   return (
@@ -91,6 +95,7 @@ export const Textarea = forwardRef<
         : onChange
     }
     {...props}
+    readOnly={readOnly}
   />
   );
 });

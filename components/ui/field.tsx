@@ -89,6 +89,42 @@ export function useRequiredHold(
 }
 
 /**
+ * "EVERYTHING INSIDE HERE IS LOCKED" — a record whose data may be read and not
+ * changed (Phase 5, 2026-09-18: an order whose budget is APPROVED is read-only
+ * in Order Entry, Fabric BOM and Material BOM until the budget is reopened).
+ *
+ * ONE DECLARATION AT THE SURFACE, READ BY EVERY PRIMITIVE. The alternative is a
+ * `readOnly={!editable}` threaded through every cell of three editors — ~20
+ * grids on Order Entry alone — and the one cell somebody forgets is a field the
+ * lock does not cover. Same shape as `RequiredScope` above, for the same reason.
+ *
+ * THE DATABASE IS THE LOCK; THIS IS THE COURTESY. Triggers refuse the write
+ * whatever the screen does (0576). A locked field shows the operator the answer
+ * before they type rather than after they press Save.
+ *
+ * NOT RESET AT A PORTAL BOUNDARY, unlike `RequiredScope`. Requiredness belongs
+ * to one field, so a quick-create sheet opened from a mandatory cell must not
+ * inherit it (trap #13). A lock belongs to the whole RECORD: a sub-sheet of a
+ * locked order — its breakup, its [Detail] — edits that same record and is
+ * locked with it. Resetting it there would leave a door open one click away.
+ *
+ * Default UNLOCKED, so nothing outside a `LockScope` changes at all.
+ */
+const LockCtx = createContext(false);
+
+export function LockScope({ locked, children }: { locked: boolean; children: ReactNode }) {
+  // A lock only ever ADDS: an unlocked scope inside a locked one stays locked,
+  // so no nested surface can quietly re-open a record its parent has closed.
+  const outer = useContext(LockCtx);
+  return <LockCtx.Provider value={outer || locked}>{children}</LockCtx.Provider>;
+}
+
+/** True inside a locked record — the control renders read-only / disabled. */
+export function useLocked(): boolean {
+  return useContext(LockCtx);
+}
+
+/**
  * A labelled form field that owns its own WIDTH.
  *
  * Every control primitive here is `w-full` (input.tsx, select.tsx,
@@ -360,6 +396,28 @@ export const FIELD_WIDTH_CSS: Record<FieldWidth, string> = {
 };
 
 /**
+ * THE STEP A GRID COLUMN WAS SIZED WITH — `FIELD_WIDTH_CSS` read backwards.
+ *
+ * A `ChildGridColumn.width` is one of the seven lengths above, and below the
+ * grid's `tableFrom` the same column renders as a labelled `Field` in a card.
+ * That card must give the field the SAME step the table gave the column: the
+ * Budget cost grids drew their cards with `FieldGrid` + `size="sm"` (a quarter
+ * of the pane each), so the moment a pane fell under the threshold a four-digit
+ * Reqd box was ~280px wide and thirteen of them stacked four to a row (user
+ * 2026-09-21, "field width issue in budget all the tab"). Reading the step off
+ * the column is what keeps the two renderings one declaration.
+ *
+ * `undefined` for a column with no width, or a literal `"5rem"` outside the
+ * vocabulary — the caller falls back to its own default rather than guessing.
+ */
+const FIELD_WIDTH_STEP: ReadonlyMap<string, FieldWidth> = new Map(
+  (Object.entries(FIELD_WIDTH_CSS) as [FieldWidth, string][]).map(([step, css]) => [css, step]),
+);
+export function fieldWidthStep(css: string | undefined): FieldWidth | undefined {
+  return css ? FIELD_WIDTH_STEP.get(css) : undefined;
+}
+
+/**
  * A row of fields laid out by their WIDTHS instead of by twelfths.
  *
  * `FieldGrid` divides the row into 12 equal columns, so shrinking the control
@@ -596,6 +654,37 @@ export function FieldRow({
 /** See `FIELD_SPAN` above — this is the name the rest of this file uses. */
 const SPAN = FIELD_SPAN;
 
+/**
+ * A WARNING SITS UNDER THE FIELD IT IS ABOUT (STANDING, user 2026-09-18: "it
+ * should only show below the exact field").
+ *
+ * The one rendering of a field's message — `Field`'s `error`, and this for a
+ * table cell that has no `Field` around its control. Same markup as
+ * `DuplicateError` (`ty-error mt-1 text-xs text-danger`, `role="alert"`), so
+ * every message a field can carry reads as one kind of thing wherever it is.
+ *
+ * NEVER IN A NEIGHBOURING CELL, A TOAST OR A HOVER `title`. The Budget printed
+ * "Enter a rate" in the AMOUNT column, two cells from the Rate box it was
+ * about; a blocked Save said it in a toast that vanished before the operator
+ * found the field; a refused quantity hid in a `title` nobody hovers. A message
+ * that is not beside its field is a message the operator has to go looking for,
+ * and the looking is the bug.
+ *
+ * It WRAPS inside its cell rather than widening it — a table's column widths are
+ * a budget (`check:grid-budget`), and an error must not spend it.
+ *
+ * `id` should be the control's id + "-error", and the control should carry
+ * `aria-describedby` pointing at it (`Field` does that wiring itself).
+ */
+export function FieldError({ id, children }: { id?: string; children: ReactNode }) {
+  if (children == null || children === false || children === "") return null;
+  return (
+    <p id={id} role="alert" className="ty-error mt-1 whitespace-normal break-words text-xs text-danger">
+      {children}
+    </p>
+  );
+}
+
 export function Field({
   label,
   labelSuffix,
@@ -603,6 +692,7 @@ export function Field({
   w,
   required,
   hint,
+  error,
   htmlFor,
   skipTab,
   offTabPath,
@@ -652,6 +742,15 @@ export function Field({
   required?: boolean;
   /** Small helper text under the control. */
   hint?: ReactNode;
+  /**
+   * THIS FIELD'S WARNING, rendered directly under its control — see
+   * `FieldError`. When set and the child is a single element, the control is
+   * given `aria-invalid` and `aria-describedby` (merged with any it already
+   * carries) so a screen reader reads the message with the field. Pass nothing
+   * when there is nothing wrong: an empty field is not an error until the
+   * operator has had the chance to fill it.
+   */
+  error?: ReactNode;
   htmlFor?: string;
   /**
    * Auto-generated or derived value (a computed Age, an auto-built name) — Tab
@@ -710,12 +809,24 @@ export function Field({
   // left untouched rather than silently half-applied to the first child; an
   // explicit `tabIndex={-1}` at the call site is the escape hatch. An existing
   // tabIndex always wins — the caller is being more specific than we are.
-  const control =
-    skipTab &&
-    isValidElement<{ tabIndex?: number }>(children) &&
-    children.props.tabIndex == null
-      ? cloneElement(children, { tabIndex: -1 })
-      : children;
+  const hasError = error != null && error !== false && error !== "";
+  const errorId = hasError && htmlFor ? `${htmlFor}-error` : undefined;
+  let control: ReactNode = children;
+  if (isValidElement<{ tabIndex?: number; "aria-describedby"?: string }>(children)) {
+    const extra: Record<string, unknown> = {};
+    if (skipTab && children.props.tabIndex == null) extra.tabIndex = -1;
+    if (hasError) {
+      extra["aria-invalid"] = true;
+      // MERGED, never replaced: a control may already point at a hint or a
+      // duplicate message, and dropping that would silence it.
+      if (errorId) {
+        extra["aria-describedby"] = [children.props["aria-describedby"], errorId]
+          .filter(Boolean)
+          .join(" ");
+      }
+    }
+    if (Object.keys(extra).length > 0) control = cloneElement(children, extra);
+  }
 
   return (
     /**
@@ -783,6 +894,7 @@ export function Field({
       >
         {control}
       </RequiredScope>
+      {hasError && <FieldError id={errorId}>{error}</FieldError>}
       {hint && <p className="ty-helper mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );

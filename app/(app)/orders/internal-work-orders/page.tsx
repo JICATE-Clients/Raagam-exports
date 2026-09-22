@@ -1,122 +1,36 @@
-import Link from "next/link";
-import { requirePermission } from "@/lib/auth/server";
-import {
-  getInternalWorkOrders,
-  getIwoFormData,
-  type IwoWithOrder,
-} from "@/lib/orders/internal-work-orders/service";
-import {
-  IWO_STATUS_LABELS,
-  iwoStatusTone,
-} from "@/lib/orders/internal-work-orders/types";
-import { fmtDate } from "@/lib/format";
-import { PageHeader } from "@/components/ui/page-header";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { StatusPill } from "@/components/ui/status-pill";
-import { Button } from "@/components/ui/button";
-import { NewIwoForm } from "./new-iwo-form";
-import { withCreatedColumns } from "@/components/ui/created-columns";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
-const columns: Column<IwoWithOrder>[] = [
-  {
-    header: "I.WO No",
-    cell: (row) => (
-      <Link
-        href={`/orders/internal-work-orders/${row.id}`}
-        className="font-mono text-xs font-medium text-primary hover:underline"
-      >
-        {row.code ?? "—"}
-      </Link>
-    ),
-  },
-  {
-    header: "Type",
-    cell: (row) => (
-      <span className="text-sm text-muted-foreground">{row.iwo_type ?? "—"}</span>
-    ),
-  },
-  {
-    header: "Customer",
-    cell: (row) => <span className="text-sm">{row.customer?.name ?? "—"}</span>,
-  },
-  {
-    header: "Style",
-    cell: (row) => (
-      <span className="text-sm text-muted-foreground">
-        {row.style?.style_name ?? "—"}
-      </span>
-    ),
-  },
-  {
-    header: "Deli Dt",
-    cell: (row) => (
-      <span className="tabular-nums text-xs">{fmtDate(row.deli_date)}</span>
-    ),
-  },
-  {
-    header: "Status",
-    cell: (row) => (
-      <StatusPill tone={iwoStatusTone(row.status)}>
-        {IWO_STATUS_LABELS[row.status]}
-      </StatusPill>
-    ),
-  },
-  {
-    header: "Created",
-    align: "right",
-    cell: (row) => (
-      <span className="tabular-nums text-xs text-muted-foreground">
-        {fmtDate(row.created_at)}
-      </span>
-    ),
-  },
-  /* View + Edit, the Master Data cluster. Edit is a LINK because this page is a
-     SERVER component: an `onEdit` closure cannot cross the RSC boundary, a href can.
-     Delete is deliberately absent — no delete action exists for this record, and an
-     order is retired through Order Closure, not removed. */
-  rowActionsColumn((row) => (
-    <RowActions label={row.code} editHref={`/orders/internal-work-orders/${row.id}`} />
-  )),
-];
+import { requirePermission, can } from "@/lib/auth/server";
+import { listInternalWorkOrders } from "@/lib/orders/internal-work-orders/service";
+import { previewIwoNumber } from "@/lib/orders/internal-work-orders/actions";
+import { today } from "@/lib/calendar";
+import { IwoScreen } from "./iwo-screen";
 
+/**
+ * Orders ▸ Internal Work Order — the list, with the editor as an OVERLAY mode
+ * of it (`raagam-screen-layout`, the operator's rule 3). The header and its
+ * For-shaped line grid are one document with one Save (client 2026-09-18,
+ * screenshots 2936–2940); the old create-here, add-lines-on-another-page flow
+ * is gone, and `[iwoId]` now redirects back here.
+ */
 export default async function InternalWorkOrdersPage() {
   await requirePermission("orders", "view");
 
-  const [iwos, formData] = await Promise.all([
-    getInternalWorkOrders(),
-    getIwoFormData(),
+  // No form data: the header's only picker (Reference) is typed since 0597.
+  const [rows, canCreate, canEdit, canDelete, nextIwoNo] = await Promise.all([
+    listInternalWorkOrders(),
+    can("orders", "create"),
+    can("orders", "edit"),
+    can("orders", "delete"),
+    // Today's next number, fetched with the page so a new work order's I.WO No
+    // box is filled on its FIRST paint rather than blank until a round trip
+    // lands (the Garment Order SC No box, client 2026-08-31).
+    previewIwoNumber(today()),
   ]);
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Internal Work Order"
-        description="Trial / internal work orders — order-related or non-order-related."
-        actions={
-          <Link href="/orders">
-            <Button variant="outline" size="md">
-              ← Orders
-            </Button>
-          </Link>
-        }
-      />
-
-      {/* THE TABLE IS THE FORM'S CHILD, so it is on screen only while the form
-          is closed — see `NewIwoForm`'s `children` note. Still rendered here,
-          on the server, exactly as before. */}
-      <NewIwoForm
-        customers={formData.customers}
-        styles={formData.styles}
-        itemClasses={formData.itemClasses}
-      >
-        <DataTable
-          columns={withCreatedColumns(columns, iwos)}
-          rows={iwos}
-          getKey={(row) => row.id}
-          empty="No internal work orders yet. Use 'New work order' above to create the first."
-        />
-      </NewIwoForm>
-    </div>
+    <IwoScreen
+      rows={rows}
+      perms={{ canCreate, canEdit, canDelete }}
+      nextIwoNo={nextIwoNo}
+    />
   );
 }

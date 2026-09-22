@@ -205,7 +205,7 @@ function PacksTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={ppm.packs}
           getKey={(r) => r.id}
@@ -332,7 +332,7 @@ function QuantitiesTab({ ppm }: { ppm: PpmDetail }) {
         <CardTitle>Quantities ({ppm.quantities.length})</CardTitle>
       </CardHeader>
       <CardBody>
-        <DataTable
+        <DataTable paginate={false}
           columns={qtyColumns}
           rows={ppm.quantities}
           getKey={(r) => r.id}
@@ -506,7 +506,7 @@ function FabricsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={ppm.fabrics}
           getKey={(r) => r.id}
@@ -782,7 +782,7 @@ function ProcessingTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={ppm.processes}
           getKey={(r) => r.id}
@@ -1027,7 +1027,7 @@ function AccessoriesTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={ppm.accessories}
           getKey={(r) => r.id}

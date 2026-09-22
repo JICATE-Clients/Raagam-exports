@@ -19,7 +19,7 @@ import { FileText, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
@@ -95,7 +95,7 @@ export function ThingScreen({ perms }: { perms: Perms }) {
     {
       header: "Qty",
       align: "right",
-      width: "8rem",
+      width: FIELD_WIDTH_CSS.range, // a vocabulary step, never a hand-typed rem (lib/ui/sizes.ts)
       // A numeric column can carry a totals band. It is placed outside the
       // navigable body and summed over ALL rows, never the visible page.
       total: { kind: "sum", of: (r) => Number(r.qty) || 0 },
@@ -149,25 +149,27 @@ export function ThingScreen({ perms }: { perms: Perms }) {
       done: !!form.name.trim(),
       problems: validity.bySection.details,
       content: (
-        <SectionBody title="Details" hint="What this record is.">
-          {/* ONE FieldGrid per section — SectionBody has no grid of its own, and
-              two stacked grids agree on the left edge but not the row gap. */}
-          <FieldGrid>
-            {/* size="sm" on EVERY field: 3 of 12, four per row, ~280px. Nothing
-                is sized to its own data, so every field lines up down the page. */}
-            <Field label="Name" required size="sm" htmlFor="th-name">
-              <Input id="th-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} />
+        <SectionBody title="Details">
+          {/* WIDTH-LAID-OUT FROM THE FIRST COMMIT (SKILL.md "BUILD IT COMPACT THE
+              FIRST TIME"). A field is as wide as the KIND of value it holds — one of
+              the seven steps in lib/ui/sizes.ts — never a share of the row. A text
+              name `name`, a date `code`, a two-word enum `term`. No `hint` prop (it
+              was removed app-wide) and no dash in an empty option (an unfilled field
+              shows nothing — LAYOUT.md §3). */}
+          <FieldRow>
+            <Field label="Name" required w="name" htmlFor="th-name">
+              <Input id="th-name" value={form.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
-            <Field label="Date" required size="sm" htmlFor="th-date">
+            <Field label="Date" required w="code" htmlFor="th-date">
               <Input id="th-date" type="date" value={form.thing_date} onChange={(e) => set({ thing_date: e.target.value })} />
             </Field>
-            <Field label="Kind" size="sm" htmlFor="th-kind">
+            <Field label="Kind" w="term" htmlFor="th-kind">
               <Select id="th-kind" value={form.kind} onChange={(e) => set({ kind: e.target.value })}>
-                <option value="">—</option>
+                <option value=""></option>
                 <option value="a">A</option>
               </Select>
             </Field>
-          </FieldGrid>
+          </FieldRow>
         </SectionBody>
       ),
     },
@@ -178,7 +180,7 @@ export function ThingScreen({ perms }: { perms: Perms }) {
       done: lines.length > 0,
       problems: validity.bySection.lines,
       content: (
-        <SectionBody title="Lines" hint="What this record is made of.">
+        <SectionBody title="Lines">
           {/* No `label` — the section heading already names the grid. */}
           <ChildGrid<LineRow>
             columns={lineColumns}

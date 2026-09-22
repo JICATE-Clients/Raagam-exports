@@ -47,6 +47,7 @@ export type CardStat = {
   lead?: boolean;
 };
 
+
 /**
  * THE TRACK, ONE STATIC LITERAL PER DENSITY — and it names a card WIDTH, not a
  * column count.
@@ -81,7 +82,15 @@ const TRACK: Record<number, string> = {
   2: "grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
   3: "grid-cols-[repeat(auto-fit,minmax(19rem,1fr))]",
   4: "grid-cols-[repeat(auto-fit,minmax(17rem,1fr))]",
-  6: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6",
+  /* SIX ACROSS WHEN SIX FIT, AND A CARD NEVER NARROWER THAN 15rem (operator,
+     2026-09-18: order IDs, pills and figures "overlapping or misaligned").
+     These were VIEWPORT breakpoints, so `2xl:` put six cards into whatever a
+     1536px window left beside the sidebar — ~200px each, ~165px of content,
+     against ~190px of "PRODUCTION · LINES · DELIVERY" and their values. The
+     steps below are measured on the GRID's own width (`@container/cards`,
+     which the list wraps round it for this track), at n × 15rem plus the
+     gaps: six still appear on any pane that can hold six readable cards. */
+  6: "grid-cols-1 @min-[30.75rem]/cards:grid-cols-2 @min-[46.5rem]/cards:grid-cols-3 @min-[62.25rem]/cards:grid-cols-4 @min-[78rem]/cards:grid-cols-5 @min-[93.75rem]/cards:grid-cols-6",
 };
 
 export function MobileCardList<Row>({
@@ -106,6 +115,8 @@ export function MobileCardList<Row>({
   tone,
   badge,
   columns = 1,
+  queue = false,
+  accent,
 }: {
   rows: Row[];
   getKey: (r: Row) => string;
@@ -253,6 +264,39 @@ export function MobileCardList<Row>({
    * site keeps saying the one thing it knows.
    */
   columns?: 1 | 2 | 3 | 4 | 6;
+  /**
+   * THE BOM QUEUE'S CARD (operator, 2026-09-18, from a reference screenshot of
+   * the Fabric BOM queue). Grid only, and opt-in, so no other caller changes.
+   *
+   * The title with its pill on the same line, the subtitle under it, the
+   * figures (label ABOVE value, small caps), the `tone` stripe down the
+   * leading edge, and a slim strip along the floor holding `footerNote` and
+   * the View / Reports / Delete buttons. A TAP ON THE CARD OPENS THE RECORD —
+   * `onEdit`, straight into the editor, exactly as before the redesign.
+   *
+   * NOTHING ELSE OPENS, AND NOTHING HAPPENS ON HOVER. The same day this layout
+   * went in it carried a details drawer on hover, then on click, then a
+   * slide-over; the operator had all three removed ("antha card a touch panna
+   * intha mari visible aaganum" — a touch opens the BOM itself). The card has
+   * no state, no overlay, no tooltip and no hover lift.
+   *
+   * AND IT WAS REMOVED A SECOND TIME. Fabric BOM re-hung a right-edge detail
+   * drawer on the tap on 2026-09-21 (`BomQueue`'s `onPreview`, since deleted)
+   * and the client had it taken down the same day — "direct aa intha page
+   * visible aana pothum", the editor itself is enough. Two removals of the
+   * same thing is the rule: `onEdit` on a queue card opens the BOM, full stop.
+   *
+   * `badge` is ignored here: the stripe is this layout's status mark.
+   */
+  queue?: boolean;
+  /**
+   * A `queue` card's left-edge colour as a class (`border-l-red-700`),
+   * overriding the one `tone` picks. For a caller whose states need an exact
+   * shade rather than the skin's tone — the BOM queue's dark-red Pending.
+   * Return undefined to fall back to `tone`. Static literals only (Tailwind
+   * scans source text).
+   */
+  accent?: (r: Row) => string | undefined;
 }) {
   if (rows.length === 0) {
     return (
@@ -266,12 +310,70 @@ export function MobileCardList<Row>({
   const showFooter = showDelete || !!onView || !!onReports || !!footerNote || !!hint;
   const grid = columns > 1;
 
-  return (
+  /** View · Reports · Delete — one definition, so every layout offers a row
+   *  the same buttons.
+   *
+   *  ON A `queue` CARD THEY ARE NAMED, NOT TOOLTIPPED (operator, 2026-09-18:
+   *  no title tooltips on these cards). An icon-only button with its `title=`
+   *  taken away says nothing to a sighted user, so the word goes beside the
+   *  icon instead; every other caller keeps the compact icon and its tooltip. */
+  const actions = (r: Row) => (
+    <>
+      {onView && (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={queue ? undefined : "View"}
+          title={queue ? undefined : "View"}
+          onClick={() => onView(r)}
+        >
+          <Eye className="h-4 w-4" />
+          {queue && "View"}
+        </Button>
+      )}
+      {onReports && (canReportsRow?.(r) ?? true) && (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={queue ? undefined : "Reports"}
+          title={queue ? undefined : "Reports"}
+          onClick={() => onReports(r)}
+        >
+          <FileText className="h-4 w-4" />
+          {queue && "Reports"}
+        </Button>
+      )}
+      {showDelete && (canDeleteRow?.(r) ?? true) && (
+        <DeleteConfirmButton
+          isPending={isPending}
+          onConfirm={() => onDelete!(r)}
+        />
+      )}
+    </>
+  );
+
+  const list = (
     <div className={grid ? cn("grid gap-3", TRACK[columns]) : "space-y-2.5"}>
       {rows.map((r) => {
         const rowTone = tone?.(r);
         const rowHint = hint?.(r);
         const rowBadge = badge?.(r);
+        if (grid && queue) {
+          return (
+            <QueueCard
+              key={getKey(r)}
+              tone={rowTone}
+              accent={accent?.(r)}
+              title={title(r)}
+              subtitle={subtitle?.(r)}
+              pill={pill?.(r)}
+              stats={stats?.(r)}
+              note={footerNote?.(r)}
+              actions={showFooter ? actions(r) : null}
+              onEdit={onEdit ? () => onEdit(r) : undefined}
+            />
+          );
+        }
         return (
         <Card
           key={getKey(r)}
@@ -497,25 +599,7 @@ export function MobileCardList<Row>({
                   {footerNote?.(r)}
                 </Truncated>
               </div>
-              {onView && (
-                <Button variant="ghost" size="sm" aria-label="View" title="View" onClick={() => onView(r)}>
-                  <Eye className="h-4 w-4" />
-                </Button>
-              )}
-              {onReports && (canReportsRow?.(r) ?? true) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Reports"
-                  title="Reports"
-                  onClick={() => onReports(r)}
-                >
-                  <FileText className="h-4 w-4" />
-                </Button>
-              )}
-              {showDelete && (canDeleteRow?.(r) ?? true) && (
-                <DeleteConfirmButton isPending={isPending} onConfirm={() => onDelete!(r)} />
-              )}
+              {actions(r)}
             </div>
           )}
         </Card>
@@ -523,6 +607,11 @@ export function MobileCardList<Row>({
       })}
     </div>
   );
+
+  // `TRACK[6]` steps on the grid's own width, and a container cannot query
+  // itself — so that one track gets a wrapper to measure. No other caller
+  // changes shape.
+  return columns === 6 ? <div className="@container/cards">{list}</div> : list;
 }
 
 /** The stripe colour per tone — static literals, never `border-l-` + tone. */
@@ -601,6 +690,154 @@ function StatStrip({ stats }: { stats?: CardStat[] }) {
             <Truncated>{s.value}</Truncated>
           </dd>
           <dt className="text-[10px] leading-tight text-muted-foreground">{s.label}</dt>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * A `queue` card — see the `queue` prop for the why; this is the how.
+ *
+ * TWO SIBLINGS INSIDE ONE `Card`: the body is the tap-to-open button, and the
+ * strip below it holds the buttons. Never one inside the other — a Delete
+ * inside the open-button is the button-in-button markup `MobileCardList` was
+ * written to avoid.
+ *
+ * THE STRIP IS ALWAYS THERE, EVEN EMPTY. A Pending row has no BOM, so no
+ * Reports, no Delete and no Created date; if its strip were dropped, its
+ * figures (`mt-auto`, on the body's floor) would sit one strip lower than a
+ * saved neighbour's and the row would stop lining up. `min-h-10` holds the
+ * strip at a button's height whatever it contains.
+ *
+ * No `interactive` on the `Card`: it does not lift or change on hover.
+ */
+function QueueCard({
+  tone,
+  accent,
+  title,
+  subtitle,
+  pill,
+  stats,
+  note,
+  actions,
+  onEdit,
+}: {
+  tone: StatusTone | null | undefined;
+  accent?: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  pill?: ReactNode;
+  stats?: CardStat[];
+  note?: ReactNode;
+  actions: ReactNode;
+  onEdit?: () => void;
+}) {
+  const edge = accent ?? (tone ? TONE_EDGE[tone] : "border-l-border-strong");
+  return (
+    <Card className={cn("flex h-full min-w-0 max-w-[40rem] flex-col border-l-[3px]", edge)}>
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={!onEdit}
+        /* `p-4` ON EVERY CARD, not a step up at a container width: the same
+           inset on every card is what lines their contents up down a column
+           of the grid (operator, 2026-09-18). `flex-col` so the figures sit on
+           the body's floor and stay level across a row whose customer lines
+           differ. */
+        className="flex w-full flex-1 flex-col p-4 text-left enabled:active:bg-surface-muted disabled:cursor-default"
+      >
+        {/* THE HEADER: id left, pill right, and they cannot meet. The id is the
+            one that gives ground — `min-w-0 flex-1` lets it shrink and
+            ellipsis — while the pill is `shrink-0`, since a status cut to
+            "Recalc…" says nothing. `items-start` keeps both on the first line's
+            top edge when the pill is the taller of the two. */}
+        <div className="flex w-full items-start justify-between gap-2">
+          {/* truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); an id fits at the 15rem card floor, and a tap opens the record */}
+          <span className="block min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-foreground">
+            {title}
+          </span>
+          {pill && <span className="shrink-0 leading-5">{pill}</span>}
+        </div>
+        {/* THE CUSTOMER (AND PO), ITS OWN LINE UNDER THE ID, `truncate` for a
+            long name. */}
+        {subtitle && (
+          // truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); a tap opens the record, whose header prints the customer in full
+          <span className="mt-1 block w-full min-w-0 truncate text-xs leading-4 text-muted-foreground">
+            {subtitle}
+          </span>
+        )}
+        <LabelledStats stats={stats} />
+      </button>
+      {(note || actions) && (
+        <div className="flex min-h-10 items-center gap-1 border-t border-border py-1 pl-4 pr-2">
+          {/* truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); a date and a creator's name, the Created pair every listing carries */}
+          <span className="block min-w-0 flex-1 truncate text-[11px] leading-tight text-muted-foreground">
+            {note}
+          </span>
+          {actions}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The figures of a `queue` card, in the reference's shape: a small-caps
+ * label ABOVE each value, every column left-aligned so the labels form one
+ * line and the values another across the whole grid.
+ *
+ * EVERY COLUMN IS AT LEAST ITS OWN LABEL, AND THAT IS THE ALIGNMENT FIX
+ * (operator, 2026-09-18: "PRODUCTION" and "LINES" ran together). The tracks
+ * were `minmax(0, …fr)`, so a column could be squeezed below the width of
+ * its own nowrap label and the label painted over its neighbour. Now each is
+ * `minmax(min-content, …fr)` — and the VALUE opts out of that minimum with
+ * `contain: inline-size`, so only the label sets it. That split is the point:
+ * a refusal sentence in place of a number ("no approval quantity yet") would
+ * otherwise widen its column and push the date off the card, where now it
+ * ellipsises.
+ *
+ * Because every card in a row has the same width and the same labels, the
+ * same tracks resolve on every card — which is what lines the figures up
+ * ACROSS the grid, not just within one card.
+ *
+ * THE LAST COLUMN IS WIDER on a three-figure strip: on every caller it is the
+ * delivery date, the longest value and the one carrying a "· 12d" suffix; the
+ * middle one is a small count. Static literals, never an interpolated track
+ * (see `TRACK`).
+ */
+const STAT_COLS: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-[repeat(2,minmax(min-content,1fr))]",
+  3: "grid-cols-[minmax(min-content,1.15fr)_minmax(min-content,0.75fr)_minmax(min-content,1.2fr)]",
+  4: "grid-cols-[repeat(4,minmax(min-content,1fr))]",
+};
+
+function LabelledStats({ stats }: { stats?: CardStat[] }) {
+  if (!stats || stats.length === 0) return null;
+  return (
+    // `mt-auto`: the strip sits on the card's floor, so it is level across a
+    // grid row even where one card's header is taller than its neighbour's.
+    <dl
+      className={cn(
+        "mt-auto grid w-full gap-x-3 pt-3",
+        STAT_COLS[stats.length] ?? "auto-cols-fr grid-flow-col",
+      )}
+    >
+      {stats.map((s, i) => (
+        <div key={i} className="flex flex-col gap-0.5">
+          <dt className="whitespace-nowrap text-[9.5px] font-medium uppercase leading-3 tracking-wide text-muted-foreground">
+            {s.label}
+          </dt>
+          <dd
+            className={cn(
+              // truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); at the 15rem card floor the figures fit, and only a "· 12d" suffix can clip
+              "truncate font-semibold tabular-nums text-foreground [contain:inline-size]",
+              s.lead ? "text-[15px] leading-5" : "text-[13px] leading-5",
+            )}
+          >
+            {s.value}
+          </dd>
         </div>
       ))}
     </dl>

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FIELD_SPAN, FIELD_TRACK, RequiredScope } from "@/components/ui/field";
+import { FIELD_SPAN, FIELD_TRACK, RequiredScope, useLocked } from "@/components/ui/field";
 import { LABEL_METRICS } from "@/components/ui/label";
 import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -930,16 +930,31 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
 
   const idx = rows.indexOf(row);
 
+  /* THE VERTICAL AXIS LEAVES OUT A MERGED CELL (`ChildGridColumn.spanRows`).
+     Its field lives only in the first row's DOM, so counting it would shift
+     every column below by one — ↓ from Compo Color landing on Fabric Type.
+     Only a span INSIDE the row counts: an outer grid's span around this whole
+     grid is not one of our cells. ←/→ keep the full list, so the merged cell
+     is still one step left of the first row's first cell. */
+  const colFieldsIn = (r: HTMLElement) =>
+    fieldsIn(r).filter((f) => {
+      const s = f.closest("[data-grid-span]");
+      return !(s && r.contains(s));
+    });
+  const vcol = colFieldsIn(row).indexOf(el);
+
   const focusColIn = (target?: HTMLElement) => {
     if (!target) return false;
-    const fields = fieldsIn(target);
+    const fields = colFieldsIn(target);
     // Arriving from a nested grid has no column of its own — land on the first.
+    // So does leaving the merged cell (`vcol === -1` without `fromChildGrid`):
+    // it belongs to every row, so there is no column to keep.
     // Otherwise clamp to the last field when the destination row is SHORTER
     // than this one (rows are ragged wherever a cell is conditional), rather
-    // than letting `fields[col]` come back undefined.
-    const next = fromChildGrid
+    // than letting `fields[vcol]` come back undefined.
+    const next = fromChildGrid || vcol === -1
       ? fields[0]
-      : (fields[col] ?? fields[fields.length - 1]);
+      : (fields[vcol] ?? fields[fields.length - 1]);
     if (!next) return false;
     // The same test Tab now makes: this function's callers use its answer to
     // decide whether to consume the key, and "I found an element" is not the
@@ -1337,6 +1352,25 @@ export interface ChildGridColumn<T> {
   align?: "left" | "right" | "center";
   className?: string;
   /**
+   * ONE CELL FOR THE WHOLE GRID, merged down every row — a value that belongs
+   * to the thing the rows are OF, not to any one row. TABLE layout only: the
+   * cell renders in the first row of the page with `rowSpan` over the rest, and
+   * is skipped in the others. `cell` is called with that first row.
+   *
+   * Asked for on Fabric BOM ▸ Components (client 2026-09-18): the part's
+   * Component sits in the colourway table, once, instead of as a lone field
+   * beside it — a plain column would repeat it on every colourway (GOA-0034 has
+   * five) and invite five edits of one fact.
+   *
+   * THE KEYBOARD STAYS ALIGNED. ↑/↓ choose the target by field INDEX within a
+   * row, and the spanned cell exists only in the first row's DOM — so the cell
+   * is marked `data-grid-span` and `gridKeyNav` leaves it out of the column
+   * count. Without that, ↓ from Compo Color would land on Fabric Type.
+   * A card layout has no merged cell; a caller that renders its own card
+   * (`renderMobileRow`) decides where this field goes there.
+   */
+  spanRows?: boolean;
+  /**
    * The column's width — `"6rem"` for a percentage, omitted to flex and take
    * the remaining space (the picker/name column).
    *
@@ -1447,7 +1481,7 @@ export function ChildGrid<T extends { key: string }>({
   forceCards = false,
   frameless = false,
   keyboardNav = true,
-  hideAdd = false,
+  hideAdd: ownHideAdd = false,
   narrow = false,
   tableFrom,
   tableAlways = false,
@@ -1456,7 +1490,7 @@ export function ChildGrid<T extends { key: string }>({
   foldedRemoveBeside = false,
   centerHeaders = false,
   lockExisting = false,
-  hideRemove = false,
+  hideRemove: ownHideRemove = false,
   keepOne = true,
   lockRow,
   inlineCards = false,
@@ -1478,6 +1512,7 @@ export function ChildGrid<T extends { key: string }>({
   railAdd = false,
   railBorder = false,
   renderListItem,
+  railGroup,
   onOpenRow,
   canFold,
   renderFoldedRow,
@@ -2242,9 +2277,13 @@ export function ChildGrid<T extends { key: string }>({
    * List-then-detail UI opening on its first item is the ordinary case, not
    * the exception `openRowKey`'s note is guarding against.
    *
-   * OPT-IN AND UNDEFINED BY DEFAULT, so every existing caller — Material
-   * BOM's own `masterDetail` rail included — keeps mounting on `ALL_FOLDED`
-   * exactly as before. Only a caller that names a row here changes.
+   * OPT-IN AND UNDEFINED BY DEFAULT, so every existing caller keeps mounting
+   * on `ALL_FOLDED` exactly as before. Only a caller that names a row here
+   * changes — and Material BOM's own `masterDetail` rail, the one this prop
+   * was first written AROUND rather than for, opted in on 2026-09-22 for the
+   * same complaint one screen over ("while opening in close state make it the
+   * first item should defaultly open"). Every `masterDetail` rail in the app
+   * now names its first row; a new one should too.
    */
   defaultOpenKey?: string | null;
   /**
@@ -2390,6 +2429,22 @@ export function ChildGrid<T extends { key: string }>({
    */
   renderListItem?: (row: T, index: number) => ReactNode;
   /**
+   * HEADINGS IN THE MASTER-DETAIL RAIL — the group a row is listed under.
+   * Each run of consecutive entries sharing a `key` is drawn as one group: a
+   * caption (`label`, a hairline, then `meta` — a count, say) and the entries
+   * hanging off a tree line beneath it. Rows must arrive already ORDERED by
+   * group; this draws the groups, it never sorts.
+   *
+   * Asked for on Fabric BOM ▸ Components (client 2026-09-18): a Set item's
+   * panels listed TOP, then BOTTOM, each under its coordinate, the way
+   * Manual's Components sheet already groups them.
+   *
+   * THE HEADING IS NOT AN ENTRY. It is a plain `div` with no tabindex and no
+   * `data-md-list-item`, so `mdListKeyNav`'s ↑↓ step straight over it and it
+   * costs no Tab stop. Keep `label` inert text, for `renderListItem`'s reason.
+   */
+  railGroup?: (row: T) => { key: string; label: ReactNode; meta?: ReactNode } | null;
+  /**
    * Fires when the operator PICKS a line out of the master-detail list.
    *
    * Deliberately not "the open row changed": `openRowKey` also moves when a row
@@ -2445,6 +2500,12 @@ export function ChildGrid<T extends { key: string }>({
    *  when at least one column declares a `total`. Defaults to "Total". */
   totalsLabel?: ReactNode;
 }) {
+  // A LOCKED RECORD'S ROWS ARE FIXED (`LockScope`, field.tsx): no "+ Add", no ✕,
+  // no Ctrl+Del — the same two switches a caller would flip, so every layout
+  // honours it without learning about locks.
+  const recordLocked = useLocked();
+  const hideAdd = ownHideAdd || recordLocked;
+  const hideRemove = ownHideRemove || recordLocked;
   // `onAdd` behind a ref: every caller passes a fresh closure, so depending on it
   // directly would re-run the seed effect on every render. The effect wants to
   // watch `rows.length`, and nothing else.
@@ -2614,6 +2675,21 @@ export function ChildGrid<T extends { key: string }>({
    * rail that does not exist would vanish rather than move.
    */
   const addInRail = mdActive && !!renderListItem && !!addBtn && railAdd;
+
+  /* THE RAIL'S ENTRIES CUT INTO RUNS OF ONE GROUP — see `railGroup`. A plain
+     function, not a hook. Without `railGroup` it is one ungrouped run, so every
+     other rail renders exactly as before. Consecutive runs only: rows arrive
+     already ordered, and this never sorts. */
+  const railSegments = (list: T[]) => {
+    const segs: { group: { key: string; label: ReactNode; meta?: ReactNode } | null; items: { row: T; localI: number }[] }[] = [];
+    list.forEach((row, localI) => {
+      const g = railGroup?.(row) ?? null;
+      const last = segs[segs.length - 1];
+      if (last && (last.group?.key ?? null) === (g?.key ?? null)) last.items.push({ row, localI });
+      else segs.push({ group: g, items: [{ row, localI }] });
+    });
+    return segs;
+  };
   const addOnTotalsRow = !!addBtn && !addInRail && hasTotals && mode !== "responsive";
   /** Where the figures start — everything left of it belongs to the label. */
   const firstTotalIndex = columns.findIndex((c) => c.total && c.total.kind !== "blank");
@@ -2642,6 +2718,27 @@ export function ChildGrid<T extends { key: string }>({
    * sharing a row with another one has an edge to line up with instead.
    */
   const hugsContent = !fill && columns.length > 0 && columns.every((c) => c.width);
+  /**
+   * THE TABLE'S OWN WIDTH, STATED — WITHOUT IT `table-fixed` IS A NO-OP.
+   * `table-layout: fixed` only takes effect on a table whose `width` is not
+   * `auto` (CSS 2.1 §17.5.2.1); `w-auto table-fixed` below therefore ran the
+   * AUTOMATIC algorithm, under which a `<col>` width is a floor, not a size,
+   * and a cell holding one long `white-space: nowrap` value (a `<Truncated>`
+   * is exactly that — `overflow: hidden` does not shrink a min-content
+   * contribution) pushed its column out to the value's full length. Budget ▸
+   * Accessories Purchases showed it (2026-09-22, screenshot 2998): an Item
+   * column declared 144px drawn at ~340px, the table 200px past its pane, and
+   * INR Rate / Amount reachable only by a sideways scroll — the exact thing a
+   * declared width exists to rule out. Summing the columns into an explicit
+   * `calc()` is what makes the fixed algorithm run: every column is then its
+   * declared step and its text truncates inside it. The two chrome columns are
+   * the same literals the `<colgroup>` below states.
+   */
+  const hugWidth = hugsContent
+    ? `calc(${[!hideIndex && "2.5rem", ...columns.map((c) => c.width), !hideRemove && "2rem"]
+        .filter(Boolean)
+        .join(" + ")})`
+    : undefined;
 
   /**
    * THE CARD HUGS ONLY AT THE WIDTH WHERE THE TABLE IS ACTUALLY SHOWN.
@@ -2670,9 +2767,20 @@ export function ChildGrid<T extends { key: string }>({
    * The scroll wrapper below keeps the unconditional `w-fit`: it is `hidden`
    * under the same breakpoint, so it can only hug when it is on screen.
    *
-   * `cards`, `inline` and `across` are unchanged — none of them renders a table
-   * at any width, so `hugsContent` there is the caller saying "these columns are
+   * `inline` and `across` are unchanged — neither renders a table at any
+   * width, so `hugsContent` there is the caller saying "these columns are
    * short" about a layout that has no columns, and it has always meant `w-fit`.
+   *
+   * `cards` HUGS ONLY WHEN THIS GRID DRAWS THE ROW ITSELF. A `forceCards` grid
+   * with a `renderMobileRow` is the collapse above with no breakpoint to hide
+   * behind: the caller's row is a `FieldRow` / `FieldGrid` — a
+   * `@container/section` root, so `contain: inline-size`, so zero width to a
+   * fit-content parent — and the card settles on its widest picker, one field
+   * per line at every pane width. IWO Material BOM ▸ Items showed it the day it
+   * went `forceCards` with vocabulary-width columns (user 2026-09-22,
+   * screenshots 3012 / 3013: eleven fields stacked down the left edge). The
+   * grid's own stacked cells are not container roots, so a cards grid without
+   * a render prop keeps the hug it always had.
    */
   const cardHug =
     mode === "responsive"
@@ -2686,7 +2794,9 @@ export function ChildGrid<T extends { key: string }>({
           : narrow
             ? "@md:w-fit"
             : "@lg:w-fit"
-      : "w-fit";
+      : mode === "cards" && renderMobileRow
+        ? undefined
+        : "w-fit";
 
   /**
    * The row keys this grid was handed on its FIRST render — the stored rows.
@@ -2835,6 +2945,7 @@ export function ChildGrid<T extends { key: string }>({
               // container, which is what `overflow-x-auto` on the wrapper is for.
               hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
             )}
+            style={hugWidth ? { width: hugWidth } : undefined}
           >
             {/* COLUMN WIDTHS, DECOUPLED FROM WHETHER `<thead>` RENDERS.
                 `<th style={width}>` is what actually sizes a column (the
@@ -2882,7 +2993,7 @@ export function ChildGrid<T extends { key: string }>({
                     See `hideIndex` for what the three tracks are and why they
                     have to leave together. */}
                 {!hideIndex && (
-                  <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
+                  <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT, headerClassName)}>#</th>
                 )}
                 {columns.map((c, i) => (
                   <th
@@ -2915,7 +3026,13 @@ export function ChildGrid<T extends { key: string }>({
                     {c.required && <span className="ml-0.5 text-danger">*</span>}
                   </th>
                 ))}
-                {removeColumn && <th className="w-8 border-l border-border" />}
+                {/* 48px, NOT 32 (operator, 2026-09-17: the ✕ sat flush against
+                    this column's left border). The button below is a fixed 32px
+                    square; `w-8` left it no room at all, and under a caller's
+                    `table-fixed` (Order Entry ▸ Styles ▸ Components) the old
+                    40px `sm` button overflowed the 32px track and hugged its
+                    left line. 48px is the square plus 8px each side. */}
+                {removeColumn && <th className="w-12 min-w-12 border-l border-border" />}
               </tr>
             </thead>
             )}
@@ -2942,9 +3059,12 @@ export function ChildGrid<T extends { key: string }>({
                   {!hideIndex && (
                     <td className="px-2 py-1.5 text-center align-top text-xs text-muted-foreground">{startIndex + i + 1}</td>
                   )}
-                  {columns.map((c, ci) => (
+                  {columns.map((c, ci) => (c.spanRows && localI > 0) ? null : (
                     <td
                       key={ci}
+                      /* ONE MERGED CELL — see `ChildGridColumn.spanRows`. */
+                      rowSpan={c.spanRows ? view.length : undefined}
+                      data-grid-span={c.spanRows ? "" : undefined}
                       className={cn(
                         // FAINTER GRIDLINE. Full-strength rules between cells are
                         // what makes a data grid look like a 1998 spreadsheet;
@@ -2997,7 +3117,10 @@ export function ChildGrid<T extends { key: string }>({
                     </td>
                   ))}
                   {removeColumn && (
-                  <td className="border-l border-border px-1 py-1.5 text-center align-top">
+                  <td className="w-12 min-w-12 border-l border-border px-2 py-1.5 align-top">
+                    {/* The border is the cell's; the ✕ is centred in a flex box
+                        padded away from it — see the `<th>` above. */}
+                    <div className="flex h-8 items-center justify-center">
                     {!locked(row) && (
                     <Button
                       type="button"
@@ -3013,13 +3136,14 @@ export function ChildGrid<T extends { key: string }>({
                       // every surface, so the marker is all this needs — and being
                       // focusable again keeps it in screen-reader order.
                       data-row-remove
-                      className="text-muted-foreground hover:text-danger"
+                      className="h-8 w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
                       onClick={() => onRemove(row)}
                       aria-label="Remove row"
                     >
                       <X className="h-4 w-4 shrink-0" />
                     </Button>
                     )}
+                    </div>
                   </td>
                   )}
                 </tr>
@@ -3584,7 +3708,8 @@ export function ChildGrid<T extends { key: string }>({
                  without it the list would push the "+ Add" out of the pane at
                  exactly the row count that makes an Add most useful. */
               className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {view.map((row, localI) => {
+              {railSegments(view).map((seg) => {
+                const entries = seg.items.map(({ row, localI }) => {
                 const i = offset + localI;
                 const isOpen =
                   row.key === (openRowKey ?? rows[rows.length - 1]?.key ?? null);
@@ -3686,6 +3811,36 @@ export function ChildGrid<T extends { key: string }>({
                   >
                     {renderListItem(row, i)}
                   </button>
+                );
+                });
+                if (!seg.group) {
+                  return <Fragment key={`e:${seg.items[0].row.key}`}>{entries}</Fragment>;
+                }
+                /* A GROUP, DRAWN WITH LINES (client 2026-09-18, option A of
+                   "Coordinate Rail Styling") — the new sidebar's own shape
+                   (`SidebarSection guide`, approved 2026-09-17): a caption in
+                   ink with a hairline to the edge and the meta at its end,
+                   then the entries hanging off a 1px tree line. No tint, and
+                   the entry cards are untouched, so this rail still matches
+                   Material BOM's and Manual's. The caption is inert — no
+                   tabindex, no `data-md-list-item` — so ↑↓ step over it and it
+                   costs no Tab stop. `mt-4` between groups against the skin's
+                   6px between entries is what makes two groups read as two. */
+                return (
+                  <div key={`g:${seg.group.key}:${seg.items[0].row.key}`} className="mt-4 first:mt-0">
+                    <div className="flex items-center gap-2 px-1 pb-1.5">
+                      <span className="min-w-0 max-w-[70%] text-[10.5px] font-semibold uppercase tracking-wider text-foreground">
+                        {seg.group.label}
+                      </span>
+                      <span aria-hidden className="h-px flex-1 bg-border" />
+                      {seg.group.meta != null && (
+                        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                          {seg.group.meta}
+                        </span>
+                      )}
+                    </div>
+                    <div className="ml-2.5 border-l border-border pl-2.5">{entries}</div>
+                  </div>
                 );
               })}
             </div>

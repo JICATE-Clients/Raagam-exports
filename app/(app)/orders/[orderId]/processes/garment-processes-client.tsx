@@ -141,7 +141,7 @@ export function GarmentProcessesClient({
         )}
       </CardHeader>
       <CardBody className="space-y-3">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={processes}
           getKey={(p) => p.id}

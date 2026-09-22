@@ -1,6 +1,8 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { SheetNames, StoredRequirement } from "./sheet";
+import { companyAddressOf } from "@/lib/orders/fabric-bom/letterhead";
+import { currentMaterialBom } from "@/lib/orders/material-bom-amendment/requirement-report";
 
 /**
  * Reading one order's Accessories Requirement.
@@ -62,15 +64,21 @@ export async function getRequirementSheet(
 ): Promise<RequirementSheetData | SheetRefusal> {
   const s = await createClient();
 
+  /* WHICH BOM IS ONE RULE, SHARED with the Material BOM Requirement report —
+     `currentMaterialBom`. This used to filter `sales_order_id` directly, which
+     is NULL on every recorded Material BOM (they name their order by
+     `garment_order_id`), so this sheet refused on every order it was opened
+     from (found 2026-09-20). */
+  const current = await currentMaterialBom(salesOrderId);
+  if ("refused" in current) return current;
+
   const { data: bomRows, error: bomErr } = await s
     .from("material_bom_amendments")
     .select(
       "id, code, amendment_no, amend_date, is_draft, computed_at, computed_for_qty, " +
         "sales_order_id, garment_order_id, customer:customers(name)",
     )
-    .eq("sales_order_id", salesOrderId)
-    .eq("is_draft", false)
-    .order("amendment_no", { ascending: false })
+    .eq("id", current.id)
     .limit(1);
 
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY SHEET. `data ?? []` here would
@@ -202,7 +210,9 @@ export async function getRequirementSheet(
     },
     company: {
       name: str("name") ?? str("company_name"),
-      address: str("address") ?? str("address_line1"),
+      /* Built from street1..3 / city / state / pin — the columns the Company
+         Profile actually saves (2026-09-19; `address` never existed). */
+      address: companyAddressOf(co),
       gstin: str("gstin"),
       email: str("email"),
     },

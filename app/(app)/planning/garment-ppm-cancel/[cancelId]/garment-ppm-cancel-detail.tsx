@@ -222,7 +222,7 @@ function StylesTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={styleColumns}
           rows={cancel.styles}
           getKey={(r) => r.id}
@@ -342,7 +342,7 @@ function StylesTab({
               {style.combos.length > 0 && (
                 <div>
                   <p className="mb-1 text-xs text-muted-foreground">Combos</p>
-                  <DataTable columns={comboColumns} rows={style.combos} getKey={(r) => r.id} />
+                  <DataTable paginate={false} columns={comboColumns} rows={style.combos} getKey={(r) => r.id} />
                 </div>
               )}
             </div>

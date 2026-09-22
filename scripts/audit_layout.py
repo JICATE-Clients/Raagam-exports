@@ -88,10 +88,8 @@ PRIMITIVES = {
 # them. Add to this list only when a screen is genuinely a standalone page form.
 PAGE_EDITORS = {
     "components/masters/default-account-head-screen.tsx",
-    # An expand-in-place page form (a Card that opens above the list, no Sheet),
-    # compacted to `erp-form-compact`'s 32px controls on 2026-09-15 -- the density
-    # is a container query, so a page form gets it only by declaring the container.
-    "app/(app)/orders/internal-work-orders/new-iwo-form.tsx",
+    # (`internal-work-orders/new-iwo-form.tsx` stood here until 2026-09-18, when
+    # the IWO became a list + MasterFullScreen overlay and the page form went.)
 }
 
 

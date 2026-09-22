@@ -94,6 +94,7 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   const blocks = toBlocks(children);
   const leaves = blocks.flatMap((b) => b.rows);
   const activeHref = activeChildHref(pathname, leaves);
+  const ModIcon = mod.icon;
 
   // The create action of the screen in view — "New Garment Order" on Order
   // Entry. Only a "New …" action: Import/Export are list operations, not the
@@ -120,16 +121,40 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   }
 
   return (
-    <aside className="scrollbar-slim flex h-full w-52 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
-      <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
-        <h2 className="ty-subsection truncate text-sm font-semibold text-foreground">{mod.label}</h2>
+    <aside
+      // `key` re-mounts on a module switch so the list's `animate-rise`
+      // replays: the column visibly changes subject instead of its rows
+      // silently swapping. The rise sits on the <nav>, not here, so the
+      // column's own border never moves.
+      key={mod.href}
+      className="scrollbar-slim flex h-full w-48 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+    >
+      {/* SIDEBAR REFRESH (client 2026-09-17, option A): the module's own icon
+          in a brand tile, and how many screens it holds. The ONE icon this
+          column carries — a header, not a row, so the 09-16 "much icons"
+          decision about the list below stands. */}
+      <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-primary-soft text-primary">
+          <ModIcon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="ty-subsection truncate text-sm font-bold leading-[18px] text-foreground">
+            {mod.label}
+          </h2>
+          <p className="text-[11px] leading-[14px] text-muted-foreground tabular-nums">
+            {leaves.length} {leaves.length === 1 ? "screen" : "screens"}
+          </p>
+        </div>
       </div>
 
       {newAction && activeHref && (
-        <div className="px-2 pt-2">
+        /* `mt-3` (12px) matches the gap BELOW the button — the nav's `p-2`
+           plus the first section label's `pt-1` — so it sits evenly between
+           the header rule and the list (operator, 2026-09-17). */
+        <div className="mt-3 px-1.5">
           <Link
             href={createHref(activeHref, newAction)}
-            className={buttonClasses({ size: "sm", className: "w-full" })}
+            className={buttonClasses({ size: "sm", className: "w-full rounded-[10px] shadow-elev" })}
           >
             <Plus />
             {newAction}
@@ -142,9 +167,17 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
           was hidden the same day (`group-hub.tsx`) because it repeated this
           exact sidebar listing back at the operator. The module icon in the
           level-1 rail still reaches the same route. */}
-      <nav className="flex-1 space-y-3 p-2">
+      {/* SLIM COLUMN, SAME TEXT (2026-09-21): `w-48` (was `w-56`), `space-y-2`
+          between sections (was `space-y-3.5`), rows at `py-1` with no fixed
+          `h-8`, and the side padding cut at every level. THE TEXT IS NOT
+          PART OF IT — rows stay `SidebarItem`'s 13px and captions 10.5px. A
+          `text-xs` / 9px pass was tried the same morning and withdrawn by the
+          user ("text size should be like in this screenshot … remove the
+          extra space at the side"): the ask was the SPACE, never the type.
+          Row labels `truncate`, so a long screen name ellipsises. */}
+      <nav className="flex-1 animate-rise space-y-2 px-1.5 py-2">
         {blocks.map((block) => (
-          <SidebarSection key={block.key} label={block.label}>
+          <SidebarSection key={block.key} label={block.label} guide>
             {/* TEXT ONLY (client 2026-09-16: "it looks much icons") — the
                 level-1 rail beside this column is already a column of icons,
                 so a second one read as clutter. The captions and the single
@@ -155,7 +188,7 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
                 href={row.href}
                 label={row.label}
                 active={row.href === activeHref}
-                className="h-9 w-full"
+                className="w-full rounded-lg px-2 py-1"
                 onClick={navigate(row.href, row.label)}
               />
             ))}
@@ -164,14 +197,16 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       </nav>
 
       {recentHere.length > 0 && (
-        <div className="shrink-0 border-t border-border p-2">
+        <div className="shrink-0 border-t border-border px-1.5 py-2">
           <SidebarSection label="Recently opened">
             {recentHere.map((r) => (
               <SidebarItem
                 key={r.href}
                 href={r.href}
                 label={r.title}
-                className="h-8 w-full tabular-nums"
+                // A bullet, not an icon — marks these as records, not screens.
+                icon={<span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-border-strong" />}
+                className="w-full rounded-lg px-2 py-1 text-[12.5px] tabular-nums"
                 onClick={navigate(r.href, r.title)}
               />
             ))}

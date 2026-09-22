@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/approval-sla",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/work-flow",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

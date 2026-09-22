@@ -71,7 +71,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
     },
   );
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   function openEdit(r: Attribute) {
     setEditRow(r);
@@ -242,7 +242,8 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No item classes yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
+        paginate={false} getKey={(r) => r.id} empty="No item classes yet." />
       </div>
 
       {/* mobile cards */}

@@ -15,6 +15,7 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { FabricProcessLookups, FabricProcessOption } from "./processes";
 import type { FabricStageRole } from "./stage-routes";
 import type { FabricComposition, YarnProcessOption } from "./yarn-process";
+import { yarnStageTwins, type YarnStageLike, type YarnStageRole } from "./yarn-stage-routes";
 import type { FabricBom, OrderFabricSeedRow, OrderPalette } from "./types";
 import type { StyleComponentDecl } from "./component-map";
 
@@ -140,7 +141,8 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
         "ydCombinations:order_fabric_bom_yd_combinations(*, " +
         "colors:order_fabric_bom_yd_combination_colors(*))",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(
     ((data ?? []) as unknown as FabricBom[]).map((r) => ({
@@ -395,6 +397,10 @@ export type PickerRow = {
    * prints it as legacy's `Structure Type`.
    */
   knit?: string | null;
+  /** The same family as its CODE — `circular` / `flat_knit` / `woven`, the
+   *  vocabulary `order_fabric_bom_dias.knit_type` stores. What Manual's Finish
+   *  Dia scopes by (`dia-knit.ts`); `knit` above is only its display name. */
+  knitCode?: string | null;
 };
 export type UomRow = PickerRow & { decimal_places_allowed: number | null };
 
@@ -638,11 +644,11 @@ async function getStructureRows(): Promise<PickerRow[]> {
   /* ONLY THE IDS THAT ACTUALLY APPEAR, never the whole lookup table. */
   const knitIds = [...new Set(cats.map((r) => r.fabric_structure_id).filter(Boolean))] as string[];
   const knitRes = knitIds.length
-    ? await s.from("config_lookups").select("id, name").in("id", knitIds)
-    : { data: [] as { id: string; name: string | null }[] };
-  const knitById = new Map(
-    ((knitRes.data ?? []) as { id: string; name: string | null }[]).map((r) => [r.id, r.name]),
-  );
+    ? await s.from("config_lookups").select("id, code, name").in("id", knitIds)
+    : { data: [] as { id: string; code: string | null; name: string | null }[] };
+  const knitRows = (knitRes.data ?? []) as { id: string; code: string | null; name: string | null }[];
+  const knitById = new Map(knitRows.map((r) => [r.id, r.name]));
+  const knitCodeById = new Map(knitRows.map((r) => [r.id, r.code]));
 
   return cats
     .filter((r) => isFabricClassId(classes, r.item_class_id))
@@ -658,6 +664,7 @@ async function getStructureRows(): Promise<PickerRow[]> {
          with the structure everywhere the structure goes, so a screen that has
          the row already has the answer — see `PickerRow.knit`. */
       knit: r.fabric_structure_id ? (knitById.get(r.fabric_structure_id) ?? null) : null,
+      knitCode: r.fabric_structure_id ? (knitCodeById.get(r.fabric_structure_id) ?? null) : null,
     }));
 }
 
@@ -711,19 +718,31 @@ async function getUomRows(): Promise<UomRow[]> {
  * `getProcessRows` in `lib/orders/amendments/service.ts` returns the same master
  * the same way, for the same reason, one tab over.
  */
-async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
+/* EXPORTED FOR THE SAVE GUARD (0570). `stageRouteProblem` in `./actions.ts`
+   must judge a save against the SAME classification the picker offered, and a
+   second select string there is how the two would come to disagree. Still the
+   aggregate loader's own reader; nothing else about it changed. */
+export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
   const s = await createClient();
   // `inactive`, not `is_active` — 0227's spelling. Reading the flag column from
   // memory is what leaves a picker silently empty, since PostgREST answers a
   // select over a MISSING column with an error rather than nulls.
+  /* `is_knitting` JOINED THIS SELECT ON 2026-09-16 (0564) — the third kind
+     flag, read for the same reason as the other two and by the same rule
+     file. The Fabric Process screen carries it onto each route step so the
+     preview suppresses exactly what the save path suppresses; see
+     `./fabric-source.ts`.
+
+     `is_cloth_purchase` + `has_sub_categories` JOINED ON 2026-09-19 (0583) —
+     the first says which step BUYS the cloth (`sourceFromRoute`), the second
+     whether the master's sub-category rows are live. A missing column THROWS
+     below, for this function's standing reason — and it did, for a few
+     minutes on 2026-09-19, between this select landing and 0583 being
+     applied: both Fabric BOM screens failed to load. Apply the migration
+     BEFORE the select that needs it. */
   const { data, error } = await s
     .from("processes")
-    /* `is_knitting` JOINED THIS SELECT ON 2026-09-16 (0564) — the third kind
-       flag, read for the same reason as the other two and by the same rule
-       file. The Fabric Process screen carries it onto each route step so the
-       preview suppresses exactly what the save path suppresses; see
-       `./fabric-source.ts`. */
-    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting")
+    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting, is_cloth_purchase, has_sub_categories")
     .order("name");
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (AGENTS.md) — `data ?? []`
   // on a missing column (e.g. `is_dyeing` before 0557 is applied) turns a
@@ -780,6 +799,28 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     else rolesByProcess.set(r.process_id, [role]);
   }
 
+  /* THE SUB-CATEGORIES (0583) — a third query, not an embed, for the stage
+     routes' two reasons above. "DYEING [WITH BIOWASH]" was never offered
+     because nothing on an order screen read this table (client 2026-09-19).
+     A failure THROWS rather than returning none: an empty answer would make
+     every held sub-category render as "(sub-category removed)" and the next
+     save would still carry the id — a label lying about the value. */
+  const { data: subRows, error: subError } = await s
+    .from("process_sub_categories")
+    .select("id, process_id, sno, sub_category")
+    .order("sno");
+  if (subError) {
+    throw new Error(`Could not load the process sub-categories: ${subError.message}`);
+  }
+  const subsByProcess = new Map<string, { id: string; name: string }[]>();
+  for (const r of (subRows ?? []) as { id: string; process_id: string; sub_category: string | null }[]) {
+    const name = (r.sub_category ?? "").trim();
+    if (!name) continue;
+    const list = subsByProcess.get(r.process_id);
+    if (list) list.push({ id: r.id, name });
+    else subsByProcess.set(r.process_id, [{ id: r.id, name }]);
+  }
+
   return ((data ?? []) as {
     id: string;
     name: string;
@@ -788,6 +829,8 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     is_print: boolean | null;
     is_dyeing: boolean | null;
     is_knitting: boolean | null;
+    is_cloth_purchase: boolean | null;
+    has_sub_categories: boolean | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
@@ -797,6 +840,16 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     is_print: p.is_print ?? false,
     is_dyeing: p.is_dyeing ?? false,
     is_knitting: p.is_knitting ?? false,
+    is_cloth_purchase: p.is_cloth_purchase ?? false,
+    /* ALL of them, marked `hidden` when the master's "Has Sub Categories" is
+       off. Hidden ones are not OFFERED (`processPickerItems` skips them), but
+       a route that already holds one still reads its real name
+       (`processLabel`) — the "Disabled rows" rule: never show a filled field
+       as something other than what it holds. */
+    sub_categories: (subsByProcess.get(p.id) ?? []).map((sc) => ({
+      ...sc,
+      hidden: !p.has_sub_categories,
+    })),
     stage_roles: rolesByProcess.get(p.id) ?? [],
   }));
 }
@@ -809,7 +862,9 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
  * the kinds are named once, here, and `LookupDialogPicker` is handed each list
  * whole (it hides an inactive row itself, and keeps the one a record holds).
  */
-async function getFabricProcessLookupRows(): Promise<FabricProcessLookups> {
+/* EXPORTED FOR THE SAVE GUARD (0570) — see `getFabricProcessRows` above. The
+   guard needs the stage list to rank the stages a route names. */
+export async function getFabricProcessLookupRows(): Promise<FabricProcessLookups> {
   const s = await createClient();
   const { data } = await s
     .from("config_lookups")
@@ -839,15 +894,40 @@ async function getFabricProcessLookupRows(): Promise<FabricProcessLookups> {
  * memory is what leaves a picker silently empty, since PostgREST answers a
  * select over a MISSING column with an error rather than nulls.
  */
-async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
+/* EXPORTED (2026-09-21) for `yarnStageProblem` in actions.ts — the server
+   guard reads the SAME classification the screen was handed. */
+export async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
   const s = await createClient();
-  const { data, error } = await s
-    .from("processes")
-    .select("id, name, inactive, for_yarn")
-    .order("name");
+  const [{ data, error }, roles, fabricStages, yarnStages] = await Promise.all([
+    s.from("processes").select("id, name, inactive, for_yarn").order("name"),
+    /* THE STAGE CLASSIFICATION (2026-09-21) — the same rows the fabric loader
+       reads, mapped onto yarn-stage ids by code (`yarnStageTwins`). */
+    s.from("process_fabric_stages").select("process_id, stage_id, is_base"),
+    s.from("config_lookups").select("id, code, name").eq("kind", "fabric_stage"),
+    s.from("config_lookups").select("id, code, name").eq("kind", "yarn_stage"),
+  ]);
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — same reasoning as
   // `getFabricProcessRows` above, which is the sibling this was copied from.
+  // Failing the roles read silently would leave every yarn process
+  // UNCLASSIFIED, which the rule reads as "allowed everywhere" — a broken
+  // query indistinguishable from a master nobody has classified.
   if (error) throw new Error(`Could not load the Process master: ${error.message}`);
+  if (roles.error) throw new Error(`Could not load the yarn stage routes: ${roles.error.message}`);
+  if (fabricStages.error || yarnStages.error) {
+    throw new Error(`Could not load the stage lists: ${(fabricStages.error ?? yarnStages.error)!.message}`);
+  }
+  const twin = yarnStageTwins(
+    (fabricStages.data ?? []) as YarnStageLike[],
+    (yarnStages.data ?? []) as YarnStageLike[],
+  );
+  const rolesByProcess = new Map<string, YarnStageRole[]>();
+  for (const r of (roles.data ?? []) as { process_id: string; stage_id: string; is_base: boolean | null }[]) {
+    const yarnStageId = twin.get(r.stage_id);
+    if (!yarnStageId) continue; // a fabric-only stage (WASH, PRINT) has no yarn twin
+    const list = rolesByProcess.get(r.process_id) ?? [];
+    list.push({ stage_id: yarnStageId, is_base: r.is_base ?? false });
+    rolesByProcess.set(r.process_id, list);
+  }
   return ((data ?? []) as {
     id: string;
     name: string;
@@ -859,6 +939,7 @@ async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
     name: p.name,
     inactive: p.inactive ?? false,
     for_yarn: p.for_yarn ?? false,
+    stage_roles: rolesByProcess.get(p.id) ?? [],
   }));
 }
 
@@ -975,7 +1056,11 @@ async function getFabricCreateFeed(): Promise<FabricCreateFeed> {
   };
 }
 
-async function getYarnStageRows(): Promise<ConfigLookup[]> {
+/* EXPORTED FOR THE SAVE (2026-09-19) — `writeYarns` needs to know which yarn
+   steps sit in a coloured stage ("ONE DYEING LOSS" in `yarnPurchase`). A failed
+   read answers `[]`, which marks no step as dyeing: a typed dyeing step then
+   stays in the purchase arithmetic — an over-buy, never an under-buy. */
+export async function getYarnStageRows(): Promise<ConfigLookup[]> {
   const s = await createClient();
   const { data } = await s
     .from("config_lookups")

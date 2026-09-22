@@ -192,6 +192,31 @@ export const DEFAULT_MATERIAL_TYPE: (typeof MATERIAL_TYPE_OPTIONS)[number] = "Av
  */
 export const TBA_MATERIAL_TYPE: (typeof MATERIAL_TYPE_OPTIONS)[number] = "To be advised";
 
+/** The sentence for an advised line with no reason — the field's, the
+ *  schema's and the database CHECK's (`chk_mbai_advised_reason`, 0588). */
+export const ADVISED_REASON_MESSAGE = "Say why this material is still To be advised";
+
+/**
+ * Why the Material BOM editor will not switch a SAVED advised line to Available
+ * (0588) — the Register's single UPDATE is the only conversion, so the stamp and
+ * the audit always see it. The save refuses with this; the grid prints it under
+ * the disabled TBA toggle of a saved advised line. One sentence, two readers.
+ */
+export const ADVISED_CONVERT_ELSEWHERE =
+  "Convert this item on Orders ▸ Order Execution ▸ Advised Items once the buyer confirms";
+
+/**
+ * Does this line need a Pending Reason it does not have? True only while the
+ * line is To be advised (0588). The screen marks the field `required` from
+ * this; `missingItemFields` refuses Save from it — one predicate, two readers.
+ */
+export function advisedReasonMissing(v: {
+  type?: string | null;
+  pending_reason?: string | null;
+}): boolean {
+  return (v.type ?? "").trim() === TBA_MATERIAL_TYPE && !(v.pending_reason ?? "").trim();
+}
+
 /**
  * THE TWO TYPES THAT MEAN "NOT SETTLED YET" — what a purchase order is refused
  * against (client 2026-08-28: TBA blocks downstream PO creation until the final
@@ -437,6 +462,21 @@ export interface MbaItem {
    * about. See 0474 for the argument in full.
    */
   is_foc: boolean;
+  /** The budget's rate for this material before it is confirmed (0588). The
+   *  Budget pull pre-fills the material line's rate from it. Any line. */
+  estimated_rate: number | null;
+  /** What the buyer confirms on an advised line (0588), beside
+   *  `specification`, `item_color_id` and `size`. */
+  brand: string | null;
+  artwork_code: string | null;
+  /** WHY the line is still To be advised — mandatory while it is (0588,
+   *  `chk_mbai_advised_reason`; `advisedReasonMissing`). */
+  pending_reason: string | null;
+  /** When / by whom To be advised became Available. Stamped by the DATABASE
+   *  (`stamp_advised_conversion`, 0588) — never typed. Sent back unchanged on
+   *  save, because the editor re-inserts every line. */
+  converted_at: string | null;
+  converted_by: string | null;
   moq: number | null;
   /** Round the post-MOQ figure UP to the next multiple of this (0437).
    *  NULL = no rounding asked for, which is every row before 0437. */
@@ -763,6 +803,10 @@ export const mbaItemSliceInput = z.object({
 export type ItemRequiredCheck = {
   category_id: string | null;
   item_id: string | null;
+  /** 0588 — read for the advised line's reason. Optional so every existing
+   *  caller type-checks; absent reads as Available. */
+  type?: string | null;
+  pending_reason?: string | null;
   requirement_grain?: readonly string[] | null;
   requirement_basis?: string | null;
   no_of_items: number | null;
@@ -849,6 +893,12 @@ export function missingItemFields(
       message: "Choose how this material splits",
     });
   }
+  /* AN ADVISED LINE SAYS WHY (0588, `chk_mbai_advised_reason`) — here, in the
+     ONE function the screen's `required` and this schema both read, so the
+     star, the cursor hold and Save cannot disagree about it. */
+  if (advisedReasonMissing(v)) {
+    out.push({ path: "pending_reason", label: "Pending Reason", message: ADVISED_REASON_MESSAGE });
+  }
   return out;
 }
 
@@ -909,6 +959,17 @@ export const mbaItemInput = z
        ordinary answer, and marking it required would hold the keyboard cursor on
        a tick box that can never be blank. */
     is_foc: z.coerce.boolean().default(false),
+    /* 0588 — the Advised Items facts. `estimated_rate` is non-negative, as its
+       column is; the text is capitalised in the schema (AGENTS.md "CAPITALS").
+       The two stamps pass THROUGH unchanged: the database writes them
+       (`stamp_advised_conversion`) and keeps a re-inserted line's history only
+       if the save sends them back. */
+    estimated_rate: z.coerce.number().min(0, "An estimated rate cannot be negative").nullable().default(null),
+    brand: capsTextNullable(),
+    artwork_code: capsTextNullable(),
+    pending_reason: capsTextNullable(),
+    converted_at: nullableText,
+    converted_by: uuidN,
     moq: numN,
     round_to: numN,
     no_of_items: numN,

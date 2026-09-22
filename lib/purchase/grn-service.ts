@@ -52,7 +52,8 @@ export async function listGrns(): Promise<GrnWithVendor[]> {
   const { data } = await supabase
     .from("grns")
     .select("*, vendors(id, name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   const rows = (data ?? []) as unknown as (Grn & {
     vendors: Pick<Vendor, "id" | "name"> | null;
@@ -179,7 +180,8 @@ export async function listDcs(): Promise<DcWithVendor[]> {
   const { data } = await supabase
     .from("delivery_challans")
     .select("*, master_vendors(id, name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   const rows = (data ?? []) as unknown as (DeliveryChallan & {
     master_vendors: DcVendor | null;

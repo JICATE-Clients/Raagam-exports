@@ -93,7 +93,7 @@ export function JobOrderDetail({ jobId, status, components, canEdit, canDelete }
               <Button type="submit" disabled={isPending}>Add</Button>
             </form>
           )}
-          <DataTable columns={columns} rows={components} getKey={(r) => r.id} empty="No components yet." />
+          <DataTable paginate={false} columns={columns} rows={components} getKey={(r) => r.id} empty="No components yet." />
         </CardBody>
       </Card>
 

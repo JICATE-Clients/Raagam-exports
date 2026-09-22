@@ -5,33 +5,51 @@ import { BudgetScreen } from "./budget-screen";
 /**
  * Orders ▸ Budgeting — step 5 of the client's order flow.
  *
- * ONE LIST, not two, and the difference from the three screens before it is the
- * point: Material BOM, Fabric BOM and Fabric Plan each list ORDERS, because
- * every confirmed order needs one of each and an order without one has to be
- * visible. A budget GROUPS orders, so "one budget per order" is not a thing to
- * be pending about — which orders to group is the operator's judgement, and a
- * queue that pre-empted it would be inventing the grouping.
+ * TWO LISTS (user 2026-09-19). First the ORDERS READY TO BUDGET as cards, the
+ * way Material BOM and Fabric BOM list theirs (`BudgetQueue`): Order Entry
+ * recorded and both BOMs saved, each card saying whether a budget covers it
+ * yet. Then the Budgets table. A budget still GROUPS orders, so the queue does
+ * not invent a grouping: opening an uncovered card starts a budget with that
+ * one order picked, and more can be added in the editor.
  *
- * The orders are still loaded, as options with their values already computed
- * (`listBudgetableOrders`), so the operator can see what each one is worth and
- * whether another budget already covers it before picking.
+ * Both read `listBudgetableOrders`, which already carries each order's value,
+ * quantities, BOM readiness and the budget covering it, so the queue costs no
+ * extra query.
  */
-export default async function BudgetsPage() {
+export default async function BudgetsPage({
+  searchParams,
+}: {
+  /** `?budget=<id>` opens that budget in the editor on arrival — the Approval
+   *  queue's Edit icon lands here (2026-09-22). */
+  searchParams: Promise<{ budget?: string }>;
+}) {
   await requirePermission("orders", "view");
+  const { budget: openId } = await searchParams;
 
-  const [budgets, data, canCreate, canEdit, canDelete] = await Promise.all([
+  const [budgets, data, canCreate, canEdit, canDelete, mCreate, mEdit, canApprove] = await Promise.all([
     listOrderBudgets(),
     getBudgetFormData(),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
+    // The Cost Head / Income Head pickers add and rename `config_lookups` rows
+    // inline, which is MASTER data — gated on `masters`, as Packing Advice's
+    // Warehouse picker is, not on the order permission that opened the screen.
+    can("masters", "create"),
+    can("masters", "edit"),
+    // REOPENING AN APPROVED BUDGET IS THE APPROVER'S ACT (Amendment Protocol):
+    // it undoes an approval and unlocks the orders, so it answers to the same
+    // permission that granted it — and the RPC refuses anyone else anyway.
+    can("orders", "approve"),
   ]);
 
   return (
     <BudgetScreen
       budgets={budgets}
       data={data}
-      perms={{ canCreate, canEdit, canDelete }}
+      perms={{ canCreate, canEdit, canDelete, canApprove }}
+      masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
+      openId={openId ?? null}
     />
   );
 }

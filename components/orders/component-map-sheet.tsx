@@ -167,6 +167,11 @@ import {
      and `onPatchPanel` still carry it exactly as before — only the narrowing
      it used to drive is gone. */
   availablePanels,
+  heldOption,
+  panelGroupKey,
+  panelKey,
+  panelSection,
+  sortPanelsByCoordinate,
   /* MOVED OUT OF THIS FILE (2026-09-03), unchanged. The Fabric Process tab's
      fabric row summarises N lines the same way — one structure type, one roll
      form, or "(mixed)" — and a second copy of a rule about abstaining is how two
@@ -188,6 +193,9 @@ export type MapLine = {
   coordinate_id: string | null;
   component_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed cloth this colourway of
+   *  the panel is cut from (TOP, BOTTOM). "" = the cloth's only part. */
+  yd_part: string;
   color_name: string;
   fabric_form: string;
   /** 'open_width' | 'tubular' (0530) — the PANEL's Layout Type, chosen before
@@ -387,6 +395,7 @@ export function ComponentMapBody({
   onPatchLine,
   onAddPanel,
   onRemovePanel,
+  ydPartsFor,
 }: {
   lines: MapLine[];
   decls: readonly StyleComponentDecl[];
@@ -496,6 +505,14 @@ export function ComponentMapBody({
   onPatchPanel: (panelKey: string, patch: Partial<MapLine>) => void;
   /** Patch one colourway's line — Required Colour / Print / Specification. */
   onPatchLine: (lineKey: string, patch: Partial<MapLine>) => void;
+  /**
+   * THE YD PARTS FABRIC ALLOCATION HAS NAMED FOR ONE CLOTH (0596) — TOP,
+   * BOTTOM — so a colourway row of a split yarn-dyed cloth can say which part
+   * it is cut from. That choice is what puts a panel under the Top's stripes or
+   * the Bottom's. Returns fewer than two for every other cloth, and the cell
+   * then draws nothing.
+   */
+  ydPartsFor?: (itemId: string | null, styleRefNo: string) => readonly string[];
   /** Adds one panel. The sheet passes the auto-default where there is one —
    *  see the `solePanel` call at the button. */
   onAddPanel: (seed: { component_id: string | null; coordinate_id: string | null }) => void;
@@ -575,10 +592,13 @@ export function ComponentMapBody({
     const out: PanelGroup[] = [];
     const byKey = new Map<string, PanelGroup>();
     for (const l of lines) {
-      /* THE COMPONENT WHERE THERE IS ONE, the shared uid where there is not —
-         see `panel_uid`. Preferring the component means a panel keeps its
-         identity across a reload, where the uid is regenerated. */
-      const key = l.component_id ?? l.panel_uid;
+      /* THE (COORDINATE, COMPONENT) PAIR WHERE THERE IS ONE, the shared uid
+         where there is not — see `panel_uid`. Preferring the pair means a panel
+         keeps its identity across a reload, where the uid is regenerated. The
+         bare component merged a Set item's TOP and BOTTOM ALL BODY into one row
+         under TOP (client 2026-09-18) — `panelGroupKey` is the one definition,
+         shared with the screen's `inScope`. */
+      const key = panelGroupKey(l);
       let g = byKey.get(key);
       if (!g) {
         g = {
@@ -816,10 +836,33 @@ export function ComponentMapBody({
    */
   type PanelRow = PanelGroup & { addr: string };
 
+  /* SORTED TOP, THEN BOTTOM (client 2026-09-18, approved from the "Components
+     by Coordinate" artifact). `panels` is in LINE order, which is the order
+     the lines were made — one fabric structure at a time when seeded from the
+     order — so a Set's two coordinates came out interleaved.
+     `sortPanelsByCoordinate` is the order's own sequence, and `railGroup` on
+     the grid below draws a heading wherever the coordinate changes. The
+     ordinal follows the sorted list, so numbering runs 1..n across the style
+     (option A: one number per row, never restarting per coordinate). */
   const gridPanels: PanelRow[] = useMemo(
-    () => panels.map((g) => ({ ...g, key: g.panel_uid, addr: g.key })),
-    [panels],
+    () =>
+      sortPanelsByCoordinate(panels, decls, styleRefNo).map((g) => ({
+        ...g,
+        key: g.panel_uid,
+        addr: g.key,
+      })),
+    [panels, decls, styleRefNo],
   );
+
+  /** How many panels each rail heading covers — "TOP · 4". */
+  const sectionCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const g of gridPanels) {
+      const k = panelSection(g).key;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return m;
+  }, [gridPanels]);
 
   /**
    * PER-FIELD WIDTH FOR THE OPEN-PANEL ROW, keyed by header rather than added
@@ -844,26 +887,15 @@ export function ComponentMapBody({
      3-6 chars, "Open Width" / "Tubular" at 6-10, "SIDE PANELS" at 8-11). Read
      it there. */
   const panelColumns: ChildGridColumn<PanelRow>[] = [
-    {
-      /* COORDINATE IS SHOWN AND NOT EDITED. Legacy prints it and it is real
-         information — PIECES vs TOP tells two identically-named panels apart —
-         but it is a property OF the chosen component, so an editable box would be
-         a second place for it to disagree with the order. Read-only TEXT rather
-         than `<Input readOnly>`: nothing is typed, so nothing should be a tab
-         stop. */
-      header: "Coordinate",
-      width: "7rem",
-      /* `ClothText`, NOT A BARE `<Truncated>` (client 2026-09-03, screenshots
-         2673-2674, "took reference ui from material bom" — comparing against
-         Material BOM's own field band). Structure Type beside it also goes
-         through `ClothText`, whose `min-h-8 items-center`
-         wrapper centres the text against an h-8 control's height; this cell
-         did not, so its line sat at its own natural baseline instead of level
-         with the pickers and Selects either side of it — the one field in the
-         row that read as sunk. Same value, same muted style; only the box it
-         sits in changed. */
-      cell: (p) => <ClothText value={coordinateName(p.coordinate_id) ?? ""} />,
-    },
+    /* THE READ-ONLY `Coordinate` CELL STOOD HERE AND IS GONE (client
+       2026-09-18, approved from the "Coordinate Rail Styling" artifact). Once
+       the rail grouped its panels under TOP / BOTTOM headings, the grey
+       "Coordinate: BOTTOM" box beside it said the same word a few pixels
+       from the heading. The FACT is untouched: `coordinate_id` is still set
+       from the chosen panel (the Component cell below) and saved on every
+       line; only the second place it was printed went. Where the Component
+       dropdown offers one component under two coordinates, its options still
+       name the coordinate — "ALL BODY (TOP)". */
     /* THE `Layout Type` COLUMN STOOD HERE AND IS GONE (client 2026-09-04:
        "remove the # 1 column cell and layout type"), one day after 0530 added
        it. Recorded rather than silently deleted, because the SCHEMA half is
@@ -881,7 +913,18 @@ export function ComponentMapBody({
        `LAYOUT_TYPE_OPTIONS` fed only the removed Select and went with it (see
        the import block) — but a picker filter needs rule 4 rebuilt first,
        against whatever declares a per-style Layout Type next. */
-    {
+    /* AND THE `Component` CELL MOVED INTO THE COLOURWAY TABLE (client
+       2026-09-18, screenshot 2935: the lone field beside the table "look
+       floating"). It is `componentColumn` below, prepended to `colourColumns`
+       as ONE cell merged down every colourway row (`spanRows`) — so it sits
+       inside the table without repeating per colourway, which is what sank the
+       04-09 attempt at the same idea (`panelInRowColumns`, noted there). This
+       list is left empty rather than deleted: the outer grid's rows render
+       themselves (`renderMobileRow`), so it has nothing else to say. */
+  ];
+
+  /** THE PANEL'S COMPONENT PICKER — one per panel, whichever table draws it. */
+  const componentColumn: ChildGridColumn<PanelRow> = {
       header: "Component",
       required: true,
       width: "11rem",
@@ -898,7 +941,9 @@ export function ComponentMapBody({
              correct while this covered ONE fabric; scoped to a style it would
              offer the jersey's panel list against a rib neck. */
           structureId: p.structure_id ?? structureId,
-          held: p.component_id,
+          /* THE PAIR, not the component — a Set item's BOTTOM ALL BODY held as
+             a bare id reads as "ALL BODY, coordinate unknown". */
+          held: { coordinate_id: p.coordinate_id, component_id: p.component_id },
         });
         /* THE MASTER'S OWN ROWS, NARROWED — never rows rebuilt from the ids.
            `getComponentRows` already resolved `inactive` off the `components`
@@ -911,37 +956,49 @@ export function ComponentMapBody({
            word for word: it stays on the field, greyed, and cannot be re-picked.
            Dropping it would render a filled cell empty and blank the FK on the
            next save. */
-        const items: PickerRow[] = options.map(
-          (o) =>
-            components.find((c) => c.id === o.component_id) ?? {
-              id: o.component_id,
-              code: null,
-              name: "(panel no longer in the master)",
-              inactive: true,
-            },
-        );
+        /* ONE OPTION PER PANEL, AND A PANEL IS A PAIR (client 2026-09-18). The
+           picker's id is `panelKey`, not the component id: a Set item offers
+           TOP's ALL BODY and BOTTOM's ALL BODY, and two rows sharing one id are
+           two rows the picker cannot tell apart. The master's row is SPREAD,
+           never rebuilt, so its `inactive` rides along untouched. A component
+           offered under two coordinates says which in its label — the same
+           "ALL BODY (TOP)" Manual's picker uses. */
+        const repeats = (componentId: string) =>
+          options.filter((o) => o.component_id === componentId).length > 1;
+        const items: PickerRow[] = options.map((o) => {
+          const row = components.find((c) => c.id === o.component_id) ?? {
+            id: o.component_id,
+            code: null,
+            name: "(panel no longer in the master)",
+            inactive: true,
+          };
+          const coord = repeats(o.component_id) ? coordinateName(o.coordinate_id) : null;
+          return { ...row, id: panelKey(o), name: coord ? `${row.name} (${coord})` : row.name };
+        });
+        const held = heldOption(options, { coordinate_id: p.coordinate_id, component_id: p.component_id });
         return (
           <RecordPicker
             label="Component"
             compact
             required
             items={items}
-            value={p.component_id}
-            onChange={(id) =>
+            value={held ? panelKey(held) : null}
+            onChange={(id) => {
+              const chosen = options.find((o) => panelKey(o) === id) ?? null;
               onPatchPanel(p.addr, {
-                component_id: id,
+                component_id: chosen?.component_id ?? null,
                 /* THE COORDINATE COMES WITH THE PANEL and is never picked
                    separately. The order's declaration pairs them, so asking twice
                    is asking the operator to restate something they have already
-                   said — and to get it wrong. */
-                coordinate_id:
-                  options.find((o) => o.component_id === id)?.coordinate_id ?? null,
-              })
-            }
+                   said — and to get it wrong. Read off the CHOSEN option, never
+                   `find(component)`, which answered TOP for every Set panel. */
+                coordinate_id: chosen?.coordinate_id ?? null,
+              });
+            }}
           />
         );
       },
-    },
+  };
     /* THE CLOTH SUMMARY IS GONE FROM THIS ROW ENTIRELY (client cleanup spec,
        2026-09-04) — legacy's `Structure Type | Fabric Type | Fabric` went in
        three passes on the same day, this being the third and last:
@@ -978,7 +1035,6 @@ export function ComponentMapBody({
        four colourways is four holds for one answer. They have now seen it and
        decided the other way; the later instruction wins. What that argument
        predicted is real and is the thing to watch — see the `Type` column. */
-  ];
 
   /**
    * LEVEL 3's COLUMNS — legacy's order (screenshot 2613), minus `Conv. Item`,
@@ -1023,6 +1079,22 @@ export function ComponentMapBody({
 
   const colourColumns: ChildGridColumn<MapLine>[] = [
     {
+      /* THE PANEL'S COMPONENT, INSIDE THE TABLE, ONCE (client 2026-09-18,
+         screenshot 2935). `spanRows` merges it down every colourway row, so a
+         five-colourway part (GOA-0034) shows "ALL BODY" once, not five times,
+         and there is one control to edit. The cell is handed the page's first
+         line; the panel is found from it, and the write still goes through
+         `onPatchPanel`, which covers every colourway of the panel. */
+      header: componentColumn.header,
+      required: componentColumn.required,
+      width: componentColumn.width,
+      spanRows: true,
+      cell: (l) => {
+        const p = gridPanels.find((g) => g.lines.some((x) => x.key === l.key));
+        return p ? componentColumn.cell(p, 0) : null;
+      },
+    },
+    {
       /* HEADED `Compo Color`, RENAMED FROM `Assort Color` 2026-09-16 (client),
          together with the Manual tab's `Assort Color wise` toggle → `Compo Color
          wise`. THE VALUE IS UNCHANGED and so is the column it writes: `combo`
@@ -1039,8 +1111,19 @@ export function ComponentMapBody({
          THE STYLE RIDES WITH IT (`onPatchLine` applies `styleForCombo`), written
          on the CHANGE and never in an effect — an effect would rewrite every
          stored line's style when a saved BOM is opened. */
-      header: "Compo Color",
-      width: "6rem",
+      /* "COMBO COLOR", NOT "COMPO COLOR" (client, screenshot 2997, 2026-09-22):
+         the 09-16 rename was transcribed with a `p`. The value is `combo`, the
+         doc says "Combo" throughout (`doc/order/check.md` §3), and the same
+         one-letter fix went to the Fabric Process column and the Manual tab's
+         `Route per Combo Color` toggle in the same change — all three surfaces
+         name the one value, so they cannot spell it two ways. */
+      header: "Combo Color",
+      /* 11rem, UP FROM 6rem (client 2026-09-18). The narrowest column held the
+         longest value: GOA-0032's "WHITE NAVY STRIPES" read "WHITE …", and this
+         is the one value that says which colourway the row is. 11rem was still
+         short (screenshot 2935, "WHITE NAVY S…") — the box also carries a
+         clear ✕ beside the value, so 18 capitals need ~215px. */
+      width: "13.5rem",
       cell: (l) => (
         <Select
           compact
@@ -1089,7 +1172,11 @@ export function ComponentMapBody({
           }
           value={l.item_id}
           onChange={(id) => {
-            onPatchLine(l.key, { item_id: id });
+            /* A SPLIT CLOTH STARTS ON ITS FIRST PART (0596) — a real answer the
+               planner can switch, rather than a blank that the Save gate would
+               read as a third, unnamed allocation. Any other cloth has none. */
+            const parts = ydPartsFor?.(id, l.style_ref_no) ?? [];
+            onPatchLine(l.key, { item_id: id, yd_part: parts.length > 1 ? parts[0] : "" });
             clearFilter(l.key);
           }}
         />
@@ -1100,6 +1187,34 @@ export function ComponentMapBody({
             {factsFor(l).gsm} GSM
           </Truncated>
         )}
+        {/* WHICH YD PART THIS COLOURWAY IS CUT FROM (0596) — see `ydPartsFor`.
+            A part this line holds that Fabric Allocation no longer lists
+            survives, tagged, so the cell never reads empty while holding one. */}
+        {(() => {
+          const parts = ydPartsFor?.(l.item_id, l.style_ref_no) ?? [];
+          if (parts.length < 2) return null;
+          const held = (l.yd_part ?? "").trim().toUpperCase();
+          return (
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                YD Part
+              </span>
+              <Select
+                compact
+                aria-label="YD Part"
+                value={held}
+                onChange={(ev) => onPatchLine(l.key, { yd_part: ev.target.value })}
+              >
+                {parts.map((p) => (
+                  <option key={p || "_blank"} value={p}>
+                    {p || "(unnamed)"}
+                  </option>
+                ))}
+                {held && !parts.includes(held) && <option value={held}>{held} (not on Fabric Allocation)</option>}
+              </Select>
+            </div>
+          );
+        })()}
         </div>
       ),
     },
@@ -1169,7 +1284,9 @@ export function ComponentMapBody({
          classification of the cloth. `colourOptions` remains the list for
          every fabric group that has declared no combos at all. */
       header: "Required Color",
-      width: "6rem",
+      /* 9rem, up from 6rem — the header on one line (see `headerClassName`
+         on the grid), and a colour name like NAVY BLUE readable in the box. */
+      width: "9rem",
       cell: (l) => {
         const ydOptions = ydComboOptionsFor(l);
         const options = ydOptions.length > 0 ? ydOptions : colourOptions;
@@ -1187,7 +1304,8 @@ export function ComponentMapBody({
     },
     {
       header: "Required Print",
-      width: "6rem",
+      /* 9rem, up from 6rem — Required Color's reason. */
+      width: "9rem",
       cell: (l) => (
         <Combobox
           compact
@@ -1418,6 +1536,26 @@ export function ComponentMapBody({
            this is a navigation rail with nothing to navigate TO, which reads
            as broken rather than calm. */
         defaultOpenKey={gridPanels[0]?.key ?? null}
+        /* THE COORDINATE IS A HEADING IN THE RAIL (client 2026-09-18) — TOP
+           over its panels, then BOTTOM over its own, the same grouping Manual's
+           Components sheet draws. Inert text: ↑↓ step over it. A single-
+           coordinate style (PIECES) gets one heading and otherwise reads as
+           before. */
+        railGroup={(p) => {
+          const s = panelSection(p);
+          const label =
+            s.kind === "coordinate"
+              ? (coordinateName(s.coordinate_id) ?? "Coordinate")
+              : s.kind === "unstated"
+                ? "Coordinate not stated"
+                : "Choose a component";
+          const n = sectionCounts.get(s.key) ?? 0;
+          return {
+            key: s.key,
+            label: <Truncated className="block">{label}</Truncated>,
+            meta: `${n} ${n === 1 ? "part" : "parts"}`,
+          };
+        }}
         /* INERT BY CONTRACT (see the prop): text and chips, nothing focusable.
            The fields live in the pane next door, and anything tabbable here
            would be a second Tab stop per panel on a surface whose whole point
@@ -1584,23 +1722,13 @@ export function ComponentMapBody({
                 float them against a tall grid. They belong at its top edge,
                 level with its header row. */}
             <div className="flex items-start gap-4">
-              {/* `w-48` AND `shrink-0`. The table is the part that has to
-                  breathe — six columns against two — so the fields take a fixed
-                  column and the grid takes the rest through `flex-1`. Without
-                  `shrink-0` a wide table would squeeze the picker instead, which
-                  is the opposite of the trade this layout is making. */}
-              <div className="w-48 shrink-0 space-y-2">
-                {panelColumns.map((c, ci) => (
-                  /* `required={c.required}` REACHES THE CONTROL HERE, and it has
-                     to: `Field` is what draws the star AND opens the
-                     `RequiredScope` the cursor hold reads (AGENTS.md, "Mandatory
-                     fields"). Rendering `c.cell` bare would keep the column's
-                     declaration and lose both halves it buys. */
-                  <Field key={c.header} label={c.header} required={c.required} className="w-full">
-                    {c.cell(p, ci)}
-                  </Field>
-                ))}
-              </div>
+              {/* THE SIDE COLUMN (`w-48`, the panel's own fields beside the
+                  table) IS GONE (client 2026-09-18, screenshot 2935: the lone
+                  Component field "look floating"). Component is now the
+                  colour table's first column, one cell merged down every
+                  colourway (`componentColumn`, `spanRows`), so the table takes
+                  the pane's whole width. The note above records the 04-09
+                  arrangement this replaces. */}
               <div className="min-w-0 flex-1">
               {/* NO "COLOURWAYS OF <PANEL>" CAPTION (client 2026-09-03).
 
@@ -1647,6 +1775,13 @@ export function ComponentMapBody({
                  was removed on 2026-09-03 -- see the note there. */
               columns={colourColumns}
               rows={p.lines}
+              /* ONE-LINE HEADERS (client 2026-09-18, "Coordinate Rail
+                 Styling") come from the WIDTHS on `colourColumns` — COMPO
+                 COLOR, REQUIRED COLOR and REQUIRED PRINT wrapped at their old
+                 6rem. Deliberately NOT `headerClassName="whitespace-nowrap"`:
+                 on a 1366px laptop this pane is ~660px, and headers that
+                 cannot wrap would push the table into a sideways scroll, which
+                 the operator's rule 4 bans. Wrapping there is the fallback. */
               /* NO `#` COLUMN (client 2026-09-04: "remove the # 1 column
                  cell").
 
@@ -1742,9 +1877,25 @@ export function ComponentMapBody({
                        screens rediscovered this independently;
                        `--check grid-required-mobile` is why this
                        one did not have to. */
+                    c.spanRows ? (
+                      /* THE MERGED COMPONENT CELL, ON THE FIRST CARD ONLY — a
+                         card layout has no rowSpan, and one picker per part is
+                         the point of `spanRows`. `display: contents` keeps the
+                         Field on the FieldGrid track while carrying the
+                         `data-grid-span` marker `gridKeyNav` reads, so ↑/↓
+                         between cards still pair Compo Color with Compo Color. */
+                      ri === 0 ? (
+                        <div key={ci} className="contents" data-grid-span="">
+                          <Field label={c.header} required={c.required} size="md">
+                            {c.cell(row, ri)}
+                          </Field>
+                        </div>
+                      ) : null
+                    ) : (
                     <Field key={ci} label={c.header} required={c.required} size="md">
                       {c.cell(row, ri)}
                     </Field>
+                    )
                   ))}
                 </FieldGrid>
               )}

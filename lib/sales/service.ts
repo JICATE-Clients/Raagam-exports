@@ -48,7 +48,8 @@ export async function getOpportunities(): Promise<OpportunityRow[]> {
   const { data } = await supabase
     .from("opportunities")
     .select("*, buyers!buyer_id(name, code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as OpportunityJoinRow[]).map(
     ({ buyers, ...opp }) => ({
@@ -88,7 +89,8 @@ export async function getStyles(opportunityId: string): Promise<Style[]> {
     .from("styles")
     .select("*")
     .eq("opportunity_id", opportunityId)
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators((data ?? []) as Style[]);
 }
 
@@ -119,7 +121,8 @@ export async function listAllStyles(): Promise<StyleRegisterRow[]> {
     .select(
       "*, opportunities!inner(code, created_at, season, buyers!buyer_id(name, code)), uoms(code)",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as StyleJoinRow[]).map(
     ({ opportunities, uoms, ...style }) => ({
@@ -167,7 +170,8 @@ export async function listAllCostSheetsForRegister(): Promise<
     .select(
       "*, opportunities!inner(code, created_at, season, buyers!buyer_id(name)), styles(name, style_code)",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as CostSheetJoinRow[]).map(
     ({ opportunities, styles, ...cs }) => ({
@@ -210,7 +214,8 @@ export async function getQuotes(opportunityId: string): Promise<Quote[]> {
     .from("quotes")
     .select("*")
     .eq("opportunity_id", opportunityId)
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators((data ?? []) as Quote[]);
 }
 
@@ -229,7 +234,8 @@ export async function listQuotesForConfirmation(): Promise<QuoteConfirmRow[]> {
     .select(
       "*, buyers(name), cost_sheets(version, styles(style_code)), opportunities(id, title)",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as unknown as (Quote & {
     buyers: { name: string | null } | null;
@@ -252,7 +258,8 @@ export async function getSamples(opportunityId: string): Promise<Sample[]> {
     .from("samples")
     .select("*")
     .eq("opportunity_id", opportunityId)
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators((data ?? []) as Sample[]);
 }
 
@@ -282,7 +289,8 @@ export async function listAllSamplesForRegister(): Promise<SampleRegisterRow[]> 
     .select(
       "*, opportunities!inner(code, season, buyers!buyer_id(name)), styles(name, style_code), uoms(code)",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as SampleJoinRow[]).map(
     ({ opportunities, styles, uoms, ...sample }) => ({

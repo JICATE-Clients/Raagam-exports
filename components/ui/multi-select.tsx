@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Plus, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { AFFORDANCE_PAD, FieldAffordance } from "@/components/ui/field-affordance";
-import { useRequiredHold } from "@/components/ui/field";
-import { Truncated } from "@/components/ui/truncated";
+import { RequiredScope, useLocked, useRequiredHold } from "@/components/ui/field";
+import { Truncated, useOverflow } from "@/components/ui/truncated";
+import { Tooltip } from "@/components/ui/tooltip";
 import { GRID_FRAME } from "@/components/masters/child-grid";
 import { cn } from "@/lib/utils";
 import { matchesSearch, searchTokens } from "@/lib/ui/search-match";
@@ -91,8 +93,20 @@ const OPTION_GRID = "grid gap-x-1 gap-y-0.5";
  */
 const CELL_CH_MIN = 3;
 const CELL_CH_MAX = 6;
-/** Checkbox-free chip chrome: `px-2` either side plus the 1px borders. */
-const CELL_CHROME = "1.15rem";
+/* A PILL's padding + border (`px-2` + 2px), 2026-09-17. */
+const CELL_CHROME = "1.125rem";
+
+/**
+ * A FIXED COLUMN COUNT, for a caller whose panel is too narrow for the
+ * auto-fill track to settle on a stable number (operator, 2026-09-17, Order
+ * Entry ▸ Styles ▸ Sizes: "strictly display 3 items per row"). Literal class
+ * names, not `grid-cols-${n}` — Tailwind v4 scans source text.
+ */
+const FIXED_COLS: Record<number, string> = {
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+  4: "grid-cols-4",
+};
 
 export type MultiSelectOption = {
   id: string;
@@ -100,6 +114,9 @@ export type MultiSelectOption = {
   /** Read through `isInactive()` at the call site; a disabled master row. */
   inactive?: boolean;
 };
+
+/** `summarizeLabels` names up to this many; beyond it the trigger counts. */
+const SUMMARY_MAX_LABELS = 2;
 
 export function MultiSelect({
   id: idProp,
@@ -115,16 +132,19 @@ export function MultiSelect({
   placeholder = "",
   emptyLabel = "Nothing to choose from",
   required,
-  disabled,
+  disabled: ownDisabled,
   compact,
   className,
   triggerClassName,
   inputClassName,
   panelClassName,
   groupBy,
+  gridColumns,
   gridded,
   framed,
   hideChips = false,
+  summarizeLabels = false,
+  summaryNoun,
   onCreate,
 }: {
   id?: string;
@@ -199,6 +219,12 @@ export function MultiSelect({
    */
   groupBy?: (option: MultiSelectOption) => { key: string; label: string };
   /**
+   * `gridded` only: draw exactly this many cells per line instead of the
+   * data-measured auto-fill track. ↑/↓ still step one line — `columnCount()`
+   * reads the resolved track either way.
+   */
+  gridColumns?: 2 | 3 | 4;
+  /**
    * LAY THE OPTIONS OUT AS A WRAPPING GRID instead of one per line.
    *
    * For a vocabulary of SHORT values — sizes, counts, gauges — where a column per
@@ -248,6 +274,37 @@ export function MultiSelect({
    */
   hideChips?: boolean;
   /**
+   * NAME THE SELECTION IN THE TRIGGER, ON ONE LINE, INSTEAD OF COUNTING IT
+   * (operator, 2026-09-17, Order Entry ▸ Styles ▸ Sizes: "the row height and
+   * column width must remain strictly fixed regardless of how many sizes are
+   * selected … selected sizes display on a single line … ellipsis").
+   *
+   * The closed trigger reads "S, M" rather than "2 selected" — up to
+   * `SUMMARY_MAX_LABELS`; from the third pick it counts again ("4 sizes
+   * selected", see `summaryNoun`). A pair too long for the box ends in `…`
+   * (the input carries `truncate`) and is revealed on hover — the
+   * truncated-values rule: an ellipsis is a promise the rest is reachable.
+   *
+   * MEANT TO BE PAIRED WITH `hideChips`, and that pairing is what fixes the
+   * shift. The chip line is `flex-wrap`, so every tick could add a line under
+   * the trigger and grow the row; with the labels in the trigger there is
+   * nothing below it to grow. It is NOT the "hide the selection" `hideChips`
+   * refuses — the selection is still on screen, in the trigger. What the
+   * chips offered beyond that is a per-size ✕; unticking in the list and the
+   * list's own Clear do the same job.
+   */
+  summarizeLabels?: boolean;
+  /**
+   * WHAT A COUNTED SUMMARY CALLS ITS ITEMS — "sizes" reads "4 sizes selected".
+   * Omit for the plain "4 selected".
+   *
+   * `summarizeLabels` NAMES AT MOST TWO (operator, 2026-09-17: "if more than 2
+   * sizes are selected … display a summary text like '4 sizes selected'").
+   * Two short labels always fit a field-width trigger; a third is where the
+   * list starts ending in `…`, and a count says more than a clipped list.
+   */
+  summaryNoun?: string;
+  /**
    * TYPE A VALUE THAT DOES NOT EXIST YET AND STORE IT IN THE MASTER.
    *
    * Omit and the control is select-only. Supplied, a typed name that matches
@@ -263,12 +320,18 @@ export function MultiSelect({
    */
   onCreate?: (name: string) => Promise<{ id: string; label: string } | { error: string }>;
 }) {
+  // A locked record cannot be changed (`LockScope`, field.tsx) — disabled with it.
+  const locked = useLocked();
+  const disabled = ownDisabled || locked;
   const autoId = useId();
   const id = idProp ?? autoId;
   const listId = `${id}-list`;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
+  /* The panel is PORTALED (see `placePanel`), so it is no longer inside
+     `rootRef` — every "is this inside the control?" test has to ask both. */
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState<string | null>(null);
@@ -335,13 +398,24 @@ export function MultiSelect({
    */
   const hold = useRequiredHold(!disabled && picked.length === 0, { required, label });
 
+  const summary = picked.length
+    ? summarizeLabels && picked.length <= SUMMARY_MAX_LABELS
+      ? picked.map((o) => o.label).join(", ")
+      : `${picked.length}${summaryNoun ? ` ${summaryNoun}` : ""} selected`
+    : options.length
+      ? placeholder
+      : emptyLabel;
+  /* Whether the one-line summary is actually clipped — the tooltip below stays
+     silent on a summary that fits, like every other `Truncated` reveal. */
+  const { ref: summaryRef, overflowing: summaryClipped } = useOverflow<HTMLInputElement>(summary);
+
   // Close on a click outside. Pointerdown, not click, so a pick inside the panel
   // is never raced by the close.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
       const t = e.target;
-      if (t instanceof Node && rootRef.current?.contains(t)) return;
+      if (t instanceof Node && (rootRef.current?.contains(t) || panelRef.current?.contains(t))) return;
       setOpen(false);
       setQuery("");
     };
@@ -381,12 +455,65 @@ export function MultiSelect({
     if (!root) return;
     const onFocusOut = (e: FocusEvent) => {
       const to = e.relatedTarget;
-      if (to instanceof Node && root.contains(to)) return;
+      if (to instanceof Node && (root.contains(to) || panelRef.current?.contains(to))) return;
       setOpen(false);
       setQuery("");
     };
     root.addEventListener("focusout", onFocusOut);
     return () => root.removeEventListener("focusout", onFocusOut);
+  }, [open]);
+
+  /**
+   * THE PANEL FLOATS OVER THE PAGE, NOT INSIDE IT (operator, 2026-09-17: "size
+   * select panna right side la scroll bar varuthu, athu vara kudathu").
+   *
+   * It used to be `absolute` under the trigger. An absolute box still counts
+   * toward its scrolling ancestor's overflow, so opening the list near the
+   * bottom of an editor pane grew that pane's scroll height: a vertical
+   * scrollbar appeared, the pane lost ~15px, and a `flex-wrap` line close to its
+   * wrap point (Order Entry ▸ Style(s), with ~20px of slack) broke under the
+   * operator's cursor. Portaled and `position: fixed`, the panel belongs to no
+   * scroller at all — the same answer `DataPicker` and `Combobox` already give.
+   *
+   * FIXED MEANS NOTHING CAN SCROLL IT INTO VIEW, so it has to be placed where
+   * it can be seen: below the trigger when it fits, above when there is more
+   * room there, and pulled in from the right edge. Measured off the rendered
+   * panel before paint, every render while open, and again on any scroll or
+   * resize so it follows the trigger.
+   *
+   * Width is the trigger's by default (`--ms-trigger-w`, what `w-full` used to
+   * mean when the panel sat inside the trigger's wrapper); a caller's
+   * `panelClassName` width still wins through `cn`.
+   */
+  const placePanel = () => {
+    const t = triggerRef.current;
+    const p = panelRef.current;
+    if (!t || !p) return;
+    const r = t.getBoundingClientRect();
+    p.style.setProperty("--ms-trigger-w", `${r.width}px`);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = p.offsetWidth;
+    const h = p.offsetHeight;
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    const top = h + 4 <= below || below >= above ? r.bottom + 4 : Math.max(8, r.top - 4 - h);
+    p.style.top = `${top}px`;
+    p.style.left = `${Math.max(8, Math.min(r.left, vw - 8 - w))}px`;
+  };
+  // No deps: the panel's size changes with the search and the selection, and a
+  // placement is two rect reads — cheaper than tracking what moved it.
+  useLayoutEffect(() => {
+    if (open) placePanel();
+  });
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("scroll", placePanel, true);
+    window.addEventListener("resize", placePanel);
+    return () => {
+      window.removeEventListener("scroll", placePanel, true);
+      window.removeEventListener("resize", placePanel);
+    };
   }, [open]);
 
   /**
@@ -622,12 +749,6 @@ export function MultiSelect({
     }
   };
 
-  const summary = picked.length
-    ? `${picked.length} selected`
-    : options.length
-      ? placeholder
-      : emptyLabel;
-
   return (
     <div
       ref={rootRef}
@@ -664,9 +785,25 @@ export function MultiSelect({
         </Label>
       )}
       <div className={cn("relative", triggerClassName)}>
+        {/* THE REVEAL FOR `summarizeLabels`. Inert otherwise, and while the
+            list is open, where the bubble would sit on the options. */}
+        <Tooltip
+          label={summary ?? ""}
+          touch
+          disabled={!summarizeLabels || open || !picked.length || !summaryClipped}
+          /* `flex`, NOT `block`. A block box around an inline `<input>` gives
+             it a line box, and the line's descender space sits UNDER the
+             input — a few px that made the trigger taller than its own `h-*`
+             and moved it against a neighbour's baseline. A flex item has no
+             line box, so the wrapper is exactly the input's height. */
+          className="flex w-full"
+        >
         <input
           id={id}
-          ref={triggerRef}
+          ref={(el) => {
+            triggerRef.current = el;
+            summaryRef.current = el;
+          }}
           type="text"
           role="combobox"
           aria-expanded={open}
@@ -705,7 +842,9 @@ export function MultiSelect({
             cn("h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface pl-2.5 text-base md:text-sm", AFFORDANCE_PAD),
             // truncate-reveal: exempt -- the full selection is rendered in the
             // chip line below, so nothing here is the only copy of a value.
-            "text-ellipsis placeholder:text-muted-foreground",
+            /* One line, clipped with `…` — an `<input>` never wraps, and
+               `truncate` states it rather than relying on that. */
+            "truncate placeholder:text-muted-foreground",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "disabled:cursor-not-allowed disabled:opacity-50",
             "border-border hover:border-primary",
@@ -739,15 +878,25 @@ export function MultiSelect({
 
             No `onClear`: the slot shows ▼ when none is given, and clearing here
             is per-chip, not whole-field. */}
+        </Tooltip>
         <FieldAffordance disabled={disabled} />
-        {open && (
+        {open && createPortal(
           /* THE PANEL IS A BOX AROUND THE LIST, not the list itself.
              The footer has to sit OUTSIDE the scroll region — a bulk action that
              scrolls away with the options is one the operator has to hunt for at
-             exactly the moment they have stopped looking at the list. */
+             exactly the moment they have stopped looking at the list.
+
+             PORTALED — see `placePanel`. `RequiredScope` resets at the boundary
+             for the reason `DataPicker`'s panel gives: context follows the
+             render tree, not the DOM. `font-sans` because the panel no longer
+             inherits the field's font. Placed before paint, so the `0` start
+             is never seen. */
+          <RequiredScope required={false} label={null}>
           <div
+            ref={panelRef}
+            style={{ position: "fixed", top: 0, left: 0, zIndex: 150 }}
             className={cn(
-              "absolute z-50 mt-1 w-full max-w-[calc(100vw-2rem)] rounded-md border border-border bg-surface shadow-lg",
+              "w-[var(--ms-trigger-w)] max-w-[calc(100vw-2rem)] rounded-md border border-border bg-surface font-sans shadow-lg",
               panelClassName,
             )}
           >
@@ -761,7 +910,7 @@ export function MultiSelect({
               // `grid-cols-[repeat(auto-fill,${n})]` compiles to no CSS at all.
               // That constraint is what made the old track a fixed literal in
               // the first place; the style attribute simply sidesteps it.
-              style={gridded ? { gridTemplateColumns: cellTrack } : undefined}
+              style={gridded && !gridColumns ? { gridTemplateColumns: cellTrack } : undefined}
               className={cn(
                 "overflow-auto py-1",
                 gridded
@@ -780,7 +929,17 @@ export function MultiSelect({
                     // track and the labels have to be computed at one size. The
                     // cells restate it rather than relying on inheritance, but
                     // it is this declaration the arithmetic reads.
-                    cn(OPTION_GRID, "max-h-[min(60vh,19rem)] px-2 font-mono text-[13px]")
+                    //
+                    // PILLS ON A SLIM-SCROLLING SHEET (operator, 2026-09-17,
+                    // reference 115610): `max-h-64` + `overflow-y-auto` with the
+                    // app's 6px `scrollbar-slim`, and `text-xs` because that is
+                    // what the pills are set in — the `ch` rule above.
+                    cn(
+                      gridColumns
+                        ? cn("grid gap-2", FIXED_COLS[gridColumns])
+                        : cn(OPTION_GRID, "gap-y-2"),
+                      "max-h-64 overflow-y-auto scrollbar-slim px-3 pb-2 font-mono text-xs",
+                    )
                   : "max-h-64",
               )}
             >
@@ -807,12 +966,12 @@ export function MultiSelect({
                   <li
                     key={`band:${band.key}`}
                     role="presentation"
-                    className="col-span-full flex items-center gap-2 px-1.5 pb-1 pt-2.5 first:pt-1"
+                    /* LABEL — RULE — ALL (operator, 2026-09-17, reference
+                       115610). `font-sans`: a heading, not a token. */
+                    className="col-span-full flex items-center gap-2 pt-2 font-sans text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400"
                   >
-                    <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      {band.label}
-                    </span>
-                    <span aria-hidden className="h-px flex-1 bg-border" />
+                    <span>{band.label}</span>
+                    <span aria-hidden className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
                     {(() => {
                       const ids = band.rows.map((o) => o.id);
                       const allOn = ids.every((x) => chosen.has(x));
@@ -829,7 +988,7 @@ export function MultiSelect({
                                 : [...values, ...ids.filter((x) => !chosen.has(x))],
                             );
                           }}
-                          className="text-[10px] font-medium uppercase tracking-[0.08em] text-primary underline underline-offset-2"
+                          className="text-[10px] font-medium uppercase tracking-wider text-blue-600 underline underline-offset-2 hover:text-blue-700 dark:text-blue-400"
                         >
                           {allOn ? "none" : "all"}
                         </button>
@@ -884,10 +1043,14 @@ export function MultiSelect({
                                not as a row; ragged left edges across a wrapping
                                grid of 2-6 character labels look like a fault. */
                             cn(
-                              "justify-center rounded border px-2 py-1 text-[13px] font-mono tabular-nums",
+                              /* PILLS (operator, 2026-09-17, reference
+                                 115610): green outline when free, light blue
+                                 when ticked. `px-2` so three fit a 220px
+                                 panel — see `CELL_CHROME`. */
+                              "justify-center rounded-full border px-2 py-1 text-center text-xs font-mono tabular-nums",
                               on
-                                ? "border-primary bg-primary text-primary-foreground"
-                                : "border-border bg-surface",
+                                ? "border-blue-500 bg-blue-300 text-gray-800 dark:border-blue-500 dark:bg-blue-900/60 dark:text-blue-100"
+                                : "border-green-400 bg-white text-gray-700 dark:border-green-600 dark:bg-transparent dark:text-gray-200",
                             )
                           : "gap-2 px-3 py-1.5 text-sm",
                         // The highlight must still read ON a filled chip, so it
@@ -962,50 +1125,18 @@ export function MultiSelect({
               )}
             </ul>
 
-            {/* BULK ACTIONS, ONLY WHERE THE LIST IS LONG ENOUGH TO NEED THEM.
-                Gated on `gridded` because that prop already means "a big
-                vocabulary of short values" — which is exactly and only the case
-                where ticking one at a time is the wrong shape of work.
-
-                "Tick all SHOWN" respects the search, deliberately: an operator who
-                has narrowed to what they want and then asks for all of it means
-                all of THAT. A button that ignored the filter would be a different,
-                much more destructive button wearing the same label. */}
+            {/* NO BULK-ACTION BAR (operator, 2026-09-17: "DO NOT include a
+                bottom action bar with 'Tick all shown' or 'Clear'"). The panel
+                ends in a plain light-blue strip, as the reference does. What the
+                bar did is still reachable: each band's ALL ticks or clears that
+                band, Shift+click ticks a range, and every chip under the field
+                carries its own ✕. */}
             {gridded && (
-              <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-1.5">
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {picked.length} selected
-                </span>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    disabled={filtered.length === 0}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      const add = filtered.map((o) => o.id).filter((id) => !chosen.has(id));
-                      if (add.length) onChange([...values, ...add]);
-                    }}
-                    className="text-xs font-medium text-primary disabled:text-muted-foreground"
-                  >
-                    Tick all shown
-                  </button>
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    disabled={picked.length === 0}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      onChange([]);
-                    }}
-                    className="text-xs font-medium text-primary disabled:text-muted-foreground"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
+              <div aria-hidden className="h-6 rounded-b-md bg-blue-50 dark:bg-blue-950/40" />
             )}
           </div>
+          </RequiredScope>,
+          document.body,
         )}
       </div>
 

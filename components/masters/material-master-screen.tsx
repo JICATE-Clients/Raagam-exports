@@ -202,6 +202,15 @@ export function MaterialMasterScreen({
   const purityLabel = useMemo(() => new Map(purities.map((p) => [p.id, p.name])), [purities]);
   const fabricTypeLabel = useMemo(() => new Map(fabricTypes.map((t) => [t.id, t.name])), [fabricTypes]);
   const yarnItemName = useMemo(() => new Map(yarnItems.map((y) => [y.id, y.name])), [yarnItems]);
+  /* THE FIBRE OF A COMPONENT YARN — its Category under YARN (COTTON, POLYESTER,
+     VISCOSE …). What a MIXED yarn's bracket names (client 2026-09-21): the
+     count is the head's, already stated by the Count field, and a bracket of
+     "60'S COMBED COTTON 80%, 40'S POLYESTER 20%" said it three times. Falls
+     back to the yarn's name only when its category is unknown. */
+  const yarnItemFibre = useMemo(
+    () => new Map(yarnItems.map((y) => [y.id, (y.category_id && catLabel.get(y.category_id)) || y.name])),
+    [yarnItems, catLabel],
+  );
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
@@ -246,7 +255,7 @@ export function MaterialMasterScreen({
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [categories, classLabel, filterValues.itemClass]);
 
-  const pg = usePagination(filtered, 10);
+  const pg = usePagination(filtered);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const selectedClassCode = itemClasses.find((c) => c.id === form.item_class_id)?.code ?? null;
@@ -1366,10 +1375,15 @@ export function MaterialMasterScreen({
         // Mixing is optional — only rows the user has actually completed (a %
         // plus a component yarn or description) join the name; blank/partial
         // rows never inject "?" placeholders.
+        /* THE BRACKET NAMES THE FIBRE, NOT THE COMPONENT YARN (client
+           2026-09-21: "remove yarn count from brackets … show only fiber
+           blend"): `yarnItemFibre`, so 60'S COTTON MIXED reads
+           (COTTON 80%, POLYESTER 20%), never (60'S COMBED COTTON 80%, …).
+           A typed description stays as typed. */
         const filled = mixings
           .map((m) => ({
             pct: m.blend_pct,
-            label: m.component_item_id ? yarnItemName.get(m.component_item_id) ?? "" : m.description.trim(),
+            label: m.component_item_id ? yarnItemFibre.get(m.component_item_id) ?? "" : m.description.trim(),
           }))
           .filter((m) => m.pct && m.label);
         // THE MIXING READS AS LEGACY RP DOES (client 2026-08-04, screenshots of
@@ -1439,7 +1453,7 @@ export function MaterialMasterScreen({
       return parts.length ? parts.join(attrSeparator).toUpperCase() : null;
     }
     return null;
-  }, [formKey, attributeDriven, form.count_id, form.purity_id, form.fabric_type_id, form.item_type_name, form.item_base_name, subCategoryName, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
+  }, [formKey, attributeDriven, form.count_id, form.purity_id, form.fabric_type_id, form.item_type_name, form.item_base_name, subCategoryName, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, yarnItemFibre, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
 
   /**
    * Does THIS CLASS compose its own Name? A property of the class, deliberately
@@ -2201,7 +2215,8 @@ export function MaterialMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No materials yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
+        paginate={false} getKey={(r) => r.id} empty="No materials yet." />
       </div>
 
       {/* mobile cards — the shared list, so the eye (view) and delete

@@ -59,7 +59,8 @@ export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
         "id, code, garment_order_id, amendment_no, is_draft, computed_basis_hash, " +
           "computed_for_qty, items:material_bom_amendment_items(id)",
       )
-      .order("amendment_no", { ascending: false }),
+      // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+      .order("amendment_no", { ascending: true }),
   ]);
 
   type BomRow = {
@@ -149,7 +150,8 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
         "delivery_challan_id, challan:delivery_challans(code, dc_date, status, stock_posted_at)), " +
         "requirements:material_bom_amendment_requirements(*)",
     )
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(
     ((data ?? []) as unknown as MaterialBomAmendment[]).map((r) => ({

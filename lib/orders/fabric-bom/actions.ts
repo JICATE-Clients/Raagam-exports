@@ -4,17 +4,23 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
-import { missingFabricLineFields } from "./fabric-line-rules";
+import { isYarnDyed, missingFabricLineFields } from "./fabric-line-rules";
 /* THE ONE RULE DECIDING WHICH ROUTE STEPS SURVIVE (2026-09-16). It lives in
    `./processes.ts` beside `fabricProcessRowStarted` rather than here because
    the SCREEN reads it too, and a `"use server"` file can export nothing but
    async Server Functions — so this file cannot be the home of a predicate two
    readers share. See its own header for the drift that made it one function. */
-import { processRowInScope } from "./processes";
+import { colouredStageIds, processRowInScope, stageRouteProblems } from "./processes";
 import { yarnShadesFrom } from "./yarn-dyed";
+import { colorLossesForStorage } from "./color-loss";
+import { yarnStageProblems } from "./yarn-stage-routes";
 import { fabricBomInput, type FabricBomFormInput, type FabricBomInput } from "./types";
 import {
   getBomYarnComposition,
+  getFabricProcessLookupRows,
+  getFabricProcessRows,
+  getYarnStageRows,
+  getYarnProcessRows,
   getOrderFabricSeed,
   getOrderPalette,
   getOrderProduction,
@@ -23,6 +29,8 @@ import {
 } from "./service";
 import type { OrderFabricSeedRow, OrderPalette } from "./types";
 import type { StyleComponentDecl } from "./component-map";
+import { ydPartKey } from "./component-map";
+import { ydPartProblems } from "./yd-part";
 /* NO `fabricBasisOf` / `FabricBasis` ANY MORE (0494). They resolved a LINE's
    Split cell, and `requirementRows` now hardcodes `colour_size` — an entry
    states grams per size, and fabric is dyed per colourway, so there is no second
@@ -33,7 +41,7 @@ import {
   isRefusal,
   type Refusal,
 } from "./requirement";
-import { consumptionMap } from "./manual";
+import { componentIdsOf, consumptionMap, panelKeyOf, type ManualPanel } from "./manual";
 import { fabricBomEntryRegister, yarnFabricRequirementReport } from "./reports";
 /* Color/Print Details' three panels write the ORDER's palette (client
    2026-09-02). The diff and the citation guard are pure and shared with the
@@ -52,6 +60,7 @@ import {
   comboKey,
   stageProblem,
   stageProcessQty,
+  compositionsBuyingYarn,
   yarnPurchase,
   yarnStageStarted,
   type FabricComposition,
@@ -61,7 +70,11 @@ import {
 } from "./yarn-process";
 /* WHERE EACH FABRIC COMES FROM (0564) — the rule is client-safe and shared
    with the screen, so the preview and this write suppress the same steps. */
-import { asFabricSource, type FabricSource } from "./fabric-source";
+import { asFabricSource, sourceFromRoute, type FabricSource } from "./fabric-source";
+/* PRINT CHECKPOINTS A + B and the per-branch print gate (client 2026-09-19) —
+   the screen's Save gate reads the identical functions. */
+import { printRouteProblems, printedGroup } from "./print-route";
+import { diaKey, manualDiaKnitProblems } from "./dia-knit";
 import {
   basisFingerprint,
   totalProductionOf,
@@ -69,11 +82,44 @@ import {
   type OrderProductionInput,
 } from "@/lib/orders/material-bom/requirement";
 import { kilogramUom } from "@/lib/uom/kilogram";
+import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
 function fail(msg: string): Result {
   return { ok: false, error: msg };
+}
+
+/**
+ * THE APPROVAL LOCK (Phase 5), asked BEFORE the first write of every action
+ * here — `writePalette` included, which writes the ORDER's own dyeing/print
+ * tables. 0576's triggers are the guard; this is what turns their refusal into
+ * a sentence before a save has half-run. Every order the save touches is
+ * checked: the one the BOM is stored against AND the one the form names, so
+ * re-pointing a BOM can neither leave a locked order nor join one.
+ */
+async function orderLockProblem(
+  ...orderIds: (string | null | undefined)[]
+): Promise<string | null> {
+  for (const id of new Set(orderIds.filter((v): v is string => !!v))) {
+    const lock = await assertOrderUnlocked(id);
+    if (!lock.ok) return lock.error;
+  }
+  return null;
+}
+
+/** The order a stored fabric BOM belongs to. A failed read is an error, not "none". */
+async function storedBomOrderId(
+  s: Awaited<ReturnType<typeof createClient>>,
+  bomId: string,
+): Promise<{ ok: true; orderId: string | null } | { ok: false; error: string }> {
+  const { data, error } = await s
+    .from("order_fabric_boms")
+    .select("garment_order_id")
+    .eq("id", bomId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, orderId: (data as { garment_order_id: string | null } | null)?.garment_order_id ?? null };
 }
 
 /**
@@ -119,6 +165,9 @@ function normalizeLines(data: FabricBomInput) {
       coordinate_id: c.coordinate_id ?? null,
       component_id: c.component_id ?? null,
       item_id: c.item_id ?? null,
+      /* YD PART (0596) — which allocation of a yarn-dyed cloth this panel is
+         cut from. Field by field here, so it is named here or it is lost. */
+      yd_part: clean(c.yd_part),
       fabric_type: clean(c.fabric_type),
       color_name: clean(c.color_name),
       fabric_form: c.fabric_form ?? null,
@@ -170,6 +219,9 @@ function normalizeManualEntries(data: FabricBomInput) {
          from this fabric before the insert — see `withDerivedStructure`. It is
          kept on the shape because `requirementRows` keys the order's GSM by it. */
       item_id: e.item_id ?? null,
+      /* YD PART (0596) — which allocation of the cloth this piece weight is
+         for; see `normalizeLines` for why it must be named here. */
+      yd_part: clean(e.yd_part),
       structure_id: e.structure_id ?? null,
       calc_mode: e.calc_mode ?? "direct",
       wastage_pct: e.wastage_pct ?? 0,
@@ -206,10 +258,16 @@ function normalizeManualEntries(data: FabricBomInput) {
          the belt on the braces rather than a second opinion. */
       size_wise: e.size_wise ?? false,
       sno: 0,
-      /* DEDUPED, because `uq_ofbmc_entry_component` would reject the second copy
-         and take the whole save with it. The multi-select cannot produce one
-         today; a `lib/data-io` import could. */
-      component_ids: [...new Set(e.component_ids ?? [])],
+      /* DEDUPED ON THE PAIR (0569), because `uq_ofbmc_entry_panel` would reject
+         the second copy and take the whole save with it. Keyed through
+         `panelKeyOf` rather than by hand: that index counts an unstated
+         coordinate as one value (`coalesce` to the all-zero uuid) and so does
+         the key, so the two cannot disagree about what a duplicate is. The
+         sheet cannot produce one today; a `lib/data-io` import could.
+
+         TOP's ALL BODY AND BOTTOM's ALL BODY SURVIVE EACH OTHER, which is the
+         whole of 0569: one component, two coordinates, two panels. */
+      panels: dedupePanels(e.panels ?? []),
       /* WHICH COLOURWAYS THIS WEIGHT IS FOR (0567). Deduped for
          `uq_ofbmcb_entry_combo`'s sake, exactly as the panels above are, and
          TRIMMED because the value is compared with `comboKey` downstream while
@@ -229,8 +287,28 @@ function normalizeManualEntries(data: FabricBomInput) {
        `structure_id` here in 0522 for the reason the whole entry changed grain:
        the structure is no longer typed, so a row carrying one and nothing else
        is a row the planner never started. */
-    .filter((e) => e.item_id !== null || e.component_ids.length > 0)
+    .filter((e) => e.item_id !== null || e.panels.length > 0)
     .map((e, i) => ({ ...e, sno: i + 1 }));
+}
+
+/**
+ * THE PANELS ONE ENTRY STORES, deduped on the (coordinate, component) PAIR.
+ *
+ * `uq_ofbmc_entry_panel` (0569) counts an unstated coordinate as one value — it
+ * indexes `coalesce(coordinate_id, <all-zero uuid>)` — and `panelKeyOf` spells
+ * the same thing, so a payload that names one panel twice is thinned here
+ * rather than taking the whole save down at the insert.
+ */
+function dedupePanels(panels: readonly ManualPanel[]): ManualPanel[] {
+  const seen = new Set<string>();
+  const out: ManualPanel[] = [];
+  for (const p of panels) {
+    const k = panelKeyOf(p);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ coordinate_id: p.coordinate_id ?? null, component_id: p.component_id });
+  }
+  return out;
 }
 
 /**
@@ -444,9 +522,16 @@ function normalizeProcesses(
       sno,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
+      /* 0583 — that it belongs to `process_id` was checked by `routeGuard`
+         before anything was written. */
+      sub_category_id: p.sub_category_id ?? null,
       loss_for_id: p.loss_for_id ?? null,
       loss_pct: p.loss_pct ?? null,
       type_id: p.type_id ?? null,
+      /* 0606 — ASSORT COLOR-WISE LOSS. A step already scoped to ONE colourway
+         has one loss by definition, so only an "All colours" step keeps the
+         map; off (or scoped) stores it empty, which 0606's CHECK requires. */
+      ...colorLossesForStorage(p.color_wise_loss && !p.combo, p.color_losses),
     });
   }
   return out;
@@ -865,7 +950,7 @@ function routesByFabricOf(
    *  which suppresses nothing; that is the right reading for a database where
    *  0564's seed has not run, and it errs by buying slightly too much cloth
    *  rather than too little. */
-  kinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean }> = new Map(),
+  kinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean; is_print?: boolean }> = new Map(),
 ): Map<string, RouteStage[]> {
   const out = new Map<string, RouteStage[]>();
   for (const p of data.processes) {
@@ -879,6 +964,10 @@ function routesByFabricOf(
          weight — see `stagesForGroup`. */
       component_id: p.component_id ?? null,
       loss_pct: p.loss_pct ?? null,
+      /* 0606 — per-colourway losses, resolved by `stagesForGroup`; the same
+         gate `normalizeProcesses` stores through, so the stored purchase is
+         grossed by exactly what is saved. */
+      color_losses: colorLossesForStorage(p.color_wise_loss && !p.combo, p.color_losses).color_losses,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
       /* CARRIED SINCE 2026-09-16 (0564) for the same reason `component_id` is:
@@ -886,6 +975,10 @@ function routesByFabricOf(
          without it suppresses nothing under Rule 2. */
       is_knitting: kind?.is_knitting ?? false,
       is_dyeing: kind?.is_dyeing ?? false,
+      /* 2026-09-19 — which step prints, so an unprinted slice's ladder drops
+         the print stage (`routeForPrint`). The screen's `routesByFabric`
+         carries it in step. */
+      is_print: kind?.is_print ?? false,
     });
     out.set(p.item_id, list);
   }
@@ -907,7 +1000,7 @@ function routesByFabricOf(
 async function processKindsOf(
   s: Awaited<ReturnType<typeof createClient>>,
   data: FabricBomInput,
-): Promise<Map<string, { is_knitting: boolean; is_dyeing: boolean }>> {
+): Promise<Map<string, { is_knitting: boolean; is_dyeing: boolean; is_print: boolean }>> {
   const ids = [...new Set(data.processes.map((p) => p.process_id).filter(Boolean))] as string[];
   if (ids.length === 0) return new Map();
   /* `.select()` WITHOUT `!inner` AND WITH NO EMBED — `processes` is a plain
@@ -917,7 +1010,7 @@ async function processKindsOf(
      the knitting loss this migration exists to remove. */
   const { data: rows, error } = await s
     .from("processes")
-    .select("id, is_knitting, is_dyeing")
+    .select("id, is_knitting, is_dyeing, is_print")
     .in("id", ids);
   if (error) {
     /* NOT A THROW AND NOT A SILENT EMPTY MAP. The save must not fail over a
@@ -928,9 +1021,15 @@ async function processKindsOf(
     throw new Error(`Could not read the process master's kind flags: ${error.message}`);
   }
   return new Map(
-    ((rows ?? []) as { id: string; is_knitting: boolean | null; is_dyeing: boolean | null }[]).map(
-      (r) => [r.id, { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false }],
-    ),
+    ((rows ?? []) as {
+      id: string;
+      is_knitting: boolean | null;
+      is_dyeing: boolean | null;
+      is_print: boolean | null;
+    }[]).map((r) => [
+      r.id,
+      { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false, is_print: r.is_print ?? false },
+    ]),
   );
 }
 
@@ -969,14 +1068,20 @@ function yarnShadesOf(
   data: FabricBomInput,
   compositions: ReadonlyMap<string, FabricComposition>,
 ): YarnShade[] {
-  const fabricIds = [
-    ...new Set((data.yd_repeats ?? []).map((r) => r.item_id).filter(Boolean)),
-  ] as string[];
-  return fabricIds.flatMap((fabricId) =>
+  /* ONE SET OF SHADES PER (FABRIC, YD PART) since 0596 — a Top knitted 80/20
+     and a Bottom knitted 70/30 from one cloth must not pool their stripes. The
+     screen's `yarnShades` groups the same way. */
+  const groups = new Map<string, { fabricId: string; part: string }>();
+  for (const r of data.yd_repeats ?? []) {
+    if (!r.item_id) continue;
+    const part = ydPartKey(r.yd_part);
+    groups.set(`${r.item_id}|${part}`, { fabricId: r.item_id, part });
+  }
+  return [...groups.values()].flatMap(({ fabricId, part }) =>
     yarnShadesFrom(
       fabricId,
       (data.yd_repeats ?? [])
-        .filter((r) => r.item_id === fabricId)
+        .filter((r) => r.item_id === fabricId && ydPartKey(r.yd_part) === part)
         .map((r) => ({
           key: `${fabricId}:${r.sno}`,
           sno: r.sno,
@@ -989,7 +1094,7 @@ function yarnShadesOf(
         })),
       compositions.get(fabricId) ?? null,
       (data.yd_combinations ?? [])
-        .filter((c) => c.item_id === fabricId)
+        .filter((c) => c.item_id === fabricId && ydPartKey(c.yd_part) === part)
         .map((c) => ({
           combo: c.combo ?? null,
           colors: (c.colors ?? []).map((x) => ({
@@ -997,6 +1102,8 @@ function yarnShadesOf(
             dyeing_loss_pct: x.dyeing_loss_pct ?? 0,
           })),
         })),
+      undefined,
+      part || null,
     ),
   );
 }
@@ -1009,7 +1116,10 @@ function normalizeYarns(
   /** THE PROCESS MASTER'S KIND FLAGS (0564) — see `processKindsOf`. Read by
    *  the caller so this stays a pure function, the same division `writeYarns`
    *  already draws for `compositions` and `uomDecimals`. */
-  processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean }> = new Map(),
+  processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean; is_print?: boolean }> = new Map(),
+  /** The `yarn_stage` ids that are coloured (DYED) — a yarn step there is the
+   *  hand-typed dyeing step `yarnPurchase` drops when shade losses exist. */
+  dyedYarnStages: ReadonlySet<string> = new Set(),
 ): NormalizedYarn[] {
   /* THE DYED SHADES (0568) — built once for the whole save rather than per
      yarn: `yarnPurchase` filters them itself by (fabric, yarn, colourway), and
@@ -1024,10 +1134,22 @@ function normalizeYarns(
     processKinds,
   );
   const sourceByFabric = sourceByFabricOf(data);
+  /* NO ROW FOR A YARN NOBODY BUYS (2026-09-19, Rule 2). A yarn every cloth of
+     which is bought as rolls has nothing to purchase; storing it with a null
+     purchase hid the report's yarn total and made the Budget count a
+     "skipped" figure. `compositionsBuyingYarn` is the screen's own filter. */
+  const allCompositions = [...compositions.values()];
+  const yarnsUsed = new Set(allCompositions.flatMap((c) => c.components.map((x) => x.yarn_id)));
+  const yarnsBought = new Set(
+    compositionsBuyingYarn(allCompositions, (id) => sourceByFabric.get(id) ?? "yarn_knit").flatMap((c) =>
+      c.components.map((x) => x.yarn_id),
+    ),
+  );
 
   for (const y of data.yarns) {
     if (!y.item_id || seen.has(y.item_id)) continue;
     seen.add(y.item_id);
+    if (yarnsUsed.has(y.item_id) && !yarnsBought.has(y.item_id)) continue;
 
     const kept = y.stages.filter((st) =>
       yarnStageStarted({
@@ -1058,7 +1180,13 @@ function normalizeYarns(
          figure stay one computation. This is now the YARN'S OWN stages, which
          compound onto whatever its fabric(s) already contribute (see
          `yarnPurchase`'s 2026-09-11 header) — not the sole source any more. */
-      kept.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
+      kept.map((st) => ({
+        combo: st.combo ?? null,
+        loss_pct: st.loss_pct ?? null,
+        dyed: !!st.stage_id && dyedYarnStages.has(st.stage_id),
+        /* 0606 — same gate the stored row goes through below. */
+        color_losses: colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses).color_losses,
+      })),
       uomId ? (uomDecimals.get(uomId) ?? null) : null,
       /* WHERE EACH CLOTH COMES FROM (0564) — a fabric bought as greige or dyed
          rolls buys no yarn, so it leaves this sum. The SAME map the screen's
@@ -1105,6 +1233,7 @@ function normalizeYarns(
           combo: st.combo ?? null,
           description: st.description ?? null,
           loss_pct: st.loss_pct ?? null,
+          ...colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses),
           ...(st.process_id && !problem
             ? {
                 process_qty: stageProcessQty(st.combo ?? null, byCombo),
@@ -1158,7 +1287,14 @@ async function writeYarns(
     return fail(e instanceof Error ? e.message : "Could not read the process master's kind flags");
   }
 
-  const yarns = normalizeYarns(data, fabrics, compositions, uomDecimals, processKinds);
+  const yarns = normalizeYarns(
+    data,
+    fabrics,
+    compositions,
+    uomDecimals,
+    processKinds,
+    colouredStageIds(await getYarnStageRows()),
+  );
 
   /* AN EMPTY PAYLOAD IS NOT AUTOMATICALLY AN EMPTY ANSWER (2026-09-16).
      A yarn row exists because a cloth on this BOM is MADE of that yarn —
@@ -1174,7 +1310,13 @@ async function writeYarns(
      failure this module's header calls its worst. Refusing keeps the rows that
      ARE there, names what happened, and costs the operator one more Save. */
   if (yarns.length === 0) {
-    const clothDeclaresYarn = [...compositions.values()].some((c) => c.components.length > 0);
+    /* Only cloths whose yarn is BOUGHT count (2026-09-19): an all-purchased
+       BOM has compositions and, correctly, no yarn rows. */
+    const sources = sourceByFabricOf(data);
+    const clothDeclaresYarn = compositionsBuyingYarn(
+      [...compositions.values()],
+      (id) => sources.get(id) ?? "yarn_knit",
+    ).some((c) => c.components.length > 0);
     if (clothDeclaresYarn) {
       return fail(
         "The yarn rows had not finished loading, so this save could not work out the yarn " +
@@ -1354,6 +1496,7 @@ async function writeLines(
           style_ref_no: r.style_ref_no,
           structure_id: r.structure_id,
           item_id: r.item_id,
+          yd_part: clean(r.yd_part),
           combo: r.combo,
           yd_combo_name: r.yd_combo_name,
           bom_id: bomId,
@@ -1499,14 +1642,14 @@ async function writeLines(
   if (entries.length) {
     const { data: inserted, error } = await s
       .from("order_fabric_bom_manual_entries")
-      /* `component_ids`, `combos` AND `sizes` ARE STRIPPED HERE, BY NAME. They
+      /* `panels`, `combos` AND `sizes` ARE STRIPPED HERE, BY NAME. They
          ride on the normalized entry so that each can be paired with the id
          this insert reads back; PostgREST would reject the whole batch on an
          unknown column, which is the good failure. The bad one is a rename that
          makes any of them resolve to something real, so the strip is written out
          at the one place it has to happen rather than left to a spread. */
       .insert(
-        entries.map(({ component_ids: _c, combos: _cb, sizes: _z, ...e }) => ({
+        entries.map(({ panels: _c, combos: _cb, sizes: _z, ...e }) => ({
           ...e,
           bom_id: bomId,
         })),
@@ -1523,8 +1666,14 @@ async function writeLines(
       return fail("Could not read back the saved manual entries");
     }
 
+    /* THE PAIR IS WRITTEN WHOLE (0569) — `coordinate_id` beside the component,
+       so the row says which half of a Set item its weight is for. */
     const componentRows = savedEntries.flatMap((e) =>
-      e.component_ids.map((component_id) => ({ entry_id: e.id, component_id })),
+      e.panels.map((p) => ({
+        entry_id: e.id,
+        coordinate_id: p.coordinate_id,
+        component_id: p.component_id,
+      })),
     );
     if (componentRows.length) {
       const { error: cErr } = await s
@@ -1602,7 +1751,7 @@ async function writeLines(
     s,
     bomId,
     data,
-    fabricGrossOf(requirement, savedEntries),
+    fabricGrossOf(requirement, savedEntries, data.lines),
     await compositionMapFor(saved),
     decimals.size ? decimals : await uomDecimalMap(s),
   );
@@ -1644,11 +1793,24 @@ async function writeLines(
 function fabricGrossOf(
   requirement: readonly Record<string, unknown>[],
   entries: readonly EntryRowWithId[],
+  /** The BOM's lines, for `printed` (2026-09-19) — the screen's preview reads
+   *  its own lines through the same `printedGroup`. */
+  lines: readonly { item_id?: string | null; combo?: string | null; component_id?: string | null; required_print?: string | null }[] = [],
 ): FabricGross[] {
-  /* WHICH PANELS EACH ENTRY COVERS — the same `component_ids` written to
+  const printLines = lines.map((l) => ({ ...l, item_id: l.item_id ?? null }));
+  /* WHICH COMPONENTS EACH ENTRY COVERS — the same panels written to
      `order_fabric_bom_manual_components` a few lines up, so a "Component
-     Wise" route (0528) can be resolved per bucket (`stagesForGroup`). */
-  const componentsByEntry = new Map(entries.map((e) => [e.id, e.component_ids]));
+     Wise" route (0528) can be resolved per bucket (`stagesForGroup`).
+
+     THE COORDINATE STOPS HERE, deliberately (0569). A route step names a
+     component and knows nothing of coordinates, so a Set item's TOP and BOTTOM
+     All Body run the same sequence; `componentIdsOf` is the one place that
+     flattening lives, and it dedupes so one route cannot be applied twice. */
+  const componentsByEntry = new Map(entries.map((e) => [e.id, componentIdsOf(e.panels)]));
+  /* WHICH YD PART EACH ENTRY WEIGHS (0596) — stamped on its buckets so the
+     yarn is grossed by that part's own stripes (`shadeDyeFactor`). The bucket
+     is already per ENTRY, so two parts of one cloth never share one. */
+  const partByEntry = new Map(entries.map((e) => [e.id, e.yd_part ?? null]));
   /* KEYED BY (entry, COLOURWAY) SINCE 0504, not by entry alone. A stage may
      treat PURPLE and not GREEN, so the yarn has to be weighed per colourway
      before any loss is applied — summing an entry's slices into one figure first
@@ -1673,10 +1835,13 @@ function fabricGrossOf(
     const qty = r.required_qty as number | null;
     byBucket.set(bucket, {
       fabric_id: itemId,
+      yd_part: partByEntry.get(key) ?? null,
       combo,
       gross: qty == null ? null : (held?.gross ?? 0) + Number(qty),
       uom_id: (r.consumption_uom_id as string | null) ?? null,
       component_ids: componentsByEntry.get(key) ?? [],
+      /* 2026-09-19 — an unprinted slice is not grossed by the print stage. */
+      printed: printedGroup(printLines, itemId, combo, componentsByEntry.get(key) ?? []),
       /* THE STORED REASON, so the saved yarn row refuses in the SAME words the
          screen previewed — the header's rule that this figure is computed once
          and read twice applies to the refusal as much as to the weight. The row
@@ -1725,7 +1890,7 @@ async function yarnDyedProblem(
 
   const { data: rows } = await s
     .from("items")
-    .select("id, fabric_type:config_lookups!fabric_type_id(name)")
+    .select("id, name, fabric_type:config_lookups!fabric_type_id(name)")
     .in("id", ids);
 
   /* THE EMBED COMES BACK AS AN ARRAY OR AN OBJECT depending on how PostgREST
@@ -1753,7 +1918,295 @@ async function yarnDyedProblem(
     );
     if (problems.length) return problems[0].message;
   }
+
+  /* YD PARTS (0596) — the screen's own rule over the payload, gated by the
+     MASTER's fabric type (never the payload's word): a split yarn-dyed fabric
+     must name every part, and every Manual entry of it must name one. */
+  const nameById = new Map(
+    ((rows ?? []) as unknown as { id: string; name: string | null }[]).map((r) => [r.id, r.name ?? ""]),
+  );
+  const partProblems = ydPartProblems(
+    data.lines,
+    data.manualEntries,
+    (itemId) => isYarnDyed(typeById.get(itemId) ?? null),
+    (itemId) => nameById.get(itemId) || "This fabric",
+  );
+  if (partProblems.length) return partProblems[0];
   return null;
+}
+
+/**
+ * A FINISH DIA OF THE WRONG KNIT FAMILY (client 2026-09-19) — `dia-knit.ts`'s
+ * rule over the payload. The screen only offers a fabric its own family's dias
+ * and blocks Save on a held mismatch; this is the guard, because a stale page
+ * or a replayed request is not the picker.
+ *
+ * THE FABRIC'S FAMILY IS READ FROM THE MASTER, never from the payload: the
+ * item's `category_id` (its structure), that structure's
+ * `fabric_structure_id`, that lookup's code. Three plain selects rather than an
+ * embed — `getStructureRows` records why the embed does not parse here.
+ */
+async function diaKnitServerProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  data: FabricBomInput,
+): Promise<string | null> {
+  const entries = data.manualEntries.filter((e) => e.item_id && e.sizes.some((z) => diaKey(z.dia)));
+  if (entries.length === 0 || data.dias.length === 0) return null;
+
+  const itemIds = [...new Set(entries.map((e) => e.item_id as string))];
+  const { data: items, error: itemErr } = await s.from("items").select("id, name, category_id").in("id", itemIds);
+  if (itemErr) return `Could not check the fabrics' knit type: ${itemErr.message}`;
+  const itemRows = (items ?? []) as { id: string; name: string | null; category_id: string | null }[];
+
+  const catIds = [...new Set(itemRows.map((r) => r.category_id).filter(Boolean))] as string[];
+  const { data: cats, error: catErr } = catIds.length
+    ? await s.from("categories").select("id, fabric_structure_id").in("id", catIds)
+    : { data: [], error: null };
+  if (catErr) return `Could not check the fabrics' knit type: ${catErr.message}`;
+  const catRows = (cats ?? []) as { id: string; fabric_structure_id: string | null }[];
+
+  const lookupIds = [...new Set(catRows.map((r) => r.fabric_structure_id).filter(Boolean))] as string[];
+  const { data: lookups, error: lkErr } = lookupIds.length
+    ? await s.from("config_lookups").select("id, code").in("id", lookupIds)
+    : { data: [], error: null };
+  if (lkErr) return `Could not check the fabrics' knit type: ${lkErr.message}`;
+
+  const codeByLookup = new Map(((lookups ?? []) as { id: string; code: string | null }[]).map((r) => [r.id, r.code]));
+  const lookupByCat = new Map(catRows.map((r) => [r.id, r.fabric_structure_id]));
+  const itemById = new Map(itemRows.map((r) => [r.id, r]));
+
+  const problems = manualDiaKnitProblems(
+    entries.map((e) => ({ item_id: e.item_id ?? null, sizes: e.sizes })),
+    data.dias,
+    (itemId) => {
+      const cat = itemById.get(itemId)?.category_id;
+      const lookup = cat ? lookupByCat.get(cat) : null;
+      return lookup ? (codeByLookup.get(lookup) ?? null) : null;
+    },
+    (itemId) => itemById.get(itemId)?.name || "This fabric",
+  );
+  return problems[0] ?? null;
+}
+
+/**
+ * THE STAGE RULES, AS A GUARD RATHER THAN AS A DROPDOWN (0570).
+ *
+ * Client spec 2026-09-18 §2: a fabric line that has moved to DYED / WASH /
+ * PRINT cannot revert to GREY, and a stage's primary process is locked to it
+ * ("You cannot select Dyeing under a GREY stage tag"). The client chose the
+ * strict reading when asked — refuse the save.
+ *
+ * ## WHY THIS EXISTS WHEN THE PICKER ALREADY NARROWS
+ *
+ * Because until today the ONLY enforcement was the picker. `normalizeProcesses`
+ * writes `stage_id` straight through, `order_fabric_bom_processes.stage_id` is a
+ * plain nullable FK whose only CHECKs are on `loss_pct` and `rate`, and the
+ * Fabric Process section declared no Save problem at all — so a stale page, a
+ * replayed request or a future writer stored any pair at all. AGENTS.md's
+ * standing split, which `checkDuplicateName` states in as many words: the
+ * screen check is a courtesy, this one is the guard. And the stakes are the four
+ * stock ledgers rather than a tidy grid: a live route already carries
+ * `[DYED] FABRIC PURCHASE` — greige cloth booked as dyed.
+ *
+ * ## IT READS THE CLASSIFICATION, IT DOES NOT TRUST THE PAYLOAD
+ *
+ * `getFabricProcessRows()` is the SAME reader the screen's options come from
+ * (exported for this), so "what the grid offered" and "what the save accepts"
+ * cannot drift into two select strings. It throws rather than defaulting if
+ * `process_fabric_stages` is unreadable, which is deliberate there: an empty map
+ * would read as "nothing is classified" and switch the whole rule off silently.
+ * Same argument as `processKindsOf` above.
+ *
+ * ## THE GATES, AND THE ONE RESIDUAL DIVERGENCE, STATED
+ *
+ * `stageMismatchBlocked`'s floor test runs on the GATED list, so this guard has
+ * to gate the same way the screen did or it reports rows the operator was never
+ * warned about — the narrowing/twin divergence this module has already suffered
+ * three times. `fabricIsYarnDyed` is resolved from `items.fabric_type` here, the
+ * same way `yarnDyedProblem` above resolves it and for the same reason (the
+ * payload must not be able to answer it).
+ *
+ * `printDeclared` is passed TRUE rather than re-read from the order's prints,
+ * and that is a judgement with a cost worth naming. It only ever WITHHOLDS
+ * print-flagged processes from the offered list, so the only way it can matter
+ * here is if a stage's ONLY allowed processes are print-flagged: then the screen
+ * sees an empty stage (floor in effect, silent) while this guard sees one and
+ * refuses. With the shipped classification that cannot happen — the Printed
+ * stage also holds DIP-WASH, GUM CUTTING and COMPACTING, and no other stage
+ * holds a print-flagged process at all. If someone later classifies a stage to
+ * print steps ALONE, the symptom is one refusal the screen did not predict, not
+ * lost data; the fix then is to read the order's prints here too.
+ */
+/**
+ * THE YARN SIDE OF THE STAGE RULE (client 2026-09-21) — `yarnStageProblems`
+ * on the payload's yarn steps, against the master's classification mapped to
+ * yarn stages exactly as the screen reads it (`getYarnProcessRows`). Same
+ * function as the screen's Save gate, so the two cannot disagree. Yarn names
+ * are read for the sentence; the rule needs only ids.
+ */
+async function yarnStageProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  data: FabricBomInput,
+): Promise<string | null> {
+  const yarns = data.yarns.filter((y) => y.stages.some((st) => st.stage_id || st.process_id));
+  if (!yarns.length) return null;
+  const [options, stages] = await Promise.all([getYarnProcessRows(), getYarnStageRows()]);
+  const { data: items, error } = await s.from("items").select("id, name").in("id", yarns.map((y) => y.item_id));
+  if (error) return `Could not read the yarns: ${error.message}`;
+  const nameOf = new Map(((items ?? []) as { id: string; name: string | null }[]).map((i) => [i.id, i.name ?? "This yarn"]));
+  const problems = yarnStageProblems(
+    yarns.map((y) => ({
+      name: nameOf.get(y.item_id) ?? "This yarn",
+      stages: y.stages.map((st) => ({ stage_id: st.stage_id ?? null, process_id: st.process_id ?? null })),
+    })),
+    /* Yarn processes only — a fabric process on the same stage is no base a
+       yarn row can pick, so it must not be named as one. */
+    options.filter((p) => p.for_yarn).map((p) => ({ ...p, stage_roles: p.stage_roles ?? [] })),
+    stages,
+  );
+  return problems.length ? problems.join(" ") : null;
+}
+
+async function stageRouteProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  data: FabricBomInput,
+): Promise<string | null> {
+  const rows = data.processes.filter((p) => p.stage_id || p.process_id);
+  /* NOT an early return any more (2026-09-19): checkpoint A — a printed line
+     whose fabric has NO route at all — is exactly the case with no rows. */
+  const hasPrintedLine = data.lines.some((l) => !!(l.required_print ?? "").trim());
+  if (rows.length === 0 && !hasPrintedLine) return null;
+
+  const [options, lookups] = await Promise.all([
+    getFabricProcessRows(),
+    getFabricProcessLookupRows(),
+  ]);
+
+  /* ---- 0583: A SUB-CATEGORY MUST BELONG TO ITS ROW'S PROCESS --------------
+     The picker only ever offers a process's own sub-categories, but the
+     payload is not the picker: a stale page (the process changed after the
+     sub was picked) or a replayed request could pair DYEING with WASHING's
+     BIOWASH, and the FK alone would store it. Checked against the master,
+     never the payload's word. */
+  for (const r of rows) {
+    if (!r.sub_category_id) continue;
+    const owner = options.find((o) => o.id === r.process_id);
+    if (!owner || !(owner.sub_categories ?? []).some((sc) => sc.id === r.sub_category_id)) {
+      return `${owner?.name ?? "A process"} does not have that sub-category any more — pick the process again on Fabric Process.`;
+    }
+  }
+
+  /* ---- CHECKPOINTS A + B (client 2026-09-19) — the screen's own function,
+     over the payload's lines and the MASTER's `is_print`. */
+  const fabricNames = new Map<string, string>();
+  {
+    const ids = [...new Set([...rows.map((r) => r.item_id), ...data.lines.map((l) => l.item_id)].filter(Boolean))] as string[];
+    if (ids.length) {
+      const { data: named } = await s.from("items").select("id, name").in("id", ids);
+      for (const n of (named ?? []) as { id: string; name: string | null }[]) fabricNames.set(n.id, n.name ?? "");
+    }
+  }
+  const printProblems = printRouteProblems(
+    rows.map((r, i) => ({ ...r, key: String(i) })),
+    data.lines.map((l) => ({ ...l, item_id: l.item_id ?? null })),
+    (processId) => !!options.find((o) => o.id === processId)?.is_print,
+    { fabricName: (id) => fabricNames.get(id) || "This fabric" },
+  );
+  if (printProblems.length) return printProblems[0].message;
+
+  if (rows.length === 0 || !lookups.stages.length) return null;
+
+  /* ---- A FABRIC BOUGHT IN ONE BRANCH AND KNITTED IN ANOTHER ------------- */
+  for (const [itemId, src] of sourceFromRoute(rows, options, lookups.stages)) {
+    if (typeof src !== "string") return `${fabricNames.get(itemId) || "This fabric"}: ${src.refused}`;
+  }
+
+  const fabricIds = [...new Set(rows.map((r) => r.item_id))];
+  const { data: itemRows } = await s
+    .from("items")
+    .select("id, fabric_type:config_lookups!fabric_type_id(name)")
+    .in("id", fabricIds);
+  /* THE EMBED IS AN ARRAY OR AN OBJECT depending on how PostgREST reads the
+     relationship — normalised, never cast away, exactly as `yarnDyedProblem`
+     does it. A cast that lies here reads a yarn-dyed fabric as untyped and
+     hands the rule the wrong gate. */
+  const nameOf = (v: { name: string | null } | { name: string | null }[] | null) =>
+    Array.isArray(v) ? (v[0]?.name ?? null) : (v?.name ?? null);
+  const typeById = new Map(
+    ((itemRows ?? []) as unknown as {
+      id: string;
+      fabric_type: { name: string | null } | { name: string | null }[] | null;
+    }[]).map((r) => [r.id, nameOf(r.fabric_type)]),
+  );
+
+  /* THE PAYLOAD ROW IS NOT A SCREEN ROW: it carries no `key` (that is client
+     state) and its `sno` is already the position the screen sent. The rule
+     needs a stable row identity only to report WHICH row, and the payload's
+     own order is the route order — the same order `normalizeProcesses` turns
+     into `sno` a few lines below. */
+  const problems = stageRouteProblems(
+    rows.map((r, i) => ({
+      key: String(i),
+      item_id: r.item_id,
+      combo: r.combo ?? null,
+      component_id: r.component_id ?? null,
+      stage_id: r.stage_id ?? null,
+      process_id: r.process_id ?? null,
+      loss_for_id: r.loss_for_id ?? null,
+      loss_pct: r.loss_pct == null ? "" : String(r.loss_pct),
+      type_id: r.type_id ?? null,
+    })),
+    options,
+    lookups.stages,
+    {
+      /* PRINT IS NOW READ, PER BRANCH (2026-09-19). It was passed `true` here
+         with a note naming the cost ("the fix then is to read the order's
+         prints here too"); checkpoint B is that day. The payload's lines are
+         the BOM's own statement of which (colourway, component) prints — the
+         same lines the screen's gate reads. */
+      gatesFor: (itemId, combo, componentId) => ({
+        printDeclared: printedGroup(
+          data.lines.map((l) => ({ ...l, item_id: l.item_id ?? null })),
+          itemId,
+          combo,
+          [componentId],
+        ),
+        fabricIsYarnDyed: isYarnDyed(typeById.get(itemId) ?? null),
+      }),
+    },
+  );
+  return problems[0]?.message ?? null;
+}
+
+/**
+ * WRITE-THROUGH OF THE ROUTE'S SOURCE (client 2026-09-19).
+ *
+ * `sourceFromRoute` reads each fabric's source off its route — a branch opening
+ * with DYED FABRIC PURCHASE is a dyed-roll purchase, no yarn bought. This puts
+ * that answer INTO the payload's `processScopes` before anything downstream
+ * reads it, so `sourceByFabricOf`, `normalizeProcessScopes` and therefore the
+ * stored `order_fabric_bom_process_scope.source` — which the reports and the
+ * Budget read — all carry the route's answer without one of them being
+ * changed. One place, and every reader follows.
+ *
+ * A fabric with no route keeps the source it was sent (the hidden ▾'s stored
+ * value, or Rule 1). A refused derivation never reaches here —
+ * `stageRouteProblem` refuses the save first.
+ */
+async function withRouteSources(data: FabricBomInput): Promise<FabricBomInput["processScopes"]> {
+  const rows = data.processes.filter((p) => !!p.process_id);
+  if (rows.length === 0) return data.processScopes;
+  const [options, lookups] = await Promise.all([getFabricProcessRows(), getFabricProcessLookupRows()]);
+  const derived = sourceFromRoute(rows, options, lookups.stages);
+  const out = data.processScopes.map((sc) => {
+    const d = derived.get(sc.item_id);
+    return typeof d === "string" ? { ...sc, source: d } : sc;
+  });
+  for (const [itemId, d] of derived) {
+    if (typeof d !== "string" || out.some((sc) => sc.item_id === itemId)) continue;
+    out.push({ item_id: itemId, assort_color_wise: false, component_wise: false, source: d });
+  }
+  return out;
 }
 
 /**
@@ -1967,10 +2420,29 @@ export async function createFabricBom(data: FabricBomFormInput): Promise<Result>
   const p = fabricBomInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
+  const locked = await orderLockProblem(p.data.garment_order_id);
+  if (locked) return fail(locked);
+
   const s = await createClient();
 
   const ydProblem = await yarnDyedProblem(s, p.data);
   if (ydProblem) return fail(ydProblem);
+
+  /* THE STAGE RULES (0570) — beside the yarn-dyed guard and before anything is
+     written, for the reason `writePalette` states: a refusal must leave nothing
+     behind, and on the create path the header insert is what mints the
+     document. */
+  const routeProblem = await stageRouteProblem(s, p.data);
+  if (routeProblem) return fail(routeProblem);
+  const yarnStageFault = await yarnStageProblem(s, p.data);
+  if (yarnStageFault) return fail(yarnStageFault);
+
+  const diaProblem = await diaKnitServerProblem(s, p.data);
+  if (diaProblem) return fail(diaProblem);
+
+  /* THE ROUTE SAYS WHERE THE CLOTH COMES FROM (2026-09-19) — written into the
+     payload once, here, so every reader below stores the route's answer. */
+  p.data.processScopes = await withRouteSources(p.data);
 
   // BEFORE THE HEADER INSERT — see `writePalette`. A refused palette must not
   // leave a BOM behind that the operator was never told about.
@@ -2015,12 +2487,33 @@ export async function updateFabricBom(id: string, data: FabricBomFormInput): Pro
 
   const s = await createClient();
 
+  const stored = await storedBomOrderId(s, id);
+  if (!stored.ok) return fail(stored.error);
+  const locked = await orderLockProblem(stored.orderId, p.data.garment_order_id);
+  if (locked) return fail(locked);
+
   /* THE UPDATE CHECKS IT TOO. A rule enforced only on create is enforced once
      per document and never again — every save after the first walks past it,
      which is exactly why `checkDuplicateName` is required in both actions
      (AGENTS.md, Duplicates). */
   const ydProblem = await yarnDyedProblem(s, p.data);
   if (ydProblem) return fail(ydProblem);
+
+  /* THE STAGE RULES (0570) — beside the yarn-dyed guard and before anything is
+     written, for the reason `writePalette` states: a refusal must leave nothing
+     behind, and on the create path the header insert is what mints the
+     document. */
+  const routeProblem = await stageRouteProblem(s, p.data);
+  if (routeProblem) return fail(routeProblem);
+  const yarnStageFault = await yarnStageProblem(s, p.data);
+  if (yarnStageFault) return fail(yarnStageFault);
+
+  const diaProblem = await diaKnitServerProblem(s, p.data);
+  if (diaProblem) return fail(diaProblem);
+
+  /* THE ROUTE SAYS WHERE THE CLOTH COMES FROM (2026-09-19) — written into the
+     payload once, here, so every reader below stores the route's answer. */
+  p.data.processScopes = await withRouteSources(p.data);
 
   // Before the update, for the same reason as create: a refusal leaves the
   // document exactly as it was rather than half-written.
@@ -2047,6 +2540,10 @@ export async function updateFabricBom(id: string, data: FabricBomFormInput): Pro
 export async function deleteFabricBom(id: string): Promise<Result> {
   if (!(await can("orders", "delete"))) return fail("Forbidden");
   const s = await createClient();
+  const stored = await storedBomOrderId(s, id);
+  if (!stored.ok) return fail(stored.error);
+  const locked = await orderLockProblem(stored.orderId);
+  if (locked) return fail(locked);
   const { error } = await s.from("order_fabric_boms").delete().eq("id", id); // children cascade
   if (error) return fail(error.message);
   rev();

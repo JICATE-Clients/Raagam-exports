@@ -333,6 +333,54 @@ another document, where a seeded row would sit beside computed ones and look lik
 which with a `// default-row: exempt -- <reason>` comment. Full rules in the
 `erp-table-default-row` skill.
 
+## Pagination (STANDING)
+
+**Every listing pages itself, and there is ONE "Rows per page" for the whole app**
+(user, 2026-09-22: "add global pagination option for our application"). A
+`<DataTable>` shows one page of the operator's chosen size with a `PaginationBar`
+beneath, and the size is a single localStorage preference (`lib/page-size.ts`) —
+written by the "Rows" picker under any list and by the **Rows per page** section of
+the topbar "T" menu, which are the same control. Before this, 18 lists paginated by
+hand with a `useState(10)` each (pick 50 on Customers, open Vendors, back on 10) and
+~190 printed every row.
+
+**IT LIVES IN THE PRIMITIVE, AND THE PRIMITIVE CANNOT BE A CLIENT COMPONENT.** 58
+server pages call `<DataTable>` with `cell` FUNCTIONS in `columns`, and a function
+cannot cross the server→client boundary — but a rendered element can. So
+`data-table.tsx` stays server-safe, renders every `<tr>` and stacked card as it always
+did, and hands the finished elements to `DataTableFrame` (`"use client"`), which holds
+the page and slices both layouts by one index. No call site changed to get paged; a
+new listing is paged without knowing the rule exists. The same lesson the mobile-cards
+fallback in that file already records: a per-screen fix leaves a remainder.
+
+- **A table that is PART OF A DOCUMENT passes `paginate={false}`** — a PO's lines, a
+  GRN's lines, the T&A milestone grid, a report's print area. A 15-line GRN shown as
+  10 + Next is a document with lines hidden. The line is the one "Created Date /
+  Created User" already draws by path: `[id]` routes, tab panels and report views
+  are documents, everything else lists them. 84 tags in 46 files were swept on
+  2026-09-22: every `[id]` route, plus `tna-data-grid`, `report-view` and
+  `ioc-costing-tabs`.
+- **A screen that slices its own rows also passes `false`** (`MasterListShell` and
+  the 15 masters that render `rows={pg.paged}`): it owns its pager, and the inner
+  one would only ever see a single page anyway. Say so rather than rely on it.
+- **`usePagination(rows)` is global; `usePagination(rows, n)` is pinned.** The bare
+  form reads and writes the app-wide size. `ChildGrid` is the one pinned caller — a
+  grid's `pageSize` prop is part of that grid's layout, not what the operator meant
+  by choosing 50 on a listing. Never pass `10` to pin a listing back to a local size.
+- **The bar renders only past one page.** A listing that fits is pixel-identical to
+  before; a small table inside a sheet or a card gains nothing. Same rule `ChildGrid`
+  applies to its own pager ("1–1 of 1" is chrome explaining that the one visible row
+  is the one visible row, client 2026-08-04).
+- **It is a display slice, not a query.** The server still fetches every row it did
+  before; a list of 3,000 rows is now 3,000 rows in the RSC payload showing 10.
+  Server-side (keyset) paging is the next step for a listing that grows past what one
+  fetch should carry, and it belongs in the SERVICE (`lib/**/service.ts`), keyed on
+  the `created_at` order "Listings in ENTRY order" already fixes — not in the table.
+
+**Not yet enforced by a script.** A new `[id]`-route table that forgets
+`paginate={false}` pages a document. Until `audit_layout.py` gains a
+`--check paginate-document`, a detail page gets this right by reading this section.
+
 ## Created Date / Created User (STANDING)
 
 **Every listing of records shows who made the row and when** — two columns, in that
@@ -1166,3 +1214,134 @@ real candidate list is the smaller set of nested `[Click]` sub-details scattered
 `components/orders/*-sheet.tsx` and similar, each of which needs to be looked at rather than
 mechanically re-flagged. Until an audit script exists, a new sub-detail sheet gets this right
 by reading this section, not by a check catching it after the fact.
+
+## An order's reports are declared once (STANDING)
+
+**Every report printed for ONE order is an entry in `ORDER_REPORTS`
+(`lib/orders/order-reports.ts`)** — and that entry is the only thing that links it.
+Three readers map over it: the report strip on every order document page (where
+Order Entry's row-menu "Reports" lands), the Fabric BOM editor's own Reports sheet,
+and the generic `/orders/<id>/reports/<key>` route that gives a report without a
+page of its own a URL keyed on the RE Number.
+
+It exists because the strip used to be a hand-typed list of three, and the three
+Fabric BOM reports built after it (Entry Register, Yarn & Fabric Requirement,
+Printing Requirement) lived only behind a button inside the Fabric BOM editor —
+"Order Entry report option is not linked with the actual report" (client
+2026-09-19). Each report was right; none was reachable from the order.
+
+**Never hand-type a report's tab, menu entry or link.** Add the registry entry; a
+`fabric-bom` report then needs one view in `FABRIC_BOM_REPORT_VIEWS` (a type error
+until it exists) and is linked everywhere at once. A new source (Budget, IWO, …)
+either gets its own page under `app/(app)/orders/[orderId]/` or a branch on the
+generic route. "Current BOM" is resolved by `currentFabricBom()` and nothing else.
+
+Gated by `npm run check:order-reports` (inside `build:check`): every entry is
+reachable and rendered, every per-order folder is registered or listed in
+`NOT_REPORTS` with a reason, and every `load…Report` / `load…Register` server
+action under `lib/orders/` is rendered only from files that read the registry.
+**Its floor:** it recognises a report by its loader's NAME, so name loaders
+`load<Thing>Report`. Verified by being made to FAIL first, against the Fabric BOM
+sheet as committed before the registry.
+
+## Build the UI compact the first time (STANDING)
+
+**A screen is width-laid-out from its first commit — never built loose and compacted
+afterwards** (user, 2026-09-18: "every time while developing the UI issue happens and we
+need to fix it … if I develop anything it should come with proper UI"). The Budget module
+is the reason this is written down: five phases were built faithfully to the OLD layout
+rules (every field `size="sm"`, any grid over ~6 columns `forceCards`), and a sixth phase
+then re-laid every screen. The rules had moved on and the instructions had not.
+
+- **Fields:** `FieldRow` + `<Field w=…>`, the seven steps of `lib/ui/sizes.ts`, by the kind
+  of value. Fractional `size=` / `FieldGrid` are legacy for new code.
+- **Sections:** a definite `max-w-[Nrem]` cap with its arithmetic in a comment.
+- **Grids:** every column `width: FIELD_WIDTH_CSS.<step>` in a named `…Columns` array,
+  `tableFrom="5xl"` literal on the tag, columns + 72px ≤ 1155px. Re-cut before `forceCards`.
+
+The full rule is the **`raagam-screen-layout` skill's "BUILD IT COMPACT THE FIRST TIME"**;
+its `assets/` templates are width-laid-out, so copy them.
+
+**IT IS A GATE, NOT A NOTE.** `npm run check:grid-budget` (inside `build:check`) now FAILS a
+`<ChildGrid>` whose props it cannot read — a spread or a `tableFrom={…}` expression — and
+reads vocabulary widths (`FIELD_WIDTH_CSS.hug`) from `components/ui/field.tsx`. Before
+2026-09-18 it read neither, so all ten Budget grids were silently unmeasured, shipped at a
+`6xl` threshold the check exists to refuse, and the run still ended green. **A screen is not
+done until that check lists every grid it touched as an `ok` line by name** — absent is not
+ok. Verified by making it fail first against the Budget screen's `costGrid`.
+
+## Approval SLA and escalation (STANDING)
+
+**A step with a deadline is a step that escalates by itself.** `doc/order/newfeature.md`
+§3: a budget approval left untouched past its SLA goes up to the next authority, and
+nobody has to notice. Declared once — `sla_minutes` + `on_sla_breach` on a flow step
+(0601) — and read by four things that cannot drift apart: the clock trigger, the
+sweeper, the queue's Overdue pill, and the sentence the Flows screen prints back.
+
+**MINUTES, AND THE SKILL SHIPS HOURS.** The client's matrix is "30–120 mins", so
+minutes is the stored unit. `sla_hours` was in `lib/approvals/types.ts` from the day the
+engine landed and was **read by nothing** — the exact state `dynamic-approval-flow` names
+in its key constraints: *"a column no code reads is worse than a missing one: it lies to
+the admin who set it."* It was deleted in the same change that made `sla_minutes` real,
+because two fields competing to be the one that works is that lie with a second door.
+
+**THE TICK IS THE PART THAT FAILS SILENTLY.** There is no `pg_cron` on this project
+(checked against `pg_extension`), and a SQL schedule could not send a web push anyway —
+that is `web-push` + VAPID, a Node concern, and an escalation the MD learns about when
+they next open the app is a note, not an escalation. So:
+
+- `vercel.json` runs `/api/cron/approval-sla` every five minutes. **It refuses every
+  request without `CRON_SECRET`**, and answers 503 rather than falling open: the route
+  advances approvals past the people who were meant to make them, and an unset
+  environment variable is not consent. Set it in Vercel or **nothing ever escalates** —
+  and nothing looks wrong, which is the whole danger.
+- `proxy.ts` stands down for `/api/cron/`. Without that the session gate answers a
+  cookie-less cron with a 307 to /login, which a scheduler records as a SUCCESS.
+- `/approvals` sweeps opportunistically on load, throttled to once a minute per server
+  instance, so a misconfigured cron degrades to "escalates when someone opens the app"
+  instead of to nothing. It is the net, never the mechanism.
+
+**ESCALATING INTO A VOID IS THE STRANDING BUG WEARING A DIFFERENT HAT**, and it is
+refused in two places rather than one. `approval_validate_steps` rejects
+`on_sla_breach = 'escalate'` on the LAST step at flow-save time, where the admin is
+looking; `approval_sweep_sla` additionally declines to advance into a step whose role
+has no holders today. A run pushed into nobody's queue raises nothing and is chased by
+no one.
+
+**A FLOW NAMING A ROLE NOBODY HOLDS FAILS THE SUBMIT, NOT THE FLOW.**
+`approval_start_run` asserts step 1 has an approver and RAISES — so the Factory Manager
+→ MD chain (0602) is seeded **`is_active = false`** and switched on once somebody holds
+the role. An active chain into an empty role means every budget submit fails, today,
+with a message about approver resolution. The Flows screen already warns "nobody holds
+this" in red beside the step; the inactive seed is what puts that warning in front of
+someone before it costs a submit.
+
+**"Overdue" is answered in SQL** (`approval_my_queue.is_overdue`), never from
+`Date.now()` in a render. The React Compiler refuses the impure call outright, and it
+would be the wrong clock besides: a phone whose time is days out would paint half the
+queue red. FALSE also covers "no deadline was set", which is not "on time".
+
+**THE APPROVER WHO MISSED IT IS NOT TOLD, BY DEFAULT — and that is the decision, not
+an omission** (user, 2026-09-20): *"If managers feel penalized or nagged by SLA breach
+notifications, they tend to blindly hit Approve just to clear the notification clock —
+defeating the purpose of budget oversight."* The escalation already unblocks the
+factory, and the missed approver's own queue updates itself, so they cannot act on an
+item that has moved on. The requester IS always told, because the route their own
+document took changed.
+
+It is switchable per step — `notify_missed_approver` (0603), a tick in the Steps grid —
+and **per STEP rather than as an app setting**, for the reason `steps_snapshot` exists:
+a run freezes its steps, so a policy on the step travels with the request. A global
+switch read at sweep time would change the rules under every request already in flight.
+`true` is REFUSED anywhere but `escalate` — on a reminder those same people are already
+the ones told — so the switch does not render on a step where it could do nothing. Even
+switched on, the notice says what happened to the DOCUMENT ("no longer waiting on you"),
+never what the person failed to do: a reprimand is what produces the rubber-stamping the
+default exists to avoid.
+
+Verified by being made to FAIL first — the validator's five refusals, the clock not
+re-arming on an unrelated UPDATE, a second sweep reporting `breached = 0`, and the
+escalation returning the LEVEL 1 holders rather than the people it escalated to. Full
+reasoning in `supabase/migrations/0601_approval_sla_escalation.sql` and
+`0603_approval_notify_missed_approver.sql`; the plan and what was already built in
+`doc/order/newfeature-plan.md`.

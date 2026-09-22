@@ -2577,10 +2577,17 @@ export const amendmentInput = z.object({
    */
   .superRefine((v, ctx) => {
     if (v.is_draft) return;
+    /* CURRENCY · PAY MODE joined 2026-09-17, when the client retired the
+       Payment tab and moved them to Prices with Ex-Rate. The screen had held
+       both for months while this guard never named them, so a stale client or
+       a direct post saved an order with no currency. Same draft exemption and
+       for the same reason: they are details of a known order. */
     const missing: [keyof typeof v, string][] = [
       ["delivery_date", "Deli.Dt is required"],
       ["season", "Season is required"],
       ["rejection_rule_id", "Rejection Rule is required"],
+      ["currency_code", "Currency is required"],
+      ["pay_mode", "Pay Mode is required"],
     ];
     for (const [key, message] of missing) {
       const value = v[key];
@@ -2590,6 +2597,17 @@ export const amendmentInput = z.object({
       if (typeof value === "string" ? !value.trim() : value == null) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key as string], message });
       }
+    }
+    /* EX-RATE (mandatory since 2026-09-17) is a number, so "unanswered" is not
+       blank but `> 0` failing: the column is `NOT NULL DEFAULT 0` and 0 means
+       "not entered" — the test `inrValue` and the screen's `exRateMissing`
+       both apply. Its own line because the loop above tests text. */
+    if (!(Number(v.ex_rate) > 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ex_rate"],
+        message: "Ex-Rate is required",
+      });
     }
   });
 export type AmendmentInput = z.infer<typeof amendmentInput>;

@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { DataTableFrame } from "@/components/ui/data-table-frame";
 
 export interface Column<T> {
   header: string;
@@ -12,6 +13,15 @@ export interface Column<T> {
  * Dense, presentational table. Server-renderable (no client state) unless the
  * optional `selectable` row-selection props are supplied (which come from a
  * client parent). Numerics should use align:"right" + tabular-nums in the cell.
+ *
+ * PAGINATES ITSELF (2026-09-22). Every listing shows one page of the app-wide
+ * "Rows per page" (`lib/page-size.ts`) with a `PaginationBar` beneath, and a
+ * table that fits on one page is pixel-identical to before. The state lives in
+ * `DataTableFrame`, a client component this one hands its RENDERED rows to —
+ * see that file for why the split is the only shape that keeps the 58 server
+ * pages calling this with `cell` functions working. Before this, 18 lists
+ * paginated by hand and ~190 printed every row; same remainder the mobile
+ * cards below record, same fix.
  */
 export function DataTable<T>({
   columns,
@@ -26,6 +36,8 @@ export function DataTable<T>({
   bare = false,
   rowClassName,
   dense = false,
+  compact = false,
+  paginate = true,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -68,213 +80,253 @@ export function DataTable<T>({
    * density is unchanged for every other listing.
    */
   dense?: boolean;
+  /**
+   * HIGH-DENSITY ENTERPRISE LIST (Garment Orders, 2026-09-21). Keeps the
+   * default `px-3 py-2` rhythm but drops the body to `text-xs`, the header to
+   * `text-[10px]` on a `bg-slate-50` band, and the row rule to a hairline
+   * `border-slate-100` with a `hover:bg-slate-50/80` wash. The slate values are
+   * the LIGHT-mode look only: every one carries a `dark:` fallback to the
+   * theme token it replaces, or a dark-mode operator gets a white header band
+   * under muted grey text. Opt-in, and `dense` wins if both are passed.
+   */
+  compact?: boolean;
+  /**
+   * `false` for a table that is PART OF A DOCUMENT rather than a listing of
+   * them: a PO's lines, a GRN's lines, the T&A milestone grid, a report's
+   * print area. Those are read whole — a 15-line GRN shown as 10 + Next is a
+   * document with lines hidden. The line is the one `created-columns.tsx`
+   * already draws by path: `[id]` routes, tab panels and report views are
+   * documents; everything else lists them. A screen that slices its own rows
+   * (`MasterListShell`, `SimpleMasterScreen`) also passes `false` — it owns
+   * its pager, and this one would only ever see a single page anyway.
+   */
+  paginate?: boolean;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   /* One padding token for th and td both, so the header can never sit on a
      different rhythm from the rows beneath it. */
   const pad = dense ? "px-2 py-1" : "px-3 py-2";
+  const tight = compact && !dense;
   const selected = selectedKeys ?? new Set<string>();
   const allSelected = rows.length > 0 && rows.every((r, i) => selected.has(getKey(r, i)));
 
-  return (
-    <div
-      className={cn(
-        "overflow-x-auto",
-        !bare && "rounded-lg border border-border bg-surface",
-      )}
-    >
-      {/* `hidden md:table`, with the stacked cards below taking over — see the
-          note above that block. Desktop is unchanged: `md:table` restores the
-          element's own default display. */}
-      <table className={cn("hidden w-full md:table", dense ? "text-xs" : "text-sm")}>
-        <thead>
-          <tr className="border-b border-border bg-surface-muted">
-            {selectable && (
-              <th className={cn("w-10", pad)}>
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer"
-                  checked={allSelected}
-                  onChange={() => onToggleAll?.()}
-                  aria-label="Select all rows"
-                />
-              </th>
-            )}
-            {columns.map((c, i) => (
-              <th
-                key={i}
-                className={cn(
-                  // BOLD, NOT SEMIBOLD (operator request, 2026-09-04: "globally
-                  // make the each table title label as bold") — the same move
-                  // `child-grid.tsx`'s `GRID_HEADER_TEXT` makes, so a
-                  // `ChildGrid` row and a `DataTable` header read the same
-                  // weight. `uppercase tracking-[0.06em]` (client 2026-09-07,
-                  // Archivo weight spec: table headers are "hierarchy through
-                  // case and spacing, not just weight" — the same reasoning
-                  // that keeps this bold at 12px rather than clotting).
-                  pad,
-                  "text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
-                  align[c.align ?? "left"],
-                  c.className,
-                )}
-              >
-                {c.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td
-                colSpan={columns.length + (selectable ? 1 : 0)}
-                className="px-3 py-8 text-center text-sm text-muted-foreground"
-              >
-                {empty}
-              </td>
-            </tr>
-          ) : (
-            rows.map((row, ri) => {
-              const href = onRowHref?.(row);
-              const key = getKey(row, ri);
-              return (
-                <tr
-                  key={key}
-                  className={cn(
-                    "border-b border-border last:border-0 hover:bg-surface-muted/60",
-                    href && "cursor-pointer",
-                    selected.has(key) && "bg-primary/5",
-                    rowClassName?.(row, ri),
-                  )}
-                  data-href={href}
-                >
-                  {selectable && (
-                    <td className={cn("w-10 align-middle", pad)}>
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer"
-                        checked={selected.has(key)}
-                        onChange={() => onToggle?.(key)}
-                        aria-label="Select row"
-                      />
-                    </td>
-                  )}
-                  {columns.map((c, ci) => (
-                    <td
-                      key={ci}
-                      className={cn(
-                        pad,
-                        "align-middle",
-                        align[c.align ?? "left"],
-                        c.className,
-                      )}
-                    >
-                      {c.cell(row)}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
+  const wrapperClassName = cn(
+    "overflow-x-auto",
+    !bare && "rounded-lg border border-border bg-surface",
+  );
+  /* `hidden md:table`, with the stacked cards below taking over — see the
+     note above that block. Desktop is unchanged: `md:table` restores the
+     element's own default display. */
+  const tableClassName = cn("hidden w-full md:table", dense || tight ? "text-xs" : "text-sm");
 
-      {/*
-        * THE SAME ROWS AS STACKED CARDS BELOW `md`, because a table on a phone
-        * is a table the operator drags sideways to read. Style's list put
-        * Serial No / Style / Customer / Season into ~330px and Season was
-        * already off-screen (client 2026-08-27); every column after it was
-        * reachable only by scrolling, with the identifier scrolled out of sight
-        * by the time you got there.
-        *
-        * IT BELONGS HERE AND NOT ON THE SCREEN. `MasterListShell` has paired a
-        * desktop table with a `MobileCardList` for a while, but a screen
-        * reaching for a bare `<DataTable>` got nothing — and 209 files use this
-        * component. That is the remainder a per-screen fix always leaves, so
-        * the fallback goes in the primitive and every one of them is correct
-        * without being edited.
-        *
-        * IT CANNOT DOUBLE UP WITH `MobileCardList`. That shell renders its
-        * table inside `hidden … md:block` (master-list-shell.tsx), so this
-        * block is inside an already-hidden container there and never paints.
-        * A shell screen keeps its curated card — title, subtitle, pill,
-        * row actions — and this is only the fallback for everyone else.
-        *
-        * Label-left / value-right rather than the label-above-control stacking
-        * `ChildGrid` uses in cards mode: these cells are READ, not typed, so a
-        * pair costs one line where stacking costs two, and a six-column row
-        * becomes six lines instead of twelve.
-        *
-        * The divider is `border-t-2 border-border-strong`, the same two-pixel
-        * rule `child-grid.tsx` draws between records and for the same reason —
-        * at 1px in `--border` it reads as one more field edge rather than as
-        * the start of a new record.
-        *
-        * A column with a BLANK header is the row-action cluster (LAYOUT.md
-        * §6a): it gets no label, and sits at the foot of the card where its
-        * `<th>` sits at the end of the row.
-        *
-        * Nothing here is `truncate`, deliberately — a value that needs the room
-        * wraps onto a second line. The §14 exemption that lets a table cell cut
-        * a value off is paid for by the table scrolling, and this does not
-        * scroll, so a `…` here would be the dead end §14 forbids.
-        */}
-      <div className="md:hidden">
-        {rows.length === 0 ? (
-          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-            {empty}
-          </div>
-        ) : (
-          rows.map((row, ri) => {
-            const key = getKey(row, ri);
-            const href = onRowHref?.(row);
-            return (
-              <div
-                key={key}
-                data-href={href}
-                className={cn(
-                  "space-y-1.5 px-3 py-3",
-                  ri > 0 && "border-t-2 border-border-strong",
-                  selected.has(key) && "bg-primary/5",
-                  rowClassName?.(row, ri),
-                )}
-              >
-                {selectable && (
-                  <label className="flex items-center gap-2 pb-1 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer"
-                      checked={selected.has(key)}
-                      onChange={() => onToggle?.(key)}
-                      aria-label="Select row"
-                    />
-                    Select
-                  </label>
-                )}
-                {columns.map((c, ci) =>
-                  c.header ? (
-                    <div
-                      key={ci}
-                      className="flex items-baseline justify-between gap-3"
-                    >
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {c.header}
-                      </span>
-                      <span className="min-w-0 text-right text-sm">
-                        {c.cell(row)}
-                      </span>
-                    </div>
-                  ) : (
-                    <div key={ci} className="flex justify-end pt-0.5">
-                      {c.cell(row)}
-                    </div>
-                  ),
-                )}
-              </div>
-            );
-          })
+  const head = (
+    <thead>
+      <tr
+        className={cn(
+          "border-b",
+          tight
+            ? "border-slate-200 bg-slate-50 dark:border-border dark:bg-surface-muted"
+            : "border-border bg-surface-muted",
+        )}
+      >
+        {selectable && (
+          <th className={cn("w-10", pad)}>
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer"
+              checked={allSelected}
+              onChange={() => onToggleAll?.()}
+              aria-label="Select all rows"
+            />
+          </th>
+        )}
+        {columns.map((c, i) => (
+          <th
+            key={i}
+            className={cn(
+              // BOLD, NOT SEMIBOLD (operator request, 2026-09-04: "globally
+              // make the each table title label as bold") — the same move
+              // `child-grid.tsx`'s `GRID_HEADER_TEXT` makes, so a
+              // `ChildGrid` row and a `DataTable` header read the same
+              // weight. `uppercase tracking-[0.06em]` (client 2026-09-07,
+              // Archivo weight spec: table headers are "hierarchy through
+              // case and spacing, not just weight" — the same reasoning
+              // that keeps this bold at 12px rather than clotting).
+              pad,
+              tight
+                ? "text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+                : "text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
+              align[c.align ?? "left"],
+              c.className,
+            )}
+          >
+            {c.header}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+
+  const emptyRow = (
+    <tr>
+      <td
+        colSpan={columns.length + (selectable ? 1 : 0)}
+        className="px-3 py-8 text-center text-sm text-muted-foreground"
+      >
+        {empty}
+      </td>
+    </tr>
+  );
+
+  const trs = rows.map((row, ri) => {
+    const href = onRowHref?.(row);
+    const key = getKey(row, ri);
+    return (
+      <tr
+        key={key}
+        className={cn(
+          tight
+            ? "border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/80 dark:border-border dark:hover:bg-surface-muted/60"
+            : "border-b border-border last:border-0 hover:bg-surface-muted/60",
+          href && "cursor-pointer",
+          selected.has(key) && "bg-primary/5",
+          rowClassName?.(row, ri),
+        )}
+        data-href={href}
+      >
+        {selectable && (
+          <td className={cn("w-10 align-middle", pad)}>
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer"
+              checked={selected.has(key)}
+              onChange={() => onToggle?.(key)}
+              aria-label="Select row"
+            />
+          </td>
+        )}
+        {columns.map((c, ci) => (
+          <td
+            key={ci}
+            className={cn(
+              pad,
+              "align-middle",
+              align[c.align ?? "left"],
+              c.className,
+            )}
+          >
+            {c.cell(row)}
+          </td>
+        ))}
+      </tr>
+    );
+  });
+
+  /*
+   * THE SAME ROWS AS STACKED CARDS BELOW `md`, because a table on a phone
+   * is a table the operator drags sideways to read. Style's list put
+   * Serial No / Style / Customer / Season into ~330px and Season was
+   * already off-screen (client 2026-08-27); every column after it was
+   * reachable only by scrolling, with the identifier scrolled out of sight
+   * by the time you got there.
+   *
+   * IT BELONGS HERE AND NOT ON THE SCREEN. `MasterListShell` has paired a
+   * desktop table with a `MobileCardList` for a while, but a screen
+   * reaching for a bare `<DataTable>` got nothing — and 209 files use this
+   * component. That is the remainder a per-screen fix always leaves, so
+   * the fallback goes in the primitive and every one of them is correct
+   * without being edited.
+   *
+   * IT CANNOT DOUBLE UP WITH `MobileCardList`. That shell renders its
+   * table inside `hidden … md:block` (master-list-shell.tsx), so this
+   * block is inside an already-hidden container there and never paints.
+   * A shell screen keeps its curated card — title, subtitle, pill,
+   * row actions — and this is only the fallback for everyone else.
+   *
+   * Label-left / value-right rather than the label-above-control stacking
+   * `ChildGrid` uses in cards mode: these cells are READ, not typed, so a
+   * pair costs one line where stacking costs two, and a six-column row
+   * becomes six lines instead of twelve.
+   *
+   * The divider is `border-t-2 border-border-strong`, the same two-pixel
+   * rule `child-grid.tsx` draws between records and for the same reason —
+   * at 1px in `--border` it reads as one more field edge rather than as
+   * the start of a new record. It is `:not(:first-child)` rather than
+   * `ri > 0` since the frame pages these: the first card of page 2 is not
+   * index 0, and must not open with a rule either.
+   *
+   * A column with a BLANK header is the row-action cluster (LAYOUT.md
+   * §6a): it gets no label, and sits at the foot of the card where its
+   * `<th>` sits at the end of the row.
+   *
+   * Nothing here is `truncate`, deliberately — a value that needs the room
+   * wraps onto a second line. The §14 exemption that lets a table cell cut
+   * a value off is paid for by the table scrolling, and this does not
+   * scroll, so a `…` here would be the dead end §14 forbids.
+   */
+  const emptyCard = (
+    <div className="px-3 py-8 text-center text-sm text-muted-foreground">{empty}</div>
+  );
+
+  const cards = rows.map((row, ri) => {
+    const key = getKey(row, ri);
+    const href = onRowHref?.(row);
+    return (
+      <div
+        key={key}
+        data-href={href}
+        className={cn(
+          "space-y-1.5 px-3 py-3",
+          "[&:not(:first-child)]:border-t-2 [&:not(:first-child)]:border-border-strong",
+          selected.has(key) && "bg-primary/5",
+          rowClassName?.(row, ri),
+        )}
+      >
+        {selectable && (
+          <label className="flex items-center gap-2 pb-1 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer"
+              checked={selected.has(key)}
+              onChange={() => onToggle?.(key)}
+              aria-label="Select row"
+            />
+            Select
+          </label>
+        )}
+        {columns.map((c, ci) =>
+          c.header ? (
+            <div
+              key={ci}
+              className="flex items-baseline justify-between gap-3"
+            >
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {c.header}
+              </span>
+              <span className="min-w-0 text-right text-sm">
+                {c.cell(row)}
+              </span>
+            </div>
+          ) : (
+            <div key={ci} className="flex justify-end pt-0.5">
+              {c.cell(row)}
+            </div>
+          ),
         )}
       </div>
-    </div>
+    );
+  });
+
+  return (
+    <DataTableFrame
+      paginate={paginate}
+      wrapperClassName={wrapperClassName}
+      tableClassName={tableClassName}
+      head={head}
+      rows={trs}
+      cards={cards}
+      emptyRow={emptyRow}
+      emptyCard={emptyCard}
+    />
   );
 }

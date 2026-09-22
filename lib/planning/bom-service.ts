@@ -29,7 +29,8 @@ export async function listMaterialBoms(): Promise<MaterialBomRow[]> {
   const { data } = await supabase
     .from("material_boms")
     .select("*, customers(name), sales_orders(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
@@ -116,7 +117,8 @@ export async function listFabricBoms(): Promise<FabricBomRow[]> {
   const { data } = await supabase
     .from("fabric_boms")
     .select("*, customers(name), styles(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
@@ -146,7 +148,8 @@ export async function listGarmentBoms(): Promise<GarmentBomRow[]> {
   const { data } = await supabase
     .from("garment_boms")
     .select("*, customers(name), styles(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
@@ -176,7 +179,8 @@ export async function listAccessoryBoms(): Promise<AccessoryBomRow[]> {
   const { data } = await supabase
     .from("accessory_boms")
     .select("*, customers(name), styles(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
@@ -206,7 +210,8 @@ export async function listBomShortages(): Promise<BomShortageRow[]> {
   const { data } = await supabase
     .from("bom_shortages")
     .select("*, customers(name), sales_orders(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
@@ -274,7 +279,8 @@ export async function listBomTransfers(): Promise<BomTransferRow[]> {
   const { data } = await supabase
     .from("bom_transfers")
     .select("*, customers(name), sales_orders(code)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;

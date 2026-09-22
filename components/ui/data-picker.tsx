@@ -15,7 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field, RequiredScope, useRequiredHold } from "@/components/ui/field";
+import { Field, RequiredScope, useLocked, useRequiredHold } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { dropdownPanelStyle } from "@/components/ui/dropdown-panel";
@@ -251,7 +251,7 @@ export function DataPicker({
   required = false,
   invalid = false,
   compact = false,
-  disabled = false,
+  disabled: ownDisabled = false,
   id,
   manage,
   onAddOverride,
@@ -332,6 +332,9 @@ export function DataPicker({
   addLabel?: string;
   className?: string;
 }) {
+  // A locked record cannot be changed (`LockScope`, field.tsx) — disabled with it.
+  const locked = useLocked();
+  const disabled = ownDisabled || locked;
   const noun = title || label;
   const { success, error } = useToast();
   const [isPending, start] = useTransition();

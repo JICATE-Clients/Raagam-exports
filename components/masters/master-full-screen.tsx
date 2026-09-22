@@ -16,6 +16,8 @@ import {
 import { ChevronLeft, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
+import { LockScope } from "@/components/ui/field";
+import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
   focusField,
@@ -329,8 +331,12 @@ export function MasterFullScreen({
   sections,
   onEnterSection,
   railCollapsed = false,
+  fitRail = false,
   onExpandRail,
   initialSection,
+  summary,
+  locked = false,
+  viewOnly = false,
   footer,
 }: {
   ref?: Ref<MasterFullScreenHandle>;
@@ -452,6 +458,24 @@ export function MasterFullScreen({
    */
   railCollapsed?: boolean;
   /**
+   * A 200px RAIL WITH TIGHTER ROWS, WHOSE LABELS STILL FIT (operator,
+   * 2026-09-17, Fabric BOM ▸ Sections).
+   *
+   * It was a 240px `wideRail` earlier the same day, added because "Fabric
+   * Allocati…" clipped on the 192px default — and was then reported as too
+   * wide. The label was never short of rail; it was short of ROW. The default
+   * item spends ~72px on chrome (the rail's `p-3`, the row's `px-2.5`, a 10px
+   * icon gap, borders), leaving ~120px at 192. This mode takes the rail to
+   * `p-2`, the row to `px-2` and the gap to `gap-2` — ~58px — so a 200px rail
+   * leaves ~142px, and "Fabric Allocation" (~130px semibold) sits whole.
+   *
+   * `truncate` STAYS ON, as a guard rather than an expectation: a label that
+   * did outgrow the row would otherwise push past the active row's border and
+   * fill. Opt-in per screen, not a new default — the 192px rail and its
+   * spacing are the client's own (2026-08-27).
+   */
+  fitRail?: boolean;
+  /**
    * Bring the rail back. Required in spirit by `railCollapsed`: without it the
    * fold is a one-way door, and the operator has no way to reach another section
    * except by leaving the record.
@@ -482,6 +506,74 @@ export function MasterFullScreen({
    * screen — the pane would carry two names.
    */
   paneHeading?: boolean;
+  /**
+   * A BAND OF HEADLINE FIGURES PINNED DIRECTLY ABOVE THE FOOTER, on every
+   * section, outside the scrolling pane. OFF by default — omit it and nothing
+   * renders, not even an empty strip.
+   *
+   * FOR A DOCUMENT WHOSE BOTTOM LINE MUST STAY IN SIGHT WHILE ANY PART OF IT IS
+   * EDITED. The legacy budget carries its Sales and Profit / Loss figures in a
+   * bar along the bottom of the window (Orders ▸ Budgeting, 2026-09-18): the
+   * operator types a yarn rate on one tab and watches the margin move. As a
+   * section of its own those figures were one click away from every rate that
+   * changes them, which is the one place they are no use.
+   *
+   * CHROME, NEVER FIELDS. Read-only figures and sentences — nothing here may be
+   * focusable. It sits outside `data-focus-region="content"`, so a field put
+   * here would fall out of the Tab cycle's field region, and a button would be
+   * one more stop between the last field and Save. If a figure needs acting on,
+   * the action belongs in the section that owns the number.
+   *
+   * NOT PART OF `footer`, because it is not held back by `footerOnLastSection`:
+   * that prop hides the BUTTON BAR, and a bottom line that vanished on every
+   * section but the last would be the section it replaced, one tab further away.
+   */
+  summary?: ReactNode;
+  /**
+   * THE RECORD MAY BE READ AND NOT CHANGED — and the screen says why, on every
+   * section (Phase 5, 2026-09-18: an order whose budget is approved is locked in
+   * Order Entry, Fabric BOM and Material BOM until the budget is reopened).
+   *
+   * Three things follow from the one prop, so no screen can do two of them:
+   *
+   *  - **A banner at the top of the pane** carrying `message` — the reason and
+   *    the way out ("Reopen the budget (Amendment Protocol) to change it").
+   *  - **Every field inside is read-only**, through `LockScope`: the primitives
+   *    read it, so no editor has to thread `readOnly` through its cells.
+   *  - **Save REFUSES WITH THE MESSAGE and stays ENABLED** — the footer's own
+   *    rule (`onBlockedSave`): a disabled Save hands Enter and Ctrl+S to the
+   *    button before it, which is the 2026-07-25 bug. Clicked, it says why.
+   *
+   * The DATABASE is the lock (0576's triggers); this is what makes the refusal a
+   * sentence on screen before anything is typed rather than an error after.
+   *
+   * `false` / omitted = unlocked, and nothing about the surface changes.
+   */
+  locked?: { message: ReactNode } | false;
+  /**
+   * OPENED TO READ, NOT TO CHANGE — the row's Eye (client 2026-09-19, Order
+   * Entry: the Eye used to open a sheet of raw columns; "open the full order
+   * screen in read-only mode so merchandisers can view the complete order").
+   *
+   * Not `locked`, though it borrows the lock's `LockScope`, and the difference
+   * is the footer. A locked record is one the operator came to EDIT and may
+   * not, so Save stays and answers with the reason. A viewer never asked to
+   * edit: a Save that only ever refuses is a button that exists to say no. So
+   * the footer is one **Close**, and Save / Save as Draft / Next are not drawn.
+   *
+   *  - Fields read-only through `LockScope`, same as the lock.
+   *  - `stepGuard` stands down — on the rail AND on Next. It defends a record
+   *    being ENTERED; a stored order whose numbers already disagree must not
+   *    seal a reader out of the tabs after it.
+   *  - Ctrl+S does nothing: there is nothing to save.
+   *  - The lock's banner still shows when `locked` is ALSO set — the reason an
+   *    approved order cannot be edited is worth reading while viewing it.
+   *
+   * THE DATABASE IS STILL THE GUARD. A plain `<Button>` inside a section (an
+   * "+ Add", a [Detail] opener) is not a `LockScope` reader, so it may still
+   * open or append in local state — which a viewer has no way to save.
+   */
+  viewOnly?: boolean;
   footer: {
     /** Left status text; e.g. "Unsaved changes". */
     status?: ReactNode;
@@ -576,6 +668,8 @@ export function MasterFullScreen({
   };
 }) {
   const firstKey = resolveSection(sections, initialSection ?? sections[0]?.key ?? "");
+  /** Only for the lock's refusal — see `locked`. Above every early return. */
+  const { error: toastError } = useToast();
   const [section, setSection] = useState(firstKey);
 
   /* THROUGH A REF, so the effect below is keyed on the SECTION and not on the
@@ -599,7 +693,7 @@ export function MasterFullScreen({
    */
   const nextSectionKey =
     sections[sections.findIndex((s) => s.key === section) + 1]?.key ?? null;
-  const stepping = !!footer.stepper && nextSectionKey !== null;
+  const stepping = !viewOnly && !!footer.stepper && nextSectionKey !== null;
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -941,9 +1035,20 @@ export function MasterFullScreen({
    * was two separate silences for two separate reasons — and if the button was
    * disabled, Enter and Ctrl+S resolved to whatever button was last instead.
    */
-  const blocked = !footer.canSave && !!footer.onBlockedSave;
+  const blocked = !!locked || (!footer.canSave && !!footer.onBlockedSave);
   const fireSave = () => {
-    if (footer.isPending) return;
+    if (viewOnly || footer.isPending) return;
+    if (locked) {
+      // THE LOCK OUTRANKS EVERY OTHER ANSWER — a locked record with a blank
+      // field is not "fill this in", it is "this cannot be changed".
+      toastError(
+        typeof locked.message === "string"
+          ? locked.message
+          : "This record is locked — see the notice at the top.",
+      );
+      paneRef.current?.scrollTo({ top: 0 });
+      return;
+    }
     if (footer.canSave) footer.onSave();
     else footer.onBlockedSave?.();
   };
@@ -968,6 +1073,7 @@ export function MasterFullScreen({
    * either — see `StepBlock`.
    */
   const stepBlockOf = (fromKey: string): StepBlock | null => {
+    if (viewOnly) return null; // a reader is never sealed out — see `viewOnly`
     const r = footer.stepGuard?.(fromKey);
     if (!r) return null;
     return typeof r === "string" ? { reason: r } : r;
@@ -1294,7 +1400,11 @@ export function MasterFullScreen({
              from truncate-reveal (see the item below) — a clipped label has no
              bubble to recover it, only the click. So this is about as narrow as
              it goes without the rail needing that exemption revisited. */
-          railCollapsed ? "md:grid-cols-[1fr]" : "md:grid-cols-[192px_1fr]",
+          railCollapsed
+            ? "md:grid-cols-[1fr]"
+            : fitRail
+              ? "md:grid-cols-[200px_1fr]"
+              : "md:grid-cols-[192px_1fr]",
         )}
       >
         <nav
@@ -1328,6 +1438,7 @@ export function MasterFullScreen({
             /* `md:hidden`, NOT `hidden`: the horizontal chip strip below the
                breakpoint is the only section nav a phone has, and collapsing is
                a desktop answer to a desktop problem. */
+            fitRail && "md:p-2",
             railCollapsed && "md:hidden",
           )}
         >
@@ -1417,6 +1528,9 @@ export function MasterFullScreen({
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
                   "ty-sidebar flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13.5px] transition-colors md:w-full",
+                  // `min-w-0` so the row — and its active fill — is bounded by
+                  // the rail, never widened by its label. See `fitRail`.
+                  fitRail && "min-w-0 gap-2 px-2",
                   isActive
                     ? "border-border bg-surface font-semibold text-foreground shadow-sm"
                     : "border-transparent text-muted-foreground hover:bg-surface hover:text-foreground",
@@ -1444,7 +1558,7 @@ export function MasterFullScreen({
                 {/* truncate-reveal: exempt -- rail chrome, not a value. The
                     vocabulary is fixed and short, and clicking the step shows
                     the section whose heading names it again in full. */}
-                <span className="flex-1 truncate whitespace-nowrap">{s.label}</span>
+                <span className="min-w-0 flex-1 truncate">{s.label}</span>
                 {/* The count REPLACES the done dot rather than sitting beside
                     it: a section with blocking problems is not "done", and two
                     indicators on a 192px rail item is where the label starts
@@ -1574,17 +1688,44 @@ export function MasterFullScreen({
                 in-pane group headings it replaced (13px, bold, capitals), so a
                 pane that still carries an inner group reads as one hierarchy
                 rather than two competing title styles. */}
+            {/* THE LOCK NOTICE — every section, above everything, so no pane of
+                a locked record can be read without the reason beside it. Text
+                only: it is not a field and not a Tab stop. */}
+            {locked && (
+              <div
+                role="status"
+                className="mb-4 rounded-md border border-warning bg-warning-soft px-3 py-2 text-sm text-warning"
+              >
+                {locked.message}
+              </div>
+            )}
             {paneHeading && active && (
               <h2 className="ty-subsection mb-4 text-[13px] font-bold uppercase tracking-wide text-foreground">
                 {active.label}
               </h2>
             )}
             <SectionNamedByRail.Provider value={!railCollapsed}>
-              {active?.content}
+              <LockScope locked={!!locked || viewOnly}>{active?.content}</LockScope>
             </SectionNamedByRail.Provider>
           </div>
         </div>
       </div>
+
+      {/* The pinned figures — see `summary`. Outside the scrolling pane, so it
+          stays put while a long grid scrolls under it, and capped to the same
+          width as the pane and the footer so its figures line up with both. */}
+      {summary != null && (
+        <div className="border-t border-border bg-background px-4 py-2">
+          <div
+            className={cn(
+              "mx-auto w-full",
+              active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
+            )}
+          >
+            {summary}
+          </div>
+        </div>
+      )}
 
       {/* sticky footer. On a page mount it sticks to the bottom of the viewport
           while the document scrolls behind it, with the safe-area inset Sheet
@@ -1725,6 +1866,16 @@ export function MasterFullScreen({
             <span className="text-xs text-muted-foreground">{footer.status}</span>
           )}
           <div className="flex-1" />
+          {/* A VIEWER'S FOOTER IS ONE BUTTON — see `viewOnly`. Filled, not
+              outline: it is the surface's primary (and only) action, so it is
+              also what Enter off the last field and `submitTargetOf` resolve
+              to, and nothing else can be. */}
+          {viewOnly ? (
+            <Button size="sm" onClick={footer.onCancel}>
+              Close
+            </Button>
+          ) : (
+          <>
           {!stepping && footer.extra}
           <Button variant="outline" size="sm" onClick={footer.onCancel}>
             Cancel
@@ -1790,7 +1941,7 @@ export function MasterFullScreen({
             <Button
               variant="outline"
               size="sm"
-              disabled={footer.isPending || !footer.canSave}
+              disabled={footer.isPending || !footer.canSave || !!locked}
               onClick={footer.onSaveDraft}
             >
               {footer.draftLabel ?? "Save as Draft"}
@@ -1815,6 +1966,8 @@ export function MasterFullScreen({
             >
               {footer.isPending ? "Saving…" : footer.saveLabel}
             </Button>
+          )}
+          </>
           )}
         </div>
       </div>

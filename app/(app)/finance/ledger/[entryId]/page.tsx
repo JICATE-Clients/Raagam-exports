@@ -116,7 +116,7 @@ export default async function JournalEntryPage({
           </div>
         </CardHeader>
         <CardBody className="p-0">
-          <DataTable
+          <DataTable paginate={false}
             columns={lineColumns}
             rows={entry.lines}
             getKey={(r) => r.id}

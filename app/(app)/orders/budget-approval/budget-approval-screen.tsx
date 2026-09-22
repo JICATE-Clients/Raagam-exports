@@ -21,23 +21,28 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X, Undo2 } from "lucide-react";
+import { Ban, Check, Pencil, X, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { FIELD_ROW, FIELD_WIDTH, Field, FieldRow } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { StatusPill } from "@/components/ui/status-pill";
+import { StatusSegment } from "@/components/orders/bom-queue";
 import { Truncated } from "@/components/ui/truncated";
+import { Tooltip } from "@/components/ui/tooltip";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { cn } from "@/lib/utils";
+import { FigureCell, HighlightTile, signTone } from "../budgets/budget-general";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
-import { budgetTotals, isRefusal, BUDGET_SOURCE_LABELS, type BudgetSource } from "@/lib/orders/budget/totals";
+import { budgetTotals, BUDGET_SOURCE_LABELS, type BudgetSource } from "@/lib/orders/budget/totals";
 import {
   BUDGET_STATUSES,
   budgetStatusText,
@@ -48,7 +53,9 @@ import {
   type OrderBudget,
 } from "@/lib/orders/budget/types";
 import { decideBudget, reopenBudget } from "@/lib/orders/budget/actions";
-import { getApprovalPanel } from "@/lib/approvals/actions";
+import { kpisFromJson } from "@/lib/orders/budget/amendment";
+import { lineInputOf, orderInputsOfSnapshot } from "@/lib/orders/budget/figures";
+import { actOnRun, getApprovalPanel } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
@@ -57,6 +64,47 @@ import type {
   CanActVerdict,
   TimelineRow,
 } from "@/lib/approvals/types";
+
+/**
+ * THE SHEET'S CAPS (Phase 6, 2026-09-18). The sheet is `lg` — full width — so
+ * without these every section is a pane-wide card around a few narrow values.
+ * Each is the sum of its own row, stated once; a DetailSection adds its
+ * `p-2.5` (2 x 10) and border (2 x 1). A DEFINITE LENGTH, NEVER `max-w-fit`:
+ * `DetailSection` declares `@container/section`, so a content-sized cap
+ * resolves to 0 and the card collapses (the Vendor master's bug).
+ *
+ * BUDGET — Date `range` 112 (dd/mm/yyyy), Status `code` 144 ("Submitted"),
+ * Currency `hug` 88 (three letters; the label is the floor), Exchange rate
+ * `hug` 88 ("84.0000"), Submitted / Decided `term` 176 (dd/mm/yyyy hh:mm):
+ *     112 + 144 + 88 + 88 + 176 + 176 + 5 x 12 = 844, + 22 = 866
+ *     ->  55rem (880), 14px of slack
+ *
+ * ORDERS — RE No `code` 144 ("HO/RE/26-27/0013"), customer `name` 288 (text,
+ * truncated with its reveal), value `code` 144:
+ *     144 + 288 + 144 + 2 x 16 = 608, + 22 = 630  ->  40rem (640)
+ *
+ * FIGURES and AS SUBMITTED — the General section's `FigureCell` rows. Their
+ * longest line is the cost-by-source row, five `code` cells:
+ *     5 x 144 + 4 x 12 = 768, + 22 = 790
+ *
+ * ONE CAP FOR EVERY SECTION (user 2026-09-20, screenshot 2970: "fix the ui of
+ * the approval screen"). Each section used to be capped to its OWN widest row
+ * — 880 / 640 / 800 / full — so the cards ended at four different right edges
+ * and the Approval card ran the whole pane. They now share the widest row's
+ * cap, the Budget row's 866 -> 55rem (880), and read as one column.
+ */
+const SHEET_BOX_W = "max-w-[55rem]";
+const BUDGET_BOX_W = SHEET_BOX_W;
+const ORDERS_BOX_W = SHEET_BOX_W;
+const FIGURES_BOX_W = SHEET_BOX_W;
+
+/** The RE Nos a budget covers, for the sheet's title — the reference an
+ *  approver knows an order by. */
+function reNosOf(b: OrderBudget | null | undefined): string[] {
+  return (b?.orders ?? [])
+    .map((o) => o.garment_order?.sales_order?.order_number ?? o.garment_order?.code ?? "")
+    .filter(Boolean);
+}
 
 export function BudgetApprovalScreen({
   rows,
@@ -77,6 +125,25 @@ export function BudgetApprovalScreen({
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [remark, setRemark] = useState("");
+  /**
+   * EDIT · CANCEL · APPROVE ON THE ROW (user 2026-09-22, from the artifact
+   * mock-up) — three coloured icons at the end of every line, so a decision
+   * does not need the sheet opened first. `rowAct` is the row a Cancel or
+   * Approve icon was pressed on and which of the two; the small confirm sheet
+   * below it asks for the comment before anything is written.
+   *
+   * CANCEL IS THE NEGATIVE DECISION — a rejection with a reason — not a new
+   * transition. 0505 records at length that a *cancelled run* leaves the
+   * budget `submitted` with no live approval, "a loose end … ask the client
+   * whether cancelling an approval should return the budget to draft". So the
+   * icon does what the sheet's Reject does; the author then sends the rejected
+   * budget back to draft from Rework, as before.
+   */
+  const [rowAct, setRowAct] = useState<{
+    row: BudgetApprovalRow;
+    kind: "approve" | "cancel";
+  } | null>(null);
+  const [rowComment, setRowComment] = useState("");
 
   /**
    * THE APPROVAL PANEL for whichever budget is open (0500–0505).
@@ -121,30 +188,50 @@ export function BudgetApprovalScreen({
   const panel = loaded && loaded.forId === openId ? loaded : null;
   /** Default: what is waiting. The queue lists everything so an approver can
    *  answer "what did I approve last week?", but the work is what opens. */
-  const [filter, setFilter] = useState<BudgetStatus | "all">("submitted");
+  /* THE PENDING / UPDATED BOX, MATERIAL BOM'S OWN (user 2026-09-21: "Update
+     and Pending options displayed exactly like they are in the Material") —
+     the same `StatusSegment`, first on the search row. On an approval queue
+     the two words mean:
+       Pending = Submitted, awaiting a decision (still what the screen opens on)
+       Updated = decided — Approved or Rejected
+       Draft   = not yet submitted (user 2026-09-22, the third word on every
+                 one of the three queues)
+     ONE FILTER, TWO CONTROLS, and deliberately connected, unlike the BOM
+     queues' box and Filters panel: those can both apply, but here the
+     dropdown opens on "All", so an independent box left at Updated beside a
+     dropdown at Draft would show nothing, silently. So a word in the box sets
+     the dropdown back to All, and picking a state in the dropdown turns the
+     box off. The dropdown still reaches Draft and each state on its own. */
+  const [quick, setQuick] = useState<"" | "pending" | "updated" | "draft">("pending");
+  const [filter, setFilter] = useState<BudgetStatus | "all">("all");
   const [search, setSearch] = useState("");
 
   // The remark is typed and unsaved until a decision is taken, so it is real
   // unsaved work — a silent auto-reload mid-sentence loses it.
-  useUnsavedGuard(!!remark.trim() || isPending);
+  useUnsavedGuard(!!remark.trim() || !!rowComment.trim() || isPending);
 
   const budget = useMemo(
     () => budgets.find((b) => b.id === openId) ?? null,
     [budgets, openId],
   );
+  /** The KPIs stored at submit, or null for a budget submitted before 0576
+   *  (or a summary this version cannot read — `kpisFromJson` refuses rather
+   *  than guessing at an unknown shape). */
+  const submitted = budget ? kpisFromJson(budget.submitted_summary) : null;
 
   const totals = useMemo(() => {
     if (!budget) return null;
+    // `figures.ts` BUILDS THE ENGINE'S INPUTS — the same mapping the budget
+    // screen and `submitBudget` use. This screen hand-built its own once, from
+    // source/qty/rate alone, and its totals drifted from the author's the day
+    // lines grew a currency. One builder is what stops that recurring.
+    //
+    // THE SNAPSHOT orders, not a live re-read: the approver must see the figures
+    // the author submitted (0428), and submit rewrites that snapshot from the
+    // same live facts the screen showed.
     return budgetTotals(
-      (budget.lines ?? []).map((l) => ({ source: l.source, qty: l.qty, rate: l.rate })),
-      (budget.orders ?? []).map((o) => ({
-        label: o.garment_order?.sales_order?.order_number ?? o.garment_order?.code ?? "This order",
-        // THE SNAPSHOT, not a live re-read. The approver must see the figures the
-        // author submitted — re-valuing the orders here would mean approving one
-        // set of numbers and recording another (0428).
-        sales_value: o.sales_value,
-        refusal: o.sales_refusal,
-      })),
+      (budget.lines ?? []).map(lineInputOf),
+      orderInputsOfSnapshot(budget.orders ?? []),
     );
   }, [budget]);
 
@@ -180,16 +267,67 @@ export function BudgetApprovalScreen({
     });
   }
 
+  function closeRowAct() {
+    setRowAct(null);
+    setRowComment("");
+  }
+
+  /**
+   * THE ROW ICON GOES THROUGH THE SAME DOOR THE SHEET DOES. A budget with a
+   * live run is decided by `actOnRun` — with the run's `lock_version`, and only
+   * if `approval_can_act` says this user may (the predicate the inbox is built
+   * from; a role check here is how a queue and a gate drift apart). One with no
+   * run — submitted before the engine was installed, or whose run was cancelled
+   * — takes the legacy `decideBudget` path the sheet's Decide block also keeps.
+   * The panel is read ON CLICK, not per row: the list can hold dozens of
+   * budgets and one is being decided.
+   */
+  function decideRow() {
+    if (!rowAct) return;
+    const { row, kind } = rowAct;
+    const comment = rowComment.trim();
+    if (kind === "cancel" && !comment) return;
+    start(async () => {
+      const p = await getApprovalPanel(WORKFLOWS.order_budget.subjectTable, row.id);
+      let res;
+      if (p.run && p.run.status === "in_progress") {
+        if (!p.verdict?.can_act) {
+          toastError("This budget is waiting on someone else's step, not yours");
+          return;
+        }
+        res = await actOnRun({
+          runId: p.run.id,
+          action: kind === "approve" ? "approve" : "reject",
+          lockVersion: p.run.lock_version,
+          comment: comment || undefined,
+          subjectPath: "/orders/budget-approval",
+        });
+      } else {
+        res = await decideBudget(row.id, kind === "approve" ? "approved" : "rejected", comment || null);
+      }
+      if (res.ok) {
+        success(kind === "approve" ? "Budget approved" : "Budget cancelled");
+        closeRowAct();
+        router.refresh();
+      } else {
+        toastError(res.error);
+      }
+    });
+  }
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (filter !== "all" && r.status !== filter) return false;
+      if (quick === "pending" && r.status !== "submitted") return false;
+      if (quick === "updated" && r.status !== "approved" && r.status !== "rejected") return false;
+      if (quick === "draft" && r.status !== "draft") return false;
       if (!q) return true;
       return [r.code, r.description]
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q));
     });
-  }, [rows, filter, search]);
+  }, [rows, filter, quick, search]);
 
   const columns: Column<BudgetApprovalRow>[] = [
     {
@@ -236,6 +374,73 @@ export function BudgetApprovalScreen({
         <StatusPill tone={budgetStatusTone(r.status)}>{budgetStatusText(r.status)}</StatusPill>
       ),
     },
+    /* THE THREE ICONS, each in its own colour (the mock-up the client
+       approved): Edit blue, Cancel red, Approve green. Not `RowActions` — that
+       cluster is View / Edit / Delete, and two of these are decisions. Every
+       icon is drawn on every row so the column never jitters; one that cannot
+       apply is disabled and its tooltip says why. `w-32`: three icon buttons
+       and two gaps, narrower than the default `w-40`. */
+    rowActionsColumn<BudgetApprovalRow>(
+      (r) => {
+        /* EDIT OPENS THE BUDGET WHATEVER ITS STATE. The editor already knows
+           which states it may change — a submitted or approved one opens
+           read-only with a line saying why (`budget-screen.tsx`, `editable`)
+           — so gating the icon here was a second rule that only made the
+           button look dead on the rows this queue mostly holds (2026-09-22). */
+        const decidable = canApprove && r.status === "submitted";
+        const label = r.code ?? r.id.slice(0, 8);
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <Tooltip label={canEdit ? "Edit" : "Edit — you cannot edit budgets"}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Edit ${label}`}
+                /* NO BACKGROUND, on hover either (user 2026-09-22): the blue
+                   pencil stands on its own, and `hover:bg-transparent` is what
+                   overrides the ghost variant's grey. */
+                className="text-primary hover:bg-transparent hover:text-primary-hover disabled:text-muted-foreground"
+                disabled={!canEdit || isPending}
+                onClick={() => router.push(`/orders/budgets?budget=${r.id}`)}
+              >
+                <Pencil />
+              </Button>
+            </Tooltip>
+            <Tooltip label={decidable ? "Cancel" : "Cancel — only a submitted budget"}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Cancel ${label}`}
+                className="text-danger hover:bg-danger/10 hover:text-danger disabled:text-muted-foreground"
+                disabled={!decidable || isPending}
+                onClick={() => {
+                  setRowComment("");
+                  setRowAct({ row: r, kind: "cancel" });
+                }}
+              >
+                <Ban />
+              </Button>
+            </Tooltip>
+            <Tooltip label={decidable ? "Approve" : "Approve — only a submitted budget"}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Approve ${label}`}
+                className="text-success hover:bg-success/10 hover:text-success disabled:text-muted-foreground"
+                disabled={!decidable || isPending}
+                onClick={() => {
+                  setRowComment("");
+                  setRowAct({ row: r, kind: "approve" });
+                }}
+              >
+                <Check />
+              </Button>
+            </Tooltip>
+          </div>
+        );
+      },
+      "w-32",
+    ),
   ];
 
   return (
@@ -261,6 +466,14 @@ export function BudgetApprovalScreen({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
+          <StatusSegment
+            value={quick}
+            onChange={(v) => {
+              setQuick(v);
+              setFilter("all");
+            }}
+            draft
+          />
           {/* caps-input: exempt -- a search QUERY is not a stored value. */}
           <Input uppercase={false}
             className="w-64"
@@ -271,15 +484,18 @@ export function BudgetApprovalScreen({
           <Select
             className="w-48"
             value={filter}
-            onChange={(e) => setFilter(e.target.value as BudgetStatus | "all")}
+            onChange={(e) => {
+              setFilter(e.target.value as BudgetStatus | "all");
+              setQuick("");
+            }}
           >
+            <option value="all">All</option>
             <option value="submitted">Awaiting approval</option>
             {BUDGET_STATUSES.filter((s) => s !== "submitted").map((s) => (
               <option key={s} value={s}>
                 {budgetStatusText(s)}
               </option>
             ))}
-            <option value="all">All</option>
           </Select>
         </div>
 
@@ -288,74 +504,146 @@ export function BudgetApprovalScreen({
           rows={filtered}
           getKey={(r) => r.id}
           empty={
-            filter === "submitted"
+            quick === "pending" || filter === "submitted"
               ? "Nothing is waiting for approval."
               : "No budgets in this state."
           }
         />
       </div>
 
+      {/* THE ROW DECISION'S CONFIRM — one textarea and two buttons, so `sm` and
+          not full-screen, the size `ApprovalActionBar` chose for the same
+          question. Cancel needs a reason (the database refuses a rejection
+          without one, and the author is told what to change); Approve does
+          not ("yes" is complete on its own — `decideBudget`). */}
+      <Sheet
+        open={rowAct !== null}
+        onClose={closeRowAct}
+        title={
+          rowAct
+            ? `${rowAct.kind === "approve" ? "Approve" : "Cancel"} budget ${
+                rowAct.row.code ?? rowAct.row.id.slice(0, 8)
+              }?`
+            : ""
+        }
+        size="sm"
+        fullScreen={false}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={closeRowAct} disabled={isPending}>
+              Back
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={rowAct?.kind === "cancel" ? "danger" : "approve"}
+              onClick={decideRow}
+              disabled={isPending || (rowAct?.kind === "cancel" && !rowComment.trim())}
+            >
+              {rowAct?.kind === "approve" ? (
+                <>
+                  <Check className="h-4 w-4" aria-hidden />
+                  Approve
+                </>
+              ) : (
+                <>
+                  <Ban className="h-4 w-4" aria-hidden />
+                  Cancel budget
+                </>
+              )}
+            </Button>
+          </div>
+        }
+      >
+        <Field
+          label={rowAct?.kind === "cancel" ? "Reason" : "Comment"}
+          required={rowAct?.kind === "cancel"}
+          htmlFor="ba-row-comment"
+        >
+          <Textarea
+            id="ba-row-comment"
+            rows={4}
+            value={rowComment}
+            onChange={(e) => setRowComment(e.target.value)}
+          />
+        </Field>
+        {rowAct?.kind === "cancel" && (
+          <p className="text-xs text-muted-foreground">
+            The requester sees this, and it is what tells them what to change.
+          </p>
+        )}
+      </Sheet>
+
       <Sheet
         open={!!budget}
         onClose={close}
+        /* "BUDGET 1 · HO/RE/26-27/0012" and its state — it was the bare Entry
+           No ("1"), which named nothing an approver recognises. */
         title={
-          <>
-            {budget?.code ?? "Budget"}
-            {budget?.description && (
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                {budget.description}
+          <span className="flex flex-wrap items-center gap-2">
+            <span>Budget {budget?.code ?? ""}</span>
+            {reNosOf(budget).length > 0 && (
+              <span className="font-mono text-sm font-medium text-muted-foreground">
+                · {reNosOf(budget).join(", ")}
               </span>
             )}
-          </>
+            {budget && (
+              <StatusPill tone={budgetStatusTone(budget.status)}>{budgetStatusText(budget.status)}</StatusPill>
+            )}
+          </span>
         }
         size="lg"
       >
         {budget && totals && (
           <>
-            <DetailSection label="Budget" cols={12}>
-              <FieldGrid>
-                <Field label="Date" size="sm">
+            <DetailSection label="Budget" cols={1} className={BUDGET_BOX_W}>
+              <FieldRow>
+                <Field label="Date" w="range">
                   <Input readOnly value={fmtDate(budget.budget_date)} />
                 </Field>
-                <Field label="Status" size="sm">
+                <Field label="Status" w="code">
                   <Input readOnly value={budgetStatusText(budget.status)} />
                 </Field>
-                <Field label="Currency" size="sm">
+                <Field label="Currency" w="hug">
                   <Input readOnly value={budget.currency_code ?? "—"} />
                 </Field>
-                <Field label="Exchange rate" size="sm">
+                <Field label="Exchange rate" w="hug">
                   <Input readOnly value={String(budget.exchange_rate ?? 1)} />
                 </Field>
                 {budget.submitted_at && (
-                  <Field label="Submitted" size="sm">
+                  <Field label="Submitted" w="term">
                     <Input readOnly value={fmtDateTime(budget.submitted_at)} />
                   </Field>
                 )}
                 {budget.decided_at && (
-                  <Field label="Decided" size="sm">
+                  <Field label="Decided" w="term">
                     <Input readOnly value={fmtDateTime(budget.decided_at)} />
                   </Field>
                 )}
-              </FieldGrid>
+              </FieldRow>
               {budget.remark && (
                 <p className="mt-2 text-xs text-muted-foreground">{budget.remark}</p>
               )}
             </DetailSection>
 
-            <DetailSection label={`Orders (${(budget.orders ?? []).length})`} cols={12}>
+            <DetailSection
+              label={`Orders (${(budget.orders ?? []).length})`}
+              cols={1}
+              className={ORDERS_BOX_W}
+            >
               <ul className="space-y-1 text-sm">
                 {(budget.orders ?? []).map((o) => (
-                  <li key={o.id} className="flex items-baseline justify-between gap-4">
-                    <span>
+                  <li key={o.id} className="flex items-baseline gap-4">
+                    <span className={cn(FIELD_WIDTH.code, "min-w-0 shrink-0")}>
                       <Truncated>
                         {o.garment_order?.sales_order?.order_number ??
                           o.garment_order?.code ??
                           "(order)"}
                       </Truncated>
+                    </span>
+                    <span className={cn(FIELD_WIDTH.name, "min-w-0 shrink-0 text-xs text-muted-foreground")}>
                       {o.garment_order?.customer?.name && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {o.garment_order.customer.name}
-                        </span>
+                        <Truncated>{o.garment_order.customer.name}</Truncated>
                       )}
                     </span>
                     {/* THE REFUSAL IS SHOWN TO THE APPROVER. It is exactly the
@@ -363,34 +651,46 @@ export function BudgetApprovalScreen({
                         nobody could resolve is one the margin below does not
                         include. */}
                     {o.sales_value == null ? (
-                      <span className="text-xs text-danger">{o.sales_refusal ?? "no value"}</span>
+                      <span className={cn(FIELD_WIDTH.code, "shrink-0 text-right text-xs text-danger")}>
+                        {o.sales_refusal ?? "no value"}
+                      </span>
                     ) : (
-                      <span className="tabular-nums text-sm">{fmtNumber(o.sales_value)}</span>
+                      <span className={cn(FIELD_WIDTH.code, "shrink-0 text-right tabular-nums text-sm")}>
+                        {fmtNumber(o.sales_value)}
+                      </span>
                     )}
                   </li>
                 ))}
               </ul>
             </DetailSection>
 
-            <DetailSection label="Figures" cols={12}>
-              <dl className="space-y-2">
-                <Row label="Sales value" value={totals.sales} />
-                <Row label="Total cost" value={totals.cost} />
-                <Row label="Other income" value={totals.income} />
-                <Row label="Profit / loss" value={totals.profit} strong />
-                <Row label="Margin %" value={totals.profitPct} suffix="%" />
+            <DetailSection label="Figures" cols={1} className={FIGURES_BOX_W}>
+              {/* THE BOTTOM LINE AS THE BUDGET'S OWN TILES (budget-general.tsx):
+                  the approver reads the figures in the colours the merchandiser
+                  priced them in. No Other income — the tab left the budget
+                  (client, 2026-09-19). */}
+              <dl className="flex flex-wrap items-stretch gap-2.5">
+                <HighlightTile w="code" tone="sales" label="Sales value" value={totals.sales} />
+                <HighlightTile w="code" tone="plain" label="Total cost" value={totals.cost} />
+                <HighlightTile w="code" tone={signTone(totals.profit)} label="Profit / loss" value={totals.profit} />
+                <HighlightTile w="hug" tone={signTone(totals.profit)} label="Margin %" value={totals.profitPct} suffix="%" />
               </dl>
 
-              <div className="mt-3 space-y-1 border-t border-border pt-2 text-xs text-muted-foreground">
+              {/* COST BY SOURCE, the same cells one tier down. A SOURCE CAN
+                  REFUSE since 0575 — a percent line whose sales base is
+                  unknown — and `FigureCell` prints its sentence, never a 0. */}
+              <dl className={cn(FIELD_ROW, "mt-3 border-t border-border pt-2")}>
                 {(Object.keys(BUDGET_SOURCE_LABELS) as BudgetSource[])
                   .filter((k) => totals.costBySource[k] !== 0)
                   .map((k) => (
-                    <div key={k} className="flex justify-between gap-4">
-                      <span>{BUDGET_SOURCE_LABELS[k]}</span>
-                      <span className="tabular-nums">{fmtNumber(totals.costBySource[k])}</span>
-                    </div>
+                    <FigureCell
+                      key={k}
+                      w="code"
+                      label={BUDGET_SOURCE_LABELS[k]}
+                      value={totals.costBySource[k]}
+                    />
                   ))}
-              </div>
+              </dl>
 
               {totals.unpriced.length > 0 && (
                 <p className="mt-3 text-xs text-danger">
@@ -399,10 +699,51 @@ export function BudgetApprovalScreen({
                   from these figures.
                 </p>
               )}
+              {totals.pending.length > 0 && (
+                // Priced, but a percentage of a sales value not known yet — the
+                // totals it touches refuse above, and this says how many.
+                <p className="mt-1 text-xs text-danger">
+                  {totals.pending.length} {totals.pending.length === 1 ? "line is" : "lines are"}{" "}
+                  waiting on a sales value.
+                </p>
+              )}
             </DetailSection>
 
+            {/* AS SUBMITTED — the KPIs stored at submit (`submitted_summary`,
+                0576): the figures this approval is being asked about. Shown
+                BESIDE the live figures above rather than instead of them, so an
+                order re-valued since submit is visible as a difference the
+                approver can see, not a silent change under their signature. */}
+            {submitted && (
+              <DetailSection label="As submitted" cols={1} className={FIGURES_BOX_W}>
+                {/* RE No(s) and Delivery date(s) are LISTS and may run long:
+                    `term` holds one of each, and more wrap inside the cell. */}
+                <dl className={FIELD_ROW}>
+                  <FigureCell w="term" label="RE No" value={submitted.re_nos.join(", ")} />
+                  <FigureCell
+                    w="range"
+                    label="Entry date"
+                    value={submitted.entry_date ? fmtDate(submitted.entry_date) : ""}
+                  />
+                  <FigureCell
+                    w="term"
+                    label="Delivery"
+                    value={submitted.delivery_dates.map((d) => fmtDate(d)).join(", ")}
+                  />
+                  <FigureCell w="code" label="Order qty" value={submitted.order_qty} />
+                  {/* "Gross sales", not "Total income": with Other Incomes gone
+                      (2026-09-19) the stored total income IS the sales value. */}
+                  <FigureCell w="code" label="Gross sales" value={submitted.total_income} />
+                  <FigureCell w="code" label="Total expenses" value={submitted.total_expenses} />
+                  <FigureCell w="code" label="Profit / loss" value={submitted.profit} strong signed />
+                  <FigureCell w="hug" label="Profit %" value={submitted.profit_pct} suffix="%" signed />
+                  <FigureCell w="code" label="Cost per piece" value={submitted.cost_per_piece} />
+                </dl>
+              </DetailSection>
+            )}
+
             {budget.decision_remark && (
-              <DetailSection label="Decision" cols={12}>
+              <DetailSection label="Decision" cols={1} className={SHEET_BOX_W}>
                 <p className="text-sm">{budget.decision_remark}</p>
               </DetailSection>
             )}
@@ -412,13 +753,18 @@ export function BudgetApprovalScreen({
                 budget's trail is the one the author most needs to read, because
                 it carries the reason. */}
             {panel?.run && (
-              <DetailSection label="Approval" cols={12}>
+              /* `cols={1}`, NOT 12 (screenshot 2970). In the 12-column density
+                 track every child that is not a `Field` took ONE column, so the
+                 timeline and the action bar were squeezed into ~80px each and
+                 "Step 1 · Managing Director" printed over itself. These sections
+                 hold blocks, not fields; they stack. */
+              <DetailSection label="Approval" cols={1} className={SHEET_BOX_W}>
                 <ApprovalTimeline
                   rows={panel.timeline}
                   resolveUserName={(id) => panel.names[id]}
                 />
                 {panel.verdict && (
-                  <div className="mt-3">
+                  <div className="mt-3 border-t border-border pt-3">
                     {/* Renders NOTHING unless `approval_can_act` said yes, so
                         there is no permission check to write here and none to
                         get wrong. */}
@@ -444,8 +790,8 @@ export function BudgetApprovalScreen({
                 button, which is a worse failure than an extra code path. Delete
                 this block once no `submitted` budget predates 0503. */}
             {!panel?.run && canApprove && canTransition(budget.status, "approved") && (
-              <DetailSection label="Decide" cols={12}>
-                <Field label="Remark" size="full" htmlFor="ba-remark">
+              <DetailSection label="Decide" cols={1} className={SHEET_BOX_W}>
+                <Field label="Remark" htmlFor="ba-remark">
                   <Textarea
                     id="ba-remark"
                     rows={3}
@@ -478,7 +824,7 @@ export function BudgetApprovalScreen({
             )}
 
             {canEdit && canTransition(budget.status, "draft") && (
-              <DetailSection label="Rework" cols={12}>
+              <DetailSection label="Rework" cols={1} className={SHEET_BOX_W}>
                 <p className="mb-2 text-xs text-muted-foreground">
                   Sending this back to draft clears the rejection so the author can rework it. The
                   decision stays in the audit log.
@@ -500,35 +846,5 @@ export function BudgetApprovalScreen({
         )}
       </Sheet>
     </>
-  );
-}
-
-/** One figure, or the sentence saying why there isn't one. */
-function Row({
-  label,
-  value,
-  suffix = "",
-  strong = false,
-}: {
-  label: string;
-  value: number | { refused: string };
-  suffix?: string;
-  strong?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-4">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd
-        className={
-          isRefusal(value)
-            ? "text-right text-xs text-danger"
-            : `text-right tabular-nums ${strong ? "text-base font-semibold" : "text-sm"} ${
-                (value as number) < 0 ? "text-danger" : "text-foreground"
-              }`
-        }
-      >
-        {isRefusal(value) ? value.refused : `${fmtNumber(value as number)}${suffix}`}
-      </dd>
-    </div>
   );
 }

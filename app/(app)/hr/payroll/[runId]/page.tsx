@@ -341,7 +341,7 @@ export default async function RunDetailPage({
                 : "No lines found."}
             </p>
           ) : (
-            <DataTable
+            <DataTable paginate={false}
               columns={isWorkerRun ? workerColumns : staffColumns}
               rows={lines}
               getKey={(row) => row.id}
@@ -365,7 +365,7 @@ export default async function RunDetailPage({
                 No contractor piece workers in this run.
               </p>
             ) : (
-              <DataTable
+              <DataTable paginate={false}
                 columns={contractorColumns}
                 rows={contractorRows}
                 getKey={(row) => row.id}

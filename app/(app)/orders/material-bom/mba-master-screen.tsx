@@ -7,15 +7,18 @@ import {
   ClipboardList,
   TriangleAlert,
   Copy,
+  FileText,
   Workflow,
   ChevronRight,
   ChevronDown,
   Layers,
+  CalendarClock,
 } from "lucide-react";
+import { TrimTaSection } from "@/components/orders/trim-ta/trim-ta-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Field, FieldError, FieldRow, RequiredScope, type FieldWidth } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
@@ -86,6 +89,7 @@ import {
   type Axis,
 } from "@/lib/orders/bom-explosion/exploder";
 import { BomCopySheet, BomCopyConfirm } from "@/components/orders/bom-copy-sheet";
+import { MaterialBomReportsSheet } from "@/components/orders/material-bom-reports-sheet";
 import {
   BomSliceGrid,
   type BomSliceCell,
@@ -99,6 +103,11 @@ import {
   updateMaterialBomAmendment,
 } from "@/lib/orders/material-bom-amendment/actions";
 import {
+  // The one door out of To be advised — the save action refuses with the same
+  // sentence, so the screen and the server say it in one voice.
+  ADVISED_CONVERT_ELSEWHERE,
+  ADVISED_REASON_MESSAGE,
+  advisedReasonMissing,
   missingItemFields,
   DEFAULT_MATERIAL_TYPE,
   DEFAULT_SUPPLY_TYPE,
@@ -130,6 +139,11 @@ import {
   type RequirementBasis,
 } from "@/lib/orders/material-bom/requirement";
 import {
+  colourRequired,
+  missingItemColours,
+  type ColourWiseLineFacts,
+} from "@/lib/orders/material-bom/colour-required";
+import {
   combinationNames,
   consumptionFor,
   crossCombinations,
@@ -159,6 +173,9 @@ interface Props {
   perms: Perms;
   /** masters:create/edit — gates inline Add/Modify inside config-list pickers. */
   masterPerms: { canCreate: boolean; canEdit: boolean };
+  /** Garment orders locked by an approved budget → the banner's sentence
+   *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
+  orderLocks: Record<string, string>;
 }
 
 /**
@@ -337,6 +354,28 @@ type ItemRow = {
    * represent, so it needs none of the string-holding every numeric here does.
    */
   is_foc: boolean;
+  /* 0588 — Advised Items. `estimated_rate` is typed on the line (any line);
+     `pending_reason` only while the line is To be advised. The other four are
+     CARRIED AND NEVER SHOWN here: brand and artwork are filled in when the
+     line is converted (the Advised Items register), and the two stamps are
+     the database's. They round-trip because `writeChildren` deletes and
+     re-inserts every line — a value this form stopped carrying would be a
+     value the next save destroyed. */
+  estimated_rate: string;
+  pending_reason: string;
+  brand: string | null;
+  artwork_code: string | null;
+  converted_at: string | null;
+  converted_by: string | null;
+  /**
+   * SCREEN STATE, NEVER SENT: this line was LOADED as To be advised. Such a
+   * line leaves the advised state through ONE door — the Advised Items
+   * register's Convert, which stamps who and when (plan, Step 4) — so its TBA
+   * switch cannot be turned off here. A line switched on in this session, or a
+   * new one, has no stamp to skip and toggles freely. The save action refuses
+   * the same change server-side; this is the courtesy.
+   */
+  saved_tba: boolean;
   moq: string;
   /* `alternate_uom_id` above is now CARRIED AND NEVER SHOWN (client
      2026-08-19). Its cell came off the grid a second time — withdrawn as "UI
@@ -480,6 +519,13 @@ const blankItem = (key: string): ItemRow => ({
   // 0474. Off by default and for the plainer reason `send_out` gives: a BOM is a
   // list of what we buy, and free-issue is the exception the customer declares.
   is_foc: false,
+  estimated_rate: "",
+  pending_reason: "",
+  brand: null,
+  artwork_code: null,
+  converted_at: null,
+  converted_by: null,
+  saved_tba: false,
   moq: "",
   round_to: "",
   no_of_items: "",
@@ -568,7 +614,7 @@ const WEIGHT_CLASS: Record<Weight, string | undefined> = {
   final: "[&_input]:border-transparent",
 };
 
-type GroupCell = { header: string; size: FieldSize; weight: Weight; align?: "end" };
+type GroupCell = { header: string; w: FieldWidth; weight: Weight; align?: "end" };
 
 /**
  * GRID DENSITY, and it is the difference between the mockup and the screen.
@@ -668,6 +714,8 @@ const H = {
   roundTo: "Round To",
   process: "Process",
   foc: "FOC",
+  estimatedRate: "Est. Rate",
+  pendingReason: "Pending Reason",
 } as const;
 
 /**
@@ -752,6 +800,39 @@ const H = {
  *   run 3  4+4+2+4+6+4+2+6     = 32
  */
 const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
+  /*
+   * SHRINK-WRAPPED, NOT SPANNED (client 2026-09-21, `erp-form-compact`). Every
+   * span arithmetic below — the 32-track, "every run sums to 32", the gutter
+   * table — is SUPERSEDED and kept as the record of why each cell is the width
+   * it is. The row is now a `FieldRow` and each cell a `FieldWidth`: a field is
+   * as wide as what it holds, not as wide as its share of the pane, so a
+   * 3-letter Uom is no longer ~167px on a wide monitor.
+   *
+   * THE WIDTHS, each the old span's reasoning in the vocabulary instead of in
+   * columns (MOQ · Round To · TBA · Process · FOC have since moved after the
+   * Final quantity — see `FIELD_GROUPS_AFTER_FINAL`; the arithmetic below is
+   * the eleven-field row as it stood that morning):
+   *
+   *   Category code 144 · Material name 288 · Attribute term 176 ·
+   *   Pur. Uom hug 88 · Cons. Uom hug 88 · MOQ num 72 · Round To num 72 ·
+   *   Combination hug 88 · TBA num 72 · Process num 72 · FOC num 72
+   *   = 1232 + 10 × 12 gap = 1352px
+   *
+   * - Material keeps the most room (the slashed spec clips soonest).
+   * - Attribute is a native `<Select>` with no reveal bubble, so it stays wider
+   *   than a code (`term`), as its own note below asks.
+   * - The two Uoms and Combination share ONE width, `hug` — the client asked
+   *   for Combination "same as consumption field size" (2026-08-24), and 88px
+   *   is the label floor that keeps "Cons. Uom" on one line.
+   * - MOQ / Round To are 3-4 digits and the three switches show no value: `num`.
+   *
+   * WHERE IT FITS: 1352px is inside the ~1390px pane the `wide` cap gives this
+   * section, so a wide monitor still reads one line. A narrower pane (a 1366
+   * laptop) WRAPS the tail onto a second line — `FieldRow` wraps rather than
+   * squeezing every field back to ~80px, which is the trade `erp-form-compact`
+   * makes on purpose. `nowrap` would put the row behind a sideways scrollbar,
+   * which the operator rejected on 2026-08-10.
+   */
   /*
    * ONE RUN NOW, AND IT IS THE WHOLE LINE (client 2026-08-21, screenshots 2461 /
    * 2462 / 2463).
@@ -1104,18 +1185,18 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * whole contract of this array.
    */
   [
-    { header: H.category, size: "md", weight: "key" },
+    { header: H.category, w: "code", weight: "key" },
     /* IT TAKES THE TWO COLUMNS TBA GAVE UP (2026-08-28). The run must total 32
        or the last field drops to a line of its own, so a cell that shrinks has
        to hand its span somewhere — and this is the field every note on this row
        says clips soonest: it holds the long slashed spec, and the 08-27 pass
        recorded it dropping to ~132px as "the trade the client chose". A switch
        needs none of that width and this does. */
-    { header: H.material, size: "lg", weight: "key" },
+    { header: H.material, w: "name", weight: "key" },
     /* A GRAIN READS "Style Ref No / Order Color / Order Size" — the longest
        value on the row after Material, and a native `<Select>` with no reveal
        bubble to rescue it, so it does not go below `md`. */
-    { header: H.attribute, size: "md", weight: "key" },
+    { header: H.attribute, w: "term", weight: "key" },
     /* THE LABELS ARE THE CONSTRAINT HERE, not the values: "NOS" and "PCS" would
        fit an `xs`. These are `sm` (~78px at 1366@110%) because the HEADERS have
        to sit on one line — and they only do because the client shortened them on
@@ -1125,18 +1206,8 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        Uom" (~53px) now. **Lengthening either header back reopens the wrap**,
        which is why the old figures are kept here as the reason rather than
        deleted as history. */
-    { header: H.purchaseUom, size: "sm", weight: "auto" },
-    { header: H.consumptionUom, size: "sm", weight: "auto" },
-    /* THE TWO NUMERIC BOXES, and they now follow the units directly (client
-       2026-08-28: "cons.uom - moq - round to - combination - tba this order").
-       Both 08-28 instructions agree on this pair and on where it sits — the
-       amendment that followed ("TBA next to the Round To, remaining all the
-       same") moved only the cell AFTER them. 3-4 digits in an `xs` cell,
-       right-aligned; the labels ("MOQ" ~18px, "Round To" ~47px) are the
-       smallest on the row and clear their 50px at 1366@110% with room. Nothing
-       about them changed except where they sit. */
-    { header: H.moq, size: "xs", weight: "plain" },
-    { header: H.roundTo, size: "xs", weight: "plain" },
+    { header: H.purchaseUom, w: "hug", weight: "auto" },
+    { header: H.consumptionUom, w: "hug", weight: "auto" },
     /* AN ICON BUTTON, NOT A VALUE — the only field on the row with nothing to
        clip, which is what lets it take the smallest span without losing
        anything. The 08-24 instruction that matched it to the Consumption Uom
@@ -1145,7 +1216,81 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        reasoning outlived the adjacency: MOQ, Round To and TBA came up BETWEEN
        the two on 2026-08-28, so the cells are no longer neighbours and the
        shared `xs` is still right, because it was never a matching exercise. */
-    { header: H.combination, size: "xs", weight: "quiet" },
+    { header: H.combination, w: "hug", weight: "quiet" },
+  ],
+  /*
+   * ADVISED ITEMS (0588) — a run of their own, after the line it describes.
+   *
+   *   Pending Reason lg 6 = 6 of 32
+   *
+   * EST. RATE WAS THE FIRST CELL HERE AND THE CLIENT REMOVED IT (2026-09-20:
+   * "est.rate field need to remove it, material bom item"). The field is off
+   * the SCREEN, not off the record — `estimated_rate` is still loaded, carried
+   * and saved unchanged, so a line priced before today keeps its rate for the
+   * Budget pull and the Advised Items list. A new line simply stores none. So
+   * on an Available line this run is empty and the renderer drops it.
+   *
+   * What follows is the note as written while Est. Rate stood here:
+   *
+   *   Est. Rate sm 3 + Pending Reason lg 6 = 9 of 32
+   *
+   * NOT squeezed into the run above: that run is the client's own field order
+   * and already totals exactly 32, so a cell added to it would push its last
+   * field onto a line of its own. A short run simply ends — the sums-to-32 rule
+   * is about a run not OVERFLOWING, not about filling one.
+   *
+   * Est. Rate `sm` (~105px) — a rate, which `range` would hold on a FieldRow;
+   * this track sizes in columns, and three is its nearest.
+   * Pending Reason `lg` (~210px) — a sentence, and it shows ONLY while the
+   * line is To be advised: the renderer drops the cell on every other line
+   * (a hidden field is not rendered, never `hidden`), so the run is Est. Rate
+   * alone on an Available line.
+   */
+];
+
+/**
+ * THE FIELDS DECIDED ONCE THE FINAL QUANTITY IS KNOWN — drawn AFTER it (client
+ * 2026-09-21: "MOQ, Round 2, TBA, Process and EOC should be moved to the end,
+ * after the Final Quantity field … these fields are only decided or known after
+ * arriving at the Final Quantity figure. Moving them reduces unnecessary tab
+ * stops across the screen").
+ *
+ * The renderer draws `FIELD_GROUPS`, then the per-attribute grid, then the
+ * figure strip that ends on Final quantity — and THEN this run. DOM order is
+ * Tab order, so an operator now types the line's identity and its units, fills
+ * the consumption grid, reads the Final quantity, and only then reaches these.
+ *
+ * THIS REVERSES THE 2026-08-28 ORDER ("cons.uom - moq - round to - combination
+ * - tba", then "TBA next to the Round To", then "TBA after the combination")
+ * that the note on `FIELD_GROUPS` records step by step. The later instruction
+ * wins; restoring any of those positions needs a new one. The five keep their
+ * order among themselves: MOQ · Round To · TBA · Process · FOC ("EOC" in the
+ * instruction is FOC — there is no EOC field).
+ *
+ * PENDING REASON CAME WITH TBA. It exists only while TBA is on and is mandatory
+ * then, so it stays directly after the switch that summons it — left in the
+ * old run it would appear ABOVE the strip, far from the toggle that made it.
+ *
+ *   MOQ num 72 · Round To num 72 · TBA num 72 · Process num 72 · FOC num 72
+ *   (+ Pending Reason name 288 while TBA is on) = 360 / 648 + gaps
+ *
+ * THE ROW ABOVE IS NOW SIX FIELDS — Category code 144 · Material name 288 ·
+ * Attribute term 176 · Pur. Uom hug 88 · Cons. Uom hug 88 · Combination hug 88
+ * = 872 + 5 × 12 = 932px — so it fits one line on a 1366 laptop too, which
+ * the eleven-field row could not.
+ */
+const FIELD_GROUPS_AFTER_FINAL: readonly (readonly GroupCell[])[] = [
+  [
+    /* THE TWO NUMERIC BOXES, and they now follow the units directly (client
+       2026-08-28: "cons.uom - moq - round to - combination - tba this order").
+       Both 08-28 instructions agree on this pair and on where it sits — the
+       amendment that followed ("TBA next to the Round To, remaining all the
+       same") moved only the cell AFTER them. 3-4 digits in an `xs` cell,
+       right-aligned; the labels ("MOQ" ~18px, "Round To" ~47px) are the
+       smallest on the row and clear their 50px at 1366@110% with room. Nothing
+       about them changed except where they sit. */
+    { header: H.moq, w: "num", weight: "plain" },
+    { header: H.roundTo, w: "num", weight: "plain" },
     /* A SWITCH SINCE 2026-08-28, so it takes the smallest span like every other
        control on this row that shows no value — the `md` it held was bought
        specifically to fit the words "Available Item", and there are no words
@@ -1158,13 +1303,14 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        IT IS HERE BECAUSE THE CLIENT PUT IT HERE, "next to the Round To"
        (2026-08-28), amending their own chain of minutes earlier which had it
        one place further along. That placement is unaffected by the resize. */
-    { header: H.tba, size: "xs", weight: "quiet" },
+    { header: H.tba, w: "num", weight: "quiet" },
     /* THE TWO SWITCHES, AND THEY CLOSE THE LINE. A `Toggle` draws a ~36px
        switch and shows no value, so 76px is the control with room to spare and
        the widest label ("Process", ~42px) sits on one line. Do not reach for
        `xs` for anything that holds a typed or picked value. */
-    { header: H.process, size: "xs", weight: "plain" },
-    { header: H.foc, size: "xs", weight: "plain" },
+    { header: H.process, w: "num", weight: "plain" },
+    { header: H.foc, w: "num", weight: "plain" },
+    { header: H.pendingReason, w: "name", weight: "plain" },
   ],
 ];
 
@@ -1175,6 +1321,7 @@ export function MbaMasterScreen({
   data,
   perms,
   masterPerms,
+  orderLocks,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -1309,6 +1456,10 @@ export function MbaMasterScreen({
   const [comboOrigin, setComboOrigin] = useState<DOMRect | null>(null);
 
   const [copyOpen, setCopyOpen] = useState(false);
+  /** THE BOM WHOSE REPORTS ARE OPEN (client 2026-09-20) — reachable from the
+   *  editor's own "Reports" button (`editId`) and from the queue card, straight
+   *  off the list. Same arrangement as Fabric BOM's `reportsBomId`. */
+  const [reportsBomId, setReportsBomId] = useState<string | null>(null);
   const [pendingCopy, setPendingCopy] = useState<{
     items: ItemRow[];
     procs: ProcRow[];
@@ -1610,6 +1761,11 @@ export function MbaMasterScreen({
     () => data.orders.find((o) => o.id === form.garment_order_id) ?? null,
     [data.orders, form.garment_order_id],
   );
+
+  /* THE APPROVAL LOCK (Phase 5). A plain const off the loaded map, never a
+     hook — the server guard and 0576's triggers are the lock; this is the
+     banner and the read-only fields `MasterFullScreen` derives from it. */
+  const lockMessage = form.garment_order_id ? orderLocks[form.garment_order_id] : undefined;
 
   /** The customer is the ORDER's, never typed here. A BOM belongs to whoever the
    *  order belongs to, and a second copy of that fact is a second thing to keep
@@ -2743,19 +2899,46 @@ export function MbaMasterScreen({
             const sl = byKey.get(rowKey);
             if (!sl) return null;
             const o = stored(sl);
+            /* OWED ON A COLOUR-WISE LINE (client 2026-09-21) — `colourRequired`,
+               the one switch the header star, this hold and the Save gate all
+               read. Not owed where the LINE already names a colour: every row
+               inherits it, and holding the cursor on a box the line answers
+               would cage the operator on a finished row (the Items/Pcs shape
+               one column over). */
+            const owed = colourRequired(grain) && !r.item_color_id;
+            /* HIDDEN OFF A COLOUR-WISE LINE (client spec 2026-09-21: ITEM_WISE
+               and SIZE_WISE — "Color: HIDDEN"). A row that is not a colourway
+               has no colour to match, so the box is a dash, and Tab walks past
+               it. A value the row ALREADY holds survives (a BOM saved before
+               the rule, the "Disabled rows" shape): the box stays so it can be
+               read and cleared, never silently kept. */
+            if (!colourRequired(grain) && !o?.item_color_id) {
+              return <span className="px-1 text-xs text-muted-foreground">—</span>;
+            }
             return (
-              <LookupDialogPicker
-                kind="fabric_color"
-                label="Item Color"
-                options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
-                value={o?.item_color_id ?? null}
-                onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-                compact
-              />
+              <RequiredScope required={owed} label="Item Color">
+                {/* THE RED IS EARNED HERE, not only the star: the client asked
+                    for the blank cell to "highlight in red", and the boxed
+                    field style draws nothing on `data-required-empty` (only
+                    the "lines" style colours the edge). The same ring the IWO
+                    Fabric Consumption grid put on its owed boxes. */}
+                <span className="block [&_[data-required-empty]]:ring-1 [&_[data-required-empty]]:ring-danger">
+                  <LookupDialogPicker
+                    kind="fabric_color"
+                    label="Item Color"
+                    required={owed}
+                    options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
+                    value={o?.item_color_id ?? null}
+                    onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
+                    canCreate={masterPerms.canCreate}
+                    canEdit={masterPerms.canEdit}
+                    compact
+                  />
+                </span>
+              </RequiredScope>
             );
           }}
+          colourRequired={colourRequired(grain) && !r.item_color_id}
           /* THE ONE OPEN BAND ON THIS LINE, scoped per line for the reason the
              state note gives: combination names repeat across materials.
 
@@ -2877,6 +3060,13 @@ export function MbaMasterScreen({
            selected the column must read as "not free of cost", never crash the
            editor open. 0474. */
         is_foc: c.is_foc ?? false,
+        estimated_rate: c.estimated_rate != null ? String(c.estimated_rate) : "",
+        pending_reason: c.pending_reason ?? "",
+        brand: c.brand ?? null,
+        artwork_code: c.artwork_code ?? null,
+        converted_at: c.converted_at ?? null,
+        converted_by: c.converted_by ?? null,
+        saved_tba: c.type === TBA_MATERIAL_TYPE,
         moq: c.moq != null ? String(c.moq) : "",
         round_to: c.round_to != null ? String(c.round_to) : "",
         no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
@@ -3012,6 +3202,19 @@ export function MbaMasterScreen({
              does not apply; a wrongly-blank FOC is the safer half only if the
              source is untrusted, and a chosen copy source is not. */
           is_foc: c.is_foc ?? false,
+          /* THE ADVISED FACTS TRAVEL WITH `type`, which this copy already
+             carries: a line copied as To be advised without its reason would
+             arrive holding the cursor on a blank it cannot explain. The
+             conversion stamps do NOT travel — this is a new line, and "who
+             converted it, when" is a fact about the source line only. */
+          estimated_rate: c.estimated_rate != null ? String(c.estimated_rate) : "",
+          pending_reason: c.pending_reason ?? "",
+          brand: c.brand ?? null,
+          artwork_code: c.artwork_code ?? null,
+          converted_at: null,
+          converted_by: null,
+          // A COPIED line is new on this BOM — nothing saved it as advised here.
+          saved_tba: false,
           moq: c.moq != null ? String(c.moq) : "",
           round_to: c.round_to != null ? String(c.round_to) : "",
           no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
@@ -3087,6 +3290,14 @@ export function MbaMasterScreen({
         combination: c.combination || null,
         send_out: c.send_out,
         is_foc: c.is_foc,
+        estimated_rate: numOrNull(c.estimated_rate),
+        // ONLY WHILE ADVISED — an Available line has no reason to be pending,
+        // and the schema requires one exactly when it is To be advised.
+        pending_reason: c.type === TBA_MATERIAL_TYPE ? c.pending_reason || null : null,
+        brand: c.brand,
+        artwork_code: c.artwork_code,
+        converted_at: c.converted_at,
+        converted_by: c.converted_by,
         moq: numOrNull(c.moq),
         round_to: numOrNull(c.round_to),
         no_of_items: numOrNull(c.no_of_items),
@@ -3807,12 +4018,17 @@ export function MbaMasterScreen({
     needsPurchase: number | null;
   };
 
-  const { reqRows, lineTotals } = useMemo((): {
+  const { reqRows, lineTotals, colourFacts } = useMemo((): {
     reqRows: ReqRow[];
     lineTotals: Map<string, LineTotal>;
+    /** What `missingItemColours` reads — each line's chosen rows with the
+     *  colour each resolves to, gathered in the same pass that totals them so
+     *  the Save gate and the figures cannot disagree about which rows exist. */
+    colourFacts: ColourWiseLineFacts[];
   } => {
     const totals = new Map<string, LineTotal>();
-    if (!orderProd) return { reqRows: [], lineTotals: totals };
+    const colourFacts: ColourWiseLineFacts[] = [];
+    if (!orderProd) return { reqRows: [], lineTotals: totals, colourFacts };
     const out: ReqRow[] = [];
 
     for (const r of items) {
@@ -3943,6 +4159,18 @@ export function MbaMasterScreen({
          them would show a Final Quantity the purchase order is never checked
          against. Same store, same reading, same answer. */
       const slices = isRefusal(crossed) ? crossed : crossed.filter(rowFlags.chosen);
+      if (!isRefusal(slices)) {
+        /* THE SAME RESOLUTION THE ROW BELOW STORES BY — the slice's own tick,
+           then the line's — so a row this gate calls blank is one whose stored
+           `item_color_id` would be NULL. */
+        colourFacts.push({
+          sno: items.indexOf(r) + 1,
+          material,
+          grain: rowGrain,
+          item_color_id: r.item_color_id,
+          rows: slices.map((sl) => ({ label: sl.label, item_color_id: rowFlags.colour(sl) })),
+        });
+      }
       if (isRefusal(slices)) {
         push({ refusal: slices.refused });
         totals.set(r.key, {
@@ -4196,9 +4424,13 @@ export function MbaMasterScreen({
             },
       );
     }
-    return { reqRows: out, lineTotals: totals };
+    return { reqRows: out, lineTotals: totals, colourFacts };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, orderProd, data.items, data.uoms, data.conversions]);
+
+  /** ITEM COLOR OWED ON A COLOUR-WISE ROW (client 2026-09-21) — the Save
+   *  gate's half; the star and the hold are on the cell (`renderColour`). */
+  const colourMissing = missingItemColours(colourFacts);
 
   /**
    * WHAT IS STOPPING A SAVE, AND WHICH SECTION HOLDS IT — derived, never
@@ -4224,6 +4456,17 @@ export function MbaMasterScreen({
         empty: (f) => !f.garment_order_id,
       },
     ],
+    /* ITEM COLOR ON A COLOUR-WISE ROW (client 2026-09-21). The rule's own
+       sentence, one per line, filed under the Items section where the cell is.
+       The cell carries the star and the hold; this is what keeps Save honest
+       about it — and what makes a draft saved BEFORE the rule show red on its
+       next open rather than quietly passing. */
+    extra: colourMissing.map((m) => ({
+      section: "bom",
+      label: "Item Color",
+      message: m.message,
+      kind: "custom" as const,
+    })),
   });
 
   const revealFirstProblem = () => {
@@ -4922,8 +5165,15 @@ export function MbaMasterScreen({
        */
       cell: (r) => (
         <Toggle
-          ariaLabel="To be advised — the final spec is not settled, so no purchase order may be raised for this material"
+          ariaLabel={
+            r.saved_tba && r.type === TBA_MATERIAL_TYPE
+              ? `To be advised — ${ADVISED_CONVERT_ELSEWHERE}`
+              : "To be advised — the final spec is not settled, so no purchase order may be raised for this material"
+          }
           checked={r.type === TBA_MATERIAL_TYPE}
+          // SAVED AS ADVISED = LOCKED ON: conversion has one door, the Advised
+          // Items register (see `saved_tba`). Switching ON stays free.
+          disabled={r.saved_tba && r.type === TBA_MATERIAL_TYPE}
           onChange={(on) =>
             updItem(r.key, { type: on ? TBA_MATERIAL_TYPE : DEFAULT_MATERIAL_TYPE })
           }
@@ -5217,6 +5467,58 @@ export function MbaMasterScreen({
      * and is not coming back: what stands there is a control that appears only
      * where the units name two packs and the app must not guess.
      */
+    /*
+     * ADVISED ITEMS (0588) — their own run in `FIELD_GROUPS`, after the line.
+     *
+     * ESTIMATED RATE WAS THE CELL HERE, removed by the client (2026-09-20).
+     * `estimated_rate` still round-trips untouched — see the `FIELD_GROUPS` note.
+     */
+    /*
+     * PENDING REASON — WHY the material is still To be advised. It exists only
+     * while the TBA switch is on (the renderer drops the cell otherwise), and
+     * while it exists it is MANDATORY: the database refuses an advised line
+     * with no reason (`chk_mbai_advised_reason`, 0588), and `missingItemFields`
+     * refuses Save from the same `advisedReasonMissing` predicate. So the
+     * column is `required` outright — it is never rendered when it is not.
+     *
+     * ITS MESSAGE SITS UNDER IT (AGENTS.md / raagam-screen-layout, "a warning
+     * sits under the field it is about"): the schema's own sentence,
+     * `ADVISED_REASON_MESSAGE`, word for word. Shown as soon as the line is
+     * advised with no reason — which only ever follows the operator switching
+     * TBA on, since the database refuses to STORE that state, so a loaded
+     * record never opens red.
+     */
+    {
+      header: H.pendingReason,
+      required: true,
+      cell: (r) => {
+        const id = `mba-${r.key}-pending-reason`;
+        const missing = advisedReasonMissing(r);
+        return (
+          <>
+            <Input
+              id={id}
+              aria-invalid={missing || undefined}
+              aria-describedby={missing ? `${id}-error` : undefined}
+              value={r.pending_reason}
+              onChange={(e) => updItem(r.key, { pending_reason: e.target.value })}
+              className="h-8"
+            />
+            <FieldError id={`${id}-error`}>{missing ? ADVISED_REASON_MESSAGE : null}</FieldError>
+            {/* WHERE THE TBA SWITCH'S LOCK IS EXPLAINED, and why here: the switch
+                is a ~70px cell, where this sentence would stand eight lines
+                tall; this field is on the same line, shows exactly when the
+                switch is locked, and is what the operator is filling in. A
+                muted NOTE, not an error — nothing here is wrong. */}
+            {r.saved_tba && r.type === TBA_MATERIAL_TYPE && (
+              <p className="mt-1 whitespace-normal text-xs text-muted-foreground">
+                {ADVISED_CONVERT_ELSEWHERE}
+              </p>
+            )}
+          </>
+        );
+      },
+    },
   ];
 
   /**
@@ -5352,32 +5654,58 @@ export function MbaMasterScreen({
    * LEGACY'S FIVE ON ONE LINE (client 2026-08-24: "make the 5 field in single
    * row in process") — NOW THREE, see the Descriptions/Notes removal below.
    *
-   * THE ROW MUST SUM TO THE TRACK, which is `FieldGrid`'s house 12 — under-fill
-   * it and the last field drops to a line of its own, which is the de-clutter
-   * rule's "defect that ships". `FIELD_SPAN` maps xs=2, sm=3, md=4, lg=6, so:
+   * SHRINK-WRAPPED, NOT SPANNED (client 2026-09-21, `erp-form-compact`). This
+   * was a `FieldGrid` of twelfths — Stage 3 + Process 6 + Loss % 3 — so on a
+   * 1440px pane a GREIGE/DYED dropdown came out ~340px and a bare percentage
+   * the same, and the row read as three holes. A fraction cannot be made
+   * compact, so the row left the twelfths track for `FieldRow` + `w=`:
    *
-   *     Stage 3 + Process 6 + Loss % 3  = 12
+   *     Stage range 112 + Process term 176 + Loss % num 72 + 2 × 12 gap = 384px
+   *     orphan bucket: + Material term 176 + 12 gap                     = 572px
    *
-   * The width goes to the one that holds a phrase — a process name ("TRIMS
-   * DYEING"). **Loss % is `sm` and not the `xs` a bare percentage would want**
-   * because its cell carries the loss CONFIGURATION opener beside the number;
-   * at `xs` the button and the figure share ~70px and the box stops being
-   * typeable. Narrowing it back is only safe if that opener goes too.
+   * - Stage is a short option list (GREIGE / DYED / a held third) — `range`.
+   * - Process holds a phrase ("TRIMS DYEING") — `term`, the widest on the row.
+   * - Loss % is a percent, one short word of label — `num`. The old note kept
+   *   it at `sm` for a loss-configuration opener sharing the cell; that opener
+   *   was never built (the cell is a bare `<Input>`), so the reason is gone.
+   *   Widen it again if the opener lands.
+   * - Material shows only in the orphan bucket, the only way to put a stranded
+   *   row back on a material that still exists — `term`, as Process.
    *
-   * THE ORPHAN BUCKET CARRIES FOUR, so it cannot use these numbers: it also
-   * shows Material, the only way to put a stranded row back on a material that
-   * still exists. Four fields at sm is 12 exactly, so that case is uniform
-   * instead — one rule per shape rather than one shape squeezed to fit the
-   * other's. **Both numbers moved when the two columns went**; changing the
-   * column list without re-deriving both is how the last cell wraps.
+   * `PROC_CARD_W` caps each material's card to that row (rule 4: a sub-grid is
+   * capped to the FORM's width, not the screen's) — 572 + the card's padding
+   * and corner ✕ is ~630px, so 40rem holds the widest shape with room.
    */
-  const PROC_ROW_SPAN: Record<string, FieldSize> = {
-    Stage: "sm",
-    Process: "lg",
-    "Loss %": "sm",
+  /*
+   * WIDTH BY THE KIND OF VALUE, NOT A SHARE OF THE PANE (client 2026-09-21,
+   * screenshot 2976: three fields stretched across ~1640px — the `FieldGrid`
+   * 3/6/3 split above scaled with the pane, so on a wide monitor a percentage
+   * box was 400px). `raagam-screen-layout` ▸ "BUILD IT COMPACT THE FIRST TIME":
+   * a `FieldRow` of `<Field w=…>` steps from `lib/ui/sizes.ts`, so the row is
+   * the same width on every screen.
+   *
+   *   Stage    `code`  144px — GREIGE / DYED, one word
+   *   Process  `party` 200px — a process NAME ("TRIMS DYEING")
+   *   Loss %   `range` 112px — a percentage PLUS the loss-configuration opener
+   *                             beside it (the reason `num`'s 72px was too tight
+   *                             when this row was 3/6/3; that reason still holds)
+   *   Material `party` 200px — the orphan bucket only
+   *
+   * The 12-track arithmetic that used to live here is gone with `FieldGrid`;
+   * the cap on the card (`PROC_CARD_MAX_W` below) is what replaces it.
+   */
+  const PROC_ROW_W: Record<string, FieldWidth> = {
+    Stage: "code",
+    Process: "party",
+    "Loss %": "range",
+    Material: "party",
   };
-  const procFieldSize = (header: string, withMaterial: boolean): FieldSize =>
-    withMaterial ? "sm" : (PROC_ROW_SPAN[header] ?? "sm");
+  const procFieldW = (header: string): FieldWidth => PROC_ROW_W[header] ?? "hug";
+  /* Material 200 + Stage 144 + Process 200 + Loss 112 = 656px of fields, three
+     12px gaps = 36px, the card's padding and the ✕ gutter ≈ 72px → 764px; the
+     ordinary row (no Material) is 552px. `max-w-[48rem]` (768px) holds the
+     widest row and stops a wide pane stretching the card behind it. */
+  const PROC_CARD_MAX_W = "max-w-[48rem]";
 
   const procColumns: ChildGridColumn<ProcRow>[] = [
     /* THE SIX LIFECYCLE CELLS CAME OUT (client 2026-08-24: "just maintain the
@@ -5816,8 +6144,12 @@ export function MbaMasterScreen({
               nobody can see. Garment Order takes `md` because its trigger shows
               an SC No and a customer name; Date keeps `xs`, which is all a
               DD-MM-YYYY control needs. */}
-          <FieldGrid>
-            <Field label="Date" required size="xs" htmlFor="mba-date">
+          {/* SHRINK-WRAPPED (2026-09-21, `erp-form-compact`): Date `code` 144 —
+              a DD/MM/YYYY box and its calendar glyph; Garment Order `name` 288 —
+              an SC No plus a customer name. 144 + 12 + 288 = 444px, packed left,
+              instead of two twelfths-of-the-pane boxes. */}
+          <FieldRow>
+            <Field label="Date" required w="code" htmlFor="mba-date">
               <Input
                 id="mba-date"
                 type="date"
@@ -5825,7 +6157,7 @@ export function MbaMasterScreen({
                 onChange={(e) => set({ amend_date: e.target.value })}
               />
             </Field>
-            <Field size="md">
+            <Field w="name">
               <RecordPicker
                 id="mba-order"
                 label="Garment Order (RE No)"
@@ -5836,7 +6168,7 @@ export function MbaMasterScreen({
                 required
               />
             </Field>
-          </FieldGrid>
+          </FieldRow>
 
           {/* THE MULTIPLIER, STATED. Every requirement on this screen is this
               number times a ratio, so leaving it off-screen makes each figure
@@ -5912,6 +6244,25 @@ export function MbaMasterScreen({
                unpredictable distance down the page — and moved it again every
                time a different line was opened. */
             masterDetail
+            /* OPENS ON THE FIRST LINE RATHER THAN NOTHING (client 2026-09-22:
+               "material bom inside the item while opening in close state make
+               it the first item should defaultly open"). This rail mounted on
+               `ALL_FOLDED`, so an existing BOM arrived as a list of names over
+               an empty pane and the operator's first act on every record was a
+               click to see anything at all — the exact state Fabric BOM ▸
+               Components reported on 2026-09-04 and answered with this prop.
+               Same fix, same reasoning: `child-grid.tsx`'s note on
+               `defaultOpenKey` carries why a navigation rail opening on its
+               first item is NOT a reversal of "a grid opens with everything
+               folded" (2026-08-19, a data-entry grid's sections).
+
+               THE FIRST LINE, NOT THE LAST. `items` is set in the same event as
+               `setMode("edit")` (`openAdd` / `openEdit`), so the grid mounts
+               with the rows already in hand and `items[0]` is the line the
+               operator reads first. `?? null` is unreachable in practice — both
+               openers seed at least one row — and would resolve to the last
+               row, which is the prop's own fallback, not a second default. */
+            defaultOpenKey={items[0]?.key ?? null}
             /* THE RAIL NO LONGER FOLDS (client 2026-08-28: "left bar with that 3
                buttons always stays left it should not go hide"). REVERSES
                2026-08-20 / screenshot 2402, which folded it because "the rail and
@@ -6067,11 +6418,13 @@ export function MbaMasterScreen({
                 .filter(Boolean)
                 .join("  ·  ");
               return (
-                <FieldGrid>
-                  <Field label="" required={material.required} size="md">
+                <FieldRow>
+                  {/* The same `name` width the open row gives Material, so the
+                      picker does not jump as a line opens and closes. */}
+                  <Field label="" required={material.required} w="name">
                     {material.cell(row, i)}
                   </Field>
-                  <Field label="" size="xl">
+                  <Field label="" className="min-w-0 flex-1">
                     <div className="flex min-h-8 items-center">
                       {/* TWO BLANK STATES, NOT ONE. A named material with nothing
                           else typed is a line in progress; a line with no
@@ -6086,7 +6439,7 @@ export function MbaMasterScreen({
                       </Truncated>
                     </div>
                   </Field>
-                </FieldGrid>
+                </FieldRow>
               );
             }}
             renderMobileRow={(row, i) => {
@@ -6137,11 +6490,15 @@ export function MbaMasterScreen({
                * the withdrawal pattern this file records for Type, Alternate Uom
                * and Combination.
                */
-              const groups = FIELD_GROUPS.map((g) => {
+              const toCells = (g: readonly GroupCell[]) => {
                 const cells = g.flatMap((b) => {
+                  // PENDING REASON EXISTS ONLY WHILE THE LINE IS TO BE ADVISED
+                  // — required when shown, so it must not be shown otherwise
+                  // (a hidden field that is required cannot be satisfied).
+                  if (b.header === H.pendingReason && row.type !== TBA_MATERIAL_TYPE) return [];
                   const col = itemColumns.find((c) => c.header === b.header);
                   return col
-                    ? [{ col, size: b.size, weight: b.weight, align: b.align }]
+                    ? [{ col, w: b.w, weight: b.weight, align: b.align }]
                     : [];
                 });
                 /* A RUN CAN NOW BE EMPTY. Run 2 is Style alone since Item Color,
@@ -6157,8 +6514,13 @@ export function MbaMasterScreen({
                    widest slot for the reason the table gives: a size list is the
                    longest of the three. */
                 return cells;
-              });
-              const named = new Set(FIELD_GROUPS.flat().map((b) => b.header));
+              };
+              const groups = FIELD_GROUPS.map(toCells);
+              /* DRAWN AFTER THE FINAL QUANTITY — see `FIELD_GROUPS_AFTER_FINAL`. */
+              const afterFinal = FIELD_GROUPS_AFTER_FINAL.map(toCells).filter((g) => g.length > 0);
+              const named = new Set(
+                [...FIELD_GROUPS, ...FIELD_GROUPS_AFTER_FINAL].flat().map((b) => b.header),
+              );
               const orphans = itemColumns
                 .filter((c) => !named.has(c.header))
                 // `align` carried explicitly so an orphan and a declared cell
@@ -6166,13 +6528,73 @@ export function MbaMasterScreen({
                 // renderer destructures `align` off every member.
                 .map((col) => ({
                   col,
-                  size: "sm" as FieldSize,
+                  w: "code" as FieldWidth,
                   weight: "plain" as Weight,
                   align: undefined as "end" | undefined,
                 }));
               const withCells = groups.filter((g) => g.length > 0);
               const runs = orphans.length ? [...withCells, orphans] : withCells;
               const t = lineTotals.get(row.key);
+              type Run = ReturnType<typeof toCells>;
+              /** One run of fields. `after` marks a run drawn under the Final
+               *  quantity strip, which always takes the seam above it. */
+              const renderRun = (g: Run, gi: number, after: boolean) => (
+                <div
+                  key={gi}
+                  /* THE SEAM IS THE GAP FIRST AND THE LINE SECOND, and
+                     getting that round the wrong way is a mistake this very
+                     screen has already made once. On 2026-08-17 the item
+                     line and its detail band were split with a 1px
+                     `border-t` and the client reported no change at all
+                     (screenshot 2325, "why is there no update"): at this
+                     density a hairline reads exactly like the gap between
+                     two ordinary rows.
+                     `py-2` repeated it. A field row's own fields sit 8px
+                     apart (`FieldGrid`'s `gap-y-2`), so 8px of padding put
+                     24px BETWEEN runs against 16px WITHIN one — a ratio of
+                     1.5, which the eye does not read as a boundary, and 22
+                     fields went back to looking like one wall (client
+                     2026-08-20, screenshot 2404). `py-3` makes it 32 against
+                     16, and proximity does the grouping before any line is
+                     drawn. The hairline stays as confirmation, not as the
+                     whole signal.
+                     `border-border`, not `border-border-strong`: the strong
+                     token separates one MATERIAL from the next (`ChildGrid`
+                     draws it at 2px), and a run inside a record must read as
+                     quieter than that or the record stops being one thing. */
+                  className={cn("py-3", (gi > 0 || after) && "border-t border-border", after && "mt-2")}
+                >
+                  <FieldRow>
+                    {g.map(({ col, w, weight, align }, ci) => (
+                      <Field
+                        key={ci}
+                        label={col.header}
+                        /* `required` MUST be forwarded as well as declared on
+                           the column: cards mode calls this function instead
+                           of the `columns.map()` that wraps each cell in
+                           `RequiredScope`, so without it the header draws a
+                           `*` with no cursor hold behind it. Checked by
+                           `audit_layout.py --check grid-required-mobile`. */
+                        required={col.required}
+                        w={w}
+                        /* `text-right` and not a flex rule: `Field` is a
+                           plain block whose control is inline-level (Toggle
+                           is `inline-flex w-fit`), so text alignment is what
+                           moves it — and the label rides along, which is
+                           what makes the cell read as deliberately
+                           right-hand rather than as a stray control. */
+                        className={cn(
+                          DENSE,
+                          WEIGHT_CLASS[weight],
+                          align === "end" && "text-right",
+                        )}
+                      >
+                        {col.cell(row, i)}
+                      </Field>
+                    ))}
+                  </FieldRow>
+                </div>
+              );
 
               return (
                 /* CAPPED, AND LEFT-ALIGNED AGAINST THE LIST. A run fills 12
@@ -6230,65 +6652,12 @@ export function MbaMasterScreen({
                       </span>
                     )}
                   </div>
-                  {runs.map((g, gi) => (
-                    <div
-                      key={gi}
-                      /* THE SEAM IS THE GAP FIRST AND THE LINE SECOND, and
-                         getting that round the wrong way is a mistake this very
-                         screen has already made once. On 2026-08-17 the item
-                         line and its detail band were split with a 1px
-                         `border-t` and the client reported no change at all
-                         (screenshot 2325, "why is there no update"): at this
-                         density a hairline reads exactly like the gap between
-                         two ordinary rows.
-                         `py-2` repeated it. A field row's own fields sit 8px
-                         apart (`FieldGrid`'s `gap-y-2`), so 8px of padding put
-                         24px BETWEEN runs against 16px WITHIN one — a ratio of
-                         1.5, which the eye does not read as a boundary, and 22
-                         fields went back to looking like one wall (client
-                         2026-08-20, screenshot 2404). `py-3` makes it 32 against
-                         16, and proximity does the grouping before any line is
-                         drawn. The hairline stays as confirmation, not as the
-                         whole signal.
-                         `border-border`, not `border-border-strong`: the strong
-                         token separates one MATERIAL from the next (`ChildGrid`
-                         draws it at 2px), and a run inside a record must read as
-                         quieter than that or the record stops being one thing. */
-                      className={cn("py-3", gi > 0 && "border-t border-border")}
-                    >
-                      <FieldGrid cols={32}>
-                        {g.map(({ col, size, weight, align }, ci) => (
-                          <Field
-                            key={ci}
-                            label={col.header}
-                            /* `required` MUST be forwarded as well as declared on
-                               the column: cards mode calls this function instead
-                               of the `columns.map()` that wraps each cell in
-                               `RequiredScope`, so without it the header draws a
-                               `*` with no cursor hold behind it. Checked by
-                               `audit_layout.py --check grid-required-mobile`. */
-                            required={col.required}
-                            size={size}
-                            /* `text-right` and not a flex rule: `Field` is a
-                               plain block whose control is inline-level (Toggle
-                               is `inline-flex w-fit`), so text alignment is what
-                               moves it — and the label rides along, which is
-                               what makes the cell read as deliberately
-                               right-hand rather than as a stray control. */
-                            className={cn(
-                              DENSE,
-                              WEIGHT_CLASS[weight],
-                              align === "end" && "text-right",
-                            )}
-                          >
-                            {col.cell(row, i)}
-                          </Field>
-                        ))}
-                      </FieldGrid>
-                    </div>
-                  ))}
+                  {runs.map((g, gi) => renderRun(g, gi, false))}
                   {sliceGrid(row)}
                   {qtyRibbon(row, t)}
+                  {/* AFTER THE FINAL QUANTITY, in the DOM and so on the Tab path
+                      (client 2026-09-21) — see `FIELD_GROUPS_AFTER_FINAL`. */}
+                  {afterFinal.map((g, gi) => renderRun(g, gi, true))}
                 </div>
               );
             }}
@@ -6362,6 +6731,8 @@ export function MbaMasterScreen({
                 const missing = missingItemFields({
                   category_id: last.category_id,
                   item_id: last.item_id,
+                  type: last.type,
+                  pending_reason: last.pending_reason,
                   requirement_grain: last.requirement_grain,
                   requirement_basis: last.requirement_basis || null,
                   no_of_items: numOrNull(last.no_of_items),
@@ -6448,7 +6819,7 @@ export function MbaMasterScreen({
           )}
           {procGroups.length > 0 && (
             procGroups.map((g, gi) => (
-              <div key={g.id ?? "__orphans"} className="mt-3 rounded-lg border border-border first:mt-0">
+              <div key={g.id ?? "__orphans"} className={cn("mt-3 rounded-lg border border-border first:mt-0", PROC_CARD_MAX_W)}>
                 {/* The parent row. Numbered like legacy's S No, and the count is
                     the affordance a bare heading lacks — a material with no
                     processes reads as deliberate rather than unfinished. */}
@@ -6479,35 +6850,26 @@ export function MbaMasterScreen({
                       .filter(Boolean)
                       .join("  ·  ");
                     return (
-                      <FieldGrid>
-                        <Field label="" size="xl">
-                          <div className="flex min-h-8 items-center">
-                            <Truncated className="text-sm text-muted-foreground">
-                              {summary || "No process named yet"}
-                            </Truncated>
-                          </div>
-                        </Field>
-                      </FieldGrid>
+                      <div className="flex min-h-8 min-w-0 items-center">
+                        <Truncated className="text-sm text-muted-foreground">
+                          {summary || "No process named yet"}
+                        </Truncated>
+                      </div>
                     );
                   }}
                   renderMobileRow={(row, i) => (
-                    <FieldGrid>
+                    <FieldRow align="start" gap="tight">
                       {procColumns
                         /* MATERIAL IS THE HEADING — except in the orphan bucket,
                            where it is the only way to put the row back on a
                            material that still exists. */
                         .filter((c) => c.header !== "Material" || g.id === null)
                         .map((c, ci) => (
-                          <Field
-                            key={ci}
-                            label={c.header}
-                            required={c.required}
-                            size={procFieldSize(c.header, g.id === null)}
-                          >
+                          <Field key={ci} label={c.header} required={c.required} w={procFieldW(c.header)}>
                             {c.cell(row, i)}
                           </Field>
                         ))}
-                    </FieldGrid>
+                    </FieldRow>
                   )}
                   /* NO `seedRow`. One blank row per material would put a card
                      under every line the moment the tab opened — eleven
@@ -6606,6 +6968,24 @@ export function MbaMasterScreen({
         </SectionBody>
       ),
     },
+    {
+      /*
+       * TRIMS T&A — steps 12–17 of doc/order/materialbomtana.md (0608). A
+       * section of THIS editor, not a screen of its own (client 2026-09-21:
+       * "not a separate child — move it inside Material BOM as a tab"). It is
+       * read-mostly: its per-step edits save on their own and never touch this
+       * BOM's dirty state, and it is not in `sectionValidity` — nothing in it
+       * can block the BOM's Save.
+       */
+      key: "trims-ta",
+      label: "Trims T&A",
+      icon: CalendarClock,
+      content: (
+        <SectionBody title="Trims T&A">
+          <TrimTaSection garmentOrderId={form.garment_order_id} bomDirty={dirty} />
+        </SectionBody>
+      ),
+    },
   ];
 
   return (
@@ -6645,9 +7025,15 @@ export function MbaMasterScreen({
           tasks={tasks}
           noun="material"
           stat={styleStat}
+          quickStatus
+          quickDraft
+          extraFilters
           onOpen={openTask}
           canDelete={perms.canDelete}
           onDelete={del}
+          /* A Pending row has no `bom_id` and `BomQueue` never renders the
+             button on one (`canReportsRow`). Opens straight off the queue. */
+          onReports={(t) => setReportsBomId(t.bom_id as string)}
           isPending={isPending}
         />
       </div>
@@ -6659,6 +7045,7 @@ export function MbaMasterScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
+        locked={lockMessage ? { message: lockMessage } : false}
         /* The bar shows on Requirement and nowhere else (client 2026-08-28).
            These three sections ARE a sequence — what the BOM is, what happens to
            it, then what the order therefore needs — and Requirement is the
@@ -6703,16 +7090,35 @@ export function MbaMasterScreen({
             </>
           ),
           right: (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setCopyOpen(true)}
-              disabled={isPending}
-            >
-              <Copy className="h-4 w-4" aria-hidden />
-              Copy from…
-            </Button>
+            /* ONE ROW — `MasterFullScreen` stacks its `right` slot in a column,
+               which would put Reports and Copy on two lines. */
+            <div className="flex items-center gap-2">
+              {/* THE REPORT (client 2026-09-20) — reads the STORED requirement,
+                  so it is offered once the BOM has been saved (`editId`). A
+                  saved BOM with unrelated edits pending still has a real,
+                  printable requirement on file. */}
+              {editId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReportsBomId(editId)}
+                >
+                  <FileText className="h-4 w-4" aria-hidden />
+                  Reports
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCopyOpen(true)}
+                disabled={isPending}
+              >
+                <Copy className="h-4 w-4" aria-hidden />
+                Copy from…
+              </Button>
+            </div>
           ),
         }}
         sections={sections}
@@ -6728,6 +7134,15 @@ export function MbaMasterScreen({
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
         }}
+      />
+
+      {/* THE REPORTS SHEET — read-only, no Save, no unsaved guard; see
+          `MaterialBomReportsSheet`'s own header. At the editor root so it is
+          reachable from the queue with the editor shut. */}
+      <MaterialBomReportsSheet
+        bomId={reportsBomId}
+        open={!!reportsBomId}
+        onClose={() => setReportsBomId(null)}
       />
 
       {/*

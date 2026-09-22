@@ -39,12 +39,27 @@ import type { ApprovalRun, CanActVerdict, RunAction } from "@/lib/approvals/type
  * means the bar has no loading state to flicker through — on a server-rendered
  * screen the answer is already there when the markup is.
  */
+/**
+ * THE THREE FIELDS THIS BAR ACTUALLY READS.
+ *
+ * Widened from `ApprovalRun` (0601) so the approvals INBOX can mount the bar
+ * too: a queue row already carries `run_id`, `lock_version` and — by being in
+ * the queue at all — `in_progress`, and fetching the whole run per row to
+ * satisfy a type would be three extra round trips per card for fields nothing
+ * renders. A full `ApprovalRun` still satisfies this, so no existing call site
+ * changes.
+ *
+ * `lock_version` is the one that must keep coming from a fresh read — see the
+ * numbered note above. A queue row IS a fresh read; a cached one is not.
+ */
+export type ActionBarRun = Pick<ApprovalRun, "id" | "lock_version" | "status">;
+
 export function ApprovalActionBar({
   run,
   verdict,
   subjectPath,
 }: {
-  run: ApprovalRun;
+  run: ActionBarRun;
   verdict: CanActVerdict;
   /** The document's own route, so its page revalidates with the queue. */
   subjectPath?: string;

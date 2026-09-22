@@ -70,10 +70,16 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   markup filled the screen locally. A flex parent asks nothing of
                   the ancestors: the child says `min-h-0 flex-1` and gets what is
                   left.
-                  Harmless for an ordinary page: a single `space-y-*` child
-                  stretches to the same height it already had, and its own
-                  children are unaffected. */}
-                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-20 md:pb-6">
+                  `*:w-full` is the half that was missing the first time. In a
+                  flex column a child with `mx-auto` does NOT stretch — auto
+                  margins turn it shrink-to-fit — so the dashboard's
+                  `mx-auto max-w-[1440px]` root collapsed to its content and
+                  floated in the middle of the workspace with dead bands either
+                  side, where as a block it had filled the pane edge to edge
+                  (client 2026-09-17, screenshot 2909). `w-full` gives every
+                  page root back the width a block had; `max-w-*` still caps
+                  it and `mx-auto` still centres what is left over. */}
+                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-20 *:w-full md:pb-6">
                     {children}
                   </main>
                   <MobileNav stores={stores} />

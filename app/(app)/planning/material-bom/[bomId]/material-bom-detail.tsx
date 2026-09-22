@@ -404,7 +404,7 @@ function ClothsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={productColumns}
           rows={bom.products}
           getKey={(r) => r.id}
@@ -810,7 +810,7 @@ function ProcessSequenceTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={parentColumns}
           rows={sequences}
           getKey={(r) => r.id}
@@ -833,7 +833,7 @@ function ProcessSequenceTab({
                 )}
               </div>
 
-              <DataTable
+              <DataTable paginate={false}
                 columns={stageColumns}
                 rows={seq.stages}
                 getKey={(r) => r.id}

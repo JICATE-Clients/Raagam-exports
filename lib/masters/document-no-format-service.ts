@@ -10,7 +10,8 @@ export async function listDocumentNoFormats(): Promise<DocumentNoFormat[]> {
     .select(
       "*, menus:document_no_format_menus(*, segments:document_no_format_segments(*))",
     )
-    .order("entry_no", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("entry_no", { ascending: true });
   return withCreators(((data ?? []) as unknown as DocumentNoFormat[]).map((f) => ({
     ...f,
     menus: [...(f.menus ?? [])]

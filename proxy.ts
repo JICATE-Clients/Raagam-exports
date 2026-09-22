@@ -13,8 +13,23 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/login") || pathname.startsWith("/register");
   const isAuthCallback = pathname.startsWith("/auth");
 
+  /**
+   * A SCHEDULED JOB CARRIES NO SESSION, AND THIS GATE WOULD SWALLOW IT (0601).
+   *
+   * Vercel's cron calls the route over plain HTTPS with no cookies. Without
+   * this branch the redirect below answers 307 → /login, the cron records a
+   * SUCCESS (it got a 2xx/3xx, not an error), and the SLA sweep never runs —
+   * a schedule that reports itself green while doing nothing, which is exactly
+   * the failure AGENTS.md's "Function grants" section records about migrations
+   * that apply cleanly and achieve nothing.
+   *
+   * These routes are NOT unprotected: each checks `CRON_SECRET` itself and
+   * answers 401 without it. Auth moves into the handler; it does not go away.
+   */
+  const isCronJob = pathname.startsWith("/api/cron/");
+
   // Unauthenticated → push to login (preserve intended destination)
-  if (!user && !isAuthPage && !isAuthCallback) {
+  if (!user && !isAuthPage && !isAuthCallback && !isCronJob) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", pathname);

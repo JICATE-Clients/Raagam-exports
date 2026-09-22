@@ -7,6 +7,9 @@ import { writeAudit } from "@/lib/audit";
 import {
   materialBomAmendmentInput,
   DEFAULT_SUPPLY_TYPE,
+  DEFAULT_MATERIAL_TYPE,
+  TBA_MATERIAL_TYPE,
+  ADVISED_CONVERT_ELSEWHERE,
   type MaterialBomAmendmentInput,
   type MbaItemInput,
   type BomCopyPayload,
@@ -50,11 +53,45 @@ import {
   requiredWithProcessLoss,
   type ProcessLossRow,
 } from "@/lib/orders/material-bom/process-loss";
+import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
+import { missingItemColours, type ColourWiseLineFacts } from "@/lib/orders/material-bom/colour-required";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
 function fail(msg: string): Result {
   return { ok: false, error: msg };
+}
+
+/**
+ * THE APPROVAL LOCK (Phase 5), asked BEFORE the first write of every action
+ * here. 0576's triggers are the guard; this turns their refusal into a
+ * sentence before a save has half-run. Both the order the BOM is stored
+ * against and the one the form names are checked, so re-pointing a BOM can
+ * neither leave a locked order nor join one. A BOM with no order is never
+ * locked — `assertOrderUnlocked` passes a null, as 0576's trigger does.
+ */
+async function orderLockProblem(
+  ...orderIds: (string | null | undefined)[]
+): Promise<string | null> {
+  for (const id of new Set(orderIds.filter((v): v is string => !!v))) {
+    const lock = await assertOrderUnlocked(id);
+    if (!lock.ok) return lock.error;
+  }
+  return null;
+}
+
+/** The order a stored Material BOM belongs to. A failed read is an error, not "none". */
+async function storedBomOrderId(
+  s: Awaited<ReturnType<typeof createClient>>,
+  bomId: string,
+): Promise<{ ok: true; orderId: string | null } | { ok: false; error: string }> {
+  const { data, error } = await s
+    .from("material_bom_amendments")
+    .select("garment_order_id")
+    .eq("id", bomId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, orderId: (data as { garment_order_id: string | null } | null)?.garment_order_id ?? null };
 }
 
 /**
@@ -79,11 +116,68 @@ const numOrNull = (v: unknown) =>
 // Child normalizers (drop fully-empty rows + renumber sno)
 // ---------------------------------------------------------------------------
 
+/**
+ * ITEM COLOR OWED ON A COLOUR-WISE ROW (client 2026-09-21) — the server half of
+ * `colour-required.ts`, asked BEFORE the first write of a create or update so a
+ * refusal is a sentence and never a half-run save (the reason `orderLockProblem`
+ * sits where it does).
+ *
+ * THE ROWS ARE EXPLODED EXACTLY AS `requirementRows` EXPLODES THEM — grain,
+ * legacy basis, the size-wise tick, the combination crossing, the `chosen`
+ * filter — and the colour is resolved as that function stores it (the row's
+ * tick, then the line's). So a row this refuses is one whose stored
+ * `item_color_id` would have been NULL; nothing else.
+ *
+ * NAMED BY MATERIAL, which the payload does not carry: the names are looked up
+ * only once a line has actually failed, so a clean save costs no query.
+ */
+async function colourWiseProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  items: ReturnType<typeof normalizeItems>,
+  order: OrderProductionInput | null,
+): Promise<string | null> {
+  if (!order) return null;
+  const facts: ColourWiseLineFacts[] = [];
+  items.forEach((line, i) => {
+    if (!line.item_id) return;
+    const basis = line.requirement_basis as RequirementBasis | null;
+    const grain: Axis[] | null =
+      (line.requirement_grain as Axis[] | null) ?? (basis ? axesOfBasis(basis) : null);
+    if (!grain || !grain.includes("colour")) return;
+    const flags = sliceFlags(line.slices);
+    const asBasis = basisForAxes(grain);
+    const slices = asBasis
+      ? productionSlices(asBasis, order, undefined, (sl) => flags.sizeWise(sl))
+      : slicesForAxes(grain, order);
+    // A line the explosion refuses is refused by name on its own row — not here.
+    if (isRefusal(slices)) return;
+    const rows = crossCombinations(slices, combinationNames(line.slices)).filter((sl) => flags.chosen(sl));
+    facts.push({
+      sno: i + 1,
+      material: line.item_id,
+      grain,
+      item_color_id: line.item_color_id ?? null,
+      rows: rows.map((sl) => ({ label: sl.label, item_color_id: flags.colour(sl) })),
+    });
+  });
+  const missing = missingItemColours(facts);
+  if (missing.length === 0) return null;
+  // Only now the names — for the sentence, and only for the lines that failed.
+  const ids = [...new Set(missing.map((m) => facts.find((f) => f.sno === m.sno)?.material).filter(Boolean))] as string[];
+  const { data } = await s.from("items").select("id, name").in("id", ids);
+  const names = new Map(((data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]));
+  const named = missingItemColours(facts.map((f) => ({ ...f, material: names.get(f.material) ?? f.material })));
+  return named[0]?.message ?? missing[0].message;
+}
+
 function normalizeItems(data: MaterialBomAmendmentInput) {
   return data.items
     .map((c) => ({
       category_id: c.category_id ?? null,
-      type: clean(c.type),
+      /* NEVER NULL (0588: NOT NULL + CHECK). `clean()` returns NULL for a blank,
+         and a column default does not fire for a NAMED column — the 0475 lesson —
+         so the switch's OFF position is written here, not left to the default. */
+      type: clean(c.type) ?? DEFAULT_MATERIAL_TYPE,
       item_id: c.item_id ?? null,
       attribute_id: c.attribute_id ?? null,
       item_color_id: c.item_color_id ?? null,
@@ -160,6 +254,17 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
          `lib/purchase/types.ts`. Said here because a flag with no reader looks
          like a wiring bug to the next person who greps for one. */
       is_foc: c.is_foc ?? false,
+      /* 0588 — the Advised Items facts, named here for the reason every column
+         on this literal records: it is the whole write. The two stamps are
+         sent back as read so the database (`stamp_advised_conversion`) can keep
+         a converted line's history through this delete-and-re-insert; on a TBA
+         line it clears them whatever arrives. */
+      estimated_rate: c.estimated_rate ?? null,
+      brand: clean(c.brand),
+      artwork_code: clean(c.artwork_code),
+      pending_reason: clean(c.pending_reason),
+      converted_at: clean(c.converted_at),
+      converted_by: c.converted_by ?? null,
       moq: c.moq ?? null,
       // 0437. Named here for the reason the comment on `component_id`
       // above records: this literal is the whole write, so a column left
@@ -908,6 +1013,13 @@ function requirementRows(
           // The slice's own style wins: a line marked "every style" still
           // produces per-style rows when the order splits by colour.
           style_ref_no: slice.style_ref_no ?? line.style_ref_no,
+          /* THE WASTAGE THIS ROW WAS COMPUTED WITH, not the line's — the same
+             provenance rule as `no_of_items` / `per_pieces` below. `common`
+             carries the line's, which differs wherever a per-attribute Excess %
+             override (0450) resolved to something else, and the Material BOM
+             Requirement report re-derives Calculated Qty from these columns
+             (2026-09-20). Nothing else reads this column. */
+          excess_pct: use.excess_pct ?? 0,
           combo: slice.combo,
           size_id: slice.size_id,
           // 0444. NULL on every basis but country-wise, and NULL is a value
@@ -982,6 +1094,34 @@ async function writeChildren(
   data: MaterialBomAmendmentInput,
   order: OrderProductionInput | null,
 ): Promise<Result> {
+  /*
+   * CONVERSION HAS ONE DOOR — the Advised Items Register (0588).
+   *
+   * This save deletes and re-inserts every line, so switching TBA off here would
+   * reach the database as a DELETE of the advised line and an INSERT of an
+   * Available one: the conversion stamp (a BEFORE UPDATE trigger) never fires
+   * and the audit (AFTER UPDATE) never sees it. `convertAdvisedItem` — one
+   * UPDATE — is the only way an advised material becomes Available.
+   *
+   * Compared by MATERIAL because the rewrite gives every line a new id: a
+   * material stored as To be advised may not come back from this save with NO
+   * advised line left while it still appears as Available. Removing the line
+   * outright stays allowed (that is dropping a material, not converting it), and
+   * so does switching TBA ON.
+   */
+  const { data: storedTba, error: tbaErr } = await s
+    .from("material_bom_amendment_items")
+    .select("item_id")
+    .eq("amendment_id", amendmentId)
+    .eq("type", TBA_MATERIAL_TYPE);
+  if (tbaErr) return fail(tbaErr.message);
+  for (const { item_id } of (storedTba ?? []) as { item_id: string | null }[]) {
+    if (!item_id) continue;
+    const incoming = data.items.filter((i) => i.item_id === item_id);
+    const stillAdvised = incoming.some((i) => (i.type ?? "").trim() === TBA_MATERIAL_TYPE);
+    if (incoming.length > 0 && !stillAdvised) return fail(ADVISED_CONVERT_ELSEWHERE);
+  }
+
   /*
    * A ROW THAT HAS ALREADY SENT MATERIAL OUT CANNOT BE DELETED BY A SAVE (0446).
    *
@@ -1342,10 +1482,15 @@ export async function createMaterialBomAmendment(
   const p = materialBomAmendmentInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
+  const locked = await orderLockProblem(p.data.garment_order_id);
+  if (locked) return fail(locked);
+
   const s = await createClient();
   const order = p.data.garment_order_id
     ? await getOrderProduction(p.data.garment_order_id)
     : null;
+  const uncoloured = await colourWiseProblem(s, normalizeItems(p.data), order);
+  if (uncoloured) return fail(uncoloured);
 
   const amendment_no = await nextAmendmentNo(s, p.data.garment_order_id ?? null);
   const { data: created, error } = await s
@@ -1376,9 +1521,16 @@ export async function updateMaterialBomAmendment(
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
   const s = await createClient();
+  const stored = await storedBomOrderId(s, id);
+  if (!stored.ok) return fail(stored.error);
+  const locked = await orderLockProblem(stored.orderId, p.data.garment_order_id);
+  if (locked) return fail(locked);
+
   const order = p.data.garment_order_id
     ? await getOrderProduction(p.data.garment_order_id)
     : null;
+  const uncoloured = await colourWiseProblem(s, normalizeItems(p.data), order);
+  if (uncoloured) return fail(uncoloured);
 
   const { error } = await s
     .from("material_bom_amendments")
@@ -1401,6 +1553,10 @@ export async function updateMaterialBomAmendment(
 export async function deleteMaterialBomAmendment(id: string): Promise<Result> {
   if (!(await can("orders", "delete"))) return fail("Forbidden");
   const s = await createClient();
+  const stored = await storedBomOrderId(s, id);
+  if (!stored.ok) return fail(stored.error);
+  const locked = await orderLockProblem(stored.orderId);
+  if (locked) return fail(locked);
   const { error } = await s.from("material_bom_amendments").delete().eq("id", id); // children cascade
   if (error) return fail(error.message);
   rev();
@@ -1555,6 +1711,17 @@ export async function copyMaterialBomFrom(
        dropped this would arrive with the plan intact and the line un-ticked,
        reading as though nobody had decided to send it. */
     send_out: (c.send_out as boolean) ?? false,
+    /* 0588. The advised facts TRAVEL WITH THE RECIPE except the stamps: a
+       copied line that is still To be advised is advised here too, and carries
+       its reason so it can be saved; a brand, artwork and estimated rate are
+       properties of the material. A conversion is an event in the SOURCE
+       order's history, so `converted_at` / `converted_by` start empty. */
+    estimated_rate: (c.estimated_rate as number) ?? null,
+    brand: (c.brand as string) ?? null,
+    artwork_code: (c.artwork_code as string) ?? null,
+    pending_reason: (c.pending_reason as string) ?? null,
+    converted_at: null,
+    converted_by: null,
     /* TRAVELS WITH THE RECIPE (0474), like `send_out` above and `round_to`
        below. Who supplies a trim free of charge is a property of the MATERIAL
        and the trading relationship — a customer who nominates and pays for

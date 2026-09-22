@@ -33,6 +33,8 @@ export interface ProcessOrder {
   location_id: string | null;
   process_type: ProcessType;
   status: ProcStatus;
+  /** 0609 — the order (RE No) this job-work is for, when one was named. */
+  sales_order_id?: string | null;
   order_date: string | null;
   expected_date: string | null;
   currency_code: string | null;
@@ -121,6 +123,10 @@ export const processOrderInput = z.object({
   vendor_id: z.string().uuid(),
   location_id: z.string().uuid().optional().nullable(),
   process_type: z.enum(PROCESS_TYPES),
+  /* 0609 — the order (RE No) this job-work is for. Optional: a process order
+     for no order works exactly as before; with one, Fabric T&A steps 8–11 can
+     find the knitting and dyeing documents of that order. */
+  sales_order_id: z.string().uuid().optional().nullable(),
   order_date: z.string().optional().nullable(),
   expected_date: z.string().optional().nullable(),
   currency_code: z.string().optional().nullable(),

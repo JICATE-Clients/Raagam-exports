@@ -36,6 +36,7 @@
  */
 
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -51,6 +52,7 @@ import {
   Waypoints,
   Ruler,
   Spool,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,6 +68,7 @@ import {
   ChildGrid,
   GRID_HEADER_TEXT,
   gridKeyNav,
+  RowRemoveChip,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
@@ -131,7 +134,14 @@ import {
   consQtyOf,
   gramsFor,
   manualProblem,
-  takenComponentIds,
+  componentIdsOf,
+  mappedFormsOf,
+  mappedPanelsFor,
+  panelKeyOf,
+  panelTaken,
+  samePanels,
+  takenPanels,
+  type ManualPanel,
   unassignedCombos,
   type ManualSizeInput,
 } from "@/lib/orders/fabric-bom/manual";
@@ -147,11 +157,21 @@ import { FabricProcessGrid } from "@/components/orders/fabric-process-grid";
 import {
   blankFabricProcess,
   blankFabricProcessScope,
+  colouredStageIds,
   processRowInScope,
   routeStepCount,
+  /* 0570 — every stage fault in the whole document, as sentences. The SAME
+     function the server action reads, so "what the grid warns about", "what
+     Save refuses" and "what the action refuses" are one rule with one
+     wording. See its header for why the picker narrowing is not a guard. */
+  stageRouteProblems,
   type FabricProcessRow,
   type FabricProcessScope,
 } from "@/lib/orders/fabric-bom/processes";
+/* PRINT CHECKPOINTS A + B and the per-branch print gate (client 2026-09-19) —
+   the same functions the server's guard reads. */
+import { printRouteProblems, printedGroup } from "@/lib/orders/fabric-bom/print-route";
+import { diaKey, knitLabel, knitTypesOfDia, manualDiaKnitProblems } from "@/lib/orders/fabric-bom/dia-knit";
 /* WHERE THIS FABRIC COMES FROM (0564, `doc/order/fabriprocess.md` §2) — the
    planner's Default Rule 1 / Rule 2 choice, declared PER FABRIC because one
    order legitimately knits the body and buys greige rolls for the collar rib.
@@ -160,6 +180,8 @@ import {
   FABRIC_SOURCES,
   FABRIC_SOURCE_LABELS,
   asFabricSource,
+  effectiveFabricSource,
+  sourceFromRoute,
   stepSuppressedBySource,
   suppressedBySource,
   type FabricSource,
@@ -178,6 +200,7 @@ import {
 } from "@/components/orders/process-fold-list";
 import {
   comboKey,
+  compositionsBuyingYarn,
   deriveYarnRows,
   yarnPurchase,
   yarnRowAnswered,
@@ -188,6 +211,9 @@ import {
   type YarnRow,
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
+import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
+import { FabricTaTab } from "@/components/orders/fabric-ta/fabric-ta-tab";
+import { yarnStageProblems } from "@/lib/orders/fabric-bom/yarn-stage-routes";
 import type {
   BomTaskRow,
   FabricBomFormData,
@@ -224,9 +250,13 @@ import {
   fabricFormLabel,
   layoutTypeLabel,
   fabricGroupKey,
+  panelGroupKey,
+  panelKey,
   rollUp,
+  ydPartKey,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
+import { nextYdPartName, ydPartProblems, ydPartsOf } from "@/lib/orders/fabric-bom/yd-part";
 
 /**
  * REACT KEYS FOR NEW ROWS — a module counter, NOT a `useRef` (2026-09-02).
@@ -321,6 +351,9 @@ type LineRow = {
    */
   panel_uid: string;
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this panel is cut
+   *  from (TOP, BOTTOM, …). "" = the fabric's only part. See `ydPartKey`. */
+  yd_part: string;
   fabric_type: string;
   /* Legacy Components ▸ "Required Color". `combo` is the ASSORT colour; this is
      the colour the panel is required in within it. Edited on the [Detail]
@@ -436,10 +469,10 @@ type ManualSizeRow = {
 };
 
 /**
- * One Manual ENTRY (0494) — a fabric structure, a SET of components, and a gram
+ * One Manual ENTRY (0494) — a fabric structure, a SET of panels, and a gram
  * weight per size. **The tab's counting unit.**
  *
- * `component_ids` IS A SET, and that is the whole reason this is not a fabric
+ * `panels` IS A SET, and that is the whole reason this is not a fabric
  * line. The client's Scenario A groups Front Body, Back Body and Sleeve at one
  * combined 180 g; a per-component row could not hold that without inventing a
  * split between them, and the invented number would drive a purchase.
@@ -461,6 +494,9 @@ type ManualEntryRow = {
    * with a Fabric column and has no Structure column).
    */
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this piece weight
+   *  is for. "" while the fabric has only one. */
+  yd_part: string;
   /** DERIVED FROM `item_id`, never typed — the fabric's `items.category_id`.
    *  Held on the row because the GSM lookup and the size explosion both key by
    *  it; the server re-derives it on save, so a stale value cannot survive. */
@@ -484,7 +520,11 @@ type ManualEntryRow = {
    *  FALSE — THE DEFAULT since 2026-09-04 — asks once and writes the answer to
    *  every size. See `blankManualEntry` below. */
   size_wise: boolean;
-  component_ids: string[];
+  /** WHICH PANELS THIS WEIGHT COVERS — (coordinate, component) PAIRS since
+   *  0569. A Set item declares one component under TWO coordinates (TOP's ALL
+   *  BODY and BOTTOM's ALL BODY), so the component id alone cannot say which
+   *  panel is meant — see `ManualPanel`. */
+  panels: ManualPanel[];
   sizes: ManualSizeRow[];
 };
 
@@ -876,6 +916,7 @@ const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
   style_ref_no,
   width_form: "",
   item_id: null,
+  yd_part: "",
   /* NOT SEEDED. It is derived from the fabric the planner is about to pick, and
      a blank row has picked none — `setEntryCell` writes both together. */
   structure_id: null,
@@ -893,7 +934,7 @@ const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
      every size; the planner switches this ON only when the sizes genuinely
      differ. */
   size_wise: false,
-  component_ids: [],
+  panels: [],
   sizes: [],
 });
 
@@ -916,6 +957,9 @@ type YdAddress = {
   style_ref_no: string;
   structure_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — the fourth part of the address: a Top and a Bottom cut
+   *  from one yarn-dyed cloth keep separate Yarn Dyed Details. */
+  yd_part: string;
 };
 
 type YdRepeat = YdRepeatRow & YdAddress;
@@ -933,6 +977,7 @@ const ydAddressOf = (l: YdAddress): YdAddress => ({
   style_ref_no: l.style_ref_no,
   structure_id: l.structure_id,
   item_id: l.item_id,
+  yd_part: l.yd_part,
 });
 
 /**
@@ -990,6 +1035,7 @@ const blankLine = (key: string): LineRow => ({
      overwrites this with one uid shared across the colourways it creates. */
   panel_uid: key,
   item_id: null,
+  yd_part: "",
   fabric_type: "",
   color_name: "",
   fabric_form: "",
@@ -1072,11 +1118,15 @@ export function FabricBomScreen({
   boms,
   data,
   perms,
+  orderLocks,
 }: {
   tasks: BomTaskRow[];
   boms: FabricBom[];
   data: FabricBomFormData;
   perms: Perms;
+  /** Garment orders locked by an approved budget → the banner's sentence
+   *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
+  orderLocks: Record<string, string>;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -1318,6 +1368,10 @@ export function FabricBomScreen({
     setEntries(fn);
     setDirty(true);
   };
+  /** One fabric off the Manual grid — the entry bar's own ✕ and the grid's
+   *  `onRemove` both call this, so the two can never remove differently. */
+  const removeManualEntry = (e: ManualEntryRow) =>
+    mutEntries((xs) => xs.filter((x) => x.key !== e.key));
   const setEntryCell = (key: string, patch: Partial<ManualEntryRow>) =>
     mutEntries((xs) => xs.map((e) => (e.key === key ? { ...e, ...patch } : e)));
   /**
@@ -1433,6 +1487,11 @@ export function FabricBomScreen({
   const order = current?.order ?? null;
   const orderErr = current?.error ?? null;
   const orderLoading = !!form.garment_order_id && !current;
+
+  /* THE APPROVAL LOCK (Phase 5). A plain const off the page's map, never a
+     hook — the server guard and 0576's triggers are the lock; this is the
+     banner and the read-only fields `MasterFullScreen` derives from it. */
+  const lockMessage = form.garment_order_id ? orderLocks[form.garment_order_id] : undefined;
 
   /**
    * One round trip per ORDER, not per keystroke.
@@ -1814,13 +1873,16 @@ export function FabricBomScreen({
    */
   const panelHandlers = (anchor: LineRow | null) => {
     const scope = anchor ? linesOfStyle(anchor.style_ref_no) : [];
-    const inScope = (x: LineRow, panelKey: string) =>
-      scope.some((d) => d.key === x.key) && (x.component_id ?? x.panel_uid) === panelKey;
+    /* `panelGroupKey` — the SAME key the sheet groups its rows by. The bare
+       `component_id ?? panel_uid` this used to be patched a Set item's TOP and
+       BOTTOM ALL BODY together, whichever row was typed on. */
+    const inScope = (x: LineRow, panelAddr: string) =>
+      scope.some((d) => d.key === x.key) && panelGroupKey(x) === panelAddr;
 
     return {
       /** Patch every colourway of one panel — Component, Coordinate, Open/Tubular. */
-      patchPanel: (panelKey: string, patch: Partial<LineRow>) =>
-        mut((xs) => xs.map((x) => (inScope(x, panelKey) ? { ...x, ...patch } : x))),
+      patchPanel: (panelAddr: string, patch: Partial<LineRow>) =>
+        mut((xs) => xs.map((x) => (inScope(x, panelAddr) ? { ...x, ...patch } : x))),
 
       addPanel: (seed: { component_id: string | null; coordinate_id: string | null }) => {
         if (!anchor) return;
@@ -1854,8 +1916,8 @@ export function FabricBomScreen({
 
 
   /** Remove a panel — and every colourway's line for it. */
-      removePanel: (panelKey: string) =>
-        mut((xs) => xs.filter((x) => !inScope(x, panelKey))),
+      removePanel: (panelAddr: string) =>
+        mut((xs) => xs.filter((x) => !inScope(x, panelAddr))),
     };
   };
 
@@ -2262,8 +2324,14 @@ export function FabricBomScreen({
         structure_id: l.structure_id,
         coordinate_id: l.coordinate_id,
         component_id: l.component_id,
-        panel_uid: l.component_id ?? `p${l.id}`,
+        /* The PAIR, not the component: a Set item's TOP and BOTTOM ALL BODY
+           share a component id, and one uid across both is two panels drawn
+           under one React key. */
+        panel_uid: l.component_id
+          ? panelKey({ coordinate_id: l.coordinate_id, component_id: l.component_id })
+          : `p${l.id}`,
         item_id: l.item_id,
+        yd_part: l.yd_part ?? "",
         fabric_type: l.fabric_type ?? "",
         color_name: l.color_name ?? "",
         fabric_form: l.fabric_form ?? "",
@@ -2296,6 +2364,7 @@ export function FabricBomScreen({
         style_ref_no: e.style_ref_no ?? "",
         width_form: e.width_form ?? "",
         item_id: e.item_id,
+        yd_part: e.yd_part ?? "",
         structure_id: e.structure_id,
         calc_mode: e.calc_mode ?? "direct",
         wastage_pct: e.wastage_pct == null ? "" : String(e.wastage_pct),
@@ -2309,7 +2378,14 @@ export function FabricBomScreen({
            saved with `size_wise = true` still reads true; only the fallback
            for "nothing was ever saved here" flipped. */
         size_wise: e.size_wise ?? false,
-        component_ids: (e.components ?? []).map((c) => c.component_id),
+        /* THE PAIR AS STORED (0569). A row written before that migration —
+           or one its backfill could not settle — carries a null coordinate,
+           which stays null here: it means "unstated", and `panelTaken` reads it
+           as a claim on the component under every coordinate. */
+        panels: (e.components ?? []).map((c) => ({
+          coordinate_id: c.coordinate_id ?? null,
+          component_id: c.component_id,
+        })),
         sizes: (e.sizes ?? []).map((z) => ({
           key: newKey(),
           size_id: z.size_id,
@@ -2340,12 +2416,17 @@ export function FabricBomScreen({
         component_id: p.component_id,
         stage_id: p.stage_id,
         process_id: p.process_id,
+        /* 0583 — "DYEING [WITH BIOWASH]". */
+        sub_category_id: p.sub_category_id ?? null,
         loss_for_id: p.loss_for_id,
         /* Text, like every numeric cell on this screen: a controlled `<Input>`
            cannot hold "1." or "" as a number, so the form keeps text and the
            boundary converts once. */
         loss_pct: p.loss_pct == null ? "" : String(p.loss_pct),
         type_id: p.type_id,
+        /* 0606 — ASSORT COLOR-WISE LOSS, the map held as text like `loss_pct`. */
+        color_wise_loss: !!p.color_wise_loss,
+        color_losses: colorLossesToDraft(p.color_losses),
       })),
     );
     /* THE TWO SPLIT TOGGLES (0528). Straight across, same reason as the routes
@@ -2373,6 +2454,7 @@ export function FabricBomScreen({
         style_ref_no: r.style_ref_no ?? "",
         structure_id: r.structure_id,
         item_id: r.item_id,
+        yd_part: r.yd_part ?? "",
         sno: r.sno ?? 0,
         yarn_item_id: r.yarn_item_id,
         dye_type: r.dye_type === "grey" ? ("grey" as const) : ("dyed" as const),
@@ -2388,6 +2470,7 @@ export function FabricBomScreen({
         style_ref_no: r.style_ref_no ?? "",
         structure_id: r.structure_id,
         item_id: r.item_id,
+        yd_part: r.yd_part ?? "",
         combo: r.combo ?? "",
         yd_combo_name: r.yd_combo_name ?? "",
         // `colors` arrives pre-sorted by `sno` (service.ts) — a fresh client
@@ -2439,6 +2522,9 @@ export function FabricBomScreen({
                  `<Input>` cannot hold "1." or "" as a number, so the form keeps
                  text and the boundary converts once. */
               loss_pct: st.loss_pct == null ? "" : String(st.loss_pct),
+              /* 0606 — ASSORT COLOR-WISE LOSS. */
+              color_wise_loss: !!st.color_wise_loss,
+              color_losses: colorLossesToDraft(st.color_losses),
             })),
           },
         ]),
@@ -2508,13 +2594,17 @@ export function FabricBomScreen({
    * break it.
    */
   function applySeed(rows: OrderFabricSeedRow[]): number {
+    /* THE COORDINATE IS PART OF THE ADDRESS — a Set item seeds TOP's and
+       BOTTOM's ALL BODY on one structure, and without it the second read as
+       "already held" once the first was. */
     const addressOf = (l: {
       style_ref_no: string | null;
       combo: string | null;
       structure_id: string | null;
+      coordinate_id: string | null;
       component_id: string | null;
     }) =>
-      [l.style_ref_no ?? "", l.combo ?? "", l.structure_id ?? "", l.component_id ?? ""]
+      [l.style_ref_no ?? "", l.combo ?? "", l.structure_id ?? "", l.coordinate_id ?? "", l.component_id ?? ""]
         .map((v) => v.trim().toUpperCase())
         .join(SEP);
 
@@ -2530,7 +2620,7 @@ export function FabricBomScreen({
        (style, structure, panel) so two structures never share one. */
     const uidOf = new Map<string, string>();
     const panelUid = (r: OrderFabricSeedRow) => {
-      const k = [r.style_ref_no ?? "", r.structure_id ?? "", r.component_id ?? ""]
+      const k = [r.style_ref_no ?? "", r.structure_id ?? "", r.coordinate_id ?? "", r.component_id ?? ""]
         .map((v) => v.trim().toUpperCase())
         .join(SEP);
       let u = uidOf.get(k);
@@ -2833,8 +2923,12 @@ export function FabricBomScreen({
     return sub ? `TYPE:${sub}` : `COMBO:${l.combo}`;
   };
 
+  /* THE YD PART IS THE FIFTH PART OF THE KEY (0596) — a Top and a Bottom cut
+     from one yarn-dyed cloth are two allocation rows, not one. It is "" on
+     every other fabric (nothing assigns a part to a non-yarn-dyed cloth), so
+     the key of every row that existed before 0596 is unchanged. */
   const allocationKeyOf = (l: LineRow) =>
-    [l.style_ref_no, dyeingKeyOf(l), l.structure_id ?? "", l.item_id ?? ""]
+    [l.style_ref_no, dyeingKeyOf(l), l.structure_id ?? "", l.item_id ?? "", l.yd_part]
       .map((v) => v.trim().toUpperCase())
       .join(SEP);
 
@@ -2942,6 +3036,85 @@ export function FabricBomScreen({
   };
 
   /**
+   * A YARN-DYED FABRIC MAY BE ALLOCATED MORE THAN ONCE (client ticket
+   * 2026-09-19, 0596) — a Top and a Bottom knitted from the same cloth to
+   * different stripe ratios. Everything else keeps the collision refusal above.
+   *
+   * The fabric's type is the MASTER's (`fabricTypeOf`), the same gate the
+   * yarn-dyed cells and the server's `yarnDyedProblem` read.
+   */
+  const isYdFabric = (itemId: string | null) => !!itemId && isYarnDyed(fabricTypeOf(itemId));
+
+  /** The YD Parts one fabric carries in one style — `ydPartsOf`, the same
+   *  reading the Save gate and the server make. */
+  const partsOfFabric = (itemId: string | null, styleRefNo: string) =>
+    itemId ? ydPartsOf(lines, itemId, styleRefNo) : [];
+
+  /**
+   * ACCEPTS A SECOND PICK OF A YARN-DYED FABRIC instead of refusing it.
+   *
+   * The new row gets the next free placeholder ("PART 2") and, if the row it
+   * collided with has no part yet, THAT row becomes "PART 1" — so both are
+   * visibly separate the moment the pick lands, and the Save gate's "every part
+   * named" rule is satisfied until the planner renames them TOP / BOTTOM.
+   * Returns the part the new row should carry, or null when the fabric is not
+   * yarn-dyed or is not allocated anywhere else yet (the caller then behaves as
+   * before).
+   *
+   * SIBLINGS ARE FOUND BY THE CLOTH, NOT BY `collidesWith`. A just-added row has
+   * no colourway yet, so its dyeing half of the key can read `COMBO:` where the
+   * existing row reads `TYPE:Yarn Dyed` — the keys differ, nothing collides, and
+   * without this the two allocations would silently share one part and one set
+   * of Yarn Dyed Details.
+   */
+  const acceptSecondYdPick = (row: LineRow, itemId: string): string | null => {
+    if (!isYdFabric(itemId)) return null;
+    const siblings = allocationRows.filter(
+      (x) =>
+        x.key !== row.key &&
+        x.item_id === itemId &&
+        (x.structure_id ?? "") === (row.structure_id ?? "") &&
+        x.style_ref_no.trim().toUpperCase() === row.style_ref_no.trim().toUpperCase(),
+    );
+    if (siblings.length === 0) return null;
+    const taken = siblings.map((x) => x.yd_part);
+    const unnamed = siblings.find((x) => !ydPartKey(x.yd_part));
+    if (unnamed) {
+      renameAllocPart(unnamed, "PART 1");
+      taken.push("PART 1");
+    }
+    return nextYdPartName(taken);
+  };
+
+  /**
+   * RENAMING A PART RENAMES EVERYTHING ADDRESSED BY IT — the allocation's lines,
+   * its Yarn Dyed Details (Repeats and Combinations) and the Manual entries that
+   * weigh it. Without the cascade, typing TOP over PART 1 would leave that
+   * part's stripes and piece weight filed under a name no row has any more.
+   */
+  const renameAllocPart = (row: LineRow, next: string) => {
+    const from = ydPartKey(row.yd_part);
+    const style = row.style_ref_no.trim().toUpperCase();
+    const sameCloth = (r: { style_ref_no: string; structure_id: string | null; item_id: string | null; yd_part: string }) =>
+      r.item_id === row.item_id &&
+      (r.structure_id ?? "") === (row.structure_id ?? "") &&
+      r.style_ref_no.trim().toUpperCase() === style &&
+      ydPartKey(r.yd_part) === from;
+    setAlloc(row, { yd_part: next });
+    mutYdRepeats((xs) => xs.map((r) => (sameCloth(r) ? { ...r, yd_part: next } : r)));
+    mutYdCombinations((xs) => xs.map((r) => (sameCloth(r) ? { ...r, yd_part: next } : r)));
+    mutEntries((xs) =>
+      xs.map((e) =>
+        e.item_id === row.item_id &&
+        ydPartKey(e.yd_part) === from &&
+        (!e.style_ref_no.trim() || !style || e.style_ref_no.trim().toUpperCase() === style)
+          ? { ...e, yd_part: next }
+          : e,
+      ),
+    );
+  };
+
+  /**
    * The three names a Fabric Process card is headed with (0492).
    *
    * RESOLVED THROUGH THE SCREEN'S OWN OPTION LISTS, which is safe HERE and is
@@ -3036,6 +3209,52 @@ export function FabricBomScreen({
       });
     }
     return seen.size === 1 ? [...seen.values()][0] : null;
+  })();
+
+  /**
+   * FABRIC ALLOCATION, ONE SECTION PER STYLE (client 2026-09-18: "the fabric
+   * allocation … support single style only").
+   *
+   * It did. Every line already carried its style and `allocationKeyOf` already
+   * kept two styles' rows apart — but the grid showed no style anywhere (Style
+   * Ref No / Style No / Style Color left the row on 2026-09-04), the band above
+   * it abstains on more than one style, and "+ Add fabric" could only stamp
+   * `orderIdentity`, which is blank there. So a two-style order drew two
+   * identical-looking SINGLE JERSEY rows, and a new row landed on "every style"
+   * with no way to say otherwise.
+   *
+   * NOW THE SAME SHAPE AS COMPONENTS AND MANUAL: a style band, then that
+   * style's own grid, whose "+ Add fabric" stamps THAT style. Styles in the
+   * order's own sequence (`seedRows`), then any a line holds that the order no
+   * longer declares — never hidden, since those rows still save. A line with NO
+   * style ("every style" to `fabricSlices`) gets an "All styles" section last,
+   * shown only while it has rows.
+   *
+   * NULL WITH ONE STYLE OR NONE, and the tab renders exactly as before — one
+   * band, one grid. A plain const for `allocationRows`' reason (no memo whose
+   * dependencies could be named honestly).
+   */
+  const allocationStyleGroups = (() => {
+    const keyOf = (s: string | null | undefined) => (s ?? "").trim().toUpperCase();
+    const refs: string[] = [];
+    const seen = new Set<string>();
+    const add = (ref: string | null | undefined) => {
+      const k = keyOf(ref);
+      if (!k || seen.has(k)) return;
+      seen.add(k);
+      refs.push((ref ?? "").trim());
+    };
+    for (const r of seedRows ?? []) add(r.style_ref_no);
+    for (const l of allocationRows) add(l.style_ref_no);
+    if (refs.length <= 1) return null;
+    const groups = refs.map((ref) => ({
+      key: keyOf(ref),
+      ref,
+      rows: allocationRows.filter((l) => keyOf(l.style_ref_no) === keyOf(ref)),
+    }));
+    const unscoped = allocationRows.filter((l) => !keyOf(l.style_ref_no));
+    if (unscoped.length > 0) groups.push({ key: "", ref: "", rows: unscoped });
+    return groups;
   })();
 
   /**
@@ -3135,17 +3354,19 @@ export function FabricBomScreen({
   const declaredDiaOptions = useMemo(() => {
     const kinds = new Map<string, string[]>();
     for (const d of dias) {
-      const key = d.dia.trim().toUpperCase();
+      const key = diaKey(d.dia);
       if (!key) continue;
-      const label = KNIT_TYPE_OPTIONS.find((o) => o.value === d.knit_type)?.label;
       const seen = kinds.get(key) ?? [];
-      if (label && !seen.includes(label)) seen.push(label);
+      if (d.knit_type && !seen.includes(d.knit_type)) seen.push(d.knit_type);
       kinds.set(key, seen);
     }
-    return [...kinds].map(([value, ks]) => ({
+    /* `codes` KEEPS THE FAMILIES, not just their labels, so `diaOptionsFor`
+       can scope the list to one fabric's family (`dia-knit.ts`). */
+    return [...kinds].map(([value, codes]) => ({
       value,
       label: value,
-      sublabel: ks.length ? ks.join(" · ") : undefined,
+      sublabel: codes.length ? codes.map(knitLabel).join(" · ") : undefined,
+      codes,
     }));
   }, [dias]);
 
@@ -3191,10 +3412,33 @@ export function FabricBomScreen({
     return [bare ? `${v}"` : v, form].filter(Boolean).join(" ");
   };
 
-  const diaOptionsFor = (held: string) => {
+  /**
+   * THE DIAS ONE FABRIC MAY PICK — its OWN knit family's only (client
+   * 2026-09-19: "if the fabric is circular, circular dias only; if flat, flat
+   * only"). `knit` is the fabric's structure family (`entryKnitCode`); with
+   * none set there is nothing to scope by and every declared dia stays on
+   * offer, as before. An UNTYPED dia is not offered to a typed fabric — it has
+   * not been said to be either.
+   *
+   * A HELD VALUE OF THE WRONG FAMILY SURVIVES, TAGGED, for the reason above:
+   * dropping it would show the cell empty and the next Save would blank it.
+   * It is not left standing silently either — `manualBlockers` refuses Save on
+   * it with `diaKnitProblem`, the sentence the server returns too.
+   */
+  const diaOptionsFor = (held: string, knit: string | null) => {
+    const scoped = (knit ? declaredDiaOptions.filter((o) => o.codes.includes(knit)) : declaredDiaOptions).map(
+      ({ codes: _codes, ...o }) => o,
+    );
     const v = held.trim();
-    if (!v || declaredDiaOptions.some((o) => o.value === v)) return declaredDiaOptions;
-    return [...declaredDiaOptions, { value: v, label: v, sublabel: "not declared" }];
+    if (!v || scoped.some((o) => o.value === diaKey(v))) return scoped;
+    const kinds = knitTypesOfDia(v, dias);
+    const sublabel =
+      knit && kinds.length && !kinds.includes(knit)
+        ? `${kinds.map(knitLabel).join(" / ")} — not ${knitLabel(knit)}`
+        : kinds.length
+          ? `${kinds.map(knitLabel).join(" / ")}`
+          : "not declared";
+    return [...scoped, { value: v, label: v, sublabel }];
   };
 
   /**
@@ -3277,6 +3521,19 @@ export function FabricBomScreen({
    */
   const fabricStructureOf = (itemId: string | null) =>
     itemId ? (fabrics.find((f) => f.id === itemId)?.category_id ?? null) : null;
+
+  /**
+   * THE KNIT FAMILY A FABRIC IS MADE IN — `circular` / `flat_knit` / `woven`,
+   * off its STRUCTURE master (`categories.fabric_structure_id`), never off the
+   * dias it picked. What Finish Dia is scoped by; see `dia-knit.ts`.
+   */
+  const knitCodeOfFabric = (itemId: string | null): string | null => {
+    const structureId = fabricStructureOf(itemId);
+    return structureId ? (data.structures.find((x) => x.id === structureId)?.knitCode ?? null) : null;
+  };
+  const entryKnitCode = (e: ManualEntryRow): string | null =>
+    knitCodeOfFabric(e.item_id) ??
+    (e.structure_id ? (data.structures.find((x) => x.id === e.structure_id)?.knitCode ?? null) : null);
 
   /**
    * WHAT THIS ROW SAYS ITS CLOTH IS — the fabric's own type, else the one the
@@ -3420,7 +3677,14 @@ export function FabricBomScreen({
    * programme. The cell still PICKS from all of them, so nothing is harder to
    * reach — it just starts empty rather than starting wrong.
    */
-  const defaultDia = declaredDiaOptions.length === 1 ? declaredDiaOptions[0].value : "";
+  /* PER FABRIC FAMILY since 2026-09-19: "exactly one" is counted among the dias
+     this fabric may pick, so a circular jersey on an order declaring one
+     circular and one flat dia still opens on its one circular dia — and never
+     on the flat one. */
+  const defaultDiaFor = (knit: string | null) => {
+    const scoped = knit ? declaredDiaOptions.filter((o) => o.codes.includes(knit)) : declaredDiaOptions;
+    return scoped.length === 1 ? scoped[0].value : "";
+  };
 
   /** One entry's rows, as `manual.ts` wants them. Text to numbers, once. */
   const sizeInputsOf = (e: ManualEntryRow): ManualSizeInput[] =>
@@ -3618,7 +3882,7 @@ export function FabricBomScreen({
          with it. */
       if (!row) {
         out.push({
-          ...blankManualSize(`size:${z.size_id}`, z.size_id, defaultDia),
+          ...blankManualSize(`size:${z.size_id}`, z.size_id, defaultDiaFor(entryKnitCode(e))),
           label: z.label,
           declared: true,
         });
@@ -3645,13 +3909,32 @@ export function FabricBomScreen({
       .length;
 
 
+  /**
+   * ONE ROW OF THE COMPONENTS SHEET — a declared (coordinate, component) pair,
+   * with the two names already resolved.
+   *
+   * `key` is `panelKeyOf`'s, which is what the tick list, the toggle and the
+   * de-duplication on save all compare by. A Set item therefore offers TOP's
+   * ALL BODY and BOTTOM's ALL BODY as two rows that tick independently — the
+   * defect this whole pair exists to fix (client 2026-09-17, Order #9).
+   */
+  type PanelOptionRow = {
+    key: string;
+    panel: ManualPanel;
+    label: string;
+    inactive: boolean;
+    /** "" where the pair states no coordinate — a legacy row, or a style that
+     *  declares none. The sheet groups those under their own heading. */
+    coordinate: string;
+  };
+
   /** One entry, as `manual.ts`'s rules want it. */
   const entryLike = (e: ManualEntryRow) => ({
     style_ref_no: e.style_ref_no.trim() || null,
     item_id: e.item_id,
     structure_id: e.structure_id,
     calc_mode: e.calc_mode,
-    component_ids: e.component_ids,
+    panels: e.panels,
     /* PASSED SINCE 2026-09-16. Omitting it is what left `manualProblem`'s
        colour-wise branch unreachable; the rule's type now refuses the omission
        so this line cannot be dropped again without the build saying so. */
@@ -3678,12 +3961,12 @@ export function FabricBomScreen({
    * first edit would clear it — the "a held value always survives" rule, in the
    * one place where forgetting it silently deletes an answer.
    */
-  const componentOptionsFor = (e: ManualEntryRow) => {
-    const taken = takenComponentIds(
+  const componentOptionsFor = (e: ManualEntryRow): PanelOptionRow[] => {
+    const taken = takenPanels(
       entries.map((x) => ({
         key: x.key,
         style_ref_no: x.style_ref_no.trim() || null,
-        component_ids: x.component_ids,
+        panels: x.panels,
       })),
       { key: e.key, style_ref_no: e.style_ref_no.trim() || null },
     );
@@ -3692,7 +3975,7 @@ export function FabricBomScreen({
        (see `component-map.ts`'s own note where `componentsHiddenForLayout`
        used to be). This picker now offers everything rules 2/2b/3 below and
        `takenComponentIds` above allow, unfiltered by Layout Type. */
-    const selected = new Set(e.component_ids);
+    const selected = new Set(e.panels.map(panelKeyOf));
     /* THE BASE LIST IS NOW THE STYLE'S OWN DECLARATION, not the whole
        `components` master (client, screenshot 2709: "need to show the
        respective components only from the ... components tab" — ALL BODY,
@@ -3710,14 +3993,37 @@ export function FabricBomScreen({
        from its own entry's list and blank the choice on the next Save —
        `availablePanels`' own "the held panel must survive rule 2 as well"
        rule, one module over. */
-    const declaredIds = new Set(
-      declaredPanelsFor(styleDecls, e.style_ref_no.trim() || null, e.structure_id).map(
-        (p) => p.component_id,
-      ),
-    );
-    return data.components
-      .filter((c) => declaredIds.has(c.id) || selected.has(c.id))
-      .filter((c) => !taken.has(c.id))
+    /* THE DECLARED PAIRS, NOT A SET OF COMPONENT IDS (0569). Reducing them to
+       ids is what collapsed a Set item: `declaredPanelsFor` already returns one
+       option per (coordinate, component), so TOP's ALL BODY and BOTTOM's ALL
+       BODY arrive here as two — and were merged into one row by the `Set` that
+       used to stand in this spot. The order's own `sno` is the order they come
+       in, which is the order they are listed and grouped in. */
+    /* THE TAB'S OWN MAPPING FIRST, BY ROLL FORM (user 2026-09-22, screenshot
+       3008): where Fabric BOM ▸ Components maps panels to this cloth, the list
+       is those panels in this entry's form (`mappedPanelsFor`, the read
+       `fabricDefaultsFor` seeds from) — an Open Width entry is not offered a
+       panel the tab cuts Tubular. The declaration by structure stays the
+       fallback for a cloth the tab maps nothing to yet. */
+    const styleRef = e.style_ref_no.trim() || null;
+    const declared = mappedPanelsFor(lines, styleRef, e.item_id, null).length
+      ? mappedPanelsFor(lines, styleRef, e.item_id, e.width_form || null)
+      : declaredPanelsFor(styleDecls, styleRef, e.structure_id);
+
+    /* A HELD PANEL THE DECLARATION NO LONGER LISTS SURVIVES, appended last —
+       `availablePanels`' own rule one module over, and the one that matters most
+       here: a legacy entry's coordinate-less panel is in `selected` and in no
+       declaration, so without this it would vanish from its own sheet and the
+       next Save would write that emptiness. */
+    const held = e.panels.filter((p) => !declared.some((d) => panelKeyOf(d) === panelKeyOf(p)));
+
+    return [...declared, ...held]
+      .filter((p) => selected.has(panelKeyOf(p)) || !panelTaken(taken, p))
+      .map((p) => ({ panel: p, component: data.components.find((c) => c.id === p.component_id) }))
+      .filter(
+        (r): r is { panel: ManualPanel; component: (typeof data.components)[number] } =>
+          !!r.component,
+      )
       /* `{ id, label }`, which is `MultiSelectOption` — not the `{ value, label }`
          a `Combobox` takes. Two option shapes in one file, and the type checker
          is the only thing that tells them apart.
@@ -3726,7 +4032,16 @@ export function FabricBomScreen({
          spellings of the flag through `isInactive()` on the server, so the
          screen passes the boolean through rather than re-deriving it — the
          "read it through one function" half of the Disabled rows rule. */
-      .map((c) => ({ id: c.id, label: c.name, inactive: c.inactive }));
+      .map(({ panel, component }) => ({
+        key: panelKeyOf(panel),
+        panel,
+        label: component.name,
+        inactive: component.inactive,
+        /* The coordinate's own name, resolved once here rather than looked up
+           per row while rendering — and "" where the pair states none, which
+           the sheet draws as its own unnamed group. */
+        coordinate: panel.coordinate_id ? coordinateNameById(panel.coordinate_id) ?? "" : "",
+      }));
   };
 
   /**
@@ -3752,15 +4067,15 @@ export function FabricBomScreen({
   ) => {
     const ref = styleRefNo.trim() || null;
     const declared = declaredPanelsFor(styleDecls, ref, structureId);
-    const taken = takenComponentIds(
+    const taken = takenPanels(
       entries.map((x) => ({
         key: x.key,
         style_ref_no: x.style_ref_no.trim() || null,
-        component_ids: x.component_ids,
+        panels: x.panels,
       })),
       { key: exceptKey, style_ref_no: ref },
     );
-    return declared.filter((p) => !taken.has(p.component_id));
+    return declared.filter((p) => !panelTaken(taken, p));
   };
 
   /**
@@ -3778,13 +4093,17 @@ export function FabricBomScreen({
    * second fetch. `null` style_ref_no in a declaration means "every style", so
    * it matches after a style-scoped row fails to.
    */
-  const coordinateForComponent = (componentId: string, styleRefNo: string): string | null => {
-    const ref = styleRefNo.trim() || null;
-    const decl =
-      styleDecls.find((d) => d.component_id === componentId && d.style_ref_no === ref) ??
-      styleDecls.find((d) => d.component_id === componentId && d.style_ref_no === null);
-    if (!decl?.coordinate_id) return null;
-    return data.coordinates?.find((c) => c.id === decl.coordinate_id)?.name ?? null;
+  const coordinateNameById = (coordinateId: string): string | null =>
+    data.coordinates?.find((c) => c.id === coordinateId)?.name ?? null;
+
+  /** A panel as a sentence, for prose that has no heading to group under —
+   *  "ALL BODY (TOP)". The coordinate is in brackets rather than leading,
+   *  because the panel is what the planner is looking for and the coordinate is
+   *  which of two identically-named ones it is. */
+  const panelLabelOf = (p: ManualPanel): string => {
+    const name = componentById.get(p.component_id) ?? "";
+    const coord = p.coordinate_id ? coordinateNameById(p.coordinate_id) : null;
+    return coord ? `${name} (${coord})` : name;
   };
 
   /**
@@ -4004,7 +4323,7 @@ export function FabricBomScreen({
             inputClassName="h-8"
             /* `value` STAYS THE STORED STRING and only `label` is decorated —
                see `diaDisplay`. Rewriting `value` would save the decoration. */
-            options={diaOptionsFor(r.dia).map((o) => ({
+            options={diaOptionsFor(r.dia, entryKnitCode(e)).map((o) => ({
               ...o,
               label: diaDisplay(o.value, e.width_form),
             }))}
@@ -4208,35 +4527,75 @@ export function FabricBomScreen({
    * Lines) — so a hand-picked entry and an auto-seeded one can never disagree
    * about what a fabric defaults to.
    *
-   * COMPONENTS: `unallocatedComponentsFor` composes the style's declared
-   * panels for this structure with what's already taken by a sibling entry —
-   * empty on a genuinely fresh structure, so the first entry for a fabric
-   * pre-ticks everything declared and a follow-up split entry pre-ticks only
-   * what is left.
+   * COMPONENTS ARE THE COMPONENTS TAB'S ANSWER, BY ROLL FORM (user
+   * 2026-09-22, screenshot 3008: "the components need to auto list based on
+   * the type open width / tubular"). That tab already maps every panel to
+   * its cloth AND says whether that cloth is cut Open Width or Tubular
+   * (`order_fabric_bom_lines.item_id` + `fabric_form`, 0495), so an entry
+   * (style, fabric, roll form) LISTS the panels mapped to its cloth in its
+   * form — `mappedPanelsFor` (manual.ts) — minus what a sibling entry already
+   * holds. A jersey cut Open Width for the body and Tubular for the sleeve
+   * is two entries with two lists, not one entry with a blank form.
+   *
+   * THE DECLARATION BY STRUCTURE IS THE FALLBACK, not the rule: a cloth the
+   * Components tab maps nothing to (named on Manual by hand before that tab
+   * is filled) still pre-ticks the style's declared panels for its structure
+   * (`unallocatedComponentsFor`), as it did before 09-22 — empty on a fresh
+   * structure, so a split entry pre-ticks only what is left.
    *
    * ROLL FORM (client screenshots 2705/2706: Manual's Roll form and the
    * Components tab's own "Type" were two independent blanks for the same
-   * fabric): rolled up across every Components-tab line naming this fabric
-   * (`fabricGroups`, `rollUp` — the exact call `fabricRouteRows.form` already
-   * makes) and translated from `fabric_form`'s vocabulary ('open'/'tubular')
-   * to `width_form`'s ('open_width'/'tubular'). `width_form` is still its OWN
-   * column — it answers a different question from `fabric_form` and one
-   * module's note already argues why they were kept apart — this only reads
-   * one to DEFAULT the other. Two lines disagreeing rolls up to "(mixed)",
-   * which resolves to no default rather than a guess — the same "abstain
-   * rather than pick one" rule `solePanel` and `rollUp` itself follow
-   * everywhere else in this file.
+   * fabric): the form the tab cuts this fabric in — `mappedFormsOf`, the
+   * `fabric_form` vocabulary ('open'/'tubular') translated to `width_form`'s
+   * ('open_width'/'tubular'). `width_form` is still its OWN column — it
+   * answers a different question from `fabric_form` and one module's note
+   * already argues why they were kept apart — this only reads one to DEFAULT
+   * the other. Pass `widthForm` to ask for THAT form's list (the seed, one
+   * entry per form); omit it and the fabric's one form is the default, or —
+   * two forms — the one whose panels are still unclaimed, else no default
+   * rather than a guess (`solePanel`'s "abstain rather than pick one").
    */
-  const fabricDefaultsFor = (styleRefNo: string, id: string, exceptKey?: string) => {
+  const fabricDefaultsFor = (styleRefNo: string, id: string, exceptKey?: string, widthForm?: string) => {
     const structureId = fabrics.find((f) => f.id === id)?.category_id ?? null;
-    const componentIds = unallocatedComponentsFor(styleRefNo, structureId, exceptKey).map(
-      (p) => p.component_id,
+    const styleRef = styleRefNo.trim() || null;
+    const taken = takenPanels(
+      entries.map((x) => ({ key: x.key, style_ref_no: x.style_ref_no.trim() || null, panels: x.panels })),
+      { key: exceptKey ?? "__fabric_defaults__", style_ref_no: styleRef },
     );
-    const agreedForm = rollUp(
-      (fabricGroups.find((g) => g.item_id === id)?.lines ?? []).map((l) => l.fabric_form ?? ""),
-    );
-    const widthForm = agreedForm === "open" ? "open_width" : agreedForm === "tubular" ? "tubular" : "";
-    return { structureId, componentIds, widthForm };
+    const free = (ps: ManualPanel[]) => ps.filter((p) => !panelTaken(taken, p));
+    const forms = mappedFormsOf(lines, styleRef, id);
+    let form = widthForm ?? "";
+    if (!form) {
+      const open = forms.filter((f) => free(mappedPanelsFor(lines, styleRef, id, f)).length > 0);
+      form = forms.length === 1 ? forms[0] : open.length === 1 ? open[0] : "";
+    }
+    const mapped = mappedPanelsFor(lines, styleRef, id, form || null);
+    /* THE PAIRS THEMSELVES (0569), no longer flattened to component ids: the
+       mapping (or the declaration) is what says which coordinate each panel
+       belongs to, so a seeded entry carries it without anybody having to
+       choose. */
+    const panels = mappedPanelsFor(lines, styleRef, id, null).length
+      ? free(mapped)
+      : unallocatedComponentsFor(styleRefNo, structureId, exceptKey);
+    return { structureId, panels, widthForm: form };
+  };
+
+  /**
+   * THE ROLL FORM CHANGED — THE LIST FOLLOWS WHILE IT IS STILL THE TAB'S. An
+   * entry whose panels are exactly what `fabricDefaultsFor` listed for its
+   * old form (or nothing yet) re-lists for the new one; a list the planner
+   * has edited is theirs and stays — "a default, never data loss"
+   * (`setEntryFabric`'s own rule, one function down).
+   */
+  const setEntryForm = (e: ManualEntryRow, widthForm: string) => {
+    const patch: Partial<ManualEntryRow> = { width_form: widthForm };
+    if (e.item_id) {
+      const before = fabricDefaultsFor(e.style_ref_no, e.item_id, e.key, e.width_form).panels;
+      if (e.panels.length === 0 || samePanels(e.panels, before)) {
+        patch.panels = fabricDefaultsFor(e.style_ref_no, e.item_id, e.key, widthForm).panels;
+      }
+    }
+    setEntryCell(e.key, patch);
   };
 
   /**
@@ -4262,8 +4621,22 @@ export function FabricBomScreen({
       return;
     }
     const d = fabricDefaultsFor(e.style_ref_no, id, e.key);
-    const patch: Partial<ManualEntryRow> = { item_id: id, structure_id: d.structureId };
-    if (e.component_ids.length === 0) patch.component_ids = d.componentIds;
+    /* A SPLIT YARN-DYED CLOTH (0596) STARTS ON THE FIRST PART NO OTHER ENTRY
+       WEIGHS YET — the natural next answer, and still a pick the planner can
+       change. A cloth with one part carries that part (usually ""). */
+    const parts = partsOfFabric(id, e.style_ref_no);
+    const unweighed = parts.find(
+      (p) =>
+        !entries.some(
+          (x) => x.key !== e.key && x.item_id === id && ydPartKey(x.yd_part) === p,
+        ),
+    );
+    const patch: Partial<ManualEntryRow> = {
+      item_id: id,
+      structure_id: d.structureId,
+      yd_part: parts.length > 1 ? (unweighed ?? "") : (parts[0] ?? ""),
+    };
+    if (e.panels.length === 0) patch.panels = d.panels;
     if (!e.width_form && d.widthForm) patch.width_form = d.widthForm;
     setEntryCell(e.key, patch);
   };
@@ -4321,18 +4694,43 @@ export function FabricBomScreen({
     for (const l of lines) {
       if (!l.item_id) continue;
       const styleRef = l.style_ref_no.trim();
-      const seedKey = `${styleRef}${SEP}${l.item_id}`;
-      if (seen.has(seedKey) || manualSeededFabrics.current.has(seedKey)) continue;
-      seen.add(seedKey);
-      manualSeededFabrics.current.add(seedKey);
-      if (entriesForStyle(styleRef).some((e) => e.item_id === l.item_id)) continue;
-      const d = fabricDefaultsFor(styleRef, l.item_id);
-      const entry = blankManualEntry(newKey(), styleRef);
-      entry.item_id = l.item_id;
-      entry.structure_id = d.structureId;
-      entry.component_ids = d.componentIds;
-      entry.width_form = d.widthForm;
-      toAdd.push(entry);
+      /* PER (STYLE, FABRIC, YD PART) since 0596 — a yarn-dyed cloth allocated
+         as TOP and BOTTOM is two piece weights, so each part gets its own
+         entry. The part is "" on every other fabric, so their key is as before.
+         AND PER ROLL FORM since 2026-09-22 (screenshot 3008): a cloth the
+         Components tab cuts both Open Width and Tubular is two entries, each
+         listing the panels of its own form (`fabricDefaultsFor`). A cloth
+         whose lines state no form yet is one entry, form blank, listing
+         everything mapped to it. */
+      const part = ydPartKey(l.yd_part);
+      const forms = mappedFormsOf(lines, styleRef || null, l.item_id);
+      for (const form of forms.length ? forms : [""]) {
+        const seedKey = `${styleRef}${SEP}${l.item_id}${SEP}${part}${SEP}${form}`;
+        if (seen.has(seedKey) || manualSeededFabrics.current.has(seedKey)) continue;
+        seen.add(seedKey);
+        manualSeededFabrics.current.add(seedKey);
+        /* An entry of this fabric with the SAME form — or with none yet, which
+           the catch-up below and `setEntryForm` will settle — already stands
+           for it; never a second row beside it. */
+        if (
+          entriesForStyle(styleRef).some(
+            (e) => e.item_id === l.item_id && ydPartKey(e.yd_part) === part && (!e.width_form || e.width_form === form),
+          )
+        )
+          continue;
+        const d = fabricDefaultsFor(styleRef, l.item_id, undefined, form);
+        const entry = blankManualEntry(newKey(), styleRef);
+        entry.item_id = l.item_id;
+        entry.yd_part = l.yd_part;
+        entry.structure_id = d.structureId;
+        /* The sibling seeded a moment ago in this same pass is not in
+           `entries` yet, so its panels are not "taken" by the read above —
+           a per-form list keeps the two apart on its own, and a fabric with
+           no stated form seeds one entry only. */
+        entry.panels = d.panels;
+        entry.width_form = d.widthForm;
+        toAdd.push(entry);
+      }
     }
     const widthFormCatchUp = new Map<string, string>();
     for (const e of entries) {
@@ -4352,7 +4750,7 @@ export function FabricBomScreen({
          the ONLY entry and genuinely untouched; a scaffold beside real,
          planner-entered rows is left exactly alone. */
       const isUntouchedScaffold = (e: ManualEntryRow) =>
-        !e.item_id && !e.structure_id && e.component_ids.length === 0 && !e.style_ref_no.trim();
+        !e.item_id && !e.structure_id && e.panels.length === 0 && !e.style_ref_no.trim();
       const base = caughtUp.length === 1 && isUntouchedScaffold(caughtUp[0]) ? [] : caughtUp;
       return [...base, ...toAdd];
     });
@@ -4402,16 +4800,31 @@ export function FabricBomScreen({
     for (const [key, group] of byFabric) {
       const [styleRef, itemId] = key.split(SEP);
       const remainder = unallocatedComponentsFor(styleRef, group[0].structure_id).filter(
-        (p) => !autoSplitOffered.current.has(`${key}${SEP}${p.component_id}`),
+        /* KEYED BY THE PAIR (0569), like everything else about a panel: on a
+           Set item offering TOP's ALL BODY must not mark BOTTOM's as offered. */
+        (p) => !autoSplitOffered.current.has(`${key}${SEP}${panelKeyOf(p)}`),
       );
       if (remainder.length === 0) continue;
-      for (const p of remainder) autoSplitOffered.current.add(`${key}${SEP}${p.component_id}`);
-      const entry = blankManualEntry(newKey(), styleRef);
-      entry.item_id = itemId;
-      entry.structure_id = group[0].structure_id;
-      entry.width_form = fabricDefaultsFor(styleRef, itemId).widthForm;
-      entry.component_ids = remainder.map((p) => p.component_id);
-      toAdd.push(entry);
+      for (const p of remainder) autoSplitOffered.current.add(`${key}${SEP}${panelKeyOf(p)}`);
+      /* ONE ROW PER ROLL FORM OF THE REMAINDER (2026-09-22): a panel the
+         Components tab cuts Tubular lands on a Tubular row, and the rest on
+         the fabric's default — the same split the seed makes. */
+      const byForm = new Map<string, ManualPanel[]>();
+      for (const p of remainder) {
+        const form =
+          mappedFormsOf(lines, styleRef || null, itemId).find((f) =>
+            mappedPanelsFor(lines, styleRef || null, itemId, f).some((m) => panelKeyOf(m) === panelKeyOf(p)),
+          ) ?? fabricDefaultsFor(styleRef, itemId).widthForm;
+        byForm.set(form, [...(byForm.get(form) ?? []), p]);
+      }
+      for (const [form, panels] of byForm) {
+        const entry = blankManualEntry(newKey(), styleRef);
+        entry.item_id = itemId;
+        entry.structure_id = group[0].structure_id;
+        entry.width_form = form;
+        entry.panels = panels;
+        toAdd.push(entry);
+      }
     }
     if (toAdd.length === 0) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -4493,6 +4906,7 @@ export function FabricBomScreen({
       header: "Fabric",
       width: "9rem",
       cell: (e) => (
+        <div className="min-w-0">
         <RecordPicker
           label="Fabric"
           compact
@@ -4511,6 +4925,43 @@ export function FabricBomScreen({
              master (AGENTS.md, nominated vendors). */
           emptyHint="No fabric on this BOM yet — name one on Fabric Allocation first, and it appears here"
         />
+        {/* WHICH YD PART THIS PIECE WEIGHT IS FOR (0596) — only on a yarn-dyed
+            cloth Fabric Allocation lists more than once (TOP, BOTTOM). Each part
+            is knitted to its own stripe ratio, so its weight is grossed by that
+            part's Yarn Dyed Details and no other. Blank here is refused on Save
+            (`ydPartProblems`) rather than guessed: a weight filed under no part
+            would be dyed by nobody's stripes. A native Select — the list is the
+            parts Fabric Allocation already named, a handful at most; a part
+            that no longer exists survives, tagged, so the cell never reads
+            empty while holding a value. */}
+        {(() => {
+          const parts = partsOfFabric(e.item_id, e.style_ref_no);
+          const held = ydPartKey(e.yd_part);
+          if (parts.length < 2 && !held) return null;
+          return (
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                YD Part
+              </span>
+              <Select
+                compact
+                required={parts.length > 1}
+                aria-label="YD Part"
+                value={held}
+                onChange={(ev) => setEntryCell(e.key, { yd_part: ev.target.value })}
+              >
+                <option value="" />
+                {parts.filter(Boolean).map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+                {held && !parts.includes(held) && <option value={held}>{held} (not on Fabric Allocation)</option>}
+              </Select>
+            </div>
+          );
+        })()}
+        </div>
       ),
     },
     /* KNIT TYPE / FAMILY AND GSM ARE OFF THIS GRID (client redesign,
@@ -4527,8 +4978,8 @@ export function FabricBomScreen({
       /* THIS `width` IS DEAD HERE, AND DELIBERATELY LEFT AT ITS OLD VALUE —
          the ChildGrid it was written for (`manualEntryColumns` as a
          `<table>`) is gone; the entry row is now the hand-rolled flex line
-         below (`MANUAL_FIELD_W`, client 2026-09-04), which reads `cardLabel`
-         and `cell` off this column but never `width`. See `MANUAL_FIELD_W`
+         below (`MANUAL_FIELD_W` (now `MANUAL_TRACK`), client 2026-09-04), which reads `cardLabel`
+         and `cell` off this column but never `width`. See `MANUAL_FIELD_W` (now `MANUAL_TRACK`)
          for the box that actually sizes "Roll form" on screen. */
       width: "6rem",
       cell: (e) => (
@@ -4536,7 +4987,7 @@ export function FabricBomScreen({
           compact
           aria-label="Roll form"
           value={e.width_form}
-          onChange={(ev) => setEntryCell(e.key, { width_form: ev.target.value })}
+          onChange={(ev) => setEntryForm(e, ev.target.value)}
         >
           {/* BLANK IS A REAL STATE here, unlike the mode beside it: the column is
               nullable because an entry may not have been told yet whether the
@@ -4778,8 +5229,8 @@ export function FabricBomScreen({
              `renderMobileRow`), so nothing associates it programmatically. Same
              reason `Toggle` takes `ariaLabel` in a grid cell. */
           aria-label={
-            e.component_ids.length
-              ? `Components — ${e.component_ids.length} chosen`
+            e.panels.length
+              ? `Components — ${e.panels.length} chosen`
               : "Components — none chosen"
           }
           /* Captures the button's own rect so the sheet scales out of THIS
@@ -4791,7 +5242,7 @@ export function FabricBomScreen({
             setComponentsFor(e.key);
           }}
         >
-          {e.component_ids.length ? String(e.component_ids.length) : "Click"}
+          {e.panels.length ? String(e.panels.length) : "Click"}
         </Button>
       ),
     },
@@ -4921,7 +5372,7 @@ export function FabricBomScreen({
    * wrap — it overflows, which is the failure this number exists to avoid.
    *
    * IT WAS `Assort Color wise` UNTIL 2026-09-16 (client rename, alongside
-   * Components ▸ `Assort Color` → `Compo Color`). `MANUAL_FIELD_W` IS KEYED BY
+   * Components ▸ `Assort Color` → `Compo Color`). `MANUAL_FIELD_W` (now `MANUAL_TRACK`) IS KEYED BY
    * THE HEADER STRING, so the key had to move with the word or the column
    * silently loses its width and overflows again — the failure the paragraph
    * below is an account of. The mentions further down keep the OLD word where
@@ -4957,17 +5408,75 @@ export function FabricBomScreen({
    * happened to be wide enough by coincidence). Re-measured against the real
    * font below; the LABELS THEMSELVES ARE UNCHANGED — this is a width fix,
    * not a wording one.
+   *
+   * ## AND THE KEY FELL BEHIND THE RENAME A SECOND TIME (2026-09-17)
+   *
+   * The column's header became `Assort Colour-Wise` on 2026-09-16 (see the
+   * column), but this table still said `Compo Color wise` — so the lookup
+   * missed, the box fell back to `w-24`, and "ASSORT COLOUR-WISE" ran into
+   * "SIZE WISE" again: the exact failure the rename paragraph above warns
+   * of. Re-measured at `GRID_HEADER_TEXT` (12.5px bold uppercase, ~9.5px a
+   * character, plus `px-2`): `ASSORT COLOUR-WISE` ~187px → `w-48`;
+   * `SIZE WISE` ~102px, over `w-24`'s 96 → `w-28`; `ASSORT COLOR` ~130px,
+   * over `w-32`'s 128 → `w-36`.
+   *
+   * EACH WIDTH IS ALSO A `min-w-*` OF THE SAME SIZE (client 2026-09-17).
+   * `shrink-0` already stops the flex row squeezing a cell. The `min-w-*`
+   * spells that floor out in the class itself, so a cell keeps its width even
+   * if the `shrink-0` beside it is ever removed. Keep the two numbers equal:
+   * a `min-w` wider than its `w` quietly becomes the real width.
    */
-  const MANUAL_FIELD_W: Record<string, string> = {
-    Fabric: "w-36",
-    Type: "w-32",
-    Calculated: "w-28",
-    "Compo Color wise": "w-44",
-    "Size Wise": "w-24",
-    "EndBit Loss %": "w-32",
-    Components: "w-28",
-    "Assort Color": "w-32",
+  /*
+   * ## FIT THE PANE, NO SIDEWAYS SCROLL (operator, 2026-09-17, later the same
+   * ## day: "eliminate the horizontal scrollbar … fit all columns from the
+   * ## FABRIC dropdown to the ✕ within the visible screen width")
+   *
+   * THIS REVERSES THE MORNING'S "ONE LINE, SCROLLED" and replaces the fixed
+   * flex widths above with ONE CSS grid template both bands read. The fixed
+   * widths summed to ~1124px with the ✕, wider than the detail pane on an
+   * ordinary laptop, so the bar always scrolled.
+   *
+   * EACH TRACK IS `minmax(floor, share)`. The floor is the least the cell can
+   * hold without clipping its CONTROL — "Open Width" and "Calculated" in a
+   * compact Select with its chevron (~104px → 6.5rem), a fabric name in the
+   * picker with its ✕ slot (8rem), "COMPONENTS" as one unbreakable header word
+   * (~107px at `GRID_HEADER_TEXT` with `px-1.5` → 6.75rem). The share splits
+   * whatever is left, so on a wide pane the columns grow in proportion and the
+   * bar still ends at the card's right edge.
+   *
+   * THE FLOORS SUM TO 49.25rem (788px) with the ✕ track, and that is the width
+   * below which the safety scroller in the render can still appear — a floor
+   * is the point where shrinking further would clip a value, which is worse.
+   *
+   * THE TOGGLE AND SHORT-NUMBER HEADINGS MAY NOW WRAP, and that is the price
+   * of the fit. "ASSORT COLOUR-WISE" alone is ~187px on one line against a
+   * 36px switch; held nowrap it was the widest column on the row. Its floor is
+   * sized for two lines ("ASSORT / COLOUR-WISE"), as are Size Wise, EndBit
+   * Loss % and Assort Color. On a pane wide enough, the share gives them room
+   * and they stay on one line as before; the header band aligns to the bottom,
+   * so a wrapped heading never moves the control under it.
+   *
+   * KEYED BY HEADER, like the map it replaces — so the rename trap recorded
+   * above still applies: rename a column, move its key. An unknown header
+   * falls back to `minmax(6rem,1fr)`, which fits rather than overflows.
+   */
+  const MANUAL_TRACK: Record<string, string> = {
+    Fabric: "minmax(8rem,2fr)",
+    Type: "minmax(6.5rem,1.2fr)",
+    Calculated: "minmax(6.5rem,1.2fr)",
+    "Assort Colour-Wise": "minmax(5.5rem,1fr)",
+    "Size Wise": "minmax(4.5rem,0.8fr)",
+    "EndBit Loss %": "minmax(4.5rem,0.9fr)",
+    Components: "minmax(6.75rem,1.1fr)",
+    "Assort Color": "minmax(4.5rem,0.9fr)",
   };
+  /** The ✕ track: a 32px chip box plus `px-1`. */
+  const MANUAL_REMOVE_TRACK = "2.5rem";
+  const manualGridCols = (withRemove: boolean) =>
+    [
+      ...manualEntryColumns.map((c) => MANUAL_TRACK[c.header] ?? "minmax(6rem,1fr)"),
+      ...(withRemove ? [MANUAL_REMOVE_TRACK] : []),
+    ].join(" ");
 
   /**
    * THE SIZE GRID'S OWN FIELD SIZES — spans on the 32-column track, for the
@@ -4976,7 +5485,7 @@ export function FabricBomScreen({
    *
    * THIS IS THE LAST OF THE PAIR. `MANUAL_FIELD_SIZES` stood beside it and
    * did the same job for the ENTRY row above; that row became a flex line on
-   * 2026-09-04 (see `MANUAL_FIELD_W`), where a `col-span-*` is inert, so its
+   * 2026-09-04 (see `MANUAL_FIELD_W` (now `MANUAL_TRACK`)), where a `col-span-*` is inert, so its
    * lookup was deleted rather than left as a table nothing reads. The size
    * grid's own `renderMobileRow` is still a `FieldGrid cols={32}`, so this one
    * is live and the vocabulary is still the right one HERE.
@@ -5019,7 +5528,11 @@ export function FabricBomScreen({
       if (groups.length === 0) return null;
       const multi = groups.length > 1;
       const parts = groups.map((g) => {
-        const names = g.remainder.slice(0, 3).map((p) => componentById.get(p.component_id) ?? "");
+        /* NAMED WITH THEIR COORDINATE (0569) — "ALL BODY (TOP)". On a Set item
+           the same component is remaining under one coordinate and covered
+           under the other, and a bare "ALL BODY" there reads as a contradiction
+           of the sheet the planner has just filled in. */
+        const names = g.remainder.slice(0, 3).map((p) => panelLabelOf(p));
         const more = g.remainder.length > 3 ? ` and ${g.remainder.length - 3} more` : "";
         const label = `${names.join(", ")}${more}`;
         return multi ? `${label} (${structureById.get(g.structureId) ?? ""})` : label;
@@ -5145,7 +5658,7 @@ export function FabricBomScreen({
              `railWidthPx` IS THE ONE EXCEPTION, AND IT IS NEW (client
              2026-09-09: "the assort color went second row .. reduce that
              new fabric rail width, move the field again to the first row").
-             The header-width fix above (`MANUAL_FIELD_W`, "the title look
+             The header-width fix above (`MANUAL_FIELD_W` (now `MANUAL_TRACK`), "the title look
              messed to the table lables") made the entry bar itself ~180px
              wider — it had to be, the old widths were undersized for
              `GRID_HEADER_TEXT` — and the bar plus the default 268px rail no
@@ -5265,6 +5778,13 @@ export function FabricBomScreen({
           renderFoldedRow={(e) => (
             <span className="text-sm font-medium">{entryFabricRow(e)?.name || "New fabric"}</span>
           )}
+          /* THE GRID DRAWS NO ✕ OF ITS OWN (client 2026-09-17). Its corner
+             chip hung `absolute` at the pane's top-right, so it lined up with
+             nothing in the entry bar. The ✕ is now the bar's own last cell
+             (see "THE ✕ COLUMN" below), where the body band's `items-center`
+             centres it on the inputs. `hideRemove` also drops the `pr-10`
+             gutter that was reserved for the floating chip. */
+          hideRemove
           /* THE DETAIL PANE, AND `renderMobileRow` IS THE ROW BODY BELOW
              `masterDetail`'s breakpoint TOO — one definition. */
           renderMobileRow={(e) => (
@@ -5279,7 +5799,9 @@ export function FabricBomScreen({
                pane-width row wrapper, and the fabric card below is `w-fit`
                and sits on the LEFT of that wrapper — the two no longer share
                any horizontal space to collide over, however far down the
-               spacer pushed the card.
+               spacer pushed the card. (Since 2026-09-17 the grid draws no
+               corner ✕ here at all — see `hideRemove` above — so there is
+               nothing left for a spacer to clear.)
 
                THE REMAINING 8px WAS A PRIMITIVE BUG, FIXED THERE, NOT HERE
                (operator: "which is global issue need to fix it global").
@@ -5297,7 +5819,7 @@ export function FabricBomScreen({
               {/* ONE COMPACT ROW — the artifact's confirmed shape ("row 1, row
                  2 as single row compacted"), and since 2026-09-04 a real flex
                  line rather than the 32-column track, sized per field by
-                 `MANUAL_FIELD_W`.
+                 `MANUAL_FIELD_W` (now `MANUAL_TRACK`).
 
                  THE TRACK COULD NOT KEEP THE LABELS ON ONE LINE, which is what
                  the client asked for. `FIELD_TRACK_32` gives each field a
@@ -5353,7 +5875,7 @@ export function FabricBomScreen({
                  eight are a Select, three checkboxes and a number, whose
                  LABELS are long where their controls are tiny. On that track
                  the labels wrapped to two lines. The flex row sizes each cell
-                 to its own content instead (`MANUAL_FIELD_W`), which is what
+                 to its own content instead (`MANUAL_FIELD_W` (now `MANUAL_TRACK`)), which is what
                  `whitespace-nowrap` below is holding to one line.
 
                  THE BASELINE RULE SURVIVES THE MOVE, which is the half that
@@ -5405,7 +5927,7 @@ export function FabricBomScreen({
                   the looser thing Components was at the time.
 
                   THE FIELD WIDTHS ARE ALREADY IN RANGE and are deliberately not
-                  touched: `MANUAL_FIELD_W` runs w-20…w-36 (80—144px) against
+                  touched: `MANUAL_FIELD_W` (now `MANUAL_TRACK`) runs w-20…w-36 (80—144px) against
                   Components' own 5rem—10rem columns (80—160px). The looseness was
                   never in the fields.
 
@@ -5435,29 +5957,58 @@ export function FabricBomScreen({
                   `rounded-lg` corners the border draws — a filled band ignores
                   its ancestor's radius unless something clips it.
 
-                  BOTH BANDS CARRY `flex-wrap`, DELIBERATELY IN SYNC: every
-                  column in both bands is the SAME `MANUAL_FIELD_W` width, so
-                  the two rows are the same total px wide and wrap at the same
-                  point on a narrow pane — a header cell and its control can
-                  never end up misaligned by one wrapping before the other. */}
-              <div className="w-fit overflow-hidden rounded-lg border border-border-strong bg-surface">
+                  ## ONE LINE, SCROLLED — NOT WRAPPED (client 2026-09-17)
+
+                  Both bands used to carry `flex-wrap`, in sync, so a narrow
+                  pane broke the row onto a second line. The client asked for
+                  the row from Fabric to the ✕ to stay on ONE line always, and
+                  to scroll sideways when the pane is too narrow. This goes
+                  against `raagam-screen-layout`'s "wrap, don't scroll" on
+                  purpose, and only for this bar. So both bands are
+                  `flex-nowrap` and the card is `w-max` inside an
+                  `overflow-x-auto` scroller capped at `max-w-full`. The
+                  detail pane's column is `minmax(0,1fr)` (`child-grid.tsx`),
+                  so that cap really is the pane's width, and the ✕ is safe
+                  in the row's own `pr-10` strip, outside the scroller.
+
+                  The two bands still share `MANUAL_FIELD_W` (now `MANUAL_TRACK`) widths, so they
+                  scroll as one block and a heading can never slide off the
+                  control under it. `overflow-hidden` stays on the card, where
+                  it still clips the header fill to the rounded corners. */}
+              {/* FIT, NOT SCROLL (2026-09-17, second pass — see `MANUAL_TRACK`).
+                  The card is `w-full` and the bands are one grid template, so
+                  the bar ends at the pane's edge. `min-w-fit` + the scroller
+                  are a SAFETY NET only: they engage below the tracks' summed
+                  floors (788px), where shrinking further would clip values.
+                  At any ordinary pane width no scrollbar is drawn. */}
+              <div className="max-w-full overflow-x-auto">
+              <div className="w-full min-w-fit overflow-hidden rounded-lg border border-border-strong bg-surface">
                 {/* THE HEADER BAND. Plain text, not a second `<Field>` — a
                     label has nothing to hold a cursor or a value, so it needs
                     none of what `Field` provides beyond the words themselves. */}
-                <div className="flex flex-wrap bg-surface-muted">
+                <div
+                  className="grid bg-surface-muted"
+                  style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
+                >
                   {manualEntryColumns.map((c, ci) => (
                     <div
                       key={c.header + ci}
+                      /* `flex items-end` so a heading that wraps grows UPWARD
+                         and its last line stays on the band's baseline. */
                       className={cn(
-                        "shrink-0 whitespace-nowrap px-2 py-1.5",
+                        "flex min-w-0 items-end break-words px-1.5 py-1.5 leading-tight",
                         GRID_HEADER_TEXT,
                         ci > 0 && "border-l border-border-strong",
-                        MANUAL_FIELD_W[c.header] ?? "w-24",
                       )}
                     >
                       {c.cardLabel ?? c.header}
                     </div>
                   ))}
+                  {manualEntries.length > 1 && (
+                    /* The ✕ column's header: blank, the same width as the
+                       cell below it, so the two bands stay the same width. */
+                    <div aria-hidden />
+                  )}
                 </div>
                 {/* THE BODY BAND — one control per column, `RequiredScope`
                     reset to `false` for every one exactly as the `Field` this
@@ -5475,14 +6026,18 @@ export function FabricBomScreen({
                     whole restructure exists to remove. Vertical breathing
                     room survives as `py-2`, which cannot desync anything
                     horizontal. */}
-                <div className="flex flex-wrap items-center gap-y-2 border-t border-border-strong py-2">
+                <div
+                  className="grid items-center border-t border-border-strong py-2"
+                  style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
+                >
                   {manualEntryColumns.map((c, ci) => (
                     <div
                       key={c.header + ci}
+                      /* `min-w-0` lets the control shrink to its track instead
+                         of pushing the track wider than its floor. */
                       className={cn(
-                        "shrink-0 px-2",
+                        "min-w-0 px-1.5",
                         ci > 0 && "border-l border-border-strong",
-                        MANUAL_FIELD_W[c.header] ?? "w-24",
                       )}
                     >
                       <RequiredScope required={false} label={c.cardLabel ?? c.header}>
@@ -5490,7 +6045,35 @@ export function FabricBomScreen({
                       </RequiredScope>
                     </div>
                   ))}
+                  {/* THE ✕ COLUMN (client 2026-09-17: "neatly positioned
+                      inline with the rest of the row data"). It is this band's
+                      last cell, so this band's `items-center` centres it on the
+                      inputs. The shell is 52px (`w-13`): `pl-2` of breathing
+                      room from the last field, a fixed 32px `h-8 w-8` box
+                      holding the 28px chip, and `pr-3` so it never touches the
+                      card's right border or the scroller's edge. No `border-l`:
+                      this is an action gutter, not a data column.
+
+                      `RowRemoveChip` is the grid's own chip, so `data-row-remove`
+                      comes with it and Ctrl+Del still finds it inside the row.
+                      `length > 1` is the grid's `keepOne` rule, which it can no
+                      longer apply for us since it draws no ✕ here: the last
+                      fabric cannot be removed. */}
+                  {manualEntries.length > 1 && (
+                    /* `MANUAL_REMOVE_TRACK` (40px) sizes this cell now; `px-1`
+                       leaves the 32px box that holds the 28px chip. */
+                    <div className="flex items-center justify-center px-1">
+                      <div className="flex h-8 w-8 items-center justify-center">
+                        <RowRemoveChip
+                          inFlow
+                          label="Remove fabric"
+                          onClick={() => removeManualEntry(e)}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
+              </div>
               </div>
               {/* THE ENTRY'S OWN PROBLEM, RIGHT UNDER ITS OWN FIELDS — moved
                  here from a single line at the foot of the whole style pane
@@ -5589,7 +6172,7 @@ export function FabricBomScreen({
           onAdd={() =>
             mutEntries((xs) => [...xs, blankManualEntry(newKey(), styleRow.style_ref_no)])
           }
-          onRemove={(e) => mutEntries((xs) => xs.filter((x) => x.key !== e.key))}
+          onRemove={removeManualEntry}
           /* "+ Add fabric" GOES IN THE RAIL, under the fabrics it adds to
              (client 2026-09-04: the button below the list items, matching
              Components').
@@ -5934,7 +6517,12 @@ export function FabricBomScreen({
              is the rule `styleForCombo` and `pickStyle` both state. */
           onChange={(id) => {
             const rowNo = collidesWith(r, { item_id: id });
-            if (rowNo) {
+            /* A YARN-DYED CLOTH IS ACCEPTED A SECOND TIME (0596), as a new YD
+               Part — see `acceptSecondYdPick`. Every other fabric is refused
+               exactly as before: two rows with one key would merge and the
+               second would vanish. */
+            const part = id && id !== r.item_id ? acceptSecondYdPick(r, id) : null;
+            if (rowNo && !part) {
               toastError(
                 `This Fabric is already listed under the same Structure and Type as row ${rowNo}. No need to add it twice — edit row ${rowNo} instead.`,
               );
@@ -5943,6 +6531,9 @@ export function FabricBomScreen({
             const f = id ? fabrics.find((x) => x.id === id) : null;
             setAlloc(r, {
               item_id: id,
+              /* A part belongs to ONE allocation of ONE yarn-dyed cloth, so
+                 changing the cloth drops it unless this pick just earned one. */
+              yd_part: part ?? (id && isYdFabric(id) && id === r.item_id ? r.yd_part : ""),
               ...(r.consumption_uom_id || !f?.base_uom_id
                 ? {}
                 : { consumption_uom_id: f.base_uom_id }),
@@ -5958,6 +6549,46 @@ export function FabricBomScreen({
           <Truncated className="block text-[10px] leading-tight text-muted-foreground">
             {descriptorFor(r).gsm} GSM
           </Truncated>
+        )}
+        {/* THE YD PART (0596) — which allocation of this yarn-dyed cloth the row
+            is: TOP, BOTTOM. Under the Fabric rather than in a column of its own,
+            because it exists only on the rows of a cloth allocated more than
+            once and a column would be blank on every other row of every order
+            (the grid's width budget, `check:grid-budget`). Shown once the row
+            HAS a part, which `acceptSecondYdPick` gives it on the second pick.
+            Renaming cascades to the part's Yarn Dyed Details and Manual entries
+            (`renameAllocPart`); a name another allocation of the same cloth
+            already has is refused, since the two would merge into one row. */}
+        {isYdFabric(r.item_id) && (r.yd_part || partsOfFabric(r.item_id, r.style_ref_no).length > 1) && (
+          <div className="mt-1 flex items-center gap-1.5">
+            <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              YD Part
+            </span>
+            <Input
+              className="h-7 text-xs"
+              aria-label="YD Part"
+              value={r.yd_part}
+              onChange={(ev) => {
+                const next = ev.target.value;
+                const clash = allocationRows.find(
+                  (x) =>
+                    x.key !== r.key &&
+                    x.item_id === r.item_id &&
+                    (x.structure_id ?? "") === (r.structure_id ?? "") &&
+                    x.style_ref_no.trim().toUpperCase() === r.style_ref_no.trim().toUpperCase() &&
+                    !!ydPartKey(next) &&
+                    ydPartKey(x.yd_part) === ydPartKey(next),
+                );
+                if (clash) {
+                  toastError(
+                    `Another allocation of this fabric is already called ${ydPartKey(next)} — give this one a different YD Part.`,
+                  );
+                  return;
+                }
+                renameAllocPart(r, next);
+              }}
+            />
+          </div>
         )}
         </div>
       ),
@@ -6394,7 +7025,7 @@ export function FabricBomScreen({
          with "choose the fabric structure" before they have touched anything is
          the premature complaint `structTouched` exists to prevent one screen
          over. */
-      if (!e.structure_id && e.component_ids.length === 0) continue;
+      if (!e.structure_id && e.panels.length === 0) continue;
 
       const structureName =
         data.structures.find((x) => x.id === e.structure_id)?.name ?? "(no structure)";
@@ -6549,15 +7180,37 @@ export function FabricBomScreen({
       ? compState
       : null;
 
+  /**
+   * EACH FABRIC'S SOURCE, READ OFF ITS ROUTE (client 2026-09-19) — a branch that
+   * opens with FABRIC PURCHASE / DYED FABRIC PURCHASE is bought, not knitted.
+   * `sourceFromRoute` is the one derivation; the server's save runs it again on
+   * the payload and stores the answer, so this preview and the stored figure
+   * are one reading of one route. A fabric with no route yet keeps whatever
+   * source it had stored.
+   */
+  const routeSources = useMemo(
+    () => sourceFromRoute(procs, data.processes, data.processLookups.stages),
+    [procs, data.processes, data.processLookups.stages],
+  );
+  /** The coloured (DYED) `yarn_stage` ids — a yarn step there is the hand-typed
+   *  dyeing step (see `weightFor` and "ONE DYEING LOSS" in `yarnPurchase`). */
+  const dyedYarnStageIds = useMemo(() => colouredStageIds(data.yarnStages), [data.yarnStages]);
+  const sourceOf = (itemId: string): FabricSource =>
+    effectiveFabricSource(asFabricSource(scopeFor(itemId).source), routeSources.get(itemId));
+
   /** THE ROWS. Derived, never stored — see `deriveYarnRows`. */
   const yarnRows: YarnRow[] = useMemo(() => {
     if (!comp) return [];
     return deriveYarnRows(
-      comp.compositions,
+      /* ONLY CLOTHS WHOSE YARN IS BOUGHT (2026-09-19) — a fabric bought as
+         greige or dyed rolls buys no yarn, so its yarns are not listed here and
+         the save stores no empty row for them. `writeYarns` filters the same. */
+      compositionsBuyingYarn(comp.compositions, sourceOf),
       new Map(comp.yarns.map((y) => [y.id, { name: y.name, inactive: y.inactive }])),
       new Map(Object.entries(yarnAnswers)),
     );
-  }, [comp, yarnAnswers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `sourceOf` reads `routeSources` + `procScopes`, listed
+  }, [comp, yarnAnswers, routeSources, procScopes]);
 
   /**
    * The gross requirement behind each MANUAL ENTRY, for the yarn split.
@@ -6599,7 +7252,14 @@ export function FabricBomScreen({
        "Component Wise" route (0528) resolves to ONE panel's sequence per
        weight instead of stacking every panel's; `fabricGrossOf` (actions.ts)
        reads the same set off the saved entries. See `stagesForGroup`. */
-    const componentsByEntry = new Map(entries.map((e) => [e.key, e.component_ids]));
+    /* COMPONENT IDS, not panels: a route step names a component and knows
+       nothing of coordinates, so a Set item's TOP and BOTTOM All Body run one
+       sequence. `componentIdsOf` is the single place that flattening lives —
+       `fabricGrossOf` (actions.ts) calls the same function on the saved
+       entries, so the preview and the stored figure cannot disagree. */
+    const componentsByEntry = new Map(entries.map((e) => [e.key, componentIdsOf(e.panels)]));
+    /* THE PART EACH ENTRY WEIGHS (0596) — `fabricGrossOf` stamps the same. */
+    const partByEntry = new Map(entries.map((e) => [e.key, e.yd_part || null]));
     for (const p of preview) {
       /* A ROW THAT COULD NOT NAME ITS FABRIC IS SKIPPED. It is a refusal about
          the Fabric Lines tab ("no fabric uses this structure"), so there is no
@@ -6613,10 +7273,16 @@ export function FabricBomScreen({
       if (held && held.gross === null) continue;
       byBucket.set(bucket, {
         fabric_id: p.item_id,
+        yd_part: partByEntry.get(p.entry_key) ?? null,
         combo: p.combo,
         gross: p.qty == null ? null : (held?.gross ?? 0) + p.qty,
         uom_id: p.uom_id,
         component_ids: componentsByEntry.get(p.entry_key) ?? [],
+        /* IS THIS SLICE PRINTED? (2026-09-19) — off the BOM's own lines, the
+           same `printedGroup` `fabricGrossOf` (actions.ts) asks of the saved
+           lines, so an unprinted colourway's yarn is not grossed by the print
+           stage in the preview any more than in the stored figure. */
+        printed: printedGroup(lines, p.item_id, p.combo, componentsByEntry.get(p.entry_key) ?? []),
         /* THE REASON TRAVELS WITH THE NULL (2026-09-03). `preview` already holds
            the sentence that names the fix — "Enter the consumption for WHITE ·
            S" — and dropping it here is what left the Yarn Process tab printing
@@ -6628,7 +7294,7 @@ export function FabricBomScreen({
       });
     }
     return [...byBucket.values()];
-  }, [preview, entries]);
+  }, [preview, entries, lines]);
 
   const compositionById = useMemo(
     () => new Map((comp?.compositions ?? []).map((c) => [c.fabric_id, c])),
@@ -6660,6 +7326,10 @@ export function FabricBomScreen({
            read as one route and stacked every panel's steps (`stagesForGroup`). */
         component_id: p.component_id ?? null,
         loss_pct: loss,
+        /* 0606 — per-colourway losses, gated exactly as `normalizeProcesses`
+           stores them (only an "All colours" step), so the preview and the
+           stored purchase read the same figure. */
+        color_losses: colorLossesFromDraft(p.color_wise_loss && !p.combo, p.color_losses),
         stage_id: p.stage_id,
         process_id: p.process_id,
         /* CARRIED SINCE 2026-09-16 (0564), and the reason is the same one
@@ -6676,11 +7346,16 @@ export function FabricBomScreen({
            out. */
         is_knitting: kind?.is_knitting ?? false,
         is_dyeing: kind?.is_dyeing ?? false,
+        /* 2026-09-19 — which step is the print, so an unprinted colourway's
+           ladder can leave the print stage out (`routeForPrint`). Carried by
+           `routesByFabricOf` server-side in step. */
+        is_print: kind?.is_print ?? false,
       });
       out.set(p.item_id, list);
     }
     return out;
   }, [procs, data.processes]);
+
 
   /**
    * EVERYTHING ONE FABRIC GROUP'S YARN DYED TABS NEED (0512), from an ANCHOR
@@ -6707,6 +7382,9 @@ export function FabricBomScreen({
       style_ref_no: anchor?.style_ref_no ?? "",
       structure_id: anchor?.structure_id ?? null,
       item_id: anchor?.item_id ?? null,
+      /* THE ANCHOR'S YD PART (0596) — so a Top's popup adds rows to the Top's
+         stripes, never the Bottom's. `fabricGroupKey(anchor)` above reads it. */
+      yd_part: anchor?.yd_part ?? "",
     };
     return {
       repeats: key ? ydRepeats.filter((r) => ydAddress(r) === key) : [],
@@ -6798,29 +7476,9 @@ export function FabricBomScreen({
 
   const ydYarnName = (id: string | null) =>
     (id ? (comp?.yarns ?? []).find((y) => y.id === id)?.name : "") ?? "";
-  const ydUomName = (id: string | null) =>
-    (id ? data.uoms.find((u) => u.id === id)?.name : "") ?? "";
 
   /** The [Detail] popup's own scope — the line it was opened from. */
   const detailYd = ydFor(detailLine);
-
-  /**
-   * THE OPEN FABRIC'S OWN REQUIREMENT — Mixing Details' "Net Wt" column
-   * (Formula 3), off the SAME `fabricGross` `yarnNetByCombo` reads, never a
-   * second figure for one fabric. Summed across every colourway this cloth
-   * serves; `null` when there is none to sum (no fabric open) or when ANY
-   * of that fabric's slices refused (a partial total would understate what
-   * a dye house needs, which is worse than saying nothing).
-   */
-  const detailFabricGross = detailLine?.item_id
-    ? fabricGross.filter((f) => f.fabric_id === detailLine.item_id)
-    : [];
-  const detailFabricTotalGross =
-    detailFabricGross.length === 0 || detailFabricGross.some((f) => f.gross == null)
-      ? null
-      : detailFabricGross.reduce((sum, f) => sum + (f.gross ?? 0), 0);
-  const detailFabricUomName =
-    ydUomName(detailFabricGross.find((f) => f.uom_id)?.uom_id ?? null) || "";
 
   /**
    * The purchase weight for one yarn, its per-colourway breakdown, or the
@@ -6858,20 +7516,25 @@ export function FabricBomScreen({
    * implementation that happens to agree.
    */
   const yarnShades = (() => {
-    const fabricIds = [
-      ...new Set(ydRepeats.map((r) => r.item_id).filter(Boolean)),
-    ] as string[];
-    return fabricIds.flatMap((fabricId) =>
+    /* ONE SET PER (FABRIC, YD PART) since 0596 — `yarnShadesOf` in actions.ts
+       groups the same way, so a Top's stripes never gross a Bottom's weight. */
+    const groups = new Map<string, { fabricId: string; part: string }>();
+    for (const r of ydRepeats) {
+      if (!r.item_id) continue;
+      const part = ydPartKey(r.yd_part);
+      groups.set(`${r.item_id}|${part}`, { fabricId: r.item_id, part });
+    }
+    return [...groups.values()].flatMap(({ fabricId, part }) =>
       yarnShadesFrom(
         fabricId,
-        ydRepeats.filter((r) => r.item_id === fabricId),
+        ydRepeats.filter((r) => r.item_id === fabricId && ydPartKey(r.yd_part) === part),
         compositionById.get(fabricId) ?? null,
         /* `sno` FROM ROW ORDER, which is precisely how the payload above
            numbers these colours (`sno: i + 1`). Deriving it the same way is
            what keeps the preview's stripe pairing identical to the stored
            one — `yarnShadesFrom` pairs share to colour BY POSITION. */
         ydCombinations
-          .filter((c) => c.item_id === fabricId)
+          .filter((c) => c.item_id === fabricId && ydPartKey(c.yd_part) === part)
           .map((c) => ({
             ...c,
             colors: c.colors.map((x, i) => ({
@@ -6879,6 +7542,8 @@ export function FabricBomScreen({
               dyeing_loss_pct: x.dyeing_loss_pct,
             })),
           })),
+        undefined,
+        part || null,
       ),
     );
   })();
@@ -6894,7 +7559,16 @@ export function FabricBomScreen({
          action's `normalizeYarns` makes, so the preview and the stored figure
          stay one computation. This is now the YARN'S OWN stages on top of
          whatever its fabric(s) already contribute via `routesByFabric`. */
-      r.stages.map((st) => ({ combo: st.combo || null, loss_pct: numOrNull(st.loss_pct) })),
+      /* `dyed` (2026-09-19) — a step in a coloured yarn stage is the hand-typed
+         dyeing step; `yarnPurchase` leaves it out of the purchase weight when the
+         shades already carry a dye loss. `writeYarns` marks it the same way. */
+      r.stages.map((st) => ({
+        combo: st.combo || null,
+        loss_pct: numOrNull(st.loss_pct),
+        dyed: !!st.stage_id && dyedYarnStageIds.has(st.stage_id),
+        /* 0606 — same gate as `writeYarns`. */
+        color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses),
+      })),
       uom?.decimal_places_allowed ?? null,
       /* WHERE EACH FABRIC COMES FROM (0564) — BYTE-FOR-BYTE the expression the
          server's `sourceByFabricOf` uses, on purpose. This is one computation
@@ -6905,7 +7579,15 @@ export function FabricBomScreen({
          source, or an unrecognised string, read as Rule 1 rather than as
          "suppress everything" — the safe direction, since it buys slightly too
          much cloth rather than too little. */
-      new Map(procScopes.map((s) => [s.item_id, asFabricSource(s.source)])),
+      /* 2026-09-19: READ OFF THE ROUTE (`sourceOf`) for every fabric the
+         route or a stored scope names — the server's `sourceByFabricOf` now
+         reads the same derivation, so preview and stored figure still match. */
+      new Map(
+        [...new Set([...procScopes.map((s) => s.item_id), ...routeSources.keys()])].map((id) => [
+          id,
+          sourceOf(id),
+        ]),
+      ),
       /* PER-SHADE DYEING LOSS (0568) — see `yarnShades` above for why this is
          passed before the column that can set it exists. */
       yarnShades,
@@ -6947,7 +7629,7 @@ export function FabricBomScreen({
    * `normalizeManualEntries` applies, kept in step deliberately.
    */
   const manualBlockers = entries.flatMap((e) => {
-    if (!e.structure_id && e.component_ids.length === 0) return [];
+    if (!e.structure_id && e.panels.length === 0) return [];
     const problem = manualProblem(
       entryLike(e),
       orderSizesFor(e.style_ref_no),
@@ -6963,7 +7645,90 @@ export function FabricBomScreen({
         kind: "custom" as const,
       },
     ];
-  });
+  }).concat(
+    /* A FINISH DIA OF THE WRONG KNIT FAMILY (client 2026-09-19) — the same
+       function `updateFabricBom` runs on the payload, so the screen and the
+       server refuse the same row with the same sentence. */
+    manualDiaKnitProblems(
+      entries,
+      dias,
+      (itemId) => knitCodeOfFabric(itemId),
+      (itemId) => fabricById.get(itemId) ?? "This fabric",
+    ).map((message) => ({
+      section: "manual",
+      label: "Manual entry",
+      message,
+      kind: "custom" as const,
+    })),
+    /* YD PARTS (0596) — a yarn-dyed cloth allocated more than once must name
+       every allocation, and every Manual entry of it must say which one it
+       weighs. `ydPartProblems` is the function the server runs on the payload. */
+    ydPartProblems(
+      lines,
+      entries,
+      (itemId) => isYdFabric(itemId),
+      (itemId) => fabricById.get(itemId) ?? "This fabric",
+    ).map((message) => ({
+      section: message.includes("Fabric Allocation.") ? "lines" : "manual",
+      label: message.includes("Fabric Allocation.") ? "Fabric Allocation" : "Manual entry",
+      message,
+      kind: "custom" as const,
+    })),
+  );
+
+  /**
+   * THE FABRIC PROCESS SECTION'S FIRST SAVE-BLOCKING RULE (0570).
+   *
+   * The `process` entry in `sections` above has carried a comment since 0492
+   * saying it "declares none today … if it ever grows a rule" — this is that
+   * rule, and the client asked for the strict reading on 2026-09-18 (block the
+   * save, both faults). A stage/process pair that cannot happen physically is
+   * not a half-answered document like an unmeasured loss: it books a roll's
+   * weight to the wrong one of the four stock ledgers, and warehouse stock,
+   * material availability and valuation are all wrong from there on.
+   *
+   * ONE MESSAGE PER OFFENDING ROW, NAMING THE FABRIC — the exception the
+   * Manual-entry blockers above already earn, and for the same reason: the
+   * route grids are one card per fabric down a long tab, so "some route goes
+   * backwards" would send the planner hunting. Each sentence is the one the
+   * grid renders inline under the very cell at fault.
+   *
+   * GATES PER FABRIC, NOT GLOBALLY. `printDeclared` is the order's, but
+   * `fabricIsYarnDyed` is a property of the fabric, and handing the shared
+   * rule the wrong gate is how a narrowing and its twin come to disagree —
+   * the divergence that has already happened three times in this module.
+   */
+  const routeBlockers = [
+    ...stageRouteProblems(procs, data.processes, data.processLookups.stages, {
+      /* PRINT IS PER BRANCH SINCE 2026-09-19 — the same `printedGroup` the
+         grid's `printDeclaredFor` reads, so the twin and the Save gate cannot
+         disagree about which branch may print. */
+      gatesFor: (itemId, combo, componentId) => ({
+        printDeclared: printedGroup(lines, itemId, combo, [componentId]),
+        fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)),
+      }),
+      fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
+    }),
+    /* CHECKPOINTS A + B (client 2026-09-19): a printed line whose route never
+       prints, and a Printing step serving no printed line. The server's
+       `printRouteProblem` runs the identical function on the payload. */
+    ...printRouteProblems(
+      procs,
+      lines,
+      (processId) => !!data.processes.find((o) => o.id === processId)?.is_print,
+      {
+        fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
+        componentName: (id) => data.components.find((c) => c.id === id)?.name ?? "",
+      },
+    ),
+    /* A FABRIC BOUGHT IN ONE BRANCH AND KNITTED IN ANOTHER — `sourceFromRoute`
+       refuses it, because yarn is bought per fabric, not per colourway. */
+    ...[...routeSources].flatMap(([itemId, s]) =>
+      typeof s === "string"
+        ? []
+        : [{ item_id: itemId, row_key: "", message: `${fabricById.get(itemId) ?? "This fabric"}: ${s.refused}` }],
+    ),
+  ];
 
   const validity = sectionValidity({
     /* `colors` WAS LISTED HERE THOUGH IT DECLARED NO PROBLEMS, until the
@@ -7019,6 +7784,25 @@ export function FabricBomScreen({
       { section: "bom", id: "fb-date", label: "Date", required: true, empty: (f) => !f.bom_date },
     ],
     extra: [
+      /* THE STAGE RULES (0570) — one per offending route row, already worded
+         and already carrying their section. `kind: "custom"` like every other
+         cross-field answer here: there is no single control id for "the Stage
+         cell of whichever step goes backwards", so the reveal lands on the
+         Fabric Process tab and the grid's own inline twin points at the row. */
+      ...routeBlockers.map((b) => ({
+        section: "process" as const,
+        label: "Fabric Process",
+        message: b.message,
+        kind: "custom" as const,
+      })),
+      /* THE YARN SIDE OF THE STAGE RULE (client 2026-09-21): a yarn step its
+         Stage does not run, or a stage opened by a non-base step. The grid's
+         inline twins name the row; `writeYarns` refuses the same sentences. */
+      ...yarnStageProblems(
+        yarnRows.map((y) => ({ name: y.name, stages: y.stages })),
+        data.yarnProcesses.filter((p) => p.for_yarn).map((p) => ({ ...p, stage_roles: p.stage_roles ?? [] })),
+        data.yarnStages,
+      ).map((message) => ({ section: "yarns" as const, label: "Yarn Process", message, kind: "custom" as const })),
       /**
        * THE YARN ROWS MUST BE DERIVED BEFORE THIS DOCUMENT CAN BE SAVED.
        *
@@ -7241,11 +8025,14 @@ export function FabricBomScreen({
       (d) => !heldDias.has(diaKey(d.knit_type, d.dia)),
     );
 
+    /* The coordinate rides with the component — without it a Set item's
+       BOTTOM ALL BODY was "already here" whenever TOP's was. */
     const lineKey = (l: {
       structure_id: string | null;
+      coordinate_id: string | null;
       component_id: string | null;
       item_id: string | null;
-    }) => [l.structure_id ?? "", l.component_id ?? "", l.item_id ?? ""].join(SEP);
+    }) => [l.structure_id ?? "", l.coordinate_id ?? "", l.component_id ?? "", l.item_id ?? ""].join(SEP);
     const heldLines = new Set(lines.map(lineKey));
     const freshLines = (src.lines ?? []).filter((l) => !heldLines.has(lineKey(l)));
 
@@ -7282,6 +8069,7 @@ export function FabricBomScreen({
           coordinate_id: l.coordinate_id,
           component_id: l.component_id,
           item_id: l.item_id,
+          yd_part: l.yd_part ?? "",
           fabric_type: l.fabric_type ?? "",
           color_name: l.color_name ?? "",
           fabric_form: l.fabric_form ?? "",
@@ -7560,6 +8348,8 @@ export function FabricBomScreen({
              behind both `For` columns; see the prop. */
           lossFor={data.processLookups.lossFor}
           combos={combos}
+          /* 0606 — ASSORT COLOR-WISE LOSS; this BOM's yarn-stage table holds it. */
+          colourLoss
           /* THE SCREEN'S OWN GENERATOR, so a process added to a reopened BOM
              cannot collide with the keys `openExisting` has already issued. */
           newKey={newKey}
@@ -8356,11 +9146,9 @@ export function FabricBomScreen({
               "article"]}`: the same two fields Components' and Manual's own
               bands already drop, so all three read as one convention rather
               than three independent decisions that happen to agree today. */}
-          <StyleIdentityBand
-            styleRefNo={orderIdentity?.ref ?? ""}
-            identity={styleIdentityFor(orderIdentity?.ref ?? "")}
-            omit={["ref", "article"]}
-          />
+          {/* THE BAND ITSELF IS DRAWN BELOW, beside the grid it names — once
+              for a single-style order, once per style otherwise (see
+              `allocationStyleGroups`). */}
           {/* NO "SEED FROM ORDER" BUTTON, AND THE BAND GOES WITH IT
               (client 2026-09-03).
 
@@ -8394,13 +9182,19 @@ export function FabricBomScreen({
               reach a primitive's `<td>` from a call site. The same pair is
               on the Colour/Print section — if a third screen needs it, it
               belongs in `ChildGrid` rather than being copied again. */}
+          {(() => {
+          /* ONE GRID DEFINITION, DRAWN ONCE PER STYLE on a multi-style order
+             (`allocationStyleGroups`) and once in all on a single-style one.
+             `styleRef` is what "+ Add fabric" stamps on the new row. */
+          const allocationGrid = (rows: LineRow[], styleRef: string) => (
           <div className="[&_td]:px-2 [&_td]:py-1.5">
           <ChildGrid<LineRow>
             columns={lineColumns}
             /* ONE ROW PER ALLOCATION, not per panel — see `allocationRows`.
                `lines` is still what Save writes and what Components reads; this
-               tab asks a different question of the same array. */
-            rows={allocationRows}
+               tab asks a different question of the same array. On a
+               multi-style order, only THIS style's allocations. */
+            rows={rows}
             seedRow
             /* ## THE WIDTH BUDGET — AGAINST A 1155px PANE
 
@@ -8482,10 +9276,14 @@ export function FabricBomScreen({
                abstains there, and a blank `style_ref_no` legitimately means
                "every style" to `fabricSlices`. So the seed makes the common case
                explicit without inventing an answer for the ambiguous one. */
+            /* AND ON A MULTI-STYLE ORDER IT SEEDS THE SECTION'S OWN STYLE
+               (2026-09-18) — the grid it belongs to is scoped to one style, so
+               the answer is no longer ambiguous. The "All styles" section
+               passes "", which is exactly what it means. */
             onAdd={() =>
               mut((xs) => [
                 ...xs,
-                { ...blankLine(newKey()), style_ref_no: orderIdentity?.ref ?? "" },
+                { ...blankLine(newKey()), style_ref_no: styleRef },
               ])
             }
             /* THE ✕ IS BACK (operator request, 2026-09-04), reversing the
@@ -8505,6 +9303,39 @@ export function FabricBomScreen({
             addLabel="+ Add fabric"
           />
           </div>
+          );
+
+          if (!allocationStyleGroups) {
+            /* ONE STYLE (or none): exactly the tab as it was — Style No above
+               one grid of every allocation. */
+            return (
+              <>
+                <StyleIdentityBand
+                  styleRefNo={orderIdentity?.ref ?? ""}
+                  identity={styleIdentityFor(orderIdentity?.ref ?? "")}
+                  omit={["ref", "article"]}
+                />
+                {allocationGrid(allocationRows, orderIdentity?.ref ?? "")}
+              </>
+            );
+          }
+          /* SEVERAL STYLES: a band and a grid per style. The band keeps the
+             Style REF here (`omit={["article"]}`, not the single-style
+             `["ref", "article"]`): with more than one section on screen, the
+             ref is the key that tells them apart, and Style No may be blank or
+             shared. The "All styles" section has no style to describe, so its
+             band says so in the ref slot. */
+          return allocationStyleGroups.map((g) => (
+            <Fragment key={g.key || "__all_styles"}>
+              <StyleIdentityBand
+                styleRefNo={g.ref || "ALL STYLES"}
+                identity={g.ref ? styleIdentityFor(g.ref) : null}
+                omit={g.ref ? ["article"] : ["style", "article"]}
+              />
+              {allocationGrid(g.rows, g.ref)}
+            </Fragment>
+          ));
+          })()}
         </SectionBody>
       ),
     },
@@ -8680,6 +9511,12 @@ export function FabricBomScreen({
                     onPatchLine={patchLine}
                     onAddPanel={h.addPanel}
                     onRemovePanel={h.removePanel}
+                    /* THE PARTS FABRIC ALLOCATION NAMED (0596) — only a
+                       yarn-dyed cloth is ever split, so every other cloth
+                       answers none and its row draws no part cell. */
+                    ydPartsFor={(itemId, styleRefNo) =>
+                      isYdFabric(itemId) ? partsOfFabric(itemId, styleRefNo) : []
+                    }
                   />
                 );
               })}
@@ -9033,6 +9870,11 @@ export function FabricBomScreen({
               }}
               renderPanel={(r) => {
                 const scope = scopeFor(r.item_id);
+                /* THE SOURCE THE FIGURES USE — read off the route since
+                   2026-09-19 (`sourceOf`), which is what makes a route opening
+                   with DYED FABRIC PURCHASE stop buying yarn. `scope.source` is
+                   only the stored fallback now. */
+                const source = sourceOf(r.item_id);
                 const fabricRows = procs.filter((p) => p.item_id === r.item_id);
                 /* A STEP NAMING A BRANCH ON AN AXIS THAT IS NOW OFF is out of
                    the grid but not out of state — the same rows
@@ -9146,7 +9988,10 @@ export function FabricBomScreen({
                            identical column. `Route per Compo Color` still says
                            what the control does and still cannot be read as the
                            Manual tab's weight scoping. */
-                        label="Compo Color"
+                        /* "COMBO", NOT "COMPO" (client 2026-09-22, screenshot
+                           2997) — one-letter transcription slip, fixed on all
+                           three surfaces at once. */
+                        label="Combo Color"
                         checked={scope.assort_color_wise}
                         disabled={readOnly || r.combos.length < 2}
                         onChange={(next) =>
@@ -9273,10 +10118,10 @@ export function FabricBomScreen({
                         control that caused it, present exactly while the state
                         it describes is true, which is the only shape a line
                         under a heading may take on this screen. */}
-                    {scope.source !== "yarn_knit" && (
+                    {source !== "yarn_knit" && (
                       <p className="text-xs text-warning">
                         {(() => {
-                          const off = suppressedBySource(scope.source);
+                          const off = suppressedBySource(source);
                           const names = [
                             off.yarnPurchase && "Yarn Purchase",
                             off.knitting && "Knitting",
@@ -9287,8 +10132,8 @@ export function FabricBomScreen({
                               ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
                               : (names[0] ?? "");
                           return names.length
-                            ? `${list} ${names.length > 1 ? "are" : "is"} not planned for this fabric — ${FABRIC_SOURCE_LABELS[scope.source]}, so the demand is the purchased roll weight in kg.`
-                            : `${FABRIC_SOURCE_LABELS[scope.source]} — the demand is the purchased roll weight in kg.`;
+                            ? `${list} ${names.length > 1 ? "are" : "is"} not planned for this fabric — ${FABRIC_SOURCE_LABELS[source]}, so the demand is the purchased roll weight in kg.`
+                            : `${FABRIC_SOURCE_LABELS[source]} — the demand is the purchased roll weight in kg.`;
                         })()}
                       </p>
                     )}
@@ -9330,6 +10175,21 @@ export function FabricBomScreen({
                       processes={data.processes}
                       lookups={data.processLookups}
                       printDeclared={printDeclared}
+                      /* CHECKPOINT B, PER BRANCH (client 2026-09-19) — Printing
+                         is offered only on a (colourway, component) branch
+                         whose lines carry a print, not on every branch because
+                         some colourway somewhere is AOP. The Save gate below
+                         asks `printedGroup` the identical question. */
+                      printDeclaredFor={(row) =>
+                        printedGroup(lines, r.item_id, row.combo, [row.component_id])
+                      }
+                      /* 0583 — "DYEING [WITH BIOWASH]"; this BOM's route table
+                         has the column to hold it. */
+                      subCategories
+                      /* 0606 — ASSORT COLOR-WISE LOSS, over THIS fabric's own
+                         colourways (the same `r.combos` the Compo Color ▾
+                         lists), whether or not its route is split. */
+                      lossColours={r.combos}
                       /* 0557, doc/order/update.md §7.3 — a Yarn-Dyed
                          fabric's dyeing loss is carried on the Yarn
                          Process tab, so Fabric Process withholds
@@ -9343,7 +10203,7 @@ export function FabricBomScreen({
                          nothing is withheld from the ▾, because a purchased
                          cloth's route is still allowed to record that it was
                          knitted by somebody else. See the prop's own note. */
-                      source={scope.source}
+                      source={source}
                       /* THE SCREEN'S OWN GENERATOR, so a route added to a
                          reopened BOM cannot collide with the keys
                          `openExisting` has already issued. */
@@ -9374,6 +10234,22 @@ export function FabricBomScreen({
               screen, not the reasoning. Both process tabs now end at their grid,
               which is what "remove this unnecessary wording from each tab top"
               asked for; restore neither without the other. */}
+        </SectionBody>
+      ),
+    },
+    /* T&A — FABRIC STEPS 6–11 (0609, doc/order/fabricbom tanda.md). Yarn PO →
+       yarn GRN → knitting delivery → knitting receipt → process delivery →
+       finished roll in, dated back from cutting. Its own sidebar row for an
+       afternoon; moved here on the client's word (2026-09-21) because it is
+       this document's follow-through. `FabricTaTab` fetches its own data, so
+       the editor holds no tracker state. */
+    {
+      key: "ta",
+      label: "T&A",
+      icon: CalendarClock,
+      content: (
+        <SectionBody title="T&A">
+          <FabricTaTab garmentOrderId={form.garment_order_id} bomId={editId} />
         </SectionBody>
       ),
     },
@@ -9414,6 +10290,7 @@ export function FabricBomScreen({
         coordinate_id: l.coordinate_id,
         component_id: l.component_id,
         item_id: l.item_id,
+        yd_part: l.yd_part.trim() || null,
         fabric_type: l.fabric_type || null,
         color_name: l.color_name || null,
         fabric_form: (l.fabric_form || null) as "open" | "tubular" | null,
@@ -9468,6 +10345,7 @@ export function FabricBomScreen({
           style_ref_no: r.style_ref_no || null,
           structure_id: r.structure_id,
           item_id: r.item_id,
+          yd_part: r.yd_part.trim() || null,
           sno: i + 1,
           yarn_item_id: r.yarn_item_id,
           dye_type: r.dye_type,
@@ -9485,6 +10363,7 @@ export function FabricBomScreen({
         style_ref_no: r.style_ref_no || null,
         structure_id: r.structure_id,
         item_id: r.item_id,
+        yd_part: r.yd_part.trim() || null,
         combo: r.combo || null,
         yd_combo_name: r.yd_combo_name || null,
         // `sno` FROM ARRAY POSITION, same as `dias` below — the nested Color
@@ -9517,6 +10396,7 @@ export function FabricBomScreen({
         style_ref_no: e.style_ref_no.trim() || null,
         width_form: (e.width_form || null) as "open_width" | "tubular" | null,
         item_id: e.item_id,
+        yd_part: e.yd_part.trim() || null,
         /* SENT, THOUGH THE SERVER OVERWRITES IT from the fabric (0522). It is
            still the honest value to send: on an entry whose cloth the master
            cannot resolve, this is the structure the row was last known by. */
@@ -9526,7 +10406,7 @@ export function FabricBomScreen({
         endbit_loss_pct: numOrNull(e.endbit_loss_pct) ?? 0,
         assort_color_wise: e.assort_color_wise,
         size_wise: e.size_wise,
-        component_ids: e.component_ids,
+        panels: e.panels,
         /* THE TICKED COLOURWAYS (0567). Sent whole; the server reads them only
            when `assort_color_wise` is on. */
         combos: e.combos,
@@ -9579,12 +10459,17 @@ export function FabricBomScreen({
         sno: i + 1,
         stage_id: p.stage_id,
         process_id: p.process_id,
+        /* 0583 — never sent without its process. */
+        sub_category_id: p.process_id ? (p.sub_category_id ?? null) : null,
         loss_for_id: p.loss_for_id,
         loss_pct: numOrNull(p.loss_pct),
         /* NO `rate` — the client removed the column on 2026-09-03 and it went
            from the row, the schema and the table with it (0521). NO
            `description` either — 2026-09-04, the same shape (0528). */
         type_id: p.type_id,
+        /* 0606 — the server re-applies the "All colours only" gate. */
+        color_wise_loss: !!p.color_wise_loss && !p.combo,
+        color_losses: colorLossesFromDraft(p.color_wise_loss && !p.combo, p.color_losses) ?? {},
       })),
       /* THE TWO SPLIT TOGGLES (0528). Sent straight — `normalizeProcessScopes`
          is what decides which of these are worth a row (a fabric no longer
@@ -9624,8 +10509,14 @@ export function FabricBomScreen({
           loss_for_id: st.loss_for_id,
           /* THE `For` COLUMN'S ARITHMETIC (0504, restored 0529). */
           combo: st.combo || null,
-          description: st.description || null,
+          /* NO DESCRIPTION (client 2026-09-21) — the column is off this tab,
+             so nothing is sent for it: a note the operator cannot see must not
+             keep being saved. */
+          description: null,
           loss_pct: numOrNull(st.loss_pct),
+          /* 0606 — same gate as the fabric route's. */
+          color_wise_loss: !!st.color_wise_loss && !st.combo,
+          color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses) ?? {},
         })),
       })),
     };
@@ -9710,6 +10601,20 @@ export function FabricBomScreen({
           tasks={tasks}
           noun="fabric"
           stat={lineStat}
+          /* THE SAME PENDING / UPDATED BOX AS MATERIAL BOM (2026-09-21: "the
+             Update and Pending options displayed exactly like they are in
+             Material"). One component, so the two queues cannot drift. */
+          quickStatus
+          quickDraft
+          /* A TAP OPENS THE EDITOR, and nothing sits between (client
+             2026-09-21, screenshots 162502 / 162621: "intha mari visible aaga
+             vendam, direct aa intha page visible aana pothum"). A right-edge
+             detail drawer stood here for one day — `FabricBomDrawer`, opened
+             through `BomQueue`'s `onPreview` — and was the SECOND time a
+             drawer was hung on this card and taken down again (the first,
+             2026-09-18, is in `mobile-card-list.tsx`'s `queue` prop). Both
+             were removed outright rather than left as dead code; the Reports
+             action the drawer also carried is the card's own button below. */
           onOpen={openTask}
           canDelete={perms.canDelete}
           /* `bom_id` is non-null here by `canDeleteRow` — a Pending row has no
@@ -9726,6 +10631,11 @@ export function FabricBomScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
+        locked={lockMessage ? { message: lockMessage } : false}
+        /* A compact 200px Sections rail whose labels still fit — "Fabric
+           Allocation" clipped at 192px, and 240px read as too wide (operator,
+           2026-09-17). See the prop. */
+        fitRail
         open={mode === "edit"}
         onClose={() => setMode("list")}
         modeLabel={
@@ -9859,6 +10769,11 @@ export function FabricBomScreen({
             ? ` — ${
                 fabrics.find((f) => f.id === detailLine.item_id)?.name ??
                 "(no fabric)"
+              }${
+                /* THE PART, when the cloth has one (0596): TOP and BOTTOM open
+                   the same cloth's popup with different stripes, and a title
+                   that named only the cloth would not say which. */
+                ydPartKey(detailLine.yd_part) ? ` · ${ydPartKey(detailLine.yd_part)}` : ""
               }`
             : ""
         }`}
@@ -9869,8 +10784,6 @@ export function FabricBomScreen({
         yarnColourOptions={declaredYarnColours}
         composition={detailYd.composition}
         yarnName={ydYarnName}
-        fabricTotalGross={detailFabricTotalGross}
-        fabricUomName={detailFabricUomName}
         onPatchYdRepeat={patchYdRepeat}
         onAddYdRepeat={detailYd.addRepeat}
         onRemoveYdRepeat={removeYdRepeat}
@@ -9984,13 +10897,54 @@ export function FabricBomScreen({
             fabrics.find((f) => f.id === componentsForEntry.item_id)?.name ??
             "(no fabric named)";
           const options = componentOptionsFor(componentsForEntry);
-          const selected = new Set(componentsForEntry.component_ids);
-          const toggle = (id: string) =>
-            setEntryCell(componentsForEntry.key, {
-              component_ids: selected.has(id)
-                ? componentsForEntry.component_ids.filter((x) => x !== id)
-                : [...componentsForEntry.component_ids, id],
-            });
+          const selected = new Set(componentsForEntry.panels.map(panelKeyOf));
+          /* GROUPED UNDER THEIR COORDINATE (client 2026-09-17: "selecting a
+             Coordinate dynamically groups and displays all its sub-components
+             beneath it, followed clearly by the next Coordinate and its
+             specific sub-components").
+
+             A Map keyed by the coordinate's ID keeps the ORDER'S OWN ORDER —
+             `declaredPanelsFor` returns the declaration's `sno`, so the groups
+             come out in the sequence the order states them (TOP before BOTTOM
+             because that is how the style was entered), not alphabetically and
+             not in the components master's order. */
+          const groups = new Map<string, { name: string; rows: PanelOptionRow[] }>();
+          for (const o of options) {
+            const k = o.panel.coordinate_id ?? "";
+            const g = groups.get(k) ?? { name: o.coordinate, rows: [] };
+            g.rows.push(o);
+            groups.set(k, g);
+          }
+          const grouped = [...groups.values()];
+          /* THE HEADING EARNS ITS ROW ONLY WHEN IT SAYS SOMETHING. One group
+             with no name is a Piece item — every panel belongs to the one
+             coordinate — and a lone "—" band above the list is chrome telling
+             the planner what they already know. */
+          const showHeadings = grouped.length > 1 || !!grouped[0]?.name;
+          const toggle = (o: PanelOptionRow) => {
+            const held = componentsForEntry.panels;
+            if (selected.has(o.key)) {
+              setEntryCell(componentsForEntry.key, {
+                panels: held.filter((p) => panelKeyOf(p) !== o.key),
+              });
+              return;
+            }
+            /* TICKING A COORDINATE ANSWERS AN UNSTATED CLAIM ON THE SAME
+               COMPONENT, rather than standing beside it (0569). A legacy entry
+               holds (unstated, ALL BODY); the planner now says TOP. Keeping
+               both would store one panel twice — the entries would stop
+               partitioning the garment, which is the arithmetic this rule
+               exists for — and `panelTaken` reads the unstated one as covering
+               every coordinate anyway, so it is the same claim, now said
+               precisely. Only ever in this direction: a stated coordinate is
+               never replaced by an unstated one. */
+            const replaced = o.panel.coordinate_id
+              ? held.filter(
+                  (p) => !(p.coordinate_id === null && p.component_id === o.panel.component_id),
+                )
+              : held;
+            setEntryCell(componentsForEntry.key, { panels: [...replaced, o.panel] });
+          };
           return (
             <Sheet
               open
@@ -10067,7 +11021,11 @@ export function FabricBomScreen({
                             existing convention rather than inventing a new
                             number: this table drifted, the convention did
                             not. */}
-                        <th className="w-20 px-3 py-1.5 font-medium">Coordinate</th>
+                        {/* THE COORDINATE COLUMN IS NOW A HEADING (0569).
+                            It printed one coordinate per component and could
+                            not do otherwise: the row it labelled was a merged
+                            pair. Grouping says the same fact once per run and
+                            gives the component name back the width. */}
                         <th className="px-3 py-1.5 font-medium">Component</th>
                         <th className="w-10 px-3 py-1.5 text-center font-medium">✓</th>
                       </tr>
@@ -10075,7 +11033,7 @@ export function FabricBomScreen({
                     <tbody>
                       {options.length === 0 ? (
                         <tr>
-                          <td colSpan={3} className="px-3 py-3 text-center text-muted-foreground">
+                          <td colSpan={2} className="px-3 py-3 text-center text-muted-foreground">
                             {/* A STATE OF THE RECORD, which is the one thing a
                                 placeholder may still say. With every panel
                                 taken by another entry ON THIS STYLE there is
@@ -10086,30 +11044,57 @@ export function FabricBomScreen({
                           </td>
                         </tr>
                       ) : (
-                        options.map((o) => (
-                          <tr key={o.id} className="border-b last:border-b-0">
-                            <td className="px-3 py-1 text-muted-foreground">
-                              <Truncated>
-                                {coordinateForComponent(o.id, componentsForEntry.style_ref_no) ||
-                                  "—"}
-                              </Truncated>
-                            </td>
-                            <td className={cn("px-3 py-1", o.inactive && "text-muted-foreground")}>
-                              <Truncated>
-                                {o.label}
-                                {o.inactive ? " (inactive)" : ""}
-                              </Truncated>
-                            </td>
-                            <td className="px-3 py-1 text-center">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 accent-primary"
-                                aria-label={o.label}
-                                checked={selected.has(o.id)}
-                                onChange={() => toggle(o.id)}
-                              />
-                            </td>
-                          </tr>
+                        grouped.map((g, gi) => (
+                          <Fragment key={g.rows[0]?.key ?? gi}>
+                            {showHeadings && (
+                              <tr className="border-b bg-surface-muted">
+                                <th
+                                  colSpan={2}
+                                  scope="colgroup"
+                                  className="px-3 py-1 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                                >
+                                  {/* A style that declares no coordinate still
+                                      has panels, and they are not nothing —
+                                      "Coordinate not stated" says which
+                                      question is unanswered, where a bare "—"
+                                      reads as a missing value in a column. */}
+                                  {g.name || "Coordinate not stated"}
+                                </th>
+                              </tr>
+                            )}
+                            {g.rows.map((o) => (
+                              <tr key={o.key} className="border-b last:border-b-0">
+                                <td
+                                  className={cn(
+                                    "px-3 py-1",
+                                    o.inactive && "text-muted-foreground",
+                                    // Indented under its heading, so a long list
+                                    // still reads as runs rather than one block.
+                                    showHeadings && "pl-6",
+                                  )}
+                                >
+                                  <Truncated>
+                                    {o.label}
+                                    {o.inactive ? " (inactive)" : ""}
+                                  </Truncated>
+                                </td>
+                                <td className="w-10 px-3 py-1 text-center">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 accent-primary"
+                                    /* THE COORDINATE IS IN THE LABEL, not only in
+                                       the heading above it: a screen reader
+                                       reaching this box hears "ALL BODY (TOP)"
+                                       and can tell it from the other ALL BODY,
+                                       which is the whole point of the pair. */
+                                    aria-label={o.coordinate ? `${o.label} (${o.coordinate})` : o.label}
+                                    checked={selected.has(o.key)}
+                                    onChange={() => toggle(o)}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </Fragment>
                         ))
                       )}
                     </tbody>
@@ -10121,8 +11106,10 @@ export function FabricBomScreen({
                     and that sum is only right while the entries partition the
                     panels. */}
                 <p className="text-xs text-muted-foreground">
-                  A component belongs to one fabric entry per style — the weights are
-                  summed, so a panel counted twice is its cloth bought twice.
+                  A panel belongs to one fabric entry per style — the weights are
+                  summed, so a panel counted twice is its cloth bought twice. A Set
+                  item&apos;s TOP and BOTTOM are separate panels even where they share a
+                  component name, so each is chosen under its own coordinate.
                 </p>
               </div>
             </Sheet>

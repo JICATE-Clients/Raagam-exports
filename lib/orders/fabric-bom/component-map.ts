@@ -170,10 +170,15 @@ export type StyleComponentDecl = {
   fabric_category_id: string | null;
 };
 
-/** A BOM line, as far as these rules need to see it. */
+/** A BOM line, as far as these rules need to see it.
+ *
+ *  `coordinate_id` is OPTIONAL only so a line that predates 0495 (or a fixture
+ *  that does not care) can omit it; absent and null mean the same thing — a
+ *  panel whose coordinate was never stated. */
 export type MappedLineLike = {
   style_ref_no: string | null;
   structure_id: string | null;
+  coordinate_id?: string | null;
   component_id: string | null;
 };
 
@@ -182,6 +187,68 @@ export type PanelOption = {
   coordinate_id: string | null;
   component_id: string;
 };
+
+/**
+ * A PANEL IS A (COORDINATE, COMPONENT) PAIR — its identity, as one string.
+ *
+ * A Set item declares one component under TWO coordinates: TOP's ALL BODY and
+ * BOTTOM's ALL BODY are two panels, cut separately, that happen to wear one
+ * `components` row. Every place the Components tab keyed a panel on
+ * `component_id` alone collapsed them — the taken-set withdrew BOTTOM's the
+ * moment TOP's was picked, the picker drew two identical rows sharing one id,
+ * and `options.find(component)` stamped TOP on whichever was chosen (client
+ * 2026-09-18: "if user give set it will get multiple coordinate like top
+ * bottom, now only top coordinate listing"). Manual got the same fix in 0569;
+ * this is its Components-tab half.
+ *
+ * "" for an unstated coordinate, the same join `declaredPanelsFor` already
+ * dedupes on. Coordinate ids are uuids, so the pipe cannot be forged.
+ */
+export function panelKey(p: { coordinate_id?: string | null; component_id: string }): string {
+  return `${p.coordinate_id ?? ""}|${p.component_id}`;
+}
+
+/**
+ * WHICH PANEL ROW A LINE BELONGS TO — the pair where a component is picked, the
+ * client-side `panel_uid` while it is still blank. The ONE definition the sheet's
+ * grouping and the screen's `inScope` both read: they disagreeing is a patch that
+ * lands on a different set of lines than the row it was typed on.
+ */
+export function panelGroupKey(l: {
+  coordinate_id: string | null;
+  component_id: string | null;
+  panel_uid: string;
+}): string {
+  return l.component_id ? panelKey({ coordinate_id: l.coordinate_id, component_id: l.component_id }) : l.panel_uid;
+}
+
+/** A held value as the rules read it — a bare id is a panel with no coordinate. */
+type HeldPanel = string | { coordinate_id: string | null; component_id: string | null } | null;
+
+function heldPair(held: HeldPanel): { coordinate_id: string | null; component_id: string } | null {
+  if (!held) return null;
+  if (typeof held === "string") return { coordinate_id: null, component_id: held };
+  return held.component_id ? { coordinate_id: held.coordinate_id, component_id: held.component_id } : null;
+}
+
+/**
+ * THE OPTION A HELD PANEL RESOLVES TO, or null.
+ *
+ * The exact pair first. A held panel with NO coordinate — a line saved before
+ * 0495, or by the seed before its coordinate was carried — resolves to its
+ * component's option only when that is unambiguous: on a single-coordinate
+ * style it is plainly that panel, and on a Set it could be TOP's or BOTTOM's,
+ * and a guessed coordinate reads on screen exactly like a chosen one.
+ */
+export function heldOption(options: readonly PanelOption[], held: HeldPanel): PanelOption | null {
+  const h = heldPair(held);
+  if (!h) return null;
+  const exact = options.find((o) => panelKey(o) === panelKey(h));
+  if (exact) return exact;
+  if (h.coordinate_id !== null) return null;
+  const same = options.filter((o) => o.component_id === h.component_id);
+  return same.length === 1 ? same[0] : null;
+}
 
 /**
  * RULE 2 — the panels this STYLE declares against this FABRIC CATEGORY.
@@ -217,12 +284,92 @@ export function declaredPanelsFor(
        honestly produce. Both fall out of comparing the keys directly. */
     if (styleKey(d.style_ref_no) !== want) continue;
 
-    const key = `${d.coordinate_id ?? ""}|${d.component_id}`;
+    const key = panelKey({ coordinate_id: d.coordinate_id, component_id: d.component_id });
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ coordinate_id: d.coordinate_id, component_id: d.component_id });
   }
   return out;
+}
+
+/**
+ * WHICH RAIL GROUP A PANEL IS LISTED UNDER — its coordinate, or one of the two
+ * states that have none yet.
+ *
+ *  · `coordinate` — the panel names a component and states its coordinate.
+ *  · `unstated`   — a component with no coordinate: a line saved before 0495,
+ *                   or one the order never paired. Listed, never hidden.
+ *  · `pending`    — "+ Add part" pressed and no component picked yet.
+ */
+export type PanelSection =
+  | { kind: "coordinate"; key: string; coordinate_id: string }
+  | { kind: "unstated"; key: "unstated" }
+  | { kind: "pending"; key: "pending" };
+
+export function panelSection(p: { coordinate_id: string | null; component_id: string | null }): PanelSection {
+  if (!p.component_id) return { kind: "pending", key: "pending" };
+  if (!p.coordinate_id) return { kind: "unstated", key: "unstated" };
+  return { kind: "coordinate", key: `c:${p.coordinate_id}`, coordinate_id: p.coordinate_id };
+}
+
+/**
+ * THE COMPONENTS RAIL'S ORDER — every TOP panel, then every BOTTOM panel
+ * (client 2026-09-18, approved from the "Components by Coordinate" artifact).
+ *
+ * The rail used to list panels in LINE order, which is the order the lines were
+ * made — and "fill from the order" makes them one fabric STRUCTURE at a time, so
+ * a Set came out TOP ALL BODY, BOTTOM ALL BODY, TOP NECK TAPE… with the two
+ * coordinates interleaved.
+ *
+ * THE ORDER IS THE ORDER'S OWN, never alphabetical:
+ *  1. coordinates in the sequence the style first declares them (`sno`, which
+ *     is the order `getOrderStyleComponents` returns); a coordinate a line holds
+ *     but the style no longer declares comes after the declared ones;
+ *  2. within a coordinate, panels in their declaration order — whichever fabric
+ *     each is cut from; an undeclared pair after the declared ones;
+ *  3. then `unstated`, then `pending`, so a fresh "+ Add part" sits at the foot
+ *     and moves up under its coordinate once a component is picked.
+ *
+ * STABLE: ties keep the input order, so two undeclared panels never swap places
+ * between renders. Pure; returns a new array.
+ */
+export function sortPanelsByCoordinate<
+  P extends { coordinate_id: string | null; component_id: string | null },
+>(panels: readonly P[], decls: readonly StyleComponentDecl[], styleRefNo: string | null): P[] {
+  const want = styleKey(styleRefNo);
+  const coordRank = new Map<string, number>();
+  const pairRank = new Map<string, number>();
+  for (const d of decls) {
+    if (styleKey(d.style_ref_no) !== want) continue;
+    if (d.coordinate_id && !coordRank.has(d.coordinate_id)) coordRank.set(d.coordinate_id, coordRank.size);
+    if (d.component_id) {
+      const k = panelKey({ coordinate_id: d.coordinate_id, component_id: d.component_id });
+      if (!pairRank.has(k)) pairRank.set(k, pairRank.size);
+    }
+  }
+  /* Undeclared coordinates rank after every declared one, in the order the
+     panels first bring them up. */
+  for (const p of panels) {
+    if (p.component_id && p.coordinate_id && !coordRank.has(p.coordinate_id)) {
+      coordRank.set(p.coordinate_id, coordRank.size);
+    }
+  }
+
+  const BIG = Number.MAX_SAFE_INTEGER;
+  const rankOf = (p: P): [number, number] => {
+    const s = panelSection(p);
+    if (s.kind === "pending") return [BIG, 0];
+    if (s.kind === "unstated") return [BIG - 1, pairRank.get(panelKey({ coordinate_id: null, component_id: p.component_id! })) ?? BIG];
+    return [
+      coordRank.get(s.coordinate_id) ?? BIG - 2,
+      pairRank.get(panelKey({ coordinate_id: p.coordinate_id, component_id: p.component_id! })) ?? BIG,
+    ];
+  };
+
+  return panels
+    .map((p, i) => ({ p, i, r: rankOf(p) }))
+    .sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || a.i - b.i)
+    .map((x) => x.p);
 }
 
 /**
@@ -233,9 +380,15 @@ export function declaredPanelsFor(
  * itself out of its own list renders filled-then-empty and blanks the FK on the
  * next save — the "Disabled rows" data loss, arriving through a dropdown.
  *
- * A SET OF COMPONENTS, NOT OF LINES. One panel is one row PER COLOURWAY, so the
- * same `component_id` legitimately appears many times; counting lines would make
- * a two-colourway order report every panel as taken twice over.
+ * A SET OF PANELS, NOT OF LINES. One panel is one row PER COLOURWAY, so the
+ * same panel legitimately appears many times; counting lines would make a
+ * two-colourway order report every panel as taken twice over.
+ *
+ * AND A PANEL IS A PAIR — `panelKey`, never the bare component. Keyed on the
+ * component, picking TOP's ALL BODY withdrew BOTTOM's too, and a Set item could
+ * only ever map its first coordinate. A line with no coordinate contributes
+ * `"|component"`, which `isTaken` reads as a claim under EVERY coordinate — it
+ * cannot say which one it meant, so it may have meant any.
  */
 export function panelsTakenInStyle(
   siblings: readonly MappedLineLike[],
@@ -246,9 +399,25 @@ export function panelsTakenInStyle(
   for (const l of siblings) {
     if (!l.component_id) continue;
     if (styleKey(l.style_ref_no) !== want) continue;
-    taken.add(l.component_id);
+    taken.add(panelKey({ coordinate_id: l.coordinate_id, component_id: l.component_id }));
   }
   return taken;
+}
+
+/**
+ * IS THIS DECLARED PANEL TAKEN — the exact pair, or its component claimed with
+ * no coordinate (a claim under every coordinate). An option that itself states
+ * no coordinate is taken by its component under any coordinate, for the same
+ * reason read the other way round.
+ */
+function isTaken(taken: ReadonlySet<string>, p: PanelOption): boolean {
+  if (taken.has(panelKey(p))) return true;
+  if (taken.has(panelKey({ coordinate_id: null, component_id: p.component_id }))) return true;
+  if (p.coordinate_id === null) {
+    const tail = `|${p.component_id}`;
+    for (const k of taken) if (k.endsWith(tail)) return true;
+  }
+  return false;
 }
 
 /**
@@ -324,13 +493,23 @@ export function availablePanels(input: {
   siblings: readonly MappedLineLike[];
   styleRefNo: string | null;
   structureId: string | null;
-  held: string | null;
+  /** The panel this row holds. A bare id is a component with no coordinate
+   *  (legacy lines, and fixtures); pass the pair wherever the row has one, or a
+   *  Set item's BOTTOM panel is read as "ALL BODY, coordinate unknown". */
+  held: HeldPanel;
 }): PanelOption[] {
   const declared = declaredPanelsFor(input.decls, input.styleRefNo, input.structureId);
   const taken = panelsTakenInStyle(input.siblings, input.styleRefNo);
-  const held = input.held;
+  const held = heldPair(input.held);
 
-  const out = declared.filter((p) => p.component_id === held || !taken.has(p.component_id));
+  /* A held pair keeps its own option; a held panel with NO coordinate keeps
+     every option of its component, since it cannot say which one it is. */
+  const isHeld = (p: PanelOption) =>
+    !!held &&
+    p.component_id === held.component_id &&
+    (held.coordinate_id === null || p.coordinate_id === held.coordinate_id);
+
+  const out = declared.filter((p) => isHeld(p) || !isTaken(taken, p));
 
   /* THE HELD PANEL SURVIVES RULE 2 AS WELL, and this is the branch that is easy
      to leave out. `out` above only rescues it from rule 3. A line mapped last
@@ -345,11 +524,11 @@ export function availablePanels(input: {
      and "not declared" is a LABEL. The caller that renders the option list owns
      the tag, the same way `diaOptionsFor` attaches its own `sublabel`. Keeping
      the survivor last is what makes it visible to a caller that wants to say so. */
-  if (held && !out.some((p) => p.component_id === held)) {
-    out.push({
-      coordinate_id: input.decls.find((d) => d.component_id === held)?.coordinate_id ?? null,
-      component_id: held,
-    });
+  if (held && !out.some(isHeld)) {
+    /* ITS OWN COORDINATE, never the first declaration's. `decls.find(component)`
+       was what stamped TOP on a Set item's BOTTOM panel. A held panel with no
+       coordinate stays without one — inventing it is a guess wearing an FK. */
+    out.push({ coordinate_id: held.coordinate_id, component_id: held.component_id });
   }
 
   return out;
@@ -424,6 +603,25 @@ export function fabricGroupKey(l: {
   style_ref_no: string | null;
   structure_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — optional so every caller that predates it still builds
+   *  the key a part-less row always had. */
+  yd_part?: string | null;
 }): string {
-  return [styleKey(l.style_ref_no), l.structure_id ?? "", l.item_id ?? ""].join(SEP);
+  return [styleKey(l.style_ref_no), l.structure_id ?? "", l.item_id ?? "", ydPartKey(l.yd_part)].join(SEP);
 }
+
+/**
+ * WHICH ALLOCATION OF A YARN-DYED FABRIC — the fourth part of its address (0596).
+ *
+ * A Top and a Bottom may be knitted from the SAME yarn-dyed cloth to different
+ * stripe ratios (client ticket 2026-09-19), so the cloth alone no longer says
+ * which Yarn Dyed Details a line, a piece weight or a shade belongs to. The
+ * operator names each allocation — TOP, BOTTOM — and this is how every reader
+ * compares those names: trimmed and upper-cased, with blank (and NULL, which
+ * is every row written before 0596) meaning "the fabric's only part".
+ *
+ * ONE FUNCTION FOR EVERY READER — the screen's allocation key, the Yarn Dyed
+ * address, the engine's shade match and the save path — so "no part" cannot be
+ * spelt two ways and quietly split one allocation into two.
+ */
+export const ydPartKey = (p: string | null | undefined): string => (p ?? "").trim().toUpperCase();

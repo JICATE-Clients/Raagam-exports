@@ -26,9 +26,10 @@
  * arithmetic — it describes how a loss is measured, never what it is measured
  * against — and this tab's `loss_for_id` cell keeps reading that same shared
  * list as its LABEL (PROCESS WISE / COLOR WISE), one column along from the new
- * `Colour` cell that does the dividing. COLOR WISE is what reveals `Colour`; see
- * `isColorWise` below and `yarn-process.ts`'s file header for why the arithmetic
- * itself never branches on it.
+ * `Colour` cell that does the dividing. COLOR WISE is what reveals `Colour` on
+ * a caller without `colourLoss` (none today — see that prop); see `isColorWise`
+ * below and `yarn-process.ts`'s file header for why the arithmetic itself never
+ * branches on it.
  *
  * ## THE OUTER ROW IS DERIVED, WHICH IS THE OTHER REAL DIFFERENCE
  *
@@ -53,6 +54,14 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import { ColorLossControl } from "@/components/orders/color-loss-control";
+import { colorLossSeed, isColorWiseFor } from "@/lib/orders/fabric-bom/color-loss";
+import {
+  opensYarnStage,
+  yarnBaseMissing,
+  yarnBasesForStage,
+  yarnStageMismatch,
+} from "@/lib/orders/fabric-bom/yarn-stage-routes";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -88,6 +97,7 @@ export function YarnProcessGrid({
   canCreate = false,
   canEdit = false,
   readOnly = false,
+  colourLoss = false,
 }: {
   /** THIS yarn's steps only — they live on the yarn row, so there is nothing to
    *  filter and no way for one to be orphaned. */
@@ -131,7 +141,22 @@ export function YarnProcessGrid({
   canCreate?: boolean;
   canEdit?: boolean;
   readOnly?: boolean;
+  /** ASSORT COLOR-WISE LOSS (0606 · 0613) — For = COLOR WISE turns Loss %
+   *  into a [Color Loss] list over `combos` (each colour + its loss) and the
+   *  Colour dropdown is not drawn. BOTH callers pass it now: the Fabric BOM
+   *  since 0606, the IWO Fabric BOM since 0613 gave its tables the columns
+   *  (client screenshot 2979 — an IWO's COLOR WISE opened a shade ▾ instead of
+   *  the list). Still opt-in rather than the default so a caller whose table
+   *  cannot store the map never shows a control whose figures the save would
+   *  drop on the floor. */
+  colourLoss?: boolean;
 }) {
+  /* The options as the stage rules read them — YARN processes only (a fabric
+     process classified to GREIGE, KNITTING say, is not a base a yarn row can
+     pick — client screenshot 2971), `stage_roles` defaulted since IWO's loader
+     does not carry it. */
+  const yarnOpts = processes.filter((p) => p.for_yarn).map((p) => ({ ...p, stage_roles: p.stage_roles ?? [] }));
+  const stageNameOf = (id: string | null) => (id ? stages.find((s) => s.id === id)?.name : null) || "this stage";
   const patch = (key: string, next: Partial<YarnStageRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
 
@@ -164,7 +189,20 @@ export function YarnProcessGrid({
           compact
           options={stages}
           value={r.stage_id}
-          onChange={(id) => patch(r.key, { stage_id: id || null })}
+          onChange={(id) => {
+            const stageId = id || null;
+            /* RESTRICTED, NOT WARNED (client 2026-09-21, screenshot 2971): a
+               held process the new Stage would not offer — or that is not the
+               base the stage opens with — is CLEARED, so a Stage/Process pair
+               the ▾ refuses cannot be assembled by changing the Stage after
+               the Process. The Process cell then holds the cursor until a
+               legal one is picked. Differs from the fabric route's "held value
+               survives, tagged" on the client's word. */
+            const at = rows.findIndex((x) => x.key === r.key);
+            const offered = processesForYarn(processes, { currentValue: null, stageId, isFirstOfStage: opensYarnStage(rows.map((x, i) => (i === at ? { ...x, stage_id: stageId } : x)), at) });
+            const keep = !r.process_id || offered.some((p) => p.id === r.process_id);
+            patch(r.key, { stage_id: stageId, ...(keep ? {} : { process_id: null }) });
+          }}
           required={yarnStageStarted(r)}
           canCreate={canCreate && !readOnly}
           canEdit={canEdit && !readOnly}
@@ -199,22 +237,53 @@ export function YarnProcessGrid({
       header: "Process",
       width: "12rem",
       required: rows.some(yarnStageStarted),
-      cell: (r) => (
-        <RecordPicker
-          label=""
-          compact
-          items={processesForYarn(processes, { currentValue: r.process_id })}
-          value={r.process_id}
-          onChange={(id) => patch(r.key, { process_id: id })}
-          disabled={readOnly}
-          required={yarnStageStarted(r)}
-          /* Empty-and-explain. An empty list means the Process master has
-             nothing flagged "Yarn", which is fixed on a DIFFERENT screen — a
-             bare "— Select —" over nothing reads as a broken dropdown and
-             teaches the planner nothing (AGENTS.md, nominated vendors). */
-          emptyHint="No process is flagged for Yarn — tick it on Master Data ▸ Materials ▸ Processes"
-        />
-      ),
+      cell: (r) => {
+        const at = rows.findIndex((x) => x.key === r.key);
+        /* HARD GATE, SHOWN AS ONE (client 2026-09-21): a row Save will refuse
+           wears a red outline on the cell at fault and a red sentence under
+           it — never amber, which reads as advice. */
+        const refused = yarnStageMismatch(r, yarnOpts) || yarnBaseMissing(rows, at, yarnOpts);
+        return (
+          <div className={refused ? "min-w-0 rounded-md ring-2 ring-danger" : "min-w-0"}>
+            <RecordPicker
+              label=""
+              compact
+              /* THE STAGE DECIDES THE PROCESS (client 2026-09-21) — the yarn
+                 side of 0563's rule: the ▾ narrows to the processes classified
+                 for the row's Stage, and the FIRST step of a stage to its base
+                 (YARN DYEING under DYED, YARN PURCHASE under GREIGE). Withheld
+                 from the list, never blocked after the fact; the twins below
+                 name a held value the list would not offer today. */
+              items={processesForYarn(processes, {
+                currentValue: r.process_id,
+                stageId: r.stage_id,
+                isFirstOfStage: opensYarnStage(rows, at),
+              })}
+              value={r.process_id}
+              onChange={(id) => patch(r.key, { process_id: id })}
+              disabled={readOnly}
+              required={yarnStageStarted(r)}
+              /* Empty-and-explain. An empty list means the Process master has
+                 nothing flagged "Yarn", which is fixed on a DIFFERENT screen — a
+                 bare "— Select —" over nothing reads as a broken dropdown and
+                 teaches the planner nothing (AGENTS.md, nominated vendors). */
+              emptyHint="No process is flagged for Yarn — tick it on Master Data ▸ Materials ▸ Processes"
+            />
+            {yarnStageMismatch(r, yarnOpts) && (
+              <p className="mt-0.5 px-1 text-xs font-medium text-danger">
+                {stageNameOf(r.stage_id)} does not run {processes.find((p) => p.id === r.process_id)?.name ?? "this process"}
+                {" "}— change the Stage or pick another process.
+              </p>
+            )}
+            {yarnBaseMissing(rows, at, yarnOpts) && (
+              <p className="mt-0.5 px-1 text-xs font-medium text-danger">
+                The first step under {stageNameOf(r.stage_id)} must be{" "}
+                {yarnBasesForStage(yarnOpts, r.stage_id).map((b) => b.name).join(" or ")}.
+              </p>
+            )}
+          </div>
+        );
+      },
     },
     {
       /**
@@ -246,19 +315,47 @@ export function YarnProcessGrid({
           compact
           options={lossFor}
           value={r.loss_for_id}
-          onChange={(id) =>
+          onChange={(id) => {
+            const next = id || null;
+            if (colourLoss) {
+              /* FABRIC BOM (client 2026-09-21): For IS THE SWITCH. COLOR WISE
+                 turns the Loss % box into the [Color Loss] list, seeded with
+                 the step's current loss for every colour so nothing changes
+                 until a figure is edited; PROCESS WISE empties it. No colour
+                 dropdown either way — the colours live in the list. */
+              const wise = isColorWiseFor(next, lossFor);
+              patch(r.key, {
+                loss_for_id: next,
+                combo: "",
+                color_wise_loss: wise,
+                color_losses: wise ? colorLossSeed(combos, r.color_losses, r.loss_pct) : {},
+              });
+              return;
+            }
             patch(r.key, {
-              loss_for_id: id || null,
-              combo: isColorWise(id || null, lossFor) ? r.combo : "",
-            })
-          }
+              loss_for_id: next,
+              /* Cleared when the label stops scoping by colour. */
+              combo: isColorWise(next, lossFor) ? r.combo : "",
+            });
+          }}
           canCreate={canCreate && !readOnly}
           canEdit={canEdit && !readOnly}
         />
       ),
     },
+    ...(colourLoss
+      ? []
+      : [
     {
       /**
+       * NOT DRAWN UNDER `colourLoss` — which is now every caller (Fabric BOM
+       * since 0606, IWO since 0613): COLOR WISE lists every colour with its own
+       * loss behind the [Color Loss] button instead (the Loss % column below).
+       * The cell stays for a caller whose table cannot hold the map; the
+       * `combo` column it writes is still honoured by the engine
+       * (`stageCoversCombo`), so a row stored with one keeps grossing its one
+       * colour.
+       *
        * WHICH COLOURWAY THIS TREATMENT IS FOR — and it divides the weight
        * (0504, restored 0529).
        *
@@ -267,7 +364,7 @@ export function YarnProcessGrid({
        * arithmetic rather than a label, 2026-09-01). So a stage marked PURPLE
        * grosses up the purple share alone and leaves green at its net weight.
        *
-       * SHOWN ONLY WHEN `For` IS COLOR WISE. Process Wise treats the whole
+       * SHOWN WHEN `For` IS COLOR WISE. Process Wise treats the whole
        * yarn — the ordinary case since 0520 — so a colourway box beside it would
        * offer a choice the arithmetic would ignore, which is worse than not
        * offering one. A row not yet answering `For` at all shows the dash too:
@@ -284,8 +381,11 @@ export function YarnProcessGrid({
        */
       header: "Colour",
       width: "8rem",
-      cell: (r) =>
-        isColorWise(r.loss_for_id, lossFor) ? (
+      cell: (r) => {
+        if (!isColorWise(r.loss_for_id, lossFor)) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        return (
           <Select
             compact
             className="h-8"
@@ -296,42 +396,27 @@ export function YarnProcessGrid({
           >
             <option value="">All colourways</option>
             {/* THE HELD VALUE SURVIVES A LIST THAT NO LONGER OFFERS IT — the
-                "Disabled rows" rule. A combo removed from the order after the
-                treatment was recorded would otherwise render as blank, which
-                reads as "applies to everything" and silently widens the loss to
-                every colourway. */}
-            {(combos.includes(r.combo) || !r.combo ? combos : [...combos, r.combo]).map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
+                  "Disabled rows" rule. A combo removed from the order after the
+                  treatment was recorded would otherwise render as blank, which
+                  reads as "applies to everything" and silently widens the loss to
+                  every colourway. */}
+              {(combos.includes(r.combo) || !r.combo ? combos : [...combos, r.combo]).map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
           </Select>
-        ) : (
-          <span className="text-sm text-muted-foreground">—</span>
-        ),
-    },
-    {
-      /* Legacy's greyed "Descriptions" cell, as free text — the same call the
-         fabric route and the Garment Order's Style ▸ Process grid both made on
-         the same evidence: the Process cell beside it carries the ⓘ glyph every
-         master-backed field in this app carries, and this one carries none. Not
-         `required`: a step with no note is a complete answer. */
-      /* LEGACY'S OWN WORD, PLURAL (client 2026-09-03, who enumerated this
-         tab's columns and wrote "Descriptions"). Same call `Dia / Size / Width`
-         makes on the Fabric BOM section — a legacy header is copied, not
-         improved, so an operator reading the two screens side by side is
-         matching columns rather than translating them. */
-      header: "Descriptions",
-      width: "10rem",
-      cell: (r) => (
-        <Input
-          value={r.description}
-          disabled={readOnly}
-          className="h-8"
-          onChange={(e) => patch(r.key, { description: e.target.value })}
-        />
-      ),
-    },
+        );
+      },
+    } satisfies ChildGridColumn<YarnStageRow>,
+        ]),
+    /* NO "Descriptions" COLUMN. Removed from the Fabric BOM on 2026-09-21
+       (client: "that description field also no need here, remove it") — the
+       same call the fabric route made on 2026-09-04 — and from the IWO the same
+       day (client screenshot 2982: "Description field need to remove it from
+       here"), so no caller draws it. The `description` column stays in both
+       yarn-stage tables and both payloads send `description: null`, so no note
+       lingers unseen on a row whose column is gone. */
     {
       /**
        * THE FIGURE THAT BUYS THE YARN, and the cell a reader is most likely to
@@ -349,16 +434,34 @@ export function YarnProcessGrid({
        */
       header: "Loss %",
       align: "right",
-      width: "4.5rem",
-      cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          value={r.loss_pct}
-          disabled={readOnly}
-          onChange={(e) => patch(r.key, { loss_pct: e.target.value })}
-        />
-      ),
+      /* 7rem on Fabric BOM, where the cell may hold the [Color Loss] button;
+         the Colour column (8rem) and the old Color-wise Loss column (8rem) both
+         left, so the table is narrower than before. */
+      width: colourLoss ? "7rem" : "4.5rem",
+      cell: (r) =>
+        /* For = COLOR WISE → each colour's loss in the list; PROCESS WISE → the
+           one box. `isColorWiseFor` is the rule both process grids read. */
+        colourLoss && isColorWiseFor(r.loss_for_id, lossFor) ? (
+          <ColorLossControl
+            driven
+            colours={combos}
+            baseLoss={r.loss_pct}
+            wise
+            losses={r.color_losses ?? {}}
+            stageLabel={(r.process_id ? processes.find((p) => p.id === r.process_id)?.name : null) || "this step"}
+            readOnly={readOnly}
+            unavailable={combos.length === 0 ? "No colourway uses this yarn yet." : null}
+            onChange={(next) => patch(r.key, next)}
+          />
+        ) : (
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            value={r.loss_pct}
+            disabled={readOnly}
+            onChange={(e) => patch(r.key, { loss_pct: e.target.value })}
+          />
+        ),
     },
   ];
 
@@ -380,12 +483,13 @@ export function YarnProcessGrid({
          standing on every solid order's yarn with no way to clear it. */
       keepOne={false}
       /* @5xl (1024), AND THE GRID NOW FITS INSIDE IT WHOLE. Every column
-         declares a width — 7 + 12 + 8 + 8 + 10 + 4.5 = 49.5rem = 792px since
-         `Colour` joined `For` (0529) — and `ChildGrid`'s own chrome is 88px
+         declares a width — 7 + 12 + 8 + 7 = 34rem = 544px under `colourLoss`
+         (every caller today); the older shape with `Colour` and `Descriptions`
+         was 49.5rem = 792px — and `ChildGrid`'s own chrome is 88px
          exactly (`#` is `w-10` plus `px-2`, the remove column `w-8`), so the
-         table measures ~880px against a 1024px threshold. That margin is the
-         point: the widths can be tuned without anyone having to re-derive
-         whether the grid still renders as a table.
+         table measures at most ~880px against a 1024px threshold. That margin
+         is the point: the widths can be tuned without anyone having to
+         re-derive whether the grid still renders as a table.
 
          THE THRESHOLD MATTERS MORE SINCE THIS GRID MOVED INTO A FOLD PANEL: the
          panel costs ~80px of container against the section it used to sit in,

@@ -17,7 +17,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -84,9 +84,14 @@ export function ThingMasterScreen({ rows, perms }: { rows: Thing[]; perms: Perms
     // select must name created_by, or the column renders a dash in every row.
   ];
 
+  // EVERY COLUMN DECLARES A VOCABULARY WIDTH (SKILL.md "BUILD IT COMPACT THE FIRST
+  // TIME"), so the grid hugs its content and `npm run check:grid-budget` can measure
+  // it — a grid missing from that check's output was never measured. A NAMED
+  // `…Columns` array, widths as `FIELD_WIDTH_CSS.<step>`, is what it reads.
   const childColumns: ChildGridColumn<ChildRow>[] = [
     {
       header: "Line",
+      width: FIELD_WIDTH_CSS.name,
       required: true,
       cell: (r) => (
         <Input
@@ -169,10 +174,17 @@ export function ThingMasterScreen({ rows, perms }: { rows: Thing[]; perms: Perms
           </>
         }
       >
-        <DetailSection label="Details" cols={12}>
-          <FieldGrid>
-            {/* size="sm" on every field — ~280px, four per row. */}
-            <Field label="Name" required size="sm" htmlFor="th-name">
+        {/* WIDTH-LAID-OUT FROM THE FIRST COMMIT (SKILL.md "BUILD IT COMPACT THE FIRST
+            TIME"). Each field takes the lib/ui/sizes.ts step for the KIND of value it
+            holds, and the section is capped at a DEFINITE width — narrowing the fields
+            does not narrow the card. Cap arithmetic, stated once:
+              name 288 + term 176 + hug 88 = 552, + 2 × 12px row gap = 576,
+              + 2 × 10px DetailSection padding = 596px → 38rem.
+            Never `max-w-fit`: DetailSection's `@container/section` makes a
+            content-sized cap compute to 0. */}
+        <DetailSection label="Details" cols={1} className="max-w-[38rem]">
+          <FieldRow>
+            <Field label="Name" required w="name" htmlFor="th-name">
               <Input
                 id="th-name"
                 uppercase
@@ -182,12 +194,12 @@ export function ThingMasterScreen({ rows, perms }: { rows: Thing[]; perms: Perms
               />
               <DuplicateError error={dupError} id="th-name" />
             </Field>
-            <Field label="Note" size="sm" htmlFor="th-note">
+            <Field label="Note" w="term" htmlFor="th-note">
               <Input id="th-note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
             </Field>
             {/* A checkbox gets `min-h-9 items-center` so it centres on the same
                 36px control height as the field beside it. */}
-            <Field label="Inactive" size="sm" htmlFor="th-inactive">
+            <Field label="Inactive" w="hug" htmlFor="th-inactive">
               <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
                 <input
                   id="th-inactive"
@@ -199,7 +211,7 @@ export function ThingMasterScreen({ rows, perms }: { rows: Thing[]; perms: Perms
                 <span className="text-sm text-foreground">Yes</span>
               </label>
             </Field>
-          </FieldGrid>
+          </FieldRow>
         </DetailSection>
 
         <DetailSection label="Lines">

@@ -114,7 +114,7 @@ export function RequisitionDetail({ docId, status, lines, items, canEdit, canApp
               <Button type="submit" disabled={isPending}>Add</Button>
             </form>
           )}
-          <DataTable columns={columns} rows={lines} getKey={(r) => r.id} empty="No lines yet." />
+          <DataTable paginate={false} columns={columns} rows={lines} getKey={(r) => r.id} empty="No lines yet." />
         </CardBody>
       </Card>
 

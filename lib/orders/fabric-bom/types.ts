@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FABRIC_BASES } from "./requirement";
+import { CONS_QTY_REFUSAL, consQtyRefused } from "./manual";
 import { capsTextNullable } from "@/lib/validation/formats";
 /* The route rows' own schema lives beside their narrowing rule, in
    `./processes.ts`, which is client-safe and is imported by the grid as well —
@@ -65,6 +66,9 @@ export interface FabricBomLine {
   component_id: string | null;
   /** The fabric itself — an `items` row of item class FABRIC. */
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this row
+   *  belongs to (TOP, BOTTOM, …). NULL = the fabric's only part. */
+  yd_part: string | null;
   fabric_type: string | null;
   /** Legacy Components ▸ "Required Color". `combo` is the ASSORT colour; this is
    *  the colour this panel is required in within it (0408's wording: "the front
@@ -136,6 +140,9 @@ export interface FabricBomManualEntry {
    * off this cloth rather than typed.
    */
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this row
+   *  belongs to (TOP, BOTTOM, …). NULL = the fabric's only part. */
+  yd_part: string | null;
   /** A `categories` row — the same vocabulary `order_fabric_bom_lines.structure_id`
    *  and the order's own combo structures use. DERIVED SINCE 0522: the save
    *  writes it as `item_id`'s `items.category_id`, because the requirement
@@ -164,10 +171,13 @@ export interface FabricBomManualEntry {
   sizes: FabricBomManualSize[];
 }
 
-/** One panel an entry's weight covers. The `components` MASTER (0228). */
+/** One panel an entry's weight covers — a (coordinate, component) PAIR since
+ *  0569. `component_id` is the `components` MASTER (0228); `coordinate_id` is
+ *  `items` of class GAR, NULL where the coordinate was never stated. */
 export interface FabricBomManualComponent {
   id: string;
   entry_id: string;
+  coordinate_id: string | null;
   component_id: string;
 }
 
@@ -323,6 +333,9 @@ export interface FabricBomYarnStage {
   combo: string | null;
   description: string | null;
   loss_pct: number | null;
+  /** ASSORT COLOR-WISE LOSS (0606) — colourway → loss %; empty unless on. */
+  color_wise_loss?: boolean | null;
+  color_losses?: Record<string, number> | null;
   process_qty: number | null;
   uom_id: string | null;
   refusal_reason: string | null;
@@ -416,6 +429,9 @@ export interface FabricBomYdRepeat {
   style_ref_no: string | null;
   structure_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this row
+   *  belongs to (TOP, BOTTOM, …). NULL = the fabric's only part. */
+  yd_part: string | null;
   sno: number;
   yarn_item_id: string | null;
   dye_type: "dyed" | "grey";
@@ -431,6 +447,9 @@ export interface FabricBomYdCombination {
   style_ref_no: string | null;
   structure_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this row
+   *  belongs to (TOP, BOTTOM, …). NULL = the fabric's only part. */
+  yd_part: string | null;
   combo: string | null;
   yd_combo_name: string | null;
   /** The nested Color breakdown (0560) — reference only, sorted by `sno`. */
@@ -478,6 +497,8 @@ export interface FabricBomProcess {
   /** `config_lookups` kind 'fabric_stage' — GREY, DYED. */
   stage_id: string | null;
   process_id: string | null;
+  /** Which of `process_id`'s sub-categories — DYEING [WITH BIOWASH] (0583). */
+  sub_category_id?: string | null;
   /** `config_lookups` kind 'process_loss_for' — "Process wise". */
   loss_for_id: string | null;
   /* NO `description`. It held legacy's [Click]→sub-list text and the client
@@ -491,6 +512,10 @@ export interface FabricBomProcess {
      and is untouched. */
   /** `config_lookups` kind 'fabric_process_type' — deliberately unseeded. */
   type_id: string | null;
+  /** ASSORT COLOR-WISE LOSS (0606) — colourway → loss %; empty unless on. A
+   *  colourway absent from the map uses `loss_pct`. */
+  color_wise_loss?: boolean | null;
+  color_losses?: Record<string, number> | null;
 }
 
 /**
@@ -550,7 +575,7 @@ export const fabricBomManualSizeInput = z.object({
   /* "Cons Qty" — units of cloth per garment. NULLABLE and NULL MEANS 1: a
      column default would make an untouched row indistinguishable from a
      deliberate 1. `consQtyOf` is the one place that reading lives. */
-  cons_qty: numN,
+  cons_qty: numN.refine((v) => !consQtyRefused(v), CONS_QTY_REFUSAL),
   /* THE "Widths" POPUP'S ONE OTHER REAL FIELD (0526, replacing 0525's
      roll_width/roll_width_tolerance — see `FabricBomManualSize.finished_width`
      above). `purchase_width` above is the popup's second field. */
@@ -585,6 +610,9 @@ export const fabricBomManualEntryInput = z.object({
      a draft entry that has not chosen yet is a real state, and refusing it in
      the schema would make a half-filled row unsaveable as a DRAFT. */
   item_id: uuidN,
+  /* YD PART (0596) — CAPS in the schema, the rule every text value here
+     follows. Optional: every payload written before 0596 has none. */
+  yd_part: capsTextNullable(),
   /* DERIVED FROM `item_id` AND STILL WRITTEN — the action sets it to the
      fabric's `items.category_id` (0405 · 0415 · 0426: a Structure on this screen
      IS a fabric category), because the requirement engine keys its GSM lookup on
@@ -611,7 +639,15 @@ export const fabricBomManualEntryInput = z.object({
      omits the field used to save TRUE against a screen showing the toggle off —
      the row then read back size-wise having never been switched on. */
   size_wise: z.coerce.boolean().default(false),
-  component_ids: z.array(z.string().uuid()).default([]),
+  /* WHICH PANELS THIS WEIGHT COVERS — (coordinate, component) PAIRS since
+     0569, where it was a bare list of component ids. A Set item declares one
+     component under TWO coordinates, so the id alone cannot say which panel is
+     meant; `fabricBomLineInput` below has carried the same pair since 0495.
+     `coordinate_id` NULL is "unstated", which `panelTaken` reads as a claim on
+     every coordinate of that component — never as "no coordinate". */
+  panels: z
+    .array(z.object({ coordinate_id: uuidN, component_id: z.string().uuid() }))
+    .default([]),
   /* WHICH COLOURWAYS THIS WEIGHT IS FOR (0567) — read only when
      `assort_color_wise` above is ON, in which case an EMPTY list is refused by
      `fabricSlices` rather than read as "every colourway". Plain strings and not
@@ -633,6 +669,9 @@ export const fabricBomLineInput = z
     coordinate_id: uuidN,
     component_id: uuidN,
     item_id: uuidN,
+    /* YD PART (0596) — CAPS in the schema, the rule every text value here
+       follows. Optional: every payload written before 0596 has none. */
+    yd_part: capsTextNullable(),
     fabric_type: nullableText,
     // CAPS in the SCHEMA, not the action: `lib/data-io` parses imports with this
     // same schema and writes straight to Postgres, so an action-level
@@ -789,6 +828,9 @@ export const fabricBomYdRepeatInput = z.object({
   style_ref_no: nullableText,
   structure_id: uuidN,
   item_id: uuidN,
+  /* YD PART (0596) — CAPS in the schema, the rule every text value here
+     follows. Optional: every payload written before 0596 has none. */
+  yd_part: capsTextNullable(),
   sno: z.coerce.number().int().nonnegative().default(0),
   yarn_item_id: uuidN,
   dye_type: z.enum(["dyed", "grey"]).default("dyed"),
@@ -827,6 +869,9 @@ export const fabricBomYdCombinationInput = z.object({
   style_ref_no: nullableText,
   structure_id: uuidN,
   item_id: uuidN,
+  /* YD PART (0596) — CAPS in the schema, the rule every text value here
+     follows. Optional: every payload written before 0596 has none. */
+  yd_part: capsTextNullable(),
   combo: capsTextNullable(),
   yd_combo_name: capsTextNullable(),
   /** The nested Color breakdown (0560) — reference only, see that migration. */

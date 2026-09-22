@@ -3,6 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { roundUpTo } from "@/lib/orders/material-bom/requirement";
 import { isUnsettledMaterialType } from "@/lib/orders/material-bom-amendment/types";
 import { blockedMessage, judgeLine, type BomCeiling } from "./bom-ceiling";
+import { reopenedBudgetForOrder } from "@/lib/orders/budget/lock";
+import {
+  advisedAmong,
+  advisedRefusal,
+  iwoCeilingRefusal,
+  type IwoPurchaseCheck,
+} from "@/lib/orders/iwo-material-bom/purchase-gate";
 
 /**
  * The lookup half of the over-quantity ceiling (0424, made enforceable
@@ -40,7 +47,7 @@ const EMPTY: BomCeiling = {
   budgetCode: null,
 };
 
-type ReqRow = {
+export type ReqRow = {
   item_id: string | null;
   item_line_id: string | null;
   /** The TRIM's colour (0436). Part of how the minimum groups — see the rollup
@@ -51,7 +58,7 @@ type ReqRow = {
   refusal_reason: string | null;
 };
 
-type LineRow = { id: string; moq: number | null; round_to: number | null };
+export type LineRow = { id: string; moq: number | null; round_to: number | null };
 
 /**
  * WHICH BOM ANSWERS FOR THIS ORDER — the lookup both gates below start from.
@@ -76,27 +83,67 @@ async function recordedBomForOrder(
   s: Awaited<ReturnType<typeof createClient>>,
   salesOrderId: string,
 ): Promise<{ goIds: string[]; bom: { id: string; code: string | null } | null }> {
+  // The gates' long-standing behaviour on a failed read is "no BOM", and that
+  // is deliberately left alone here — changing how a live PO gate fails is its
+  // own decision, not a side effect of sharing the lookup.
+  try {
+    const found = await recordedBomsForOrders(s, [salesOrderId]);
+    return found.get(salesOrderId) ?? { goIds: [], bom: null };
+  } catch {
+    return { goIds: [], bom: null };
+  }
+}
+
+/**
+ * `recordedBomForOrder` for many orders at once — the SAME rule (recorded only,
+ * newest `amendment_no` across every garment-order document of the order), so
+ * the trims T&A tracker can never judge a different BOM than the PO gate does.
+ * The single-order form above is now a call to this one; there is no second
+ * copy of the choice to drift.
+ *
+ * Throws on a failed read: an empty map here would read as "no order has a
+ * BOM", which is a real and unremarkable answer (AGENTS.md, "A FAILED QUERY IS
+ * AN ERROR, NOT AN EMPTY LIST").
+ */
+export async function recordedBomsForOrders(
+  s: Awaited<ReturnType<typeof createClient>>,
+  salesOrderIds: readonly string[],
+): Promise<Map<string, { goIds: string[]; bom: { id: string; code: string | null } | null }>> {
+  const out = new Map<string, { goIds: string[]; bom: { id: string; code: string | null } | null }>();
+  if (salesOrderIds.length === 0) return out;
+
   // sales_orders -> the garment order documents raised against it. More than one
   // is possible (the document is amendable), so every one is a candidate and the
   // newest BOM across them wins.
-  const { data: goRows } = await s
+  const { data: goRows, error: goErr } = await s
     .from("garment_order_amendments")
-    .select("id")
-    .eq("sales_order_id", salesOrderId);
+    .select("id, sales_order_id")
+    .in("sales_order_id", [...salesOrderIds]);
+  if (goErr) throw new Error(`Garment orders could not be read: ${goErr.message}`);
 
-  const goIds = ((goRows ?? []) as { id: string }[]).map((r) => r.id);
-  if (goIds.length === 0) return { goIds, bom: null };
+  const soOfGo = new Map<string, string>();
+  for (const r of (goRows ?? []) as { id: string; sales_order_id: string }[]) {
+    soOfGo.set(r.id, r.sales_order_id);
+    const entry = out.get(r.sales_order_id) ?? { goIds: [], bom: null };
+    entry.goIds.push(r.id);
+    out.set(r.sales_order_id, entry);
+  }
+  if (soOfGo.size === 0) return out;
 
-  const { data: bomRows } = await s
+  const { data: bomRows, error: bomErr } = await s
     .from("material_bom_amendments")
-    .select("id, code, amendment_no, is_draft, garment_order_id")
-    .in("garment_order_id", goIds)
+    .select("id, code, amendment_no, garment_order_id")
+    .in("garment_order_id", [...soOfGo.keys()])
     .eq("is_draft", false)
-    .order("amendment_no", { ascending: false })
-    .limit(1);
+    .order("amendment_no", { ascending: false });
+  if (bomErr) throw new Error(`Material BOMs could not be read: ${bomErr.message}`);
 
-  const bom = ((bomRows ?? []) as { id: string; code: string | null }[])[0] ?? null;
-  return { goIds, bom };
+  // Rows arrive newest first, so the first one seen per order is the winner.
+  for (const b of (bomRows ?? []) as { id: string; code: string | null; garment_order_id: string }[]) {
+    const entry = out.get(soOfGo.get(b.garment_order_id) ?? "");
+    if (entry && !entry.bom) entry.bom = { id: b.id, code: b.code };
+  }
+  return out;
 }
 
 export async function bomCeilingForOrder(
@@ -161,81 +208,10 @@ export async function bomCeilingForOrder(
       .eq("amendment_id", bom.id),
   ]);
 
-  const lines = new Map(
-    ((lineRows ?? []) as LineRow[]).map((l) => [l.id, l]),
+  const { byItem, unanswered } = finalQuantityByItem(
+    (reqRows ?? []) as ReqRow[],
+    (lineRows ?? []) as LineRow[],
   );
-
-  /*
-   * Summed per MATERIAL **AND TRIM COLOUR**, carrying the tail parameters of
-   * every LINE that fed it. `Math.max` on both: the largest minimum is the one a
-   * single purchase has to clear, and the coarsest step is the one that leaves
-   * an orderable figure.
-   *
-   * ## THE COLOUR IN THE KEY IS WHAT KEEPS THIS CONTROL HONEST (2026-08-22)
-   *
-   * `lineQuantityByColour` clears the supplier minimum per CONE COLOUR, because
-   * navy thread and red thread are two things to buy. If the ceiling kept
-   * summing to the material first, the two would disagree in the one direction
-   * that hurts: needing 100 navy and 100 red against an MOQ of 500, the BOM
-   * tells the operator to buy 1,000 and a ceiling of `max(200, 500) = 500`
-   * refuses the purchase order written for it.
-   *
-   * That is the failure this file was already corrected for once — a ceiling
-   * built from the pre-MOQ sum "made the control fire on correct work". A
-   * control that refuses the figure its own BOM asked for is not a control.
-   *
-   * ONE COLOUR REDUCES TO THE OLD BEHAVIOUR EXACTLY: a material bought in a
-   * single colour has one group, and `max(qty, moq)` then rounds once, as
-   * before. Nothing bought today changes.
-   */
-  /* NUL, so it cannot occur in a uuid — the same choice `SLICE_SEP` makes in
-     requirement.ts, and for the same reason: a key built by concatenation must
-     not be forgeable by its own parts. */
-  const KEY_SEP = "\u0000";
-  const raw = new Map<
-    string,
-    { itemId: string; qty: number; moq: number; step: number }
-  >();
-  let unanswered = 0;
-
-  for (const r of (reqRows ?? []) as ReqRow[]) {
-    if (r.refusal_reason !== null || r.required_qty === null) {
-      unanswered += 1;
-      continue;
-    }
-    if (!r.item_id) continue;
-    // `purchase_qty` where a pack was declared, so the ceiling is in the unit a
-    // PO is written in — comparing metres with cones is a number that looks like
-    // a comparison and is not.
-    const qty = Number(r.purchase_qty ?? r.required_qty);
-    const line = r.item_line_id ? lines.get(r.item_line_id) : undefined;
-    /* NULL IS A VALUE — "the line's own colour" — so it is normalised into the
-       key rather than skipped. Skipping it would fold every uncoloured row of a
-       material into whichever colour happened to be read first. */
-    const key = `${r.item_id}${KEY_SEP}${r.item_color_id ?? ""}`;
-    const prev = raw.get(key);
-    raw.set(key, {
-      itemId: r.item_id,
-      qty: (prev?.qty ?? 0) + qty,
-      moq: Math.max(prev?.moq ?? 0, Number(line?.moq ?? 0) || 0),
-      step: Math.max(prev?.step ?? 0, Number(line?.round_to ?? 0) || 0),
-    });
-  }
-
-  const byItem = new Map<string, number>();
-  for (const v of raw.values()) {
-    // MOQ FIRST, THEN THE STEP — the client's order, settled 2026-08-19 with a
-    // worked example (needs 100, MOQ 550, step 500 gives 1,000 this way and 550
-    // the other, and only the first is a figure a supplier can pack) and
-    // restated 2026-08-21. `lineQuantity` in requirement.ts owns the same
-    // sequence for the grid; if one moves, both move.
-    const final = roundUpTo(Math.max(v.qty, v.moq), v.step || null);
-    /* SUMMED BACK TO THE MATERIAL, because a PO line names an item and not a
-       colour — the ceiling has to be expressed in the units the thing it judges
-       is written in. The per-colour minimums have already been cleared above,
-       which is the whole point of doing it in two steps. */
-    byItem.set(v.itemId, (byItem.get(v.itemId) ?? 0) + final);
-  }
 
   /*
    * WHAT IS ALREADY BOUGHT against this order, per material.
@@ -272,6 +248,102 @@ export async function bomCeilingForOrder(
 }
 
 /**
+ * THE FINAL QUANTITY PER MATERIAL — the one figure a trim is bought against.
+ *
+ * Extracted from `bomCeilingForOrder` (2026-09-21) when the trims T&A tracker
+ * (`lib/orders/trim-ta/service.ts`) needed the same number as its "required
+ * BOM qty": a GRN completing a step against one figure while the PO gate caps
+ * against another would tell the store a trim is fully in that purchasing is
+ * still allowed to buy more of. One rule, two readers.
+ *
+ * `unresolvedItems` names every material with at least one REFUSED slice. Its
+ * `byItem` figure is a partial sum, which reads as correct and is not — the
+ * ceiling only counts them (`unanswered`), the tracker refuses to complete them.
+ */
+export function finalQuantityByItem(
+  reqRows: readonly ReqRow[],
+  lineRows: readonly LineRow[],
+): { byItem: Map<string, number>; unanswered: number; unresolvedItems: Set<string> } {
+  const lines = new Map(lineRows.map((l) => [l.id, l]));
+  const unresolvedItems = new Set<string>();
+
+  /*
+   * Summed per MATERIAL **AND TRIM COLOUR**, carrying the tail parameters of
+   * every LINE that fed it. `Math.max` on both: the largest minimum is the one a
+   * single purchase has to clear, and the coarsest step is the one that leaves
+   * an orderable figure.
+   *
+   * ## THE COLOUR IN THE KEY IS WHAT KEEPS THIS CONTROL HONEST (2026-08-22)
+   *
+   * `lineQuantityByColour` clears the supplier minimum per CONE COLOUR, because
+   * navy thread and red thread are two things to buy. If the ceiling kept
+   * summing to the material first, the two would disagree in the one direction
+   * that hurts: needing 100 navy and 100 red against an MOQ of 500, the BOM
+   * tells the operator to buy 1,000 and a ceiling of `max(200, 500) = 500`
+   * refuses the purchase order written for it.
+   *
+   * That is the failure this file was already corrected for once — a ceiling
+   * built from the pre-MOQ sum "made the control fire on correct work". A
+   * control that refuses the figure its own BOM asked for is not a control.
+   *
+   * ONE COLOUR REDUCES TO THE OLD BEHAVIOUR EXACTLY: a material bought in a
+   * single colour has one group, and `max(qty, moq)` then rounds once, as
+   * before. Nothing bought today changes.
+   */
+  /* NUL, so it cannot occur in a uuid — the same choice `SLICE_SEP` makes in
+     requirement.ts, and for the same reason: a key built by concatenation must
+     not be forgeable by its own parts. */
+  const KEY_SEP = "\u0000";
+  const raw = new Map<
+    string,
+    { itemId: string; qty: number; moq: number; step: number }
+  >();
+  let unanswered = 0;
+
+  for (const r of reqRows) {
+    if (r.refusal_reason !== null || r.required_qty === null) {
+      unanswered += 1;
+      if (r.item_id) unresolvedItems.add(r.item_id);
+      continue;
+    }
+    if (!r.item_id) continue;
+    // `purchase_qty` where a pack was declared, so the ceiling is in the unit a
+    // PO is written in — comparing metres with cones is a number that looks like
+    // a comparison and is not.
+    const qty = Number(r.purchase_qty ?? r.required_qty);
+    const line = r.item_line_id ? lines.get(r.item_line_id) : undefined;
+    /* NULL IS A VALUE — "the line's own colour" — so it is normalised into the
+       key rather than skipped. Skipping it would fold every uncoloured row of a
+       material into whichever colour happened to be read first. */
+    const key = `${r.item_id}${KEY_SEP}${r.item_color_id ?? ""}`;
+    const prev = raw.get(key);
+    raw.set(key, {
+      itemId: r.item_id,
+      qty: (prev?.qty ?? 0) + qty,
+      moq: Math.max(prev?.moq ?? 0, Number(line?.moq ?? 0) || 0),
+      step: Math.max(prev?.step ?? 0, Number(line?.round_to ?? 0) || 0),
+    });
+  }
+
+  const byItem = new Map<string, number>();
+  for (const v of raw.values()) {
+    // MOQ FIRST, THEN THE STEP — the client's order, settled 2026-08-19 with a
+    // worked example (needs 100, MOQ 550, step 500 gives 1,000 this way and 550
+    // the other, and only the first is a figure a supplier can pack) and
+    // restated 2026-08-21. `lineQuantity` in requirement.ts owns the same
+    // sequence for the grid; if one moves, both move.
+    const final = roundUpTo(Math.max(v.qty, v.moq), v.step || null);
+    /* SUMMED BACK TO THE MATERIAL, because a PO line names an item and not a
+       colour — the ceiling has to be expressed in the units the thing it judges
+       is written in. The per-colour minimums have already been cleared above,
+       which is the whole point of doing it in two steps. */
+    byItem.set(v.itemId, (byItem.get(v.itemId) ?? 0) + final);
+  }
+
+  return { byItem, unanswered, unresolvedItems };
+}
+
+/**
  * THE SERVER-SIDE GATE (client 2026-08-21: "the Purchase Order module must
  * restrict users from purchasing any accessory quantity exceeding this limit").
  *
@@ -304,11 +376,18 @@ export async function refuseOverCeiling(
      avoid. */
   lines: readonly {
     sales_order_id?: string | null;
+    /** The work order the line buys for (0587) — judged by `refuseIwoOverCeiling`. */
+    iwo_id?: string | null;
     item_id?: string | null;
     quantity: number;
   }[],
   opts?: { exclude?: { poId?: string | null; lineId?: string | null } },
 ): Promise<string | null> {
+  // THE WORK-ORDER CEILING (0587) rides this gate for the same reason the
+  // Advised check rides the TBA gate: the four write paths already call it.
+  const iwoRefusal = await refuseIwoOverCeiling(lines, opts?.exclude);
+  if (iwoRefusal) return iwoRefusal;
+
   // Group by order, because the ceiling is per order and most POs name one.
   const byOrder = new Map<string, Map<string, number>>();
   for (const l of lines) {
@@ -392,9 +471,16 @@ export async function refuseUnsettledMaterials(
      would stop ordinary purchasing. */
   lines: readonly {
     sales_order_id?: string | null;
+    /** The work order the line buys for (0586) — judged by `refuseAdvisedIwoItems`. */
+    iwo_id?: string | null;
     item_id?: string | null;
   }[],
 ): Promise<string | null> {
+  // THE WORK-ORDER HALF (0586) rides this gate rather than standing beside it,
+  // so the four write paths that already call it cannot miss it.
+  const advised = await refuseAdvisedIwoItems(lines);
+  if (advised) return advised;
+
   // Grouped by order, because the BOM is per order and most POs name one.
   const byOrder = new Map<string, Set<string>>();
   for (const l of lines) {
@@ -406,6 +492,9 @@ export async function refuseUnsettledMaterials(
   if (byOrder.size === 0) return null;
 
   const s = await createClient();
+
+  /** Per order: its RE No, and advised item id -> the material's name. */
+  const advisedByOrder = new Map<string, { reNo: string | null; items: Map<string, string> }>();
 
   for (const [salesOrderId, itemIds] of byOrder) {
     const { bom } = await recordedBomForOrder(s, salesOrderId);
@@ -421,13 +510,15 @@ export async function refuseUnsettledMaterials(
        created-by sweep is the standing lesson about a hand-written select that
        names a column's neighbour and not the column: the code reads as correct
        and the sentence comes out with a blank in it. */
-    const { data: lineRows } = await s
+    const { data: lineRows, error: lineErr } = await s
       .from("material_bom_amendment_items")
       .select("item_id, type, item:items(name)")
       .eq("amendment_id", bom.id)
       .in("item_id", [...itemIds]);
+    // "Could not check" is not "nothing advised": refuse, and say which.
+    if (lineErr) return `Could not check the Material BOM for advised items: ${lineErr.message}`;
 
-    const unsettled: string[] = [];
+    const items = new Map<string, string>();
     for (const r of (lineRows ?? []) as unknown as {
       item_id: string | null;
       type: string | null;
@@ -436,40 +527,242 @@ export async function refuseUnsettledMaterials(
          `material-bom-amendment/service.ts` records for its customer embed. */
       item: { name: string | null } | { name: string | null }[] | null;
     }[]) {
-      if (!isUnsettledMaterialType(r.type)) continue;
+      if (!r.item_id || !isUnsettledMaterialType(r.type)) continue;
       const cell = Array.isArray(r.item) ? (r.item[0] ?? null) : r.item;
-      const name = cell?.name?.trim() || "A material";
-      if (!unsettled.includes(name)) unsettled.push(name);
+      if (!items.has(r.item_id)) items.set(r.item_id, cell?.name ?? "");
     }
-    if (unsettled.length === 0) continue;
+    if (items.size === 0) continue;
 
-    /* NAMES THREE AND COUNTS THE REST. A refusal is read in a toast; twenty
-       names in one sentence is a wall the operator closes without reading, and
-       fixing the first three is progress they can see. */
-    const shown = unsettled.slice(0, 3).join(", ");
-    const rest = unsettled.length - Math.min(3, unsettled.length);
-    const subject = rest > 0 ? `${shown} and ${rest} more` : shown;
-    const verb = unsettled.length === 1 && shown !== "A material" ? "is" : "are";
+    const { data: so } = await s
+      .from("sales_orders")
+      .select("order_number")
+      .eq("id", salesOrderId)
+      .maybeSingle();
+    advisedByOrder.set(salesOrderId, {
+      reNo: (so as { order_number: string | null } | null)?.order_number ?? null,
+      items,
+    });
+  }
 
-    /* THE BOM'S CODE IS APPENDED ONLY WHEN THERE IS ONE. `code` is nullable, and
-       a sentence reading "on Material BOM ." is the shape that makes an operator
-       distrust the whole message — the refusal is still true and still
-       actionable without it. */
-    const on = bom.code ? ` on Material BOM ${bom.code}` : "";
-    /* BOTH NAMES STAY, though "To be developed" left `MATERIAL_TYPE_OPTIONS` on
-       2026-08-28 and only two values are pickable now. This sentence describes
-       what a row can BE, not what can be picked — and a legacy row genuinely
-       carrying "To be developed" is refused by `isUnsettledMaterialType`, so a
-       message naming only the pickable value would refuse a line while
-       describing a state it is not in, sending the operator to look for a
-       wording they cannot find on the row. Do not trim it to match the
-       dropdown; see the note on `UNSETTLED_MATERIAL_TYPES`. */
-    return (
-      `${subject} ${verb} still marked To be advised / To be developed${on}. ` +
-      `Save the final specification and size against ` +
-      `${unsettled.length === 1 ? "that line" : "those lines"} and set the Type ` +
-      `to Available Item before raising a purchase order.`
-    );
+  /* THE FIRST ADVISED LINE, IN THE PAYLOAD'S OWN ORDER — the row the
+     po_line_items trigger would refuse first on the same insert, so the toast
+     and the database name the same material. */
+  for (const l of lines) {
+    if (!l.sales_order_id || !l.item_id) continue;
+    const o = advisedByOrder.get(l.sales_order_id);
+    const name = o?.items.get(l.item_id);
+    if (o && name !== undefined) return advisedItemMessage(name, o.reNo);
+  }
+  return null;
+}
+
+/**
+ * THE ONE SENTENCE FOR AN ADVISED MATERIAL ON A PURCHASE ORDER (Advised Items,
+ * 2026-09-19) — said IDENTICALLY by this gate and by 0588's BEFORE INSERT /
+ * UPDATE trigger on `po_line_items`. Change one and the other in the same
+ * edit: an operator who meets two wordings for one rule reads them as two
+ * rules.
+ *
+ * It names the material and the RE No, and it names the WAY OUT — the Advised
+ * Items register, where the line is converted once the buyer confirms the
+ * specification. The menu path is checked by `npm run check:nav-paths`.
+ *
+ * Fallbacks, mirrored by the trigger (a blank counts as missing): no material
+ * name → "A material"; no RE No → "on this order".
+ *
+ * "To be advised" is the only unsettled type a line can hold since 0588's
+ * CHECK; a legacy "To be developed" row (none live) is still refused by
+ * `isUnsettledMaterialType` and reads the same sentence.
+ */
+export function advisedItemMessage(itemName: string | null, reNo: string | null): string {
+  const item = itemName?.trim() || "A material";
+  const re = reNo?.trim();
+  const on = re ? `on RE ${re}` : "on this order";
+  return (
+    `${item} is To be advised ${on} — convert it on ` +
+    `Orders ▸ Order Execution ▸ Advised Items once the buyer confirms.`
+  );
+}
+
+/**
+ * THE WORK-ORDER CEILING (client 2026-09-19: "refuse outright") — an
+ * Accessories work order may not buy more of a material than its Material BOM's
+ * purchase quantity, and (0595) a Yarn or Fabric work order no more of a yarn
+ * than its IWO Fabric BOM's purchase weight. The rules and every sentence are `iwoCeilingRefusal`'s
+ * (pure, shared with the PO form); this is the lookup and the grouping.
+ *
+ * HARD FROM THE START. The order ceiling refuses only once a budget is approved,
+ * because until then nobody has signed its figure. A work order has no budget;
+ * its BOM is the only approved figure it has, so there is no earlier window in
+ * which buying past it is ordinary work.
+ *
+ * THIS PAYLOAD'S LINES ARE SUMMED FIRST, and OTHER purchase orders are counted
+ * (`committed`, 0587) — the order ceiling's two halves, for its reason: judging
+ * lines one at a time lets two 60% lines both pass.
+ *
+ * Read through `iwo_purchase_check()` and FAILS CLOSED, as the Advised check
+ * does — see `refuseAdvisedIwoItems` for both reasons.
+ */
+async function refuseIwoOverCeiling(
+  lines: readonly { iwo_id?: string | null; item_id?: string | null; quantity: number }[],
+  exclude?: { poId?: string | null; lineId?: string | null },
+): Promise<string | null> {
+  const byIwo = new Map<string, Map<string, number>>();
+  for (const l of lines) {
+    if (!l.iwo_id || !l.item_id) continue;
+    const q = Number.isFinite(l.quantity) ? Number(l.quantity) : 0;
+    if (q <= 0) continue;
+    const forIwo = byIwo.get(l.iwo_id) ?? new Map<string, number>();
+    forIwo.set(l.item_id, (forIwo.get(l.item_id) ?? 0) + q);
+    byIwo.set(l.iwo_id, forIwo);
+  }
+  if (byIwo.size === 0) return null;
+
+  const s = await createClient();
+  for (const [iwoId, wanted] of byIwo) {
+    const { data, error } = await s.rpc("iwo_purchase_check", {
+      p_iwo_id: iwoId,
+      p_exclude_po: exclude?.poId ?? null,
+      p_exclude_line: exclude?.lineId ?? null,
+    });
+    if (error) {
+      return `Could not check the work order's BOM (${error.message}). Nothing was saved — try again.`;
+    }
+    if (!data) return "The work order on this purchase no longer exists. Choose another, or clear it.";
+    const refusal = iwoCeilingRefusal(data as IwoPurchaseCheck, wanted);
+    if (refusal) return refusal;
+  }
+  return null;
+}
+
+/**
+ * THE ADVISED CHECKPOINT (IWO SRS §6, 0586) — the work-order twin of the TBA
+ * gate above, and called from inside it.
+ *
+ * An accessory ticked Is Advised on a work order's Material BOM cannot be
+ * bought for that work order until the merchandiser unticks it. The same four
+ * write paths, the same shape of sentence (`advisedRefusal`).
+ *
+ * ## READ THROUGH `iwo_purchase_check()`, NEVER THE TABLES
+ *
+ * This runs in the BUYER's session, and the IWO tables are readable only with
+ * Orders ▸ View at the work order's unit. Read directly, a buyer without that
+ * permission gets no rows back — which this gate would read as "nothing
+ * Advised" and allow. The function is SECURITY DEFINER and answers the same for
+ * everyone.
+ *
+ * ## IT FAILS CLOSED
+ *
+ * An error, or a work order the database cannot find, refuses. The order-side
+ * gates read `data ?? []` and allow on a failed query; for a checkpoint the SRS
+ * calls strict, "could not look" must not be the same answer as "nothing there".
+ *
+ * ## DRAFT BOMs COUNT
+ *
+ * Unlike the order side, which reads recorded BOMs only: an IWO has ONE
+ * Material BOM, and the tick is a stop sign that holds from the moment it is
+ * stored. 0586's header says the rest.
+ */
+async function refuseAdvisedIwoItems(
+  lines: readonly { iwo_id?: string | null; item_id?: string | null }[],
+): Promise<string | null> {
+  const byIwo = new Map<string, Set<string>>();
+  for (const l of lines) {
+    if (!l.iwo_id || !l.item_id) continue;
+    const forIwo = byIwo.get(l.iwo_id) ?? new Set<string>();
+    forIwo.add(l.item_id);
+    byIwo.set(l.iwo_id, forIwo);
+  }
+  if (byIwo.size === 0) return null;
+
+  const s = await createClient();
+  for (const [iwoId, itemIds] of byIwo) {
+    const { data, error } = await s.rpc("iwo_purchase_check", { p_iwo_id: iwoId });
+    if (error) {
+      return `Could not check the work order's Advised items (${error.message}). Nothing was saved — try again.`;
+    }
+    if (!data) return "The work order on this purchase no longer exists. Choose another, or clear it.";
+    const check = data as IwoPurchaseCheck;
+    const refusal = advisedRefusal(advisedAmong(check, itemIds), check.code);
+    if (refusal) return refusal;
+  }
+  return null;
+}
+
+/**
+ * THE REOPENED-BUDGET GATE (Phase 5, decision 3 — user 2026-09-18: "while
+ * reopened, Purchase BLOCKS new POs for those orders").
+ *
+ * Returns the refusal sentence, or null to allow.
+ *
+ * ## Why it exists at all: the ceiling switches itself OFF on a reopen
+ *
+ * `bomCeilingForOrder` enforces only while an APPROVED budget covers the order.
+ * Reopening a budget (Amendment Protocol, `approved → draft`) takes that away,
+ * so without this gate a reopen would not pause buying — it would REMOVE the
+ * cap, at exactly the moment the figures are known to be moving.
+ *
+ * ## A budget NEVER approved is not "reopened"
+ *
+ * `reopenedBudgetForOrder` answers only for a budget that carries a revision
+ * and is not approved now. An order with no budget, or one still being drafted
+ * for the first time, stays purchasable exactly as before — buying ahead of the
+ * budget is the long-standing client choice `refuseOverCeiling` records.
+ *
+ * ## It refuses on any line naming the order, whatever the material
+ *
+ * Sibling of the three gates above and called beside them at the same four
+ * write paths. Unlike them it needs no `item_id`: the question is whether this
+ * ORDER may be bought for right now, not whether this material may. A line
+ * naming no order (general stock buying) is not checked.
+ *
+ * ## A FAILED READ REFUSES
+ *
+ * "Could not check" is not "not reopened" — the PO would go through on an
+ * unanswered question, and a PO is not undone by a later trigger.
+ */
+export async function refuseReopenedBudget(
+  lines: readonly { sales_order_id?: string | null }[],
+): Promise<string | null> {
+  const orderIds = [
+    ...new Set(lines.map((l) => l.sales_order_id).filter((v): v is string => !!v)),
+  ];
+  if (orderIds.length === 0) return null;
+
+  const s = await createClient();
+
+  for (const salesOrderId of orderIds) {
+    /* sales_orders -> its garment order documents, the grain budgets hang off
+       (`order_budget_orders.garment_order_id`). Same walk as
+       `recordedBomForOrder`, which reads it without the RE No. */
+    const [{ data: goRows, error: goErr }, { data: so }] = await Promise.all([
+      s.from("garment_order_amendments").select("id").eq("sales_order_id", salesOrderId),
+      s.from("sales_orders").select("order_number").eq("id", salesOrderId).maybeSingle(),
+    ]);
+    if (goErr) {
+      return `Could not check whether this order's budget is reopened: ${goErr.message}`;
+    }
+    const reNo = (so as { order_number: string | null } | null)?.order_number ?? null;
+
+    for (const { id } of (goRows ?? []) as { id: string }[]) {
+      let reopened;
+      try {
+        reopened = await reopenedBudgetForOrder(id);
+      } catch (e) {
+        return e instanceof Error
+          ? e.message
+          : "Could not check whether this order's budget is reopened.";
+      }
+      if (!reopened) continue;
+
+      const order = reNo ? `RE ${reNo}` : "This order";
+      const budget = reopened.budgetCode ? `budget ${reopened.budgetCode}` : "its budget";
+      return (
+        `${order} cannot be purchased for right now — ${budget} was reopened for ` +
+        `revision ${reopened.revisionNo} (${reopened.reason.trim()}). ` +
+        `Raise the purchase order once the budget is approved again.`
+      );
+    }
   }
   return null;
 }

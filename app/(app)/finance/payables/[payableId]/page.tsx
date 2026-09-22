@@ -196,7 +196,7 @@ export default async function PayableDetailPage({
           <CardTitle>Payments</CardTitle>
         </CardHeader>
         <CardBody className="p-0">
-          <DataTable
+          <DataTable paginate={false}
             columns={paymentColumns}
             rows={payable.payments}
             getKey={(r) => r.id}

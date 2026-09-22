@@ -84,7 +84,8 @@ export async function listRfqs(): Promise<Rfq[]> {
   const { data } = await supabase
     .from("rfqs")
     .select("*")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators((data ?? []) as Rfq[]);
 }
 
@@ -226,7 +227,8 @@ export async function listPurchaseOrders(): Promise<PoWithVendor[]> {
   const { data } = await supabase
     .from("purchase_orders")
     .select("*, vendors!vendor_id(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const vendor = row.vendors as { name: string } | null;
@@ -419,6 +421,25 @@ export async function getUoms(): Promise<Uom[]> {
     .eq("is_active", true)
     .order("name");
   return (data ?? []) as Uom[];
+}
+
+/** An Internal Work Order a PO line can be bought for (0586). */
+export type IwoForPicker = { id: string; code: string | null; iwo_for: string };
+
+/**
+ * Work orders a purchase can be raised against — at the operator's own unit
+ * (RLS, `is_current_location`), Draft or Issued. A Completed or Cancelled work
+ * order is excluded for the reason `getOrdersForPicker` gives: buying for work
+ * nobody is doing is the mistake, not a case to support.
+ */
+export async function getIwosForPicker(): Promise<IwoForPicker[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("internal_work_orders")
+    .select("id, code, iwo_for")
+    .in("status", ["draft", "issued"])
+    .order("created_at", { ascending: false });
+  return (data ?? []) as IwoForPicker[];
 }
 
 /** A garment order a PO line can be bought for (0424). */

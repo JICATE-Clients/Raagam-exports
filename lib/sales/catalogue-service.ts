@@ -5,13 +5,15 @@ import { withCreators } from "@/lib/created-by";
 
 export async function listCatalogues(): Promise<StyleCatalogue[]> {
   const s = await createClient();
-  const { data } = await s.from("style_catalogues").select("*").order("created_at", { ascending: false });
+  // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+  const { data } = await s.from("style_catalogues").select("*").order("created_at", { ascending: true });
   return withCreators((data ?? []) as StyleCatalogue[]);
 }
 
 export async function listPriceLists(): Promise<StylePriceList[]> {
   const s = await createClient();
-  const { data } = await s.from("style_price_lists").select("*").order("created_at", { ascending: false });
+  // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+  const { data } = await s.from("style_price_lists").select("*").order("created_at", { ascending: true });
   return withCreators((data ?? []) as StylePriceList[]);
 }
 
@@ -22,7 +24,8 @@ export async function listPiEnquiries(): Promise<PiEnquiryRow[]> {
   const { data } = await s
     .from("pi_enquiries")
     .select("*, buyers:customer_id(name)")
-    .order("created_at", { ascending: false });
+    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
+    .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {

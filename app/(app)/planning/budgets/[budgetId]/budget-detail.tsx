@@ -308,7 +308,7 @@ function PurchaseSection({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty={`No ${title.toLowerCase()} yet.`} />
+        <DataTable paginate={false} columns={columns} rows={rows} getKey={(r) => r.id} empty={`No ${title.toLowerCase()} yet.`} />
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4">
@@ -695,7 +695,7 @@ function ProcessSection({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable columns={parentColumns} rows={rows} getKey={(r) => r.id} empty={`No ${title.toLowerCase()} yet.`} />
+        <DataTable paginate={false} columns={parentColumns} rows={rows} getKey={(r) => r.id} empty={`No ${title.toLowerCase()} yet.`} />
 
         {rows
           .filter((r) => expandedIds.has(r.id))
@@ -711,7 +711,7 @@ function ProcessSection({
                   </Button>
                 )}
               </div>
-              <DataTable columns={itemColumns} rows={proc.items} getKey={(r) => r.id} />
+              <DataTable paginate={false} columns={itemColumns} rows={proc.items} getKey={(r) => r.id} />
               {editItemId && proc.items.some((it) => it.id === editItemId) && itemFormUI(proc.id, proc, false)}
               {addItemFor === proc.id && itemFormUI(proc.id, proc, true)}
             </div>
@@ -949,7 +949,7 @@ function CmtSection({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable columns={cmtColumns} rows={cmts} getKey={(r) => r.id} empty="No CMTs yet." />
+        <DataTable paginate={false} columns={cmtColumns} rows={cmts} getKey={(r) => r.id} empty="No CMTs yet." />
 
         {/* CMT add/edit form */}
         {cmtFormMode !== null && (
@@ -1043,7 +1043,7 @@ function CmtSection({
                   </Button>
                 )}
               </div>
-              <DataTable columns={opColumns} rows={cmt.operations} getKey={(r) => r.id} />
+              <DataTable paginate={false} columns={opColumns} rows={cmt.operations} getKey={(r) => r.id} />
               {editOpId && cmt.operations.some((op) => op.id === editOpId) && opFormUI(cmt.id, cmt, false)}
               {addOpFor === cmt.id && opFormUI(cmt.id, cmt, true)}
             </div>
@@ -1155,7 +1155,7 @@ function OtherEntriesSection({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty={`No ${title.toLowerCase()} yet.`} />
+        <DataTable paginate={false} columns={columns} rows={rows} getKey={(r) => r.id} empty={`No ${title.toLowerCase()} yet.`} />
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4">
@@ -1264,7 +1264,7 @@ function GeneralTab({
           <CardTitle>Cost Heads ({heads.length})</CardTitle>
         </CardHeader>
         <CardBody>
-          <DataTable columns={headColumns} rows={heads} getKey={(r) => r.id} />
+          <DataTable paginate={false} columns={headColumns} rows={heads} getKey={(r) => r.id} />
         </CardBody>
       </Card>
 
@@ -1273,7 +1273,7 @@ function GeneralTab({
           <CardTitle>Styles P&L ({styles.length})</CardTitle>
         </CardHeader>
         <CardBody>
-          <DataTable columns={styleColumns} rows={styles} getKey={(r) => r.id} />
+          <DataTable paginate={false} columns={styleColumns} rows={styles} getKey={(r) => r.id} />
         </CardBody>
       </Card>
     </div>

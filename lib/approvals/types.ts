@@ -68,8 +68,61 @@ export interface ApprovalStep {
   // ── Tier 2 ──
   mode?: StepMode;
   min_approvals?: number;
-  sla_hours?: number;
+
+  /**
+   * HOW LONG THIS STEP HAS, IN MINUTES (0601).
+   *
+   * MINUTES, AND THE SKILL SHIPS HOURS. `doc/order/newfeature.md` §3 states the
+   * SLA as "configurable (e.g. 30–120 mins)", so minutes is the unit the
+   * business speaks. Hours could carry it as `0.5`, but then the admin field
+   * would say one thing and the stored declaration another, and something in
+   * between would convert — two vocabularies for one fact.
+   *
+   * `sla_hours` USED TO BE HERE AND WAS READ BY NOTHING, which is the state the
+   * skill warns about by name: "a column no code reads is worse than a missing
+   * one: it lies to the admin who set it". It was removed in the same change
+   * that made this one real rather than left beside it, because two fields
+   * competing to be the one that works is that same lie with a second door.
+   *
+   * Enforced by `approval_validate_steps` (0601): a positive NUMBER, never a
+   * string, refused at flow-save time where the admin is looking.
+   */
+  sla_minutes?: number;
+  /**
+   * What happens when the deadline passes. Default `notify`.
+   *
+   * `escalate` is REFUSED on the last step — there is nowhere above it to go,
+   * so the setting would be a policy that never fires. `approval_sweep_sla`
+   * additionally declines to escalate into a step whose role has no holders:
+   * escalating into a void is the stranding bug wearing a different hat.
+   */
   on_sla_breach?: SlaBreachAction;
+  /**
+   * TELL THE APPROVER WHO MISSED THIS STEP THAT IT HAS MOVED ON (0603).
+   *
+   * DEFAULT FALSE, and absent means false. The user chose that default
+   * explicitly after reviewing the alternative: "If managers feel penalized or
+   * nagged by SLA breach notifications, they tend to blindly hit Approve just
+   * to clear the notification clock — defeating the purpose of budget
+   * oversight." The escalation already unblocks the factory, and the missed
+   * approver's own queue updates itself, so they cannot act on a stale item.
+   *
+   * ## A STEP PROPERTY, NOT AN APP SETTING
+   *
+   * It sits here with `sla_minutes` and `on_sla_breach` because a run FREEZES
+   * its steps: a policy on the step travels with the request, so a budget
+   * escalating tonight behaves the way the flow said when it was submitted. A
+   * global switch read at sweep time would change the rules under every request
+   * already in flight — the precise failure `steps_snapshot` exists to prevent.
+   *
+   * ## ONLY MEANINGFUL BESIDE `escalate`
+   *
+   * `approval_validate_steps` (0603) REFUSES `true` on any other breach action.
+   * On a reminder those same people are already the ones being told, and on
+   * `none` the admin has said chase nobody — either way the flag would be a
+   * policy that never fires.
+   */
+  notify_missed_approver?: boolean;
 }
 
 // ─── Flows ──────────────────────────────────────────────────────────────────
@@ -173,6 +226,30 @@ export interface QueueItem {
   started_at: string;
   waiting_hours: number;
   lock_version: number;
+  /**
+   * When the CURRENT step is due (0601). NULL = this step declares no SLA, which
+   * is the normal case and is not "on time" — it is "no deadline was set".
+   *
+   * Carried on the queue row rather than fetched beside it: a second read of
+   * `approval_runs` for the same rows would be a second predicate to keep in
+   * step with the queue's, and the engine's whole shape is ONE predicate with
+   * two readers.
+   */
+  sla_due_at: string | null;
+  /** Set once the sweeper has seen it pass. Clears again on the next step. */
+  sla_breached_at: string | null;
+  /**
+   * PAST ITS DEADLINE, ANSWERED IN SQL.
+   *
+   * Not derived on the client from `sla_due_at`: `Date.now()` during a React
+   * render is impure (the React Compiler refuses it), and it is the wrong clock
+   * besides — a phone whose time is days out would paint half the queue red.
+   * This is the same `now()` `approval_sweep_sla` breaches by, so the colour on
+   * a card and the escalation that follows it cannot disagree.
+   *
+   * FALSE also covers "no deadline was set", which is NOT "on time".
+   */
+  is_overdue: boolean;
   /** Same on every row — the RPC returns the total rather than shipping a
    *  second count RPC whose predicate could drift from this one. */
   total_count: number;

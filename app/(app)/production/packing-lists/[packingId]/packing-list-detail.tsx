@@ -106,7 +106,7 @@ export function PackingListDetail({ docId, status, lines, canEdit, canDelete }: 
               <Button type="submit" disabled={isPending}>Add</Button>
             </form>
           )}
-          <DataTable columns={columns} rows={lines} getKey={(r) => r.id} empty="No cartons yet." />
+          <DataTable paginate={false} columns={columns} rows={lines} getKey={(r) => r.id} empty="No cartons yet." />
           {lines.length > 0 && (
             <div className="flex justify-end pr-3 text-sm font-semibold tabular-nums">Total qty: {fmtNumber(totalQty)}</div>
           )}

@@ -168,7 +168,7 @@ function ItemsTab({
         )}
       </CardHeader>
       <CardBody className="space-y-4">
-        <DataTable
+        <DataTable paginate={false}
           columns={columns}
           rows={rate.items}
           getKey={(r) => r.id}
