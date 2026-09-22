@@ -44,6 +44,13 @@ export interface TabItem {
   /** Greys the tab and refuses activation. The tab is still SHOWN: a tab that
    *  disappears teaches the operator nothing about why. */
   disabled?: boolean;
+  /**
+   * A second line under the label — "3 lines", "no lines" — drawn ONLY in the
+   * side-rail layout (`side` below), where a tab is a row with room for it. The
+   * horizontal strip is one line tall and stays that way: a meta line there
+   * would grow every strip in the app by a row for the sake of two screens.
+   */
+  meta?: ReactNode;
 }
 
 export function Tabs({
@@ -51,6 +58,7 @@ export function Tabs({
   defaultKey,
   value,
   onChange,
+  side = false,
 }: {
   items: TabItem[];
   defaultKey?: string;
@@ -58,6 +66,34 @@ export function Tabs({
    *  the operator somewhere — "Save is blocked, the problem is on Prices". */
   value?: string;
   onChange?: (key: string) => void;
+  /**
+   * THE STRIP STANDS AS A SIDE RAIL BESIDE THE PANEL — the Material BOM's item
+   * listing shape, asked for on the Budget's Purchase / Process Rates strips
+   * (user 2026-09-21, screenshot 204339: "the header bar single line into rail
+   * type … took reference from material bom item listing").
+   *
+   * ONLY WHEN THE PANE CAN AFFORD IT. The rail takes 11rem + 1rem gap = 192px
+   * off the panel, and every Budget grid is width-laid-out against its own
+   * container (`tableFrom`): steal 192px from a 1,155px laptop pane and every
+   * `5xl` grid drops to cards. So the rail switches in by container query at
+   * 76rem (1,216px): the panel beside it is then >= 1,024, which is what a
+   * `5xl` grid needs to stay a table. Below that the strip is the horizontal
+   * one, byte for byte. A screen never picks the width; the pane does.
+   *
+   * THE NUMBER WAS 92rem FOR AN HOUR AND THE RAIL NEVER SHOWED (screenshots
+   * 2994, 2996). It was chosen so the one `7xl` grid (Yarn Purchases, 1,232px
+   * with its chrome) would also stay a table beside the rail — but the
+   * operator's and the client's screens are 1920 @ 125%, a ~1,312 CSS px pane,
+   * and a rail that needs 1,472 is a rail nobody sees. At 76rem it shows on
+   * those screens and Yarn Purchases draws its compact cards beside it (the
+   * same cards it draws on a 1,366 laptop today); re-cutting that grid to
+   * `5xl` is the way to have both, and is a separate decision.
+   *
+   * `aria-orientation` stays "horizontal": it cannot follow a CSS breakpoint,
+   * and the key handler below already treats ↑/↓ and ←/→ alike, so the arrows
+   * walk the rail correctly either way.
+   */
+  side?: boolean;
 }) {
   const [uncontrolled, setUncontrolled] = useState(defaultKey ?? items[0]?.key);
   const active = value ?? uncontrolled;
@@ -106,7 +142,18 @@ export function Tabs({
   }
 
   return (
-    <div>
+    // TWO ELEMENTS, NOT ONE. The outer div DECLARES the container; the inner one
+    // and everything below QUERY it. A container query reads the nearest
+    // ANCESTOR container, never the element it sits on — with both classes on
+    // one div the tint below matched (its buttons are descendants) and the grid
+    // never did (the div was asking itself). Screenshot 2994.
+    <div className={cn(side && "@container/tabs")}>
+    <div
+      className={cn(
+        side &&
+          "@min-[76rem]/tabs:grid @min-[76rem]/tabs:grid-cols-[11rem_1fr] @min-[76rem]/tabs:items-start @min-[76rem]/tabs:gap-4",
+      )}
+    >
       <div
         ref={stripRef}
         role="tablist"
@@ -145,7 +192,13 @@ export function Tabs({
          * tab gains a pixel this row did not budget for. A tab strip has no
          * vertical axis to scroll in the first place.
          */
-        className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border"
+        className={cn(
+          "flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border",
+          // The side rail: a column with a right rule, no scrolling — three or
+          // four rows never overflow a pane that is 1,472px wide.
+          side &&
+            "@min-[76rem]/tabs:flex-col @min-[76rem]/tabs:gap-0.5 @min-[76rem]/tabs:overflow-visible @min-[76rem]/tabs:border-b-0 @min-[76rem]/tabs:border-r @min-[76rem]/tabs:pr-3",
+        )}
       >
         {items.map((item) => {
           const isActive = active === item.key;
@@ -176,8 +229,17 @@ export function Tabs({
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground hover:text-foreground",
                 item.disabled && "cursor-not-allowed opacity-50 hover:text-muted-foreground",
+                // As a rail row: full width, the accent on the LEFT edge, the
+                // label and its badge on one line and `meta` under them. The
+                // active row is tinted the way a selected table row is
+                // (`bg-primary/5`, data-table.tsx) — a 2px edge alone is
+                // too little to mark one row of four.
+                side &&
+                  "@min-[76rem]/tabs:w-full @min-[76rem]/tabs:flex-col @min-[76rem]/tabs:items-start @min-[76rem]/tabs:gap-0.5 @min-[76rem]/tabs:whitespace-normal @min-[76rem]/tabs:rounded-r-md @min-[76rem]/tabs:border-b-0 @min-[76rem]/tabs:border-l-2 @min-[76rem]/tabs:px-2.5 @min-[76rem]/tabs:py-1.5 @min-[76rem]/tabs:text-left",
+                side && isActive && "@min-[76rem]/tabs:bg-primary/5",
               )}
             >
+              <span className="flex items-center gap-1.5">
               {item.label}
               {/* `bg-danger-soft text-danger` is the app's existing danger badge
                   idiom (status-pill.tsx) and the theme-safe one — there is no
@@ -201,13 +263,20 @@ export function Tabs({
                   aria-label="has data"
                 />
               ) : null}
+              </span>
+              {side && item.meta != null && (
+                <span className="hidden text-[11px] font-normal leading-tight text-muted-foreground @min-[76rem]/tabs:block">
+                  {item.meta}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
-      <div className="pt-4" role="tabpanel">
+      <div className={cn("pt-4", side && "@min-[76rem]/tabs:min-w-0 @min-[76rem]/tabs:pt-0")} role="tabpanel">
         {current?.content}
       </div>
+    </div>
     </div>
   );
 }
