@@ -68,6 +68,10 @@ const AMBIGUOUS = {
   // an FK to a table that already has one to the same target, and this entry is
   // that rule being followed rather than a bug being cleaned up after.
   workers: { departments: ["department_id", "prod_dept_id"] },
+  // 0620 put `over_receipt_authorized_by` on `grns`, which already had
+  // `created_by` to `profiles`. Nothing embeds either today; declared the day
+  // the second FK lands, per the rule in the header.
+  grns: { profiles: ["created_by", "over_receipt_authorized_by"] },
   // 0604 pointed `garment_order_amendments.re_amendment_id` at
   // `order_budget_revisions`, whose `garment_order_id` already pointed back —
   // so the pair is ambiguous in BOTH directions: PGRST201 lists a one-to-many

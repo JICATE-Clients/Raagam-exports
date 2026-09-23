@@ -122,6 +122,17 @@ export const MIXING_UOM_CODES = ["%", "CM"] as const;
 export const isYarnDyed = (fabricType: string | null | undefined): boolean =>
   isYarnDyedFabricType(fabricType);
 
+/**
+ * IS THIS CLOTH PIECE-DYED — Solid, or Printed (dyed, then printed)? Such a
+ * fabric never enters the WASH stage (client 2026-09-23, `washStageBlocked`).
+ * Word-matched like `isYarnDyed`, never `===`, and an unknown type answers
+ * false so the rule fails open rather than caging a fabric nobody typed.
+ */
+export const isPieceDyed = (fabricType: string | null | undefined): boolean => {
+  const t = (fabricType ?? "").toLowerCase();
+  return !isYarnDyed(fabricType) && (t.includes("solid") || t.includes("print"));
+};
+
 /*
  * `mixingCellsApply()` STOOD HERE FOR ABOUT AN HOUR and is deliberately not
  * replaced. It answered a three-state version of "do the mixing cells apply to

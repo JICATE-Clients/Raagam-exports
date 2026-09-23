@@ -37,20 +37,134 @@ import type { StatusTone } from "@/lib/ui/tone";
 // Categories
 // ---------------------------------------------------------------------------
 
-/** The six scoped Change Categories (0604). Order = the order they are offered. */
+/**
+ * THE KINDS (0604 · 0619). Five are Order Entry's detail — what is changing on
+ * the order itself; three name a whole MODULE. `bom_revision` (both BOMs at
+ * once) is the pre-0619 kind: still readable and still seeded, no longer
+ * offered — the two BOMs are now picked separately (spec §2).
+ */
 export const AMENDMENT_ENTRY_TYPES = [
-  { value: "qty_addition", label: "Quantity Addition", hint: "More pieces of what was sold — quantities, assortment, sizes, and both BOMs follow" },
+  { value: "qty_addition", label: "Quantity Addition", hint: "More pieces of what was sold — quantities, assortment and sizes; both BOMs' figures recalculate" },
   { value: "qty_cancellation", label: "Quantity Cancellation", hint: "Fewer pieces — the same axis as an addition" },
-  { value: "price_change", label: "Price Change", hint: "Style prices, price details, logistic charges and the money terms" },
+  { value: "price_change", label: "Price Change", hint: "FOB prices, price details, logistic charges and the money terms" },
   { value: "delivery_date_ext", label: "Delivery Date Extension", hint: "The delivery date, and nothing else" },
-  { value: "combo_colour_change", label: "Combo / Color Change", hint: "Colours, prints, structures, combos and the coordinates built on them — and both BOMs, for the new colourway" },
-  { value: "bom_revision", label: "BOM Revision", hint: "The Fabric BOM and the Material BOM — not the order itself" },
+  { value: "combo_colour_change", label: "Combo / Color Change", hint: "Colours, prints, structures and combos; both BOMs' figures recalculate" },
+  { value: "fabric_bom_revision", label: "Fabric BOM", hint: "Yarn structure, process loss, fabric allocations" },
+  { value: "material_bom_revision", label: "Material BOM", hint: "Trims, accessories, packaging items" },
+  { value: "budget_revision", label: "Order Budget", hint: "Overheads, freight, operational rates" },
+  { value: "bom_revision", label: "BOM Revision", hint: "Both BOMs (raised before the modules were picked separately)" },
 ] as const;
 export type AmendmentEntryType = (typeof AMENDMENT_ENTRY_TYPES)[number]["value"];
 
 export const AMENDMENT_ENTRY_TYPE_VALUES: readonly AmendmentEntryType[] = AMENDMENT_ENTRY_TYPES.map(
   (t) => t.value,
 );
+
+/** Order Entry's detail — the five kinds that change the order itself. */
+export const ORDER_CHANGE_KINDS = [
+  "qty_addition",
+  "qty_cancellation",
+  "price_change",
+  "delivery_date_ext",
+  "combo_colour_change",
+] as const satisfies readonly AmendmentEntryType[];
+export type OrderChangeKind = (typeof ORDER_CHANGE_KINDS)[number];
+
+// ---------------------------------------------------------------------------
+// The four MODULE categories (spec §2)
+// ---------------------------------------------------------------------------
+
+export type AmendmentModule = "order_entry" | "material_bom" | "fabric_bom" | "order_budget";
+
+/**
+ * The spec's four checkboxes, in the spec's order, with its own descriptions.
+ * Order Entry is picked through its KINDS (at least one is required when it is
+ * ticked); each other module IS one kind. "Selecting Order Entry and Fabric
+ * BOM keeps Material BOM read-only" is `unionScope` over those kinds.
+ */
+export const AMENDMENT_MODULES: readonly {
+  key: AmendmentModule;
+  label: string;
+  hint: string;
+  /** The kind that IS this module; null for Order Entry, which is picked by kind. */
+  kind: AmendmentEntryType | null;
+}[] = [
+  { key: "order_entry", label: "Order Entry", hint: "PO Qty, Delivery Date, FOB Price, Color Combos", kind: null },
+  { key: "material_bom", label: "Material BOM", hint: "Trims, Accessories, Packaging Items", kind: "material_bom_revision" },
+  { key: "fabric_bom", label: "Fabric BOM", hint: "Yarn Structure, Process Loss, Fabric Allocations", kind: "fabric_bom_revision" },
+  { key: "order_budget", label: "Order Budget", hint: "Overheads, Freight, Operational Rates", kind: "budget_revision" },
+];
+
+/** The kinds a raise may name (the register offers these; `bom_revision` is legacy). */
+export const OFFERED_KINDS: readonly AmendmentEntryType[] = [
+  ...ORDER_CHANGE_KINDS,
+  "material_bom_revision",
+  "fabric_bom_revision",
+  "budget_revision",
+];
+
+const LEGACY_ORDER_KINDS = new Set([
+  "quantity", "colour", "price", "sizes", "delivery_date", "consignee", "packing", "style",
+]);
+
+/** Which modules an entry's kinds open — derived, never stored (0619). */
+export function modulesOf(types: readonly string[]): AmendmentModule[] {
+  const out = new Set<AmendmentModule>();
+  for (const t of types) {
+    if ((ORDER_CHANGE_KINDS as readonly string[]).includes(t) || LEGACY_ORDER_KINDS.has(t)) out.add("order_entry");
+    else if (t === "fabric_bom_revision") out.add("fabric_bom");
+    else if (t === "material_bom_revision") out.add("material_bom");
+    else if (t === "budget_revision") out.add("order_budget");
+    else if (t === "bom_revision") {
+      out.add("fabric_bom");
+      out.add("material_bom");
+    }
+  }
+  return AMENDMENT_MODULES.map((m) => m.key).filter((k) => out.has(k));
+}
+
+export function moduleLabel(m: AmendmentModule): string {
+  return AMENDMENT_MODULES.find((x) => x.key === m)?.label ?? m;
+}
+
+/** "Order Entry (Quantity Addition) + Fabric BOM" — the register's Change Type. */
+export function entryScopeLabel(types: readonly string[]): string {
+  const kinds = types.filter((t) => (ORDER_CHANGE_KINDS as readonly string[]).includes(t) || LEGACY_ORDER_KINDS.has(t));
+  return modulesOf(types)
+    .map((m) => (m === "order_entry" && kinds.length ? `Order Entry (${kinds.map(amendmentTypeLabel).join(", ")})` : moduleLabel(m)))
+    .join(" + ") || amendmentTypesLabel(types);
+}
+
+/**
+ * Do the order kinds picked move quantities or colourways — the case where
+ * the BOMs' figures must be recalculated even when the BOM itself is not
+ * picked (spec §3.1)?
+ */
+export function kindsMoveBoms(types: readonly string[]): boolean {
+  return types.some((t) => t === "qty_addition" || t === "qty_cancellation" || t === "combo_colour_change");
+}
+
+/**
+ * A raise's module/kind selection, validated the way the door explains it.
+ * Null = fine.
+ */
+export function moduleSelectionProblem(v: { modules: readonly AmendmentModule[]; orderKinds: readonly string[] }): string | null {
+  if (v.modules.length === 0) return "Pick at least one module to revise";
+  if (v.modules.includes("order_entry") && v.orderKinds.length === 0) {
+    return "Say what changes on the order — PO Qty, Delivery Date, FOB Price or Color Combos";
+  }
+  return null;
+}
+
+/** The kinds a raise sends: Order Entry's detail, then each other module's own kind. */
+export function kindsForSelection(v: { modules: readonly AmendmentModule[]; orderKinds: readonly OrderChangeKind[] }): AmendmentEntryType[] {
+  const out: AmendmentEntryType[] = [];
+  if (v.modules.includes("order_entry")) out.push(...v.orderKinds);
+  for (const m of AMENDMENT_MODULES) {
+    if (m.kind && v.modules.includes(m.key)) out.push(m.kind);
+  }
+  return out;
+}
 
 /** The legacy ten (0576) — readable on rows Budget ▸ Reopen wrote, never offered. */
 const LEGACY_TYPE_LABELS: Record<string, string> = {
@@ -133,13 +247,35 @@ const MATERIAL_BOM_CHILDREN = [
   "material_bom_amendment_requirements",
 ] as const;
 
-/** Both BOMs entire — the parents may be inserted, never deleted. */
-const BOTH_BOMS: Record<string, ScopeEntry> = {
+/** Each BOM entire — the parents may be inserted, never deleted. */
+const FABRIC_BOM: Record<string, ScopeEntry> = {
   order_fabric_boms: whole(true, false),
   ...all(FABRIC_BOM_CHILDREN, whole()),
+};
+const MATERIAL_BOM: Record<string, ScopeEntry> = {
   material_bom_amendments: whole(true, false),
   ...all(MATERIAL_BOM_CHILDREN, whole()),
 };
+const BOTH_BOMS: Record<string, ScopeEntry> = { ...FABRIC_BOM, ...MATERIAL_BOM };
+
+/**
+ * THE ROWS A RECALCULATION WRITES (0619) — and nothing else of either BOM.
+ * A quantity or colourway change moves both BOMs' figures, so the BOMs'
+ * DERIVED rows open even when neither BOM is picked; their authored rows stay
+ * as approved (spec §2: "selecting Order Entry and Fabric BOM keeps Material
+ * BOM read-only"). `lib/orders/*\/recalc` writes exactly these.
+ */
+export const BOM_DERIVED_SCOPE: Readonly<Record<string, ScopeEntry>> = {
+  order_fabric_boms: cols("computed_at", "computed_for_qty", "computed_basis_hash"),
+  order_fabric_bom_requirements: whole(),
+  order_fabric_bom_yarns: cols("purchase_qty", "uom_id", "refusal_reason"),
+  order_fabric_bom_yarn_stages: cols("process_qty", "uom_id", "refusal_reason"),
+  material_bom_amendments: cols("computed_at", "computed_for_qty", "computed_basis_hash"),
+  material_bom_amendment_requirements: whole(),
+};
+
+/** The budget's marker (0619): read by the budget action and screen, never by the trigger. */
+export const BUDGET_MARKER_TABLE = "order_budget_lines";
 
 const QTY_SCOPE: Record<string, ScopeEntry> = {
   garment_order_amendments: cols("excess_pct", "gross_value"),
@@ -154,11 +290,13 @@ const QTY_SCOPE: Record<string, ScopeEntry> = {
     ],
     whole(),
   ),
-  ...BOTH_BOMS,
+  /* 0619: the BOMs' derived rows only — see BOM_DERIVED_SCOPE. */
+  ...BOM_DERIVED_SCOPE,
 };
 
 /**
- * 0604's seed, table for table. `check:amendment-scope` parses the migration
+ * The seed, table for table — 0604, corrected by 0618 and re-cut by module in
+ * 0619. `check:amendment-scope` parses the migration
  * and fails the build if this disagrees with it.
  */
 export const AMENDMENT_SCOPE_SEED: Readonly<Record<AmendmentEntryType, Readonly<Record<string, ScopeEntry>>>> = {
@@ -194,11 +332,15 @@ export const AMENDMENT_SCOPE_SEED: Readonly<Record<AmendmentEntryType, Readonly<
       ],
       whole(),
     ),
-    /* 0618: a new colourway needs a fabric plan — both BOMs follow, as they do
-       for a quantity change. Found when AMD/26-27/0001 added a combo, both
-       BOMs read Recalculate, and the scope let nobody re-save them. */
-    ...BOTH_BOMS,
+    /* 0618 opened both BOMs whole here (a combo add made them stale and the
+       scope let nobody re-save them). 0619 keeps the fix and narrows it: the
+       recalculation re-saves their DERIVED rows, so only those open; the
+       authored rows open when the BOM module itself is picked. */
+    ...BOM_DERIVED_SCOPE,
   },
+  fabric_bom_revision: FABRIC_BOM,
+  material_bom_revision: MATERIAL_BOM,
+  budget_revision: { [BUDGET_MARKER_TABLE]: whole() },
   bom_revision: BOTH_BOMS,
   qty_addition: QTY_SCOPE,
   qty_cancellation: QTY_SCOPE,
@@ -232,9 +374,35 @@ export function unionScope(types: readonly string[]): FrozenScope {
   );
 }
 
-/** Read a stored `scope` jsonb back, tolerating whatever shape was written. */
+/**
+ * OPEN UNDER EVERY AMENDMENT, WHATEVER ITS CATEGORIES (0622, user 2026-09-23:
+ * "file field only allowing 1 file only why?" — HO/RE/26-27/0001 amending under
+ * a Combo/Color Change + Quantity Addition, the revised sketch refused).
+ *
+ * A document DOCUMENTS the order; it does not move the margin the lock
+ * protects. 0604 closed attachments to every type "until the first client
+ * report of 'I cannot attach the revised sketch'" — this is that report.
+ *
+ * NOT A SEED ROW, deliberately. A scope is FROZEN on the entry when it is
+ * raised, so adding the table to each category's seed would open it only on
+ * entries raised from now on — the entry that prompted the report would stay
+ * shut. So it is merged at READ time, on both sides: `order_amendment_of()`
+ * adds `order_amendment_always_open()` to the frozen scope it hands the
+ * trigger, and `scopeFromJson` adds this. `check:amendment-scope` holds the
+ * two literals together. It never appears in `unionScope` / the seed, which
+ * mirror what is STORED.
+ *
+ * Only while amending: an approved order with no open entry is refused by
+ * 0576's lock before any scope is read, exactly as before.
+ */
+export const ALWAYS_OPEN_WHILE_AMENDING: FrozenScope = {
+  garment_order_amendment_files: whole(),
+};
+
+/** Read a stored `scope` jsonb back, tolerating whatever shape was written —
+ *  with `ALWAYS_OPEN_WHILE_AMENDING` laid over it, as the trigger reads it. */
 export function scopeFromJson(json: unknown): FrozenScope {
-  if (typeof json !== "object" || json === null || Array.isArray(json)) return {};
+  if (typeof json !== "object" || json === null || Array.isArray(json)) return { ...ALWAYS_OPEN_WHILE_AMENDING };
   const out: Record<string, ScopeEntry> = {};
   for (const [table, v] of Object.entries(json as Record<string, unknown>)) {
     if (typeof v !== "object" || v === null) continue;
@@ -245,7 +413,9 @@ export function scopeFromJson(json: unknown): FrozenScope {
       delete: e.delete === true,
     };
   }
-  return out;
+  /* Laid OVER the stored scope (jsonb `||` in SQL: the right side wins), so a
+     stored entry naming the files table narrower cannot narrow it back. */
+  return { ...out, ...ALWAYS_OPEN_WHILE_AMENDING };
 }
 
 /** Is the table in the scope at all (any column, any op)? */
@@ -275,28 +445,45 @@ export function scopeOpensColumn(scope: FrozenScope, table: string, column: stri
 // ---------------------------------------------------------------------------
 
 /** Which document a write action is about — the argument to `assertOrderWritable`. */
-export type AmendmentArea = "order" | "fabric_bom" | "material_bom";
+export type AmendmentArea = "order" | "fabric_bom" | "material_bom" | "budget";
 
 const AREA_PARENT: Record<AmendmentArea, string> = {
   order: "garment_order_amendments",
   fabric_bom: "order_fabric_boms",
   material_bom: "material_bom_amendments",
+  budget: BUDGET_MARKER_TABLE,
 };
 
 export const AREA_LABEL: Record<AmendmentArea, string> = {
   order: "Order Entry",
   fabric_bom: "the Fabric BOM",
   material_bom: "the Material BOM",
+  budget: "the Order Budget",
 };
 
 /**
- * Is any of the area's tables open? For the BOMs that is the parent (a BOM is
- * opened whole or not at all); for the order it is the header OR any child
- * grid, since a Combo / Color Change opens grids and not the header.
+ * Is the area open FOR EDITING — its authored rows, the operator's own? For a
+ * BOM that is the parent opened WHOLE (0619: a quantity change opens only the
+ * parent's computed stamp, which is a recalculation's, not an edit); for the
+ * order it is the header OR any child grid, since a Combo / Color Change opens
+ * grids and not the header; for the budget it is its marker (0619).
  */
 export function areaOpen(scope: FrozenScope, area: AmendmentArea): boolean {
-  if (area !== "order") return scopeOpensTable(scope, AREA_PARENT[area]);
-  return Object.keys(scope).some((t) => t.startsWith("garment_order_amendment"));
+  if (area === "order") return Object.keys(scope).some((t) => t.startsWith("garment_order_amendment"));
+  const e = scope[AREA_PARENT[area]];
+  if (!e) return false;
+  return area === "budget" ? true : e.columns === null;
+}
+
+/**
+ * May a RECALCULATION write this BOM's derived rows? True when the BOM is open
+ * whole, or when the entry opened its derived rows (a quantity or colourway
+ * change, 0619). Never true for the order or the budget.
+ */
+export function areaRecalculable(scope: FrozenScope, area: "fabric_bom" | "material_bom"): boolean {
+  if (areaOpen(scope, area)) return true;
+  const req = area === "fabric_bom" ? "order_fabric_bom_requirements" : "material_bom_amendment_requirements";
+  return scopeAllowsRewrite(scope, req) && scopeOpensColumn(scope, AREA_PARENT[area], "computed_basis_hash");
 }
 
 /**
@@ -305,7 +492,7 @@ export function areaOpen(scope: FrozenScope, area: AmendmentArea): boolean {
  */
 export function outOfScopeMessage(v: { entryNo: string | null; types: readonly string[] }, area: AmendmentArea): string {
   const no = (v.entryNo ?? "").trim() || "open";
-  return `This amendment (${no}) is a ${amendmentTypesLabel(v.types)} — ${AREA_LABEL[area]} is not open to it. Close it and raise the right kind of amendment.`;
+  return `This revision (${no}) covers ${amendmentTypesLabel(v.types)} — ${AREA_LABEL[area]} is not open to it. Use + Add module on the revision to open it.`;
 }
 
 /** An order under an open Amendment Entry — what the editors read (0616). */
@@ -314,6 +501,8 @@ export type OrderAmendmentState = {
   entryNo: string | null;
   types: string[];
   scope: FrozenScope;
+  /** The revised budget is with the MD (0619) — "Pending MD Approval" rather than "Waiting Amendment". */
+  pendingMd?: boolean;
   /** The banner on an editor the entry opens. */
   banner: string;
 };
@@ -328,7 +517,7 @@ export function amendmentBanner(v: { entryNo: string | null; types: readonly str
       : opened.includes("orderinfo")
         ? ""
         : ` Only ${describeOpenAreas(opened)} can be changed here.`;
-  return `Amendment ${no} is open — ${amendmentTypesLabel(v.types)}.${only} Everything else stays as approved.`;
+  return `Revision ${no} is open — ${amendmentTypesLabel(v.types)}.${only} Everything else stays as approved.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +557,10 @@ export const ORDER_SECTION_TABLES: Readonly<Record<string, readonly string[]>> =
     "garment_order_amendment_country_sizes",
   ],
   approvalqty: ["garment_order_amendment_approval_qtys"],
+  /* Not a rail section — the Files cell of each style line, wrapped in
+     `<UnlockScope area="files">`. Open under every entry (0622,
+     `ALWAYS_OPEN_WHILE_AMENDING`), so `openAreasOf` of any stored scope lists it. */
+  files: ["garment_order_amendment_files"],
 };
 
 /**
@@ -395,6 +588,7 @@ const AREA_WORDS: Record<string, string> = {
   delivery_date: "the delivery date",
   excess_pct: "the excess %",
   money_terms: "the currency and ex-rate",
+  files: "the attached files",
 };
 
 function describeOpenAreas(areas: readonly string[]): string {
@@ -433,13 +627,23 @@ export function openAreasOf(scope: FrozenScope): string[] {
 // The register: status and margin delta
 // ---------------------------------------------------------------------------
 
-/** The register's Status — derived, never stored. */
+/**
+ * The register's Status — derived, never stored (spec §4A: DRAFT ·
+ * PENDING_MD_APPROVAL · APPROVED · REJECTED, plus the two ways an entry closes
+ * without a decision).
+ *
+ * REJECTED is a CLOSED outcome since 0619 — the MD's reject reverted the order,
+ * both BOMs and the budget to V0. `returned` is the one open state a reject
+ * can still leave: an entry raised before 0619 (no budget snapshot) or a
+ * revert that could not complete — the order stays open for a revision.
+ */
 export type AmendmentEntryStatus =
-  | "draft" // open; the revised budget is being worked on
-  | "pending_approval" // open; the revised budget is with the approver
-  | "rejected" // open; the approver sent it back
-  | "approved" // closed: re-approved
-  | "abandoned" // closed: abandoned
+  | "draft" // open; being worked on by the merchandiser
+  | "pending_md_approval" // open; the revised budget is with the MD
+  | "approved" // closed: authorized — the amended baseline is the new version
+  | "rejected" // closed: denied — reverted to the previous approved version
+  | "returned" // open: rejected but NOT reverted (pre-0619 entry, or the revert failed)
+  | "abandoned" // closed: abandoned by the merchandiser — reverted
   | "superseded"; // closed: a later entry on the same order took over (0618)
 
 export function entryStatusOf(v: {
@@ -447,15 +651,26 @@ export function entryStatusOf(v: {
   budgetStatus: string | null | undefined;
 }): AmendmentEntryStatus {
   if (v.outcome === "reapproved") return "approved";
+  if (v.outcome === "rejected") return "rejected";
   if (v.outcome === "abandoned") return "abandoned";
   if (v.outcome === "superseded") return "superseded";
   switch (v.budgetStatus) {
     case "submitted":
-      return "pending_approval";
+      return "pending_md_approval";
     case "rejected":
-      return "rejected";
+      return "returned";
     default:
       return "draft";
+  }
+}
+
+/** The spec's own codes, for the register's badge and the push payload. */
+export function entryStatusCode(s: AmendmentEntryStatus): string {
+  switch (s) {
+    case "pending_md_approval":
+      return "PENDING_MD_APPROVAL";
+    default:
+      return s.toUpperCase();
   }
 }
 
@@ -463,12 +678,14 @@ export function entryStatusLabel(s: AmendmentEntryStatus): string {
   switch (s) {
     case "draft":
       return "Draft";
-    case "pending_approval":
-      return "Pending approval";
-    case "rejected":
-      return "Rejected";
+    case "pending_md_approval":
+      return "Pending MD Approval";
     case "approved":
       return "Approved";
+    case "rejected":
+      return "Rejected";
+    case "returned":
+      return "Rejected — revise";
     case "superseded":
       return "Superseded";
     default:
@@ -480,9 +697,10 @@ export function entryStatusTone(s: AmendmentEntryStatus): StatusTone {
   switch (s) {
     case "approved":
       return "success";
-    case "pending_approval":
+    case "pending_md_approval":
       return "warning";
     case "rejected":
+    case "returned":
       return "danger";
     case "abandoned":
     case "superseded":
@@ -492,11 +710,16 @@ export function entryStatusTone(s: AmendmentEntryStatus): StatusTone {
   }
 }
 
+/** Is the entry still open — being worked on, with the MD, or returned? */
+export function entryIsOpen(s: AmendmentEntryStatus): boolean {
+  return s === "draft" || s === "pending_md_approval" || s === "returned";
+}
+
 /** The spec's filter vocabulary → the derived statuses it means. */
 export const ENTRY_STATUS_FILTERS = [
   { value: "", label: "All statuses" },
-  { value: "open", label: "Open (draft / rejected)" },
-  { value: "pending_approval", label: "Pending approval" },
+  { value: "draft", label: "Draft" },
+  { value: "pending_md_approval", label: "Pending MD Approval" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
   { value: "abandoned", label: "Abandoned" },
@@ -505,7 +728,8 @@ export const ENTRY_STATUS_FILTERS = [
 
 export function entryStatusMatches(filter: string, s: AmendmentEntryStatus): boolean {
   if (!filter) return true;
-  if (filter === "open") return s === "draft" || s === "rejected";
+  if (filter === "draft") return s === "draft" || s === "returned";
+  if (filter === "rejected") return s === "rejected" || s === "returned";
   return filter === s;
 }
 

@@ -82,6 +82,7 @@ import {
   routeStartAllowedAt,
   routeStartNotFirst,
   yarnDyedStageBlocked,
+  washStageBlocked,
   processesUsedInStage,
   processRepeatedInStage,
   processPickValue,
@@ -126,6 +127,7 @@ export function FabricProcessGrid({
   printDeclaredFor,
   subCategories = false,
   fabricIsYarnDyed = false,
+  fabricIsPieceDyed = false,
   source = "yarn_knit",
   canCreate = false,
   canEdit = false,
@@ -202,6 +204,9 @@ export function FabricProcessGrid({
    *  Fabric Dyeing step here would double it. Defaults `false` (never
    *  withhold) so an unfilled call site sees every process it always has. */
   fabricIsYarnDyed?: boolean;
+  /** Is THIS fabric piece-dyed (Solid / Printed)? Withholds the WASH stage
+   *  (client 2026-09-23, `washStageBlocked`). Defaults `false` (never withhold). */
+  fabricIsPieceDyed?: boolean;
   /**
    * WHERE THIS FABRIC COMES FROM (0564) — the Source ▾ on the panel above.
    *
@@ -522,7 +527,8 @@ export function FabricProcessGrid({
           className={cn(
             "min-w-0",
             (stageRegressionBlocked(rowsInBranch(r), indexInBranch(r), lookups.stages) ||
-              yarnDyedStageBlocked(rowsInBranch(r), indexInBranch(r), processes, lookups.stages, fabricIsYarnDyed)) &&
+              yarnDyedStageBlocked(rowsInBranch(r), indexInBranch(r), processes, lookups.stages, fabricIsYarnDyed) ||
+              washStageBlocked(r, lookups.stages, fabricIsPieceDyed)) &&
               "rounded-md ring-2 ring-danger",
           )}
         >
@@ -544,6 +550,8 @@ export function FabricProcessGrid({
                below names a held one). */
             options={stagesForRow(lookups.stages, rowsInBranch(r), indexInBranch(r), {
               fabricIsYarnDyed,
+              /* 2026-09-23 — WASH is withheld on Solid / Printed cloth. */
+              fabricIsPieceDyed,
               options: processes,
             })}
             value={r.stage_id}
@@ -569,6 +577,12 @@ export function FabricProcessGrid({
             <p className="mt-1 px-1 text-xs font-medium text-danger">
               This fabric is Yarn-Dyed — {stageName(r.stage_id)} is only for a route that starts with a
               dyed-roll purchase. Use WASH for its washing and finishing.
+            </p>
+          )}
+          {washStageBlocked(r, lookups.stages, fabricIsPieceDyed) && (
+            <p className="mt-1 px-1 text-xs font-medium text-danger">
+              This fabric is Solid / Printed — it never enters {stageName(r.stage_id)}. Its wet step is
+              Dyeing under DYED; WASH is for yarn-dyed and melange fabrics.
             </p>
           )}
         </div>

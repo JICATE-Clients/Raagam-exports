@@ -118,13 +118,13 @@ export function salesFactsOf(facts: readonly BudgetableOrder[]): SalesOrderFacts
   }));
 }
 
-/** Σ the orders' SQ Qty, or the first refusal — never a part-sum. */
-export function groupSqQtyOf(facts: readonly BudgetableOrder[]): number | Refusal {
-  const bad = facts.find((o) => o.sq_qty == null);
+/** Σ the orders' Cut Qty, or the first refusal — never a part-sum. */
+export function groupCutQtyOf(facts: readonly BudgetableOrder[]): number | Refusal {
+  const bad = facts.find((o) => o.cut_qty == null);
   if (bad) {
-    return { refused: bad.sq_refusal ?? `${labelOf(bad)} has no SQ Qty yet` };
+    return { refused: bad.cut_refusal ?? `${labelOf(bad)} has no Cut Qty yet` };
   }
-  return facts.reduce((a, o) => a + (o.sq_qty as number), 0);
+  return facts.reduce((a, o) => a + (o.cut_qty as number), 0);
 }
 
 export type BudgetFigures = {
@@ -147,7 +147,7 @@ export function budgetFigures(v: {
 }): BudgetFigures {
   const totals = budgetTotals(v.lines.map(lineInputOf), orderInputsOf(v.facts));
   const sales = salesSummary(salesFactsOf(v.facts));
-  const general = generalSummary(totals, groupSqQtyOf(v.facts));
+  const general = generalSummary(totals, groupCutQtyOf(v.facts));
   const kpiOrders: KpiOrder[] = v.facts.map((o) => ({ re_no: o.re_no, delivery_date: o.delivery_date }));
   const kpis = budgetKpis({ entryDate: v.entryDate, orders: kpiOrders, sales, totals, general });
   return { totals, sales, general, kpis };

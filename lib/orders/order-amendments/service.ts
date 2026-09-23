@@ -6,10 +6,14 @@ import { compareToBaseline, kpisFromJson, type BaselineRow, type BudgetKpis } fr
 import type { BudgetBaseline } from "@/lib/orders/budget/amendment";
 import { isRefusal, type Refusal } from "@/lib/orders/budget/totals";
 import { listFabricBomTasks } from "@/lib/orders/fabric-bom/service";
+import { recalculateFabricBomDerived } from "@/lib/orders/fabric-bom/actions";
+import { recalculateMaterialBomDerived } from "@/lib/orders/material-bom-amendment/actions";
 import { listMaterialBomTasks } from "@/lib/orders/material-bom-amendment/service";
 import type { BomStatus } from "@/lib/orders/bom-status";
 import { getRunForSubject, getTimeline } from "@/lib/approvals/service";
 import type { ApprovalRun, TimelineRow } from "@/lib/approvals/types";
+import { budgetLineKey } from "@/lib/orders/budget/amendment-scope";
+import { manualEntryMessage, moduleOfBudgetSource, type ManualEntryItem } from "@/lib/orders/amendments/manual-entry";
 import {
   entryStatusOf,
   marginDelta,
@@ -58,6 +62,12 @@ export type AmendmentRegisterRow = {
   budget_code: string | null;
   budget_status: string | null;
   margin: MarginDelta;
+  /** The MD's reason, on a rejected entry (0619). */
+  rejection_reason: string | null;
+  /** Why a reject could not revert the order (0619) — the entry stays open. */
+  revert_error: string | null;
+  /** When the revised budget went to the MD. */
+  submitted_at: string | null;
   /** When the entry was raised — `reopened_at`. */
   created_at: string;
   created_by: string | null;
@@ -79,6 +89,10 @@ type RevisionRow = {
   reopened_by: string | null;
   closed_at: string | null;
   scope: unknown;
+  rejection_reason: string | null;
+  revert_error: string | null;
+  amended_kpis: unknown;
+  submitted_at: string | null;
   order:
     | {
         id: string;
@@ -107,6 +121,7 @@ function revisionQuery(s: Awaited<ReturnType<typeof createClient>>) {
     .select(
       "id, entry_no, garment_order_id, budget_id, source, amendment_type, amendment_types, reason, " +
         "baseline, outcome, reopened_at, reopened_by, closed_at, scope, " +
+        "rejection_reason, revert_error, amended_kpis, submitted_at, " +
         "order:garment_order_amendments!garment_order_id(id, code, customer:customers(name), sales_order:sales_orders(order_number)), " +
         "budget:order_budgets(id, code, status, submitted_summary)",
     );
@@ -131,7 +146,16 @@ function shapeRow(r: RevisionRow, amendNo: number): AmendmentRegisterRow {
     budget_id: r.budget?.id ?? r.budget_id,
     budget_code: r.budget?.code ?? null,
     budget_status: r.budget?.status ?? null,
-    margin: marginDelta({ baselineKpis: baseline?.kpis, submittedKpis: r.budget?.submitted_summary }),
+    /* THE ENTRY'S OWN SUBMITTED FIGURES FIRST (0619): a reject reverts the
+       budget to V0, so its `submitted_summary` would then describe the
+       approved version, not the one the MD refused. */
+    margin: marginDelta({
+      baselineKpis: baseline?.kpis,
+      submittedKpis: r.amended_kpis ?? (r.outcome === "open" || r.outcome === "reapproved" ? r.budget?.submitted_summary : null),
+    }),
+    rejection_reason: r.rejection_reason,
+    revert_error: r.revert_error,
+    submitted_at: r.submitted_at,
     /* `reopened_at` is the entry's date; named `created_at` so
        `withCreatedColumns` finds it, with `reopened_by` as `created_by`. */
     created_at: r.reopened_at,
@@ -262,6 +286,17 @@ export type DownstreamDoc = {
   bom_id: string | null;
   /** The quantity the document was computed for, when it says. */
   computed_for_qty: number | null;
+  /** When it was last worked out — the "why" of a Recalculate. */
+  computed_at: string | null;
+  /** What the order needs NOW (the queue's production total). */
+  order_qty_now: number | null;
+  /**
+   * WHAT WOULD STOP A RECALCULATION (2026-09-23, screenshot 3031): a dry run
+   * of the derived-only recalculation, nothing written. Empty = pressing
+   * Recalculate will finish the job; otherwise these are the order's own gaps
+   * (a colourway with no size break-up …) to fill FIRST.
+   */
+  blockers: string[];
   href: string;
 };
 
@@ -278,6 +313,12 @@ export type AmendmentEntryDetail = {
   /** Order-level side-by-side: quantity and delivery from the two KPI sets. */
   changes: AmendmentChange[];
   downstream: DownstreamDoc[];
+  /**
+   * "⚠️ Manual Entry Needed" (spec §3.2, 0619): every input the revised budget
+   * still lacks — a new trim, fabric process or colourway's line with no rate
+   * — in the spec's sentence, each with a deep link to its exact cell.
+   */
+  manualEntries: ManualEntryItem[];
   run: ApprovalRun | null;
   timeline: TimelineRow[];
   names: Record<string, string>;
@@ -325,6 +366,7 @@ export async function getAmendmentEntry(id: string, canEdit: boolean): Promise<A
   let currentKpis: BudgetKpis | null = null;
   let currentRefusal: string | null = null;
   let variance: BaselineRow[] = [];
+  let manualEntries: ManualEntryItem[] = [];
   if (row.budget_id) {
     try {
       const budget = await getOrderBudget(row.budget_id);
@@ -333,10 +375,22 @@ export async function getAmendmentEntry(id: string, canEdit: boolean): Promise<A
         const figures = await budgetFiguresOf(budget);
         currentKpis = figures.kpis;
         if (baseline) variance = compareToBaseline(baseline, figures.general);
+        /* THE GAPS, ONLY WHILE THE ENTRY IS OPEN — a closed entry's budget is
+           the approved (or reverted) one, and a gap there is not this
+           amendment's to fill. */
+        if (r.outcome === "open") manualEntries = await manualEntriesOf(id, budget.lines, figures.totals.unpriced);
       }
     } catch (e) {
       currentRefusal = e instanceof Error ? e.message : "The budget's figures could not be worked out";
     }
+  }
+
+  /* THE BOMs' OWN GAPS (0619): a requirement or yarn row the recalculation
+     had to REFUSE — a new colourway with no size break-up, a fabric with no
+     weight — is an input someone must enter, said in the same sentence shape
+     as the budget's, with the BOM to open. */
+  if (r.outcome === "open" && r.garment_order_id) {
+    manualEntries = [...(await bomGapsOf(id, r.garment_order_id)), ...manualEntries];
   }
 
   const [changes, downstream, run, names] = await Promise.all([
@@ -358,11 +412,84 @@ export async function getAmendmentEntry(id: string, canEdit: boolean): Promise<A
     variance,
     changes,
     downstream,
+    manualEntries,
     run,
     timeline,
     names: { ...names, ...actorNames },
     perms: { canEdit },
   };
+}
+
+/** Distinct refusals on the order's BOMs — each an input the BOM needs. */
+async function bomGapsOf(entryId: string, garmentOrderId: string): Promise<ManualEntryItem[]> {
+  const s = await createClient();
+  const [{ data: fab }, { data: mat }] = await Promise.all([
+    s.from("order_fabric_boms").select("id").eq("garment_order_id", garmentOrderId).maybeSingle(),
+    s
+      .from("material_bom_amendments")
+      .select("id")
+      .eq("garment_order_id", garmentOrderId)
+      .eq("is_draft", false)
+      .order("amendment_no", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const fabId = (fab as { id: string } | null)?.id;
+  const matId = (mat as { id: string } | null)?.id;
+  const [fr, fy, mr] = await Promise.all([
+    fabId
+      ? s.from("order_fabric_bom_requirements").select("refusal_reason").eq("bom_id", fabId).not("refusal_reason", "is", null)
+      : Promise.resolve({ data: [] }),
+    fabId
+      ? s.from("order_fabric_bom_yarns").select("refusal_reason").eq("bom_id", fabId).not("refusal_reason", "is", null)
+      : Promise.resolve({ data: [] }),
+    matId
+      ? s.from("material_bom_amendment_requirements").select("refusal_reason").eq("amendment_id", matId).not("refusal_reason", "is", null)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const out: ManualEntryItem[] = [];
+  const add = (module: string, rows: unknown, href: string) => {
+    const seen = new Set<string>();
+    for (const x of (rows ?? []) as { refusal_reason: string | null }[]) {
+      const why = (x.refusal_reason ?? "").trim();
+      if (!why || seen.has(why)) continue;
+      seen.add(why);
+      out.push({ key: `${module}:${why}`, module, message: `Manual Entry Needed: [${module}] -> ${why}`, href });
+    }
+  };
+  add("Fabric BOM", [...((fr.data ?? []) as unknown[]), ...((fy.data ?? []) as unknown[])], `/orders/order-amendments/${entryId}/fabric-bom`);
+  add("Material BOM", mr.data, `/orders/order-amendments/${entryId}/material-bom`);
+  return out;
+}
+
+/** The unpriced lines, named the way the operator knows them. */
+async function manualEntriesOf(
+  entryId: string,
+  lines: readonly { source: string; description: string | null; item_id: string | null }[],
+  unpriced: readonly { index: number; field?: string }[],
+): Promise<ManualEntryItem[]> {
+  const wanted = [...new Set(unpriced.map((u) => lines[u.index]?.item_id).filter((v): v is string => !!v))];
+  const names = new Map<string, string>();
+  if (wanted.length) {
+    const s = await createClient();
+    const { data } = await s.from("items").select("id, name").in("id", wanted);
+    for (const it of (data ?? []) as { id: string; name: string | null }[]) if (it.name) names.set(it.id, it.name);
+  }
+  return unpriced.flatMap((u, i) => {
+    const l = lines[u.index];
+    if (!l) return [];
+    const name = l.description?.trim() || (l.item_id ? names.get(l.item_id) : undefined) || `Line ${u.index + 1}`;
+    const field = u.field ?? "rate";
+    return [
+      {
+        key: `${u.index}:${field}:${i}`,
+        message: manualEntryMessage({ source: l.source, name, field }),
+        module: moduleOfBudgetSource(l.source),
+        /* INTO THE AMENDMENT'S OWN BUDGET TAB, on the exact cell (2026-09-23). */
+        href: `/orders/order-amendments/${entryId}/budget?line=${encodeURIComponent(budgetLineKey(l as Parameters<typeof budgetLineKey>[0]))}&field=${encodeURIComponent(field)}`,
+      },
+    ];
+  });
 }
 
 async function readChanges(entryId: string): Promise<AmendmentChange[]> {
@@ -379,25 +506,61 @@ async function readChanges(entryId: string): Promise<AmendmentChange[]> {
  * use, so the panel and the screens cannot disagree about what is stale.
  */
 async function readDownstream(orderId: string): Promise<DownstreamDoc[]> {
+  const s = await createClient();
   const [fabric, material] = await Promise.all([listFabricBomTasks(), listMaterialBomTasks()]);
   const f = fabric.find((t) => t.id === orderId);
   const m = material.find((t) => t.id === orderId);
+  const stamp = async (table: "order_fabric_boms" | "material_bom_amendments", id: string | null | undefined) => {
+    if (!id) return { computed_at: null, computed_for_qty: null };
+    const { data } = await s.from(table).select("computed_at, computed_for_qty").eq("id", id).maybeSingle();
+    const r = data as { computed_at: string | null; computed_for_qty: number | string | null } | null;
+    return { computed_at: r?.computed_at ?? null, computed_for_qty: r?.computed_for_qty == null ? null : Number(r.computed_for_qty) };
+  };
+  /* A DRY RUN, only for a BOM that needs it: the refusals the recalculation
+     would write are the order's gaps, said before anyone presses the button. */
+  const blockersOf = async (res: { ok: true; manualEntries: { message: string }[]; dryRun?: { requirementsAfter: unknown[] } } | { ok: false; error: string }) => {
+    /* Only a real gap is a blocker — "Forbidden" or a lock sentence is about
+       who is looking, not about the order. */
+    if (!res.ok) return res.error.startsWith("Manual Entry Needed") ? [res.error.replace(/^Manual Entry Needed:\s*(\[[^\]]*\]\s*->\s*)?/, "")] : [];
+    const refusals = new Set<string>();
+    for (const r of (res.dryRun?.requirementsAfter ?? []) as { refusal_reason?: string | null }[]) {
+      if (r.refusal_reason) refusals.add(r.refusal_reason.trim());
+    }
+    for (const x of res.manualEntries) refusals.add(x.message.replace(/^Manual Entry Needed:\s*(\[[^\]]*\]\s*->\s*)?/, ""));
+    return [...refusals];
+  };
+  const needs = (st: BomStatus | undefined) => st === "recalculate";
+  const [fStamp, mStamp, fBlock, mBlock] = await Promise.all([
+    stamp("order_fabric_boms", f?.bom_id),
+    stamp("material_bom_amendments", m?.bom_id),
+    needs(f?.status) && f?.bom_id
+      ? recalculateFabricBomDerived(f.bom_id, { dryRun: true }).then(blockersOf).catch(() => [])
+      : Promise.resolve([] as string[]),
+    needs(m?.status) && m?.bom_id
+      ? recalculateMaterialBomDerived(m.bom_id, { dryRun: true }).then(blockersOf).catch(() => [])
+      : Promise.resolve([] as string[]),
+  ]);
   return [
     {
       key: "fabric_bom",
       label: "Fabric BOM",
       status: f?.status ?? "unresolved",
       bom_id: f?.bom_id ?? null,
-      computed_for_qty: null,
-      href: f?.bom_id ? `/orders/fabric-bom?open=${f.bom_id}` : "/orders/fabric-bom",
+      ...fStamp,
+      order_qty_now: f?.production_qty ?? null,
+      blockers: fBlock,
+      /* `?open=` takes the ORDER (the queue's task id), not the BOM. */
+      href: `/orders/fabric-bom?open=${orderId}`,
     },
     {
       key: "material_bom",
       label: "Material BOM",
       status: m?.status ?? "unresolved",
       bom_id: m?.bom_id ?? null,
-      computed_for_qty: null,
-      href: m?.bom_id ? `/orders/material-bom?open=${m.bom_id}` : "/orders/material-bom",
+      ...mStamp,
+      order_qty_now: m?.production_qty ?? null,
+      blockers: mBlock,
+      href: `/orders/material-bom?open=${orderId}`,
     },
   ];
 }
@@ -405,4 +568,57 @@ async function readDownstream(orderId: string): Promise<DownstreamDoc[]> {
 /** The margin figure for a notification line, never a blank. */
 export function marginText(v: number | Refusal): string {
   return isRefusal(v) ? `unknown (${v.refused})` : `${v.toFixed(2)}%`;
+}
+
+// ---------------------------------------------------------------------------
+// The workspace's head — what the tabs need, and nothing heavier
+// ---------------------------------------------------------------------------
+
+/** The Amendment workspace's tab strip reads this (2026-09-23). */
+export type AmendmentHead = {
+  id: string;
+  entry_no: string | null;
+  garment_order_id: string | null;
+  budget_id: string | null;
+  types: string[];
+  outcome: string;
+  re_no: string | null;
+  customer_name: string | null;
+};
+
+export async function getAmendmentHead(id: string): Promise<AmendmentHead | null> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("order_budget_revisions")
+    .select(
+      "id, entry_no, garment_order_id, budget_id, amendment_type, amendment_types, outcome, " +
+        "order:garment_order_amendments!garment_order_id(customer:customers(name), sales_order:sales_orders(order_number))",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`Could not read the amendment: ${error.message}`);
+  if (!data) return null;
+  const r = data as unknown as {
+    id: string;
+    entry_no: string | null;
+    garment_order_id: string | null;
+    budget_id: string | null;
+    amendment_type: string;
+    amendment_types: string[] | null;
+    outcome: string;
+    order: {
+      customer: { name: string | null } | { name: string | null }[] | null;
+      sales_order: { order_number: string | null } | { order_number: string | null }[] | null;
+    } | null;
+  };
+  return {
+    id: r.id,
+    entry_no: r.entry_no,
+    garment_order_id: r.garment_order_id,
+    budget_id: r.budget_id,
+    types: r.amendment_types?.length ? r.amendment_types : [r.amendment_type],
+    outcome: r.outcome,
+    re_no: one(r.order?.sales_order)?.order_number ?? null,
+    customer_name: one(r.order?.customer)?.name ?? null,
+  };
 }

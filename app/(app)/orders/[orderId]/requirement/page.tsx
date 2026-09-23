@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { VFinalBanner } from "@/components/orders/v-final-banner";
+import { vFinalFor } from "@/lib/orders/amendments/v-final";
 import { requirePermission } from "@/lib/auth/server";
 import { getRequirementSheet, isSheetRefusal } from "@/lib/orders/requirement/service";
 import { requirementRows } from "@/lib/orders/requirement/sheet";
@@ -33,12 +35,19 @@ import { OrderDocumentTabs } from "@/components/orders/order-document-tabs";
  */
 export default async function RequirementPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orderId: string }>;
+  /** `?version=proposed` — the amendment's in-flight data instead of V_final (0619). */
+  searchParams: Promise<{ version?: string }>;
 }) {
   await requirePermission("orders", "view");
-  const { orderId } = await params;
-  const data = await getRequirementSheet(orderId);
+  const [{ orderId }, { version }] = await Promise.all([params, searchParams]);
+  /* V_FINAL (0619, spec §4B) — the procurement sheet a supplier is sent is
+     the approved one while an amendment is open. */
+  const vf = await vFinalFor("requirement-sheet", orderId);
+  const proposed = version === "proposed";
+  const data = vf.state === "frozen" && !proposed ? vf.payload : await getRequirementSheet(orderId);
 
   return (
     <div className="space-y-4">
@@ -76,6 +85,13 @@ export default async function RequirementPage({
           push the toolbar buttons off the right on a narrow screen. It carries
           its own `print:hidden`. */}
       <OrderDocumentTabs orderId={orderId} current="material" />
+
+      <VFinalBanner
+        state={vf}
+        proposed={proposed}
+        hrefApproved={`/orders/${orderId}/requirement`}
+        hrefProposed={`/orders/${orderId}/requirement?version=proposed`}
+      />
 
       {isSheetRefusal(data) ? (
         /*

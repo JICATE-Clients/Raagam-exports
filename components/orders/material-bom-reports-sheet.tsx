@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { fmtQty } from "@/lib/uom/convert";
 import { loadMaterialBomRequirementReport } from "@/lib/orders/material-bom-amendment/report-actions";
+import { loadVFinalForBom } from "@/lib/orders/amendments/v-final-actions";
+import { VFinalSheetNote, type SheetVFinal } from "@/components/orders/v-final-sheet-note";
 import type { MbaRequirementReport } from "@/lib/orders/material-bom-amendment/requirement-report-types";
 import {
   exportMaterialBomRequirementCsv,
@@ -51,18 +53,30 @@ export function MaterialBomReportsSheet({
     data: MbaRequirementReport | { refused: string };
   } | null>(null);
 
+  /* V_FINAL (0619, spec §4B) — the approved version while the order is
+     amending; see `FabricBomReportsSheet`. */
+  const [vf, setVf] = useState<{ forBom: string; data: SheetVFinal } | null>(null);
+  const [showProposed, setShowProposed] = useState(false);
+
   useEffect(() => {
     if (!open || !bomId) return;
     let cancelled = false;
-    loadMaterialBomRequirementReport(bomId).then((data) => {
-      if (!cancelled) setLoaded({ forBom: bomId, data });
+    Promise.all([loadMaterialBomRequirementReport(bomId), loadVFinalForBom("material", bomId)]).then(([data, v]) => {
+      if (cancelled) return;
+      setLoaded({ forBom: bomId, data });
+      setVf({ forBom: bomId, data: v as SheetVFinal });
     });
     return () => {
       cancelled = true;
     };
   }, [open, bomId]);
 
-  const data = loaded && bomId && loaded.forBom === bomId ? loaded.data : null;
+  const vFinal = vf && bomId && vf.forBom === bomId ? vf.data : null;
+  const frozen =
+    vFinal && vFinal.state === "frozen" && !showProposed && !("refused" in (vFinal.payload as object))
+      ? (vFinal.payload as { requirement: MbaRequirementReport | { refused: string } }).requirement
+      : null;
+  const data = frozen ?? (loaded && bomId && loaded.forBom === bomId ? loaded.data : null);
   const reports = ORDER_REPORTS.filter(isMaterialBomSheetReport);
 
   return (
@@ -83,6 +97,7 @@ export function MaterialBomReportsSheet({
         <div className="p-6 text-sm text-muted-foreground">Loading…</div>
       ) : (
         <div className="bg-[#f1f3f5] p-4">
+          {vFinal && <VFinalSheetNote vf={vFinal} proposed={showProposed} onToggle={() => setShowProposed((v) => !v)} />}
           {/* ONE REPORT TODAY, SO NO TAB STRIP — a strip of one is chrome. The
               moment the registry holds a second `material-bom` sheet report
               this becomes tabs with no edit here. */}

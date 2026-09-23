@@ -1,31 +1,36 @@
 import { requirePermission } from "@/lib/auth/server";
+import { hasPermission } from "@/lib/auth/types";
 import {
   getOpenPoLines,
   getVendors,
-  getLocations,
+  getGrnReceivingLocations,
 } from "@/lib/purchase/grn-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { GrnNewForm } from "../_components/grn-new-form";
 
 export default async function GrnNewPage() {
-  await requirePermission("materials_purchase", "create");
+  const user = await requirePermission("materials_purchase", "create");
 
-  const [openPoLines, vendors, locations] = await Promise.all([
+  const [openPoLines, vendors, receiving] = await Promise.all([
     getOpenPoLines(),
     getVendors(),
-    getLocations(),
+    getGrnReceivingLocations(),
   ]);
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="New GRN"
-        description="Select a vendor, then pick open PO lines to receive."
+        description="Pick the vendor and PO; its items load ready for today's quantities."
       />
       <GrnNewForm
         openPoLines={openPoLines}
         vendors={vendors}
-        locations={locations}
+        locations={receiving.options}
+        defaultLocationId={receiving.defaultId}
+        // `stores:approve` is the Store Manager key — the one that may
+        // authorise an over-receipt. createGrn and the 0620 trigger re-check.
+        canAuthorize={hasPermission(user, "stores", "approve")}
       />
     </div>
   );

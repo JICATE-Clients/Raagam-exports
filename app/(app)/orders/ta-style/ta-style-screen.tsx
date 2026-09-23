@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy } from "lucide-react";
+import { CalendarRange, Copy, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,14 @@ import {
 } from "@/lib/orders/ta-styles/types";
 import type { TaStyleFormData, PickerRow } from "@/lib/orders/ta-styles/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import {
+  createdByFacet,
+  createdDateFacet,
+  flagFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
@@ -37,6 +45,39 @@ interface Props {
   data: TaStyleFormData;
   perms: Perms;
 }
+
+/**
+ * THE GROUPED DRAWER (user, 2026-09-23: "implement the Material BOM filter in
+ * every Orders child"). The list had no filter; every facet reads a field the
+ * row already carries. Status is COUNTED and reads `taStyleStatusLabel` — the
+ * same word the pill prints, so "Draft" in the drawer and "Draft" in the row
+ * cannot disagree — in the order a planner works: Active, Draft, Blocked.
+ */
+const STYLE_STATUSES = ["Active", "Draft", "Blocked"] as const;
+const STYLE_FACETS: FacetGroup<TaStyle>[] = [
+  {
+    title: "Status & customer",
+    icon: <ListChecks />,
+    facets: [
+      {
+        key: "status",
+        label: "Status",
+        all: "All statuses",
+        wide: true,
+        counted: true,
+        options: STYLE_STATUSES.map((s) => ({ value: s, label: s })),
+        match: (r, v) => taStyleStatusLabel(r) === v,
+      },
+      { key: "customer", label: "Customer", all: "All customers", value: (r) => r.customer?.name },
+      flagFacet("ladder", "Activities", (r) => r.activities.length > 0, "Has activities", "None yet"),
+    ],
+  },
+  {
+    title: "Created",
+    icon: <CalendarRange />,
+    facets: [createdDateFacet(), createdByFacet()],
+  },
+];
 
 type ActivityRow = {
   key: string;
@@ -64,6 +105,20 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
 
   // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
   useUnsavedGuard(mode === "edit" || isPending);
+
+  /* Above the `mode === "list"` return, like every hook here (AGENTS.md
+     "Hooks above every early return"). */
+  const [query, setQuery] = useState("");
+  const facets = useFacetFilter(rows, STYLE_FACETS);
+  const matchesFacets = facets.matches;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (!matchesFacets(r)) return false;
+      if (!needle) return true;
+      return [r.code, r.customer?.name, r.description].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+  }, [rows, query, matchesFacets]);
 
   const activityItems: PickerRow[] = data.activities;
   const customerItems: PickerRow[] = data.customers;
@@ -197,7 +252,20 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
           description="Reusable Time & Action templates — activities, predecessors and day offsets."
           actions={perms.canCreate ? <Button onClick={openAdd}>New TA Style</Button> : undefined}
         />
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No TA styles yet." />
+        <FilterBar
+          search={query}
+          onSearch={setQuery}
+          searchPlaceholder="Search Style Ref No, customer or description…"
+          activeCount={facets.activeCount}
+          onReset={facets.activeCount ? facets.reset : undefined}
+          panel={facets.panel}
+        />
+        <DataTable
+          columns={withCreatedColumns(columns, rows)}
+          rows={filtered}
+          getKey={(r) => r.id}
+          empty={rows.length ? "No TA styles match these filters." : "No TA styles yet."}
+        />
       </div>
     );
   }

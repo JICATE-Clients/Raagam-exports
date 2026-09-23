@@ -182,7 +182,7 @@ export const PULLED_SOURCES: ReadonlySet<BudgetSource> = new Set<BudgetSource>([
   "material_process",
   "garment_process",
   /* PULLED SINCE 0574: one line per (order, style, coordinate), its qty the
-     style's SQ Qty. "+ Add" still allows a manual CMT line — pulled describes
+     style's Cut Qty. "+ Add" still allows a manual CMT line — pulled describes
      where the quantity usually comes from, not a ban on typing one. */
   "cmt",
 ]);
@@ -990,7 +990,7 @@ export type GeneralSummary = {
   income: number | Refusal;
   profit: number | Refusal;
   marginPct: number | Refusal;
-  /** Cost per piece MADE (SQ Qty), per the client's spec — not per piece sold. */
+  /** Cost per piece MADE (Cut Qty), per the client's spec — not per piece sold. */
   costPerPiece: number | Refusal;
 };
 
@@ -1012,13 +1012,13 @@ function pctOf(amount: number | Refusal, sales: number | Refusal): number | Refu
  * sources does (a pending percent line), with that source's sentence; the
  * others still answer.
  *
- * `costPerPiece` is cost ÷ SQ Qty — the pieces MADE (order + excess + rejection
+ * `costPerPiece` is cost ÷ Cut Qty — the pieces MADE (order + excess + rejection
  * + approval), which is what the cost was incurred on. Dividing by the order
  * quantity instead would spread the cost of the extra pieces over the ones
- * sold and overstate it. It refuses on a refused cost, a refused SQ Qty, or a
+ * sold and overstate it. It refuses on a refused cost, a refused Cut Qty, or a
  * zero one, never dividing by nothing.
  */
-export function generalSummary(totals: BudgetTotals, sqQty: number | Refusal): GeneralSummary {
+export function generalSummary(totals: BudgetTotals, cutQty: number | Refusal): GeneralSummary {
   const rows = GENERAL_CATEGORIES.map((c) => {
     let amount: number | Refusal = 0;
     for (const s of c.sources) {
@@ -1034,11 +1034,11 @@ export function generalSummary(totals: BudgetTotals, sqQty: number | Refusal): G
 
   const costPerPiece: number | Refusal = isRefusal(totals.cost)
     ? totals.cost
-    : isRefusal(sqQty)
-      ? sqQty
-      : !(sqQty > 0)
-        ? { refused: "No SQ Qty to spread the cost over" }
-        : money(totals.cost / sqQty);
+    : isRefusal(cutQty)
+      ? cutQty
+      : !(cutQty > 0)
+        ? { refused: "No Cut Qty to spread the cost over" }
+        : money(totals.cost / cutQty);
 
   return {
     rows,

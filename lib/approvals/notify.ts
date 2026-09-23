@@ -127,7 +127,7 @@ async function noticeFor(
       const delta = am.margin_delta_pct == null ? "" : ` (${am.margin_delta_pct > 0 ? "+" : ""}${am.margin_delta_pct.toFixed(2)}%)`;
       const who = am.origin === "BY_CUSTOMER" ? "by the customer" : "by us";
       return {
-        title: `Amendment ${am.entry_no ?? ""} on ${am.order_ref ?? "an order"} needs your approval${am.margin_delta_pct != null && am.margin_delta_pct < 0 ? " — margin down" : ""}`.replace("  ", " "),
+        title: `Revision ${am.entry_no ?? ""} on ${am.order_ref ?? "an order"} needs your approval${am.margin_delta_pct != null && am.margin_delta_pct < 0 ? " — margin down" : ""}`.replace("  ", " "),
         body: [
           `${am.types_label} ${who}${am.customer_name ? ` · ${am.customer_name}` : ""}`,
           `Margin ${pct(am.original_margin_pct)} → ${pct(am.amended_margin_pct)}${delta}`,
@@ -178,7 +178,7 @@ function amendmentOf(v: unknown): {
     order_ref: str(a.order_ref),
     customer_name: str(a.customer_name),
     origin: str(a.origin) ?? "BY_US",
-    types_label: str(a.types_label) ?? "an amendment",
+    types_label: str(a.types_label) ?? "a revision",
     remarks: str(a.remarks),
     original_margin_pct: num(a.original_margin_pct),
     amended_margin_pct: num(a.amended_margin_pct),

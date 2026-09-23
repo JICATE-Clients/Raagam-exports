@@ -91,7 +91,7 @@ const BASELINE_W = "max-w-[44rem]";
  *
  *     3 x (144 + 26)   Gross Sales, Total Expenses, Net Profit
  *   + 88 + 26          Margin %
- *   + 176 + 26         "Cost per piece (on SQ Qty)" — its label is the width
+ *   + 176 + 26         "Cost per piece (on Cut Qty)" — its label is the width
  *   + 4 x 10           the row's gap
  *   = 866  ->  55rem (880), 14px of slack
  *
@@ -150,9 +150,9 @@ export function BudgetGeneral({
         <HighlightTile w="code" tone="plain" label="Total Expenses" value={summary.total.amount} />
         <HighlightTile w="code" tone={signTone(summary.profit)} label="Net Profit" value={summary.profit} />
         <HighlightTile w="hug" tone={signTone(summary.profit)} label="Margin %" value={summary.marginPct} suffix="%" />
-        {/* ON SQ QTY — the pieces MADE, the client's own definition, not the
+        {/* ON CUT QTY — the pieces MADE, the client's own definition, not the
             Order Qty the sales figure is priced on. */}
-        <HighlightTile w="term" tone="plain" label="Cost per piece (on SQ Qty)" value={summary.costPerPiece} />
+        <HighlightTile w="term" tone="plain" label="Cost per piece (on Cut Qty)" value={summary.costPerPiece} />
       </dl>
 
       {baseline && baseline.length > 0 && (

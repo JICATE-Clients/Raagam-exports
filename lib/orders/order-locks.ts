@@ -158,7 +158,7 @@ export async function orderAmendmentStates(
          garment_order_id, the document's re_amendment_id), so a bare embed is
          the PGRST201 ambiguity AGENTS.md records. The COLUMN is named. */
       .select(
-        "id, entry:order_budget_revisions!re_amendment_id(id, entry_no, amendment_type, amendment_types, scope)",
+        "id, entry:order_budget_revisions!re_amendment_id(id, entry_no, amendment_type, amendment_types, scope, budget:order_budgets(status))",
       )
       .eq("re_status", "amending");
     if (orderIds) q = q.in("id", [...orderIds]);
@@ -173,6 +173,7 @@ export async function orderAmendmentStates(
       amendment_type: string;
       amendment_types: string[] | null;
       scope: unknown;
+      budget: { status: string } | { status: string }[] | null;
     };
     const out: Record<string, OrderAmendmentState> = {};
     for (const r of (data ?? []) as unknown as { id: string; entry: Entry | Entry[] | null }[]) {
@@ -185,6 +186,8 @@ export async function orderAmendmentStates(
         entryNo: e.entry_no,
         types,
         scope,
+        /* 0619 — the spec's badge: the revised budget is with the MD. */
+        pendingMd: (Array.isArray(e.budget) ? e.budget[0] : e.budget)?.status === "submitted",
         banner: amendmentBanner({ entryNo: e.entry_no, types, scope }),
       };
     }

@@ -110,7 +110,7 @@ export type ItemPickerRow = PickerRow & { base_uom_id: string | null; purchase_u
  *
  * ## IT ALSO HANDS BACK THE FACTS IT VALUED FROM (0572)
  *
- * The SQ header and the Sales bar need the order's quantity, its currency and
+ * The budget header and the Sales bar need the order's quantity, its currency and
  * rate, and the gross in the buyer's currency. Every one of them is already in
  * hand here, so they ride out beside the INR value rather than being fetched
  * or recomputed a second time — two reads of one order's value is two chances
@@ -223,15 +223,15 @@ async function salesValuesByOrder(): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// What each order MAKES — per style, the legacy "SQ Qty" (0574)
+// What each order MAKES — per style, the Cut Qty (0574)
 // ---------------------------------------------------------------------------
 
 type OrderStyleFacts = {
   is_set_pack: boolean;
   styles: BudgetableStyle[];
-  /** Σ of the styles' SQ Qty; null + reason the moment one refuses. */
-  sq_qty: number | null;
-  sq_refusal: string | null;
+  /** Σ of the styles' Cut Qty; null + reason the moment one refuses. */
+  cut_qty: number | null;
+  cut_refusal: string | null;
   /** The word the order's quantity is counted in — see `orderUnitOf`. */
   unit: string | null;
 };
@@ -240,10 +240,10 @@ type OrderStyleFacts = {
  * Per order, per style: what was ordered, what will be MADE, and which
  * coordinates it is made of.
  *
- * ## SQ QTY IS THE FABRIC BOM REPORT'S OWN "Cut Qty", CALLED PER STYLE
+ * ## CUT QTY IS THE FABRIC BOM REPORT'S OWN "Cut Qty", CALLED PER STYLE
  *
- * The legacy "SQ Qty" is Order + Excess + Rejection + Approval — the Fabric BOM
- * report's `sqQty`, with the TIERED rejection projection and its refusal when
+ * Cut Qty is Order + Excess + Rejection + Approval — the Fabric BOM
+ * report's `cutQty`, with the TIERED rejection projection and its refusal when
  * the chosen rule has a gap. It is read by calling `qtyBreakdownOf` (reports.ts)
  * over one style's approval rows, never re-derived: three budget tabs (the
  * header, CMTs, Garment Processes) read "pieces made", and one arithmetic is
@@ -259,7 +259,7 @@ type OrderStyleFacts = {
  * called on each row, so the tiers, the excess and the "rule chosen" flag are
  * read exactly as the BOMs read them. The select names only what that shaping
  * reads plus the style lines and their coordinates; the assortment tree it
- * would also flatten is not needed for SQ Qty and is left out (`quantities:
+ * would also flatten is not needed for Cut Qty and is left out (`quantities:
  * null`), which `assortSizeWeights` answers as no assortment.
  */
 async function styleFactsByOrder(
@@ -281,7 +281,7 @@ async function styleFactsByOrder(
     orderIds ? q.in("id", [...orderIds]) : q.eq("is_draft", false),
   ]);
   // Thrown: an empty map would read as "no order has any style", and every
-  // SQ Qty on the screen would refuse for a reason that is not the real one.
+  // Cut Qty on the screen would refuse for a reason that is not the real one.
   if (res.error) throw new Error(`Could not read the orders' styles: ${res.error.message}`);
 
   type Row = {
@@ -337,8 +337,8 @@ async function styleFactsByOrder(
         article_no: line.article_no,
         unit_kind: line.unit_kind,
         order_qty: Number(line.po_qty) || 0,
-        sq_qty: null,
-        sq_refusal: null,
+        cut_qty: null,
+        cut_refusal: null,
         coordinates: [],
       });
     }
@@ -351,33 +351,34 @@ async function styleFactsByOrder(
       }
     }
 
-    let sq: number | null = 0;
-    let sqRefusal: string | null = null;
+    let cut: number | null = 0;
+    let cutRefusal: string | null = null;
     for (const st of styles.values()) {
       const b = qtyBreakdownOf({
         ...production,
         approvals: production.approvals.filter((a) => styleKey(a.style_ref_no) === st.style_ref_no),
       });
       if (isReportRefusal(b)) {
-        st.sq_refusal = b.refused;
-        if (sqRefusal == null) sqRefusal = `${st.style_ref_no}: ${b.refused}`;
-        sq = null;
+        st.cut_refusal = b.refused;
+        if (cutRefusal == null) cutRefusal = `${st.style_ref_no}: ${b.refused}`;
+        cut = null;
       } else {
-        st.sq_qty = b.sqQty;
-        if (sq != null) sq += b.sqQty;
+        st.cut_qty = b.cutQty;
+        st.cut_breakup = { order: b.orderQty, excess: b.excessQty, approval: b.approvalQty, rejection: b.rejectionQty };
+        if (cut != null) cut += b.cutQty;
       }
     }
     if (styles.size === 0) {
-      sq = null;
-      sqRefusal = "no style lines on the order";
+      cut = null;
+      cutRefusal = "no style lines on the order";
     }
 
     const isSetPack = r.is_set_pack === true;
     out.set(r.id, {
       is_set_pack: isSetPack,
       styles: [...styles.values()],
-      sq_qty: sqRefusal ? null : sq,
-      sq_refusal: sqRefusal,
+      cut_qty: cutRefusal ? null : cut,
+      cut_refusal: cutRefusal,
       unit: orderUnitOf(isSetPack, [...styles.values()]),
     });
   }
@@ -421,7 +422,7 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
           /* The FK column is NAMED, the way `fabric-bom/reports.ts` reads the
              same pair — a second FK to `sq_details` would otherwise turn this
              whole list into a 300 (AGENTS.md). */
-          "sq_detail:sq_details!sq_detail_id(code, sq_description)",
+          "sq_detail:sq_details!sq_detail_id(code)",
       )
       .eq("is_draft", false)
       // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
@@ -493,7 +494,7 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
     delivery_date: string | null;
     customer: { name: string } | null;
     sales_order: { order_number: string | null } | null;
-    sq_detail: { code: string | null; sq_description: string | null } | null;
+    sq_detail: { code: string | null } | null;
   };
 
   const unread = (refusal: string): SalesFacts => ({
@@ -519,7 +520,6 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
       customer_name: o.customer?.name ?? null,
       delivery_date: o.delivery_date,
       sq_no: o.sq_detail?.code ?? null,
-      sq_description: o.sq_detail?.sq_description ?? null,
       re_no: o.sales_order?.order_number ?? null,
       qty: v.qty,
       /* THE STYLES' OWN ORDER UNIT, not "PCS always" — see `orderUnitOf`: a
@@ -530,8 +530,8 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
       gross_value: v.gross_value,
       sales_value: v.value,
       sales_refusal: v.refusal,
-      sq_qty: sf?.sq_qty ?? null,
-      sq_refusal: sf ? sf.sq_refusal : "this order's styles could not be read",
+      cut_qty: sf?.cut_qty ?? null,
+      cut_refusal: sf ? sf.cut_refusal : "this order's styles could not be read",
       styles: sf?.styles ?? [],
       in_budget: covered.get(o.id) ?? null,
       fabric_bom_saved: fabricSaved.has(o.id),
@@ -711,11 +711,11 @@ const PULLED_DEFAULTS = {
  * - `material_process` — one line per Material BOM process row, weighed by
  *   that item's own stored requirement on that BOM.
  * - `garment_process` — one line per Style ▸ Process row, weighed by the
- *   style's SQ Qty (`styleFactsByOrder`), with No of Pcs and No of Units at 1.
+ *   style's Cut Qty (`styleFactsByOrder`), with No of Pcs and No of Units at 1.
  *
  * ## CMT (0574) — one line per (order, style, coordinate)
  *
- * Weighed by the style's SQ Qty, the SAME figure Garment Processes reads: CMT
+ * Weighed by the style's Cut Qty, the SAME figure Garment Processes reads: CMT
  * and a garment process are both labour on the same garments, and within one
  * budget "pieces made" is one number. The coordinate goes in `item_id` — a CMT
  * line costs MAKING that garment item, as a yarn line's `item_id` is the yarn
@@ -1177,10 +1177,10 @@ export async function pullCostLines(
     const facts = styleFacts.get(orderId);
     if (!facts) continue;
     for (const st of facts.styles) {
-      /* NO SQ QTY, NO LINE — AND COUNTED. A refused SQ Qty (no approval rows,
+      /* NO CUT QTY, NO LINE — AND COUNTED. A refused Cut Qty (no approval rows,
          a rejection rule with a gap) is a question the order has not answered;
          0 pieces is not a CMT charge of nothing. */
-      if (st.sq_qty == null || !(st.sq_qty > 0)) {
+      if (st.cut_qty == null || !(st.cut_qty > 0)) {
         skipped++;
         continue;
       }
@@ -1199,7 +1199,7 @@ export async function pullCostLines(
              the placeholder a nameless style falls back to, replaced by the
              item name when there is one. */
           description: st.style_description?.trim() || st.style_ref_no || "—",
-          qty: st.sq_qty,
+          qty: st.cut_qty,
           uom_id: uom,
           // No CMT master or rate card exists — the planner prices it.
           rate: null,
@@ -1550,24 +1550,24 @@ type GarmentProcRow = {
 /**
  * The `garment_process` lines — one per Style ▸ Process row.
  *
- * ## QTY IS THE STYLE'S SQ QTY — THE SAME PIECES CMT IS CHARGED ON (0574)
+ * ## QTY IS THE STYLE'S CUT QTY — THE SAME PIECES CMT IS CHARGED ON (0574)
  *
  * A garment process is done to every garment the floor makes, not to every
  * garment the buyer ordered — the excess, the approval samples and the
  * rejection allowance all go through the embroidery machine too. Phase 2 read
  * that as `materialTarget` (the Material BOM's base, with the FLAT Rejection
- * %). Phase 3 moved it onto the legacy SQ Qty (`qtyBreakdownOf`, with the
- * TIERED rejection projection) because CMT reads SQ Qty and a garment process
+ * %). Phase 3 moved it onto Cut Qty (`qtyBreakdownOf`, with the
+ * TIERED rejection projection) because CMT reads Cut Qty and a garment process
  * is labour on the same garments: two bases in one budget would cost one
  * factory run as two different numbers of pieces, and the client's blueprint
- * anchors garment Reqd on SQ Qty (5321, not the order's 5028).
+ * anchors garment Reqd on Cut Qty (5321, not the order's 5028).
  *
  * ## No of Pcs and No of Units are 1
  *
  * Stated, not left null, so the row reads 1 × 1 and the operator can see the
  * two multipliers exist. `lineReqd` multiplies them into Reqd.
  *
- * ## A STYLE WITH NO SQ QTY IS SKIPPED AND COUNTED
+ * ## A STYLE WITH NO CUT QTY IS SKIPPED AND COUNTED
  *
  * Refused (no approval rows, a rejection rule with a gap) or 0 — a process
  * line of 0 garments would read as "this step costs nothing".
@@ -1583,7 +1583,7 @@ function garmentProcessLines(
     if (!r.process_id || !r.process?.name) continue;
     if (r.kind !== "garment" && r.kind !== "component") continue;
     const style = styleKey(r.style_ref_no);
-    const target = styleFacts.get(r.amendment_id)?.styles.find((st) => st.style_ref_no === style)?.sq_qty;
+    const target = styleFacts.get(r.amendment_id)?.styles.find((st) => st.style_ref_no === style)?.cut_qty;
     if (target == null || !(target > 0)) {
       skip();
       continue;

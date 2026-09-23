@@ -4,6 +4,7 @@ import { orderLockMessage } from "./amendment";
 import {
   amendmentTypesLabel,
   areaOpen,
+  areaRecalculable,
   outOfScopeMessage,
   scopeFromJson,
   type AmendmentArea,
@@ -159,6 +160,8 @@ export type ReopenedBudget = {
   entryNo: string | null;
   /** Its Change Categories — "Price Change", "Quantity Addition + …". */
   typesLabel: string;
+  /** The revised budget is with the MD (0619's "Pending MD Approval"); else "Waiting Amendment". */
+  pendingMd: boolean;
 };
 
 /**
@@ -211,6 +214,93 @@ export async function reopenedBudgetForOrder(orderId: string): Promise<ReopenedB
       typesLabel: amendmentTypesLabel(
         last.amendment_types?.length ? last.amendment_types : [last.amendment_type],
       ),
+      pendingMd: b.status === "submitted",
+    };
+  }
+  return null;
+}
+
+/**
+ * THE GUARD A BOM RECALCULATION CALLS (0619) — `assertOrderWritable`'s sibling
+ * for the one writer that touches only a BOM's DERIVED rows (requirements, the
+ * yarn purchase / process weights, the header's basis stamp).
+ *
+ *   open      → pass (an ordinary re-save would too)
+ *   approved  → refuse with the lock sentence
+ *   amending  → pass if the entry opened this BOM whole OR opened its derived
+ *               rows (a quantity or colourway change, spec §3.1: "automatic
+ *               recalculation … across all locations" while the BOM itself
+ *               stays read-only); else refuse with the out-of-scope sentence
+ *
+ * The trigger still judges every row: this only stops a half-run write.
+ */
+export async function assertOrderRecalculable(
+  orderId: string | null | undefined,
+  area: "fabric_bom" | "material_bom",
+): Promise<{ ok: true; amendment: OrderAmendment | null } | { ok: false; error: string }> {
+  if (!orderId) return { ok: true, amendment: null };
+  try {
+    const lock = await orderLockOf(orderId);
+    if (lock) return { ok: false, error: orderLockMessage(lock) };
+    const amendment = await orderAmendmentOf(orderId);
+    if (amendment && !areaRecalculable(amendment.scope, area)) {
+      return { ok: false, error: outOfScopeMessage(amendment, area) };
+    }
+    return { ok: true, amendment };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not check the order's lock" };
+  }
+}
+
+/**
+ * THE AMENDMENT A BUDGET IS BEING REVISED UNDER (0619) — for the Order Budget
+ * module rule (`./amendment-scope`). Null when none of its orders is under an
+ * open Amendment Entry, or when every such entry picked Order Budget (or was
+ * raised before 0619 — those were frozen with the budget open).
+ *
+ * The baseline is the entry's BUDGET SNAPSHOT — the approved lines as they
+ * stood when it opened — not the budget's current lines, which are the ones
+ * being judged.
+ */
+export type BudgetAmendmentScope = {
+  entryId: string;
+  entryNo: string | null;
+  types: string[];
+  baselineLines: import("./amendment-scope").BudgetScopeLine[];
+  baselineHeader: { currency_code: string | null; exchange_rate: number | null };
+};
+
+export async function budgetAmendmentScopeOf(orderIds: readonly string[]): Promise<BudgetAmendmentScope | null> {
+  const ids = [...new Set(orderIds.filter(Boolean))];
+  if (ids.length === 0) return null;
+  const s = await createClient();
+  const { data, error } = await s
+    .from("order_budget_revisions")
+    .select("id, entry_no, amendment_type, amendment_types, scope, budget_snapshot")
+    .eq("outcome", "open")
+    .in("garment_order_id", ids);
+  /* A FAILED READ REFUSES — "could not check" is not "Order Budget was picked". */
+  if (error) throw new Error(`Could not read the open amendment: ${error.message}`);
+  for (const r of (data ?? []) as {
+    id: string;
+    entry_no: string | null;
+    amendment_type: string;
+    amendment_types: string[] | null;
+    scope: unknown;
+    budget_snapshot: { budget?: Record<string, unknown>; lines?: unknown[] } | null;
+  }[]) {
+    const scope = scopeFromJson(r.scope);
+    if (areaOpen(scope, "budget")) continue;
+    if (!r.budget_snapshot?.budget) continue;
+    return {
+      entryId: r.id,
+      entryNo: r.entry_no,
+      types: r.amendment_types?.length ? r.amendment_types : [r.amendment_type],
+      baselineLines: (r.budget_snapshot.lines ?? []) as import("./amendment-scope").BudgetScopeLine[],
+      baselineHeader: {
+        currency_code: (r.budget_snapshot.budget.currency_code as string | null) ?? null,
+        exchange_rate: (r.budget_snapshot.budget.exchange_rate as number | null) ?? null,
+      },
     };
   }
   return null;

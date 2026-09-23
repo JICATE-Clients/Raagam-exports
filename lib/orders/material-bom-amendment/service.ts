@@ -59,8 +59,11 @@ export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
         "id, code, garment_order_id, amendment_no, is_draft, computed_basis_hash, " +
           "computed_for_qty, items:material_bom_amendment_items(id)",
       )
-      // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
-      .order("amendment_no", { ascending: true }),
+      // A "LATEST" LOOKUP, NOT A LISTING — so it keeps its own newest-first
+      // order (the 09-22 entry-order sweep flipped this to ascending, and the
+      // first-seen-wins loop below then reported each order's OLDEST Material
+      // BOM to the queue, the budget's freshness gate and the amendment panel).
+      .order("amendment_no", { ascending: false }),
   ]);
 
   type BomRow = {

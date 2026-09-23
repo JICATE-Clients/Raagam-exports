@@ -17,6 +17,8 @@ import {
 } from "@/lib/orders/material-bom-amendment/requirement-report";
 import { currentFabricBom, isFabricSheetRefusal } from "@/lib/orders/fabric-requirement/service";
 import { fabricBomEntryRegister, yarnFabricRequirementReport } from "@/lib/orders/fabric-bom/reports";
+import { VFinalBanner } from "@/components/orders/v-final-banner";
+import { vFinalFor } from "@/lib/orders/amendments/v-final";
 
 /**
  * ANY REGISTERED ORDER REPORT WITHOUT A PAGE OF ITS OWN, at
@@ -38,29 +40,42 @@ import { fabricBomEntryRegister, yarnFabricRequirementReport } from "@/lib/order
  */
 export default async function OrderReportPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orderId: string; report: string }>;
+  /** `?version=proposed` — the amendment's in-flight data instead of V_final (0619). */
+  searchParams: Promise<{ version?: string }>;
 }) {
   await requirePermission("orders", "view");
-  const { orderId, report: key } = await params;
+  const [{ orderId, report: key }, { version }] = await Promise.all([params, searchParams]);
+  const proposed = version === "proposed";
 
   const report = findOrderReport(key);
   // A key with its own page is served THERE; answering it here too would give
   // one report two URLs that could drift apart.
   if (!report || report.page) notFound();
 
+  /* V_FINAL (0619, spec §4B): the registry names each report's frozen source;
+     while the order is amending that is what prints, unless `?version=proposed`. */
+  const vf = await vFinalFor(report.vFinal, orderId);
+  const frozen = vf.state === "frozen" && !proposed ? vf.payload : null;
+
   let body: React.ReactNode;
   if (isFabricBomSheetReport(report)) {
-    const current = await currentFabricBom(orderId);
-    if (isFabricSheetRefusal(current)) {
+    const snap = frozen as import("@/lib/orders/amendments/v-final").VFinalPayloads["fabric-bom-reports"] | null;
+    const current = snap ? null : await currentFabricBom(orderId);
+    if (snap && "refused" in snap) {
+      body = <Refusal message={snap.refused} href="/orders/fabric-bom" action="Open Fabric BOM →" />;
+    } else if (current && isFabricSheetRefusal(current)) {
       body = <Refusal message={current.refused} href="/orders/fabric-bom" action="Open Fabric BOM →" />;
     } else {
       /* BOTH LOADED, as the editor's sheet does: Printing Requirement reads the
          Yarn & Fabric Requirement object, so the pair is one fetch's worth. */
-      const [register, requirement] = await Promise.all([
-        fabricBomEntryRegister(current.bom.id),
-        yarnFabricRequirementReport(current.bom.id),
-      ]);
+      const bomId = current && !isFabricSheetRefusal(current) ? current.bom.id : "";
+      const [register, requirement] =
+        snap && !("refused" in snap)
+          ? [snap.register, snap.requirement]
+          : await Promise.all([fabricBomEntryRegister(bomId), yarnFabricRequirementReport(bomId)]);
       body = (
         <div className="rounded-md bg-[#f1f3f5] p-4">
           <FabricBomReportView report={report.key} register={register} requirement={requirement} />
@@ -70,11 +85,13 @@ export default async function OrderReportPage({
   } else if (isMaterialBomSheetReport(report)) {
     /* THE ORDER'S CURRENT MATERIAL BOM — latest recorded, the rule the
        Accessories Requirement sheet and the purchase ceiling both use. */
-    const current = await currentMaterialBom(orderId);
+    const snap = frozen as import("@/lib/orders/amendments/v-final").VFinalPayloads["material-bom-requirement"] | null;
+    const current = snap ? ("refused" in snap ? { refused: snap.refused } : { id: snap.bomId }) : await currentMaterialBom(orderId);
     if ("refused" in current) {
       body = <Refusal message={current.refused} href="/orders/material-bom" action="Open Material BOM →" />;
     } else {
-      const requirement = await materialBomRequirementReport(current.id);
+      const requirement =
+        snap && !("refused" in snap) ? snap.requirement : await materialBomRequirementReport(current.id);
       body = (
         <div className="rounded-md bg-[#f1f3f5] p-4">
           <MaterialBomReportView report={report.key} requirement={requirement} />
@@ -99,6 +116,13 @@ export default async function OrderReportPage({
       </div>
 
       <OrderDocumentTabs orderId={orderId} current={report.key as OrderReportKey} />
+
+      <VFinalBanner
+        state={vf}
+        proposed={proposed}
+        hrefApproved={`/orders/${orderId}/reports/${report.key}`}
+        hrefProposed={`/orders/${orderId}/reports/${report.key}?version=proposed`}
+      />
 
       {body}
     </div>

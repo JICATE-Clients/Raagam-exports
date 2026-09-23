@@ -83,6 +83,8 @@ check(
       mime_type: "application/pdf",
       size_bytes: 1024,
       style_ref_no: null,
+      is_primary: false,
+      print_on_report: false,
       sno: 1,
     },
   ],
@@ -172,6 +174,8 @@ check(
     mime_type: null,
     size_bytes: 1024,
     style_ref_no: null,
+    is_primary: false,
+    print_on_report: false,
     sno: 1,
   },
 );
@@ -301,6 +305,68 @@ check(
   "a blank style ref is a null style, not a style named \"\"",
   normalizeFileRows([file({ style_ref_no: "   " })], live("ST-1"))[0]?.style_ref_no,
   null,
+);
+
+// ---------------------------------------------------------------------------
+// 6. ONE STAR PER STYLE (0621) — decided AFTER the demotion
+//
+// `uq_goa_files_primary` allows one `is_primary` per (amendment, style), the
+// order level counting as one group. The star is normalized over the rows AS
+// WRITTEN, so a style demotion that moves a starred file into the order-level
+// group cannot hand the index two stars there and fail the whole save. The
+// rule itself (`normalizePrimary`) is vectored in `check-style-gallery.mts`;
+// these pin that `normalizeFileRows` applies it, and in the right order.
+// ---------------------------------------------------------------------------
+
+const pic = (path: string, over: Partial<FileRowInput> = {}): FileRowInput =>
+  file({ storage_path: path, file_name: path, mime_type: "image/jpeg", doc_kind: "sketch", ...over });
+
+check(
+  "the last star on a style wins; the earlier one is cleared",
+  normalizeFileRows(
+    [
+      pic("a.jpg", { style_ref_no: "ST-1", is_primary: true }),
+      pic("b.jpg", { style_ref_no: "ST-1", is_primary: true }),
+    ],
+    live("ST-1"),
+  ).map((r) => r.is_primary),
+  [false, true],
+);
+// THE ONE THE ORDERING MATTERS FOR: normalize before the demotion and both
+// stars survive into the order-level group — a 23505 on save.
+check(
+  "a starred file DEMOTED into the order level does not make two order-level stars",
+  normalizeFileRows(
+    [
+      pic("a.jpg", { style_ref_no: null, is_primary: true }),
+      pic("b.jpg", { style_ref_no: "ST-GONE", is_primary: true }),
+    ],
+    live("ST-1"),
+  ).map((r) => [r.style_ref_no, r.is_primary]),
+  [
+    [null, false],
+    [null, true],
+  ],
+);
+check(
+  "a star on a failed upload does not count — its row is dropped first",
+  normalizeFileRows([pic("", { is_primary: true }), pic("b.jpg", { is_primary: true })]).map((r) => [
+    r.storage_path,
+    r.is_primary,
+  ]),
+  [["b.jpg", true]],
+);
+check(
+  "print_on_report has no one-per rule — every flag is kept",
+  normalizeFileRows([pic("a.jpg", { print_on_report: true }), pic("b.jpg", { print_on_report: true })]).map(
+    (r) => r.print_on_report,
+  ),
+  [true, true],
+);
+check(
+  "an absent flag is false, never undefined (both columns are not null)",
+  normalizeFileRows([file()]).map((r) => [r.is_primary, r.print_on_report]),
+  [[false, false]],
 );
 
 console.log(failed === 0 ? "\nOK — every amendment file vector holds." : `\n${failed} FAILED`);

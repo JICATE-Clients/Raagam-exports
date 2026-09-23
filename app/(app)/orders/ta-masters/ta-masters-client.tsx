@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRouter } from "next/navigation";
@@ -18,12 +18,66 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { Ban, CheckCircle2 } from "lucide-react";
+import { Ban, CalendarRange, CheckCircle2, ListChecks } from "lucide-react";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import {
+  createdByFacet,
+  createdDateFacet,
+  flagFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
+
+/**
+ * THE GROUPED DRAWER (user, 2026-09-23: "implement the Material BOM filter in
+ * every Orders child"). The list had no filter; every facet reads a field the
+ * row already carries. Status is COUNTED (Active before Blocked — the order of
+ * "what is in use"), so a zero is shown and not choosable. `department` is left
+ * out: it is retained on the row but not on this form, so a facet over it would
+ * offer values the operator can neither see nor set here.
+ */
+const ACTIVITY_FACETS: FacetGroup<TaActivity>[] = [
+  {
+    title: "Status & type",
+    icon: <ListChecks />,
+    facets: [
+      {
+        key: "status",
+        label: "Status",
+        all: "All statuses",
+        wide: true,
+        counted: true,
+        options: [
+          { value: "active", label: "Active" },
+          { value: "blocked", label: "Blocked" },
+        ],
+        match: (a, v) => (v === "active") === a.is_active,
+      },
+      { key: "type", label: "Type", all: "All types", value: (a) => a.type?.name },
+      flagFacet("sub", "Sub-activities", (a) => a.has_sub_activities, "Has sub-activities", "No sub-activities"),
+    ],
+  },
+  {
+    title: "Delivery & created",
+    icon: <CalendarRange />,
+    facets: [
+      flagFacet(
+        "delivery",
+        "Delivery date",
+        (a) => a.consider_for_delivery_date,
+        "Considered",
+        "Not considered",
+      ),
+      createdDateFacet(),
+      createdByFacet(),
+    ],
+  },
+];
 
 interface Props {
   activities: TaActivity[];
@@ -60,6 +114,18 @@ export function TaMastersClient({
   useUnsavedGuard(formOpen || isPending);
   const [considerDelivery, setConsiderDelivery] = useState(false);
   const [blocked, setBlocked] = useState(false);
+
+  const [query, setQuery] = useState("");
+  const facets = useFacetFilter(activities, ACTIVITY_FACETS);
+  const matchesFacets = facets.matches;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return activities.filter((a) => {
+      if (!matchesFacets(a)) return false;
+      if (!needle) return true;
+      return [a.short_name, a.name, a.type?.name].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+  }, [activities, query, matchesFacets]);
 
   function reset() {
     setShortName("");
@@ -333,11 +399,20 @@ export function TaMastersClient({
         </Card>
       )}
 
+      <FilterBar
+        search={query}
+        onSearch={setQuery}
+        searchPlaceholder="Search short name, activity or type…"
+        activeCount={facets.activeCount}
+        onReset={facets.activeCount ? facets.reset : undefined}
+        panel={facets.panel}
+      />
+
       <DataTable
         columns={withCreatedColumns(columns, activities)}
-        rows={activities}
+        rows={filtered}
         getKey={(a) => a.id}
-        empty="No T&A activities defined yet."
+        empty={activities.length ? "No activities match these filters." : "No T&A activities defined yet."}
       />
     </div>
   );

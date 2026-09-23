@@ -12,7 +12,7 @@
  * `lineAmount` / `lineInrRate` / `budgetTotals`, so an IWO line and an order
  * line with the same quantity and rate cost the same, to the paisa.
  *
- * WHAT IS NOT HERE, AND WHY: no Customer, SQ, Order Qty, Sales, Profit or
+ * WHAT IS NOT HERE, AND WHY: no Customer, Cut Qty, Order Qty, Sales, Profit or
  * margin — a stock run has no buyer, and `budgetTotals` refuses sales rather
  * than printing 0; no CMT or Garment Processes — nothing is sewn; no percent
  * rate — there is no sales value to take a percent of (0594 refuses it).
@@ -26,7 +26,7 @@
 
 import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, ClipboardList, Package, Receipt, Workflow } from "lucide-react";
+import { CalendarRange, Calculator, ClipboardList, Package, Receipt, Users, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -46,6 +46,15 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import {
+  createdByFacet,
+  createdDateFacet,
+  urgencyFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 import { Toggle } from "@/components/ui/toggle";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
@@ -54,7 +63,7 @@ import { useOpenIntent } from "@/lib/use-open-intent";
 import { sectionValidity } from "@/lib/screens/validity";
 import { isInactive } from "@/lib/masters/inactive";
 import { stageRank } from "@/lib/orders/fabric-bom/stage-routes";
-import { IWO_FOR_LABELS, type IwoFor } from "@/lib/orders/internal-work-orders/types";
+import { IWO_FOR, IWO_FOR_LABELS, type IwoFor } from "@/lib/orders/internal-work-orders/types";
 import { budgetTotals, isRefusal, lineAmount, lineInrRate } from "@/lib/orders/budget/totals";
 import { lineInputOf } from "@/lib/orders/budget/figures";
 import type { IwoBudgetSource, IwoPulledLine } from "@/lib/orders/iwo-budget/pull";
@@ -266,6 +275,93 @@ function costCard(columns: CostCol[], row: CostRow, i: number) {
 
 type Form = { iwo_id: string | null; budget_date: string; remark: string };
 
+/**
+ * THE PENDING / UPDATED / DRAFT BOX (user, 2026-09-23: "in budget we have
+ * pending, update, draft button need to implement same order module fully").
+ * Budgeting's own mapping (`budget-queue.tsx`), read over the same five states
+ * the Budget column shows:
+ *   Pending = Not started — no budget on the work order yet: the work waiting
+ *                           on whoever opens this list
+ *   Updated = Submitted / Approved / Rejected — a budget exists and has left
+ *             the writer's hands, whatever the approver made of it
+ *   Draft   = Draft — saved as draft, still being written
+ * One word per row, so a Draft counts as Draft only (Budgeting's hand-rolled
+ * box also lit it under Updated). The drawer's Budget facet still reaches each
+ * approval state by name; while it is set the box stands down (the Budget
+ * Approval rule, `useQuickStatus`'s `standDown`).
+ */
+const budgetWord = (t: IwoBudgetTask): QuickWord =>
+  !t.budget ? "pending" : t.budget.status === "draft" ? "draft" : "updated";
+
+/**
+ * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
+ * Material BOM filter in every Orders child"). The list had no filter bar at
+ * all. Every facet is read off the `IwoBudgetTask` the table already shows,
+ * so none costs a query; the Budget and BOM buckets are those columns' own
+ * pill words.
+ */
+const IWO_BUDGET_FACETS: FacetGroup<IwoBudgetTask>[] = [
+  {
+    title: "Status & dates",
+    icon: <CalendarRange />,
+    facets: [
+      {
+        key: "budget",
+        label: "Budget",
+        all: "All",
+        wide: true,
+        counted: true,
+        options: [
+          { value: "none", label: "Not started" },
+          { value: "draft", label: "Draft" },
+          { value: "submitted", label: "Submitted" },
+          { value: "approved", label: "Approved" },
+          { value: "rejected", label: "Rejected" },
+        ],
+        match: (t, v) => (t.budget?.status ?? "none") === v,
+      },
+      { key: "iwoDate", label: "Date", all: "Any date", date: (t) => t.iwo_date },
+      { key: "deliDate", label: "Deli Dt", all: "Any date", date: (t) => t.deli_date },
+    ],
+  },
+  {
+    title: "Work order & BOM",
+    icon: <ClipboardList />,
+    facets: [
+      {
+        key: "for",
+        label: "For",
+        all: "All kinds",
+        wide: true,
+        counted: true,
+        options: IWO_FOR.map((f) => ({ value: f, label: IWO_FOR_LABELS[f] })),
+        match: (t, v) => t.iwo_for === v,
+      },
+      {
+        key: "bom",
+        label: "BOM",
+        all: "Any",
+        counted: true,
+        options: [
+          { value: "none", label: "Not started" },
+          { value: "draft", label: "Draft" },
+          { value: "saved", label: "Saved" },
+        ],
+        match: (t, v) => t.bom === v,
+      },
+    ],
+  },
+  {
+    title: "Delivery & created",
+    icon: <Users />,
+    facets: [
+      { ...urgencyFacet<IwoBudgetTask>((t) => t.deli_date), wide: true },
+      createdDateFacet(),
+      createdByFacet(),
+    ],
+  },
+];
+
 export function IwoBudgetScreen({
   tasks,
   data,
@@ -307,6 +403,27 @@ export function IwoBudgetScreen({
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
   const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+
+  // THE LIST'S FILTERS — hooks here, near the top: this component has no early
+  // return today, and a hook down by the list would be the first to break if
+  // one is added (AGENTS.md, hooks above every early return).
+  const [listQuery, setListQuery] = useState("");
+  const listFacets = useFacetFilter(tasks, IWO_BUDGET_FACETS);
+  const facetMatches = listFacets.matches;
+  const quick = useQuickStatus(budgetWord, {
+    standDown: !!listFacets.values.budget,
+    onPick: () => listFacets.set("budget", ""),
+  });
+  const qm = quick.matches;
+  const listed = useMemo(() => {
+    const needle = listQuery.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (!facetMatches(t)) return false;
+      if (!qm(t)) return false;
+      if (!needle) return true;
+      return [t.code, t.reference_no, t.budget?.code].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+  }, [tasks, listQuery, facetMatches, qm]);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
   const iwoFor: IwoFor | null = picked?.iwo_for ?? null;
   const status = picked?.budget?.status ?? "draft";
@@ -803,6 +920,29 @@ export function IwoBudgetScreen({
     ),
   };
 
+  /**
+   * IMPORT — the order Budget's switch (client 2026-09-23: "do same in iwo
+   * budget too"). A line is priced in rupees unless it is imported: Curr ·
+   * Ex Rate · INR Rate show only on an imported line (`importOnly` on the
+   * purchase grids, `importStackCol` on the rest), and switching Import OFF
+   * takes the line back to INR — a currency left behind under hidden columns
+   * would price it in dollars with nothing on screen saying so.
+   */
+  const importToggle = (r: CostRow) => (
+    // Off the typing path while OFF, as FOC is.
+    <span data-focus-optional={r.is_import ? undefined : ""}>
+      <Toggle
+        checked={r.is_import}
+        ariaLabel="Imported"
+        disabled={!editable}
+        onChange={(v) =>
+          setCost(r.key, v ? { is_import: true } : { is_import: false, currency_code: "", ex_rate: "" })
+        }
+      />
+    </span>
+  );
+  const importCol: CostCol = { header: "Import", cell: (r) => importToggle(r) };
+
   /** THE CURRENCY'S BLANK IS INR, AND SAYS SO (0572); clearing it clears the rate. */
   const currencyCol: CostCol = {
     header: "Curr",
@@ -890,6 +1030,37 @@ export function IwoBudgetScreen({
   const figure = (v: number | { refused: string }) =>
     isRefusal(v) ? null : <span className="tabular-nums text-sm">{fmtNumber(v)}</span>;
   const inrRateCol: CostCol = { header: "INR Rate", cell: (r) => figure(lineInrRate(engineLine(r))) };
+
+  /** On an imported line only — or one already holding a foreign currency,
+   *  which is never hidden while it prices the line. */
+  const importOnly = (c: CostCol): CostCol => ({
+    ...c,
+    showFor: (r) => (r.is_import || !!r.currency_code) && (!c.showFor || c.showFor(r)),
+  });
+
+  /** Where there is no room for three more columns, Curr · Ex Rate · INR Rate
+   *  open INSIDE the Import cell, under its switch — the order Budget's
+   *  `importStackCol`. */
+  const importStackCol: CostCol = {
+    header: "Import",
+    cell: (r, i) => (
+      <div className="space-y-1">
+        {importToggle(r)}
+        {(r.is_import || !!r.currency_code) && (
+          <>
+            <div className="text-[10px] font-semibold uppercase text-muted-foreground">Curr</div>
+            {currencyCol.cell(r, i)}
+            <div className="text-[10px] font-semibold uppercase text-muted-foreground">
+              Ex Rate{exRateRequired(r) ? " *" : ""}
+            </div>
+            {exRateCol.cell(r, i)}
+            <div className="text-[10px] font-semibold uppercase text-muted-foreground">INR Rate</div>
+            <div className="text-right">{inrRateCol.cell(r, i)}</div>
+          </>
+        )}
+      </div>
+    ),
+  };
   const amountCol: CostCol = {
     header: "Amount",
     total: {
@@ -942,35 +1113,44 @@ export function IwoBudgetScreen({
     { ...qtyCol, width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+    // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-23).
+    { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
   ]));
 
   /* Accessories Purchases — code 144 + hug 88 (Colour) + range 112 (Spec) +
      hug 88 + num 72 + num 72 + num 72 + hug 88 + hug 88 + hug 88 + range 112 =
-     1024, + 72 = 1096. */
-  const iwoMaterialPurchaseColumns: CostCol[] = withRowRules([
+     1024, + 72 = 1096.
+     2026-09-23: + Import (num 72), Specification range -> hug (-24): 1072, +
+     72 = 1144. Yarn Purchases likewise: 1000 + 72 = 1072, + 72 = 1144. */
+  const iwoMaterialPurchaseColumns: CostCol[] = usedColumns("material", withRowRules([
     { ...itemCol("Item", ["SEW", "PACK"]), width: FIELD_WIDTH_CSS.code },
     { ...textCol("Colour", "combo", true), width: FIELD_WIDTH_CSS.hug },
-    { ...textCol("Specification", "specification", true), width: FIELD_WIDTH_CSS.range },
+    // 2026-09-23: range -> hug (-24) to pay for the Import column.
+    { ...textCol("Specification", "specification", true), width: FIELD_WIDTH_CSS.hug },
     { ...qtyCol, width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+    // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-23).
+    { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
-  ]);
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
+  ]));
 
   /* The three process grids — code 144 (item) + code 144 (Process) + hug 88
      (Shade) + hug 88 (Reqd) + num 72 (Unit) + hug 88 (Rate Type) + num 72
      (Curr) + hug 88 (Ex Rate) + hug 88 (Charges) + hug 88 (INR Rate) + range
      112 (Amount) = 1072, + 72 = 1144 <= 1155. 11px of headroom: a new column
-     here needs a re-cut. */
+     here needs a re-cut.
+     2026-09-23: Curr + Ex Rate + INR Rate (248) folded into one Import cell
+     (num 72): 896, + 72 = 968. Other Expenses the same: 840, + 72 = 912. */
   const iwoYarnProcessColumns: CostCol[] = withRowRules([
     { ...itemCol("Yarn", ["YARN"]), width: FIELD_WIDTH_CSS.code },
     { ...processCol((p) => p.for_yarn), width: FIELD_WIDTH_CSS.code },
@@ -978,11 +1158,10 @@ export function IwoBudgetScreen({
     { ...qtyCol, width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
+    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
   const iwoFabricProcessColumns: CostCol[] = withRowRules([
     { ...itemCol("Fabric", ["FABRIC"]), width: FIELD_WIDTH_CSS.code },
@@ -991,11 +1170,10 @@ export function IwoBudgetScreen({
     { ...qtyCol, width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
+    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
   const iwoMaterialProcessColumns: CostCol[] = withRowRules([
     { ...itemCol("Item", ["SEW", "PACK"]), width: FIELD_WIDTH_CSS.code },
@@ -1004,11 +1182,10 @@ export function IwoBudgetScreen({
     { ...qtyCol, width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
+    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
 
   /* Other Expenses — code 144 (Head) + term 176 (Description) + hug 88 (Rate
@@ -1020,11 +1197,10 @@ export function IwoBudgetScreen({
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
     { ...qtyCol, width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
+    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
 
   const rowsOf = (s: IwoBudgetSource) => rows.filter((r) => r.source === s);
@@ -1381,11 +1557,27 @@ export function IwoBudgetScreen({
           description="Rates and cost for an Internal Work Order — its lines pulled from the work order's BOM."
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New IWO Budget</Button> : undefined}
         />
+        <FilterBar
+          leading={quick.segment}
+          search={listQuery}
+          onSearch={setListQuery}
+          searchPlaceholder="Search I.WO No, RE No or Entry No…"
+          activeCount={listFacets.activeCount}
+          onReset={listFacets.activeCount ? listFacets.reset : undefined}
+          panel={listFacets.panel}
+          right={`${listed.length} of ${tasks.length}`}
+        />
         <DataTable
           columns={withCreatedColumns(columns, tasks)}
-          rows={tasks}
+          rows={listed}
           getKey={(t) => t.id}
-          empty="No Internal Work Orders at this unit yet."
+          empty={
+            !tasks.length
+              ? "No Internal Work Orders at this unit yet."
+              : quick.value
+                ? `No ${quick.value} work orders${listFacets.activeCount || listQuery ? " match these filters" : ""}.`
+                : "No work orders match these filters."
+          }
         />
       </div>
 

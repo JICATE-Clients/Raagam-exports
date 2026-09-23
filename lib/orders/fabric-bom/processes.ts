@@ -82,6 +82,8 @@ export {
   isDyedStage,
   dyedStageAllowedOnYarnDyed,
   yarnDyedStageBlocked,
+  washStageBlocked,
+  isWashStage,
   narrowToStage,
   stageAllowsProcess,
   stageMismatchBlocked,

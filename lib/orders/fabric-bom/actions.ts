@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
-import { isYarnDyed, missingFabricLineFields } from "./fabric-line-rules";
+import { isPieceDyed, isYarnDyed, missingFabricLineFields } from "./fabric-line-rules";
 /* THE ONE RULE DECIDING WHICH ROUTE STEPS SURVIVE (2026-09-16). It lives in
    `./processes.ts` beside `fabricProcessRowStarted` rather than here because
    the SCREEN reads it too, and a `"use server"` file can export nothing but
@@ -77,12 +77,14 @@ import { printRouteProblems, printedGroup } from "./print-route";
 import { diaKey, manualDiaKnitProblems } from "./dia-knit";
 import {
   basisFingerprint,
+  productionSlices,
   totalProductionOf,
   isRefusal as isOrderRefusal,
   type OrderProductionInput,
 } from "@/lib/orders/material-bom/requirement";
 import { kilogramUom } from "@/lib/uom/kilogram";
-import { assertOrderWritable } from "@/lib/orders/budget/lock";
+import { assertOrderRecalculable, assertOrderWritable } from "@/lib/orders/budget/lock";
+import type { RecalcResult } from "@/lib/orders/bom-recalc-types";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -2178,6 +2180,7 @@ async function stageRouteProblem(
           [componentId],
         ),
         fabricIsYarnDyed: isYarnDyed(typeById.get(itemId) ?? null),
+        fabricIsPieceDyed: isPieceDyed(typeById.get(itemId) ?? null),
       }),
     },
   );
@@ -2554,6 +2557,509 @@ export async function deleteFabricBom(id: string): Promise<Result> {
   if (error) return fail(error.message);
   rev();
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Recalculating the DERIVED rows from the STORED document (0619)
+// ---------------------------------------------------------------------------
+
+/**
+ * A requirement / yarn row reduced to what it SAYS — no `id`, `sno`, `bom_id`
+ * or timestamps — so a stored row and a recomputed one compare by content.
+ * Numbers are rounded to 6dp: PostgREST hands `numeric` back as a JSON number
+ * and the engine's own figures are already rounded to the unit's precision.
+ */
+function derivedRowContent(
+  row: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    const v = row[k];
+    if (v == null) out[k] = null;
+    else if (typeof v === "number") out[k] = Math.round(v * 1e6) / 1e6;
+    else if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) && /^-?[\d.]+$/.test(v.trim()))
+      out[k] = Math.round(Number(v) * 1e6) / 1e6;
+    else out[k] = v;
+  }
+  return out;
+}
+
+const IGNORED_DERIVED_KEYS = new Set(["id", "sno", "bom_id", "amendment_id", "created_at", "updated_at", "created_by"]);
+
+/** How many rows differ between two lists, compared as MULTISETS of content. */
+function multisetDiffCount(before: readonly unknown[], after: readonly unknown[]): number {
+  const counts = new Map<string, number>();
+  for (const r of before) {
+    const k = JSON.stringify(r);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  let added = 0;
+  for (const r of after) {
+    const k = JSON.stringify(r);
+    const n = counts.get(k) ?? 0;
+    if (n > 0) counts.set(k, n - 1);
+    else added++;
+  }
+  let removed = 0;
+  for (const n of counts.values()) removed += n;
+  return added + removed;
+}
+
+const sameFigure = (a: unknown, b: unknown) =>
+  a == null || b == null ? a == null && b == null : Math.abs(Number(a) - Number(b)) < 1e-6;
+
+type StoredFabricBomDoc = {
+  id: string;
+  garment_order_id: string;
+  bom_date: string;
+  is_draft: boolean;
+  remark: string | null;
+  lines: (Record<string, unknown> & { sno: number })[] | null;
+  manualEntries:
+    | (Record<string, unknown> & {
+        id: string;
+        sno: number;
+        components: { coordinate_id: string | null; component_id: string }[] | null;
+        combos: { combo: string }[] | null;
+        sizes: (Record<string, unknown> & { sno: number })[] | null;
+      })[]
+    | null;
+  requirements: (Record<string, unknown> & { sno: number })[] | null;
+  processes: (Record<string, unknown> & { sno: number })[] | null;
+  processScopes: Record<string, unknown>[] | null;
+  yarns:
+    | {
+        id: string;
+        sno: number;
+        item_id: string;
+        purchase_qty: number | null;
+        uom_id: string | null;
+        refusal_reason: string | null;
+        stages: (Record<string, unknown> & {
+          id: string;
+          sno: number;
+          process_qty: number | null;
+          uom_id: string | null;
+          refusal_reason: string | null;
+        })[] | null;
+      }[]
+    | null;
+  ydRepeats: (Record<string, unknown> & { sno: number })[] | null;
+  ydCombinations: (Record<string, unknown> & { colors: (Record<string, unknown> & { sno: number })[] | null })[] | null;
+};
+
+type FabricRecalcPlan = {
+  orderId: string;
+  header: { computed_at: string | null; computed_for_qty: number | null; computed_basis_hash: string | null };
+  requirements: Record<string, unknown>[];
+  requirementsBefore: Record<string, unknown>[];
+  requirementsAfter: Record<string, unknown>[];
+  requirementChanges: number;
+  yarnUpdates: { id: string; purchase_qty: unknown; uom_id: unknown; refusal_reason: unknown }[];
+  stageUpdates: { id: string; process_qty: unknown; uom_id: unknown; refusal_reason: unknown }[];
+  manualEntries: { message: string }[];
+};
+
+const bySno = <T extends { sno: number }>(rows: readonly T[] | null | undefined): T[] =>
+  [...(rows ?? [])].sort((a, b) => a.sno - b.sno);
+
+/**
+ * THE STORED DOCUMENT, READ BACK INTO THE SHAPE A SAVE RECEIVES.
+ *
+ * Stored rows are the NORMALIZED form of the payload, so this is mostly
+ * identity: the normalizers are run over it again and keep every row. Manual
+ * sizes carry their STORED `grams` (the screen's `gramsFor` already resolved a
+ * calculated entry into it), yarns and stages are the stored ones (the screen's
+ * derivation is replaced by the stored result of it), and `palette` is
+ * undefined — this never touches the order's colours.
+ */
+function fabricInputFromStored(doc: StoredFabricBomDoc): FabricBomInput {
+  return {
+    garment_order_id: doc.garment_order_id,
+    bom_date: doc.bom_date,
+    is_draft: doc.is_draft,
+    remark: doc.remark,
+    lines: bySno(doc.lines) as unknown as FabricBomInput["lines"],
+    dias: [],
+    yd_repeats: bySno(doc.ydRepeats) as unknown as FabricBomInput["yd_repeats"],
+    yd_combinations: (doc.ydCombinations ?? []).map((c) => ({
+      ...c,
+      colors: bySno(c.colors),
+    })) as unknown as FabricBomInput["yd_combinations"],
+    processes: bySno(doc.processes).map((p) => ({
+      ...p,
+      color_losses: (p.color_losses as Record<string, number> | null) ?? {},
+    })) as unknown as FabricBomInput["processes"],
+    processScopes: (doc.processScopes ?? []) as unknown as FabricBomInput["processScopes"],
+    yarns: bySno(doc.yarns).map((y) => ({
+      sno: y.sno,
+      item_id: y.item_id,
+      stages: bySno(y.stages).map((st) => ({
+        sno: st.sno,
+        stage_id: (st.stage_id as string | null) ?? null,
+        process_id: (st.process_id as string | null) ?? null,
+        loss_for_id: (st.loss_for_id as string | null) ?? null,
+        combo: (st.combo as string | null) ?? null,
+        description: (st.description as string | null) ?? null,
+        loss_pct: (st.loss_pct as number | null) ?? null,
+        color_wise_loss: !!st.color_wise_loss,
+        color_losses: (st.color_losses as Record<string, number> | null) ?? {},
+      })),
+    })),
+    manualEntries: bySno(doc.manualEntries).map((e) => ({
+      ...e,
+      panels: (e.components ?? []).map((c) => ({
+        coordinate_id: c.coordinate_id ?? null,
+        component_id: c.component_id,
+      })),
+      combos: (e.combos ?? []).map((c) => c.combo),
+      sizes: bySno(e.sizes),
+    })) as unknown as FabricBomInput["manualEntries"],
+    palette: undefined,
+  };
+}
+
+/**
+ * THE RECOMPUTE, WITHOUT A WRITE — every figure `writeLines` + `writeYarns`
+ * would produce for this document against the order as it stands NOW, built
+ * by the SAME private functions in the same order (requirementRows →
+ * fabricGrossOf → normalizeYarns), so a recalculated figure and a saved one
+ * cannot come from two formulas.
+ */
+async function planFabricBomRecalc(
+  s: Awaited<ReturnType<typeof createClient>>,
+  bomId: string,
+): Promise<{ ok: true; plan: FabricRecalcPlan } | { ok: false; error: string }> {
+  const { data: raw, error: readErr } = await s
+    .from("order_fabric_boms")
+    .select(
+      "id, garment_order_id, bom_date, is_draft, remark, " +
+        "lines:order_fabric_bom_lines(*), " +
+        "manualEntries:order_fabric_bom_manual_entries(*, " +
+        "components:order_fabric_bom_manual_components(*), " +
+        "combos:order_fabric_bom_manual_combos(*), " +
+        "sizes:order_fabric_bom_manual_sizes(*)), " +
+        "requirements:order_fabric_bom_requirements(*), " +
+        "processes:order_fabric_bom_processes(*), " +
+        "processScopes:order_fabric_bom_process_scope(*), " +
+        "yarns:order_fabric_bom_yarns(*, stages:order_fabric_bom_yarn_stages(*)), " +
+        "ydRepeats:order_fabric_bom_yd_repeats(*), " +
+        "ydCombinations:order_fabric_bom_yd_combinations(*, " +
+        "colors:order_fabric_bom_yd_combination_colors(*))",
+    )
+    .eq("id", bomId)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: `Could not read the Fabric BOM: ${readErr.message}` };
+  if (!raw) return { ok: false, error: "That Fabric BOM no longer exists" };
+  const doc = raw as unknown as StoredFabricBomDoc;
+
+  const order = await getOrderProduction(doc.garment_order_id);
+  if (!order) return { ok: false, error: "The order this Fabric BOM plans could not be read" };
+
+  const data = fabricInputFromStored(doc);
+  /* THE ROUTE'S SOURCE, re-derived exactly as a save does. The stored scope
+     rows already carry it; this keeps a changed master answering the same way
+     a Save would. */
+  data.processScopes = await withRouteSources(data);
+
+  const lines = normalizeLines(data);
+  const saved = lines.map((l) => ({ ...l, id: "" })) as LineRowWithId[];
+
+  /* THE STORED ENTRY IDS ARE KEPT — entries are authored rows and are not
+     rewritten, so the requirement must point at the ids already there. Stored
+     entries passed `normalizeManualEntries`' filter when they were written, so
+     running it again keeps each one in the same position. */
+  const storedEntries = bySno(doc.manualEntries);
+  const rawEntries = normalizeManualEntries(data);
+  if (rawEntries.length !== storedEntries.length) {
+    return {
+      ok: false,
+      error: "The Fabric BOM's manual entries could not be matched to the stored rows — open the Fabric BOM and save it",
+    };
+  }
+
+  const entryFabricIds = [...new Set(rawEntries.map((e) => e.item_id).filter(Boolean))] as string[];
+  const fabricFacts: FabricFacts = new Map();
+  if (entryFabricIds.length) {
+    const { data: fRows, error: fErr } = await s.from("items").select("id, category_id").in("id", entryFabricIds);
+    if (fErr) return { ok: false, error: fErr.message };
+    for (const r of (fRows ?? []) as { id: string; category_id: string | null }[]) {
+      fabricFacts.set(r.id, { category_id: r.category_id });
+    }
+  }
+  const savedEntries: EntryRowWithId[] = rawEntries.map((e, i) => ({
+    ...(e.item_id ? { ...e, structure_id: fabricFacts.get(e.item_id)?.category_id ?? e.structure_id } : e),
+    id: storedEntries[i].id,
+  }));
+
+  let requirement: Record<string, unknown>[] = [];
+  let decimals: Map<string, number | null> = new Map();
+  if (savedEntries.length) {
+    const [dp, seed, kg] = await Promise.all([
+      uomDecimalMap(s),
+      getOrderFabricSeed(doc.garment_order_id),
+      kilogramUom(s),
+    ]);
+    decimals = dp;
+    if (!kg) {
+      return { ok: false, error: "No active kilogram unit on the UOM master — add KGS before recalculating a Fabric BOM" };
+    }
+    requirement = requirementRows(
+      savedEntries,
+      order,
+      { id: kg.id, decimals: decimals.get(kg.id) ?? null },
+      gsmByStructureOf(seed),
+    );
+  }
+  if (!decimals.size) decimals = await uomDecimalMap(s);
+
+  /* ---- THE YARN PURCHASE, as `writeYarns` computes it ---- */
+  const fabrics = fabricGrossOf(requirement, savedEntries, data.lines);
+  const compositions = await compositionMapFor(saved);
+  let processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean; is_print?: boolean }>;
+  try {
+    processKinds = await processKindsOf(s, data);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not read the process master's kind flags" };
+  }
+  const yarns = normalizeYarns(
+    data,
+    fabrics,
+    compositions,
+    decimals,
+    processKinds,
+    colouredStageIds(await getYarnStageRows()),
+  );
+
+  /* ---- THE YARN SET MUST BE THE STORED ONE ------------------------------
+     Yarn rows are only UPDATED under an amendment's derived scope — never
+     inserted or deleted — so a yarn the cloths now buy that is not stored, or
+     a stored yarn no longer bought, is an authored change: the Fabric BOM has
+     to be opened. Refused WHOLE, so requirement and purchase never describe
+     two versions of the document. */
+  const storedYarns = bySno(doc.yarns);
+  const storedYarnById = new Map(storedYarns.map((y) => [y.item_id, y]));
+  const computedYarnIds = new Set(yarns.map((y) => y.row.item_id as string));
+  const sourceByFabric = sourceByFabricOf(data);
+  const bought = new Set(
+    compositionsBuyingYarn([...compositions.values()], (id) => sourceByFabric.get(id) ?? "yarn_knit").flatMap((c) =>
+      c.components.map((x) => x.yarn_id),
+    ),
+  );
+  const yarnProblems: string[] = [];
+  const yarnNames = async (ids: string[]) => {
+    if (!ids.length) return new Map<string, string>();
+    const { data: named } = await s.from("items").select("id, name").in("id", ids);
+    return new Map(((named ?? []) as { id: string; name: string | null }[]).map((r) => [r.id, r.name ?? "A yarn"]));
+  };
+  const newYarns = [...bought].filter((id) => !storedYarnById.has(id));
+  const goneYarns = storedYarns.map((y) => y.item_id).filter((id) => !computedYarnIds.has(id));
+  const names = await yarnNames([...newYarns, ...goneYarns]);
+  for (const id of newYarns) {
+    yarnProblems.push(`${names.get(id) ?? "A yarn"} is now bought for this BOM's fabrics but has no Yarn Process row`);
+  }
+  for (const id of goneYarns) {
+    yarnProblems.push(`${names.get(id) ?? "A yarn"} is no longer bought for this BOM's fabrics`);
+  }
+
+  const yarnUpdates: FabricRecalcPlan["yarnUpdates"] = [];
+  const stageUpdates: FabricRecalcPlan["stageUpdates"] = [];
+  for (const y of yarns) {
+    const stored = storedYarnById.get(y.row.item_id as string);
+    if (!stored) continue;
+    const storedStages = bySno(stored.stages);
+    if (
+      storedStages.length !== y.stages.length ||
+      storedStages.some((st, i) => st.sno !== (y.stages[i].sno as number))
+    ) {
+      const n = (await yarnNames([stored.item_id])).get(stored.item_id) ?? "A yarn";
+      yarnProblems.push(`${n}'s Yarn Process steps no longer match what is stored`);
+      continue;
+    }
+    if (
+      !sameFigure(stored.purchase_qty, y.row.purchase_qty) ||
+      (stored.uom_id ?? null) !== ((y.row.uom_id as string | null) ?? null) ||
+      (stored.refusal_reason ?? null) !== ((y.row.refusal_reason as string | null) ?? null)
+    ) {
+      yarnUpdates.push({
+        id: stored.id,
+        purchase_qty: y.row.purchase_qty ?? null,
+        uom_id: y.row.uom_id ?? null,
+        refusal_reason: y.row.refusal_reason ?? null,
+      });
+    }
+    storedStages.forEach((st, i) => {
+      const next = y.stages[i];
+      if (
+        !sameFigure(st.process_qty, next.process_qty) ||
+        (st.uom_id ?? null) !== ((next.uom_id as string | null) ?? null) ||
+        (st.refusal_reason ?? null) !== ((next.refusal_reason as string | null) ?? null)
+      ) {
+        stageUpdates.push({
+          id: st.id,
+          process_qty: next.process_qty ?? null,
+          uom_id: next.uom_id ?? null,
+          refusal_reason: next.refusal_reason ?? null,
+        });
+      }
+    });
+  }
+  if (yarnProblems.length) {
+    return {
+      ok: false,
+      error:
+        `Manual Entry Needed: [Fabric BOM] -> ${yarnProblems.join("; ")}. ` +
+        "Nothing was recalculated — open the Fabric BOM under an amendment that covers it and save.",
+    };
+  }
+
+  /* ---- COLOURWAYS NO WEIGHT COVERS ------------------------------------
+     A new combo on the order that no entry's weight reaches produces NO row
+     (an assort-colour-wise entry lists only the colourways it was ticked for),
+     and "fewer rows" reads as an answer. Named so the operator knows which
+     weight has to be typed. */
+  const manualEntries: { message: string }[] = [];
+  const slices = productionSlices("colour", order, "full_target");
+  /* NOT ASKED WHILE AN ENTRY IS REFUSED WHOLE. A refused entry writes one
+     colourless row naming WHY (e.g. "Size break-up not entered … for YELLOW"),
+     so every colourway would read as uncovered and the list would blame the
+     weights for what is really an incomplete order. The refusal says it. */
+  const entryRefused = requirement.some((r) => r.refusal_reason != null && r.combo == null);
+  if (!isOrderRefusal(slices) && !entryRefused) {
+    const covered = new Set(
+      requirement
+        .filter((r) => r.combo != null)
+        .map((r) => `${(r.style_ref_no as string | null) ?? ""}|${comboKey(r.combo as string)}`),
+    );
+    const coveredAnyStyle = new Set(requirement.filter((r) => r.combo != null).map((r) => comboKey(r.combo as string)));
+    const seen = new Set<string>();
+    for (const sl of slices) {
+      if (!sl.combo || !(sl.qty > 0)) continue;
+      const ck = comboKey(sl.combo);
+      const styled = `${sl.style_ref_no ?? ""}|${ck}`;
+      if (covered.has(styled) || (!sl.style_ref_no && coveredAnyStyle.has(ck))) continue;
+      /* A requirement row scoped to "every style" carries the slice's own
+         style, so a style-keyed miss is a real miss. */
+      if (seen.has(ck)) continue;
+      seen.add(ck);
+      manualEntries.push({
+        message: `Manual Entry Needed: [Fabric BOM] -> "${sl.combo.trim().toUpperCase()}" has no fabric weight entry.`,
+      });
+    }
+  }
+
+  const keys = [
+    ...new Set(requirement.flatMap((r) => Object.keys(r)).filter((k) => !IGNORED_DERIVED_KEYS.has(k))),
+  ];
+  const requirementsBefore = bySno(doc.requirements).map((r) => derivedRowContent(r, keys));
+  const requirementsAfter = requirement.map((r) => derivedRowContent(r, keys));
+  const h = headerOnly(data, order);
+
+  return {
+    ok: true,
+    plan: {
+      orderId: doc.garment_order_id,
+      header: {
+        computed_at: h.computed_at,
+        computed_for_qty: h.computed_for_qty,
+        computed_basis_hash: h.computed_basis_hash,
+      },
+      requirements: requirement,
+      requirementsBefore,
+      requirementsAfter,
+      requirementChanges: keys.length
+        ? multisetDiffCount(requirementsBefore, requirementsAfter)
+        : (doc.requirements ?? []).length,
+      yarnUpdates,
+      stageUpdates,
+      manualEntries,
+    },
+  };
+}
+
+/**
+ * RECALCULATE A FABRIC BOM'S DERIVED ROWS (0619) — the "automatic
+ * recalculation" a quantity / colourway amendment owes a BOM it did not open.
+ *
+ * Reads the STORED authored rows (lines, manual entries, routes, yarn steps)
+ * and the order's CURRENT production, and writes ONLY what
+ * `BOM_DERIVED_SCOPE` opens: the requirement rows (replaced), each stored
+ * yarn's purchase_qty/uom_id/refusal_reason and each stored stage's
+ * process_qty/uom_id/refusal_reason (UPDATE by id), and the header's three
+ * `computed_*` columns. Never `is_draft`, `bom_date`, `remark` or an authored
+ * row.
+ *
+ * REFUSED WHOLE when the yarn set or a yarn's step set would change — those
+ * are authored rows the scope cannot insert or delete. A colourway no weight
+ * covers is REPORTED (`manualEntries`) while the rest is still written.
+ */
+export async function recalculateFabricBomDerived(
+  bomId: string,
+  opts?: { dryRun?: boolean },
+): Promise<RecalcResult> {
+  if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+
+  const stored = await storedBomOrderId(s, bomId);
+  if (!stored.ok) return { ok: false, error: stored.error };
+  const lock = await assertOrderRecalculable(stored.orderId, "fabric_bom");
+  if (!lock.ok) return { ok: false, error: lock.error };
+
+  const planned = await planFabricBomRecalc(s, bomId);
+  if (!planned.ok) return planned;
+  const plan = planned.plan;
+
+  const changed = {
+    requirements: plan.requirementChanges,
+    yarns: plan.yarnUpdates.length,
+    stages: plan.stageUpdates.length,
+  };
+
+  if (opts?.dryRun) {
+    return {
+      ok: true,
+      changed,
+      manualEntries: plan.manualEntries,
+      dryRun: { requirementsBefore: plan.requirementsBefore, requirementsAfter: plan.requirementsAfter },
+    };
+  }
+
+  if (plan.requirementChanges > 0) {
+    const { error: delErr } = await s.from("order_fabric_bom_requirements").delete().eq("bom_id", bomId);
+    if (delErr) return { ok: false, error: delErr.message };
+    if (plan.requirements.length) {
+      const { error: insErr } = await s
+        .from("order_fabric_bom_requirements")
+        .insert(plan.requirements.map((r) => ({ ...r, bom_id: bomId })));
+      if (insErr) return { ok: false, error: insErr.message };
+    }
+  }
+  for (const y of plan.yarnUpdates) {
+    const { error } = await s
+      .from("order_fabric_bom_yarns")
+      .update({ purchase_qty: y.purchase_qty, uom_id: y.uom_id, refusal_reason: y.refusal_reason })
+      .eq("id", y.id);
+    if (error) return { ok: false, error: error.message };
+  }
+  for (const st of plan.stageUpdates) {
+    const { error } = await s
+      .from("order_fabric_bom_yarn_stages")
+      .update({ process_qty: st.process_qty, uom_id: st.uom_id, refusal_reason: st.refusal_reason })
+      .eq("id", st.id);
+    if (error) return { ok: false, error: error.message };
+  }
+  const { error: hdrErr } = await s.from("order_fabric_boms").update(plan.header).eq("id", bomId);
+  if (hdrErr) return { ok: false, error: hdrErr.message };
+
+  await writeAudit({
+    action: "order_fabric_bom.recalculated",
+    entityType: "order_fabric_bom",
+    entityId: bomId,
+    metadata: { ...changed, manual_entries: plan.manualEntries.map((m) => m.message) },
+  });
+  rev();
+  return { ok: true, changed, manualEntries: plan.manualEntries };
 }
 
 // ---------------------------------------------------------------------------

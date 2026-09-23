@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { Building2, CalendarRange } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,14 @@ import {
 import type { TaDepartmentAssign } from "@/lib/orders/ta-department-assign/types";
 import type { TaDeptAssignFormData } from "@/lib/orders/ta-department-assign/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import {
+  createdByFacet,
+  createdDateFacet,
+  flagFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
@@ -38,6 +47,34 @@ interface Props {
 type LineRow = { key: string; activity_id: string | null; is_owner: boolean };
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * THE GROUPED DRAWER (user, 2026-09-23: "implement the Material BOM filter in
+ * every Orders child"). The list had no filter; every facet reads a field the
+ * row already carries (the embedded location / department and the lines), so
+ * none costs a query. "Owner" asks whether ANY line flags the department as
+ * the owner — the one thing on a line the list can answer without opening it.
+ */
+const ASSIGN_FACETS: FacetGroup<TaDepartmentAssign>[] = [
+  {
+    title: "Dates",
+    icon: <CalendarRange />,
+    facets: [
+      { key: "entered", label: "Entered Date", all: "Any date", wide: true, date: (r) => r.entered_date },
+      createdDateFacet(),
+      createdByFacet(),
+    ],
+  },
+  {
+    title: "Department & location",
+    icon: <Building2 />,
+    facets: [
+      { key: "department", label: "Department", all: "All departments", wide: true, value: (r) => r.department?.name },
+      { key: "location", label: "Location", all: "All locations", value: (r) => r.location?.name },
+      flagFacet("owner", "Owner", (r) => r.lines.some((l) => l.is_owner), "Owns an activity", "Owns none"),
+    ],
+  },
+];
 
 export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Props) {
   const router = useRouter();
@@ -55,6 +92,20 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
 
   // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
   useUnsavedGuard(mode === "edit" || isPending);
+
+  /* Above the `mode === "list"` return, like every hook here (AGENTS.md
+     "Hooks above every early return"). */
+  const [query, setQuery] = useState("");
+  const facets = useFacetFilter(rows, ASSIGN_FACETS);
+  const matchesFacets = facets.matches;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (!matchesFacets(r)) return false;
+      if (!needle) return true;
+      return [r.code, r.location?.name, r.department?.name].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+  }, [rows, query, matchesFacets]);
 
   function openAdd() {
     setEditId(null);
@@ -159,7 +210,20 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
           description="Assign Time & Action activities to a department at a location, flagging the owner."
           actions={perms.canCreate ? <Button onClick={openAdd}>New Assignment</Button> : undefined}
         />
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No assignments yet." />
+        <FilterBar
+          search={query}
+          onSearch={setQuery}
+          searchPlaceholder="Search Entry No, location or department…"
+          activeCount={facets.activeCount}
+          onReset={facets.activeCount ? facets.reset : undefined}
+          panel={facets.panel}
+        />
+        <DataTable
+          columns={withCreatedColumns(columns, rows)}
+          rows={filtered}
+          getKey={(r) => r.id}
+          empty={rows.length ? "No assignments match these filters." : "No assignments yet."}
+        />
       </div>
     );
   }

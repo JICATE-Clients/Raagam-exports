@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { AlertTriangle, Info, OctagonAlert, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Info, ListChecks, OctagonAlert, Package, type LucideIcon } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { getWorklist, type WorklistNote, type WorklistRow } from "@/lib/ta/worklist";
 import { getMyStaffTaKpi } from "@/lib/ta/kpi";
 import { endOfMonth, startOfMonth, today } from "@/lib/calendar";
 import { PageHeader } from "@/components/ui/page-header";
+import { StaticFilterDrawer, StaticFilterSelect, StaticFilterText } from "@/components/ui/filter-drawer-static";
 import { buttonClasses } from "@/components/ui/button";
 import { Stat } from "@/components/ui/stat";
 import { StatusPill, StatusDot } from "@/components/ui/status-pill";
@@ -48,13 +49,59 @@ export const metadata = { title: "TA Worklist" };
 const BUCKETS = ["backlog", "today", "upcoming"] as const;
 type Bucket = (typeof BUCKETS)[number];
 
+/**
+ * FILTERS (user, 2026-09-23: "implement the Material BOM filter in every
+ * Orders child"). Order / Style Ref, Buyer, Activity and -- only on the
+ * all-departments view, where there is more than one to tell apart --
+ * Department. Much the same questions `ta-followup` (the approvals half of
+ * this ladder) already answers, for the same reason: on the all-departments
+ * scope this board is every open activity in the factory, and "which of these
+ * are one buyer's" had no answer short of reading every card.
+ *
+ * URL search params, applied HERE on the server, not client state -- this
+ * page's "zero client JavaScript except the buttons" rule (file header)
+ * stands, so the panel is `StaticFilterDrawer`: Material BOM's grouped
+ * drawer's look over a plain GET form. The filter runs AFTER `getWorklist`'s
+ * own narrowing, so the diagnosis notes and `Scanned` keep describing the
+ * service's answer and a filter can only ever hide.
+ */
+type Filters = { ref: string; buyer: string; activity: string; department: string };
+const FILTER_KEYS = ["ref", "buyer", "activity", "department"] as const;
+
+function matchesFilters(row: WorklistRow, f: Filters): boolean {
+  if (f.buyer && row.buyer !== f.buyer) return false;
+  if (f.activity && row.activity !== f.activity) return false;
+  if (f.department && row.departmentName !== f.department) return false;
+  if (f.ref) {
+    const needle = f.ref.trim().toLowerCase();
+    const hit =
+      (row.orderRef?.toLowerCase().includes(needle) ?? false) ||
+      (row.amendmentCode?.toLowerCase().includes(needle) ?? false) ||
+      row.styleRefs.some((s) => s.toLowerCase().includes(needle));
+    if (!hit) return false;
+  }
+  return true;
+}
+
+function distinct(values: (string | null | undefined)[]): string[] {
+  return [...new Set(values.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b));
+}
+
 export default async function TaWorklistPage({
   searchParams,
 }: {
-  searchParams: Promise<{ scope?: string; bucket?: string }>;
+  searchParams: Promise<{
+    scope?: string;
+    bucket?: string;
+    ref?: string;
+    buyer?: string;
+    activity?: string;
+    department?: string;
+  }>;
 }) {
   await requirePermission("orders", "view");
-  const { scope, bucket } = await searchParams;
+  const sp = await searchParams;
+  const { scope, bucket } = sp;
   const mineOnly = scope === "mine";
   const wl = await getWorklist({ mineOnly });
 
@@ -68,10 +115,30 @@ export default async function TaWorklistPage({
     ? await getMyStaffTaKpi(wl.viewerEmployeeId, startOfMonth(today()), endOfMonth(today()))
     : null;
 
-  const backlog = wl.rows.filter((r) => r.bucket === "backlog");
-  const dueToday = wl.rows.filter((r) => r.bucket === "today");
-  const upcoming = wl.rows.filter((r) => r.bucket === "upcoming");
   const showDepartment = wl.scope.kind === "all_departments";
+  const filters: Filters = {
+    ref: sp.ref ?? "",
+    buyer: sp.buyer ?? "",
+    activity: sp.activity ?? "",
+    // On the own-department view a Department filter could only ever be the
+    // one department or nothing -- ignored there rather than offered.
+    department: showDepartment ? (sp.department ?? "") : "",
+  };
+  const filtering = FILTER_KEYS.some((k) => !!filters[k]);
+
+  // Option lists off the FULL set, so a pick never vanishes from its own list.
+  const buyerOptions = distinct(wl.rows.map((r) => r.buyer));
+  const activityOptions = distinct(wl.rows.map((r) => r.activity));
+  const departmentOptions = distinct(wl.rows.map((r) => r.departmentName));
+
+  const filteredRows = filtering ? wl.rows.filter((r) => matchesFilters(r, filters)) : wl.rows;
+  const backlog = filteredRows.filter((r) => r.bucket === "backlog");
+  const dueToday = filteredRows.filter((r) => r.bucket === "today");
+  const upcoming = filteredRows.filter((r) => r.bucket === "upcoming");
+  // The tiles follow the filter (as on ta-followup); `Scanned` stays the
+  // service's pre-narrowing total. Unfiltered these equal `wl.counts`
+  // exactly -- the service counts the same buckets off the same rows.
+  const escalatedCount = filteredRows.filter((r) => r.escalated).length;
 
   /**
    * TABS, NOT STACKED SECTIONS (2026-09-10, operator: three fully-stacked
@@ -118,10 +185,13 @@ export default async function TaWorklistPage({
       ? (bucket as Bucket)
       : (BUCKETS.find((b) => sections[b].rows.length > 0) ?? "backlog");
 
-  function tabHref(b: Bucket) {
+  // `withFilters` false is the Clear link: same scope and tab, no filters.
+  function tabHref(b: Bucket, withFilters = true) {
     const params = new URLSearchParams();
     if (mineOnly) params.set("scope", "mine");
     params.set("bucket", b);
+    // Carries the filters across a tab switch, as ta-followup's does.
+    if (withFilters) for (const k of FILTER_KEYS) if (filters[k]) params.set(k, filters[k]);
     return `/orders/ta-worklist?${params.toString()}`;
   }
 
@@ -156,24 +226,24 @@ export default async function TaWorklistPage({
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           <Stat
             label="Due today"
-            value={wl.counts.today}
-            tone={wl.counts.today > 0 ? "info" : "neutral"}
+            value={dueToday.length}
+            tone={dueToday.length > 0 ? "info" : "neutral"}
           />
           <Stat
             label="Backlog"
-            value={wl.counts.backlog}
+            value={backlog.length}
             hint="Past target, not completed"
-            tone={wl.counts.backlog > 0 ? "warning" : "neutral"}
+            tone={backlog.length > 0 ? "warning" : "neutral"}
           />
           <Stat
             label="Escalate"
-            value={wl.counts.escalated}
+            value={escalatedCount}
             hint={`${wl.escalateAfterDays}+ days late`}
-            tone={wl.counts.escalated > 0 ? "danger" : "neutral"}
+            tone={escalatedCount > 0 ? "danger" : "neutral"}
           />
           <Stat
             label={`Next ${wl.horizonDays} days`}
-            value={wl.counts.upcoming}
+            value={upcoming.length}
             tone="neutral"
           />
           <Stat
@@ -192,6 +262,77 @@ export default async function TaWorklistPage({
           </div>
         )}
       </div>
+
+      {/* Only when there is something to filter -- an empty board keeps its
+          notes and `Scanned` tile as the whole story. */}
+      {wl.rows.length > 0 && (
+        <StaticFilterDrawer
+          action="/orders/ta-worklist"
+          hidden={{ scope: mineOnly ? "mine" : undefined, bucket: activeBucket }}
+          active={filtering}
+          clearHref={tabHref(activeBucket, false)}
+          groups={[
+            {
+              title: "Order",
+              icon: <Package />,
+              children: (
+                <>
+                  <StaticFilterText
+                    id="twl-ref"
+                    name="ref"
+                    label="Order / Style Ref"
+                    defaultValue={filters.ref}
+                    placeholder="Search…"
+                    wide
+                  />
+                  <StaticFilterSelect
+                    id="twl-buyer"
+                    name="buyer"
+                    label="Buyer"
+                    all="All buyers"
+                    defaultValue={filters.buyer}
+                    options={buyerOptions.map((v) => ({ value: v, label: v }))}
+                    wide
+                  />
+                </>
+              ),
+            },
+            {
+              title: "Activity",
+              icon: <ListChecks />,
+              children: (
+                <>
+                  <StaticFilterSelect
+                    id="twl-activity"
+                    name="activity"
+                    label="Activity"
+                    all="All activities"
+                    defaultValue={filters.activity}
+                    options={activityOptions.map((v) => ({ value: v, label: v }))}
+                    wide={!showDepartment}
+                  />
+                  {showDepartment && (
+                    <StaticFilterSelect
+                      id="twl-department"
+                      name="department"
+                      label="Department"
+                      all="All departments"
+                      defaultValue={filters.department}
+                      options={departmentOptions.map((v) => ({ value: v, label: v }))}
+                    />
+                  )}
+                </>
+              ),
+            },
+          ]}
+        />
+      )}
+
+      {filtering && filteredRows.length === 0 && (
+        <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+          No activities match this filter. {wl.rows.length} listed, before filtering.
+        </p>
+      )}
 
       {/* THE TAB BAR — one bucket on screen at a time. Underlined tabs, not
           the segmented-pill style `ScopeToggle` uses above: the two controls

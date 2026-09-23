@@ -13,6 +13,15 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { CalendarRange, Users } from "lucide-react";
+import {
+  createdByFacet,
+  createdDateFacet,
+  flagFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -73,10 +82,58 @@ interface Props {
  * so `num`. Widen any of these and the scrollbar is back before the widening
  * is visible.
  */
+/**
+ * THE GROUPED DRAWER (user, 2026-09-23: "implement the Material BOM filter in
+ * every Orders child"). This list had no filter at all; every facet reads a
+ * field the row already carries, so none costs a query. A cancellation has no
+ * status of its own (every row IS a cancellation) and no delivery date, so the
+ * two questions are "when" and "whose".
+ */
+const CANCELLATION_FACETS: FacetGroup<CancellationRow>[] = [
+  {
+    title: "Dates",
+    icon: <CalendarRange />,
+    facets: [
+      { key: "cancelled", label: "Cancel Date", all: "Any date", wide: true, date: (r) => r.cancelled_date },
+      createdDateFacet(),
+      createdByFacet(),
+    ],
+  },
+  {
+    title: "Customer & remarks",
+    icon: <Users />,
+    facets: [
+      {
+        key: "customer",
+        label: "Customer",
+        all: "All customers",
+        wide: true,
+        value: (r) => r.sales_orders?.buyers?.name,
+      },
+      flagFacet("remarks", "Remarks", (r) => !!r.remarks?.trim(), "Has remarks", "No remarks"),
+    ],
+  },
+];
+
 const ENTRY_ID = "__entry__";
 const isEntry = (r: CancellationRow) => r.id === ENTRY_ID;
 
 export function CancellationsTable({ cancellations, orders, buyers }: Props) {
+  /* THE GROUPED DRAWER filters the SAVED rows only — the entry row above
+     them is where the next one is typed, and it never filters away. */
+  const [query, setQuery] = useState("");
+  const facets = useFacetFilter(cancellations, CANCELLATION_FACETS);
+  const matchesFacets = facets.matches;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return cancellations.filter((r) => {
+      if (!matchesFacets(r)) return false;
+      if (!needle) return true;
+      return [r.code, r.sales_orders?.order_number, r.order_no, r.sales_orders?.buyers?.name].some((v) =>
+        (v ?? "").toLowerCase().includes(needle),
+      );
+    });
+  }, [cancellations, query, matchesFacets]);
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -317,19 +374,30 @@ export function CancellationsTable({ cancellations, orders, buyers }: Props) {
 
   /* A sentinel row, not state: it carries nothing but its id, and every cell
      above reads the entry's values from this component's own state. */
-  const rows: CancellationRow[] = [{ id: ENTRY_ID } as CancellationRow, ...cancellations];
+  const rows: CancellationRow[] = [{ id: ENTRY_ID } as CancellationRow, ...filtered];
 
   return (
-    <DataTable
-      columns={withCreated}
-      rows={rows}
-      getKey={(row) => row.id}
-      /* `dense`: px-2 cells, the padding half of the width table above. */
-      dense
-      /* The entry row reads as the place to type, not as a record: tinted,
-         and its cells vertically centred on the boxes. */
-      rowClassName={(row) => (isEntry(row) ? "bg-primary/5 align-middle" : undefined)}
-      empty="No cancellations yet."
-    />
+    <div className="space-y-3">
+      <FilterBar
+        search={query}
+        onSearch={setQuery}
+        searchPlaceholder="Search Cancel No, RE No, Order No or customer…"
+        activeCount={facets.activeCount}
+        onReset={facets.activeCount ? facets.reset : undefined}
+        panel={facets.panel}
+        right={`${filtered.length} of ${cancellations.length}`}
+      />
+      <DataTable
+        columns={withCreated}
+        rows={rows}
+        getKey={(row) => row.id}
+        /* `dense`: px-2 cells, the padding half of the width table above. */
+        dense
+        /* The entry row reads as the place to type, not as a record: tinted,
+           and its cells vertically centred on the boxes. */
+        rowClassName={(row) => (isEntry(row) ? "bg-primary/5 align-middle" : undefined)}
+        empty={cancellations.length ? "No cancellations match these filters." : "No cancellations yet."}
+      />
+    </div>
   );
 }

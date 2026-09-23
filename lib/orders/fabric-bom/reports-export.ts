@@ -176,27 +176,26 @@ function stem(prefix: string, header: BomDocHeader): string {
   return `${prefix}_${key}`;
 }
 
-/** The default facts line — every report except the Yarn & Fabric
- *  Requirement (which has its own exact five-field spec, see `YARN_FACTS`
- *  below). Widened for Report 1's SQ No; kept here rather than duplicated so
- *  that report's own header can still grow without a second copy to update. */
-function defaultFacts(header: BomDocHeader): string[] {
+/** The Entry Register's facts line — Customer / RE No / Order No / Style Ref
+ *  No / Delivery Date; the quantity line under it (`drawLetterhead`,
+ *  `excessAsPct`) carries Order Qty / Excess % / Rejection Allowance /
+ *  Approval Allowance / Cut Qty (client 2026-09-23). Same ten facts, same
+ *  order, as `EntryRegisterFactsRow` + `QuantityBand` on screen. */
+function entryRegisterFacts(header: BomDocHeader): string[] {
   return [
     header.customer ? `Customer: ${header.customer}` : null,
     header.scNo ? `RE No: ${header.scNo}` : null,
-    header.sqNo ? `SQ No: ${header.sqNo}` : null,
     header.orderNo ? `Order No: ${header.orderNo}` : null,
     header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
-    header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
+    header.deliveryFromDate ? `Delivery Date: ${fmtDate(header.deliveryFromDate)}` : null,
   ].filter(Boolean) as string[];
 }
 
 /** The Yarn & Fabric Requirement Report's OWN header line (client spec,
  *  2026-09-11): Customer / RE No / Order No / Style Ref No / Delivery, in
- *  this order, and NOTHING ELSE — never `defaultFacts`, which now also
- *  carries Report 1's SQ No. Widening one shared facts line for one report's
- *  spec is exactly how the two came to need separating in the first place;
- *  see `YarnReportFactsRow`'s identical note on the on-screen Sheet. */
+ *  this order, and NOTHING ELSE — kept apart from `entryRegisterFacts` so
+ *  each report's header can follow its own spec; see `YarnReportFactsRow`'s
+ *  identical note on the on-screen Sheet. */
 function yarnReportFacts(header: BomDocHeader): string[] {
   return [
     header.customer ? `Customer: ${header.customer}` : null,
@@ -209,19 +208,22 @@ function yarnReportFacts(header: BomDocHeader): string[] {
 
 /** The letterhead + facts strip, drawn once per document and returned as the
  *  Y position the first table should start below. `facts` defaults to
- *  `defaultFacts`; pass `yarnReportFacts(header)` for the one report with its
- *  own exact spec. */
+ *  `entryRegisterFacts`; pass `yarnReportFacts(header)` for the one report with
+ *  its own exact spec. */
 function drawLetterhead(
   doc: jsPDF,
   header: BomDocHeader,
   title: string,
-  facts: string[] = defaultFacts(header),
+  facts: string[] = entryRegisterFacts(header),
   /** The company logo (2026-09-19) — see ./letterhead.ts. Null draws the
    *  text-only letterhead this function always drew. */
   logo: LetterheadImage | null = null,
   /** A requirement document (2026-09-20) wears the four-stage stripe; the
    *  Entry Register keeps the brand-green rule. */
   stageStripe = false,
+  /** The Entry Register states the order's Excess % where the requirement
+   *  reports print the Excess Qty (client 2026-09-23). */
+  excessAsPct = false,
 ): number {
   const M = 36;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
@@ -293,10 +295,13 @@ function drawLetterhead(
     y += 12;
     doc.setFontSize(8);
     doc.setTextColor(70);
+    const excess = excessAsPct
+      ? `Excess % ${header.excessPct != null ? `${fmtNumber(header.excessPct)}%` : "—"}`
+      : `Excess Qty ${fmtNumber(header.qty.excessQty)}`;
     doc.text(
-      `Order Qty ${fmtNumber(header.qty.orderQty)}    Excess Qty ${fmtNumber(header.qty.excessQty)}` +
+      `Order Qty ${fmtNumber(header.qty.orderQty)}    ${excess}` +
         `    Rejection Allowance ${fmtNumber(header.qty.rejectionQty)}    Approval Allowance ${fmtNumber(header.qty.approvalQty)}` +
-        `    Cut Qty ${fmtNumber(header.qty.sqQty)}`,
+        `    Cut Qty ${fmtNumber(header.qty.cutQty)}`,
       M,
       y,
     );
@@ -380,7 +385,7 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
           sz.sizeLabel,
           sz.dia ?? "",
           sz.purchaseWidth != null ? fmtNumber(sz.purchaseWidth) : "",
-          fmtNumber(sz.sqQty),
+          fmtNumber(sz.cutQty),
           sz.pieceWt != null ? fmtNumber(sz.pieceWt) : "",
           sz.wastagePct != null ? `${sz.wastagePct}%` : "",
           fmtNumber(sz.netReqWt),
@@ -399,7 +404,7 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
         "",
         "",
         "",
-        fmtNumber(comp.subtotal.sqQty),
+        fmtNumber(comp.subtotal.cutQty),
         "",
         "",
         fmtNumber(comp.subtotal.netReqWt),
@@ -418,7 +423,7 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
       "",
       "",
       "",
-      fmtNumber(cg.subtotal.sqQty),
+      fmtNumber(cg.subtotal.cutQty),
       "",
       "",
       fmtNumber(cg.subtotal.netReqWt),
@@ -437,7 +442,7 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
     "",
     "",
     "",
-    fmtNumber(data.grandTotal.sqQty),
+    fmtNumber(data.grandTotal.cutQty),
     "",
     "",
     fmtNumber(data.grandTotal.netReqWt),
@@ -453,7 +458,7 @@ export async function exportEntryRegisterPdf(data: EntryRegister, output: PdfOut
   const logo = await loadLetterheadImage(data.header.company.logo);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
-  const y = drawLetterhead(doc, data.header, "Fabric BOM Entry Register", undefined, logo);
+  const y = drawLetterhead(doc, data.header, "Fabric BOM Entry Register", undefined, logo, false, true);
 
   const { body, totalAt } = registerBody(data);
   const bold = new Set(totalAt);
@@ -538,7 +543,7 @@ export async function exportEntryRegisterPdf(data: EntryRegister, output: PdfOut
  * arithmetic:
  *
  *  1. The order facts were ONE RUN-ON LINE. Legacy sets them as a bordered
- *     grid — SQ No / SQ Description / Customer / Delivery over RE No / Order
+ *     grid — Customer / Delivery over RE No / Order
  *     No / Style Ref No / Style / Excess% / Unit and a five-column Quantity
  *     block — and the grid is what makes five numbers beside each other
  *     readable as a breakdown rather than a sentence.
@@ -625,8 +630,6 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
   autoTable(doc, {
     body: [
       [
-        fact("SQ No.:", h.sqNo),
-        fact("SQ Description:", h.sqDescription),
         fact("Customer:", h.customer),
         fact(
           "Delivery From:",
@@ -644,7 +647,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
   y = finalY(doc, y);
 
   /* THE QUANTITY BLOCK — five columns under one spanning header, which is
-     what makes Order + Excess + Approval + Rej.Allow = SQ read as a sum. The
+     what makes Order + Excess + Approval + Rej.Allow = Cut read as a sum. The
      two allowance columns carry their own percentage of the order qty
      (`approvalPct` / `rejectionPct`, derived once in ./reports.ts). */
   const q = isReportRefusal(h.qty) ? null : h.qty;
@@ -685,7 +688,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
         q ? fmtNumber(q.excessQty) : "",
         q ? withPct(q.approvalQty, q.approvalPct) : "",
         q ? withPct(q.rejectionQty, q.rejectionPct) : "",
-        q ? fmtNumber(q.sqQty) : "",
+        q ? fmtNumber(q.cutQty) : "",
       ],
     ],
     startY: y + 4,

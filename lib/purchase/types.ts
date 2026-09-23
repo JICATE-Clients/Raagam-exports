@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { capsName } from "@/lib/validation/formats";
+import { capsName, capsTextNullable } from "@/lib/validation/formats";
 
 // ---------- enums ----------
 export const VENDOR_TYPES = [
@@ -314,6 +314,12 @@ export interface Grn {
   grn_date: string | null;
   status: GrnStatus;
   notes: string | null;
+  /** Vendor's delivery challan / invoice number (0620). */
+  challan_no: string | null;
+  /** Store Manager who authorised receipt beyond the PO tolerance (0620). */
+  over_receipt_authorized_by: string | null;
+  over_receipt_authorized_at: string | null;
+  over_receipt_reason: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -330,6 +336,8 @@ export interface GrnLineItem {
   rejected_qty: number;
   qc_status: QcStatus;
   rejection_reason: string | null;
+  /** Roll / batch number of the goods on this line (0620). */
+  roll_batch_no: string | null;
   sort_order: number;
 }
 
@@ -594,6 +602,7 @@ export const grnLineInput = z.object({
   rejected_qty: z.coerce.number().nonnegative().default(0),
   qc_status: z.enum(QC_STATUSES).default("pending"),
   rejection_reason: z.string().optional().nullable(),
+  roll_batch_no: capsTextNullable(),
   sort_order: z.coerce.number().int().default(0),
 });
 export type GrnLineInput = z.infer<typeof grnLineInput>;
@@ -603,6 +612,14 @@ export const grnInput = z.object({
   location_id: z.string().uuid().optional().nullable(),
   grn_date: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  challan_no: capsTextNullable(),
+  /**
+   * The Store Manager override for lines beyond the PO's over-receipt
+   * tolerance (0620). A REASON, never a user id: the action stamps the caller
+   * itself, and only when the caller holds `stores:approve` — the client cannot
+   * name who authorised. The database trigger enforces the same.
+   */
+  over_receipt_reason: z.string().trim().optional().nullable(),
   lines: z.array(grnLineInput).default([]),
 });
 export type GrnInput = z.infer<typeof grnInput>;

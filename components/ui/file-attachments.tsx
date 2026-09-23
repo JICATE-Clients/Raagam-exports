@@ -1,13 +1,26 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import { useRef, useState, type DragEvent, type PointerEvent, type ReactNode } from "react";
+import {
+  CheckSquare,
+  FileText,
+  ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Square,
+  Star,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
 import { SketchThumbnail, useSignedUrl } from "@/components/ui/sketch-thumbnail";
 import { createClient } from "@/lib/supabase/client";
+import { coverOf, isImageFile, normalizePrimary } from "@/lib/orders/amendments/style-gallery";
+import { cn } from "@/lib/utils";
 
 /**
  * Documents attached to a record — a JPG of the style, the buyer's original PDF
@@ -41,6 +54,12 @@ import { createClient } from "@/lib/supabase/client";
  * actions. They stay on the mouse and in screen-reader order. Render the panel
  * AFTER a section's fields so the Select does not become the section edge ahead
  * of them.
+ *
+ * The ⭐ Primary and "Print on reports" toggles (user, 2026-09-23) are actions
+ * by the same rule, and are BUTTONS for it — `aria-pressed` / `role="checkbox"`
+ * rather than an `<input type="checkbox">`, which `isFieldLike` would put on
+ * the Tab path of every style row. Dropping files onto the add control uploads
+ * through the same `handleFiles` the dialog does.
  */
 
 export type AttachmentKind = "sketch" | "order_sheet" | "approval";
@@ -86,9 +105,22 @@ export type AttachmentRow = {
    * bucket and dropping the row is the one way to make it unreachable.
    */
   style_ref_no: string | null;
+  /**
+   * The style's cover picture (0621, user, 2026-09-23). OPTIONAL on purpose:
+   * `FileAttachments` has callers that are not a garment order (CAD, T&A
+   * approvals, community…) and their rows have no such column. One star per
+   * style is `normalizePrimary` in `lib/orders/amendments/style-gallery.ts`.
+   */
+  is_primary?: boolean;
+  /** Printed on the order's reports (0621). Optional for the same reason. */
+  print_on_report?: boolean;
 };
 
-const DEFAULT_ACCEPT = "image/jpeg,image/png,application/pdf";
+/* WEBP is what Chrome saves an image as from Google Images, and the spec lists
+   JPG, PNG, WEBP and PDF (user, 2026-09-23, screenshot 3026). Left out, a .webp
+   was greyed out in the OS dialog and refused on drop. The bucket has no mime
+   restriction, and `isImageFile` already counts webp as a picture. */
+const DEFAULT_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
 
 /**
  * The refusal sentence, DERIVED FROM `accept` rather than typed beside it.
@@ -108,6 +140,7 @@ const DEFAULT_ACCEPT = "image/jpeg,image/png,application/pdf";
 const MIME_WORDS: Record<string, string> = {
   "image/jpeg": "JPG",
   "image/png": "PNG",
+  "image/webp": "WEBP",
   "application/pdf": "PDF",
 };
 
@@ -138,11 +171,13 @@ export function FileAttachments({
   maxSizeMb = 10,
   disabled: ownDisabled,
   label = "Attachments",
-  hint = "JPG, PNG or PDF — the style sketch, the buyer order sheet, and any approvals.",
+  hint = "JPG, PNG, WEBP or PDF — the style sketch, the buyer order sheet, and any approvals.",
   variant = "panel",
   required,
   disabledReason,
   styleRefNo = null,
+  primaryToggle = false,
+  printToggle = false,
 }: {
   rows: AttachmentRow[];
   onChange: (next: AttachmentRow[]) => void;
@@ -189,6 +224,32 @@ export function FileAttachments({
    */
   styleRefNo?: string | null;
   /**
+   * A ⭐ PRIMARY TOGGLE ON EVERY PICTURE TILE — which image is the style's cover
+   * (user, 2026-09-23: the Order Entry listing's thumbnail, and the one the
+   * reports lead with). `tiles` / `cell` only; a PDF never gets one, because a
+   * document cannot be a cover (`isImageFile`).
+   *
+   * OPT-IN, default off, because the column exists only on
+   * `garment_order_amendment_files` — a CAD or T&A caller that drew a star
+   * would be offering a choice its save path silently drops.
+   *
+   * ONE PER STYLE, and the style is `style_ref_no`, not "the rows this
+   * instance was handed": the Order Info corner is handed the order-level
+   * files and a style cell its own, but a caller passing a mixed set must not
+   * be able to make starring a Top clear the Bottom's cover. So the toggle
+   * clears only same-style rows, then `normalizePrimary` runs over the lot —
+   * the same function the save path calls, so the screen and the database
+   * cannot disagree about which star survived.
+   */
+  primaryToggle?: boolean;
+  /**
+   * A "Print on reports" tick on every picture tile (`print_on_report`) — the
+   * images the order's reports print in their "Style images" strip. Opt-in for
+   * the same reason as `primaryToggle`. Pictures only: the reports paint an
+   * `<img>`, and a flagged PDF would be a promise the print cannot keep.
+   */
+  printToggle?: boolean;
+  /**
    * WHICH HALF OF THE PANEL TO DRAW, so the add control can sit in a field row
    * while the files it adds stay full width (client 2026-08-26, screenshot 2496:
    * "remove this wordings — that add file button field like that Merchand.
@@ -225,6 +286,29 @@ export function FileAttachments({
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** A file is being dragged over the add control — paints the drop ring. */
+  const [dragging, setDragging] = useState(false);
+  /**
+   * THE `cell` CAROUSEL'S VISIBLE FILE (user, 2026-09-23, screenshot 3029:
+   * "the files are listing … but we can make it carousel mode").
+   *
+   * BY KEY, WITH THE INDEX IT HAD, rather than a bare index. The key is what
+   * keeps the visible file visible while `rows` changes around it — a star or
+   * a print tick hands back a new array, and a bare index would survive that
+   * only by coincidence. The index is the fallback for the one change the key
+   * cannot survive: removing the visible file, where the carousel stays at
+   * that position (clamped) instead of leaping to the cover. Null until the
+   * operator pages, which means "the cover" — see `slideIndex`.
+   *
+   * Declared up here with every other hook: this component returns early per
+   * `variant`, and a hook below one of those returns is AGENTS.md's "Hooks
+   * above every early return".
+   */
+  const [slide, setSlide] = useState<{ key: string; index: number } | null>(null);
+  /** Where a touch swipe began; null while no swipe is being tracked. */
+  const swipeFrom = useRef<{ x: number; y: number } | null>(null);
+  /** A swipe just changed slide — swallow the click that ends it. */
+  const swiped = useRef(false);
 
   /**
    * Read UNCONDITIONALLY — it is a hook — and spread only by `cell`.
@@ -285,12 +369,113 @@ export function FileAttachments({
           style_ref_no: styleRefNo,
         });
       }
-      if (added.length) onChange([...rows, ...added]);
+      if (added.length) {
+        onChange([...rows, ...added]);
+        /* Land the carousel on what was just added — the operator's next
+           question is "is that the right file", and the answer should not be
+           behind a ›. */
+        setSlide({ key: added[0].key, index: rows.length });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * DRAG-AND-DROP ONTO THE ADD CONTROL (user, 2026-09-23). The dropped
+   * `FileList` goes through `handleFiles` — the SAME accept list, size limit,
+   * folder and style stamp the file dialog uses — so a drop can never admit a
+   * file the button would have refused. A second upload path with its own
+   * checks is how the two would come to disagree.
+   *
+   * Only a drag carrying FILES is claimed (`types` includes "Files"): a text
+   * selection dragged across the row is not ours to swallow. Disabled or busy
+   * refuses the drop outright rather than queueing it — a disabled control
+   * that still takes a drop is a disabled control that is not disabled.
+   */
+  const canDrop = !disabled && !busy;
+  const carriesFiles = (e: DragEvent) =>
+    Array.from(e.dataTransfer.types ?? []).includes("Files");
+  const dropProps = {
+    onDragOver: (e: DragEvent) => {
+      if (!canDrop || !carriesFiles(e)) return;
+      e.preventDefault(); // without it the browser opens the file in the tab
+      e.dataTransfer.dropEffect = "copy";
+      if (!dragging) setDragging(true);
+    },
+    onDragLeave: (e: DragEvent) => {
+      // Leaving INTO a child is not leaving — only clear on the real exit.
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+      setDragging(false);
+    },
+    onDrop: (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      setDragging(false);
+      if (!canDrop) return;
+      const fs = e.dataTransfer.files;
+      if (fs && fs.length) handleFiles(fs);
+    },
+  };
+  const dropRing = dragging ? "ring-2 ring-primary ring-offset-1" : undefined;
+
+  /**
+   * STAR ONE PICTURE — or un-star it, if it is already the cover (the fallback
+   * then applies: `coverOf` takes the first sketch). Same-style rows are
+   * cleared first so the clicked tile wins regardless of where it sits in
+   * `rows`; `normalizePrimary` alone keeps the LAST star, which would make
+   * clicking an earlier tile a no-op. See `primaryToggle`.
+   */
+  function togglePrimary(row: AttachmentRow) {
+    /* PIN THE CAROUSEL FIRST. Before any paging it follows the cover, and
+       clearing the star MOVES the cover — the operator would watch the file
+       they just un-starred slide away. */
+    setSlide({ key: row.key, index: Math.max(0, rows.indexOf(row)) });
+    const style = row.style_ref_no?.trim() || "";
+    const on = !row.is_primary;
+    onChange(
+      normalizePrimary(
+        rows.map((x) =>
+          (x.style_ref_no?.trim() || "") !== style
+            ? x
+            : { ...x, is_primary: x.key === row.key ? on : false },
+        ),
+      ),
+    );
+  }
+
+  function togglePrint(row: AttachmentRow) {
+    onChange(
+      rows.map((x) => (x.key === row.key ? { ...x, print_on_report: !x.print_on_report } : x)),
+    );
+  }
+
+  /**
+   * WHICH FILE THE CAROUSEL SHOWS: the one the operator paged to; if it has
+   * just been removed, whatever now stands at its position (clamped — never an
+   * empty slot); and before any paging, the style's COVER (`coverOf`), which
+   * is the picture the listing's thumbnail shows for the same style, so the
+   * row opens on the same image the list did. A set with no picture opens on
+   * its first file.
+   */
+  const slideIndex = (() => {
+    if (!rows.length) return 0;
+    if (slide) {
+      const at = rows.findIndex((x) => x.key === slide.key);
+      return at >= 0 ? at : Math.min(slide.index, rows.length - 1);
+    }
+    const cover = coverOf(rows);
+    return cover ? Math.max(0, rows.indexOf(cover)) : 0;
+  })();
+
+  /** Page by `delta`, wrapping at both ends. */
+  function go(delta: number) {
+    const n = rows.length;
+    if (n < 2) return;
+    const i = (((slideIndex + delta) % n) + n) % n;
+    setSlide({ key: rows[i].key, index: i });
   }
 
   /** Signed on demand, never held: a stored URL would be dead when it was clicked. */
@@ -336,7 +521,9 @@ export function FileAttachments({
         size={variant === "control" ? "md" : "sm"}
         data-row-add
         disabled={disabled || busy}
-        className={variant === "control" ? "w-full" : undefined}
+        /* The drop zone IS the add button — see `dropProps`. */
+        {...dropProps}
+        className={cn(variant === "control" && "w-full", dropRing)}
         onClick={() => inputRef.current?.click()}
       >
         {busy ? (
@@ -377,6 +564,8 @@ export function FileAttachments({
             disabled={disabled}
             onOpen={() => open(r)}
             onRemove={() => onChange(rows.filter((x) => x.key !== r.key))}
+            onTogglePrimary={primaryToggle ? () => togglePrimary(r) : undefined}
+            onTogglePrint={printToggle ? () => togglePrint(r) : undefined}
           />
         </li>
       ))}
@@ -460,7 +649,11 @@ export function FileAttachments({
    */
   if (variant === "cell") {
     return (
-      <div className="space-y-1.5">
+      /* The whole cell is the drop zone — trigger AND the tiles under it — so
+         a picture dropped onto the one already there adds beside it rather
+         than falling through to the browser, which would open it in the tab
+         and throw the unsaved order away. */
+      <div {...dropProps} className={cn("space-y-1.5 rounded", dropRing)}>
         <Button
           type="button"
           variant="outline"
@@ -489,7 +682,7 @@ export function FileAttachments({
         </Button>
         {fileInput}
         {error && <p className="text-xs text-danger">{error}</p>}
-        {tileList}
+        {rows.length > 1 ? carousel() : tileList}
       </div>
     );
   }
@@ -518,6 +711,130 @@ export function FileAttachments({
       {error && <p className="text-xs text-danger">{error}</p>}
     </div>
   );
+
+  /**
+   * THE `cell` VARIANT PAST ONE FILE: one tile at a time (user, 2026-09-23,
+   * screenshot 3029). Stacked, three files made the style row three pictures
+   * tall and pushed every style under it down the page; the carousel holds
+   * the row at ONE tile whatever the count. One file never gets here — it
+   * renders through `tileList` and looks exactly as it always did.
+   *
+   * ## WHAT ACTS ON WHAT
+   *
+   * ⭐, "Print on reports" and ✕ are on the tile, so they act on the VISIBLE
+   * file and nothing else — there is no way to star a picture you cannot see.
+   * The ‹ › and the counter are the carousel's own.
+   *
+   * ## THE ARROWS ARE ALWAYS PAINTED
+   *
+   * Not hover-only like the ✕: a hover-only ‹ is a carousel nobody finds, and
+   * the other files would be exactly as unreachable as if they were not
+   * attached. They stay live on a locked order too — looking is not editing.
+   *
+   * ## KEYS: OFF THE TAB PATH, AND NO ←/→
+   *
+   * ‹ › are actions, so `tabIndex={-1}` (AGENTS.md "Tab lands on fields"). And
+   * ←/→ are deliberately NOT bound: the cell's trigger sits in a child-grid
+   * row, where `gridKeyNav` owns ←/→ for moving between cells. A carousel that
+   * claimed them on focus or hover would make the arrows mean "next file" or
+   * "next cell" depending on where the pointer happened to rest. Paging is the
+   * buttons, the mouse and a swipe.
+   *
+   * ## SWIPE
+   *
+   * Touch and pen only — a mouse drag over a picture is the browser's own
+   * image drag, and claiming it would fight the drop zone this cell also is.
+   * 30px of mostly-horizontal travel pages; less is a tap, and the tap still
+   * opens the file. The click that ENDS a swipe is swallowed in the capture
+   * phase, or every swipe would also open the lightbox. `touch-pan-y` keeps a
+   * vertical drag scrolling the page.
+   */
+  function carousel() {
+    const n = rows.length;
+    const r = rows[slideIndex];
+    const arrow =
+      "absolute top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-surface/90 text-foreground shadow-sm hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+    return (
+      <div
+        role="group"
+        aria-roledescription="carousel"
+        aria-label={`${label}: ${slideIndex + 1} of ${n}`}
+        className="touch-pan-y"
+        onPointerDown={(e: PointerEvent) => {
+          if (e.pointerType === "mouse") return;
+          swipeFrom.current = { x: e.clientX, y: e.clientY };
+          swiped.current = false;
+        }}
+        onPointerUp={(e: PointerEvent) => {
+          const from = swipeFrom.current;
+          swipeFrom.current = null;
+          if (!from) return;
+          const dx = e.clientX - from.x;
+          const dy = e.clientY - from.y;
+          if (Math.abs(dx) < 30 || Math.abs(dx) <= Math.abs(dy)) return;
+          swiped.current = true;
+          go(dx < 0 ? 1 : -1);
+        }}
+        onPointerCancel={() => {
+          swipeFrom.current = null;
+        }}
+        onClickCapture={(e) => {
+          if (!swiped.current) return;
+          swiped.current = false;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      >
+        <AttachmentTile
+          /* Keyed by file so the tile's signed URL and lightbox state are the
+             visible file's, never the previous slide's for a render. */
+          key={r.key}
+          row={r}
+          bucket={bucket}
+          disabled={disabled}
+          slide
+          onOpen={() => open(r)}
+          onRemove={() => {
+            // Stay at this POSITION — see `slide`.
+            setSlide({ key: r.key, index: slideIndex });
+            onChange(rows.filter((x) => x.key !== r.key));
+          }}
+          onTogglePrimary={primaryToggle ? () => togglePrimary(r) : undefined}
+          onTogglePrint={printToggle ? () => togglePrint(r) : undefined}
+          overlay={
+            <>
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label="Previous file"
+                title="Previous file"
+                onClick={() => go(-1)}
+                className={cn(arrow, "left-1")}
+              >
+                <ChevronLeft className="h-4 w-4 shrink-0" />
+              </button>
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label="Next file"
+                title="Next file"
+                onClick={() => go(1)}
+                className={cn(arrow, "right-1")}
+              >
+                <ChevronRight className="h-4 w-4 shrink-0" />
+              </button>
+            </>
+          }
+        />
+        <p
+          aria-live="polite"
+          className="mt-0.5 text-center text-xs tabular-nums text-muted-foreground"
+        >
+          {slideIndex + 1} / {n}
+        </p>
+      </div>
+    );
+  }
 
   /** One attached file, shared by the `panel` and `list` variants. */
   function fileRow(r: AttachmentRow) {
@@ -578,14 +895,37 @@ function AttachmentTile({
   disabled,
   onOpen,
   onRemove,
+  onTogglePrimary,
+  onTogglePrint,
+  slide = false,
+  overlay = null,
 }: {
   row: AttachmentRow;
   bucket: string;
   disabled?: boolean;
   onOpen: () => void;
   onRemove: () => void;
+  /** Present only when the caller opted in (`primaryToggle`). */
+  onTogglePrimary?: () => void;
+  /** Present only when the caller opted in (`printToggle`). */
+  onTogglePrint?: () => void;
+  /**
+   * ONE SLIDE OF THE `cell` CAROUSEL. Every slide must be the SAME HEIGHT, or
+   * paging from a picture to a PDF would make the style row jump under the
+   * operator's pointer — which is the growth the carousel exists to stop. So
+   * the chip becomes the picture's 4:3 box, and a slide with no print line
+   * keeps that line's height as blank space.
+   */
+  slide?: boolean;
+  /** Drawn over the FACE (the picture / chip), not the print line — the ‹ ›. */
+  overlay?: ReactNode;
 }) {
-  const isImage = r.mime_type.startsWith("image/");
+  /* `isImageFile`, not a bare mime test: the SAME predicate the listing's cover
+     and the reports read, so a tile offers a star exactly where the star can
+     take effect (it also accepts an older row whose mime was left empty). */
+  const isImage = isImageFile(r);
+  const primary = !!r.is_primary;
+  const print = !!r.print_on_report;
 
   /* The non-picture face: a PDF, and the fallback for an image whose signature
      has not arrived or has expired. Clicking it opens the file in a new tab
@@ -595,18 +935,33 @@ function AttachmentTile({
       type="button"
       onClick={onOpen}
       title={r.file_name}
-      className="flex w-full items-center gap-2 rounded border border-border bg-surface px-2 py-2 text-left hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        "flex w-full rounded border border-border bg-surface text-left hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        /* In a slide the name sits between the ‹ › rather than under them —
+           `px-7` is the arrows' width plus their inset. */
+        slide
+          ? "aspect-[4/3] flex-col items-center justify-center gap-1.5 px-7 py-2"
+          : "items-center gap-2 px-2 py-2",
+      )}
     >
       {r.mime_type === "application/pdf" ? (
         <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
       ) : (
         <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
       )}
-      <Truncated text={r.file_name} className="min-w-0 flex-1 text-xs" />
+      <Truncated
+        text={r.file_name}
+        className={cn("min-w-0 text-xs", slide ? "max-w-full" : "flex-1")}
+      />
     </button>
   );
 
   return (
+    <div>
+    {/* The FACE and everything drawn over it. `group` lives here, not on the
+        whole tile, so the hover-only ✕ and ☆ answer the picture, and the
+        carousel's ‹ › centre on the picture rather than on picture + print
+        line. */}
     <div className="group relative">
       {isImage ? (
         <SketchThumbnail
@@ -639,6 +994,67 @@ function AttachmentTile({
         >
           <Trash2 className="h-3.5 w-3.5 shrink-0" />
         </button>
+      )}
+      {isImage && onTogglePrimary && (
+        /* ⭐ PRIMARY — the style's cover (see `primaryToggle`). The mirror of the
+           ✕ in the opposite corner, with one difference that is the point: once
+           it is ON it stays painted, because "which picture is the cover" is a
+           state the operator has to be able to READ, not only set. Off, it
+           appears on hover and focus like the ✕.
+
+           A BUTTON, NOT A CHECKBOX, and that is the keyboard contract rather
+           than a style: an `<input type="checkbox">` is `isFieldLike`
+           (lib/focus.ts), so Tab would start stopping on every picture of every
+           style row. Tab lands on FIELDS; this is an action. `aria-pressed`
+           gives a screen reader the on/off a checkbox would have. Disabled (a
+           locked or read-only order) keeps the painted star as a plain badge. */
+        <button
+          type="button"
+          aria-pressed={primary}
+          aria-label={primary ? `${r.file_name} is the cover — clear` : `Make ${r.file_name} the cover`}
+          title={primary ? "Primary picture — click to clear" : "Make this the primary picture"}
+          disabled={disabled}
+          onClick={onTogglePrimary}
+          className={cn(
+            "absolute left-1 top-1 rounded border border-border bg-surface/90 p-1 shadow-sm transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
+            primary
+              ? "text-warning opacity-100"
+              : "text-muted-foreground opacity-0 hover:text-warning group-hover:opacity-100 disabled:hidden",
+          )}
+        >
+          <Star className={cn("h-3.5 w-3.5 shrink-0", primary && "fill-current")} />
+        </button>
+      )}
+      {overlay}
+    </div>
+      {isImage && onTogglePrint && (
+        /* PRINT ON REPORTS, under the picture rather than on it: an overlay
+           appears on hover, and whether a picture prints is a state that has to
+           be readable at a glance down a column of styles. A button with
+           `role="checkbox"` for the same Tab reason as the star — it reads as a
+           tick box and is announced as one, and it is not a field.
+           152px (the style cell) fits the icon + "Print on reports" at text-xs;
+           `Truncated` is not needed for a fixed three-word label. */
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={print}
+          disabled={disabled}
+          onClick={onTogglePrint}
+          className="mt-0.5 flex items-center gap-1 rounded px-0.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
+        >
+          {print ? (
+            <CheckSquare className="h-3.5 w-3.5 shrink-0 text-primary" />
+          ) : (
+            <Square className="h-3.5 w-3.5 shrink-0" />
+          )}
+          Print on reports
+        </button>
+      )}
+      {slide && onTogglePrint && !isImage && (
+        /* A PDF slide has no print line; its height stays so the row does not
+           jump when paging onto it. `mt-0.5` + the 16px line the button draws. */
+        <div aria-hidden className="mt-0.5 h-4" />
       )}
     </div>
   );

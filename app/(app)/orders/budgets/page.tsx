@@ -21,10 +21,12 @@ export default async function BudgetsPage({
 }: {
   /** `?budget=<id>` opens that budget in the editor on arrival — the Approval
    *  queue's Edit icon lands here (2026-09-22). */
-  searchParams: Promise<{ budget?: string }>;
+  searchParams: Promise<{ budget?: string; line?: string; field?: string }>;
 }) {
   await requirePermission("orders", "view");
-  const { budget: openId } = await searchParams;
+  /* `&line=&field=` — the Manual Entry Needed jump (0619): land on that
+     line's cell once the budget is open. */
+  const { budget: openId, line: openLine, field: openField } = await searchParams;
 
   const [budgets, data, canCreate, canEdit, canDelete, mCreate, mEdit, canApprove] = await Promise.all([
     listOrderBudgets(),
@@ -50,6 +52,8 @@ export default async function BudgetsPage({
       perms={{ canCreate, canEdit, canDelete, canApprove }}
       masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
       openId={openId ?? null}
+      openLine={openLine ?? null}
+      openField={openField ?? null}
     />
   );
 }

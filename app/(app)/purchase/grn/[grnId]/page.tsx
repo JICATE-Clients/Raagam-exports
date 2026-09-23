@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
-import { fmtDate, fmtNumber } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { PostGrnButton } from "./_components/post-grn-button";
 import type { GrnLineWithPo } from "@/lib/purchase/grn-service";
 import type { QcStatus } from "@/lib/purchase/types";
@@ -65,6 +65,10 @@ const lineColumns: Column<GrnLineWithPo>[] = [
     header: "Rejection Reason",
     cell: (r) => r.rejection_reason ?? "—",
   },
+  {
+    header: "Roll / Batch No",
+    cell: (r) => r.roll_batch_no ?? "—",
+  },
 ];
 
 export default async function GrnDetailPage({
@@ -121,12 +125,22 @@ export default async function GrnDetailPage({
               <dd className="mt-0.5">{fmtDate(grn.grn_date)}</dd>
             </div>
             <div>
+              <dt className="text-xs text-muted-foreground">Challan / Inv No</dt>
+              <dd className="mt-0.5">{grn.challan_no ?? "—"}</dd>
+            </div>
+            <div>
               <dt className="text-xs text-muted-foreground">Notes</dt>
               <dd className="mt-0.5 text-muted-foreground">
                 {grn.notes ?? "—"}
               </dd>
             </div>
           </dl>
+          {grn.over_receipt_authorized_at && (
+            <p className="mt-3 text-sm text-warning">
+              Over-receipt authorised by {grn.over_receipt_authorized_by_name ?? "a Store Manager"} on{" "}
+              {fmtDateTime(grn.over_receipt_authorized_at)}: {grn.over_receipt_reason}
+            </p>
+          )}
         </CardBody>
       </Card>
 

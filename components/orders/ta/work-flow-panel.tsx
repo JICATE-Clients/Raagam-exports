@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Input } from "@/components/ui/input";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { focusFirstField, isFieldLike } from "@/lib/focus";
 import {
   workFlowDef,
   workFlowOwnerOptions,
@@ -96,6 +97,37 @@ export function WorkFlowPanel({ amendmentId }: { amendmentId: string | null }) {
   });
   useUnsavedGuard(dirty || pending);
 
+  /**
+   * THE LANDING, ONCE THE ROWS ARRIVE (2026-09-23, T&A spec T3). Work Flow is
+   * the segment the T&A section opens on, and `MasterFullScreen` lands 60ms
+   * after the section mounts — before this panel's rows have loaded, so its
+   * `focusFirstField` finds only the segment buttons. When the rows do land,
+   * this hands the cursor to the first PENDING milestone's Days box (marked
+   * `data-focus-land` below), but only while the cursor is not already in a
+   * field: an operator who has started typing somewhere is never pulled away.
+   * Once per load, and above the early returns below, like every hook here.
+   */
+  const rootRef = useRef<HTMLDivElement>(null);
+  const loaded = !!data?.ok;
+  useEffect(() => {
+    if (!loaded) return;
+    const id = window.setTimeout(() => {
+      const active = document.activeElement;
+      const root = rootRef.current;
+      if (!root) return;
+      if (active instanceof HTMLElement && active !== document.body) {
+        // Typing in a field, or walking the section rail (whose arrow walk
+        // must keep the cursor — MasterFullScreen's "rail" landing): stay put.
+        if (isFieldLike(active) || active.closest("[data-section-key]")) return;
+        // Anywhere outside this T&A pane (the topbar, another surface): stay put.
+        const pane = root.closest(".\\@container\\/editor") ?? root.parentElement;
+        if (pane && !pane.contains(active)) return;
+      }
+      focusFirstField(root);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [loaded]);
+
   if (!amendmentId) {
     return <p className="text-sm text-muted-foreground">Save the order first — its Work Flow starts once the order exists.</p>;
   }
@@ -139,11 +171,13 @@ export function WorkFlowPanel({ amendmentId }: { amendmentId: string | null }) {
   }
 
   const views = rows.map((r) => workFlowView(r, today));
+  /** The first milestone with no Actual — where the cursor lands. */
+  const firstPendingId = rows.find((r) => !r.actual_date)?.id ?? null;
   const doneCount = views.filter((v) => v.state === "done" || v.state === "done_late").length;
   const overdueCount = views.filter((v) => v.state === "overdue").length;
 
   return (
-    <div className="space-y-4">
+    <div ref={rootRef} className="space-y-4">
       {/* THE STAT BAND — the ladder's Anchor / Work starts / Needs attention tiles. */}
       <div className="flex flex-wrap overflow-hidden rounded-md border border-border">
         <div className={TILE}>
@@ -239,6 +273,7 @@ export function WorkFlowPanel({ amendmentId }: { amendmentId: string | null }) {
                       min={0}
                       max={365}
                       aria-label={`${def?.label} days`}
+                      data-focus-land={r.id === firstPendingId ? "" : undefined}
                       className="h-7 px-1.5 text-center text-xs tabular-nums"
                       value={drafts[r.id]?.days ?? String(r.days)}
                       onChange={(e) => setDrafts((p) => ({ ...p, [r.id]: { days: e.target.value } }))}

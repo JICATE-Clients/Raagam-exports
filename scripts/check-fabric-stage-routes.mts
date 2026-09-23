@@ -72,6 +72,7 @@ import {
   routeStartNotFirst,
   isRouteStart,
   yarnDyedStageBlocked,
+  washStageBlocked,
   stagesForRow,
   clothPurchaseNotFirst,
   dyeingBlocked,
@@ -1063,6 +1064,48 @@ console.log("\n--- 14. Knitting is Step 1 only; a yarn-dyed fabric's DYED stage 
   check(
     "YD bought as dyed rolls: DYED FABRIC PURCHASE → STENTERING under DYED is clean",
     problems([row(DYED, DYED_FABRIC_PURCHASE.id), row(DYED, STENTERING.id)], true),
+    [],
+  );
+}
+
+/* ---- §15 — a piece-dyed (Solid / Printed) fabric never enters WASH ------
+   (client 2026-09-23). Mirror of §14's yarn-dyed rule; each vector asserts
+   WHICH rule spoke, not a count. */
+{
+  const names2 = (xs: readonly { name: string }[]) => xs.map((x) => x.name);
+  const blank = (stage: string | null) => row(stage, null);
+  const pd = (rows: FabricProcessRow[]) =>
+    stageRouteProblems(rows, M583, STAGE_ROWS, { gatesFor: () => ({ fabricIsPieceDyed: true }) }).map(
+      (p) => p.message,
+    );
+  const washRoute = [row(GREIGE, KNITTING.id), row(WASHED, WASHING.id), row(WASHED, STENTERING.id)];
+  check(
+    "PD ▾: WASH is withheld from a Solid fabric's Stage list",
+    names2(stagesForRow(STAGE_ROWS, [row(GREIGE, KNITTING.id), blank(null)], 1, { fabricIsPieceDyed: true })).includes("WASH"),
+    false,
+  );
+  check(
+    "…and still offered on a Melange / Yarn-Dyed fabric (gate off)",
+    names2(stagesForRow(STAGE_ROWS, [row(GREIGE, KNITTING.id), blank(null)], 1, {})).includes("WASH"),
+    true,
+  );
+  check(
+    "…a HELD WASH survives the narrowing (never silently dropped)",
+    names2(stagesForRow(STAGE_ROWS, washRoute, 1, { fabricIsPieceDyed: true })).includes("WASH"),
+    true,
+  );
+  check("PD twin: a Solid fabric's WASH row is named inline", washStageBlocked(washRoute[1], STAGE_ROWS, true), true);
+  check("…the same row on a Melange fabric is not", washStageBlocked(washRoute[1], STAGE_ROWS, false), false);
+  check("…a DYED row on a Solid fabric is not", washStageBlocked(row(DYED, STENTERING.id), STAGE_ROWS, true), false);
+  check(
+    "PD Save: chain 5 on a Solid fabric is refused by the WASH rule, once per WASH row",
+    pd(washRoute).filter((m) => m.includes("piece-dyed")).length,
+    2,
+  );
+  check("PD Save: the same chain 5 on a Melange fabric is clean", problems(washRoute), []);
+  check(
+    "PD Save: KNITTING → DYEING → STENTERING (chain 1) on a Solid fabric is clean",
+    pd([row(GREIGE, KNITTING.id), row(DYED, DYEING.id), row(DYED, STENTERING.id)]),
     [],
   );
 }

@@ -1,11 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Clock3, Pencil, Send, X } from "lucide-react";
+import { CalendarRange, Check, ClipboardCheck, Clock3, Pencil, Send, Users, X } from "lucide-react";
 import { fmtDate, fmtNumber } from "@/lib/format";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { flagFacet, urgencyFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
@@ -72,6 +71,74 @@ function statusIcon(s: QueueStatus) {
   }
 }
 
+/**
+ * THE QUEUE'S FILTERS PANEL — the grouped drawer every Orders child draws
+ * (user, 2026-09-23: "implement the Material BOM filter in every Orders
+ * child"). Three questions, every facet read off the `BudgetableOrder` the card
+ * already carries, so none costs a query: where the budget stands and when the
+ * order is due; whose order and what shape it is; and whether it can be valued.
+ *
+ * STATUS IS THE FACET THE PANEL ALWAYS HAD — counted, in `QUEUE_ORDER` (what
+ * needs doing, first), a state with no orders shown and not choosable. The
+ * Pending / Updated box at the front of the row stays its OWN state, as on
+ * `BomQueue`; it never moves this facet.
+ *
+ * No Created pair: `listBudgetableOrders` selects no `created_at` for an
+ * order, and a facet with nothing to read would only ever match nothing.
+ */
+const BUDGET_QUEUE_FACETS: FacetGroup<BudgetableOrder>[] = [
+  {
+    title: "Status & dates",
+    icon: <CalendarRange />,
+    facets: [
+      {
+        key: "status",
+        label: "Status",
+        all: "All",
+        wide: true,
+        counted: true,
+        options: QUEUE_ORDER.map((s) => ({ value: s, label: statusText(s) })),
+        match: (o, v) => statusOf(o) === v,
+      },
+      { key: "delivery", label: "Delivery Date", all: "Any date", date: (o) => o.delivery_date },
+      urgencyFacet((o) => o.delivery_date),
+    ],
+  },
+  {
+    title: "Customer & order",
+    icon: <Users />,
+    facets: [
+      { key: "customer", label: "Customer", all: "All customers", wide: true, value: (o) => o.customer_name },
+      // An order born of a sample quotation carries its `sq_no`; the ordinary
+      // one is booked straight off a customer PO (null). The number itself is
+      // never shown — only which of the two it is.
+      flagFacet("source", "Booked From", (o) => !!o.sq_no, "Sample quotation", "Customer PO"),
+      {
+        key: "styles",
+        label: "Styles",
+        all: "Any",
+        options: [
+          { value: "single", label: "Single style" },
+          { value: "multiple", label: "Multiple styles" },
+        ],
+        match: (o, v) => (v === "multiple") === o.styles.length > 1,
+      },
+    ],
+  },
+  {
+    title: "Valuation",
+    icon: <ClipboardCheck />,
+    facets: [
+      // THE CARD'S RED HINT, AS A QUESTION: a budget cannot be approved on an
+      // order with no sales value, so "which can't be valued yet?" is the
+      // one a merchandiser asks before opening any.
+      flagFacet("value", "Sales Value", (o) => o.sales_value != null, "Valued", "No sales value yet"),
+      flagFacet("boms", "BOMs", (o) => !o.bom_refusal, "Both saved", "Waiting on a BOM"),
+      { key: "currency", label: "Currency", all: "Any", value: (o) => o.currency_code },
+    ],
+  },
+];
+
 export function BudgetQueue({
   orders,
   onOpen,
@@ -92,7 +159,6 @@ export function BudgetQueue({
   isPending?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | QueueStatus>("");
   /* THE PENDING / UPDATED BOX, FABRIC BOM'S OWN (user 2026-09-21: "update and
      pending options displayed to be like fabric bom") — the same component, at
      the front of the search row. A budget has five states, not a BOM's two
@@ -122,10 +188,16 @@ export function BudgetQueue({
   );
   const waiting = orders.length - ready.length;
 
+  /* THE GROUPED DRAWER (2026-09-23) — it replaced the lone Status <Select>,
+     which is now the drawer's first, counted facet. Counts are over the READY
+     orders, the same set the old `counts` memo counted. */
+  const facets = useFacetFilter(ready, BUDGET_QUEUE_FACETS);
+  const facetMatch = facets.matches;
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return ready.filter((o) => {
-      if (statusFilter && statusOf(o) !== statusFilter) return false;
+      if (!facetMatch(o)) return false;
       if (quickFilter === "pending" && statusOf(o) !== "none") return false;
       if (quickFilter === "updated" && statusOf(o) === "none") return false;
       if (quickFilter === "draft" && statusOf(o) !== "draft") return false;
@@ -134,14 +206,7 @@ export function BudgetQueue({
         (v ?? "").toLowerCase().includes(needle),
       );
     });
-  }, [ready, query, statusFilter, quickFilter]);
-
-  /** Counted per state, in work order. A state with no orders is shown and not
-   *  choosable, `BomQueue`'s rule, so the options never reshuffle. */
-  const counts = useMemo(
-    () => QUEUE_ORDER.map((status) => ({ status, count: ready.filter((o) => statusOf(o) === status).length })),
-    [ready],
-  );
+  }, [ready, query, quickFilter, facetMatch]);
 
   const summary = useMemo(() => {
     const open = ready.filter((o) => statusOf(o) === "none").length;
@@ -169,8 +234,8 @@ export function BudgetQueue({
     {
       // Pieces MADE (order + excess + rejection + approval), what CMT and the
       // garment processes are priced on.
-      label: "SQ Qty",
-      value: o.sq_qty != null ? fmtNumber(o.sq_qty) : (o.sq_refusal ?? "—"),
+      label: "Cut Qty",
+      value: o.cut_qty != null ? fmtNumber(o.cut_qty) : (o.cut_refusal ?? "—"),
     },
     {
       label: "Delivery",
@@ -191,27 +256,12 @@ export function BudgetQueue({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search RE No, PO or customer…"
-        activeCount={statusFilter ? 1 : 0}
+        activeCount={facets.activeCount}
         leading={<StatusSegment value={quickFilter} onChange={setQuickFilter} draft />}
-        onReset={statusFilter ? () => setStatusFilter("") : undefined}
+        onReset={facets.activeCount ? facets.reset : undefined}
+        panel={facets.panel}
         right={`${summary} · ${filtered.length} of ${ready.length}`}
-      >
-        <div>
-          <Label htmlFor="budget-queue-status">Status</Label>
-          <Select
-            id="budget-queue-status"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "" | QueueStatus)}
-          >
-            <option value="">All ({ready.length})</option>
-            {counts.map((c) => (
-              <option key={c.status} value={c.status} disabled={c.count === 0 && c.status !== statusFilter}>
-                {statusText(c.status)} ({c.count})
-              </option>
-            ))}
-          </Select>
-        </div>
-      </FilterBar>
+      />
 
       <MobileCardList<BudgetableOrder>
         columns={6}

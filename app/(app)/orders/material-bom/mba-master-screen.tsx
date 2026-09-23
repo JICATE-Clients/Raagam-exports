@@ -44,6 +44,8 @@ import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
+import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
+import { EmbeddedEditorWait } from "@/components/orders/embedded-editor-wait";
 import { sectionValidity } from "@/lib/screens/validity";
 import { RecordPicker } from "@/components/masters/record-picker";
 /* `NominatedVendorPicker` AND `nominatedVendorOptions` WERE BOTH IMPORTED HERE,
@@ -165,6 +167,8 @@ import { uomPatchForMaterial } from "@/lib/orders/material-bom/uom-prefill";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 interface Props {
+  /** EMBEDDED in an amendment — open this order's BOM, hide the queue, return on close. */
+  embed?: EmbedTarget | null;
   /** ONE ROW PER GARMENT ORDER — the work queue, not a list of documents. */
   tasks: BomTaskRow[];
   /** The BOM documents themselves, for opening one. */
@@ -1323,6 +1327,7 @@ export function MbaMasterScreen({
   perms,
   masterPerms,
   orderLocks,
+  embed = null,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -1499,6 +1504,15 @@ export function MbaMasterScreen({
   useOpenIntent((orderId) => {
     const t = tasks.find((x) => x.id === orderId);
     if (t) openTask(t);
+  });
+  /* EMBEDDED IN THE AMENDMENT WORKSPACE (2026-09-23). */
+  useEmbeddedEditor({
+    embed,
+    mode,
+    open: (orderId) => {
+      const t = tasks.find((x) => x.id === orderId);
+      if (t) openTask(t);
+    },
   });
 
   /**
@@ -7005,7 +7019,10 @@ export function MbaMasterScreen({
        BACK TO A FRAGMENT, because what it wrapped is SIBLINGS — the list and the
        `MasterFullScreen` overlay — so the wrapper cannot simply be deleted. */
     <>
-      <div className="space-y-4">
+      {embed && mode === "list" && (
+        <EmbeddedEditorWait found={tasks.some((x) => x.id === embed.id)} returnHref={embed.returnHref} what="Material BOM" />
+      )}
+      <div className="space-y-4" hidden={!!embed}>
         {/* THE PRIMARY ACTION SITS BESIDE "← Back", NOT IN A BAND OF ITS OWN.
             It was a right-aligned div under the toolbar, so the two buttons this
             screen has stood 80px apart on two rows with a hole between them,
@@ -7035,7 +7052,6 @@ export function MbaMasterScreen({
           stat={styleStat}
           quickStatus
           quickDraft
-          extraFilters
           onOpen={openTask}
           canDelete={perms.canDelete}
           onDelete={del}

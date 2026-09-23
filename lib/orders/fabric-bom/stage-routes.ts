@@ -183,6 +183,10 @@ export type FabricStageRole = { stage_id: string; is_base: boolean };
 export type FabricStageGates = {
   printDeclared?: boolean;
   fabricIsYarnDyed?: boolean;
+  /** Solid / Printed cloth — piece-dyed, so it never enters WASH (client
+   *  2026-09-23). A STAGE gate only: it withholds no process, so
+   *  `gatedForStage` ignores it. See `washStageBlocked`. */
+  fabricIsPieceDyed?: boolean;
   routeStartAllowed?: boolean;
 };
 
@@ -523,6 +527,41 @@ export function yarnDyedStageBlocked(
   return !dyedStageAllowedOnYarnDyed(rows, index, options, stages);
 }
 
+/**
+ * IS THIS THE WASH STAGE — the wet step of yarn-dyed and melange cloth, which
+ * shares rank 1 with DYED (`stageRank`). Same meaning-match: code or name,
+ * case-insensitive, `wash` prefix.
+ */
+export function isWashStage(stage: FabricStageLike): boolean {
+  const code = (stage.code ?? "").trim().toLowerCase();
+  const name = (stage.name ?? "").trim().toLowerCase();
+  return code.startsWith("wash") || name.startsWith("wash");
+}
+
+/**
+ * A PIECE-DYED FABRIC NEVER ENTERS WASH (client 2026-09-23). Solid cloth is
+ * knitted greige and dyed as whole rolls, so its wet step IS Dyeing, under
+ * DYED; WASH is the wet step of cloth whose colour came in with the yarn —
+ * Yarn Dyed and Melange (standard chains 3 and 5). Printed cloth is dyed and
+ * then printed, so it is piece-dyed too.
+ *
+ * The mirror of the yarn-dyed rule above, and FAIL-OPEN the same way: a fabric
+ * whose type is unknown is not piece-dyed, so nothing is withheld. Checked
+ * against the live routes before it went in: every one of the 11 WASH rows
+ * saved on 2026-09-23 is on a Melange fabric, so no saved BOM is newly refused.
+ *
+ * INLINE TWIN of the narrowing in `stagesForRow`, and a Save rule.
+ */
+export function washStageBlocked(
+  row: FabricProcessRow | undefined,
+  stages: readonly FabricStageLike[],
+  fabricIsPieceDyed: boolean,
+): boolean {
+  if (!fabricIsPieceDyed || !row?.stage_id) return false;
+  const stage = stages.find((st) => st.id === row.stage_id);
+  return !!stage && isWashStage(stage);
+}
+
 export function stagesForRow<T extends FabricStageLike>(
   /* GENERIC OVER THE CALLER'S OWN ROW TYPE, so the narrowed list can be handed
      straight back to the control it came from: the Stage cell feeds
@@ -536,7 +575,9 @@ export function stagesForRow<T extends FabricStageLike>(
   /* 2026-09-20 — the yarn-dyed gate. Optional, and off when omitted, so every
      caller written before it keeps its list. `options` is the process master,
      needed to tell whether the route opened with a dyed-roll purchase. */
-  yd: { fabricIsYarnDyed?: boolean; options?: readonly FabricProcessOption[] } = {},
+  /* 2026-09-23 — `fabricIsPieceDyed` withholds WASH on Solid / Printed cloth
+     (`washStageBlocked`). Off when omitted, like the yarn-dyed gate. */
+  yd: { fabricIsYarnDyed?: boolean; fabricIsPieceDyed?: boolean; options?: readonly FabricProcessOption[] } = {},
 ): T[] {
   const held = rows[index]?.stage_id ?? null;
   const ydBlocksDyed =
@@ -545,6 +586,7 @@ export function stagesForRow<T extends FabricStageLike>(
   const allowed = stages.filter((s) => {
     if (s.id === held) return true;
     if (ydBlocksDyed && isDyedStage(s)) return false;
+    if (yd.fabricIsPieceDyed && isWashStage(s)) return false;
     if (floor == null) return true;
     const rank = stageRank(s);
     return rank == null || rank >= floor;
@@ -900,6 +942,17 @@ export function stageRouteProblems(
             `${where}This fabric is Yarn-Dyed, so it never enters the ${nameOf(row.stage_id)} stage ` +
             `unless its route starts with a dyed-roll purchase (Step 1). Put its washing and ` +
             `finishing steps under WASH.`,
+        });
+        continue;
+      }
+      if (washStageBlocked(row, stages, gates.fabricIsPieceDyed ?? false)) {
+        out.push({
+          item_id: row.item_id,
+          row_key: row.key,
+          message:
+            `${where}This fabric is piece-dyed (Solid / Printed), so it never enters the ` +
+            `${nameOf(row.stage_id)} stage — its wet step is Dyeing under DYED. WASH is for ` +
+            `yarn-dyed and melange fabrics.`,
         });
         continue;
       }

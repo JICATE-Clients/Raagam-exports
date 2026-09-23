@@ -53,7 +53,8 @@ import {
   requiredWithProcessLoss,
   type ProcessLossRow,
 } from "@/lib/orders/material-bom/process-loss";
-import { assertOrderWritable } from "@/lib/orders/budget/lock";
+import { assertOrderRecalculable, assertOrderWritable } from "@/lib/orders/budget/lock";
+import type { RecalcResult } from "@/lib/orders/bom-recalc-types";
 import { missingItemColours, type ColourWiseLineFacts } from "@/lib/orders/material-bom/colour-required";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
@@ -1566,6 +1567,183 @@ export async function deleteMaterialBomAmendment(id: string): Promise<Result> {
   if (error) return fail(error.message);
   rev();
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Recalculating the DERIVED rows from the STORED document (0619)
+// ---------------------------------------------------------------------------
+
+const RECALC_IGNORED_KEYS = new Set(["id", "sno", "amendment_id", "created_at", "updated_at", "created_by"]);
+
+/** A row reduced to what it SAYS, for comparing stored against recomputed. */
+function recalcRowContent(row: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    const v = row[k];
+    if (v == null) out[k] = null;
+    else if (typeof v === "number") out[k] = Math.round(v * 1e6) / 1e6;
+    else if (Array.isArray(v)) out[k] = [...v].map(String).sort();
+    else out[k] = v;
+  }
+  return out;
+}
+
+function recalcDiffCount(before: readonly unknown[], after: readonly unknown[]): number {
+  const counts = new Map<string, number>();
+  for (const r of before) counts.set(JSON.stringify(r), (counts.get(JSON.stringify(r)) ?? 0) + 1);
+  let added = 0;
+  for (const r of after) {
+    const k = JSON.stringify(r);
+    const n = counts.get(k) ?? 0;
+    if (n > 0) counts.set(k, n - 1);
+    else added++;
+  }
+  let removed = 0;
+  for (const n of counts.values()) removed += n;
+  return added + removed;
+}
+
+/**
+ * RECALCULATE A MATERIAL BOM'S DERIVED ROWS (0619) — the automatic
+ * recalculation a quantity / colourway amendment owes a Material BOM it did
+ * not open.
+ *
+ * The input is rebuilt from the STORED lines — WITH their slice overrides and
+ * Combination-sheet panels, which `copyMaterialBomFrom` deliberately drops but
+ * the requirement cannot be computed without — and the stored processes, whose
+ * loss chain is all `requirementRows` reads from them (their challan-owned
+ * quantities are not rewritten here, so the dispatched-challan rule is not in
+ * play). Lines keep their STORED ids, so every requirement row points at the
+ * line it always did.
+ *
+ * Writes ONLY what `BOM_DERIVED_SCOPE` opens: the requirement rows (replaced)
+ * and the header's three `computed_*` columns.
+ */
+export async function recalculateMaterialBomDerived(
+  bomId: string,
+  opts?: { dryRun?: boolean },
+): Promise<RecalcResult> {
+  if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+
+  const stored = await storedBomOrderId(s, bomId);
+  if (!stored.ok) return { ok: false, error: stored.error };
+  const lock = await assertOrderRecalculable(stored.orderId, "material_bom");
+  if (!lock.ok) return { ok: false, error: lock.error };
+
+  const { data: raw, error: readErr } = await s
+    .from("material_bom_amendments")
+    .select(
+      "id, garment_order_id, customer_id, amend_date, is_draft, remarks, " +
+        "items:material_bom_amendment_items(*, " +
+        "components:material_bom_amendment_item_components(*), " +
+        "slices:material_bom_amendment_item_slices(*)), " +
+        "processes:material_bom_amendment_processes(*), " +
+        "requirements:material_bom_amendment_requirements(*)",
+    )
+    .eq("id", bomId)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: `Could not read the Material BOM: ${readErr.message}` };
+  if (!raw) return { ok: false, error: "That Material BOM no longer exists" };
+
+  type Sno = { sno: number };
+  const doc = raw as unknown as {
+    garment_order_id: string | null;
+    customer_id: string | null;
+    amend_date: string;
+    is_draft: boolean;
+    remarks: string | null;
+    items: (Record<string, unknown> & Sno & {
+      id: string;
+      components: (Record<string, unknown> & Sno)[] | null;
+      slices: (Record<string, unknown> & Sno)[] | null;
+    })[] | null;
+    processes: (Record<string, unknown> & Sno)[] | null;
+    requirements: (Record<string, unknown> & Sno)[] | null;
+  };
+  const sorted = <T extends Sno>(rows: readonly T[] | null | undefined): T[] =>
+    [...(rows ?? [])].sort((a, b) => a.sno - b.sno);
+
+  if (!doc.garment_order_id) return { ok: false, error: "This Material BOM names no order to recalculate against" };
+  const order = await getOrderProduction(doc.garment_order_id);
+  if (!order) return { ok: false, error: "The order this Material BOM plans could not be read" };
+
+  const storedItems = sorted(doc.items);
+  const data = {
+    garment_order_id: doc.garment_order_id,
+    customer_id: doc.customer_id,
+    amend_date: doc.amend_date,
+    is_draft: doc.is_draft,
+    remarks: doc.remarks,
+    items: storedItems.map((it) => ({
+      ...it,
+      slices: sorted(it.slices),
+      components: sorted(it.components),
+    })),
+    processes: sorted(doc.processes),
+  } as unknown as MaterialBomAmendmentInput;
+
+  /* STORED LINES PASSED `normalizeItems`' FILTER WHEN THEY WERE WRITTEN, so it
+     keeps every one of them in the same position — the stored id is paired by
+     that position. A count that disagrees means the rule moved under a stored
+     row, and the save is the place to settle that, not this. */
+  const items = normalizeItems(data);
+  if (items.length !== storedItems.length) {
+    return {
+      ok: false,
+      error: "The Material BOM's lines could not be matched to the stored rows — open the Material BOM and save it",
+    };
+  }
+  const savedItems: ItemRowWithId[] = items.map((r, i) => ({ ...r, id: storedItems[i].id }));
+
+  const packs = await packContext(s);
+  const requirement = savedItems.length
+    ? requirementRows(savedItems, order, packs, normalizeProcesses(data))
+    : [];
+
+  const keys = [
+    ...new Set(requirement.flatMap((r) => Object.keys(r)).filter((k) => !RECALC_IGNORED_KEYS.has(k))),
+  ];
+  const requirementsBefore = sorted(doc.requirements).map((r) => recalcRowContent(r, keys));
+  const requirementsAfter = requirement.map((r) => recalcRowContent(r, keys));
+  const changes = keys.length
+    ? recalcDiffCount(requirementsBefore, requirementsAfter)
+    : (doc.requirements ?? []).length;
+  const changed = { requirements: changes };
+
+  if (opts?.dryRun) {
+    return { ok: true, changed, manualEntries: [], dryRun: { requirementsBefore, requirementsAfter } };
+  }
+
+  if (changes > 0) {
+    const { error: delErr } = await s.from("material_bom_amendment_requirements").delete().eq("amendment_id", bomId);
+    if (delErr) return { ok: false, error: delErr.message };
+    if (requirement.length) {
+      const { error: insErr } = await s
+        .from("material_bom_amendment_requirements")
+        .insert(requirement.map((r) => ({ ...r, amendment_id: bomId })));
+      if (insErr) return { ok: false, error: insErr.message };
+    }
+  }
+  const h = headerOnly(data, order);
+  const { error: hdrErr } = await s
+    .from("material_bom_amendments")
+    .update({
+      computed_at: h.computed_at,
+      computed_for_qty: h.computed_for_qty,
+      computed_basis_hash: h.computed_basis_hash,
+    })
+    .eq("id", bomId);
+  if (hdrErr) return { ok: false, error: hdrErr.message };
+
+  await writeAudit({
+    action: "material_bom_amendment.recalculated",
+    entityType: "material_bom_amendment",
+    entityId: bomId,
+    metadata: changed,
+  });
+  rev();
+  return { ok: true, changed, manualEntries: [] };
 }
 
 // ---------------------------------------------------------------------------
