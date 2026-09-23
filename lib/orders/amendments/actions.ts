@@ -6,6 +6,8 @@ import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { getDefaultTaskOwners } from "@/lib/ta/task-owner-defaults";
 import { assertOrderWritable } from "@/lib/orders/budget/lock";
+import { kindsMoveBoms } from "@/lib/orders/amendments/amendment-entry";
+import { recalculateDownstream } from "@/lib/orders/amendments/recalc-downstream";
 import { scopeAllowsRewrite, type FrozenScope } from "@/lib/orders/amendments/amendment-entry";
 import { notifyCadOfNewOrder } from "@/lib/orders/cad/notify";
 import {
@@ -50,7 +52,7 @@ import { orderTaLadder, isRefusal } from "@/lib/orders/ta/order-ladder";
    holiday-awareness that the unmerged branch it came from has. */
 import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
 
-type Result = { ok: true } | { ok: false; error: string };
+type Result = { ok: true; notice?: string } | { ok: false; error: string };
 
 function fail(msg: string): Result {
   return { ok: false, error: msg };
@@ -2082,7 +2084,7 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
        before a sales_orders row is minted for it. */
     if (lock.amendment) {
       return fail(
-        `Amendment ${lock.amendment.entryNo ?? ""} is open on this RE — save the amended order from Orders ▸ Order Amendments instead of raising a new document`.replace("  ", " "),
+        `Revision ${lock.amendment.entryNo ?? ""} is open on this RE — make the change inside Orders ▸ Order Revisions instead of raising a new document`.replace("  ", " "),
       );
     }
   }
@@ -2299,8 +2301,23 @@ export async function updateAmendment(
     entityType: "garment_order_amendment",
     entityId: id,
   });
+
+  /* AUTOMATIC RECALCULATION (0619, spec §3.1). An amended order whose
+     quantities or colourways moved re-derives both BOMs' figures now — the
+     derived rows only, so a BOM the amendment did not pick stays read-only
+     while its required weights follow the order. What it could not fill is
+     said back as Manual Entry Needed. The order is saved either way. */
+  let notice: string | undefined;
+  if (lock.amendment && kindsMoveBoms(lock.amendment.types)) {
+    try {
+      const r = await recalculateDownstream(id);
+      notice = [...r.done, ...r.manualEntries].join(" · ") || undefined;
+    } catch (e) {
+      notice = `The BOMs could not be recalculated (${e instanceof Error ? e.message : "unknown error"}) — press Recalculate on the revision`;
+    }
+  }
   rev();
-  return { ok: true };
+  return { ok: true, notice };
 }
 
 /**
@@ -2371,7 +2388,7 @@ export async function deleteAmendment(id: string): Promise<Result> {
   if (!lock.ok) return fail(lock.error);
   if (lock.amendment) {
     return fail(
-      `Amendment ${lock.amendment.entryNo ?? ""} is open on this order — abandon it from Orders ▸ Order Amendments before deleting the order`,
+      `Revision ${lock.amendment.entryNo ?? ""} is open on this order — abandon it from Orders ▸ Order Revisions before deleting the order`,
     );
   }
   const s = await createClient();

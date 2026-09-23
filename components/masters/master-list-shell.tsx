@@ -190,6 +190,31 @@ export type MasterListShellProps<Row> = {
   bulkEntityKey?: string;
   /** Noun for bulk toasts, e.g. "banks". Defaults to "records". */
   bulkLabel?: string;
+  /**
+   * OPT-IN: the grouped filter drawer (`useFacetFilter`'s `panel`,
+   * `components/ui/filter-drawer.tsx`) drawn INSTEAD of the shell's own facet
+   * grid (user, 2026-09-23: "implement the Material BOM filter in every Orders
+   * child" — Advised Items is the one Orders child built on this shell).
+   *
+   * The CALLER owns the matching: it passes `rows` already narrowed by
+   * `facets.matches`, so the shell's search, pagination and Created columns
+   * run over them unchanged. `FilterBar`'s `panel` replaces its children AND
+   * its `dateFilter`, so a caller using this puts Created Date in the drawer
+   * as a facet. Omitted — every Master Data screen — nothing here changes.
+   */
+  filterPanel?: ReactNode;
+  /** The drawer's badge count (`facets.activeCount`), added to the shell's. */
+  panelActiveCount?: number;
+  /** Clears the drawer (`facets.reset`); run by the shell's Reset link. */
+  onPanelReset?: () => void;
+  /**
+   * Drawn in the FilterBar's `leading` slot, before the search — the Orders
+   * Pending / Updated / Draft box (`useQuickStatus`, user 2026-09-23: "in
+   * budget we have pending, update, draft button need to implement same order
+   * module fully"). Opt-in like `filterPanel`: the caller owns the matching
+   * and passes `rows` already narrowed. Omitted, nothing here changes.
+   */
+  filterLeading?: ReactNode;
 };
 
 /**
@@ -225,6 +250,10 @@ export function MasterListShell<Row>({
   toolbarExtra,
   bulkEntityKey,
   bulkLabel,
+  filterPanel,
+  panelActiveCount = 0,
+  onPanelReset,
+  filterLeading,
 }: MasterListShellProps<Row>) {
   const hasDraft = useMemo(
     () => !!statusOf && rows.some((r) => statusOf(r) === "draft"),
@@ -466,12 +495,13 @@ export function MasterListShell<Row>({
   const hasFacets = !!statusOf || (extraFilters?.length ?? 0) > 0;
   // Created Date counts as a filter for the Reset link — a list whose only facet
   // is the date still needs a way back to "everything".
-  const canReset = hasFacets || dateFilter.enabled;
+  const canReset = filterPanel ? activeCount + panelActiveCount > 0 : hasFacets || dateFilter.enabled;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <FilterBar
+          leading={filterLeading}
           searchRef={searchRef}
           search={query}
           onSearch={(v) => {
@@ -479,15 +509,17 @@ export function MasterListShell<Row>({
             pg.setPage(1);
           }}
           searchPlaceholder={searchPlaceholder}
-          activeCount={activeCount}
+          activeCount={activeCount + panelActiveCount}
           onReset={
             canReset
               ? () => {
                   reset();
+                  onPanelReset?.();
                   pg.setPage(1);
                 }
               : undefined
           }
+          panel={filterPanel}
           dateFilter={{
             ...dateFilter,
             onChange: (v) => {

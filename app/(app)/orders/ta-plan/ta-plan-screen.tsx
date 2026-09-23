@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { CalendarRange, ListChecks, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,16 @@ import { createTaPlan, updateTaPlan, deleteTaPlan } from "@/lib/orders/ta-plan/a
 import type { TaPlanDoc } from "@/lib/orders/ta-plan/types";
 import type { TaPlanFormData } from "@/lib/orders/ta-plan/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import {
+  createdByFacet,
+  createdDateFacet,
+  flagFacet,
+  urgencyFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
@@ -36,6 +47,67 @@ interface Props {
   data: TaPlanFormData;
   perms: Perms;
 }
+
+/**
+ * THE GROUPED DRAWER (user, 2026-09-23: "implement the Material BOM filter in
+ * every Orders child"). The list had no filter; every facet reads a field the
+ * row already carries (the embedded customer / style / template), so none
+ * costs a query. A plan is delivery-dated, so it gets the shared Delivery
+ * Urgency facet — the same buckets as the BOM queues. "Scheduled" is whether
+ * the ladder has been scheduled back (`target_date` is set only by that, or by
+ * hand), which is the question a planner opening this list is usually asking.
+ */
+const PLAN_FACETS: FacetGroup<TaPlanDoc>[] = [
+  {
+    title: "Dates & schedule",
+    icon: <CalendarRange />,
+    facets: [
+      { key: "planDate", label: "Plan Date", all: "Any date", wide: true, date: (r) => r.plan_date },
+      { key: "delivery", label: "Delivery Date", all: "Any date", date: (r) => r.delivery_date },
+      flagFacet("scheduled", "Scheduled", (r) => !!r.target_date, "Target date set", "Not scheduled"),
+    ],
+  },
+  {
+    title: "Customer & urgency",
+    icon: <Users />,
+    facets: [
+      { key: "customer", label: "Customer", all: "All customers", wide: true, value: (r) => r.customer?.name },
+      urgencyFacet((r) => r.delivery_date),
+      { key: "style", label: "Style", all: "All styles", value: (r) => r.style?.style_name },
+    ],
+  },
+  {
+    title: "Template & created",
+    icon: <ListChecks />,
+    facets: [
+      {
+        key: "template",
+        label: "T&A Template",
+        all: "Any template",
+        wide: true,
+        // Code AND description: the description is the template's name (its own
+        // screen has no other), the code tells two same-named ones apart.
+        value: (r) =>
+          r.ta_style ? [r.ta_style.code, r.ta_style.description].filter(Boolean).join(" — ") : null,
+      },
+      createdDateFacet(),
+      createdByFacet(),
+    ],
+  },
+];
+
+/**
+ * THE PENDING / UPDATED BOX (user 2026-09-23: "in budget we have pending,
+ * update, draft button need to implement same order module fully"). A plan
+ * carries no status column, but it does carry the one fact the Scheduled
+ * facet above calls "the question a planner opening this list is usually
+ * asking": Pending = no target date yet — the ladder is still to be scheduled
+ * back, the work waiting on whoever opens this list; Updated = scheduled
+ * (`target_date` set). Read exactly as that facet reads it, and the box
+ * stands down while the facet is set. NO DRAFT: a TA Plan has no draft save
+ * (only its templates do), so the word could only ever show an empty list.
+ */
+const planWord = (r: TaPlanDoc): QuickWord => (r.target_date ? "updated" : "pending");
 
 type LineRow = {
   key: string;
@@ -115,6 +187,29 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
 
   // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
   useUnsavedGuard(mode === "edit" || isPending);
+
+  /* Above the `mode === "list"` return, like every hook here (AGENTS.md
+     "Hooks above every early return"). */
+  const [query, setQuery] = useState("");
+  const facets = useFacetFilter(rows, PLAN_FACETS);
+  const matchesFacets = facets.matches;
+  const setFacet = facets.set;
+  const quick = useQuickStatus(planWord, {
+    draft: false,
+    standDown: !!facets.values.scheduled,
+    onPick: () => setFacet("scheduled", ""),
+  });
+  const qm = quick.matches;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (!matchesFacets(r) || !qm(r)) return false;
+      if (!needle) return true;
+      return [r.code, r.customer?.name, r.sales_order?.order_number, r.order_no, r.style?.style_name].some((v) =>
+        (v ?? "").toLowerCase().includes(needle),
+      );
+    });
+  }, [rows, query, matchesFacets, qm]);
 
   const activityName = useMemo(() => {
     const m = new Map<string, string>();
@@ -478,7 +573,29 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
           description="Time & Action plan document — schedule activities against an order with target dates."
           actions={perms.canCreate ? <Button onClick={openAdd}>New TA Plan</Button> : undefined}
         />
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No TA plans yet." />
+        <FilterBar
+          leading={quick.segment}
+          search={query}
+          onSearch={setQuery}
+          searchPlaceholder="Search No, customer, RE No, Order No or style…"
+          activeCount={facets.activeCount}
+          onReset={facets.activeCount ? facets.reset : undefined}
+          panel={facets.panel}
+        />
+        <DataTable
+          columns={withCreatedColumns(columns, rows)}
+          rows={filtered}
+          getKey={(r) => r.id}
+          empty={
+            !rows.length
+              ? "No TA plans yet."
+              : quick.value && !facets.activeCount && !query.trim()
+                ? quick.value === "pending"
+                  ? "Every TA plan is scheduled — nothing pending. Updated lists them."
+                  : "No TA plan is scheduled yet — Pending lists them."
+                : "No TA plans match these filters."
+          }
+        />
       </div>
     );
   }

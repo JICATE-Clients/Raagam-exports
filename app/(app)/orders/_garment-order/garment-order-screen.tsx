@@ -21,10 +21,11 @@ import {
   Hash,
   CheckCheck,
   CalendarClock,
+  CalendarRange,
+  Users,
   FileText,
   ClipboardList,
   ListTodo,
-  Pencil,
   type LucideIcon,
 } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -98,7 +99,9 @@ import {
  */
 import { isRefusal, orderTaLadder } from "@/lib/orders/ta/order-ladder";
 import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
-import { getTaActivityWip } from "@/lib/ta/worklist-actions";
+import { getTaActivityWip, completeTaActivity } from "@/lib/ta/worklist-actions";
+import { loadTrimTaForGarmentOrder } from "@/lib/orders/trim-ta/actions";
+import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import { ACTIVITY_SHORT_NAME_TO_STAGE, type ProductionStage } from "@/lib/production/types";
 import type { StageWip } from "@/lib/production/service";
 import { Textarea } from "@/components/ui/textarea";
@@ -108,7 +111,6 @@ import type { FieldWidth } from "@/lib/ui/sizes";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
-import { StatusPill } from "@/components/ui/status-pill";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import {
   BOM_STATUSES,
@@ -117,7 +119,8 @@ import {
   type BomStatus,
 } from "@/lib/orders/bom-status";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { DaysOut } from "@/components/orders/bom-queue";
+import { urgencyFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
+import { DaysOut, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 // `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
 // MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds
 // {key,label,content} items and `sections` maps them, so the shape a tab
@@ -132,7 +135,7 @@ import {
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
 // The two flags a field the APP fills in has to carry, derived from one boolean
 // so a bypassed field can never also hold the cursor. See the note there.
-import { autoFilledField } from "@/lib/focus";
+import { autoFilledField, focusField, focusFirstField } from "@/lib/focus";
 import { Field, FieldGrid, FieldRow, FIELD_SPAN, RequiredScope, UnlockScope, useLocked } from "@/components/ui/field";
 import { openAreasOf, type OrderAmendmentState } from "@/lib/orders/amendments/amendment-entry";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -163,11 +166,14 @@ import { useToast } from "@/components/ui/toast";
 import { WorkFlowPanel } from "@/components/orders/ta/work-flow-panel";
 import { FileAttachments, type AttachmentRow } from "@/components/ui/file-attachments";
 import { SketchThumbnail } from "@/components/ui/sketch-thumbnail";
+import { StyleThumbnailCell } from "@/components/orders/style-thumbnail-cell";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { addDays } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
+import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
+import { EmbeddedEditorWait } from "@/components/orders/embedded-editor-wait";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { isInactive } from "@/lib/masters/inactive";
 // The Style master's own rules, imported rather than re-derived: Order Info now
@@ -339,6 +345,7 @@ import {
   orderUnitLabel,
   type GarmentOrderAmendment,
   type AmendmentTaActivity,
+  type AmendmentTaApproval,
 } from "@/lib/orders/amendments/types";
 // `StylePickerRow` left this import on 2026-08-25 with the Style picker itself —
 // the type describes a master row, and nothing on this screen holds one now.
@@ -351,6 +358,9 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 interface Props {
+  /** EMBEDDED in an amendment (`/orders/order-amendments/<entry>/order`): open
+   *  this order, hide the list, and return to the amendment on Save / Cancel. */
+  embed?: EmbedTarget | null;
   rows: GarmentOrderAmendment[];
   data: AmendmentFormData;
   /**
@@ -1533,6 +1543,17 @@ const TA_DEPT_COL_W = "7rem";
  * spill on Menlo. 84px clears it on every stack with room for the `px-2`.
  */
 const TA_DATE_COL_W = "5.25rem";
+/**
+ * STATUS / QUICK ACTIONS (2026-09-23, T&A milestone monitor). Status holds one
+ * chip ("Overdue" is the widest, ~56px at 10px bold + `px-1.5`) → 88px. Actions
+ * holds the widest of its three shapes — "Late — on: Staff Buyer Supplier ✕"
+ * wraps to two lines inside 176px, "V2 Approved · View Proof" fits on one.
+ * Row budget: 24 + 160 + 112 + 128 + 56 + 84 + 84 + 88 + 176 = 912px of
+ * columns + 8 × 16px gaps + 24px gutters + 3px stripe = 1067px ≤ 1155px, and
+ * the card's own scroller takes over below that anyway.
+ */
+const TA_STATUS_COL_W = "5.5rem";
+const TA_ACTIONS_COL_W = "11rem";
 
 /**
  * T&A ▸ APPROVALS ▸ THE LADDER'S GUTTERS, ONE DECLARATION FOR THE HEADER BAND
@@ -1881,6 +1902,34 @@ const TERMS_ROWS: TermsRow[] = [{ key: "terms" }];
  */
 const COORDINATE_W = "7.5rem";
 
+/**
+ * THE ORDER'S QUANTITY, for the column the client asked for on 2026-09-18.
+ *
+ * NO NEW QUERY AND NO NEW COLUMN: `getAmendments()` already embeds
+ * `quantities`, so this is a sum over rows the list is holding anyway. The
+ * figure is the destinations' PO Qty — the same Σ the editor's Quantities
+ * grid prints as "Total PO Qty" (`qty-balance.ts`'s own function, shared
+ * rather than re-added here, so the list and the tab cannot disagree —
+ * imported as `sumDestinationQty`, see the alias's note at the import).
+ *
+ * THE STYLE TOTAL IS THE FALLBACK, AND ONLY A FALLBACK. `crossTabPoQtyMessage`
+ * makes the two sides equal on every RECORDED order, so which one is read
+ * cannot matter there — but a DRAFT can be parked with styles typed and no
+ * destination rows yet, and a dash on an order that plainly states a
+ * quantity reads as "nobody entered one". Destinations first because that
+ * is what ships; `|| null` rather than `?? null` so a 0 falls through to it.
+ *
+ * A DASH IS STILL AN ANSWER where neither side has been typed — 0 pieces is
+ * not a quantity, and printing "0" claims the operator answered.
+ */
+function orderQty(r: GarmentOrderAmendment): number | null {
+  return (
+    sumDestinationQty(r.quantities ?? []) ||
+    (r.styles ?? []).reduce((a, s) => a + (Number(s.po_qty) || 0), 0) ||
+    null
+  );
+}
+
 export function GarmentOrderScreen({
   rows,
   bomStatus,
@@ -1892,6 +1941,7 @@ export function GarmentOrderScreen({
   purpose = "entry",
   orderLocks,
   orderAmendments,
+  embed = null,
 }: Props) {
   /** Read this, never `purpose` directly, so every site asks the same question. */
   const amending = purpose === "amend";
@@ -2139,6 +2189,39 @@ export function GarmentOrderScreen({
    * column is honestly empty rather than pretending nothing has happened yet.
    */
   const [savedTaActivities, setSavedTaActivities] = useState<AmendmentTaActivity[]>([]);
+
+  /**
+   * T&A ▸ MILESTONE MONITOR (2026-09-23) — the saved approval trackers, kept
+   * whole beside `savedTaActivities` for the same reason: `taApprovalRows`
+   * keeps only `row_uid` + `approval_id`, and the Activity grid's PP Send /
+   * PP Approval rows now say which VERSION of the PP Sample approval stands
+   * and open its proof. Read-only here; the TA Followup board writes them.
+   */
+  const [savedTaApprovals, setSavedTaApprovals] = useState<AmendmentTaApproval[]>([]);
+  /**
+   * T&A ▸ QUICK ACTIONS ▸ [Complete]. `taCompleteAsk` is the `row_uid` of a
+   * LATE row whose completion is waiting for its delay attribution —
+   * `completeTaActivity` refuses a late completion without one, so the cell
+   * asks (Staff / Buyer / Supplier) instead of failing. One row at a time.
+   * The transition is this action's own, not the order Save's `start`, so a
+   * completion in flight never disables the order's Save button.
+   */
+  const [taCompleteAsk, setTaCompleteAsk] = useState<string | null>(null);
+  const [taCompleting, startTaComplete] = useTransition();
+  /**
+   * T&A ▸ "GRN LINKED" on SEWING / PACKING TRIMS INWARD — the Trims T&A
+   * engine's own GRN steps (13 / 17, `SEWING_GRN` / `PACKING_GRN`), which it
+   * already dates off exactly these two ladder rows (`LadderAnchors.
+   * trimInward`). GRN codes per trim class; `null` until loaded or when the
+   * order has no Material BOM / sales order behind it yet — then the cell
+   * says nothing rather than "no GRN", which would be a claim.
+   */
+  /* Keyed by the order it was read for, so a reopened editor never shows the
+     previous order's GRNs while its own are loading — read as `taTrimGrn`. */
+  const [taTrimGrnFor, setTaTrimGrnFor] = useState<{
+    id: string;
+    grn: Record<"SEWING" | "PACKING", string[]> | null;
+  } | null>(null);
 
   /**
    * WHICH T&A CELL IS OPEN FOR EDITING (operator, 2026-09-15: "remove the
@@ -2915,6 +2998,15 @@ export function GarmentOrderScreen({
   useOpenIntent((orderId) => {
     const r = rows.find((x) => x.id === orderId);
     if (r) openEdit(r);
+  });
+  /* EMBEDDED IN THE AMENDMENT WORKSPACE (2026-09-23) — above the list return. */
+  useEmbeddedEditor({
+    embed,
+    mode,
+    open: (orderId) => {
+      const r = rows.find((x) => x.id === orderId);
+      if (r) openEdit(r);
+    },
   });
 
   /**
@@ -4111,6 +4203,8 @@ export function GarmentOrderScreen({
     setTaRows([]);
     setTaApprovalRows([]);
     setSavedTaActivities([]);
+    setSavedTaApprovals([]);
+    setTaCompleteAsk(null);
     setTaEditingCell(null);
     setAttachments([]);
     /* A FRESH FOLDER PER RECORD. Without this, a new order started after
@@ -4255,6 +4349,8 @@ export function GarmentOrderScreen({
        the ACTUAL column — see `savedTaActivities`'s own note. Read-only
        here; nothing in the save payload reads this. */
     setSavedTaActivities(r.ta_activities ?? []);
+    setSavedTaApprovals(r.ta_approvals ?? []);
+    setTaCompleteAsk(null);
     /* NOT PART OF `applyRows`, deliberately: that mapping is shared with the
        ORDER SEED, and an order carries no attachments. Folding files into it
        would make every seeded amendment clear the documents of the one it was
@@ -4277,6 +4373,10 @@ export function GarmentOrderScreen({
            it did not know about" failure the comment above this block records
            for attachments as a whole. */
         style_ref_no: f.style_ref_no ?? null,
+        /* 0621 — carried for the same reason: a flag the loader drops is a
+           flag the first save clears on every file of the order. */
+        is_primary: !!f.is_primary,
+        print_on_report: !!f.print_on_report,
       })),
     );
     setMode("edit");
@@ -4705,6 +4805,8 @@ export function GarmentOrderScreen({
         mime_type: f.mime_type || null,
         size_bytes: f.size_bytes ?? null,
         style_ref_no: f.style_ref_no || null,
+        is_primary: !!f.is_primary,
+        print_on_report: !!f.print_on_report,
       })),
       /**
        * THE T&A LADDER (0481) — four keys, and the ones that are MISSING are
@@ -4774,11 +4876,14 @@ export function GarmentOrderScreen({
         : await createAmendment(payload);
       if (res.ok) {
         success(
-          amending
+          (amending
             ? "Amendment updated"
             : editId
               ? "Garment order updated"
-              : "Garment order created",
+              : "Garment order created") +
+            /* 0619 — what the automatic BOM recalculation did, or what it
+               could not fill (Manual Entry Needed). */
+            ("notice" in res && res.notice ? ` — ${res.notice}` : ""),
         );
         setMode("list");
         router.refresh();
@@ -5119,6 +5224,39 @@ export function GarmentOrderScreen({
     };
   }, [editId, taFloorStagesKey]);
 
+  /* T&A ▸ "GRN LINKED" (see `taTrimGrn`). Only for a saved order, and a failed
+     read leaves `null` — the cell then says nothing, never "no GRN". Above the
+     `if (mode === "list")` return, like every hook in this component. */
+  useEffect(() => {
+    if (!editId) return;
+    let cancelled = false;
+    void loadTrimTaForGarmentOrder(editId)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.ok) {
+          setTaTrimGrnFor({ id: editId, grn: null });
+          return;
+        }
+        const out: Record<"SEWING" | "PACKING", string[]> = { SEWING: [], PACKING: [] };
+        for (const o of res.data.orders) {
+          for (const m of o.materials) {
+            for (const s of m.steps) {
+              if (s.code === "SEWING_GRN" || s.code === "PACKING_GRN") {
+                for (const c of s.docCodes) if (!out[s.trimClass].includes(c)) out[s.trimClass].push(c);
+              }
+            }
+          }
+        }
+        setTaTrimGrnFor({ id: editId, grn: out });
+      })
+      .catch(() => {
+        if (!cancelled) setTaTrimGrnFor({ id: editId, grn: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
+
   /**
    * THE ROAD LINE IS GONE (2026-09-10, replacing the icon-timeline with the
    * compact phase-grouped table below). It was a decorative connector behind
@@ -5161,10 +5299,129 @@ export function GarmentOrderScreen({
      `useState` only — the filtering itself is a cheap pass over `rows` and is
      a `const` inside the branch, not a memo. */
   const [listQuery, setListQuery] = useState("");
-  const [listStatus, setListStatus] = useState<"" | "draft" | "recorded">("");
-  const [listBom, setListBom] = useState<"" | BomStatus>("");
+  /* THE FILTERS PANEL IS MATERIAL BOM'S GROUPED DRAWER (user, 2026-09-23:
+     "implement it in order module fully child") — three questions, each
+     answered off the row the list already holds: Status & dates · Customer &
+     urgency · Order & BOM. `useFacetFilter` is a hook, so it and the memo it
+     reads sit up here with `listQuery`; the matching is `facets.matches` in
+     the branch. Draft/Recorded and Material BOM keep their counted options
+     exactly as the two plain selects had them. */
+  const listFacetGroups = useMemo((): FacetGroup<GarmentOrderAmendment>[] => {
+    const bomOfRow = (r: GarmentOrderAmendment): BomStatus => bomStatus[r.id]?.status ?? "pending";
+    return [
+      {
+        title: "Status & dates",
+        icon: <CalendarRange />,
+        facets: [
+          {
+            key: "status",
+            label: "Status",
+            all: "All",
+            wide: true,
+            counted: true,
+            options: [
+              { value: "draft", label: "Draft" },
+              { value: "recorded", label: "Recorded" },
+            ],
+            match: (r, v) => (r.is_draft ? "draft" : "recorded") === v,
+          },
+          { key: "orderDate", label: "Order Date", all: "Any date", date: (r) => r.amend_date },
+          { key: "delivery", label: "Delivery Date", all: "Any date", date: (r) => r.delivery_date },
+        ],
+      },
+      {
+        title: "Customer & urgency",
+        icon: <Users />,
+        facets: [
+          { key: "customer", label: "Customer", all: "All customers", wide: true, value: (r) => r.customer?.name },
+          urgencyFacet((r) => r.delivery_date),
+          {
+            key: "merchandiser",
+            label: "Merchandiser",
+            all: "Anyone",
+            value: (r) =>
+              (r.merchandiser_id && data.merchandisers.find((m) => m.id === r.merchandiser_id)?.name) || null,
+          },
+        ],
+      },
+      {
+        title: "Order & BOM",
+        icon: <Package />,
+        facets: [
+          {
+            key: "re",
+            label: "RE Status",
+            all: "All",
+            wide: true,
+            counted: true,
+            options: [
+              { value: "open", label: "Open" },
+              { value: "amending", label: "Under revision" },
+              { value: "approved", label: "Approved" },
+            ],
+            match: (r, v) =>
+              (orderLocks[r.id] ? "approved" : orderAmendments[r.id] ? "amending" : "open") === v,
+          },
+          {
+            key: "bom",
+            label: "Material BOM",
+            all: "All",
+            counted: true,
+            options: [...BOM_STATUSES]
+              .sort((a, b) => BOM_STATUS_RANK[a] - BOM_STATUS_RANK[b])
+              .map((st) => ({ value: st, label: bomStatusText(st) })),
+            match: (r, v) => bomOfRow(r) === v,
+          },
+          {
+            key: "qty",
+            label: "Quantity",
+            all: "Any",
+            options: [
+              { value: "known", label: "Has a quantity" },
+              { value: "missing", label: "No quantity yet" },
+            ],
+            match: (r, v) => (v === "known") === (orderQty(r) != null),
+          },
+        ],
+      },
+    ];
+  }, [bomStatus, data.merchandisers, orderLocks, orderAmendments]);
+  const listFacets = useFacetFilter(rows, listFacetGroups);
+  /* THE PENDING / UPDATED / DRAFT BOX (user, 2026-09-23: "in budget we have
+     pending, update, draft button need to implement same order module
+     fully"). Over an order the three words mean:
+       Draft   = parked, never recorded (`is_draft`)
+       Pending = recorded, its RE not yet approved — Open or Amending, the
+                 orders still being worked on
+       Updated = RE approved (`orderLocks`), the order is final
+     The drawer's Status and RE Status facets ask the same question, so the
+     box stands down while either is set and clears both when a word is
+     picked — Budget Approval's rule, for the same reason: two independent
+     controls over one state can silently show nothing. */
+  const listWordOf = useCallback(
+    (r: GarmentOrderAmendment): QuickWord =>
+      r.is_draft ? "draft" : orderLocks[r.id] ? "updated" : "pending",
+    [orderLocks],
+  );
+  const listQuick = useQuickStatus(listWordOf, {
+    standDown: !!listFacets.values.status || !!listFacets.values.re,
+    onPick: () => {
+      listFacets.set("status", "");
+      listFacets.set("re", "");
+    },
+  });
 
   if (mode === "list") {
+    /* Embedded: the list is not the operator's business — only the one order. */
+    if (embed) {
+      return (
+        <EmbeddedEditorWait
+          found={rows.some((x) => x.id === embed.id)}
+          returnHref={embed.returnHref}
+          what="order"
+        />
+      );
+    }
     /* THE SAME QUESTIONS THE BOM QUEUE ANSWERS, ASKED OF THE SAME ORDERS.
        `BomQueue` searches RE No, PO and customer and counts its Status facet;
        this list had neither, so the one screen an order is raised on was the
@@ -5173,35 +5430,10 @@ export function GarmentOrderScreen({
        handed — the buyer's PO, and "Kumar's orders". */
     const merchName = (id: string | null) =>
       (id && data.merchandisers.find((m) => m.id === id)?.name) || null;
-    const bomOf = (r: GarmentOrderAmendment): BomStatus => bomStatus[r.id]?.status ?? "pending";
-    /**
-     * THE ORDER'S QUANTITY, for the column the client asked for on 2026-09-18.
-     *
-     * NO NEW QUERY AND NO NEW COLUMN: `getAmendments()` already embeds
-     * `quantities`, so this is a sum over rows the list is holding anyway. The
-     * figure is the destinations' PO Qty — the same Σ the editor's Quantities
-     * grid prints as "Total PO Qty" (`qty-balance.ts`'s own function, shared
-     * rather than re-added here, so the list and the tab cannot disagree —
-     * imported as `sumDestinationQty`, see the alias's note at the import).
-     *
-     * THE STYLE TOTAL IS THE FALLBACK, AND ONLY A FALLBACK. `crossTabPoQtyMessage`
-     * makes the two sides equal on every RECORDED order, so which one is read
-     * cannot matter there — but a DRAFT can be parked with styles typed and no
-     * destination rows yet, and a dash on an order that plainly states a
-     * quantity reads as "nobody entered one". Destinations first because that
-     * is what ships; `|| null` rather than `?? null` so a 0 falls through to it.
-     *
-     * A DASH IS STILL AN ANSWER where neither side has been typed — 0 pieces is
-     * not a quantity, and printing "0" claims the operator answered.
-     */
-    const orderQty = (r: GarmentOrderAmendment): number | null =>
-      sumDestinationQty(r.quantities ?? []) ||
-      (r.styles ?? []).reduce((a, s) => a + (Number(s.po_qty) || 0), 0) ||
-      null;
     const needle = listQuery.trim().toLowerCase();
     const visibleRows = rows.filter((r) => {
-      if (listStatus && (r.is_draft ? "draft" : "recorded") !== listStatus) return false;
-      if (listBom && bomOf(r) !== listBom) return false;
+      if (!listFacets.matches(r)) return false;
+      if (!listQuick.matches(r)) return false;
       if (!needle) return true;
       return [
         r.sales_order?.order_number,
@@ -5211,15 +5443,18 @@ export function GarmentOrderScreen({
         merchName(r.merchandiser_id),
       ].some((v) => (v ?? "").toLowerCase().includes(needle));
     });
-    const draftCount = rows.filter((r) => r.is_draft).length;
-    // Counted and ordered as `BomQueue` does: "what needs doing, first", never by
-    // count, and an empty state shown but not choosable.
-    const bomCounts = [...BOM_STATUSES]
-      .sort((a, b) => BOM_STATUS_RANK[a] - BOM_STATUS_RANK[b])
-      .map((status) => ({ status, count: rows.filter((r) => bomOf(r) === status).length }));
-    const activeFilters = (listStatus ? 1 : 0) + (listBom ? 1 : 0);
 
     const columns: Column<GarmentOrderAmendment>[] = [
+      /* THUMBNAIL FIRST (user, 2026-09-23): an order found by what it looks
+         like. The row already carries its `files` (getAmendments embeds them),
+         so this is no query; the cell is its own component and holds its own
+         hooks, so nothing here moves relative to the `mode === "list"` return.
+         Pictures only — a PDF-only order shows the placeholder. */
+      {
+        header: "Thumbnail",
+        className: "w-16",
+        cell: (r) => <StyleThumbnailCell files={r.files ?? []} />,
+      },
       /* "Code" WITHDRAWN 2026-08-21 (client): the internal amendment code is not
          how anyone refers to an order — RE No is, and it sits in the next
          column. Display only: `code` is still generated, still stored, still
@@ -5318,7 +5553,7 @@ export function GarmentOrderScreen({
        * mandatory, stored and SEARCHED (the search box still reads it and still
        * says so in its placeholder: "Kumar's orders"), and both status values
        * are still FACETS in the Filters panel — Draft/Recorded counted from
-       * `is_draft`, Material BOM counted through `bomOf`. So each question is
+       * `is_draft`, Material BOM counted through `bomOfRow`. So each question is
        * still answerable on this screen; it is the standing column that went.
        *
        * THE COST, STATED: a draft and a recorded order now look identical in
@@ -5342,21 +5577,16 @@ export function GarmentOrderScreen({
           );
         },
       },
-      /* RE STATUS (Phase 5, doc/order/budget.md §4.3). APPROVED = a budget over
-         this order was approved, and Order Entry, Order Amendment and both BOMs
-         are read-only for it until that budget is reopened. Read off the
-         loader's lock map, the same `re_status` the database lock reads. */
-      {
-        header: "RE Status",
-        cell: (r) =>
-          orderLocks[r.id] ? (
-            <StatusPill tone="success">Approved</StatusPill>
-          ) : orderAmendments[r.id] ? (
-            <StatusPill tone="warning">Amending {orderAmendments[r.id].entryNo ?? ""}</StatusPill>
-          ) : (
-            <StatusPill tone="neutral">Open</StatusPill>
-          ),
-      },
+      /* "RE STATUS" WITHDRAWN 2026-09-23 (user, screenshot 3025: "status
+         field remove it"). The Pending / Updated / Draft box above the list
+         now answers the question the column did — Pending is Open or
+         Amending, Updated is Approved — and the Filters panel's RE Status
+         facet still reaches each state on its own. Display only, like "Code"
+         and "Type" above: `orderLocks` and `orderAmendments` still drive the
+         locks and the facet. The column's Pending MD Approval / Waiting
+         Revision badges (doc/order/amenment update.md) went with it, and the
+         row menu no longer carries the revision either (2026-09-23): an order
+         under revision is found, and worked, in Orders ▸ Order Revisions. */
       rowActionsColumn((r) => (
         <RowActions
           /* SC No, not `code`: the label is folded into every aria-label and
@@ -5425,40 +5655,9 @@ export function GarmentOrderScreen({
                 disabled: !soId,
                 onClick: () => soId && router.push(orderReportHref(soId, ORDER_REPORTS[0])),
               },
-              /* AMEND — the spec's `[Amend]` on an approved row (doc/order/
-                 amedment.md §1). Only an APPROVED order needs the door: an open
-                 one is edited directly, and one already amending is opened from
-                 the register. Lands on Orders ▸ Order Amendments with the RE
-                 pre-picked; the entry is raised there. */
-              ...(orderLocks[r.id] && perms.canEdit
-                ? [
-                    {
-                      label: "Amend",
-                      icon: Pencil,
-                      onClick: () => router.push(`/orders/order-amendments/new?order=${r.id}`),
-                    },
-                  ]
-                : orderAmendments[r.id]
-                  ? [
-                      {
-                        label: `Amendment ${orderAmendments[r.id].entryNo ?? ""}`.trim(),
-                        icon: Pencil,
-                        onClick: () =>
-                          router.push(`/orders/order-amendments/${orderAmendments[r.id].entryId}`),
-                      },
-                      /* AMEND AGAIN (0618): a second raise supersedes the open
-                         entry and adds categories to it. */
-                      ...(perms.canEdit
-                        ? [
-                            {
-                              label: "Amend again",
-                              icon: Pencil,
-                              onClick: () => router.push(`/orders/order-amendments/new?order=${r.id}`),
-                            },
-                          ]
-                        : []),
-                    ]
-                  : []),
+              /* NO AMEND HERE (user 2026-09-23): an amendment is raised and
+                 worked inside Orders ▸ Order Amendments. The row's RE Status
+                 pill says when one is open. */
             ];
           })()}
           /* THE EYE OPENS THE ORDER, READ ONLY — see `openView`. Replaces the
@@ -5508,56 +5707,12 @@ export function GarmentOrderScreen({
           search={listQuery}
           onSearch={setListQuery}
           searchPlaceholder="Search RE No, PO, customer or merchandiser…"
-          activeCount={activeFilters}
-          onReset={
-            activeFilters
-              ? () => {
-                  setListStatus("");
-                  setListBom("");
-                }
-              : undefined
-          }
+          activeCount={listFacets.activeCount}
+          onReset={listFacets.activeCount ? listFacets.reset : undefined}
           right={`${visibleRows.length} of ${rows.length}`}
-        >
-          <div>
-            <Label htmlFor="go-list-status">Status</Label>
-            <Select
-              id="go-list-status"
-              value={listStatus}
-              onChange={(e) => setListStatus(e.target.value as "" | "draft" | "recorded")}
-            >
-              <option value="">All ({rows.length})</option>
-              <option value="draft" disabled={draftCount === 0 && listStatus !== "draft"}>
-                Draft ({draftCount})
-              </option>
-              <option
-                value="recorded"
-                disabled={rows.length - draftCount === 0 && listStatus !== "recorded"}
-              >
-                Recorded ({rows.length - draftCount})
-              </option>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="go-list-bom">Material BOM</Label>
-            <Select
-              id="go-list-bom"
-              value={listBom}
-              onChange={(e) => setListBom(e.target.value as "" | BomStatus)}
-            >
-              <option value="">All ({rows.length})</option>
-              {bomCounts.map((c) => (
-                <option
-                  key={c.status}
-                  value={c.status}
-                  disabled={c.count === 0 && c.status !== listBom}
-                >
-                  {bomStatusText(c.status)} ({c.count})
-                </option>
-              ))}
-            </Select>
-          </div>
-        </FilterBar>
+          panel={listFacets.panel}
+          leading={listQuick.segment}
+        />
         <DataTable
           columns={withCreatedColumns(columns, visibleRows)}
           rows={visibleRows}
@@ -9588,6 +9743,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         return (
         <Input
           type="number"
+          /* `id` + `data-focus-land`: where T3's landing puts the cursor on the
+             first pending row (see `taLandOnPending`). A marker, never a
+             handler — `focusFirstField` alone reads it. */
+          id={`ta-days-${r.row_uid}`}
+          data-focus-land={taLandCell === `${r.key}:days` ? "" : undefined}
           title={anchorId ? `Working days before ${taLabel(anchorId)} starts` : undefined}
           readOnly={!!fixedDays}
           /* A PLAIN COMPACT BOX, NO PILL (operator, 2026-09-15: "remove the
@@ -9682,6 +9842,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         const rowFilled = !!r.activity_id && !!r.days_required;
         return (
           <RecordPicker
+            id={`ta-owner-${r.row_uid}`}
             label="Task Owner"
             compact
             items={opts.items}
@@ -10145,7 +10306,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         </button>
         <button
           type="button"
-          onClick={() => setTaView("activity")}
+          onClick={() => {
+            setTaView("activity");
+            taLandOnPending();
+          }}
           className={cn(
             "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
             taView === "activity" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
@@ -10200,6 +10364,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         * order's own Date and Ref No are not an "Activity" fact, and
         * repeating two read-only values costs nothing.
         */}
+      {/**
+        * THE MILESTONE MONITOR (2026-09-23, T&A UX spec): Date and RE No as
+        * before, plus the three facts the whole ladder is read against —
+        * Buyer, Delivery Date and SHIP DATE, the earliest Earlier Shipment Dt
+        * across Quantities (`taShipDate`, the same rule `resolveAnchor` in
+        * order-ladder.ts applies). All `readOnly`, so each sets its own
+        * `tabIndex={-1}` and no key lands on one — the landing goes straight
+        * past this band to the first pending row (see `taLandOnPending`).
+        * "Ref No" is renamed "RE No": it always showed the RE No, and every
+        * other surface of this screen calls that value by that name.
+        */}
       <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Date</span>
@@ -10211,7 +10386,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           />
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Ref No</span>
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">RE No</span>
           <Input
             id="ta-refno"
             readOnly
@@ -10219,7 +10394,46 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             className="h-7 w-32 px-2 text-xs"
           />
         </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Buyer</span>
+          <Input
+            id="ta-buyer"
+            readOnly
+            value={taBuyerName}
+            title={taBuyerName || undefined}
+            // truncate-reveal: exempt -- read-only header box; the full name is its native `title`
+            className="h-7 w-40 text-ellipsis px-2 text-xs"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Delivery</span>
+          <Input
+            id="ta-delivery"
+            readOnly
+            value={fmtDate(form.delivery_date) || ""}
+            className="h-7 w-24 px-2 text-xs"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Ship Date</span>
+          <Input
+            id="ta-shipdate"
+            readOnly
+            value={taShipDate ? fmtDate(taShipDate) : ""}
+            className="h-7 w-24 px-2 text-xs"
+          />
+        </div>
       </div>
+      {/* WHAT THE BACKWARD SCHEDULE HANGS OFF, in one sentence — the anchor the
+          ladder actually used (`taLadder.anchor`), never a re-derivation. Said
+          only while the ladder resolves; a refusal already says why it cannot. */}
+      {!isRefusal(taLadder) && (
+        <p className="basis-full text-[11px] leading-tight text-muted-foreground">
+          Automated backward schedule — triggered from{" "}
+          {taLadder.anchor.source === "earlier_shipment" ? "Earlier Shipment Date" : "Delivery Date"}:{" "}
+          <span className="font-semibold tabular-nums text-foreground">{fmtDate(taLadder.anchor.date)}</span>
+        </p>
+      )}
     </div>
   );
 
@@ -10249,6 +10463,148 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
      — it was the only reader of either. `taIsCritical` above STAYS: it draws
      the row's red left edge and feeds the row's `slip` tooltip, which are the
      two places this state is said now. */
+
+  /* ---------------- T&A ▸ MILESTONE MONITOR (2026-09-23) ----------------
+     Plain derived values and functions, NOT hooks: everything below sits under
+     the `if (mode === "list")` return. The state they read (`savedTaApprovals`,
+     `taCompleteAsk`, `taTrimGrn`) is declared up with `savedTaActivities`. */
+
+  /** `taTrimGrnFor`, only when it was read for THIS order. */
+  const taTrimGrn = editId && taTrimGrnFor?.id === editId ? taTrimGrnFor.grn : null;
+  /** The header's Buyer — the order's Customer, read through the id. */
+  const taBuyerName = data.customers.find((c) => c.id === form.customer_id)?.name ?? "";
+  /** SHIP DATE — the earliest Earlier Shipment Dt across Quantities, the rule
+   *  `resolveAnchor` (order-ladder.ts) applies. Shown even when the ladder
+   *  refuses, because the date itself is still a fact of the order. */
+  const taShipDate =
+    quantities
+      .map((q) => (q.earlier_shipment_date ?? "").trim())
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort()[0] ?? null;
+
+  /**
+   * STATUS — Done once an Actual exists (or the dashboard marked it done),
+   * Overdue once the target is behind the LOCAL today with none, else Pending.
+   * `today()` is this screen's local-parts helper (the UTC trap is recorded on
+   * it); the server's `completeTaActivity` uses `lib/calendar`'s, which is the
+   * same local day.
+   */
+  type TaRowStatus = "done" | "overdue" | "pending";
+  const taStatusOf = (r: TaRow): TaRowStatus => {
+    const saved = taSavedByUid.get(r.row_uid);
+    if (saved?.actual_date || saved?.status === "done") return "done";
+    const d = taDates.get(r.row_uid);
+    if (d && d.target_date < today()) return "overdue";
+    return "pending";
+  };
+
+  /**
+   * THE PP SAMPLE TRACKER behind the PP Send / PP Approval rows — the same
+   * `ta_approvals.short_name = 'PPSAMPLE'` bridge the Cutting Room Safety Lock
+   * reads (lib/ta/worklist-actions.ts). The only activity↔approval link this
+   * app declares, so it is the only one this grid shows.
+   */
+  const taPpApprovalId = data.taApprovals.find((a) => (a.short_name ?? "").toUpperCase() === "PPSAMPLE")?.id ?? null;
+  const taPpApproval = taPpApprovalId
+    ? (savedTaApprovals.find((a) => a.approval_id === taPpApprovalId) ?? null)
+    : null;
+  const TA_APPROVAL_STATUS_LABEL: Record<string, string> = {
+    pending: "Pending",
+    sent: "Sent",
+    approved: "Approved",
+    rework: "Rework",
+  };
+
+  /** Opens a proof from the PRIVATE `order-approval-docs` bucket through a
+   *  short-lived signed URL — never a stored URL (types.ts `proof_path`).
+   *  The tab is opened synchronously so a popup blocker sees the click. */
+  const openTaProof = (path: string) => {
+    const w = window.open("about:blank", "_blank");
+    void createBrowserSupabase()
+      .storage.from("order-approval-docs")
+      .createSignedUrl(path, 300)
+      .then(({ data: signed, error }) => {
+        if (error || !signed) {
+          w?.close();
+          toastError(`The proof could not be opened: ${error?.message ?? "no link returned"}`);
+          return;
+        }
+        if (w) {
+          w.opener = null;
+          w.location.href = signed.signedUrl;
+        } else {
+          window.open(signed.signedUrl, "_blank", "noopener");
+        }
+      });
+  };
+
+  /**
+   * [Complete] — Actual = today, through the worklist's own
+   * `completeTaActivity`, which writes only the columns the order save merges
+   * back by `row_uid` (its header says why that is load-bearing). A LATE row
+   * first asks who the delay was on: the action refuses it otherwise.
+   */
+  const completeTaRow = (
+    r: TaRow,
+    attribution?: "internal_staff" | "buyer_delay" | "material_supplier",
+  ) => {
+    const saved = taSavedByUid.get(r.row_uid);
+    if (!saved) return;
+    const on = today();
+    const late = saved.target_date != null && on > saved.target_date;
+    if (late && !attribution) {
+      setTaCompleteAsk(r.row_uid);
+      return;
+    }
+    startTaComplete(async () => {
+      const res = await completeTaActivity(saved.id, on, attribution);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      setTaCompleteAsk(null);
+      setSavedTaActivities((xs) =>
+        xs.map((x) =>
+          x.row_uid === r.row_uid
+            ? { ...x, actual_date: on, status: "done", delay_attribution: late ? attribution! : "none" }
+            : x,
+        ),
+      );
+      success(`${taLabel(r.activity_id)} completed`);
+    });
+  };
+
+  /**
+   * T3 — THE LANDING. Opening the Activity view puts the cursor on the FIRST
+   * PENDING row (top-most, as displayed, with no Actual). A filled cell on
+   * this ladder is text until clicked, so the landing opens that row's Days
+   * box (or its Owner, when Days is system-computed) through the SAME
+   * `taEditingCell` a click uses, then lands with `focusFirstField` — which
+   * honours the `data-focus-land` the Days input carries on that row. Focus
+   * leaving the cell closes it again, exactly as after a click. No key
+   * handler: this runs from the segment's own click (Enter on it is a click).
+   */
+  const taFirstPending = taRowsDisplay.find((r) => taStatusOf(r) !== "done") ?? null;
+  const taLandCell = taFirstPending
+    ? computedTaDays(taActivityById.get(taFirstPending.activity_id ?? "")?.short_name)
+      ? `${taFirstPending.key}:owner`
+      : `${taFirstPending.key}:days`
+    : null;
+  const taLandOnPending = () => {
+    if (taLandCell) setTaEditingCell(taLandCell);
+    window.setTimeout(() => {
+      const root = document.getElementById("ta-activity-view");
+      const target = taFirstPending
+        ? (document.getElementById(`ta-days-${taFirstPending.row_uid}`) ??
+          document.getElementById(`ta-owner-${taFirstPending.row_uid}`))
+        : null;
+      if (target && !target.matches("[readonly],[disabled]")) {
+        focusField(target);
+        return;
+      }
+      focusFirstField(root);
+    }, 0);
+  };
 
   /**
    * THE ROW, RESTYLED TO THE "T&A ORDER VIEW" MOCK (operator, 2026-09-15,
@@ -10316,6 +10672,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
        an em dash is the honest answer for the majority. */
     const deptName = taActivityById.get(r.activity_id ?? "")?.department ?? null;
     const critical = taIsCritical(r);
+    /* STATUS + QUICK ACTIONS (2026-09-23) — see `taStatusOf` / `completeTaRow`.
+       `saved` is the row as stored: an unsaved row has no id to complete. */
+    const status = taStatusOf(r);
+    const saved = taSavedByUid.get(r.row_uid);
+    const shortName = (taActivityById.get(r.activity_id ?? "")?.short_name ?? "").toUpperCase();
     /* TEXT OR PICKER — see the function's own note. `locked` is the same
        `default_seed` test `lockRow` and the Activity picker's `disabled`
        read, so a row cannot be text here and a control there. */
@@ -10563,6 +10924,113 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               </>
             ) : (
               "—"
+            )}
+          </div>
+
+          {/* STATUS (2026-09-23) — `taStatusOf`, one predicate. Overdue is the
+              same fact the red edge draws, said in a word; the edge stays. */}
+          <span className="flex-none" style={{ width: TA_STATUS_COL_W }}>
+            <span
+              className={cn(
+                "inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                status === "done"
+                  ? "bg-success-soft text-success"
+                  : status === "overdue"
+                    ? "bg-danger-soft text-danger"
+                    : "bg-surface-muted text-muted-foreground",
+              )}
+            >
+              {status === "done" ? "Done" : status === "overdue" ? "Overdue" : "Pending"}
+            </span>
+          </span>
+
+          {/* QUICK ACTIONS — [Complete] while open, plus what a linked document
+              genuinely reports: the PP Sample tracker's version / status /
+              proof on PP Send & PP Approval, and a Trims T&A GRN on the two
+              Trims Inward rows. Buttons, so never on the Tab path (lib/focus.ts
+              lands Tab on fields only); every one is still a mouse click and a
+              Space/Enter once reached by arrow or pointer. */}
+          <div
+            className="flex flex-none flex-wrap items-center gap-1 text-[10px] leading-none"
+            style={{ width: TA_ACTIONS_COL_W }}
+          >
+            {(shortName === "PPSEND" || shortName === "PPAPPR") && taPpApproval && (
+              <>
+                <span
+                  className={cn(
+                    "font-semibold",
+                    taPpApproval.status === "approved"
+                      ? "text-success"
+                      : taPpApproval.status === "rework"
+                        ? "text-danger"
+                        : "text-muted-foreground",
+                  )}
+                  title="PP Sample approval — acted on at Orders ▸ TA Followup"
+                >
+                  V{taPpApproval.active_version} {TA_APPROVAL_STATUS_LABEL[taPpApproval.status] ?? taPpApproval.status}
+                </span>
+                {taPpApproval.proof_path && (
+                  <button
+                    type="button"
+                    className="rounded px-1 py-0.5 font-medium text-primary underline-offset-2 hover:underline"
+                    onClick={() => openTaProof(taPpApproval.proof_path!)}
+                  >
+                    View Proof
+                  </button>
+                )}
+              </>
+            )}
+            {(shortName === "SEWTRIM" || shortName === "PACKTRIM") &&
+              taTrimGrn &&
+              taTrimGrn[shortName === "SEWTRIM" ? "SEWING" : "PACKING"].length > 0 && (
+                <span
+                  className="font-semibold text-success"
+                  title={taTrimGrn[shortName === "SEWTRIM" ? "SEWING" : "PACKING"].join(", ")}
+                >
+                  GRN linked
+                </span>
+              )}
+            {status !== "done" && saved && !viewOnly && (
+              taCompleteAsk === r.row_uid ? (
+                <span className="flex flex-wrap items-center gap-1">
+                  <span className="text-danger">Late — on:</span>
+                  {(
+                    [
+                      ["internal_staff", "Staff"],
+                      ["buyer_delay", "Buyer"],
+                      ["material_supplier", "Supplier"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      disabled={taCompleting}
+                      className="rounded border border-border px-1 py-0.5 font-medium text-foreground hover:bg-surface-muted disabled:opacity-50"
+                      onClick={() => completeTaRow(r, value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    aria-label="Cancel completion"
+                    className="rounded px-1 py-0.5 text-muted-foreground hover:bg-surface-muted"
+                    onClick={() => setTaCompleteAsk(null)}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={taCompleting}
+                  title="Record today as this activity's Actual date"
+                  className="rounded border border-border px-1.5 py-0.5 font-medium text-foreground hover:bg-surface-muted disabled:opacity-50"
+                  onClick={() => completeTaRow(r)}
+                >
+                  Complete
+                </button>
+              )
             )}
           </div>
         </div>
@@ -18524,6 +18992,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         * while the other allows.
         */}
       <div className="min-w-0 flex-[0_1_9.5rem]">
+        {/* OPEN DURING ANY AMENDMENT (user, 2026-09-23, screenshot 3026: "only
+            allowing 1 file"). A style's pictures are not a costed field, so an
+            amendment scoped to Prices must not freeze them. `files` is lifted
+            only when the SERVER put it in the open set — inert otherwise. */}
+        <UnlockScope area="files">
         <Field
           label="Files"
           required
@@ -18539,6 +19012,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             rows={filesForStyle(r)}
             onChange={(next) => setStyleFiles(r, next)}
             styleRefNo={r.style_ref_no.trim() || null}
+            /* The cover star and the report flag (user, 2026-09-23) — both
+               columns of `garment_order_amendment_files`, so only this
+               screen's callers opt in. */
+            primaryToggle
+            printToggle
             bucket="garment-order-docs"
             folder={editId ?? uploadFolder}
             disabled={!perms.canEdit || !r.style_ref_no.trim()}
@@ -18547,6 +19025,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             }
           />
         </Field>
+        </UnlockScope>
       </div>
       </div>
     </>
@@ -20805,7 +21284,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              same reasoning `MasterFullScreen` already relies on for mounting
              one section at a time. */}
           {taView === "activity" && (
-          <div className="space-y-4">
+          <div id="ta-activity-view" className="space-y-4">
           {/**
             * WHAT THE LADDER HANGS OFF, AND WHETHER IT REACHES.
             *
@@ -21163,6 +21642,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               <span className="w-14 flex-none text-center">Days</span>
               <span className="flex-none" style={{ width: TA_DATE_COL_W }}>Target</span>
               <span className="flex-none" style={{ width: TA_DATE_COL_W }}>Actual</span>
+              <span className="flex-none" style={{ width: TA_STATUS_COL_W }}>Status</span>
+              <span className="flex-none" style={{ width: TA_ACTIONS_COL_W }}>Actions</span>
             </div>
             <div
               /* `!border-t-0` / `!py-0` cancel `flatRows`'s own 2px rule and
@@ -22617,14 +23098,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 stops from here. It still reads across ALL attachments — a sketch
                 filed under a style is still this order's sketch — which is why
                 the chip is unchanged while this column narrowed. */}
+            <UnlockScope area="files">
             <FileAttachments
               variant="tiles"
               rows={orderLevelFiles}
               onChange={spliceOrderLevelFiles}
+              primaryToggle
+              printToggle
               bucket="garment-order-docs"
               folder={editId ?? uploadFolder}
               disabled={!perms.canEdit}
             />
+            </UnlockScope>
           </div>
         )}
         </div>
@@ -22888,13 +23373,20 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           editId && orderLocks[editId]
             ? { message: orderLocks[editId] }
             : editId && orderAmendments[editId]
-              ? /* AMENDING (0604 · 0616): locked, with the entry's areas lifted.
-                   `openAreasOf` is a pure function over the frozen scope — no
-                   hook, this is below the `if (mode === "list")` return. */
-                {
-                  message: orderAmendments[editId].banner,
-                  open: openAreasOf(orderAmendments[editId].scope),
-                }
+              ? embed
+                ? /* AMENDING (0604 · 0616), inside the amendment: locked, with the
+                     entry's areas lifted. `openAreasOf` is a pure function over
+                     the frozen scope — no hook, this is below the list return. */
+                  {
+                    message: orderAmendments[editId].banner,
+                    open: openAreasOf(orderAmendments[editId].scope),
+                  }
+                : /* …and READ-ONLY everywhere else (user 2026-09-23: "no more
+                     need to go to Order Entry"). The change is made inside
+                     Orders ▸ Order Amendments; this screen only shows it. */
+                  {
+                    message: `This order is under revision ${orderAmendments[editId].entryNo ?? ""} — make the change inside Orders ▸ Order Revisions.`,
+                  }
               : false
         }
         /* THE EYE — every field read-only, one Close, no step guards. */

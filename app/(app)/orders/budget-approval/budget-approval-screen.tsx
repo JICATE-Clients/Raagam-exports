@@ -21,10 +21,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Ban, Check, Pencil, X, Undo2 } from "lucide-react";
+import { Ban, CalendarRange, Check, Layers, Pencil, Users, X, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { createdGroup, flagFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { Textarea } from "@/components/ui/textarea";
 import { FIELD_ROW, FIELD_WIDTH, Field, FieldRow } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
@@ -49,7 +50,6 @@ import {
   budgetStatusTone,
   canTransition,
   type BudgetApprovalRow,
-  type BudgetStatus,
   type OrderBudget,
 } from "@/lib/orders/budget/types";
 import { decideBudget, reopenBudget } from "@/lib/orders/budget/actions";
@@ -97,6 +97,58 @@ const SHEET_BOX_W = "max-w-[55rem]";
 const BUDGET_BOX_W = SHEET_BOX_W;
 const ORDERS_BOX_W = SHEET_BOX_W;
 const FIGURES_BOX_W = SHEET_BOX_W;
+
+/**
+ * THE QUEUE'S FILTERS PANEL — the grouped drawer every Orders child draws
+ * (user, 2026-09-23: "implement the Material BOM filter in every Orders
+ * child"). It replaced a search box and a lone Status <Select>. Every facet is
+ * read off the `BudgetApprovalRow` the table already shows.
+ *
+ * THE QUEUE STILL OPENS ON THE WORK — that is the Pending box on the search
+ * row (see `quick` below), not this panel: the Status facet here starts at
+ * All and, once set, takes over from the box.
+ */
+
+function approvalFacets(rows: BudgetApprovalRow[]): FacetGroup<BudgetApprovalRow>[] {
+  return [
+    {
+      title: "Status & dates",
+      icon: <CalendarRange />,
+      facets: [
+        {
+          key: "status",
+          label: "Status",
+          all: "All",
+          wide: true,
+          counted: true,
+          options: BUDGET_STATUSES.map((s) => ({ value: s, label: budgetStatusText(s) })),
+          match: (r, v) => r.status === v,
+        },
+        { key: "budgetDate", label: "Budget Date", all: "Any date", date: (r) => r.budget_date },
+        { key: "submitted", label: "Submitted", all: "Any date", date: (r) => r.submitted_at },
+      ],
+    },
+    {
+      title: "Budget",
+      icon: <Layers />,
+      facets: [
+        { key: "decided", label: "Decided", all: "Any date", wide: true, date: (r) => r.decided_at },
+        {
+          key: "orders",
+          label: "Orders",
+          all: "Any",
+          options: [
+            { value: "one", label: "One order" },
+            { value: "several", label: "Several orders" },
+          ],
+          match: (r, v) => (v === "several") === r.order_count > 1,
+        },
+        flagFacet("lines", "Lines", (r) => r.line_count > 0, "Has lines", "No lines"),
+      ],
+    },
+    ...createdGroup(rows, <Users />),
+  ];
+}
 
 /** The RE Nos a budget covers, for the sheet's title — the reference an
  *  approver knows an order by. */
@@ -188,22 +240,22 @@ export function BudgetApprovalScreen({
   const panel = loaded && loaded.forId === openId ? loaded : null;
   /** Default: what is waiting. The queue lists everything so an approver can
    *  answer "what did I approve last week?", but the work is what opens. */
-  /* THE PENDING / UPDATED BOX, MATERIAL BOM'S OWN (user 2026-09-21: "Update
-     and Pending options displayed exactly like they are in the Material") —
-     the same `StatusSegment`, first on the search row. On an approval queue
-     the two words mean:
-       Pending = Submitted, awaiting a decision (still what the screen opens on)
+  /* THE PENDING / UPDATED / DRAFT BOX, MATERIAL BOM'S OWN (user 2026-09-21 ·
+     09-22), first on the search row. On an approval queue the words mean:
+       Pending = Submitted, awaiting a decision (what the screen opens on)
        Updated = decided — Approved or Rejected
-       Draft   = not yet submitted (user 2026-09-22, the third word on every
-                 one of the three queues)
+       Draft   = not yet submitted
      ONE FILTER, TWO CONTROLS, and deliberately connected, unlike the BOM
-     queues' box and Filters panel: those can both apply, but here the
-     dropdown opens on "All", so an independent box left at Updated beside a
-     dropdown at Draft would show nothing, silently. So a word in the box sets
-     the dropdown back to All, and picking a state in the dropdown turns the
-     box off. The dropdown still reaches Draft and each state on its own. */
+     queues' box and Filters panel: an independent box left at Updated beside
+     a Status facet at Draft would show nothing, silently. So a word in the box
+     clears the drawer's Status, and while the drawer's Status is set the box
+     stands down (`quickOn`) — derived, not synced, so the two cannot drift.
+     The drawer (user 2026-09-23) still reaches each state on its own. */
   const [quick, setQuick] = useState<"" | "pending" | "updated" | "draft">("pending");
-  const [filter, setFilter] = useState<BudgetStatus | "all">("all");
+  const groups = useMemo(() => approvalFacets(rows), [rows]);
+  const facets = useFacetFilter(rows, groups);
+  const facetMatch = facets.matches;
+  const quickOn = facets.values.status ? "" : quick;
   const [search, setSearch] = useState("");
 
   // The remark is typed and unsaved until a decision is taken, so it is real
@@ -318,16 +370,16 @@ export function BudgetApprovalScreen({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (filter !== "all" && r.status !== filter) return false;
-      if (quick === "pending" && r.status !== "submitted") return false;
-      if (quick === "updated" && r.status !== "approved" && r.status !== "rejected") return false;
-      if (quick === "draft" && r.status !== "draft") return false;
+      if (quickOn === "pending" && r.status !== "submitted") return false;
+      if (quickOn === "updated" && r.status !== "approved" && r.status !== "rejected") return false;
+      if (quickOn === "draft" && r.status !== "draft") return false;
+      if (!facetMatch(r)) return false;
       if (!q) return true;
       return [r.code, r.description]
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q));
     });
-  }, [rows, filter, quick, search]);
+  }, [rows, quickOn, facetMatch, search]);
 
   const columns: Column<BudgetApprovalRow>[] = [
     {
@@ -465,48 +517,37 @@ export function BudgetApprovalScreen({
           </p>
         )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusSegment
-            value={quick}
-            onChange={(v) => {
-              setQuick(v);
-              setFilter("all");
-            }}
-            draft
-          />
-          {/* caps-input: exempt -- a search QUERY is not a stored value. */}
-          <Input uppercase={false}
-            className="w-64"
-            placeholder="Search budget or group…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <Select
-            className="w-48"
-            value={filter}
-            onChange={(e) => {
-              setFilter(e.target.value as BudgetStatus | "all");
-              setQuick("");
-            }}
-          >
-            <option value="all">All</option>
-            <option value="submitted">Awaiting approval</option>
-            {BUDGET_STATUSES.filter((s) => s !== "submitted").map((s) => (
-              <option key={s} value={s}>
-                {budgetStatusText(s)}
-              </option>
-            ))}
-          </Select>
-        </div>
+        {/* THE GROUPED DRAWER (user, 2026-09-23) — the box first, then the
+            search box, as on Material BOM; the Status select moved into the
+            panel. */}
+        <FilterBar
+          search={search}
+          onSearch={setSearch}
+          searchPlaceholder="Search budget or group…"
+          leading={
+            <StatusSegment
+              value={quickOn}
+              onChange={(v) => {
+                setQuick(v);
+                facets.set("status", "");
+              }}
+              draft
+            />
+          }
+          activeCount={facets.activeCount}
+          onReset={facets.activeCount ? facets.reset : undefined}
+          panel={facets.panel}
+          right={`${filtered.length} of ${rows.length}`}
+        />
 
         <DataTable
           columns={withCreatedColumns(columns, filtered)}
           rows={filtered}
           getKey={(r) => r.id}
           empty={
-            quick === "pending" || filter === "submitted"
+            quickOn === "pending" && facets.activeCount === 0
               ? "Nothing is waiting for approval."
-              : "No budgets in this state."
+              : "No budget matches these filters."
           }
         />
       </div>

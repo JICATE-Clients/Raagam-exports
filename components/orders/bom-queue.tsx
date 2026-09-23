@@ -1,25 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Check, Clock, Pencil } from "lucide-react";
 import { today as todayAtFactory } from "@/lib/calendar";
 import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { CalendarRange, Factory, Users } from "lucide-react";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
-import { createdMeta, creatorName, hasCreatedInfo } from "@/components/ui/created-columns";
+import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import {
-  BomFilterDrawer,
-  NO_FACETS,
-  type BomFilterValues,
-  type QueueFacets,
-  type Urgency,
-} from "@/components/orders/bom-filter-drawer";
-import { matchesCreatedDate } from "@/lib/date-filter";
+  createdByFacet,
+  urgencyFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 import {
   BOM_STATUSES,
   BOM_STATUS_RANK,
@@ -223,7 +220,7 @@ export function BomQueuePill({ status }: { status: BomStatus }) {
  * from unfiltered to Pending first for the same reason. Budget Approval
  * already opened on Pending; this makes the other three agree with it.
  */
-type QuickWord = "pending" | "updated" | "draft";
+export type QuickWord = "pending" | "updated" | "draft";
 /**
  * ICON + WORD, THE CHOSEN ONE IN THE THEME'S COLOUR (user 2026-09-22, option
  * H of the eight mocked up that morning — "4th one apply" — and then, the
@@ -339,62 +336,132 @@ export function StatusSegment({
 }
 
 /**
- * THE QUEUE'S EIGHT EXTRA FACETS (user, 2026-09-21: "add filter field from
- * Customer to Created By") — every one read off the `BomTaskRow` the card
- * already carries, so none costs a query.
+ * THE BOX, AS ONE DECLARATION (user, 2026-09-23: "in budget we have pending,
+ * update, draft button need to implement same order module fully").
  *
- * The facet SHAPE and the panel that edits it live in
- * `components/orders/bom-filter-drawer.tsx`; the MATCHING stays here.
+ * Budgeting, Budget Approval and the two BOM queues each wired `StatusSegment`
+ * by hand — a `useState("pending")`, three `if (quick === …)` lines in the
+ * filter, the element in `leading` — and each spelled what the three words mean
+ * over its own vocabulary. A screen now says only THAT: `wordOf(row)` names
+ * which word a row counts as (or null — a row no word covers, e.g. a cancelled
+ * one, shows only while the box is unfiltered). The state, the test and the
+ * element come back from here, so every Orders list reads the box the same way
+ * and a new one cannot forget half of it.
  *
- * Delivery Urgency reads the same factory-day arithmetic as `DaysOut`, so the
- * "· 4d" on a card and the "Due within 7 days" it is filtered under cannot
- * disagree. Created By compares `creatorName`, which never returns a uuid — a
- * row whose creator is unknown matches only "All", never a blank option.
+ * OPENS ON PENDING, the 2026-09-22 rule for every queue: the work still to do
+ * is what an operator opens a list for; Updated and Draft are one click away.
+ *
+ * `standDown` — the Budget Approval rule, generalised: where the Filters panel
+ * carries a Status facet of its own, the two are one filter with two controls,
+ * so while that facet is set the box goes dark (derived, never synced), and
+ * `onPick` lets the screen clear the facet when a word is chosen.
  */
-function activeFacetCount(f: QueueFacets): number {
-  return Object.values(f).filter(Boolean).length;
-}
-
-function distinctSorted(values: (string | null | undefined)[]): string[] {
-  return [...new Set(values.map((v) => v?.trim()).filter((v): v is string => !!v))].sort((a, b) =>
-    a.localeCompare(b),
+export function useQuickStatus<R>(
+  wordOf: (r: R) => QuickWord | null,
+  opts: { draft?: boolean; standDown?: boolean; onPick?: () => void } = {},
+) {
+  const { draft = true, standDown = false, onPick } = opts;
+  const [quick, setQuick] = useState<"" | QuickWord>("pending");
+  const value = standDown ? "" : quick;
+  const matches = useCallback((r: R) => !value || wordOf(r) === value, [value, wordOf]);
+  const segment = (
+    <StatusSegment
+      value={value}
+      onChange={(v) => {
+        setQuick(v);
+        onPick?.();
+      }}
+      draft={draft}
+    />
   );
+  return { value, matches, segment };
 }
 
-function daysToDelivery(iso: string | null): number | null {
-  if (!iso) return null;
-  const at = Date.parse(`${iso.slice(0, 10)}T00:00:00`);
-  const now = Date.parse(`${todayAtFactory()}T00:00:00`);
-  if (Number.isNaN(at) || Number.isNaN(now)) return null;
-  return Math.round((at - now) / 86_400_000);
-}
-
-function matchesUrgency(t: BomTaskRow, u: Urgency): boolean {
-  if (!u) return true;
-  const d = daysToDelivery(t.delivery_date);
-  if (u === "none") return d == null;
-  if (d == null) return false;
-  if (u === "late") return d < 0;
-  if (u === "week") return d >= 0 && d <= 7;
-  if (u === "month") return d > 7 && d <= 30;
-  return d > 30;
-}
-
-function matchesFacets(t: BomTaskRow, f: QueueFacets): boolean {
-  if (f.customer && t.customer_name?.trim() !== f.customer) return false;
-  if (f.delivery && !matchesCreatedDate(t.delivery_date, f.delivery)) return false;
-  if (!matchesUrgency(t, f.urgency)) return false;
-  if (f.orderDate && !matchesCreatedDate(t.amend_date, f.orderDate)) return false;
-  if (f.qty === "known" && t.production_qty == null) return false;
-  if (f.qty === "missing" && t.production_qty != null) return false;
-  if (f.styles === "single" && t.style_count > 1) return false;
-  if (f.styles === "multiple" && t.style_count <= 1) return false;
-  if (f.started === "none" && t.bom_id) return false;
-  if (f.started === "empty" && (!t.bom_id || t.bom_line_count > 0)) return false;
-  if (f.started === "lines" && (!t.bom_id || t.bom_line_count === 0)) return false;
-  if (f.createdBy && creatorName(t) !== f.createdBy) return false;
-  return true;
-}
+/**
+ * THE QUEUE'S FILTERS PANEL — the grouped drawer (user, 2026-09-21, Material
+ * BOM; every BOM queue since 2026-09-23, "implement it in order module fully
+ * child"). THREE GROUPS, TWO ROWS EACH — Status & dates · Customer & urgency ·
+ * Production & BOM — every facet read off the `BomTaskRow` the card already
+ * carries, so none costs a query.
+ *
+ * The panel and the matching are both `useFacetFilter`'s
+ * (`components/ui/filter-drawer.tsx`), from this one declaration — the panel
+ * cannot offer a facet the filter ignores.
+ *
+ * STATUS IS COUNTED AND IN `BOM_STATUS_RANK` ORDER — "what needs doing,
+ * first", the same order the list itself is sorted in, never by count. A state
+ * with no rows is shown and not choosable (zero Recalculate is information),
+ * except the one selected. See the note above `<FilterBar>` for the history.
+ */
+const BOM_FACETS: FacetGroup<BomTaskRow>[] = [
+  {
+    title: "Status & dates",
+    icon: <CalendarRange />,
+    facets: [
+      {
+        key: "status",
+        label: "Status",
+        all: "All statuses",
+        wide: true,
+        counted: true,
+        options: [...BOM_STATUSES]
+          .sort((a, b) => BOM_STATUS_RANK[a] - BOM_STATUS_RANK[b])
+          .map((s) => ({ value: s, label: bomStatusText(s) })),
+        match: (t, v) => t.status === v,
+      },
+      { key: "orderDate", label: "Order Date", all: "Any date", date: (t) => t.amend_date },
+      { key: "delivery", label: "Delivery Date", all: "Any date", date: (t) => t.delivery_date },
+    ],
+  },
+  {
+    title: "Customer & urgency",
+    icon: <Users />,
+    facets: [
+      { key: "customer", label: "Customer", all: "All customers", wide: true, value: (t) => t.customer_name },
+      urgencyFacet((t) => t.delivery_date),
+      createdByFacet(),
+    ],
+  },
+  {
+    title: "Production & BOM",
+    icon: <Factory />,
+    facets: [
+      {
+        key: "qty",
+        label: "Production Qty",
+        all: "Any",
+        wide: true,
+        options: [
+          { value: "known", label: "Has a quantity" },
+          { value: "missing", label: "No quantity yet" },
+        ],
+        match: (t, v) => (v === "known") === (t.production_qty != null),
+      },
+      {
+        key: "styles",
+        label: "Styles",
+        all: "Any",
+        options: [
+          { value: "single", label: "Single style" },
+          { value: "multiple", label: "Multiple styles" },
+        ],
+        match: (t, v) => (v === "multiple") === (t.style_count > 1),
+      },
+      {
+        key: "started",
+        label: "BOM Started",
+        all: "Any",
+        options: [
+          { value: "none", label: "No BOM yet" },
+          { value: "empty", label: "BOM with no lines" },
+          { value: "lines", label: "BOM with lines" },
+        ],
+        match: (t, v) =>
+          v === "none" ? !t.bom_id : !!t.bom_id && (v === "lines") === t.bom_line_count > 0,
+      },
+    ],
+  },
+];
 
 export function BomQueue({
   tasks,
@@ -406,7 +473,6 @@ export function BomQueue({
   onReports,
   quickStatus = false,
   quickDraft = false,
-  extraFilters = false,
   isPending = false,
 }: {
   tasks: BomTaskRow[];
@@ -443,65 +509,33 @@ export function BomQueue({
   quickStatus?: boolean;
   /** Adds the Draft word to the Pending / Updated box (Material BOM). */
   quickDraft?: boolean;
-  /** The eight facets beside Status in the Filters panel — opt-in (Material
-   *  BOM, 2026-09-21); Fabric BOM passes nothing and is unchanged. */
-  extraFilters?: boolean;
   isPending?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | BomStatus>("");
   /* THE PENDING / UPDATED BOX KEEPS ITS OWN STATE (user, 2026-09-21: "Pending
      and Update should not be connected to the filters"). It used to write
-     `statusFilter`, so a click moved the panel's Status facet and lit the
+     the panel's Status, so a click moved the panel's Status facet and lit the
      Filters badge. Now the two are independent and both apply: the box narrows
      the queue, the panel narrows it further, and neither changes the other. */
   /* `"pending"`, not `""` — see `StatusSegment`'s note: the queue opens on the
      work still to do (user 2026-09-22). */
   const [quickFilter, setQuickFilter] = useState<"" | BomStatus>("pending");
-  const [f, setF] = useState<QueueFacets>(NO_FACETS);
-
-  /* THE FACETS OFFER ONLY WHAT THE QUEUE HOLDS — a customer or creator with no
-     order in the queue is an option that can only produce an empty list. */
-  const customerOptions = useMemo(
-    () => distinctSorted(tasks.map((t) => t.customer_name)),
-    [tasks],
-  );
-  const creatorOptions = useMemo(() => distinctSorted(tasks.map((t) => creatorName(t))), [tasks]);
+  /* THE GROUPED DRAWER — every BOM queue's, since 2026-09-23 (Fabric BOM
+     had a lone Status select until then). */
+  const facets = useFacetFilter(tasks, BOM_FACETS);
+  const matchesFacets = facets.matches;
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return tasks.filter((t) => {
-      if (statusFilter && t.status !== statusFilter) return false;
       if (quickStatus && quickFilter && t.status !== quickFilter) return false;
-      if (extraFilters && !matchesFacets(t, f)) return false;
+      if (!matchesFacets(t)) return false;
       if (!needle) return true;
       return [t.sc_no, t.order_code, t.po_no, t.customer_name].some((v) =>
         (v ?? "").toLowerCase().includes(needle),
       );
     });
-  }, [tasks, query, statusFilter, quickStatus, quickFilter, extraFilters, f]);
-
-  /**
-   * HOW MANY ORDERS SIT IN EACH STATE, IN THE ORDER THE WORK SHOULD BE DONE —
-   * not in `BOM_STATUSES` declaration order and never sorted by count.
-   *
-   * `BOM_STATUS_RANK` has said "order of work for the dashboard: what needs
-   * doing, first" since the statuses were extracted, and until this list read it
-   * nothing on screen did: the queue was sorted by it invisibly, and the filter
-   * offered the five states in declaration order. Sorting by count would bury
-   * Recalculate — the one state that means a plan is silently wrong — beneath
-   * Updated on any healthy queue.
-   */
-  const statusCounts = useMemo(
-    () =>
-      [...BOM_STATUSES]
-        .sort((a, b) => BOM_STATUS_RANK[a] - BOM_STATUS_RANK[b])
-        .map((status) => ({
-          status,
-          count: tasks.filter((t) => t.status === status).length,
-        })),
-    [tasks],
-  );
+  }, [tasks, query, quickStatus, quickFilter, matchesFacets]);
 
   /**
    * WHAT THE QUEUE AMOUNTS TO — the one figure a merchandiser wants before
@@ -569,7 +603,7 @@ export function BomQueue({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search RE No, PO or customer…"
-        activeCount={(statusFilter ? 1 : 0) + (extraFilters ? activeFacetCount(f) : 0)}
+        activeCount={facets.activeCount}
         leading={
           quickStatus ? (
             quickDraft ? (
@@ -579,26 +613,8 @@ export function BomQueue({
             )
           ) : undefined
         }
-        onReset={statusFilter && !quickStatus ? () => setStatusFilter("") : undefined}
-        panel={
-          extraFilters ? (
-            <BomFilterDrawer
-              value={{ ...f, status: statusFilter }}
-              onChange={(next: BomFilterValues) => {
-                const { status, ...facets } = next;
-                setStatusFilter(status as "" | BomStatus);
-                setF({ ...facets, urgency: facets.urgency as Urgency });
-              }}
-              statusOptions={statusCounts.map((c) => ({
-                value: c.status,
-                label: `${bomStatusText(c.status)} (${c.count})`,
-                disabled: c.count === 0,
-              }))}
-              customerOptions={customerOptions}
-              creatorOptions={creatorOptions}
-            />
-          ) : undefined
-        }
+        onReset={facets.activeCount && !quickStatus ? facets.reset : undefined}
+        panel={facets.panel}
         right={
           queueSummary ? (
             <>
@@ -608,32 +624,7 @@ export function BomQueue({
             `${filtered.length} of ${tasks.length}`
           )
         }
-      >
-        {/* THE PLAIN STATUS FACET — every queue that does not ask for the
-            grouped drawer (Fabric BOM). Material BOM's Status lives in the
-            drawer's first group instead. */}
-        {!extraFilters && (
-          <div>
-            <Label htmlFor="bom-status">Status</Label>
-            <Select
-              id="bom-status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as "" | BomStatus)}
-            >
-              <option value="">All ({tasks.length})</option>
-              {statusCounts.map((c) => (
-                <option
-                  key={c.status}
-                  value={c.status}
-                  disabled={c.count === 0 && c.status !== statusFilter}
-                >
-                  {bomStatusText(c.status)} ({c.count})
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
-      </FilterBar>
+      />
 
       {/* ONE CARD PER GARMENT ORDER (operator request, 2026-08-17). This list is
           a work QUEUE — "which confirmed orders still need planning?" — and it

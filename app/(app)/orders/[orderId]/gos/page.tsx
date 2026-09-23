@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { VFinalBanner } from "@/components/orders/v-final-banner";
+import { vFinalFor } from "@/lib/orders/amendments/v-final";
 import { requirePermission } from "@/lib/auth/server";
 import { getGarmentOrderSheet } from "@/lib/orders/gos/service";
+import { getReportStyleImages } from "@/lib/orders/gos/style-images";
 import { isRefusal } from "@/lib/orders/gos/types";
 import { GosSheetDocument } from "@/components/orders/gos-sheet";
-import { GosPrintButton } from "@/components/orders/gos-print-button";
+import { getDocLetterhead } from "@/lib/orders/gos/letterhead";
 import { Card, CardBody } from "@/components/ui/card";
 import { OrderDocumentTabs } from "@/components/orders/order-document-tabs";
 
@@ -38,13 +41,29 @@ import { OrderDocumentTabs } from "@/components/orders/order-document-tabs";
  */
 export default async function GosPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orderId: string }>;
+  /** `?version=proposed` — the amendment's in-flight data instead of V_final (0619). */
+  searchParams: Promise<{ version?: string }>;
 }) {
   await requirePermission("orders", "view");
-  const { orderId } = await params;
+  const [{ orderId }, { version }] = await Promise.all([params, searchParams]);
 
-  const sheet = await getGarmentOrderSheet(orderId);
+  /* V_FINAL (0619, spec §4B): while the order is amending, the sheet is the
+     approved version frozen at raise, unless the proposed data is asked for. */
+  const vf = await vFinalFor("gos", orderId);
+  const proposed = version === "proposed";
+  /* The pictures ticked "Print on reports" (user, 2026-09-23) are loaded
+     BESIDE the sheet on every render — never frozen with it, because a signed
+     URL outlives no amendment. See `getReportStyleImages`. */
+  const [sheet, styleImages, company] = await Promise.all([
+    vf.state === "frozen" && !proposed ? vf.payload : getGarmentOrderSheet(orderId),
+    getReportStyleImages(orderId),
+    /* The letterhead, read live like the pictures — not part of what an
+       amendment approves, so never frozen (`getDocLetterhead`). */
+    getDocLetterhead(orderId),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -55,7 +74,8 @@ export default async function GosPage({
        * toolbar that says it is not part of the document is easier to trust
        * than one that relies on a selector three files away.
        *
-       * Every control is `md` (h-9): this is a header row (AGENTS.md).
+       * The Excel / Print / Download PDF buttons sit on the document itself
+       * (`GosToolbar`), as on every sibling order document.
        */}
       <div className="flex items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-3">
@@ -68,7 +88,6 @@ export default async function GosPage({
           <span className="text-muted-foreground">/</span>
           <span className="text-sm font-medium">Garment Order Sheet</span>
         </div>
-        {!isRefusal(sheet) && <GosPrintButton />}
       </div>
 
       {/* THE SWITCHER ACROSS THE ORDER'S THREE DOCUMENTS (client 2026-09-02).
@@ -77,6 +96,13 @@ export default async function GosPage({
           push the toolbar buttons off the right on a narrow screen. It carries
           its own `print:hidden`. */}
       <OrderDocumentTabs orderId={orderId} current="gos" />
+
+      <VFinalBanner
+        state={vf}
+        proposed={proposed}
+        hrefApproved={`/orders/${orderId}/gos`}
+        hrefProposed={`/orders/${orderId}/gos?version=proposed`}
+      />
 
 
       {isRefusal(sheet) ? (
@@ -93,7 +119,9 @@ export default async function GosPage({
           </CardBody>
         </Card>
       ) : (
-        <GosSheetDocument sheet={sheet} />
+        <div className="rounded-md bg-[#f1f3f5] p-4">
+          <GosSheetDocument sheet={sheet} company={company} styleImages={styleImages} />
+        </div>
       )}
     </div>
   );

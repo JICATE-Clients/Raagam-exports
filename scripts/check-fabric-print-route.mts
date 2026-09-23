@@ -481,7 +481,7 @@ console.log("\n--- 7. Printing Cut Pcs, and the Fabric Allocation section (clien
      the relation checked on all 342 live rows (2026-09-19). */
   const size = (sizeLabel: string, dia: string | null, basis: number, cons: number, w: number | null) => ({
     sizeLabel,
-    sqQty: basis,
+    cutQty: basis,
     pieceWt: cons,
     wastagePct: w,
     netReqWt: basis * cons * (1 + (w ?? 0) / 100),
@@ -502,13 +502,13 @@ console.log("\n--- 7. Printing Cut Pcs, and the Fabric Allocation section (clien
     lossChain: [],
     routeRefusal: null,
     sizes,
-    subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 },
+    subtotal: { cutQty: 0, netReqWt: 0, grossWt: 0 },
   });
   const alloc = fabricAllocationOf({
     groups: [
       {
         combo: "NAVY",
-        subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 },
+        subtotal: { cutQty: 0, netReqWt: 0, grossWt: 0 },
         components: [
           comp(["BACK", "FRONT BODY"], "SINGLE JERSEY", 180, [
             size("S", "30", 100, 0.3, 5),

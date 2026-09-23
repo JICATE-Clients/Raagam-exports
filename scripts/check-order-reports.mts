@@ -125,6 +125,29 @@ for (const r of ORDER_REPORTS) {
   }
 }
 
+// 3b — V_FINAL (0619, doc/order/amenment update.md §4B). While an order is
+// amending, every report prints the approved version frozen at raise. A report
+// page that reads its loader straight past `vFinalFor` would print the
+// in-flight amendment on the floor, so each page — and the generic route —
+// must ask it, with the source the registry names, and the capture must know
+// that source (`V_FINAL_SOURCES`, run by `captureVFinal`).
+{
+  const vfSrc = readFileSync(join(ROOT, "lib/orders/amendments/v-final.ts"), "utf8");
+  for (const r of ORDER_REPORTS) {
+    if (!r.vFinal) {
+      fail(`"${r.key}" declares no vFinal source — it would print an amendment's unapproved data`);
+      continue;
+    }
+    const page = "page" in r ? r.page : undefined;
+    const file = page ? join(ORDER_DIR, page, "page.tsx") : GENERIC_ROUTE;
+    if (!existsSync(file)) continue;
+    const src = readFileSync(file, "utf8");
+    const asks = page ? src.includes(`vFinalFor("${r.vFinal}"`) : src.includes("vFinalFor(report.vFinal");
+    if (!asks) fail(`${rel(file)} must read V_final through vFinalFor(${page ? `"${r.vFinal}"` : "report.vFinal"}, …)`);
+    if (!new RegExp(`case\s+"${r.vFinal}"|default:`).test(vfSrc)) fail(`captureVFinal has no loader for "${r.vFinal}"`);
+  }
+}
+
 // 4 — no unlisted per-order folder
 const registeredPages = new Set(ORDER_REPORTS.map((r) => ("page" in r ? r.page : undefined)).filter(Boolean));
 for (const name of readdirSync(ORDER_DIR)) {

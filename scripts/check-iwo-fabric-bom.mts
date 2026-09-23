@@ -22,6 +22,7 @@ import {
 import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase, iwoYarnShades } from "../lib/orders/iwo-fabric-bom/yarn.ts";
 import {
   cellKey,
+  addPlanRow,
   derivePlanRows,
   expandPlanCells,
   familyDias,
@@ -30,6 +31,8 @@ import {
   planCellsForStage,
   plannedColours,
   planReqKgs,
+  removePlanRow,
+  SEED_ROW_KEY,
   setPlanCell,
   stalePlanRows,
   type PlanAxes,
@@ -746,26 +749,32 @@ const K = (c: string, d: string, p = "") => cellKey(c, d, p);
 const cells = (...xs: [string, string, string, string][]): PlanCells =>
   Object.fromEntries(xs.map(([c, d, p, kg]) => [K(c, d, p), { color_name: c, finish_dia: d, print_name: p, req_kgs: kg }]));
 
-check("§18 DYED, nothing typed: colour × dia, colour-major, all declared, blank", keysOf({}, AX_DYED), [
-  ["WHITE", "74", "", "", true], ["WHITE", "76", "", "", true], ["RED", "74", "", "", true], ["RED", "76", "", "", true],
+// NO DERIVATION (user, 2026-09-23: "in fabric consumption there is one error,
+// the dia auto derivation"). The card was a colour × EVERY family dia cross
+// product; now it is the rows the operator adds, each axis a picker.
+const SEEDED: unknown[] = ["", "", "", "", true];
+check("§18 DYED, nothing typed: ONE seeded blank row — never colour × dia", keysOf({}, AX_DYED), [SEEDED]);
+check("§18 PRINT: still one blank row (no × prints)", keysOf({}, AX_PRINT), [SEEDED]);
+check("§18 GREIGE: one blank row, no dia pre-filled", keysOf({}, AX_GREIGE), [SEEDED]);
+check("§18 EXACTLY ONE dia declared is STILL not pre-filled", keysOf({}, { ...AX_DYED, dias: ["74"] }), [SEEDED]);
+check("§18 no Stage yet: the blank row, declared (the Stage's hold speaks)", keysOf({}, { ...AX_DYED, rank: null }), [SEEDED]);
+check("§18 rows come back in the order they were added", keysOf(cells(["RED", "76", "", "5"], ["WHITE", "74", "", "400"]), AX_DYED), [
+  ["RED", "76", "", "5", true], ["WHITE", "74", "", "400", true],
 ]);
-check("§18 PRINT: × the prints panel", keysOf({}, AX_PRINT), [
-  ["WHITE", "74", "AOP", "", true], ["WHITE", "76", "AOP", "", true], ["RED", "74", "AOP", "", true], ["RED", "76", "AOP", "", true],
-]);
-check("§18 PRINT with no prints declared: no rows (the card names the panel)", keysOf({}, { ...AX_PRINT, prints: [] }), []);
-check("§18 GREIGE: dias only, no colour", keysOf({}, AX_GREIGE), [["", "74", "", "", true], ["", "76", "", "", true]]);
-check("§18 GREIGE with no dia declared: ONE row with a blank dia", keysOf({}, { ...AX_GREIGE, dias: [] }), [["", "", "", "", true]]);
-check("§18 no Stage yet: no declared rows", keysOf({}, { ...AX_DYED, rank: null }), []);
-check("§18 a weighted cell shows on its row", keysOf(cells(["WHITE", "74", "", "400"]), AX_DYED)[0], ["WHITE", "74", "", "400", true]);
-check("§18 a colour the panel no longer names is KEPT, last, tagged", keysOf(cells(["BLUE", "74", "", "5"]), AX_DYED).at(-1), ["BLUE", "74", "", "5", false]);
-check("§18 a coloured weight under GREIGE is tagged, not dropped", keysOf(cells(["WHITE", "74", "", "400"]), AX_GREIGE).at(-1), ["WHITE", "74", "", "400", false]);
+check("§18 a colour the panel no longer names is KEPT, tagged", keysOf(cells(["BLUE", "74", "", "5"]), AX_DYED)[0], ["BLUE", "74", "", "5", false]);
+check("§18 a dia outside the family is tagged", keysOf(cells(["WHITE", "99", "", "5"]), AX_DYED)[0], ["WHITE", "99", "", "5", false]);
+check("§18 a blank axis is 'not chosen yet', not undeclared", keysOf(cells(["WHITE", "", "", ""]), AX_DYED)[0], ["WHITE", "", "", "", true]);
 check("§18 stalePlanRows = the tagged ones", stalePlanRows(cells(["WHITE", "74", "", "400"], ["BLUE", "74", "", "5"]), AX_DYED).map((r) => r.color_name), ["BLUE"]);
 
-// typing
-const row = derivePlanRows({}, AX_DYED)[0];
-check("§18 the first keystroke materialises the cell", Object.keys(setPlanCell({}, row, "400")), [K("WHITE", "74")]);
-check("§18 …a blank removes it (a blank row is not stored)", Object.keys(setPlanCell(setPlanCell({}, row, "400"), row, "")), []);
-check("§18 …and clears an undeclared row the same way", Object.keys(setPlanCell(cells(["BLUE", "74", "", "5"]), derivePlanRows(cells(["BLUE", "74", "", "5"]), AX_DYED).at(-1)!, "")), []);
+// editing
+const seed = derivePlanRows({}, AX_DYED)[0];
+check("§18 the first pick materialises the SEEDED row under its own key", Object.keys(setPlanCell({}, seed, { finish_dia: "74" })), [SEED_ROW_KEY]);
+check("§18 …holding only what was picked", setPlanCell({}, seed, { finish_dia: "74" })[SEED_ROW_KEY], { color_name: "", finish_dia: "74", print_name: "", req_kgs: "" });
+check("§18 re-picking the dia keeps the row's key (the cursor stays put)", Object.keys(setPlanCell(setPlanCell({}, seed, { finish_dia: "74" }), seed, { finish_dia: "76" })), [SEED_ROW_KEY]);
+check("§18 + Add on an empty card keeps the seeded row and adds a second", Object.keys(addPlanRow({})), [SEED_ROW_KEY, "r1"]);
+check("§18 + Add never reuses a held key", Object.keys(addPlanRow({ [SEED_ROW_KEY]: { color_name: "", finish_dia: "", print_name: "", req_kgs: "" }, r1: { color_name: "", finish_dia: "", print_name: "", req_kgs: "" } })).length, 3);
+check("§18 ✕ removes the row", Object.keys(removePlanRow(addPlanRow({}), "r1")), [SEED_ROW_KEY]);
+check("§18 ✕ on the last row leaves the seeded blank one", keysOf(removePlanRow(setPlanCell({}, seed, { finish_dia: "74" }), SEED_ROW_KEY), AX_DYED), [SEEDED]);
 
 // the boundary
 const stored = [
@@ -783,9 +792,11 @@ check("§18 …which the existing weight rule refuses FIRST", iwoFabricLineProbl
 )[0]?.field, "req_kgs");
 check("§18 …and only the placeholder answers to `isPlaceholderFacts`", [isPlaceholderFacts(expandPlanCells({})[0]), isPlaceholderFacts(expandPlanCells(cells(["WHITE", "74", "", "x"]))[0])], [true, false]);
 check("§18 fold ∘ expand = identity", expandPlanCells(foldPlanCells(stored)).map((f) => [f.color_name, f.print_name, f.finish_dia, f.req_kgs]), stored.map((f) => [f.color_name, f.print_name, f.finish_dia, f.req_kgs]));
-check("§18 expand ∘ fold = identity", foldPlanCells(expandPlanCells(cells(["WHITE", "74", "", "400"], ["RED", "76", "AOP", "1"]))), cells(["WHITE", "74", "", "400"], ["RED", "76", "AOP", "1"]));
+check("§18 expand ∘ fold = identity (values, in order)", Object.values(foldPlanCells(expandPlanCells(cells(["WHITE", "74", "", "400"], ["RED", "76", "AOP", "1"])))), Object.values(cells(["WHITE", "74", "", "400"], ["RED", "76", "AOP", "1"])));
+check("§18 a wholly blank row is not a line", facts(cells(["", "", "", ""], ["WHITE", "74", "", "400"])), [["WHITE", null, "74", 400]]);
+check("§18 a row with a dia and NO weight is a real line, not the placeholder", [facts(cells(["WHITE", "74", "", ""])), isPlaceholderFacts(expandPlanCells(cells(["WHITE", "74", "", ""]))[0])], [[["WHITE", null, "74", null]], false]);
 check("§18 fold skips a line with no weight", Object.keys(foldPlanCells([{ color_name: "WHITE", print_name: null, finish_dia: "74", req_kgs: null }])), []);
-check("§18 a stored `white` / `74 ` folds to the CAPS key and derives as declared", keysOf(foldPlanCells([{ color_name: "white", print_name: null, finish_dia: "74 ", req_kgs: 400 }]), AX_DYED)[0], ["white", "74 ", "", "400", true]);
+check("§18 a stored `white` / `74 ` keeps its spelling and derives as declared", keysOf(foldPlanCells([{ color_name: "white", print_name: null, finish_dia: "74 ", req_kgs: 400 }]), AX_DYED)[0], ["white", "74 ", "", "400", true]);
 
 // the family
 const decls = [{ knit_type: "circular", dia: "60" }, { knit_type: "woven", dia: "60" }, { knit_type: "woven", dia: "72" }, { knit_type: "", dia: "80" }];

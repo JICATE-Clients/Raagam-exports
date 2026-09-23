@@ -77,6 +77,16 @@ import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
+import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
+import { EmbeddedEditorWait } from "@/components/orders/embedded-editor-wait";
+import { LockScope } from "@/components/ui/field";
+import {
+  budgetBaselineIndex,
+  budgetLineKey,
+  rateLockedByAmendment,
+  type BudgetScopeLine,
+} from "@/lib/orders/budget/amendment-scope";
+import { manualEntryMessage } from "@/lib/orders/amendments/manual-entry";
 import { sectionValidity } from "@/lib/screens/validity";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import {
@@ -140,6 +150,7 @@ import {
   reopenBudget,
   submitBudget,
   updateOrderBudget,
+  loadBudgetAmendmentScope,
 } from "@/lib/orders/budget/actions";
 import {
   AMENDMENT_SOURCES,
@@ -152,7 +163,7 @@ import { BudgetSummaryBar } from "./budget-summary-bar";
 import { BudgetGeneral } from "./budget-general";
 import {
   budgetFigures,
-  groupSqQtyOf,
+  groupCutQtyOf,
   lineInputOf,
   orderInputsOf,
 } from "@/lib/orders/budget/figures";
@@ -357,6 +368,16 @@ const str = (v: number | null | undefined) => (v == null ? "" : String(v));
  */
 const INR_ONLY_SOURCES: ReadonlySet<string> = new Set(["cmt", "garment_process"]);
 
+/**
+ * RUPEES UNLESS IMPORTED (client 2026-09-23). CMT and garment processes are
+ * INR by default, but an imported line — the Import switch, now on those
+ * grids too — carries its own currency like any other. So the rule is not
+ * "these sources are rupees" but "these sources are rupees unless the line
+ * says Import".
+ */
+const rupeesOnly = (source: string, isImport: boolean | null | undefined) =>
+  INR_ONLY_SOURCES.has(source) && !isImport;
+
 const rowOf = (key: string, l: LineLike): CostRow => ({
   key,
   source: l.source,
@@ -368,8 +389,8 @@ const rowOf = (key: string, l: LineLike): CostRow => ({
   rate: str(l.rate),
   specification: l.specification ?? "",
   // An INR-only source opens in rupees even if an older save said otherwise.
-  currency_code: INR_ONLY_SOURCES.has(l.source) ? "" : (l.currency_code ?? ""),
-  ex_rate: INR_ONLY_SOURCES.has(l.source) ? "" : str(l.ex_rate),
+  currency_code: rupeesOnly(l.source, l.is_import) ? "" : (l.currency_code ?? ""),
+  ex_rate: rupeesOnly(l.source, l.is_import) ? "" : str(l.ex_rate),
   is_foc: !!l.is_foc,
   is_import: !!l.is_import,
   process_id: l.process_id ?? null,
@@ -589,6 +610,9 @@ export function BudgetScreen({
   perms,
   masterPerms,
   openId = null,
+  openLine = null,
+  openField = null,
+  embed = null,
 }: {
   budgets: OrderBudget[];
   data: BudgetFormData;
@@ -598,6 +622,12 @@ export function BudgetScreen({
   /** A budget to open in the editor on arrival (`/orders/budgets?budget=<id>`,
    *  from the Approval queue's Edit icon). Read once, on mount. */
   openId?: string | null;
+  /** `&line=<budgetLineKey>&field=<field>` — the Manual Entry Needed jump
+   *  (0619): the editor opens on `openId` and lands on that line's cell. */
+  openLine?: string | null;
+  openField?: string | null;
+  /** EMBEDDED in an amendment — open this budget (`id`), hide the queue, return on close. */
+  embed?: EmbedTarget | null;
 }) {
   const router = useRouter();
   const { success, error: toastError, toast } = useToast();
@@ -607,6 +637,17 @@ export function BudgetScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [editCode, setEditCode] = useState<string | null>(null);
   const [status, setStatus] = useState<BudgetStatus>("draft");
+  /**
+   * THE AMENDMENT THIS BUDGET IS REVISED UNDER, when it did NOT pick Order
+   * Budget (0619, `lib/orders/budget/amendment-scope.ts`): its approved lines,
+   * so the budget's own heads and every approved rate render read-only. Null
+   * when nothing restricts the budget. The save action is the guard; this is
+   * the courtesy that stops the operator typing into a cell Save will refuse.
+   */
+  const [amendScope, setAmendScope] = useState<{ entryNo: string | null; baselineLines: BudgetScopeLine[] } | null>(null);
+  const amendSeq = useRef(0);
+  /** A pending Manual Entry Needed jump — landed once the rows it names exist. */
+  const pendingJump = useRef<{ line: string; field: string } | null>(null);
   const [form, setForm] = useState<Form>(BLANK);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [costs, setCosts] = useState<CostRow[]>([]);
@@ -644,7 +685,7 @@ export function BudgetScreen({
    */
   const [touched, setTouched] = useState<ReadonlySet<string>>(() => new Set());
   const [saveAttempted, setSaveAttempted] = useState(false);
-  /** A per-row sentence with no engine behind it — the scope's refused SQ Qty
+  /** A per-row sentence with no engine behind it — the scope's refused Cut Qty
    *  after a Type is picked (`rescope`) — shown under that row's Qty. */
   const [rowNotes, setRowNotes] = useState<Readonly<Record<string, string>>>({});
   /** A Fabric Processes group's note from its last re-split — shown under
@@ -679,6 +720,16 @@ export function BudgetScreen({
   /* OPEN ONE BUDGET FROM A LINK — `?open=<budget id>` (0616, the Amendment
      Entry page's "Open budget"). Above every early return, like every hook. */
   useOpenIntent((budgetId) => openExisting(budgetId));
+  /* EMBEDDED IN THE AMENDMENT WORKSPACE (2026-09-23) — with the Manual Entry
+     Needed jump (`openLine` / `openField`) landed after the rows arrive. */
+  useEmbeddedEditor({
+    embed,
+    mode,
+    open: (budgetId) => {
+      pendingJump.current = openLine ? { line: openLine, field: openField ?? "rate" } : null;
+      openExisting(budgetId);
+    },
+  });
 
   /* OPEN-ON-ARRIVAL. Keyed on the id, NOT run once on mount: the Approval
      queue reaches here by `router.push`, and when this page is already in
@@ -691,6 +742,7 @@ export function BudgetScreen({
      An unknown id opens nothing. */
   useEffect(() => {
     if (!openId) return;
+    pendingJump.current = openLine ? { line: openLine, field: openField ?? "rate" } : null;
     openExisting(openId);
     router.replace("/orders/budgets");
     // `openExisting` is re-created every render; the id is the only trigger.
@@ -698,6 +750,13 @@ export function BudgetScreen({
   }, [openId]);
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
+  /* THE JUMP LANDS AFTER THE ROWS DO: `openExisting` sets them, and this runs
+     on the render that shows them. `landPendingJump` is a plain function
+     declared further down; the effect only calls it after render. */
+  useEffect(() => {
+    if (pendingJump.current && mode === "edit") landPendingJump();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, costs]);
   /**
    * A CHILD TAB OPENS WITH THE CURSOR ON ITS FIRST RATE (client 2026-09-21).
    * The section rail lands the cursor on a section switch, but Yarn → Fabric
@@ -760,6 +819,18 @@ export function BudgetScreen({
    * leaves the Tab path and never holds the cursor (AGENTS.md).
    */
   const bomLocked = (r: CostRow) => !editable || r.from_bom;
+  /**
+   * THE ORDER BUDGET MODULE RULE (0619). Without Order Budget picked, the
+   * budget's own sections (Expenses, CMT) are fixed — `LockScope` below, which
+   * also takes their "+ Add" and ✕ away — and a line the APPROVED version
+   * priced keeps its rate and its terms. A line it did not price stays open:
+   * that is the Manual Entry Needed cell. A plain const, not a memo — one pass
+   * over the approved lines (AGENTS.md, hooks above every early return).
+   */
+  const scopeIx = amendScope ? budgetBaselineIndex(amendScope.baselineLines) : null;
+  const ownLocked = !editable || !!scopeIx;
+  const rateLock = (r: CostRow) =>
+    !editable || (!!scopeIx && rateLockedByAmendment(scopeIx, r as unknown as BudgetScopeLine));
 
   const pickedOrders = orders.filter((o) => o.garment_order_id);
 
@@ -826,8 +897,8 @@ export function BudgetScreen({
   const errNode = (r: CostRow, field: LineField) => (
     <FieldError id={`${cellId(r, field)}-error`}>{fieldProblem(r, field)}</FieldError>
   );
-  /** Σ the orders' SQ Qty, or the first refusal — never a part-sum. */
-  const groupSqQty = groupSqQtyOf(pickedFacts);
+  /** Σ the orders' Cut Qty, or the first refusal — never a part-sum. */
+  const groupCutQty = groupCutQtyOf(pickedFacts);
 
   // ---- opening -------------------------------------------------------------
 
@@ -847,11 +918,16 @@ export function BudgetScreen({
    * `isBlankLine` never reads `uom_id`, so an untouched seeded row is still
    * dropped on save. Every other source gets its unit from the item it picks
    * (`unitForItem`).
+   *
+   * OTHER EXPENSES TOO, since its UOM column was removed (client 2026-09-23,
+   * screenshot 3033). A "Per Pcs" expense is counted in pieces by definition —
+   * its Qty is the Cut Qty, fetched — so the unit is not a question to ask;
+   * it is stamped, and the Budget Statement's "(3116 PCS @ 15)" still reads.
    */
   const pcsUomId = data.uoms.find((u) => (u.code ?? "").toUpperCase() === "PCS")?.id ?? null;
   const blankRow = (source: BudgetSource): CostRow => {
     const r = blankFor(newKey(), source);
-    return source === "garment_process" && pcsUomId ? { ...r, uom_id: pcsUomId } : r;
+    return (source === "garment_process" || source === "expense") && pcsUomId ? { ...r, uom_id: pcsUomId } : r;
   };
 
   function withSeededRows(lines: CostRow[]): CostRow[] {
@@ -881,6 +957,8 @@ export function BudgetScreen({
     setBomDrift(null);
     driftSeq.current++;
     fetchRateHistory(null);
+    amendSeq.current++;
+    setAmendScope(null);
     setDirty(false);
     setMode("edit");
   }
@@ -917,6 +995,17 @@ export function BudgetScreen({
     // submitted one is frozen (0576), so nothing it says could be acted on.
     if (b.status === "draft" || b.status === "rejected") {
       checkBomDrift((b.orders ?? []).map((o) => o.garment_order_id), rows);
+    }
+    /* THE ORDER BUDGET MODULE RULE (0619) — asked on every open of an
+       editable budget; a late answer for an earlier open is dropped. */
+    const seq = ++amendSeq.current;
+    setAmendScope(null);
+    if (b.status === "draft" || b.status === "rejected") {
+      loadBudgetAmendmentScope((b.orders ?? []).map((o) => o.garment_order_id)).then((res) => {
+        if (seq !== amendSeq.current) return;
+        if (res.ok) setAmendScope(res.scope);
+        else toastError(res.error);
+      });
     }
     setMode("edit");
   }
@@ -1227,7 +1316,7 @@ export function BudgetScreen({
     if (!editable || r.is_foc || r.rate.trim() !== "" || rateHistory.length === 0) return null;
     const l = lastRateFor(copyLineOf(r), rateHistory);
     if (!l) return null;
-    if (INR_ONLY_SOURCES.has(r.source) && l.currency_code) return null;
+    if (rupeesOnly(r.source, r.is_import) && l.currency_code) return null;
     return l;
   };
   const applyLastRate = (r: CostRow) => {
@@ -1263,7 +1352,7 @@ export function BudgetScreen({
       const usable = res.lines.filter(
         (l) =>
           !(
-            INR_ONLY_SOURCES.has(l.source) &&
+            rupeesOnly(l.source, (l as { is_import?: boolean | null }).is_import) &&
             !!(l.currency_code ?? "").trim() &&
             (l.currency_code ?? "").trim().toUpperCase() !== "INR"
           ),
@@ -1315,8 +1404,8 @@ export function BudgetScreen({
   /**
    * THE RE NO IS THE ORDER PICKER (client 2026-09-19: the Orders grid "remove
    * this totally"). A budget is one order's budget, opened from its card in the
-   * queue or by picking its RE No here — the note's "SQ No / RE No: the
-   * selection input that loads all BOM data". Picking it pulls the order's
+   * queue or by picking its RE No here — the note's "RE No: the selection
+   * input that loads all BOM data". Picking it pulls the order's
    * lines (`pickOrder`); changing it takes the old order's pulled lines away.
    *
    * THE PREREQUISITE GATE: only an order whose Fabric BOM AND Material BOM are
@@ -1586,22 +1675,6 @@ export function BudgetScreen({
     ),
   });
 
-  const unitCol: CostCol = {
-    header: "Unit",
-    cell: (r) =>
-      bomLocked(r) ? (
-        fact(nameOf(data.uoms, r.uom_id))
-      ) : (
-        <RecordPicker
-          label="Unit"
-          compact
-          items={data.uoms}
-          value={r.uom_id}
-          onChange={(id) => setCost(r.key, { uom_id: id })}
-        />
-      ),
-  };
-
   /* FOC AND IMPORT ARE THE MERCHANDISER'S, ON EVERY LINE (user 2026-09-19:
      "now it don't allow to enable, make it enable"). A pulled accessory line
      STARTS from the Material BOM line's own FOC / supply type (0474), but it is
@@ -1621,8 +1694,14 @@ export function BudgetScreen({
       <Toggle
         checked={r[key]}
         ariaLabel={aria}
-        disabled={!editable}
-        onChange={(v) => setCost(r.key, { [key]: v })}
+        disabled={rateLock(r)}
+        onChange={(v) =>
+          /* IMPORT OFF IS INR (client 2026-09-23). The currency columns hide
+             with the switch (`importOnly`), so a foreign currency left behind
+             would price the line in dollars with nothing on screen saying so —
+             switching Import off takes the line back to rupees. */
+          setCost(r.key, key === "is_import" && !v ? { is_import: false, currency_code: "", ex_rate: "" } : { [key]: v })
+        }
         className={className}
       />
     </span>
@@ -1633,6 +1712,53 @@ export function BudgetScreen({
   });
   const focCol = toggleCol("FOC", "is_foc", "Free of cost");
   const importCol = toggleCol("Import", "is_import", "Imported");
+
+  /**
+   * CURR · EX RATE · INR RATE ONLY ON AN IMPORT LINE (client 2026-09-23: "after
+   * enabling [Import] only the Curr, Ex Rate*, INR Rate need to show … otherwise
+   * rate field is defaultly INR"). On a grid that HAS the Import switch, a line
+   * is priced in rupees unless it is imported, so the three columns are asked
+   * only of an imported line — per row through `showFor`, and not drawn at all
+   * while no line on the grid is imported (`usedColumns`). A line that already
+   * HOLDS a foreign currency keeps them regardless: hiding a currency that is
+   * pricing the line would be the silent state the Import-off reset prevents.
+   * Grids with no Import switch (Fabric Purchases, the process tabs) keep the
+   * columns as they were.
+   */
+  const importOnly = (c: CostCol): CostCol => ({
+    ...c,
+    showFor: (r) => (r.is_import || !!r.currency_code) && (!c.showFor || c.showFor(r)),
+  });
+
+  /**
+   * THE SAME RULE WHERE THERE IS NO ROOM FOR THREE MORE COLUMNS — Process Rates
+   * and CMTs (client 2026-09-23: "not only here, CMT and process rate tab
+   * too"). Those grids stand beside the Process Rates rail or at 43px of
+   * headroom, so Curr · Ex Rate · INR Rate open INSIDE the Import cell, under
+   * its switch, on an imported line only — one `num` column instead of four.
+   * Same cells, same rules (`currencyCol` / `exRateCol` / `inrRateCol`), just
+   * stacked; a line holding a foreign currency shows them whatever the switch.
+   */
+  const importStackCol: CostCol = {
+    header: "Import",
+    cell: (r, i) => (
+      <div className="space-y-1">
+        {flagToggle(r, "is_import", "Imported")}
+        {(r.is_import || !!r.currency_code) && (
+          <>
+            <div className="text-[10px] font-semibold uppercase text-muted-foreground">Curr</div>
+            {currencyCol.cell(r, i)}
+            <div className="text-[10px] font-semibold uppercase text-muted-foreground">
+              Ex Rate{exRateRequired(r) ? " *" : ""}
+            </div>
+            {exRateCol.cell(r, i)}
+            <div className="text-[10px] font-semibold uppercase text-muted-foreground">INR Rate</div>
+            <div className="text-right">{inrRateCol.cell(r, i)}</div>
+          </>
+        )}
+      </div>
+    ),
+  };
 
   /**
    * THE CURRENCY'S BLANK IS INR, AND SAYS SO. `currency_code` NULL is INR by
@@ -1676,7 +1802,7 @@ export function BudgetScreen({
             {...errProps(r, "currency")}
             compact
             className="h-8"
-            disabled={!editable}
+            disabled={rateLock(r)}
             value={r.currency_code}
             onChange={(e) => pickCurrency(r, e.target.value)}
           >
@@ -1706,7 +1832,7 @@ export function BudgetScreen({
           required={exRateRequired(r)}
           // An INR line has no exchange rate to type — read-only, so Tab steps
           // over it rather than stopping on a box that must stay empty.
-          readOnly={!editable || !r.currency_code}
+          readOnly={rateLock(r) || !r.currency_code}
           inputMode="decimal"
           value={r.ex_rate}
           onChange={(e) => setCost(r.key, { ex_rate: e.target.value })}
@@ -1749,9 +1875,18 @@ export function BudgetScreen({
              is (0,4,0) and wins by the cascade alone. `!` would win too and
              is the wrong tool: it would also paint over `.border-danger`,
              the one marking a refused rate has. */
-          className="h-8 text-right font-semibold [&:not(:focus):not(.border-danger):not([hidden])]:border-primary/60 [&:not(:focus):not(.border-danger):not([hidden])]:bg-surface"
+          className={
+            "h-8 text-right font-semibold [&:not(:focus):not(.border-danger):not([hidden])]:border-primary/60 [&:not(:focus):not(.border-danger):not([hidden])]:bg-surface" +
+            (unpricedKeys.has(r.key)
+              ? " [&:not(:focus):not(.border-danger):not([hidden])]:!border-warning [&:not(:focus):not(.border-danger):not([hidden])]:!bg-warning-soft"
+              : "")
+          }
           required={rateRequired(r)}
-          readOnly={!editable}
+          readOnly={rateLock(r)}
+          /* MANUAL ENTRY NEEDED (0619, spec §3.2): an unpriced line's rate is
+             AMBER at rest, before any Save — the operator is told which cell
+             is missing rather than finding it by pressing Save. */
+          data-manual-entry={unpricedKeys.has(r.key) ? "" : undefined}
           inputMode="decimal"
           value={r.rate}
           onChange={(e) => setCost(r.key, { rate: e.target.value })}
@@ -1877,7 +2012,7 @@ export function BudgetScreen({
       <Select
         compact
         className="h-8"
-        disabled={!editable}
+        disabled={rateLock(r)}
         value={r.rate_type}
         onChange={(e) => setCost(r.key, { rate_type: e.target.value as RateType })}
       >
@@ -1894,7 +2029,7 @@ export function BudgetScreen({
         <Input
           {...errProps(r, key)}
           className="h-8 text-right"
-          readOnly={!editable}
+          readOnly={rateLock(r)}
           inputMode="decimal"
           value={r[key]}
           onChange={(e) => setCost(r.key, { [key]: e.target.value })}
@@ -2153,9 +2288,10 @@ export function BudgetScreen({
     { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.num },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-23).
+    { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     // FOC and Import in their OWN columns (user 2026-09-19: "foc and imports
     // toggle in separate field and cell"), at the END of the row (2026-09-22).
@@ -2215,19 +2351,20 @@ export function BudgetScreen({
      fact that names the line, over "· M"), Reqd + Unit -> `range`, Ex Rate
      -> num: 288 + 112 + 88 + 72 + 72 + 88 + 112 + 72 + 72 = 976, + 72 =
      1048 <= 1120 and <= 1155 -> 5xl. */
-  const accessoryPurchaseColumns: CostCol[] = withRowRules([
+  const accessoryPurchaseColumns: CostCol[] = usedColumns("material", withRowRules([
     { ...identityCol("Item"), width: FIELD_WIDTH_CSS.name },
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.num },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-23).
+    { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     // FOC and Import in their own columns, as on Yarn Purchases (user
     // 2026-09-19), at the row's end (2026-09-22).
     { ...focCol, width: FIELD_WIDTH_CSS.num },
     { ...importCol, width: FIELD_WIDTH_CSS.num },
-  ]);
+  ]));
 
   /* Yarn Processes — 112 + 112 + 88 + 72 + 88 + 72 + 88 + 72 + 88 + 88 + 88
      + 112 = 1080, + 72 = 1152 <= 1155 -> 5xl. Re-cut 2026-09-19 for the
@@ -2247,11 +2384,10 @@ export function BudgetScreen({
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.num },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
+    // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
+    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
 
   /* Accessories Processes — the same steps as Yarn Processes: 1024, + 72 =
@@ -2264,11 +2400,10 @@ export function BudgetScreen({
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.num },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
+    // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
+    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
 
   /* Garment Processes — 112 + 112 + 112 + 72 + 88 + 88 + 88 + 72 + 88 + 88
@@ -2279,7 +2414,7 @@ export function BudgetScreen({
      so these lines are INR like CMT (`INR_ONLY_SOURCES`). The Curr / Ex Rate /
      INR Rate trio was added in Phase 2 for sameness, not because anyone asked,
      and it kept this grid from being a table at all (1,256 with it).
-     Reqd is `hug`, not `num`: SQ Qty x pcs x units reaches five and six digits
+     Reqd is `hug`, not `num`: Cut Qty x pcs x units reaches five and six digits
      on a real order ("50,000").
      2026-09-22: Reqd + UOM -> one `range` cell (`derivedReqdUnitCol`), FOC
      last: 112 + 112 + 112 + 88 + 88 + 112 + 88 + 88 + 112 + 72 = 984, + 72
@@ -2289,12 +2424,18 @@ export function BudgetScreen({
     { ...garmentTypeCol, width: FIELD_WIDTH_CSS.range },
     { ...descCol("For"), width: FIELD_WIDTH_CSS.range },
     { ...countCol("No of Pcs", "no_of_pcs"), width: FIELD_WIDTH_CSS.hug },
-    { ...countCol("No of Units", "no_of_units"), width: FIELD_WIDTH_CSS.hug },
+    // 2026-09-23: hug -> num (-16) to pay for Import beside the rail — a
+    // multiplier is a digit or two ("1", "2").
+    { ...countCol("No of Units", "no_of_units"), width: FIELD_WIDTH_CSS.num },
     { ...derivedReqdUnitCol, width: FIELD_WIDTH_CSS.range },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
-    { ...rateCol("Charge (INR)"), width: FIELD_WIDTH_CSS.hug },
+    { ...rateCol("Charge"), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
+    /* 2026-09-23 (client): Import on Garment Processes too — rupees unless
+       imported (`rupeesOnly`), so the rate header no longer says "(INR)".
+       984 - 16 + 72 = 1040, + 72 = 1112 <= 1120 beside the rail. */
+    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
 
   /** One Fabric Processes group's lines — the first cell names the grain the
@@ -2317,11 +2458,10 @@ export function BudgetScreen({
       // = 912, + 72 = 984.
       { ...rateTypeCol, width: FIELD_WIDTH_CSS.code },
       { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
-      { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-      { ...exRateCol, width: FIELD_WIDTH_CSS.num },
-      { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
       { ...amountCol, width: FIELD_WIDTH_CSS.range },
       { ...focCol, width: FIELD_WIDTH_CSS.num },
+      // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
+      { ...importStackCol, width: FIELD_WIDTH_CSS.num },
     ]);
 
   // ---- CMTs -----------------------------------------------------------------
@@ -2380,7 +2520,9 @@ export function BudgetScreen({
     },
     {
       header: "Style / Article",
-      width: FIELD_WIDTH_CSS.term,
+      // 2026-09-23: term -> code (-32) for Import; both lines are `Truncated`,
+      // so a long style name still reveals whole on hover.
+      width: FIELD_WIDTH_CSS.code,
       showFor: styleBound,
       cell: (r) => twoTier(styleOf(r)?.style_description, styleOf(r)?.article_no),
     },
@@ -2395,7 +2537,9 @@ export function BudgetScreen({
     },
     {
       header: "Coordinate",
-      width: FIELD_WIDTH_CSS.code,
+      // 2026-09-23: code -> range (-32) to pay for Import — "PIECES", "TOP",
+      // "BOTTOM" are the coordinates this cell names.
+      width: FIELD_WIDTH_CSS.range,
       showFor: styleBound,
       cell: (r) => <Truncated className="text-sm">{coordinateName(r)}</Truncated>,
     },
@@ -2409,9 +2553,9 @@ export function BudgetScreen({
       },
     },
     {
-      header: "SQ Qty",
+      header: "Cut Qty",
       width: FIELD_WIDTH_CSS.hug,
-      // PULLED, the style's SQ Qty — pieces MADE, not ordered (doc "Phase 3":
+      // PULLED, the style's Cut Qty — pieces MADE, not ordered (doc "Phase 3":
       // 5321 against an Order Qty of 5028). Read-only, like every pulled
       // quantity: re-typing it is a second answer to an answered question. A
       // hand-added line has nothing to pull and types its own.
@@ -2479,6 +2623,10 @@ export function BudgetScreen({
       ),
     },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    /* 2026-09-23 (client): Import on CMTs — rupees unless imported
+       (`rupeesOnly`). Coordinate and Style / Article give 32 each:
+       1040 - 64 + 72 = 1048, + 72 = 1120 <= the 1120 panel beside the rail. */
+    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
 
   /**
@@ -2537,28 +2685,28 @@ export function BudgetScreen({
   });
 
   /**
-   * The SQ Qty of a scope — the whole group, one order, or one style — or the
+   * The Cut Qty of a scope — the whole group, one order, or one style — or the
    * sentence for why there isn't one. The same figure the Budget section and
    * the CMT lines read: within one budget "pieces made" is one number.
    */
-  const scopeSqQty = (r: Pick<CostRow, "scope" | "garment_order_id" | "style_ref_no">) => {
-    if (r.scope === "sq") return groupSqQty;
+  const scopeCutQty = (r: Pick<CostRow, "scope" | "garment_order_id" | "style_ref_no">) => {
+    if (r.scope === "sq") return groupCutQty;
     const o = r.garment_order_id ? orderById.get(r.garment_order_id) : null;
     if (!o) return null;
     if (r.scope === "order") {
-      return o.sq_qty ?? { refused: o.sq_refusal ?? `${o.sc_no ?? o.order_code ?? "This order"} has no SQ Qty yet` };
+      return o.cut_qty ?? { refused: o.cut_refusal ?? `${o.sc_no ?? o.order_code ?? "This order"} has no Cut Qty yet` };
     }
     const st = r.style_ref_no ? o.styles?.find((x) => x.style_ref_no === r.style_ref_no) : null;
     if (!st) return null;
-    return st.sq_qty ?? { refused: st.sq_refusal ?? `${st.style_ref_no} has no SQ Qty yet` };
+    return st.cut_qty ?? { refused: st.cut_refusal ?? `${st.style_ref_no} has no Cut Qty yet` };
   };
 
   /**
-   * Re-scope a line and, on a Qty line, fill Qty with the new scope's SQ Qty.
+   * Re-scope a line and, on a Qty line, fill Qty with the new scope's Cut Qty.
    *
    * The fill happens HERE, on the operator's act of choosing, never in an effect
    * watching the scope — an effect would also fire on opening a saved budget and
-   * overwrite every quantity someone had corrected. A refused SQ Qty leaves the
+   * overwrite every quantity someone had corrected. A refused Cut Qty leaves the
    * box blank and SAYS why, rather than filling in a number nobody can defend.
    * A scope not yet complete (Order Wise with no order picked) fills nothing.
    */
@@ -2568,7 +2716,7 @@ export function BudgetScreen({
       setCost(r.key, patch);
       return;
     }
-    const q = scopeSqQty(next);
+    const q = scopeCutQty(next);
     if (q == null) {
       setCost(r.key, patch);
       return;
@@ -2631,14 +2779,6 @@ export function BudgetScreen({
     ),
   });
 
-  /** UOM: a picker on a Qty line, the "%" a percentage is in, nothing on Flat. */
-  const otherUnitCol: CostCol = {
-    header: "UOM",
-    showFor: (r) => r.rate_type !== "flat",
-    cell: (r) =>
-      r.rate_type === "percent" ? <span className="text-sm">%</span> : unitCol.cell(r, 0),
-  };
-
   /**
    * Qty: typed on a Qty line; on a Flat line a 1 that is DISPLAY ONLY — a flat
    * charge is not multiplied (`lineAmount` never reads its quantity), and the
@@ -2649,13 +2789,13 @@ export function BudgetScreen({
    * QTY IS FETCHED, NEVER TYPED (user 2026-09-21: "other expenses – qty field
    * cut qty value need to fetch"). With Type / Order / Style gone from the
    * grid (same day) an expense line is budget-wide, and its quantity is the
-   * pieces to be MADE — the group SQ Qty, the same figure the header's SQ Qty
-   * and every CMT line read (`scopeSqQty`, which still answers a legacy
+   * pieces to be MADE — the group Cut Qty, the same figure the header's Cut Qty
+   * and every CMT line read (`scopeCutQty`, which still answers a legacy
    * order- or style-scoped line by its own scope). A Flat line is 1; a
    * Percentage has no quantity. The figure reaches the engine and the save
    * through `expenseQty` on `enteredCosts` below, never through the row's
    * own `qty` — an effect writing it back on open would overwrite nothing
-   * useful and mark every budget dirty. A refused SQ Qty is SAID under the
+   * useful and mark every budget dirty. A refused Cut Qty is SAID under the
    * cell, and the line's own refusal ("Enter a quantity") follows it.
    */
   /**
@@ -2690,7 +2830,7 @@ export function BudgetScreen({
           </>
         );
       }
-      const q = scopeSqQty(r);
+      const q = scopeCutQty(r);
       return (
         <>
           {factFigure(q == null || isRefusal(q) ? null : q)}
@@ -2729,15 +2869,19 @@ export function BudgetScreen({
      grid. A budget is one order's (2026-09-19), so an expense is budget-wide
      and the scope columns had one answer; the description column went with
      them. `scope` / `style_ref_no` / `description` stay in the row and the
-     schema — a legacy line keeps what it saved and `scopeSqQty` still reads
+     schema — a legacy line keeps what it saved and `scopeCutQty` still reads
      it — the grid just no longer asks. Qty is fetched (`otherQtyCol`) and
      `range` (it shows the INR sales value on a Percentage line), Rate `hug`
      (option A). 144 + 112 + 72 + 112 + 88 + 112 = 640, + 72 = 712 <= 1155
      -> 5xl. */
+  /* 2026-09-23 (client, screenshot 3033): UOM REMOVED too. The Rate Type
+     already names the unit ("Per Pcs"), the Qty is the Cut Qty in pieces, and
+     a Percentage's "%" sits on the Rate header — the column only repeated
+     them. New lines are stamped PCS (`blankRow`); a saved line keeps its unit.
+     144 + 112 + 112 + 88 + 112 = 568, + 72 = 640 <= 1155 -> 5xl. */
   const expenseColumns: CostCol[] = withRowRules([
     { ...headCol("expense_head", "Cost Head"), width: FIELD_WIDTH_CSS.code },
     { ...otherRateTypeCol("Rate Type", ["per_unit", "flat", "percent"]), width: FIELD_WIDTH_CSS.range },
-    { ...otherUnitCol, width: FIELD_WIDTH_CSS.num },
     { ...otherQtyCol, width: FIELD_WIDTH_CSS.range },
     { ...otherRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...otherValueCol, width: FIELD_WIDTH_CSS.range },
@@ -3236,13 +3380,13 @@ export function BudgetScreen({
 
   /** The lines that SAVE — the seeded blanks dropped. Totals, validity and the
    *  payload all read this one list, so what is counted is what is written. */
-  /** An expense Qty line's quantity is the group SQ Qty, FETCHED (see
+  /** An expense Qty line's quantity is the group Cut Qty, FETCHED (see
    *  `otherQtyCol`) — resolved here so the engine, the validity and the save
    *  all read the same figure the cell shows. A refusal leaves the typed
    *  value alone, so the line refuses in the engine with its own sentence. */
   const expenseQty = (c: CostRow): CostRow => {
     if (c.source !== "expense" || c.rate_type !== "per_unit") return c;
-    const q = scopeSqQty(c);
+    const q = scopeCutQty(c);
     return q == null || isRefusal(q) ? c : { ...c, qty: String(q) };
   };
   const enteredCosts = costs.filter((c) => !isBlankLine(c)).map(expenseQty);
@@ -3272,7 +3416,7 @@ export function BudgetScreen({
     : null;
 
 
-  // ---- the SQ facts --------------------------------------------------------
+  // ---- the order facts -----------------------------------------------------
 
   /**
    * One fact about the group: the orders' shared value when they agree, else
@@ -3426,6 +3570,9 @@ export function BudgetScreen({
       {
         key: row.key,
         label: `${tab} · ${name}`,
+        /* THE SPEC'S SENTENCE (0619) — the same words the Amendment Entry page
+           prints for this line (`lib/orders/amendments/manual-entry.ts`). */
+        message: manualEntryMessage({ source: row.source, name, field }),
         go: () => {
           const section = sectionOfSource(row.source);
           if (section === "purchase") setPurchaseTab(row.source);
@@ -3438,6 +3585,30 @@ export function BudgetScreen({
       },
     ];
   });
+  const unpricedKeys = new Set(unratedLines.map((l) => l.key));
+  /**
+   * LAND A MANUAL ENTRY NEEDED JUMP (`?line=&field=`, 0619). The line is named
+   * by what it IS (`budgetLineKey`) — the row keys are this screen's counters
+   * and change on every open. Run once the rows exist; a key that names no
+   * line says so rather than dropping the operator on the first field.
+   */
+  const landPendingJump = () => {
+    const j = pendingJump.current;
+    if (!j || mode !== "edit") return;
+    pendingJump.current = null;
+    const row = enteredCosts.find((c) => budgetLineKey(c as unknown as BudgetScopeLine) === j.line);
+    if (!row) {
+      toastError("That line is no longer on this budget — refresh it from the BOMs");
+      return;
+    }
+    const section = sectionOfSource(row.source);
+    if (section === "purchase") setPurchaseTab(row.source);
+    if (section === "process") {
+      setProcessTab(row.source);
+      if (row.source === "fabric_process") setFabricOpenKey(fabricGroupKey(row));
+    }
+    shellRef.current?.goToSection(section, { fieldId: cellId(row, (j.field as LineField) || "rate") });
+  };
   const nextUnrated = () => {
     if (unratedLines.length === 0) return;
     const held = /^bl-(k\d+)-/.exec(document.activeElement?.id ?? "")?.[1];
@@ -3477,7 +3648,7 @@ export function BudgetScreen({
 
                 track     A term 176   B term 176   C party 200   D hug 88    E hug 88   then
                 budget    Entry No     Date         Group         Currency    Exch. rate SQ Description (name 288)
-                orders    SQ No        RE No        Customer      Order Qty   SQ Qty     Unit (hug 88)
+                orders    SQ No        RE No        Customer      Order Qty   Cut Qty    Unit (hug 88)
 
                 budget  176 + 176 + 200 + 88 + 88 + 288 = 1016 + 5 x 12 = 1076
                 orders  176 + 176 + 200 + 88 + 88 + 88  =  816 + 5 x 12 =  876
@@ -3497,13 +3668,13 @@ export function BudgetScreen({
                  and the Reopen remark are different fields and are untouched.
 
               The first five columns are shared, so Currency sits over Order
-              Qty and Exchange rate over SQ Qty. The two rows split by WHO owns
+              Qty and Exchange rate over Cut Qty. The two rows split by WHO owns
               the value: the budget's own fields above, facts read off the
               picked orders below.
 
               A and B are `term`, not `code`: a document number in this house
               is "HO/RE/26-27/0001", 16 characters, ~150px — `code` (144)
-              clipped the RE No, and Entry No / SQ No follow the same series.
+              clipped the RE No, and Entry No followed the same series.
 
               6. CURRENCY, EXCHANGE RATE AND SQ DESCRIPTION REMOVED (client,
                  2026-09-19, shot 2957), then Group (same day).
@@ -3514,26 +3685,28 @@ export function BudgetScreen({
                  took the step that fits the VALUE (raagam-screen-layout: width
                  by the kind of value), which is what makes the line fit:
 
+              8. SQ NO REMOVED, SQ QTY RENAMED CUT QTY (client, 2026-09-23): the
+                 legacy "SQ" wording is gone from the budget. The line is now
+
                    Entry No  hug   88   a plain serial (0593), "1" … "9999"
                    Date      code 144   the house step for a date box
-                   SQ No     term 176   a document number, "HO/…/26-27/0001"
-                   RE No     term 176   the same series; the picker
+                   RE No     term 176   "HO/RE/26-27/0001"; the picker
                    Customer  party 200
                    Order Qty hug   88
-                   SQ Qty    hug   88
+                   Cut Qty   hug   88
                    Unit      num   72   "PCS" / "SETS"; a one-word label
 
-                   88 + 144 + 176 + 176 + 200 + 88 + 88 + 72 = 1032,
-                   + 7 x 12 gaps = 1116.
+                   88 + 144 + 176 + 200 + 88 + 88 + 72 = 856,
+                   + 6 x 12 gaps = 928.
 
-              THE CAP IS DEFINITE — 71rem, 1136px: the 1116 line plus 20px of
-              slack so a sub-pixel font metric cannot wrap it. On the client's
-              ~1,270px pane it is one line. On a pane narrower than 1116 (a
-              1366 laptop's section is ~1090) the LAST box, Unit, folds onto a
-              second line like any `FieldRow` — never a sideways scroll. Never
+              THE CAP IS DEFINITE — 60rem, 960px: the 928 line plus 32px of
+              slack so a sub-pixel font metric cannot wrap it. On any pane
+              wider than 928 it is one line; narrower, the LAST box, Unit,
+              folds onto a second line like any `FieldRow` — never a sideways
+              scroll. Never
               `max-w-fit`: inside a container-query ancestor a content-sized cap
               resolves to zero (the Vendor bug, 8f37c22). */}
-          <div className="max-w-[71rem]">
+          <div className="max-w-[60rem]">
             <FieldRow>
               {/* THE BUDGET'S OWN NUMBER — a plain serial, 1, 2, 3 … (client,
                   2026-09-19), given by the database on first save (0593's
@@ -3569,12 +3742,10 @@ export function BudgetScreen({
                   from Order Entry and shown in the Sales bar below, which is
                   where they are used; a second, read-only copy up here was one
                   more box to read. SQ Description went because an order is
-                  known by its RE No / SQ No, never by its description text. */}
-              {/* THE SQ FACTS — read off the picked order, read-only, and so off
-                  the Tab path by `readOnly` alone. The RE No is the one picker. */}
-              <Field label="SQ No" w="term" htmlFor="bg-sq">
-                <Input id="bg-sq" readOnly value={groupFact((o) => o.sq_no, nOrders)} />
-              </Field>
+                  known by its RE No, never by its description text. */}
+              {/* THE ORDER FACTS — read off the picked order, read-only, and so
+                  off the Tab path by `readOnly` alone. The RE No is the one
+                  picker. No SQ No (client, 2026-09-23). */}
               <Field label="RE No" required w="term" htmlFor="bg-re" error={reMessage}>
                 {/* A budget saved over SEVERAL orders (the old grid allowed it)
                     shows them as text rather than a picker that could only
@@ -3601,7 +3772,7 @@ export function BudgetScreen({
               </Field>
               {/* TWO QUANTITIES, AND PHASE 1 SHOWED THE WRONG ONE UNDER THIS NAME.
                   Order Qty is what was ORDERED (Σ po_qty — Avg Price divides by
-                  it); SQ Qty is what will be MADE (order + excess + rejection +
+                  it); Cut Qty is what will be MADE (order + excess + rejection +
                   approval — CMT and garment processes are priced on it). The
                   blueprint's own figures need both: 5028 sold, 5321 made.
 
@@ -3611,8 +3782,8 @@ export function BudgetScreen({
               <Field label="Order Qty" w="hug" htmlFor="bg-qty" error={refusalOf(sales.qty)}>
                 <Input id="bg-qty" readOnly className="text-right" value={figureText(sales.qty)} />
               </Field>
-              <Field label="SQ Qty" w="hug" htmlFor="bg-sqqty" error={refusalOf(groupSqQty)}>
-                <Input id="bg-sqqty" readOnly className="text-right" value={figureText(groupSqQty)} />
+              <Field label="Cut Qty" w="hug" htmlFor="bg-cutqty" error={refusalOf(groupCutQty)}>
+                <Input id="bg-cutqty" readOnly className="text-right" value={figureText(groupCutQty)} />
               </Field>
               <Field label="Unit" w="num" htmlFor="bg-unit">
                 <Input id="bg-unit" readOnly value={asText(sales.unit)} />
@@ -3629,6 +3800,14 @@ export function BudgetScreen({
                   : "An approved budget cannot be changed. An approver can reopen it (Amendment) to revise it."}
             </p>
           )}
+
+          {editable && amendScope && (
+            <p className="mt-3 rounded-md border border-info bg-info-soft px-3 py-2 text-xs text-info" role="status">
+              Revision {amendScope.entryNo ?? ""} did not pick Order Budget — Expenses (overheads, freight), CMT and
+              every rate the approved version priced stay as approved. Lines it did not price are open for their rate.
+            </p>
+          )}
+          {editable && unratedLines.length > 0 && <ManualEntryNeeded lines={unratedLines} />}
 
           {revisions.length > 0 && <RevisionHistory revisions={revisions} />}
         </SectionBody>
@@ -3739,7 +3918,8 @@ export function BudgetScreen({
           done: lines.length > 0,
           content: (
             <SectionBody title={s.label}>
-              {cmtGrid}
+              {editable && ownLocked && <OwnSectionLockedNote entryNo={amendScope?.entryNo ?? null} />}
+              <LockScope locked={ownLocked}>{cmtGrid}</LockScope>
             </SectionBody>
           ),
         };
@@ -3752,7 +3932,8 @@ export function BudgetScreen({
         done: lines.length > 0,
         content: (
           <SectionBody title={s.label}>
-            {s.key === "income" ? incomeGrid : expenseGrid}
+            {editable && ownLocked && <OwnSectionLockedNote entryNo={amendScope?.entryNo ?? null} />}
+            <LockScope locked={ownLocked}>{s.key === "income" ? incomeGrid : expenseGrid}</LockScope>
           </SectionBody>
         ),
       };
@@ -3841,9 +4022,9 @@ export function BudgetScreen({
         notes: null,
         specification: c.specification || null,
         // NULL TOGETHER OR NOT AT ALL (0572's check) — an INR line sends no rate.
-        currency_code: INR_ONLY_SOURCES.has(c.source) ? null : c.currency_code || null,
+        currency_code: rupeesOnly(c.source, c.is_import) ? null : c.currency_code || null,
         ex_rate:
-          INR_ONLY_SOURCES.has(c.source) || !c.currency_code ? null : numOrNull(c.ex_rate),
+          rupeesOnly(c.source, c.is_import) || !c.currency_code ? null : numOrNull(c.ex_rate),
         is_foc: c.is_foc,
         is_import: c.is_import,
         process_id: c.process_id,
@@ -3940,7 +4121,10 @@ export function BudgetScreen({
 
   return (
     <>
-      <div className="space-y-4">
+      {embed && mode === "list" && (
+        <EmbeddedEditorWait found={budgets.some((b) => b.id === embed.id)} returnHref={embed.returnHref} what="budget" />
+      )}
+      <div className="space-y-4" hidden={!!embed}>
         {/* ONE LIST — the orders, as cards (user 2026-09-20, screenshot 2964:
             the page "listing two type, hold the card type listing, remove the
             budget … section"). The Budgets table and its search box are gone:
@@ -4167,5 +4351,45 @@ function RevisionHistory({ revisions }: { revisions: OrderBudget["revisions"] })
         ))}
       </ol>
     </div>
+  );
+}
+
+/**
+ * THE SPEC'S WARNING BANNER (doc/order/amenment update.md §3.2, 0619): one
+ * line per input the budget is missing, in the spec's own sentence, each with
+ * a one-click jump to the exact cell — the same `go` the status line's "Next
+ * missing" runs. Shown while the budget is the operator's.
+ */
+function ManualEntryNeeded({ lines }: { lines: { key: string; message: string; go: () => void }[] }) {
+  const shown = lines.slice(0, 8);
+  return (
+    <div className="mt-3 rounded-md border border-warning bg-warning-soft px-3 py-2 text-xs text-warning" role="alert">
+      <ul className="space-y-1">
+        {shown.map((l) => (
+          <li key={l.key} className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              <span aria-hidden>⚠️ </span>
+              <span className="font-semibold">{l.message.split(":")[0]}:</span>
+              {l.message.slice(l.message.indexOf(":") + 1)}
+            </span>
+            <button type="button" className="font-semibold underline hover:no-underline" onClick={l.go}>
+              Go to field →
+            </button>
+          </li>
+        ))}
+      </ul>
+      {lines.length > shown.length && (
+        <p className="mt-1">…and {lines.length - shown.length} more — use Next missing in the summary bar.</p>
+      )}
+    </div>
+  );
+}
+
+function OwnSectionLockedNote({ entryNo }: { entryNo: string | null }) {
+  return (
+    <p className="mb-2 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
+      Read-only under revision {entryNo ?? ""} — it did not pick Order Budget. Use + Add module on the revision to
+      open Order Budget.
+    </p>
   );
 }

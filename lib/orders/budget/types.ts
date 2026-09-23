@@ -513,10 +513,10 @@ export type BudgetableOrder = {
   po_no: string | null;
   customer_name: string | null;
   delivery_date: string | null;
-  /** `sq_details.code` / `.sq_description` via `sq_detail_id` (0511). Null for
-   *  the ordinary order booked straight off a customer PO. */
+  /** `sq_details.code` via `sq_detail_id` (0511). Null for the ordinary order
+   *  booked straight off a customer PO. Never displayed — it feeds only the
+   *  queue's "Booked From" facet. */
   sq_no: string | null;
-  sq_description: string | null;
   /** `sales_orders.order_number` — the same value as `sc_no`; "RE No" is the
    *  operator-facing name for it since 2026-08-23. */
   re_no: string | null;
@@ -534,12 +534,12 @@ export type BudgetableOrder = {
   /** `orderValue().grossValue`, in the BUYER'S currency, before conversion.
    *  Null when it refuses. */
   gross_value: number | null;
-  /** The legacy "SQ Qty" — Order + Excess + Rejection + Approval, the Fabric
-   *  BOM report's own Cut Qty (`qtyBreakdownOf`) — summed over `styles`.
-   *  Null, with `sq_refusal` saying why, the moment ANY style refuses: a sum
-   *  of the styles that could be counted is not the order's figure. */
-  sq_qty: number | null;
-  sq_refusal: string | null;
+  /** Cut Qty — Order + Excess + Rejection + Approval, the Fabric BOM report's
+   *  own (`qtyBreakdownOf`) — summed over `styles`. Null, with `cut_refusal`
+   *  saying why, the moment ANY style refuses: a sum of the styles that could
+   *  be counted is not the order's figure. */
+  cut_qty: number | null;
+  cut_refusal: string | null;
   /** One entry per style ref on the order — the CMT grid's rows (0574). */
   styles: BudgetableStyle[];
   /** From `orderValue()` — null when it refuses. */
@@ -577,8 +577,12 @@ export type BudgetableStyle = {
   order_qty: number;
   /** `qtyBreakdownOf` over this style's approval rows; null + reason when it
    *  refuses (no approval rows, or a rejection rule with a gap). */
-  sq_qty: number | null;
-  sq_refusal: string | null;
+  cut_qty: number | null;
+  cut_refusal: string | null;
+  /** `cut_qty`'s four terms, kept apart — the Budget Statement's Quantity
+   *  columns (Order · Excess · Approval · Rej.Allow). Same `qtyBreakdownOf`
+   *  call, so the four always add up to `cut_qty`. Null when it refuses. */
+  cut_breakup?: { order: number; excess: number; approval: number; rejection: number } | null;
   /** The style's coordinates (0461) — GAR items: PIECES, TOP, BOTTOM. Often
    *  empty. */
   coordinates: { id: string; name: string }[];
@@ -613,7 +617,6 @@ export type CopyableBudget = {
    *  labelled by its first, with `order_count` saying there are more. */
   first_order: {
     re_no: string | null;
-    sq_no: string | null;
     customer_name: string | null;
   } | null;
 };

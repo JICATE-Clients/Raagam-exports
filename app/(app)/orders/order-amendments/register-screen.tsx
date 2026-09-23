@@ -14,6 +14,13 @@
  * approver. There is no third column to drift. The margin delta is two stored
  * KPI sets compared (`marginDelta`) — nothing here computes a profit.
  *
+ * ONLY ORDERS THAT HAVE BEEN AMENDED (doc/order/amenment update.md §1: "the
+ * register queries only records where amendment_no >= 1 … unamended baseline
+ * orders are excluded"). Until 2026-09-23 every approvable order also showed
+ * here as a line with "nothing raised yet"; the way to one of those now is
+ * [ + Raise Amendment ], which opens an ORDER PICKER MODAL (spec §1) listing
+ * exactly them, or [Amend] on the order list.
+ *
  * ONE LIST, GROUPED BY ORDER (user 2026-09-22, screenshot 3024: "the table
  * and created order messed view"). Until then the page carried TWO lists that
  * said the same thing — an "orders that can be amended" strip naming every RE
@@ -21,15 +28,15 @@
  * with five of those columns wrapping. The order is the register's SUBJECT
  * and is now said ONCE: a line spanning the table (`DataTable`'s `spanRow`)
  * carrying RE No, customer, delivery and the approved budget, with its entries
- * beneath it minus the order columns. An amendable order with nothing raised
- * yet is a line with no rows under it — that is all the strip ever meant. The
+ * beneath it minus the order columns. The
  * spec's seven columns (doc/order/amedment.md §1) stand; the duplicate `Date`
  * (it IS Created Date, the spec says so) is gone, and the created pair stays
  * last per the standing rule. Every code column declares a width and
  * `whitespace-nowrap`, so nothing wraps.
  *
- * [ + Raise Amendment ] opens the door sheet; the order list's [Amend] lands
- * here with `?raise=<order id>` and the sheet pre-picked. A row opens the
+ * [ + Raise Amendment ] opens the order picker; picking lands on the raise
+ * page pre-picked (the door itself stays a page, user 2026-09-22). The order
+ * list's [Amend] lands here with `?raise=<order id>` and goes straight there. A row opens the
  * entry page (`/orders/order-amendments/<id>`), which carries the variance
  * matrix, the change summary, the downstream documents and the approval
  * timeline.
@@ -37,30 +44,54 @@
 
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ClipboardList, FileText, Layers, Package, Plus, Undo2 } from "lucide-react";
+import {
+  CalendarRange,
+  ClipboardList,
+  FileText,
+  Layers,
+  Package,
+  Plus,
+  TrendingDown,
+  Undo2,
+  Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
+import { Field } from "@/components/ui/field";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { Label } from "@/components/ui/label";
+import {
+  createdByFacet,
+  createdDateFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 import { PageHeader } from "@/components/ui/page-header";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
+import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { fmtDate } from "@/lib/format";
 import { isRefusal } from "@/lib/orders/budget/totals";
 import {
+  AMENDMENT_ENTRY_TYPES,
+  AMENDMENT_MODULES,
   AMENDMENT_ORIGINS,
   ENTRY_STATUS_FILTERS,
-  amendmentTypesLabel,
+  OFFERED_KINDS,
+  entryIsOpen,
+  entryScopeLabel,
+  modulesOf,
   entryStatusLabel,
   entryStatusMatches,
   entryStatusTone,
   marginAlert,
   originLabel,
+  type AmendmentEntryStatus,
   type MarginDelta,
 } from "@/lib/orders/amendments/amendment-entry";
 import { abandonOrderAmendment } from "@/lib/orders/order-amendments/actions";
@@ -83,6 +114,123 @@ type OrderHead = {
 type RegisterLine =
   | { kind: "order"; id: string; head: OrderHead; count: number }
   | ({ kind: "entry" } & AmendmentRegisterRow);
+
+/**
+ * THE REGISTER'S FILTERS PANEL — the grouped drawer every Orders child draws
+ * (user, 2026-09-23: "implement the Material BOM filter in every Orders
+ * child"). It replaced three <Select>s — Customer, Origin, Approval status —
+ * and keeps all three with the same semantics (Approval status still reads
+ * `entryStatusMatches`, so "Open" is still draft + rejected). Every facet is
+ * read off the `AmendmentRegisterRow` the table already carries.
+ *
+ * Three questions: where the entry stands and when; whose order, who asked and
+ * what kind of change; what it did to the margin, and who raised it.
+ *
+ * ONLY CUSTOMER REACHES AN ORDER LINE WITH NOTHING RAISED. Every other facet
+ * is a fact about an ENTRY, which that line has none of — so, as with Origin
+ * and Status before, setting any of them hides it (`lines` below).
+ */
+const REGISTER_FACETS: FacetGroup<AmendmentRegisterRow>[] = [
+  {
+    title: "Status & dates",
+    icon: <CalendarRange />,
+    facets: [
+      {
+        key: "status",
+        label: "Approval status",
+        all: "All statuses",
+        wide: true,
+        counted: true,
+        options: ENTRY_STATUS_FILTERS.filter((s) => s.value).map((s) => ({ value: s.value, label: s.label })),
+        match: (r, v) => entryStatusMatches(v, r.status),
+      },
+      createdDateFacet(),
+      { key: "closed", label: "Closed Date", all: "Any date", date: (r) => r.closed_at },
+    ],
+  },
+  {
+    title: "Customer & change",
+    icon: <Users />,
+    facets: [
+      { key: "customer", label: "Customer", all: "All customers", wide: true, value: (r) => r.customer_name },
+      {
+        key: "origin",
+        label: "Origin",
+        all: "All origins",
+        options: AMENDMENT_ORIGINS.map((o) => ({ value: o.value, label: `${o.label} (${o.code})` })),
+        match: (r, v) => r.origin === v,
+      },
+      {
+        // The spec's Module Category (0619) — derived from the entry's kinds.
+        key: "module",
+        label: "Module",
+        all: "Any module",
+        counted: true,
+        options: AMENDMENT_MODULES.map((m) => ({ value: m.key, label: m.label })),
+        match: (r, v) => (modulesOf(r.types) as string[]).includes(v),
+      },
+      {
+        // An entry carries a UNION of categories (0616), so it matches every
+        // one it names. Counted, so a category nobody has raised reads (0).
+        key: "type",
+        label: "Change Type",
+        all: "Any change",
+        counted: true,
+        options: OFFERED_KINDS.map((k) => ({ value: k, label: AMENDMENT_ENTRY_TYPES.find((t) => t.value === k)?.label ?? k })),
+        match: (r, v) => r.types.includes(v),
+      },
+    ],
+  },
+  {
+    title: "Margin & creator",
+    icon: <TrendingDown />,
+    facets: [
+      {
+        // `marginAlert` — the same reading that tones the Margin Delta cell.
+        key: "margin",
+        label: "Margin Delta",
+        all: "Any",
+        wide: true,
+        counted: true,
+        options: [
+          { value: "drop", label: "Margin dropped" },
+          { value: "rise", label: "Margin rose" },
+          { value: "flat", label: "No change" },
+          { value: "unknown", label: "Not known yet" },
+        ],
+        match: (r, v) => marginAlert(r.margin) === v,
+      },
+      createdByFacet(),
+    ],
+  },
+];
+
+/**
+ * THE PENDING / UPDATED / DRAFT BOX (user 2026-09-23: "in budget we have
+ * pending, update, draft button need to implement same order module fully").
+ * The three words over the entry's DERIVED status, read the way Budget
+ * Approval reads its own budgets, since an entry's state IS its budget's:
+ *
+ *  - Pending — `pending_md_approval`: the revised budget is with the MD, the
+ *    one decision the register is waiting on.
+ *  - Updated — `approved` / `rejected`: the MD has decided (Budget Approval
+ *    counts both as updated, and so does this).
+ *  - Draft — `draft` / `returned`: still with the merchandiser. `returned` is
+ *    "Rejected — revise", open and being re-worked, and the drawer's own Draft
+ *    status already folds it in (`entryStatusMatches`) — one reading, not two.
+ *  - abandoned / superseded → no word: closed without a decision. They show
+ *    while the drawer's Status facet is set, when the box stands down.
+ */
+const QUICK_WORD: Record<AmendmentEntryStatus, QuickWord | null> = {
+  pending_md_approval: "pending",
+  approved: "updated",
+  rejected: "updated",
+  draft: "draft",
+  returned: "draft",
+  abandoned: null,
+  superseded: null,
+};
+const entryWord = (r: AmendmentRegisterRow): QuickWord | null => QUICK_WORD[r.status] ?? null;
 
 /** "+2.10%" / "-3.45%" in percentage points, toned; a refusal says why in words. */
 export function MarginDeltaCell({ margin }: { margin: MarginDelta }) {
@@ -126,9 +274,35 @@ export function AmendmentRegisterScreen({
   const [isPending, startTransition] = useTransition();
 
   const [query, setQuery] = useState("");
-  const [customer, setCustomer] = useState("");
-  const [origin, setOrigin] = useState("");
-  const [status, setStatus] = useState("");
+  const facets = useFacetFilter(rows, REGISTER_FACETS);
+  const facetMatch = facets.matches;
+  const setFacet = facets.set;
+  const quick = useQuickStatus(entryWord, {
+    standDown: !!facets.values.status,
+    onPick: () => setFacet("status", ""),
+  });
+  const qm = quick.matches;
+
+  /* THE ORDER PICKER MODAL (spec §1). `origin` is the button's own rect so
+     the sheet grows out of it (AGENTS.md, "A sub-detail Sheet's size"). */
+  const [picking, setPicking] = useState<SheetOrigin | null>(null);
+  const [pickedOrder, setPickedOrder] = useState<string | null>(null);
+  const pickerRows = useMemo<PickerRow[]>(
+    () =>
+      orders.map((o) => ({
+        id: o.id,
+        label: o.re_no ?? o.code ?? o.id.slice(0, 8),
+        sublabel: [
+          o.customer_name,
+          o.amending ? `under revision — ${o.amending.entry_no ?? "open entry"}` : o.delivery_date ? `Delivery ${fmtDate(o.delivery_date)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        code: o.code,
+      })),
+    [orders],
+  );
+
 
   /* THE DOOR IS A PAGE (user 2026-09-22; it was a sheet until then). A
      `?raise=<order id>` link from the order list is forwarded to it. */
@@ -140,32 +314,23 @@ export function AmendmentRegisterScreen({
     router.replace(raiseHref(id));
   }, [params, router]);
 
-  const customers = useMemo(
-    () => [...new Set(rows.map((r) => r.customer_name).filter((v): v is string => !!v))].sort(),
-    [rows],
-  );
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
-      if (customer && r.customer_name !== customer) return false;
-      if (origin && r.origin !== origin) return false;
-      if (!entryStatusMatches(status, r.status)) return false;
+      if (!facetMatch(r) || !qm(r)) return false;
       if (!q) return true;
-      return [r.entry_no, r.re_no, r.order_code, r.customer_name, r.remarks, amendmentTypesLabel(r.types)]
+      return [r.entry_no, r.re_no, r.order_code, r.customer_name, r.remarks, entryScopeLabel(r.types)]
         .filter((v): v is string => !!v)
         .some((v) => v.toLowerCase().includes(q));
     });
-  }, [rows, query, customer, origin, status]);
+  }, [rows, query, facetMatch, qm]);
 
-  /* THE LIST: one line per order, its entries beneath, in ENTRY order. An
-     order the filters emptied is dropped with its entries; an amendable order
-     with nothing raised yet shows only while no origin / status filter is on
-     (it has no entry those facets could match) and it passes customer and
-     search itself. Orders with entries come first, oldest entry first; the
-     never-amended ones follow by approval date. */
+  /* THE LIST: one line per AMENDED order, its entries beneath, in ENTRY
+     order. An order the filters emptied is dropped with its entries; an order
+     with nothing raised is never listed (spec §1) — `orders` only enriches the
+     heads of orders that have entries (delivery, budget, the Amend again
+     button). Oldest first entry first. */
   const lines = useMemo<RegisterLine[]>(() => {
-    const q = query.trim().toLowerCase();
     const groups = new Map<string, { head: OrderHead; entries: AmendmentRegisterRow[] }>();
     for (const r of filtered) {
       const key = r.garment_order_id ?? (r.budget_id ? `budget:${r.budget_id}` : r.id);
@@ -190,52 +355,27 @@ export function AmendmentRegisterScreen({
     }
     for (const o of orders) {
       const g = groups.get(o.id);
-      if (g) {
-        g.head.delivery_date = o.delivery_date;
-        g.head.budget_code = o.budget_code ?? g.head.budget_code;
-        g.head.approved_at = o.approved_at;
-        g.head.amendable = o;
-        continue;
-      }
-      if (origin || status) continue;
-      if (customer && o.customer_name !== customer) continue;
-      if (q && ![o.re_no, o.code, o.customer_name].some((v) => v?.toLowerCase().includes(q))) continue;
-      groups.set(o.id, {
-        head: {
-          key: o.id,
-          order_id: o.id,
-          re_no: o.re_no ?? o.code,
-          customer_name: o.customer_name,
-          delivery_date: o.delivery_date,
-          budget_code: o.budget_code,
-          approved_at: o.approved_at,
-          amendable: o,
-        },
-        entries: [],
-      });
+      if (!g) continue;
+      g.head.delivery_date = o.delivery_date;
+      g.head.budget_code = o.budget_code ?? g.head.budget_code;
+      g.head.approved_at = o.approved_at;
+      g.head.amendable = o;
     }
-    const sorted = [...groups.values()].sort((a, b) => {
-      const ea = a.entries[0]?.created_at;
-      const eb = b.entries[0]?.created_at;
-      if (ea && eb) return ea.localeCompare(eb);
-      if (ea) return -1;
-      if (eb) return 1;
-      return (a.head.approved_at ?? "").localeCompare(b.head.approved_at ?? "");
-    });
+    const sorted = [...groups.values()].sort((a, b) =>
+      (a.entries[0]?.created_at ?? "").localeCompare(b.entries[0]?.created_at ?? ""),
+    );
     const out: RegisterLine[] = [];
     for (const g of sorted) {
       out.push({ kind: "order", id: `order:${g.head.key}`, head: g.head, count: g.entries.length });
       for (const r of [...g.entries].sort((a, b) => a.amend_no - b.amend_no)) out.push({ kind: "entry", ...r });
     }
     return out;
-  }, [filtered, orders, query, customer, origin, status]);
-
-  const activeCount = (customer ? 1 : 0) + (origin ? 1 : 0) + (status ? 1 : 0);
+  }, [filtered, orders]);
 
   function abandon(r: AmendmentRegisterRow) {
     if (
       !window.confirm(
-        `Abandon amendment ${r.entry_no ?? ""}? If nothing was changed the approved version stands and the order re-locks; if something was, the order stays open and needs a fresh budget approval.`,
+        `Abandon revision ${r.entry_no ?? ""}? Every change made under it is discarded — the order, both BOMs and the budget go back to the approved version and the order locks again.`,
       )
     )
       return;
@@ -247,8 +387,8 @@ export function AmendmentRegisterScreen({
       }
       success(
         res.outcome === "restored"
-          ? `Amendment ${r.entry_no ?? ""} abandoned — nothing had changed, the approved version stands`
-          : `Amendment ${r.entry_no ?? ""} abandoned — the order stays open and needs a fresh budget approval`,
+          ? `Revision ${r.entry_no ?? ""} abandoned — the approved version stands and the order is locked again`
+          : `Revision ${r.entry_no ?? ""} abandoned — the order stays open and needs a fresh budget approval`,
       );
       router.refresh();
     });
@@ -283,25 +423,31 @@ export function AmendmentRegisterScreen({
       ),
       { className: "w-[9.5rem] whitespace-nowrap" },
     ),
-    entryCol("Amend Ver", (r) => <span className="tabular-nums">#{r.amend_no}</span>, {
+    entryCol("Revision", (r) => <span className="tabular-nums">Rev #{r.amend_no}</span>, {
       align: "right",
       className: "w-[6rem] whitespace-nowrap",
     }),
     entryCol("Origin", (r) => originLabel(r.origin), { className: "w-[7.5rem] whitespace-nowrap" }),
-    entryCol("Change Type", (r) => <Truncated>{amendmentTypesLabel(r.types)}</Truncated>),
+    entryCol("Change Type", (r) => <Truncated>{entryScopeLabel(r.types)}</Truncated>),
     entryCol("Margin Delta", (r) => <MarginDeltaCell margin={r.margin} />, {
       align: "right",
       className: "w-[7rem] whitespace-nowrap",
     }),
     entryCol(
       "Status",
-      (r) => <StatusPill tone={entryStatusTone(r.status)}>{entryStatusLabel(r.status)}</StatusPill>,
+      (r) => (
+        /* The MD's reason rides on the badge (spec: "reason logged in the
+           register"), and a revert that could not complete says so. */
+        <span title={r.rejection_reason ?? r.revert_error ?? undefined}>
+          <StatusPill tone={entryStatusTone(r.status)}>{entryStatusLabel(r.status)}</StatusPill>
+        </span>
+      ),
       { className: "w-[9rem] whitespace-nowrap" },
     ),
     rowActionsColumn((l) => {
       if (l.kind !== "entry") return null;
       const r = l;
-      const open = r.status === "draft" || r.status === "rejected" || r.status === "pending_approval";
+      const open = entryIsOpen(r.status);
       return (
         <RowActions
           label={r.entry_no ?? r.re_no}
@@ -313,17 +459,17 @@ export function AmendmentRegisterScreen({
                   {
                     label: "Open order",
                     icon: ClipboardList,
-                    onClick: () => router.push(`/orders/amendments?open=${r.garment_order_id}`),
+                    onClick: () => router.push(`/orders/order-amendments/${r.id}/order`),
                   },
                   {
                     label: "Open Fabric BOM",
                     icon: Layers,
-                    onClick: () => router.push(`/orders/fabric-bom?open=${r.garment_order_id}`),
+                    onClick: () => router.push(`/orders/order-amendments/${r.id}/fabric-bom`),
                   },
                   {
                     label: "Open Material BOM",
                     icon: Package,
-                    onClick: () => router.push(`/orders/material-bom?open=${r.garment_order_id}`),
+                    onClick: () => router.push(`/orders/order-amendments/${r.id}/material-bom`),
                   },
                 ]
               : []),
@@ -332,12 +478,12 @@ export function AmendmentRegisterScreen({
                   {
                     label: "Open budget",
                     icon: FileText,
-                    onClick: () => router.push(`/orders/budgets?open=${r.budget_id}`),
+                    onClick: () => router.push(`/orders/order-amendments/${r.id}/budget`),
                   },
                 ]
               : []),
-            ...(open && r.garment_order_id && perms.canEdit && r.status !== "pending_approval"
-              ? [{ label: "Abandon amendment", icon: Undo2, danger: true, onClick: () => abandon(r) }]
+            ...(open && r.garment_order_id && perms.canEdit && r.status !== "pending_md_approval"
+              ? [{ label: "Abandon revision", icon: Undo2, danger: true, onClick: () => abandon(r) }]
               : []),
           ]}
         />
@@ -365,12 +511,11 @@ export function AmendmentRegisterScreen({
             {h.budget_code
               ? `budget ${h.budget_code}${h.approved_at ? ` approved ${fmtDate(h.approved_at)}` : ""}`
               : null}
-            {l.count === 0 ? " · nothing raised yet" : null}
           </span>
         </div>
         {o && perms.canEdit && (
           <Button variant="outline" size="sm" onClick={() => router.push(raiseHref(o.id))}>
-            <Plus className="h-3.5 w-3.5" /> {o.amending ? "Amend again" : "Amend"}
+            <Plus className="h-3.5 w-3.5" /> {o.amending ? "Add module" : "Revise"}
           </Button>
         )}
       </div>
@@ -380,67 +525,35 @@ export function AmendmentRegisterScreen({
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Order Amendments"
+        title="Order Revisions"
         description="Every change raised on an approved order — who asked, what kind, what it does to the margin, and where it stands."
         actions={
           perms.canEdit ? (
-            <Button size="md" onClick={() => router.push(raiseHref())}>
+            <Button
+              size="md"
+              onClick={(e) => {
+                setPickedOrder(null);
+                /* `currentTarget`, never `target` — the click can land on the icon. */
+                setPicking(e.currentTarget.getBoundingClientRect());
+              }}
+            >
               <Plus className="h-4 w-4" />
-              Raise Amendment
+              Raise Revision
             </Button>
           ) : undefined
         }
       />
 
       <FilterBar
+        leading={quick.segment}
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search RE No, entry no, customer or remarks…"
-        activeCount={activeCount}
-        onReset={
-          activeCount
-            ? () => {
-                setCustomer("");
-                setOrigin("");
-                setStatus("");
-              }
-            : undefined
-        }
+        activeCount={facets.activeCount}
+        onReset={facets.activeCount ? facets.reset : undefined}
+        panel={facets.panel}
         right={`${filtered.length} of ${rows.length}`}
-      >
-        <div>
-          <Label htmlFor="oa-customer">Customer</Label>
-          <Select id="oa-customer" value={customer} onChange={(e) => setCustomer(e.target.value)}>
-            <option value="">All customers</option>
-            {customers.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="oa-origin">Origin</Label>
-          <Select id="oa-origin" value={origin} onChange={(e) => setOrigin(e.target.value)}>
-            <option value="">All origins</option>
-            {AMENDMENT_ORIGINS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label} ({o.code})
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="oa-status">Approval status</Label>
-          <Select id="oa-status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            {ENTRY_STATUS_FILTERS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-      </FilterBar>
+      />
 
       {/* dup-check: exempt -- a dated amendment entry; a second entry on the same RE is how a revision is raised */}
       <DataTable
@@ -449,11 +562,62 @@ export function AmendmentRegisterScreen({
         getKey={(l) => l.id}
         spanRow={orderLine}
         empty={
-          rows.length > 0 || orders.length > 0
-            ? "No order or amendment matches these filters."
-            : "No amendment has been raised yet, and no order is approved to amend. An order becomes amendable once a budget that names it is approved (Orders ▸ Order Management ▸ Approval)."
+          rows.length > 0
+            ? quick.value
+              ? `No ${quick.value} revision${facets.activeCount || query.trim() ? " matches these filters" : ""} — ${rows.length} in the register; pick another word above.`
+              : "No revision matches these filters."
+            : orders.length > 0
+              ? "No revision has been raised yet — Raise Revision picks the approved order to change."
+              : "No revision has been raised yet, and no order is approved to revise. An order can be revised once a budget that names it is approved (Orders ▸ Order Management ▸ Approval)."
         }
       />
+
+      {/* THE ORDER PICKER MODAL (spec §1) — a sub-detail with no Save of its
+          own, so `size="sm"` + `alignToPane` + `origin` (AGENTS.md). Its one
+          action is Continue, which lands on the raise page pre-picked. */}
+      <Sheet
+        open={!!picking}
+        onClose={() => setPicking(null)}
+        title="Raise Revision — select order"
+        size="sm"
+        alignToPane
+        origin={picking}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="md" onClick={() => setPicking(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="md"
+              disabled={!pickedOrder}
+              onClick={() => {
+                if (!pickedOrder) return;
+                setPicking(null);
+                router.push(raiseHref(pickedOrder));
+              }}
+            >
+              Continue
+            </Button>
+          </div>
+        }
+      >
+        <Field label="Select Order" required htmlFor="oa-pick-order">
+          <DataPicker
+            id="oa-pick-order"
+            label="Select Order"
+            title="Orders that can be revised"
+            compact
+            rows={pickerRows}
+            value={pickedOrder}
+            onChange={setPickedOrder}
+            required
+            emptyHint="No order to revise — a revision is raised on an order whose budget has been approved. An open order is edited directly."
+          />
+        </Field>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Approved orders, and orders already under a revision (a new one supersedes it and keeps what it opened).
+        </p>
+      </Sheet>
 
     </div>
   );

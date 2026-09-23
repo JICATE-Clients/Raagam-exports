@@ -60,7 +60,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Layers, ListChecks, Scale, Shirt, Spool, Waypoints } from "lucide-react";
+import { CalendarRange, ClipboardList, Layers, ListChecks, Scale, Shirt, Spool, Users, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -81,6 +81,16 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import {
+  createdByFacet,
+  createdDateFacet,
+  flagFacet,
+  urgencyFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
@@ -88,7 +98,7 @@ import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { sectionValidity } from "@/lib/screens/validity";
-import { IWO_FOR_LABELS } from "@/lib/orders/internal-work-orders/types";
+import { IWO_FOR_LABELS, IWO_STATUSES, IWO_STATUS_LABELS } from "@/lib/orders/internal-work-orders/types";
 import { KNIT_TYPE_OPTIONS, type IwoFabricBom, type PaletteSection } from "@/lib/orders/iwo-fabric-bom/types";
 import { deleteIwoFabricBom, saveIwoFabricBom } from "@/lib/orders/iwo-fabric-bom/actions";
 import type { IwoFabricBomFormData, IwoFabricBomTask } from "@/lib/orders/iwo-fabric-bom/service";
@@ -100,7 +110,7 @@ import {
   type IwoFabricLineFacts,
 } from "@/lib/orders/iwo-fabric-bom/lines";
 import { FABRIC_FORM_OPTIONS } from "@/lib/orders/fabric-bom/component-map";
-import { isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
+import { isPieceDyed, isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import { ProcessFoldList, type FoldListColumn } from "@/components/orders/process-fold-list";
 import { FabricProcessGrid } from "@/components/orders/fabric-process-grid";
 import { YarnProcessGrid } from "@/components/orders/yarn-process-grid";
@@ -108,6 +118,7 @@ import { YarnProcessGrid } from "@/components/orders/yarn-process-grid";
 // so it serves an IWO unchanged. Reused, not copied.
 import { loadBomYarnComposition } from "@/lib/orders/fabric-bom/actions";
 import {
+  comboKey,
   comboUplift,
   deriveYarnRows,
   isRefusal,
@@ -119,7 +130,7 @@ import {
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
 import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
-import { diaKnitProblem, knitLabel } from "@/lib/orders/fabric-bom/dia-knit";
+import { diaKey, diaKnitProblem, knitLabel } from "@/lib/orders/fabric-bom/dia-knit";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { fabricFormLabel } from "@/lib/orders/fabric-bom/component-map";
 import {
@@ -139,6 +150,7 @@ import {
 import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
 import {
+  addPlanRow,
   derivePlanRows,
   expandPlanCells,
   familyDias,
@@ -148,6 +160,7 @@ import {
   planCellsForStage,
   plannedColours,
   planReqKgs,
+  removePlanRow,
   setPlanCell,
   stalePlanRows,
   type PlanAxes,
@@ -383,6 +396,94 @@ function PaletteTable<T extends { key: string }>({
   );
 }
 
+/**
+ * THE PENDING / UPDATED / DRAFT BOX (user, 2026-09-23: "in budget we have
+ * pending, update, draft button need to implement same order module fully").
+ * The three words are read over this list's own "Not started / Draft / Saved"
+ * — the Fabric BOM column's words — as the question the box asks on the order
+ * BOM queues and Budgeting: is the work still to do, or done.
+ *   Pending = Not started — a work order with no Fabric BOM yet: the work
+ *                           waiting on whoever opens this list
+ *   Updated = Saved       — the Fabric BOM is written and final
+ *   Draft   = Draft       — saved as draft, not finished
+ * Every row is one of the three. The drawer's Fabric BOM facet asks the same
+ * question, so the box stands down while it is set (the Budget Approval rule,
+ * `useQuickStatus`'s `standDown`).
+ */
+const bomWord = (t: IwoFabricBomTask): QuickWord => (!t.bom ? "pending" : t.bom.is_draft ? "draft" : "updated");
+
+/**
+ * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
+ * Material BOM filter in every Orders child"). The list had no filter bar at
+ * all. Every facet is read off the `IwoFabricBomTask` the table already shows,
+ * so none costs a query.
+ */
+const IWO_FABRIC_BOM_FACETS: FacetGroup<IwoFabricBomTask>[] = [
+  {
+    title: "Status & dates",
+    icon: <CalendarRange />,
+    facets: [
+      {
+        key: "bom",
+        label: "Fabric BOM",
+        all: "All",
+        wide: true,
+        counted: true,
+        options: [
+          { value: "none", label: "Not started" },
+          { value: "draft", label: "Draft" },
+          { value: "saved", label: "Saved" },
+        ],
+        match: (t, v) => (!t.bom ? "none" : t.bom.is_draft ? "draft" : "saved") === v,
+      },
+      { key: "iwoDate", label: "Date", all: "Any date", date: (t) => t.iwo_date },
+      { key: "deliDate", label: "Deli Dt", all: "Any date", date: (t) => t.deli_date },
+    ],
+  },
+  {
+    title: "Work order",
+    icon: <ClipboardList />,
+    facets: [
+      {
+        key: "for",
+        label: "For",
+        all: "Yarn & Fabric",
+        wide: true,
+        counted: true,
+        options: [
+          { value: "yarn", label: IWO_FOR_LABELS.yarn },
+          { value: "fabric", label: IWO_FOR_LABELS.fabric },
+        ],
+        match: (t, v) => t.iwo_for === v,
+      },
+      {
+        key: "iwoStatus",
+        label: "Work Order Status",
+        all: "All",
+        counted: true,
+        options: IWO_STATUSES.map((s) => ({ value: s, label: IWO_STATUS_LABELS[s] })),
+        match: (t, v) => t.status === v,
+      },
+      flagFacet<IwoFabricBomTask>(
+        "lines",
+        "Fabric Lines",
+        (t) => (t.bom?.iwo_fabric_bom_lines.length ?? 0) > 0,
+        "Has lines",
+        "No lines yet",
+      ),
+    ],
+  },
+  {
+    title: "Delivery & created",
+    icon: <Users />,
+    facets: [
+      { ...urgencyFacet<IwoFabricBomTask>((t) => t.deli_date), wide: true },
+      createdDateFacet(),
+      createdByFacet(),
+    ],
+  },
+];
+
 export function IwoFabricBomScreen({
   tasks,
   data,
@@ -457,6 +558,27 @@ export function IwoFabricBomScreen({
   const shellRef = useRef<MasterFullScreenHandle>(null);
 
   const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+
+  // THE LIST'S FILTERS — hooks here, near the top: this component has no early
+  // return today, and a hook down by the list would be the first to break if
+  // one is added (AGENTS.md, hooks above every early return).
+  const [listQuery, setListQuery] = useState("");
+  const listFacets = useFacetFilter(tasks, IWO_FABRIC_BOM_FACETS);
+  const facetMatches = listFacets.matches;
+  const quick = useQuickStatus(bomWord, {
+    standDown: !!listFacets.values.bom,
+    onPick: () => listFacets.set("bom", ""),
+  });
+  const qm = quick.matches;
+  const listed = useMemo(() => {
+    const needle = listQuery.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (!facetMatches(t)) return false;
+      if (!qm(t)) return false;
+      if (!needle) return true;
+      return [t.code, t.reference_no, t.remarks].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+  }, [tasks, listQuery, facetMatches, qm]);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
 
   /** The IWO picker offers work orders WITHOUT a BOM — one BOM per IWO (0581);
@@ -947,7 +1069,7 @@ export function IwoFabricBomScreen({
       return {
         row: i + 1,
         message:
-          `Fabric line ${i + 1}: ${what}${kgs ? ` (${kgs} KGS)` : ""} is no longer declared — clear its weight, ` +
+          `Fabric line ${i + 1}: ${what}${kgs ? ` (${kgs} KGS)` : ""} is no longer declared — pick a declared value on that row, remove the row, ` +
           (fabricStageRank(l.stage_id) === 0
             ? "or change the Stage back."
             : "or declare it again on the Fabric BOM section's panels."),
@@ -963,7 +1085,11 @@ export function IwoFabricBomScreen({
    *  with this BOM's own prints as the Print gate. */
   const routeBlockers = [
     ...stageRouteProblems(procs, data.processes, data.processLookups.stages, {
-      gatesFor: (itemId) => ({ printDeclared, fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)) }),
+      gatesFor: (itemId) => ({
+        printDeclared,
+        fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)),
+        fabricIsPieceDyed: isPieceDyed(fabricTypeOf(itemId)),
+      }),
       fabricName: (itemId) => fabricById.get(itemId)?.name ?? "This fabric",
     }),
     // Phase 2 — a GREIGE fabric's route stops at Greige (the save's rule too).
@@ -1516,38 +1642,69 @@ export function IwoFabricBomScreen({
 
   /**
    * FABRIC CONSUMPTION — screenshot 2940 / SRS §4: the garment breakdown is
-   * bypassed, so the weight is TYPED. ONE CARD PER FABRIC, ITS ROWS DERIVED
-   * (user 2026-09-22, screenshot 3000; plan.ts): the card header carries what
-   * the fabric says once — Stage, Form, GSM — and the grid beneath one row per
-   * (Fabric Colour × finish dia of the fabric's family), × Roll form print on
-   * a PRINT stage, dias only on GREIGE. The operator types a weight per row
-   * and nothing else; a row left blank is not stored. The Yarn Process idiom:
-   * nothing is added here, nothing removed.
+   * bypassed, so the weight is TYPED. ONE CARD PER FABRIC: the card header
+   * carries what the fabric says once — Stage, Form, GSM — and the grid
+   * beneath holds the rows the OPERATOR ADDS (user, 2026-09-23: "in fabric
+   * consumption there is one error, the dia auto derivation"; plan.ts). Each
+   * row's Colour, Print and Finish Dia are PICKED — from the Fabric Colour
+   * panel, the Prints panel and the dias of the fabric's knit family only —
+   * and nothing is pre-filled. Until then (09-22) the rows were derived, one
+   * per colour × EVERY family dia, which put dias nobody chose on the card.
    *
    * WIDTHS (check:grid-budget): term 176 (Colour) + code 144 (Print) + hug 88
-   * (Finish Dia) + range 112 (Req Wt) + range 112 (Gross Yarn) = 632 + 40
-   * chrome (`#` only — no ✕) = 672 <= 1155. Colour and Print are drawn only on
-   * the stages that ask for them, so a GREIGE card is dia · weight · gross.
+   * (Finish Dia) + range 112 (Req Wt) + range 112 (Gross Yarn) = 632 + 72
+   * chrome (`#` + ✕) = 704 <= 1155. Colour and Print are drawn only on the
+   * stages that ask for them, so a GREIGE card is dia · weight · gross.
    *
-   * THE READ-ONLY CELLS ARE TEXT, NOT BOXES (the order Manual grid's Size
-   * column): a `readOnly` input would still sit on the row's arrow axis, and
-   * Tab is meant to walk the weights and nothing else.
+   * REQUIRED EXACTLY WHERE `lines.ts` REFUSES WITHOUT IT — Colour and Finish
+   * Dia from a dyed stage up, Print on a PRINT stage — so the star, the cursor
+   * hold and Save state one rule. A GREIGE line may go without a dia.
    */
   const cardRowsFor = (l: LineRow) => derivePlanRows(l.cells, planAxesFor(l));
-  const setCellWeight = (l: LineRow, row: PlanDisplayRow, v: string) => patchLine(l.key, { cells: setPlanCell(l.cells, row, v) });
-  const cardCell = (r: PlanDisplayRow, value: string) => (
-    <span className={cn("text-sm", !r.declared && "text-danger")}>
-      {value || <span className="text-muted-foreground">—</span>}
-      {!r.declared && <span className="ml-1 text-xs">(not declared)</span>}
-    </span>
-  );
-  const consumptionColumns = (l: LineRow, rank: number | null): ChildGridColumn<PlanDisplayRow>[] => [
+  const setCell = (l: LineRow, row: PlanDisplayRow, patch: Partial<PlanDisplayRow>) =>
+    patchLine(l.key, { cells: setPlanCell(l.cells, row, patch) });
+  /**
+   * ONE AXIS PICKER — a native `<Select>` over what the panel declares. A value
+   * the row holds that the panel no longer names stays selectable ONLY as
+   * itself, tagged "(not declared)", so the field never reads blank while the
+   * row still stores it (AGENTS.md "Disabled rows": the held value survives).
+   */
+  const axisPicker = (
+    r: PlanDisplayRow,
+    label: string,
+    value: string,
+    options: readonly string[],
+    keyOf: (v: string) => string,
+    onPick: (v: string) => void,
+  ) => {
+    const held = value.trim() && !options.some((o) => keyOf(o) === keyOf(value)) ? value : "";
+    return (
+      <Select
+        compact
+        aria-label={label}
+        value={held || options.find((o) => keyOf(o) === keyOf(value)) || ""}
+        onChange={(e) => onPick(e.target.value)}
+        className={cn(!r.declared && held && "text-danger")}
+      >
+        <option value="" />
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+        {held && <option value={held}>{held} (not declared)</option>}
+      </Select>
+    );
+  };
+  const consumptionColumns = (l: LineRow, rank: number | null, axes: PlanAxes): ChildGridColumn<PlanDisplayRow>[] => [
     ...(rank !== 0
       ? [
           {
             header: "Colour",
             width: FIELD_WIDTH_CSS.term,
-            cell: (r: PlanDisplayRow) => cardCell(r, r.color_name),
+            required: rank != null,
+            cell: (r: PlanDisplayRow) =>
+              axisPicker(r, "Colour", r.color_name, axes.colours, comboKey, (v) => setCell(l, r, { color_name: v })),
           },
         ]
       : []),
@@ -1556,19 +1713,21 @@ export function IwoFabricBomScreen({
           {
             header: "Print",
             width: FIELD_WIDTH_CSS.code,
-            cell: (r: PlanDisplayRow) => cardCell(r, r.print_name),
+            required: true,
+            cell: (r: PlanDisplayRow) =>
+              axisPicker(r, "Print", r.print_name, axes.prints, comboKey, (v) => setCell(l, r, { print_name: v })),
           },
         ]
       : []),
     {
       header: "Finish Dia",
       width: FIELD_WIDTH_CSS.hug,
-      cell: (r) => cardCell(r, r.finish_dia),
+      required: rank != null && rank >= 1,
+      cell: (r) => axisPicker(r, "Finish Dia", r.finish_dia, axes.dias, diaKey, (v) => setCell(l, r, { finish_dia: v })),
     },
     {
-      // NOT STARRED: a derived row may be unused, and a hold here would cage
-      // the cursor on every blank combination. The rule is per fabric — one
-      // weighted row at least — and `lineProblems` says so under the card.
+      // NOT STARRED: the rule is per fabric — one weighted row at least — and
+      // a row with a dia and no weight is refused by name under the card.
       header: "Req Wt (KGS)",
       align: "right",
       width: FIELD_WIDTH_CSS.range,
@@ -1579,7 +1738,7 @@ export function IwoFabricBomScreen({
           inputMode="decimal"
           aria-label={`Req Wt (KGS) — ${[r.color_name, r.finish_dia, r.print_name].filter(Boolean).join(" · ") || "this fabric"}`}
           value={r.req_kgs}
-          onChange={(e) => setCellWeight(l, r, e.target.value)}
+          onChange={(e) => setCell(l, r, { req_kgs: e.target.value })}
         />
       ),
     },
@@ -1597,16 +1756,32 @@ export function IwoFabricBomScreen({
       },
     },
   ];
-  /** The card's rows below the table breakpoint — the axes as the title, one box. */
-  const cardRowMobile = (l: LineRow, r: PlanDisplayRow) => (
+  /** The card's rows below the table breakpoint — the same cells, stacked.
+   *  `required` is declared on each `Field` as well: a grid that renders its
+   *  own row never routes the column's `required` into it (AGENTS.md, "A grid
+   *  that renders its own row must declare required twice"). */
+  const cardRowMobile = (l: LineRow, r: PlanDisplayRow, rank: number | null, axes: PlanAxes) => (
     <FieldGrid>
-      <Field label={[r.color_name, r.print_name, r.finish_dia].filter(Boolean).join(" · ") || "Weight"} size="sm">
+      {rank !== 0 && (
+        <Field label="Colour" size="sm" required={rank != null}>
+          {axisPicker(r, "Colour", r.color_name, axes.colours, comboKey, (v) => setCell(l, r, { color_name: v }))}
+        </Field>
+      )}
+      {rank === 2 && (
+        <Field label="Print" size="sm" required>
+          {axisPicker(r, "Print", r.print_name, axes.prints, comboKey, (v) => setCell(l, r, { print_name: v }))}
+        </Field>
+      )}
+      <Field label="Finish Dia" size="sm" required={rank != null && rank >= 1}>
+        {axisPicker(r, "Finish Dia", r.finish_dia, axes.dias, diaKey, (v) => setCell(l, r, { finish_dia: v }))}
+      </Field>
+      <Field label="Req Wt (KGS)" size="sm">
         <Input
           className="h-8 text-right"
           inputMode="decimal"
           aria-label="Req Wt (KGS)"
           value={r.req_kgs}
-          onChange={(e) => setCellWeight(l, r, e.target.value)}
+          onChange={(e) => setCell(l, r, { req_kgs: e.target.value })}
         />
       </Field>
     </FieldGrid>
@@ -2128,7 +2303,6 @@ export function IwoFabricBomScreen({
               const rank = fabricStageRank(l.stage_id);
               const axes = planAxesFor(l);
               const rows = cardRowsFor(l);
-              const declared = rows.filter((r) => r.declared).length;
               const fabric = fabricById.get(l.item_id);
               const family = knitLabel(lineKnitCode(l));
               /* NOTHING TO DERIVE — SAY WHICH PANEL, never a blank grid. The
@@ -2140,11 +2314,11 @@ export function IwoFabricBomScreen({
                 rank == null
                   ? null
                   : rank === 2 && axes.prints.length === 0
-                    ? "Declare the prints on the Roll form prints panel — a PRINT card has one row per colour, print and dia."
+                    ? "Declare the prints on the Roll form prints panel — a PRINT row picks its Print from there."
                     : rank !== 0 && axes.colours.length === 0
-                      ? "Declare the colours on the Fabric Colour panel — a coloured card has one row per colour and dia."
+                      ? "Declare the colours on the Fabric Colour panel — each row picks its Colour from there."
                       : rank !== 0 && axes.dias.length === 0
-                        ? `Declare a ${family ? `${family} ` : ""}dia on the Dia panel — a coloured card has one row per colour and dia.`
+                        ? `Declare a ${family ? `${family} ` : ""}dia on the Dia panel — each row picks its Finish Dia from there.`
                         : null;
               return (
                 /* ONE CARD PER FABRIC. Capped so the table hugs its columns
@@ -2194,7 +2368,9 @@ export function IwoFabricBomScreen({
                       </Field>
                     </FieldRow>
                   </div>
-                  {empty && declared === 0 && (
+                  {/* SHOWN WHENEVER A PICKER WOULD BE EMPTY — the rows are
+                      added now, so "no rows yet" is no longer the signal. */}
+                  {empty && (
                     <div className="px-3 py-2">
                       <p className="text-sm text-muted-foreground">{empty}</p>
                       <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => shellRef.current?.goToSection("bom")}>
@@ -2203,19 +2379,19 @@ export function IwoFabricBomScreen({
                     </div>
                   )}
                   {rows.length > 0 && (
-                    /* default-row: exempt -- rows are DERIVED from the panels (one per colour × dia), never added; a blank weight is simply not stored */
+                    /* Opens on ONE blank row (`derivePlanRows`' seed) and grows by
+                       "+ Add"; removing the last row leaves the blank one. */
                     <ChildGrid<PlanDisplayRow>
-                      columns={consumptionColumns(l, rank)}
+                      columns={consumptionColumns(l, rank, axes)}
                       rows={rows}
                       startIndex={0}
                       flatRows
                       frameless
-                      hideAdd
-                      hideRemove
-                      onAdd={() => false}
-                      onRemove={() => {}}
+                      addLabel="+ Add row"
+                      onAdd={() => patchLine(l.key, { cells: addPlanRow(l.cells) })}
+                      onRemove={(r) => patchLine(l.key, { cells: removePlanRow(l.cells, r.key) })}
                       totalsLabel="Fabric subtotal"
-                      renderMobileRow={(r) => cardRowMobile(l, r)}
+                      renderMobileRow={(r) => cardRowMobile(l, r, rank, axes)}
                     />
                   )}
                 </div>
@@ -2347,6 +2523,7 @@ export function IwoFabricBomScreen({
                   }
                   printDeclared={printDeclared}
                   fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
+                  fabricIsPieceDyed={isPieceDyed(fabricTypeOf(r.item_id))}
                   source="yarn_knit"
                   /* 0613 — COLOR WISE lists this fabric's line Colours, each
                      with its own loss (the order screen passes `r.combos`; an
@@ -2375,11 +2552,27 @@ export function IwoFabricBomScreen({
           description="The Fabric BOM for an Internal Work Order For Yarn or Fabric — no garment breakdown; the weight is typed."
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Fabric BOM</Button> : undefined}
         />
+        <FilterBar
+          leading={quick.segment}
+          search={listQuery}
+          onSearch={setListQuery}
+          searchPlaceholder="Search I.WO No, RE No or remarks…"
+          activeCount={listFacets.activeCount}
+          onReset={listFacets.activeCount ? listFacets.reset : undefined}
+          panel={listFacets.panel}
+          right={`${listed.length} of ${tasks.length}`}
+        />
         <DataTable
           columns={withCreatedColumns(columns, tasks)}
-          rows={tasks}
+          rows={listed}
           getKey={(t) => t.id}
-          empty="No Internal Work Orders For Yarn or Fabric at this unit yet."
+          empty={
+            !tasks.length
+              ? "No Internal Work Orders For Yarn or Fabric at this unit yet."
+              : quick.value
+                ? `No ${quick.value} work orders${listFacets.activeCount || listQuery ? " match these filters" : ""}.`
+                : "No work orders match these filters."
+          }
         />
       </div>
 

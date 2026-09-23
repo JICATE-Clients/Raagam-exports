@@ -21,9 +21,9 @@
  * (`iwo_for_lock`), since the BOM would be left planning the wrong kind.
  */
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardList } from "lucide-react";
+import { CalendarRange, ClipboardList, Layers, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -41,6 +41,15 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import {
+  createdByFacet,
+  createdDateFacet,
+  urgencyFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -55,6 +64,7 @@ import {
 import {
   IWO_FOR,
   IWO_FOR_LABELS,
+  IWO_STATUSES,
   IWO_STATUS_LABELS,
   isIwoFor,
   iwoStatusTone,
@@ -133,6 +143,101 @@ const bomPill = (b: IwoRow["bom"]) =>
     <StatusPill tone="success">Saved</StatusPill>
   );
 
+/**
+ * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
+ * Material BOM filter in every Orders child"). The list had no filter bar at
+ * all. Three questions, every facet read off the `IwoRow` the table already
+ * shows, so none costs a query: where the work order stands, what its plan and
+ * budget have reached, and when it is due / who raised it.
+ *
+ * BOM and Budget buckets are the same words as the pills in their columns
+ * (`bomPill` / `budgetPill`), so a pick reads as the column it narrows.
+ */
+/**
+ * THE PENDING / UPDATED / DRAFT BOX (user, 2026-09-23: "in budget we have
+ * pending, update, draft button need to implement same order module fully").
+ * Read over the work order's OWN status, the column this list leads with:
+ *   Pending = Issued    — raised and sent out, its procurement still to be
+ *                         planned and run: the work waiting on this list
+ *   Updated = Completed — done
+ *   Draft   = Draft     — saved, not yet issued
+ * Cancelled is none of the three, so it shows only while the box is dark.
+ * The drawer's Status facet asks the same question, so the box stands down
+ * while it is set (the Budget Approval rule, `useQuickStatus`'s `standDown`).
+ */
+const iwoWord = (r: IwoRow): QuickWord | null =>
+  r.status === "issued" ? "pending" : r.status === "completed" ? "updated" : r.status === "draft" ? "draft" : null;
+
+const IWO_FACETS: FacetGroup<IwoRow>[] = [
+  {
+    title: "Status & dates",
+    icon: <CalendarRange />,
+    facets: [
+      {
+        key: "status",
+        label: "Status",
+        all: "All statuses",
+        wide: true,
+        counted: true,
+        options: IWO_STATUSES.map((s) => ({ value: s, label: IWO_STATUS_LABELS[s] })),
+        match: (r, v) => r.status === v,
+      },
+      { key: "iwoDate", label: "Date", all: "Any date", date: (r) => r.iwo_date },
+      { key: "deliDate", label: "Deli Dt", all: "Any date", date: (r) => r.deli_date },
+    ],
+  },
+  {
+    title: "For & plan",
+    icon: <Layers />,
+    facets: [
+      {
+        key: "for",
+        label: "For",
+        all: "All kinds",
+        wide: true,
+        counted: true,
+        options: IWO_FOR.map((f) => ({ value: f, label: IWO_FOR_LABELS[f] })),
+        match: (r, v) => r.iwo_for === v,
+      },
+      {
+        key: "bom",
+        label: "BOM",
+        all: "Any",
+        counted: true,
+        options: [
+          { value: "none", label: "Not started" },
+          { value: "draft", label: "Draft" },
+          { value: "saved", label: "Saved" },
+        ],
+        match: (r, v) => (!r.bom ? "none" : r.bom.is_draft ? "draft" : "saved") === v,
+      },
+      {
+        key: "budget",
+        label: "Budget",
+        all: "Any",
+        counted: true,
+        options: [
+          { value: "none", label: "Not started" },
+          { value: "draft", label: "Draft" },
+          { value: "submitted", label: "Submitted" },
+          { value: "approved", label: "Approved" },
+          { value: "rejected", label: "Rejected" },
+        ],
+        match: (r, v) => (r.budget?.status ?? "none") === v,
+      },
+    ],
+  },
+  {
+    title: "Delivery & created",
+    icon: <Users />,
+    facets: [
+      { ...urgencyFacet<IwoRow>((r) => r.deli_date), wide: true },
+      createdDateFacet(),
+      createdByFacet(),
+    ],
+  },
+];
+
 export function IwoScreen({
   rows,
   perms,
@@ -180,6 +285,25 @@ export function IwoScreen({
   };
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
+
+  // ---- the list's filters (this component has no early return) --------------
+  const [query, setQuery] = useState("");
+  const facets = useFacetFilter(rows, IWO_FACETS);
+  const facetMatches = facets.matches;
+  const quick = useQuickStatus(iwoWord, {
+    standDown: !!facets.values.status,
+    onPick: () => facets.set("status", ""),
+  });
+  const qm = quick.matches;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (!facetMatches(r)) return false;
+      if (!qm(r)) return false;
+      if (!needle) return true;
+      return [r.code, r.reference_no, r.remarks].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+  }, [rows, query, facetMatches, qm]);
 
   const set = (patch: Partial<Form>) => {
     setForm((f) => ({ ...f, ...patch }));
@@ -560,11 +684,27 @@ export function IwoScreen({
             perms.canCreate ? <Button onClick={openAdd}>New work order</Button> : undefined
           }
         />
+        <FilterBar
+          leading={quick.segment}
+          search={query}
+          onSearch={setQuery}
+          searchPlaceholder="Search I.WO No, RE No or remarks…"
+          activeCount={facets.activeCount}
+          onReset={facets.activeCount ? facets.reset : undefined}
+          panel={facets.panel}
+          right={`${filtered.length} of ${rows.length}`}
+        />
         <DataTable
           columns={withCreatedColumns(columns, rows)}
-          rows={rows}
+          rows={filtered}
           getKey={(r) => r.id}
-          empty="No internal work orders yet."
+          empty={
+            !rows.length
+              ? "No internal work orders yet."
+              : quick.value
+                ? `No ${quick.value} work orders${facets.activeCount || query ? " match these filters" : ""}.`
+                : "No work orders match these filters."
+          }
         />
       </div>
 

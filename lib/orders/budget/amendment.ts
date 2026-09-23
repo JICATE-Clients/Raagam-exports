@@ -121,7 +121,7 @@ function istDay(value: string): string {
  * words. The spec's own headline (doc/order/amendment.md §1), sentence case:
  *
  *   Selected budget has been approved — RE <no>, budget <code>, approved on
- *   <dd/mm/yyyy>. Direct edits are disabled. Please use Garment Order Amendment.
+ *   <dd/mm/yyyy>. Direct edits are disabled. Raise an Order Revision to change it.
  *
  * It names the way out, and the way out is now a door the merchandiser can
  * open (Orders ▸ Order Amendments) rather than the approver's Reopen. The RE
@@ -146,7 +146,7 @@ export function orderLockMessage(v: {
   if (code) facts.push(`budget ${code}`);
   if (at) facts.push(`approved on ${fmtDate(istDay(at))}`);
   const tail = facts.length > 0 ? ` — ${facts.join(", ")}` : "";
-  return `Selected budget has been approved${tail}. Direct edits are disabled. Please use Garment Order Amendment.`;
+  return `Selected budget has been approved${tail}. Direct edits are disabled. Raise an Order Revision to change it.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ export type BudgetKpis = {
   total_expenses: number | Refusal;
   profit: number | Refusal;
   profit_pct: number | Refusal;
-  /** Cost per piece MADE (SQ Qty). */
+  /** Cost per piece MADE (Cut Qty). */
   cost_per_piece: number | Refusal;
 };
 

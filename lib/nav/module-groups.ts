@@ -548,6 +548,16 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // disappeared.
           { href: "/orders/ta-followup", label: "TA Followup", description: "Mark PP and other T&A approvals Sent / Approved / Rework, and chase what is overdue" },
           { href: "/orders/ta-worklist", label: "TA Worklist", description: "Your department's activities due today, and what is running late" },
+          /* ORDER AMENDMENTS MOVE IN HERE (user 2026-09-23, screenshot 3032:
+             "the amendment doesn't have the module name, it's directly listing
+             the child"). It stood as a standalone `kind: "link"` row between
+             the group headings, so it read as a stray item. Changing an
+             approved order is order management — it follows Approval in the
+             order's own life — so it is a child of this group, the same move
+             TA Followup / TA Worklist made on 2026-09-12. A group of its own
+             would be one card on a hub in front of one screen (the register;
+             Raise and the workspace are pages beneath it, not rows). */
+          { href: "/orders/order-amendments", label: "Order Revisions", description: "Change an approved order — raise a revision, make the change, send it to the MD" },
         ],
       },
       // ORDER AMENDMENTS — A SUB-MODULE ROW OF ITS OWN (doc/order/amedment.md
@@ -567,7 +577,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // The route is `order-amendments`, not `amendments`: `/orders/amendments`
       // is the legacy amend door over `GarmentOrderScreen` (a child of
       // `retired`), and this row's "Open order" lands there with `?open=<id>`.
-      { kind: "link", href: "/orders/order-amendments", label: "Order Amendments" },
+      /* (Order Amendments was a standalone `link` row here until 2026-09-23 — it
+         is now a child of Order Management, above.) */
       // THE REGISTER IS OFF THE MENU (client 2026-08-17). It is the fourth child
       // of `retired` at the bottom of this table, and the note there says why the
       // group now holds two different kinds of screen.

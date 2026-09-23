@@ -1249,18 +1249,54 @@ sheet as committed before the registry.
 **An approved order is changed only through an Amendment Entry, and the entry's
 scope is enforced in the database.** `Orders ▸ Order Amendments` is the register
 (0604 · 0616, 2026-09-22): the merchandiser raises an entry on an APPROVED RE —
-who asked, one or more Change Categories, mandatory remarks — and the RE moves to
-`amending` with the UNION of those categories' `(table, columns)` allowlists
-frozen on the entry. `refuse_when_order_locked()` reads that frozen scope, so a
+who asked, which MODULES change, mandatory remarks — and the RE moves to
+`amending` with the UNION of those kinds' `(table, columns)` allowlists frozen on
+the entry. `refuse_when_order_locked()` reads that frozen scope, so a
 stale tab, `lib/data-io` or a second window is refused the same way the screen
 is. `open` / `amending` / `approved` are the three states; `sync_re_status_from_budget`
 never drags an amending order back to `open`.
 
+- **THE OPERATOR'S WORD IS "REVISION" (client, 2026-09-23; 0623).** Every label,
+  button, badge and message says Revision — Orders ▸ Order Management ▸ Order
+  Revisions, Raise Revision, Rev #n, Waiting Revision — and the two database
+  sentences (`order_lock_message`, `order_amendment_refusal`) with their TS twins.
+  LABELS ONLY: tables, functions, routes (`/orders/order-amendments`) and the
+  `AMD/26-27/0001` numbering keep the old word, so no link or entry broke.
+- **AN AMENDMENT IS WORKED INSIDE ITS OWN PAGE (user 2026-09-23).** The register
+  is the one way in (Raise Amendment → order picker); Order Entry's three-dot menu
+  carries no Amend items, and Order Entry / the BOM screens show an amending order
+  READ-ONLY with a sentence pointing at Orders ▸ Order Amendments. The workspace
+  `/orders/order-amendments/<entry>` has tabs — Overview · Order · Fabric BOM ·
+  Material BOM · Budget — each hosting that module's OWN editor on the order
+  through `useEmbeddedEditor` (open the one record, hide the list, return to the
+  Overview on Save / Cancel). Never copy an editor into the amendment; embed it.
+  Send to MD and + Add module live on the Overview.
+- **THE MODULE IS THE CHOICE (0619, doc/order/amenment update.md §2).** Order
+  Entry · Material BOM · Fabric BOM · Order Budget. Order Entry is picked with its
+  detail (the five order kinds — PO Qty, Delivery Date, FOB Price, Color Combos);
+  each other module IS one kind (`material_bom_revision`, `fabric_bom_revision`,
+  `budget_revision`). The module is DERIVED from the kinds (`modulesOf`), never a
+  second column. **An unpicked module stays read-only** — "Order Entry + Fabric
+  BOM keeps Material BOM read-only" is asserted by `check:amendment-scope`.
+- **A quantity or colourway kind opens the BOMs' DERIVED rows only**
+  (`BOM_DERIVED_SCOPE`: requirements, yarn purchase / stage process weights, the
+  header's computed stamp) — so an untouched BOM recalculates while its authored
+  rows stay as approved. Never widen that back to the whole BOM (0604 / 0618
+  did; 0619 narrowed it).
+- **The budget has no trigger lock, so its module rule lives in
+  `lib/orders/budget/amendment-scope.ts`**, read by the screen AND by
+  `updateOrderBudget` / `submitBudget`: without Order Budget picked, Expenses,
+  CMT and every rate the approved version priced stay as approved; an UNPRICED
+  line stays open, because Manual Entry Needed sends the operator to exactly it.
+  The frozen scope carries a marker (`order_budget_lines`) the trigger ignores.
 - **The TS mirror is `lib/orders/amendments/amendment-entry.ts`** and
-  `npm run check:amendment-scope` (inside `build:check`) holds it to 0604's seed.
+  `npm run check:amendment-scope` (inside `build:check`) replays the seed —
+  0604, then 0618, then 0619's four operations, each of which must be FOUND.
   Edit the seed and the mirror together, or the build fails — deliberately.
 - **A write action names its AREA**: `assertOrderWritable(orderId, "order" |
-  "fabric_bom" | "material_bom")`. Never a constant "any" — a guard phrased as
+  "fabric_bom" | "material_bom")`; a BOM recalculation calls
+  `assertOrderRecalculable(orderId, area)` instead, which also passes where only
+  the derived rows are open. Never a constant "any" — a guard phrased as
   "restrict only in case X" leaks through every state that is not X.
 - **The Order Entry save is scope-aware**: the header patch is narrowed to the
   open columns and a grid the scope does not open for insert AND delete is
@@ -1270,14 +1306,39 @@ never drags an amending order back to `open`.
   lifts the lock only for an area in the set the SERVER resolved from the frozen
   scope (`MasterFullScreen locked.open`). Sections unlock whole by rail key; three
   header fields unlock by name (`delivery_date`, `excess_pct`, `money_terms`).
-- **Propagation is stale-and-gate, never a silent recompute.** Hand-authored rows
-  are never rewritten; `refuseUnreadyOrders` refuses a budget whose BOM reads
-  `recalculate`, and the entry page lists what to open and save.
+- **Propagation recomputes DERIVED rows only, never authored ones.** Hand-authored
+  rows are never rewritten; derived rows are recalculated automatically from the
+  stored authored rows (`recalculateFabricBomDerived` /
+  `recalculateMaterialBomDerived`), and `refuseUnreadyOrders` still refuses a
+  budget whose BOM reads `recalculate`. What a recalculation cannot fill (a new
+  colourway with no fabric weight, a line with no rate) is a **Manual Entry
+  Needed** item in the spec's sentence (`lib/orders/amendments/manual-entry.ts`)
+  with a deep link to the exact cell (`/orders/budgets?budget=&line=&field=`).
+- **Submit re-verifies each picked module** (`amendmentSubmitProblem`): Order
+  Entry's stored Style PO Qty against its Quantities, and a Fabric BOM computed
+  SINCE the entry opened.
 - **The register's Status is derived** (`entryStatusOf`: outcome × budget status)
-  and its Margin Delta is two stored KPI sets compared — nothing there computes a
-  profit. Re-approval closes the entry IN THE TRIGGER (`approval_apply_terminal`);
-  Abandon restores V0 only when `order_amendment_changes` is empty, otherwise the
-  RE stays open for a fresh approval. A snapshot RESTORE is deliberately not built.
+  — the spec's DRAFT · PENDING_MD_APPROVAL · APPROVED · REJECTED, plus Abandoned /
+  Superseded — and lists ONLY orders with an entry (spec §1); the way to a
+  never-amended order is Raise Amendment's order picker. Its Margin Delta reads the
+  entry's own `amended_kpis` (stored at submit) — nothing there computes a profit.
+- **REJECT REVERTS TO V0, INSIDE THE TRIGGER (0619).** `approval_apply_terminal`
+  calls `order_amendment_revert`: the order, both BOMs (from `order_snapshot`,
+  children deleted deepest-first, V0 upserted parents-first by id) and the budget
+  (from `budget_snapshot`) go back exactly, the budget's V0 approval re-locks the
+  RE, and the entry closes `rejected` with the MD's reason. A revert that cannot
+  complete rolls back to its savepoint and NEVER loses the reject — the entry
+  stays open (`returned`) and `revert_error` says why. Abandon uses the same
+  revert. The lock stands down only for the order whose open entry carries
+  `reverting_txid = txid_current()`, a column no client can write.
+- **V_FINAL (spec §4B).** At the FIRST raise, every per-order report is run by its
+  own loader and frozen in `order_amendment_report_snapshots`
+  (`captureVFinal`); while the order is amending every report route and both
+  editors' report sheets print that frozen copy (`vFinalFor`), with a banner and
+  a "show proposed" switch. Each `ORDER_REPORTS` entry names its `vFinal` source,
+  and `check:order-reports` fails a report page that does not ask for it. A
+  superseding raise copies the frozen copy; it never re-captures (the live rows
+  are already amended by then).
 - **`order_budget_revisions` ↔ `garment_order_amendments` is PGRST201-ambiguous
   in BOTH directions** since 0604 — always `!garment_order_id` / `!re_amendment_id`
   (declared in `check-embeds.mjs`). And `check:embeds` cannot see a select held in

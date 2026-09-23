@@ -1,13 +1,27 @@
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { isRefusal, type GosPanel, type GosSheet, type GosStyle } from "@/lib/orders/gos/types";
+import type { ReportStyleImage, ReportStyleImages } from "@/lib/orders/gos/style-images";
+import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
+import { CONSTRUCTION_ONLY, DASH, gosHeaderColumns, gosStyleFacts, txt } from "@/lib/orders/gos/format";
 import { DocumentPrintStyles } from "./document-print-styles";
+import { GosStyleImages } from "./gos-style-images";
+import { GosToolbar } from "./gos-toolbar";
 
 /**
  * THE GARMENT ORDER SHEET, as it prints.
  *
  * A server component: it takes a fully-resolved `GosSheet` and renders it. No
- * state, no effects, nothing to hydrate — a document has no behaviour beyond
- * the Print button, which is its own client island.
+ * state, no effects, nothing to hydrate — the Excel / Print / Download PDF
+ * buttons are their own client island (`GosToolbar`).
+ *
+ * ## THE ORDER DOCUMENTS' FORMAT (client 2026-09-23)
+ *
+ * "Follow our new format of view": the same letterhead (green rule, logo,
+ * company + registered address, blue title), boxed header and table grammar
+ * as the Cutting Chart, the Budget Statement and the Fabric BOM reports, and
+ * their Prepared / Checked / Approved foot. Nothing the sheet SAYS changed —
+ * the RE Number is still the biggest thing on the page, and every rule below
+ * still holds.
  *
  * ## ONE RULE FOR AN ABSENT VALUE, EVERYWHERE ON THE PAGE
  *
@@ -30,247 +44,306 @@ import { DocumentPrintStyles } from "./document-print-styles";
  * and the footer says so, so a supervisor who wants a trim knows there is
  * another sheet rather than assuming this one is incomplete.
  */
-
-/** The one absent-value token on the sheet. */
-const DASH = "—";
-
-const txt = (v: string | null | undefined) => (v && v.trim() ? v : DASH);
-
-export function GosSheetDocument({ sheet }: { sheet: GosSheet }) {
+export function GosSheetDocument({
+  sheet,
+  company,
+  styleImages = [],
+}: {
+  sheet: GosSheet;
+  /** The letterhead — read live beside the sheet, never frozen with it
+   *  (`getDocLetterhead`). */
+  company: DocLetterhead;
+  /**
+   * The pictures ticked "Print on reports" (user, 2026-09-23), loaded beside
+   * the sheet rather than inside it — see `getReportStyleImages` for why they
+   * cannot ride in the payload V_final freezes.
+   */
+  styleImages?: ReportStyleImages | { failed: string };
+}) {
   const { header } = sheet;
   const multiDestination = sheet.destinations.length > 1;
+  const contact = [company.unit, company.address, company.gstin ? `GSTIN ${company.gstin}` : null]
+    .filter(Boolean)
+    .join("  ·  ");
+
+  /* EACH STYLE'S PICTURES PRINT IN ITS OWN BLOCK, matched by the style's TEXT
+     reference — the key the files carry (0479). A group that matches no block
+     (filed against the order, or under a reference this sheet does not print)
+     goes under the header instead of being dropped: a ticked picture that
+     silently never prints is the tick lying to the operator. */
+  const imageGroups = "failed" in styleImages ? [] : styleImages;
+  const styleRefs = new Set(sheet.styles.map((st) => st.styleRef?.trim()).filter(Boolean));
+  const imagesOf = (ref: string | null | undefined) =>
+    imageGroups.find((g) => g.styleRef != null && g.styleRef === ref?.trim())?.images ?? [];
+  const unplaced = imageGroups.filter((g) => g.styleRef == null || !styleRefs.has(g.styleRef));
 
   return (
-    <article className="gos-sheet mx-auto max-w-[210mm] rounded-lg p-8 shadow-elev print:max-w-none">
-      <DocumentPrintStyles scope="gos" />
+    <div className="space-y-3">
+      <GosToolbar sheet={sheet} company={company} styleImages={styleImages} />
 
-      {/* ---- masthead ---- */}
-      <header className="gos-keep mb-4 border-b-2 border-[var(--gos-rule-strong)] pb-3">
-        <div className="flex items-start justify-between gap-6">
-          <div>
-            <p className="text-base font-bold tracking-tight">RAAGAM EXPORTS</p>
-            <h1 className="mt-0.5 text-lg font-bold uppercase tracking-wide">
-              Garment Order Sheet
-            </h1>
+      {/* `gos-sheet` + `DocumentPrintStyles` stay, so Ctrl+P on the page still
+          prints just the sheet; the print stylesheet's colour variables are
+          re-pointed at the order documents' greys (`FAMILY_VARS`). */}
+      <article className="gos-sheet" style={FAMILY_VARS}>
+        <DocumentPrintStyles scope="gos" />
+
+        {/* ---- the letterhead ---- */}
+        <header className="gos-keep overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
+          <div className="h-[3px] bg-[#85c227]" />
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-[#16181d] px-5 py-3">
+            <div className="flex min-w-0 items-center gap-4">
+              {company.logo && (
+                // A plain <img>: a stored data URL or an external Company
+                // Profile URL, which next/image would need configuring for.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={company.logo}
+                  alt={company.name ?? "Company logo"}
+                  className="h-12 w-auto shrink-0 object-contain"
+                />
+              )}
+              <div className="min-w-0">
+                <div className="text-[16px] font-bold uppercase tracking-wide text-[#16181d]">
+                  {company.name ?? "RAAGAM EXPORTS"}
+                </div>
+                {contact && <div className="mt-0.5 text-[11.5px] text-[#5b6472]">{contact}</div>}
+              </div>
+            </div>
+            <div className="text-right">
+              <h1 className="text-[12.5px] font-bold uppercase tracking-[.12em] text-[#037bb8]">
+                Garment Order Sheet
+              </h1>
+              {/*
+               * THE RE NUMBER IS THE BIGGEST THING ON THE PAGE, on purpose. 500+
+               * people track every piece of work by it and by nothing else, and
+               * a sheet found face-down on a table has to be identifiable from
+               * arm's length. It is `sales_orders.order_number`, generated in
+               * the database (0395) — never rebuilt here.
+               */}
+              <p className="font-mono text-2xl font-bold leading-tight text-[#16181d]">{txt(header.reNumber)}</p>
+              {header.isDraft && (
+                // A DRAFT IS NOT A DIRECTIVE. Said in words rather than as a
+                // watermark: a faint diagonal is the first thing a photocopier
+                // loses, and this must survive being copied.
+                <p className="mt-1 inline-block border border-[#b3261e] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[#b3261e]">
+                  Draft — not confirmed
+                </p>
+              )}
+            </div>
           </div>
-          <div className="text-right">
-            {/*
-             * THE RE NUMBER IS THE BIGGEST THING ON THE PAGE, on purpose. 500+
-             * people track every piece of work by it and by nothing else, and
-             * a sheet found face-down on a table has to be identifiable from
-             * arm's length. It is `sales_orders.order_number`, generated in
-             * the database (0395) — never rebuilt here.
-             */}
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--gos-muted)]">
-              RE Number
-            </p>
-            <p className="font-mono text-2xl font-bold leading-tight">
-              {txt(header.reNumber)}
-            </p>
-            {header.isDraft && (
-              // A DRAFT IS NOT A DIRECTIVE. Said in words rather than as a
-              // watermark: a faint diagonal is the first thing a photocopier
-              // loses, and this must survive being copied.
-              <p className="mt-1 border border-[var(--gos-rule-strong)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
-                Draft — not confirmed
-              </p>
-            )}
-          </div>
-        </div>
-      </header>
+        </header>
 
-      {/* ---- mandatory header data ---- */}
-      <section className="gos-keep mb-4">
-        <dl className="grid grid-cols-4 gap-x-4 gap-y-2 text-[11px]">
-          {/*
-           * S No IS THE AMENDMENT'S OWN CODE (GOA-0011), not a count of
-           * anything. `mono`, because it is a serial and reads as one.
-           */}
-          <Fact label="S No" value={txt(header.sNo)} mono />
-          <Fact label="Approved Sample No" value={txt(header.approvedSampleNo)} />
-          <Fact label="Season" value={txt(header.season)} />
-          <Fact label="Customer" value={txt(header.customerName)} wide />
-          <Fact label="Country" value={txt(header.countryName)} />
-          <Fact label="Merchandiser" value={txt(header.merchandiser)} />
-          <Fact label="Order No (Customer PO)" value={txt(header.poNo)} mono />
-          <Fact label="PO Date" value={fmtDate(header.poDate)} />
-          <Fact label="Order Date" value={fmtDate(header.orderDate)} />
-          <Fact label="Delivery Date" value={fmtDate(header.deliveryDate)} />
-        </dl>
-      </section>
-
-      {/*
-       * Destinations print only when the order ships to more than one. On a
-       * single-destination order every column here restates the header, and a
-       * restated fact is a fact somebody has to reconcile.
-       */}
-      {multiDestination && (
-        <section className="gos-keep mb-4">
-          <SectionTitle>Destinations</SectionTitle>
-          <table className="text-[11px]">
-            <thead>
-              <tr>
-                <th>Destination</th>
-                <th>Customer PO</th>
-                <th>Delivery</th>
-                <th>Earlier shipment</th>
-                <th className="gos-num">Qty</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sheet.destinations.map((d, i) => (
-                <tr key={i}>
-                  <td>{txt(d.label)}</td>
-                  <td className="font-mono">{txt(d.poNo)}</td>
-                  <td>{fmtDate(d.deliveryDate)}</td>
-                  <td>{fmtDate(d.earlierShipmentDate)}</td>
-                  <td className="gos-num">{fmtNumber(d.qty)}</td>
-                </tr>
+        {/* ---- the boxed header: four columns, each read down ---- */}
+        <section className="gos-keep grid grid-cols-1 gap-x-6 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px] sm:grid-cols-2 lg:grid-cols-4">
+          {gosHeaderColumns(sheet).map((col, ci) => (
+            <div key={ci} className="space-y-1">
+              {col.map(([label, value]) => (
+                <Fact key={label} label={label} value={value} mono={label === "S No" || label.startsWith("Order No")} />
               ))}
-            </tbody>
-          </table>
+            </div>
+          ))}
         </section>
-      )}
 
-      {sheet.styles.map((style, i) => (
-        <StyleBlock key={`${i}-${style.styleRef}`} style={style} />
-      ))}
-
-      {/*
-       * PIECES THAT LANDED NOWHERE ARE PRINTED, NOT DROPPED.
-       *
-       * An assortment line names a style or inherits its destination's; with
-       * several styles declared and a line naming none of them, its quantity
-       * belongs to no block above. Silently omitting it would mean fabric
-       * nobody cuts, discovered at the packing bench. See `GosOrphan`.
-       */}
-      {sheet.orphans.length > 0 && (
-        <section className="gos-keep mt-6 border-2 border-[var(--gos-rule-strong)] p-3">
-          <p className="text-[11px] font-bold uppercase tracking-wide">
-            Quantities not shown above
+        {"failed" in styleImages && (
+          // Screen only: the sheet is still correct without its pictures, but an
+          // operator who ticked one must learn why it is not here.
+          <p className="border border-t-0 border-border bg-[#fdf3f2] px-5 py-2 text-[12px] text-[#b3261e] print:hidden">
+            Style images are not shown — {styleImages.failed}
           </p>
-          <p className="mt-1 text-[10px] text-[var(--gos-muted)]">
-            These assortment lines name a style reference this order does not declare,
-            so they could not be placed under any style. Correct the order before cutting.
-          </p>
-          <ul className="mt-2 space-y-0.5 text-[11px]">
-            {sheet.orphans.map((o, i) => (
-              <li key={i}>
-                <span className="font-mono">{o.ref}</span> · {o.combo} ·{" "}
-                <span className="tabular-nums">{fmtNumber(o.qty)}</span> pcs
-              </li>
+        )}
+        {unplaced.length > 0 && (
+          <Box>
+            {unplaced.map((g) => (
+              <GosStyleImages
+                key={g.styleRef ?? ""}
+                images={g.images}
+                title={g.styleRef == null ? "Order images" : `Style images · ${g.styleRef}`}
+              />
             ))}
-          </ul>
-        </section>
-      )}
+          </Box>
+        )}
 
-      {/* ---- footer ---- */}
-      <footer className="gos-keep mt-6 border-t border-[var(--gos-rule)] pt-2 text-[10px] text-[var(--gos-muted)]">
-        <div className="flex justify-between gap-4">
-          <span>
-            Order total {fmtNumber(sheet.grandTotal)} pcs · {sheet.styles.length} style
-            {sheet.styles.length === 1 ? "" : "s"}
-          </span>
-          <span>Printed {fmtDateTime(sheet.printedAt)}</span>
-        </div>
         {/*
-         * The exclusion is STATED. A construction sheet with no trims on it
-         * looks incomplete to anyone who has not been told the policy — and a
-         * supervisor who assumes it is incomplete goes looking for a longer
-         * version of this document instead of for the right one.
+         * Destinations print only when the order ships to more than one. On a
+         * single-destination order every column here restates the header, and a
+         * restated fact is a fact somebody has to reconcile.
          */}
-        <p className="mt-1">
-          Construction only. Buttons, sewing threads, labels and all other trims and
-          accessories are on the Accessories Requirement Sheet.
-        </p>
-      </footer>
-    </article>
+        {multiDestination && (
+          <Box>
+            <SectionTitle>Destinations</SectionTitle>
+            <table className="text-[12px]">
+              <thead>
+                <tr>
+                  <Th>Destination</Th>
+                  <Th>Customer PO</Th>
+                  <Th>Delivery</Th>
+                  <Th>Earlier shipment</Th>
+                  <Th num>Qty</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {sheet.destinations.map((d, i) => (
+                  <tr key={i}>
+                    <td>{txt(d.label)}</td>
+                    <td className="font-mono">{txt(d.poNo)}</td>
+                    <td>{fmtDate(d.deliveryDate)}</td>
+                    <td>{fmtDate(d.earlierShipmentDate)}</td>
+                    <td className="gos-num">{fmtNumber(d.qty)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Box>
+        )}
+
+        {sheet.styles.map((style, i) => (
+          <StyleBlock key={`${i}-${style.styleRef}`} style={style} images={imagesOf(style.styleRef)} />
+        ))}
+
+        {/*
+         * PIECES THAT LANDED NOWHERE ARE PRINTED, NOT DROPPED.
+         *
+         * An assortment line names a style or inherits its destination's; with
+         * several styles declared and a line naming none of them, its quantity
+         * belongs to no block above. Silently omitting it would mean fabric
+         * nobody cuts, discovered at the packing bench. See `GosOrphan`.
+         */}
+        {sheet.orphans.length > 0 && (
+          <section className="gos-keep border-2 border-[#b3261e] bg-white px-5 py-3">
+            <p className="text-[12px] font-bold uppercase tracking-wide text-[#b3261e]">Quantities not shown above</p>
+            <p className="mt-1 text-[11.5px] text-[#5b6472]">
+              These assortment lines name a style reference this order does not declare, so they could not be
+              placed under any style. Correct the order before cutting.
+            </p>
+            <ul className="mt-2 space-y-0.5 text-[12px]">
+              {sheet.orphans.map((o, i) => (
+                <li key={i}>
+                  <span className="font-mono">{o.ref}</span> · {o.combo} ·{" "}
+                  <span className="tabular-nums">{fmtNumber(o.qty)}</span> pcs
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* ---- the foot: totals, the construction-only line, signatures ---- */}
+        <footer className="gos-keep rounded-b-md border border-t-0 border-border bg-white px-5 pb-3 pt-3 text-[12px]">
+          <div className="flex flex-wrap justify-between gap-4">
+            <span className="font-semibold">
+              Order total {fmtNumber(sheet.grandTotal)} pcs · {sheet.styles.length} style
+              {sheet.styles.length === 1 ? "" : "s"}
+            </span>
+            <span className="text-[11px] text-[#5b6472]">Printed {fmtDateTime(sheet.printedAt)}</span>
+          </div>
+          {/*
+           * The exclusion is STATED. A construction sheet with no trims on it
+           * looks incomplete to anyone who has not been told the policy — and a
+           * supervisor who assumes it is incomplete goes looking for a longer
+           * version of this document instead of for the right one.
+           */}
+          <p className="mt-1 text-[11px] text-[#5b6472]">{CONSTRUCTION_ONLY}</p>
+
+          {/* THE THREE SIGNATURES — the order documents' foot. */}
+          <div className="mt-10 grid grid-cols-3 gap-4 font-semibold">
+            <div className="border-t border-[#16181d] pt-1">Prepared By</div>
+            <div className="border-t border-[#16181d] pt-1 text-center">Checked By</div>
+            <div className="border-t border-[#16181d] pt-1 text-right">Approved By</div>
+          </div>
+        </footer>
+      </article>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
 
-function Fact({
-  label,
-  value,
-  mono = false,
-  wide = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  wide?: boolean;
-}) {
+/** The print stylesheet's colours, re-pointed at the order documents' greys —
+ *  an inline custom property beats the stylesheet's own `.gos-sheet` values. */
+const FAMILY_VARS = {
+  "--gos-rule": "#e2e5ea",
+  "--gos-rule-strong": "#16181d",
+  "--gos-muted": "#5b6472",
+  "--gos-fill": "#f6f7f9",
+} as React.CSSProperties;
+
+/** One boxed band of the document, stacked under the one above. */
+function Box({ children }: { children: React.ReactNode }) {
+  return <section className="border border-t-0 border-border bg-white px-5 py-3">{children}</section>;
+}
+
+function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className={wide ? "col-span-2" : undefined}>
-      <dt className="text-[9px] font-semibold uppercase tracking-widest text-[var(--gos-muted)]">
-        {label}
-      </dt>
-      <dd className={`font-medium ${mono ? "font-mono" : ""}`}>{value}</dd>
+    <div className="flex min-w-0 gap-1.5">
+      <span className="shrink-0 text-[#8b95a3]">{label}:</span>
+      <span className={`min-w-0 font-semibold ${mono ? "font-mono" : ""}`}>{value}</span>
     </div>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h3 className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--gos-muted)]">
-      {children}
-    </h3>
-  );
+  return <h3 className="mb-1.5 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#16181d]">{children}</h3>;
 }
 
-function StyleBlock({ style }: { style: GosStyle }) {
+/** A table header cell — the stylesheet fills it grey, this sets the ink. */
+function Th({ children, num }: { children: React.ReactNode; num?: boolean }) {
+  return <th className={`font-semibold text-[#5b6472] ${num ? "gos-num" : ""}`}>{children}</th>;
+}
+
+function StyleBlock({
+  style,
+  images,
+}: {
+  style: GosStyle;
+  images: readonly ReportStyleImage[];
+}) {
   return (
-    <section className="gos-style mt-5">
-      <div className="gos-keep mb-2 border-y border-[var(--gos-rule-strong)] py-1.5">
-        <div className="flex items-baseline justify-between gap-4">
-          <p className="text-sm font-bold">
-            <span className="font-mono">{txt(style.styleCode ?? style.styleRef)}</span>
-            {style.styleName ? ` · ${style.styleName}` : ""}
-          </p>
-          <p className="text-[11px] tabular-nums">
-            PO Qty <span className="font-bold">{fmtNumber(style.poQty)}</span>
-          </p>
+    <section className="gos-style border border-t-0 border-border bg-white">
+      {/* THE STYLE BANNER — its STL code and name, PO Qty on the right. */}
+      <div className="gos-keep flex flex-wrap items-baseline justify-between gap-4 border-b border-border bg-[#f6f7f9] px-5 py-2">
+        <p className="text-[13.5px] font-bold text-[#16181d]">
+          <span className="font-mono">{txt(style.styleCode ?? style.styleRef)}</span>
+          {style.styleName ? ` · ${style.styleName}` : ""}
+        </p>
+        <p className="text-[12.5px] tabular-nums">
+          PO Qty <span className="font-bold">{fmtNumber(style.poQty)}</span>
+        </p>
+      </div>
+
+      <div className="px-5 py-3">
+        {/*
+         * NO PER-STYLE "S No". The style's serial is its STL number, which is
+         * the heading directly above — a second number beside it would have
+         * been an array index nothing issued. Unit is piece vs set WITH the
+         * count, which is what makes the warning below legible.
+         */}
+        <div className="gos-keep grid grid-cols-1 gap-x-6 gap-y-1 text-[12.5px] sm:grid-cols-2 lg:grid-cols-4">
+          {gosStyleFacts(style).map(([label, value]) => (
+            <Fact key={label} label={label} value={value} mono={label === "Style Ref"} />
+          ))}
         </div>
-        <dl className="mt-1.5 grid grid-cols-4 gap-x-4 gap-y-1 text-[11px]">
-          {/*
-           * NO PER-STYLE "S No". The style's serial is its STL number, which is
-           * the heading directly above this row — a second number beside it
-           * would have been an array index nothing issued.
-           */}
-          <Fact label="Style Ref" value={txt(style.styleRef)} mono />
-          <Fact label="Article No" value={txt(style.articleNo)} />
-          <Fact label="Approved Sample No" value={txt(style.approvedSampleNo)} />
-          {/*
-           * PIECE VS SET, WITH THE COUNT BESIDE IT. The unit kind alone does
-           * not tell the floor what to expect; "Set · 2 coordinates" does, and
-           * it is what makes the warning below legible when the two disagree.
-           */}
-          <Fact
-            label="Unit"
-            value={
-              style.unitKindLabel
-                ? `${style.unitKindLabel} · ${style.coordinateCount} coordinate${style.coordinateCount === 1 ? "" : "s"}`
-                : `${style.coordinateCount} coordinate${style.coordinateCount === 1 ? "" : "s"}`
-            }
-          />
-          <Fact label="Description" value={txt(style.description)} wide />
-        </dl>
         {style.coordinateWarning && (
-          <p className="mt-1.5 border border-[var(--gos-rule-strong)] px-2 py-1 text-[10px] font-semibold">
+          <p className="mt-2 border border-[#b3261e] bg-[#fdf3f2] px-2 py-1 text-[11.5px] font-semibold text-[#b3261e]">
             {style.coordinateWarning}
           </p>
         )}
-      </div>
 
-      <div className="gos-keep mb-4">
-        <SectionTitle>Size-wise and colour-wise break-up</SectionTitle>
-        <Matrix style={style} />
-      </div>
+        {/* Between the style's facts and its matrix: the picture is what the
+            cutting room checks the rest of the block against. */}
+        {images.length > 0 && (
+          <div className="mt-3">
+            <GosStyleImages images={images} />
+          </div>
+        )}
 
-      <div className="mb-2">
-        <SectionTitle>Components</SectionTitle>
-        <Components style={style} />
+        <div className="gos-keep mt-3">
+          <SectionTitle>Size-wise and colour-wise break-up</SectionTitle>
+          <Matrix style={style} />
+        </div>
+
+        <div className="mt-3">
+          <SectionTitle>Components</SectionTitle>
+          <Components style={style} />
+        </div>
       </div>
     </section>
   );
@@ -282,7 +355,7 @@ function Matrix({ style }: { style: GosStyle }) {
     // order nobody has broken up yet looks like, so it would read as a
     // legitimate answer rather than as the absence of one.
     return (
-      <p className="border border-[var(--gos-rule-strong)] px-2 py-1.5 text-[11px] font-semibold">
+      <p className="border border-[#b3261e] bg-[#fdf3f2] px-2 py-1.5 text-[12px] font-semibold text-[#b3261e]">
         {style.matrix.refused}
       </p>
     );
@@ -291,16 +364,16 @@ function Matrix({ style }: { style: GosStyle }) {
 
   return (
     <div className="gos-scroll">
-      <table className="text-[11px]">
+      <table className="text-[12px]">
         <thead>
           <tr>
-            <th>Colour</th>
+            <Th>Colour</Th>
             {m.columns.map((c) => (
-              <th key={c.sizeId} className="gos-num">
+              <Th key={c.sizeId} num>
                 {c.label}
-              </th>
+              </Th>
             ))}
-            <th className="gos-num">Total</th>
+            <Th num>Total</Th>
           </tr>
         </thead>
         <tbody>
@@ -311,9 +384,7 @@ function Matrix({ style }: { style: GosStyle }) {
                 {/* Not declared on the Combos tab. Marked rather than dropped —
                     a colourway with quantities and no construction behind it is
                     something the cutting room has to be told about. */}
-                {r.undeclared && (
-                  <span className="ml-1 text-[9px] font-normal">(not on Combos)</span>
-                )}
+                {r.undeclared && <span className="ml-1 text-[10px] font-normal">(not on Combos)</span>}
               </td>
               {r.cells.map((v, i) => (
                 <td key={m.columns[i].sizeId} className="gos-num">
@@ -343,7 +414,7 @@ function Matrix({ style }: { style: GosStyle }) {
 function Components({ style }: { style: GosStyle }) {
   if (style.coordinates.length === 0) {
     return (
-      <p className="border border-[var(--gos-rule-strong)] px-2 py-1.5 text-[11px] font-semibold">
+      <p className="border border-[#b3261e] bg-[#fdf3f2] px-2 py-1.5 text-[12px] font-semibold text-[#b3261e]">
         No components are declared for this style — the Combos tab has no structure detail.
       </p>
     );
@@ -351,12 +422,12 @@ function Components({ style }: { style: GosStyle }) {
 
   return (
     <div className="gos-scroll">
-      <table className="text-[11px]">
+      <table className="text-[12px]">
         <thead>
           <tr>
-            <th>Component</th>
-            <th>Structure</th>
-            <th className="gos-num">GSM</th>
+            <Th>Component</Th>
+            <Th>Structure</Th>
+            <Th num>GSM</Th>
             {/*
              * ONE COLUMN PER COLOURWAY, so the same physical panel reads across
              * every colour on one line. The alternative — a whole component
@@ -365,7 +436,7 @@ function Components({ style }: { style: GosStyle }) {
              * question you answer by flipping pages.
              */}
             {style.colourways.map((c) => (
-              <th key={c}>{c}</th>
+              <Th key={c}>{c}</Th>
             ))}
           </tr>
         </thead>
@@ -379,7 +450,7 @@ function Components({ style }: { style: GosStyle }) {
             <tr>
               <td
                 colSpan={3 + style.colourways.length}
-                className="bg-[var(--gos-fill)] text-[10px] font-bold uppercase tracking-wide"
+                className="bg-[var(--gos-fill)] text-[11px] font-bold uppercase tracking-wide"
               >
                 {block.coordinate}
               </td>
@@ -425,11 +496,7 @@ function PanelRow({
                 {/* "Fabric Print" is ONE field on the order (0410) and prints
                     under the colour, because a printed panel is that colour
                     WITH that print, not one or the other. */}
-                {v.print && (
-                  <span className="block text-[9px] text-[var(--gos-muted)]">
-                    {v.print}
-                  </span>
-                )}
+                {v.print && <span className="block text-[10px] text-[var(--gos-muted)]">{v.print}</span>}
               </>
             )}
           </td>

@@ -937,9 +937,9 @@ check(
 check("a breakup of zeros is 0 — operations done free", cmtBreakupTotal({ ironing_rate: 0, packing_rate: 0 }), 0);
 refute("…not null, which would mean no breakup", cmtBreakupTotal({ ironing_rate: 0, packing_rate: 0 }), null);
 
-/* The blueprint's own figures: SQ Qty 5,321 (not Order Qty 5,028) x ₹12.50. */
+/* The blueprint's own figures: Cut Qty 5,321 (not Order Qty 5,028) x ₹12.50. */
 check(
-  "a CMT line is SQ Qty x rate",
+  "a CMT line is Cut Qty x rate",
   lineAmount({ source: "cmt", qty: 5321, rate: 12.5 }),
   66_512.5,
 );
@@ -1159,7 +1159,7 @@ for (const s of BUDGET_SOURCES) {
   );
 }
 
-/* The client's sheet: cost 31,75,000 against sales 38,85,638.40, SQ Qty 5,321. */
+/* The client's sheet: cost 31,75,000 against sales 38,85,638.40, Cut Qty 5,321. */
 const CLIENT_LINES: BudgetLineInput[] = [
   line("yarn", 1, 1_200_000),
   line("fabric", 1, 300_000),
@@ -1196,15 +1196,15 @@ check(
 );
 check("the total's share", GENERAL.total.pctOfSales, 81.71);
 check("the bottom line carries through", [GENERAL.sales, GENERAL.profit, GENERAL.marginPct], [GROSS, 710_638.4, 18.29]);
-check("cost per piece MADE is cost ÷ SQ Qty", GENERAL.costPerPiece, 596.69);
+check("cost per piece MADE is cost ÷ Cut Qty", GENERAL.costPerPiece, 596.69);
 refute("…not ÷ the 5,028 ordered", GENERAL.costPerPiece, 631.46);
 check(
-  "a zero SQ Qty refuses the cost per piece",
+  "a zero Cut Qty refuses the cost per piece",
   refusalOf(generalSummary(CLIENT, 0).costPerPiece),
-  "No SQ Qty to spread the cost over",
+  "No Cut Qty to spread the cost over",
 );
 check(
-  "a refused SQ Qty carries its own sentence",
+  "a refused Cut Qty carries its own sentence",
   refusalOf(generalSummary(CLIENT, { refused: "SC-1: no approval quantities yet" }).costPerPiece),
   "SC-1: no approval quantities yet",
 );

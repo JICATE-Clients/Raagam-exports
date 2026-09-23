@@ -42,9 +42,47 @@
  */
 
 /** Which document the report is computed FROM — also the strip's group heading. */
-export type OrderReportSource = "order" | "material-bom" | "fabric-bom";
+export type OrderReportSource = "order" | "material-bom" | "fabric-bom" | "budget";
 
-export type OrderReportIcon = "file-text" | "clipboard-list" | "layers" | "table" | "spool" | "printer";
+export type OrderReportIcon =
+  | "file-text"
+  | "clipboard-list"
+  | "layers"
+  | "table"
+  | "spool"
+  | "printer"
+  | "scissors"
+  | "wallet";
+
+/**
+ * WHICH LOADER'S OUTPUT IS FROZEN AS V_FINAL (doc/order/amenment update.md
+ * §4B, 0619). While an order is amending, every report serves the approved
+ * version — the report exactly as its own loader rendered it when the entry
+ * was raised (`lib/orders/amendments/v-final.ts`). Several reports read one
+ * loader (Printing Requirement reads the Yarn & Fabric Requirement object), so
+ * this names the LOADER, and the capture runs each one once.
+ *
+ * REQUIRED on every entry, deliberately: a report registered without one would
+ * print the in-flight amendment on the shop floor.
+ */
+export type VFinalSource =
+  | "gos"
+  | "requirement-sheet"
+  | "fabric-requirement-sheet"
+  | "fabric-bom-reports"
+  | "material-bom-requirement"
+  | "cutting-chart"
+  | "order-budget";
+
+export const V_FINAL_SOURCES: readonly VFinalSource[] = [
+  "gos",
+  "requirement-sheet",
+  "fabric-requirement-sheet",
+  "fabric-bom-reports",
+  "material-bom-requirement",
+  "cutting-chart",
+  "order-budget",
+];
 
 export interface OrderReportDef {
   /** Stable id; also the URL segment for a report without its own `page`. */
@@ -57,22 +95,38 @@ export interface OrderReportDef {
    * served by the generic `/orders/<id>/reports/<key>` route.
    */
   readonly page?: string;
+  /** The loader whose frozen output is this report's V_final — see `VFinalSource`. */
+  readonly vFinal: VFinalSource;
+  /**
+   * `false` → NOT on Order Entry's Reports strip (client 2026-09-23: "need
+   * these five reports only"). The report stays registered — its editor's own
+   * Reports sheet, its URL and its V_final capture are untouched — so this
+   * narrows one reader, never deletes a report. See `onOrderStrip`.
+   */
+  readonly orderStrip?: false;
 }
 
 export const ORDER_REPORT_SOURCES: readonly { source: OrderReportSource; label: string }[] = [
   { source: "order", label: "Order" },
   { source: "material-bom", label: "Material BOM" },
   { source: "fabric-bom", label: "Fabric BOM" },
+  { source: "budget", label: "Budget" },
 ];
 
 export const ORDER_REPORTS = [
-  { key: "gos", label: "Garment Order Sheet", source: "order", icon: "file-text", page: "gos" },
+  { key: "gos", label: "Garment Order Sheet", source: "order", icon: "file-text", page: "gos", vFinal: "gos" },
+  /* THE LEGACY RP "CUTTING CHART" (client 2026-09-23, Cutting Qty Chart.pdf) —
+     per colour × size: Order, Approval, Rej.Allow and their Total, the pieces
+     the cutting table is asked for. Same arithmetic as Approval Qty's breakup. */
+  { key: "cutting-chart", label: "Cutting Chart", source: "order", icon: "scissors", page: "cutting-chart", vFinal: "cutting-chart" },
   {
     key: "material",
     label: "Accessories Requirement",
     source: "material-bom",
     icon: "clipboard-list",
     page: "requirement",
+    vFinal: "requirement-sheet",
+    orderStrip: false,
   },
   /* THE EDITOR'S REQUIREMENT TAB, ON PAPER (client 2026-09-20) — Item Name,
      Item Color, Calculated Qty, Required Qty, Uom, Purchase Uom, Stage. Not a
@@ -84,6 +138,8 @@ export const ORDER_REPORTS = [
     label: "Material BOM Requirement",
     source: "material-bom",
     icon: "table",
+    vFinal: "material-bom-requirement",
+    orderStrip: false,
   },
   {
     key: "fabric",
@@ -91,12 +147,25 @@ export const ORDER_REPORTS = [
     source: "fabric-bom",
     icon: "layers",
     page: "fabric-requirement",
+    vFinal: "fabric-requirement-sheet",
+    orderStrip: false,
   },
-  { key: "fabric-bom-register", label: "Fabric BOM Entry Register", source: "fabric-bom", icon: "table" },
-  { key: "yarn-fabric-requirement", label: "Yarn & Fabric Requirement", source: "fabric-bom", icon: "spool" },
+  { key: "fabric-bom-register", label: "Fabric BOM Entry Register", source: "fabric-bom", icon: "table", vFinal: "fabric-bom-reports" },
+  { key: "yarn-fabric-requirement", label: "Yarn & Fabric Requirement", source: "fabric-bom", icon: "spool", vFinal: "fabric-bom-reports" },
   /* The weight sent to the printer (client 2026-09-19) — read off the SAME
      report object as Yarn & Fabric Requirement, so the two never disagree. */
-  { key: "printing-requirement", label: "Printing Requirement", source: "fabric-bom", icon: "printer" },
+  {
+    key: "printing-requirement",
+    label: "Printing Requirement",
+    source: "fabric-bom",
+    icon: "printer",
+    vFinal: "fabric-bom-reports",
+    orderStrip: false,
+  },
+  /* THE ORDER BUDGET & PROFIT MARGIN report (client 2026-09-23) — the budget
+     the MD authorises, on paper: income, itemised expenses, net profit and
+     margin; while amending, the approved margin beside the proposed one. */
+  { key: "budget", label: "Order Budget", source: "budget", icon: "wallet", page: "budget", vFinal: "order-budget" },
 ] as const satisfies readonly OrderReportDef[];
 
 type Entry = (typeof ORDER_REPORTS)[number];
@@ -119,6 +188,19 @@ export type MaterialBomReportKey = Exclude<Extract<Entry, { source: "material-bo
 
 export function isMaterialBomSheetReport<R extends OrderReportDef>(r: R): r is R & { key: MaterialBomReportKey } {
   return r.source === "material-bom" && r.page == null;
+}
+
+/**
+ * ORDER ENTRY'S REPORTS STRIP (client 2026-09-23). The client's list is five
+ * outputs: the Garment Order Sheet, the Fabric BOM Entry Register as Detailed
+ * and as Summary (ONE entry — the register's own Detailed / Summary switch),
+ * Yarn & Fabric Requirement, and the Order Budget & Profit Margin report (not
+ * built yet; its format is still to come). Everything else is marked
+ * `orderStrip: false`. The page being shown always stays on the strip, so a
+ * report reached from its editor still reads as "you are here".
+ */
+export function onOrderStrip(r: OrderReportDef, current?: string): boolean {
+  return r.orderStrip !== false || r.key === current;
 }
 
 export function findOrderReport(key: string): OrderReportDef | undefined {

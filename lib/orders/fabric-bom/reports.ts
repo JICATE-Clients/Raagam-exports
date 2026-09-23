@@ -87,7 +87,7 @@ function trimPct(v: number): string {
  * ## THE HEADER'S QTY BREAKDOWN IS DERIVED FROM `OrderProductionInput`,
  *    NEVER A SECOND FORMULA
  *
- * `sqQty` and its four components (Order Qty / Excess Qty / Rejection
+ * `cutQty` and its four components (Order Qty / Excess Qty / Rejection
  * Allowance Qty / Approval Allowance Qty) are not a column anywhere — Fabric
  * BOM stores only the SUMMED total (`order_fabric_boms.computed_for_qty`,
  * via `fullTarget`/`productionTarget`). The breakdown here re-derives the four
@@ -112,7 +112,7 @@ function trimPct(v: number): string {
  * investigated (2026-09-11) and NOT added: the size axis this report would
  * need to join on does not reach this file today, and guessing how one
  * style+combo total splits across its sizes is exactly the invented figure
- * this file's own rule above forbids. `EntryRegisterSizeRow` carries `sqQty`
+ * this file's own rule above forbids. `EntryRegisterSizeRow` carries `cutQty`
  * only.
  *
  * ## GROSS WEIGHT IS `netReqWt` RUN BACKWARD THROUGH THE FABRIC'S OWN ROUTE
@@ -156,22 +156,14 @@ export type QtyBreakdown = {
   rejectionQty: number;
   approvalQty: number;
   /**
-   * The total to be cut — Order + Excess + Rejection + Approval.
+   * Cut Qty — the total to be cut: Order + Excess + Rejection + Approval.
+   * Renamed from `sqQty` (client 2026-09-23: the SQ term is retired).
    *
-   * IT IS LABELLED "Cut Qty" ON EVERY REPORT and the field keeps the name
-   * `sqQty` (client, 2026-09-16). The two are one quantity, and the project's
-   * own spec says so in as many words: "Cut Qty / SQ Qty: the total number of
-   * pieces to be cut (including excess and rejection allowances)"
-   * (`doc/order/fabric bom.md`). The field is not renamed with the label
-   * because `sqQty` is what the schema and the spec's formula call it, and a
-   * display word is not a reason to move a data name.
-   *
-   * `orderQty` LOST THE "Cut Qty" LABEL IN THE SAME CHANGE — it had carried it,
-   * which made 1,000 read as the cut quantity while the real one (1,070) was
-   * two columns along under "SQ Qty". It is "Order Qty" now, which is what it
-   * has always been.
+   * `orderQty` is NOT the cut quantity and never carries the "Cut Qty" label
+   * (client 2026-09-16) — it did once, and 1,000 read as the cut figure while
+   * the real one (1,070) sat two columns along.
    */
-  sqQty: number;
+  cutQty: number;
   /** EACH ALLOWANCE AS A PERCENTAGE OF THE ORDER QTY — the legacy printout's
    *  own `10 (0.10%)` / `200 (2.00%)` in the Approval and Rej.Allow columns.
    *  Derived here rather than at the two renderers, for the file header's
@@ -191,11 +183,6 @@ export type BomDocHeader = {
   bomDate: string | null;
   computedAt: string | null;
   scNo: string | null;
-  /** `sq_details.code` via `garment_order_amendments.sq_detail_id` (0511) —
-   *  null for the ordinary case of an order booked straight off a customer
-   *  PO, never a refusal: most orders carry no SQ link at all. */
-  sqNo: string | null;
-  sqDescription: string | null;
   customer: string | null;
   orderNo: string | null;
   styleRefNo: string | null;
@@ -250,8 +237,7 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     .from("garment_order_amendments")
     .select(
       "id, po_no, delivery_date, excess_pct, customer:customers(name), " +
-        "sales_order:sales_orders(order_number, location_id), " +
-        "sq_detail:sq_details!sq_detail_id(code, sq_description)",
+        "sales_order:sales_orders(order_number, location_id)",
     )
     .eq("id", bomRow.garment_order_id)
     .maybeSingle();
@@ -266,7 +252,6 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     excess_pct: number | null;
     customer: { name: string } | null;
     sales_order: { order_number: string | null; location_id: string | null } | null;
-    sq_detail: { code: string | null; sq_description: string | null } | null;
   };
 
   /* THE UNIT (client spec 2026-09-19: "Unit Name (e.g. Unit 2)"). The BOM's own
@@ -358,8 +343,6 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     bomDate: bomRow.bom_date,
     computedAt: bomRow.computed_at,
     scNo: go.sales_order?.order_number ?? null,
-    sqNo: go.sq_detail?.code ?? null,
-    sqDescription: go.sq_detail?.sq_description ?? null,
     customer: go.customer?.name ?? null,
     company: {
       name: str("name") ?? str("company_name"),
@@ -524,7 +507,7 @@ async function routeComponentNames(
 }
 
 /* EXPORTED for the Budget (0574) — CMT and Garment Processes read the legacy
-   "SQ Qty" per STYLE by calling this over one style's approval rows. One
+   Cut Qty per STYLE by calling this over one style's approval rows. One
    arithmetic, so the budget's pieces-made and this report's Cut Qty agree. */
 export function qtyBreakdownOf(order: OrderProductionInput): QtyBreakdown | ReportRefusal {
   if (order.approvals.length === 0) {
@@ -561,7 +544,7 @@ export function qtyBreakdownOf(order: OrderProductionInput): QtyBreakdown | Repo
     excessQty: excessTotal,
     rejectionQty: rejectionTotal,
     approvalQty: approvalTotal,
-    sqQty: orderQtyTotal + excessTotal + rejectionTotal + approvalTotal,
+    cutQty: orderQtyTotal + excessTotal + rejectionTotal + approvalTotal,
     approvalPct: pct(approvalTotal),
     rejectionPct: pct(rejectionTotal),
   };
@@ -574,7 +557,7 @@ export function qtyBreakdownOf(order: OrderProductionInput): QtyBreakdown | Repo
 /** One size of one (combo, entry) block. */
 export type EntryRegisterSizeRow = {
   sizeLabel: string;
-  sqQty: number;
+  cutQty: number;
   /** The per-garment consumption this line was multiplied by — stored on the
    *  requirement row itself (`order_fabric_bom_manual.ts`'s `consumptionMap`),
    *  in `uomCode`'s unit. Not necessarily grams: a fabric's own base UOM
@@ -638,7 +621,7 @@ export type EntryRegisterComponentGroup = {
    *  with a null here is the ordinary "no route declared". */
   routeRefusal: string | null;
   sizes: EntryRegisterSizeRow[];
-  subtotal: { sqQty: number; netReqWt: number; grossWt: number };
+  subtotal: { cutQty: number; netReqWt: number; grossWt: number };
 };
 
 /** One Assort Colour section — the register's primary grouping (2026-09-11). */
@@ -647,7 +630,7 @@ export type EntryRegisterColourGroup = {
    *  the UI labels it. */
   combo: string | null;
   components: EntryRegisterComponentGroup[];
-  subtotal: { sqQty: number; netReqWt: number; grossWt: number };
+  subtotal: { cutQty: number; netReqWt: number; grossWt: number };
 };
 
 export type StageLedgerRow = {
@@ -666,7 +649,7 @@ export type StageLedgerRow = {
 export type EntryRegister = {
   header: BomDocHeader;
   groups: EntryRegisterColourGroup[];
-  grandTotal: { sqQty: number; netReqWt: number; grossWt: number };
+  grandTotal: { cutQty: number; netReqWt: number; grossWt: number };
   stageLedger: StageLedgerRow[];
 };
 
@@ -1034,7 +1017,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     components: Map<string, EntryRegisterComponentGroup>;
   };
   const byCombo = new Map<string, ColourGroupBuild>();
-  const grandTotal = { sqQty: 0, netReqWt: 0, grossWt: 0 };
+  const grandTotal = { cutQty: 0, netReqWt: 0, grossWt: 0 };
 
   for (const r of reqRows) {
     if (!r.item_id) continue;
@@ -1043,7 +1026,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
 
     let colourGroup = byCombo.get(comboMapKey);
     if (!colourGroup) {
-      colourGroup = { combo: r.combo, components: new Map(), subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 } };
+      colourGroup = { combo: r.combo, components: new Map(), subtotal: { cutQty: 0, netReqWt: 0, grossWt: 0 } };
       byCombo.set(comboMapKey, colourGroup);
     }
 
@@ -1068,14 +1051,14 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
         lossChain: ladder?.lossChain ?? [],
         routeRefusal: ladder?.refusal ?? null,
         sizes: [],
-        subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 },
+        subtotal: { cutQty: 0, netReqWt: 0, grossWt: 0 },
       };
       colourGroup.components.set(componentKey, compGroup);
     }
 
     const sizeInfo = entry?.sizes.get(r.size_id ?? "");
     const netReqWt = r.required_qty ?? 0;
-    const sq = r.basis_qty ?? 0;
+    const cut = r.basis_qty ?? 0;
     const ladder = ladderFor(r.item_id, comboMapKey, componentIds);
     /* A REFUSED ladder abstains exactly like an absent one — `grossWt =
        netReqWt`, `lossPct` null — and the group's `routeRefusal` says why. */
@@ -1085,7 +1068,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
 
     const sizeRow: EntryRegisterSizeRow = {
       sizeLabel: r.slice_label ?? "—",
-      sqQty: sq,
+      cutQty: cut,
       pieceWt: r.consumption,
       wastagePct: r.wastage_pct,
       netReqWt,
@@ -1097,13 +1080,13 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       styleRefNo: r.style_ref_no ?? entry?.style_ref_no ?? null,
     };
     compGroup.sizes.push(sizeRow);
-    compGroup.subtotal.sqQty += sq;
+    compGroup.subtotal.cutQty += cut;
     compGroup.subtotal.netReqWt += netReqWt;
     compGroup.subtotal.grossWt += grossWt;
-    colourGroup.subtotal.sqQty += sq;
+    colourGroup.subtotal.cutQty += cut;
     colourGroup.subtotal.netReqWt += netReqWt;
     colourGroup.subtotal.grossWt += grossWt;
-    grandTotal.sqQty += sq;
+    grandTotal.cutQty += cut;
     grandTotal.netReqWt += netReqWt;
     grandTotal.grossWt += grossWt;
   }
@@ -1728,7 +1711,7 @@ export async function yarnFabricRequirementReport(
      ladders. Collapsed to (fabric, combo, resolved branch) once the route is
      known, a few lines down. */
   /* THE COUNT AND THE DIA RIDE WITH THE NET, because they are summed and
-     agreed over exactly the same rows it is. `nos` is Σ (SQ qty x cloth units
+     agreed over exactly the same rows it is. `nos` is Σ (Cut Qty x cloth units
      per garment) — the piece or metre count legacy prints for a flat-knit
      collar; `dias` collects the distinct answers so the block can abstain
      rather than print one size's dia as the block's. */

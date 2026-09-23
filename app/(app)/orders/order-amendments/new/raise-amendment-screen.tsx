@@ -6,8 +6,16 @@
  * panel — make it as page screen"; it was a `size="sm"` sheet until then).
  *
  * Four answers and the entry exists: WHICH order (RE No), WHO asked (origin),
- * WHAT KIND of change (one or more Change Categories) and WHY (remarks,
- * mandatory). The entry no, the date, the frozen baseline and the scope are
+ * WHICH MODULES the change touches and WHY (remarks, mandatory).
+ *
+ * THE MODULE CATEGORY (doc/order/amenment update.md §2, 0619): Order Entry ·
+ * Material BOM · Fabric BOM · Order Budget, the spec's four checkboxes in its
+ * order. Only the modules ticked are unlocked — "selecting Order Entry and
+ * Fabric BOM keeps Material BOM read-only". Order Entry carries its own detail
+ * (PO Qty, Delivery Date, FOB Price, Color Combos), at least one required, so
+ * the unlock inside the order stays as narrow as the change. A BOM that is not
+ * ticked is still RECALCULATED when quantities or colourways move — its
+ * figures, never its authored rows — and the preview says so. The entry no, the date, the frozen baseline and the scope are
  * the server's; the page previews the scope so the operator sees what a
  * category opens BEFORE committing to it — the same union the database
  * freezes (`unionScope` mirrors `order_amendment_record`).
@@ -38,12 +46,20 @@ import { fmtDate } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import {
   AMENDMENT_ENTRY_TYPES,
+  AMENDMENT_MODULES,
   AMENDMENT_ORIGINS,
-  amendmentTypesLabel,
+  ORDER_CHANGE_KINDS,
+  areaOpen,
+  areaRecalculable,
+  entryScopeLabel,
+  kindsForSelection,
+  moduleSelectionProblem,
+  modulesOf,
   openAreasOf,
   unionScope,
-  type AmendmentEntryType,
+  type AmendmentModule,
   type AmendmentOrigin,
+  type OrderChangeKind,
 } from "@/lib/orders/amendments/amendment-entry";
 import { raiseOrderAmendment } from "@/lib/orders/order-amendments/actions";
 import type { AmendableOrder } from "@/lib/orders/order-amendments/service";
@@ -80,11 +96,12 @@ export function RaiseAmendmentScreen({
     initialOrderId && orders.some((o) => o.id === initialOrderId) ? initialOrderId : null,
   );
   const [source, setSource] = useState<AmendmentOrigin>(AMENDMENT_ORIGINS[0].value);
-  const [types, setTypes] = useState<AmendmentEntryType[]>([]);
+  const [modules, setModules] = useState<AmendmentModule[]>([]);
+  const [orderKinds, setOrderKinds] = useState<OrderChangeKind[]>([]);
   const [remarks, setRemarks] = useState("");
   const [tried, setTried] = useState(false);
 
-  const dirty = !!orderId || types.length > 0 || remarks.trim() !== "";
+  const dirty = !!orderId || modules.length > 0 || remarks.trim() !== "";
   useUnsavedGuard(dirty || isPending);
 
   const pickerRows = useMemo<PickerRow[]>(
@@ -94,7 +111,7 @@ export function RaiseAmendmentScreen({
         label: o.re_no ?? o.code ?? o.id.slice(0, 8),
         sublabel: [
           o.customer_name,
-          o.amending ? `amending — ${o.amending.entry_no ?? "open entry"}` : o.delivery_date ? `Delivery ${fmtDate(o.delivery_date)}` : null,
+          o.amending ? `under revision — ${o.amending.entry_no ?? "open entry"}` : o.delivery_date ? `Delivery ${fmtDate(o.delivery_date)}` : null,
         ]
           .filter(Boolean)
           .join(" · "),
@@ -104,28 +121,48 @@ export function RaiseAmendmentScreen({
   );
   const picked = orders.find((o) => o.id === orderId) ?? null;
 
+  /* WHAT AN OPEN ENTRY ALREADY CARRIES — a second raise supersedes it with
+     the union (0618), so its modules and kinds read as ticked and locked. */
+  const alreadyKinds = useMemo(() => picked?.amending?.types ?? [], [picked]);
+  const alreadyModules = useMemo(() => modulesOf(alreadyKinds), [alreadyKinds]);
+
   /* THE PREVIEW: what this selection will open, from the same union rule the
-     database freezes — including the categories an open entry already
-     carries, since a second raise supersedes it with the union. */
+     database freezes — including the kinds an open entry already carries. */
   const opens = useMemo(() => {
-    const all = [...(picked?.amending?.types ?? []), ...types];
-    if (all.length === 0) return null;
-    const scope = unionScope(all);
-    const areas = openAreasOf(scope).map((a) => AREA_WORDS[a] ?? a);
-    const boms = [
-      scope.order_fabric_boms ? "the Fabric BOM" : null,
-      scope.material_bom_amendments ? "the Material BOM" : null,
-    ].filter((x): x is string => !!x);
-    return [...areas, ...boms];
-  }, [types, picked]);
+    const kinds = [...alreadyKinds, ...kindsForSelection({ modules, orderKinds })];
+    if (kinds.length === 0) return null;
+    const scope = unionScope(kinds);
+    const edit = [
+      ...openAreasOf(scope).map((a) => AREA_WORDS[a] ?? a),
+      ...(areaOpen(scope, "material_bom") ? ["the Material BOM"] : []),
+      ...(areaOpen(scope, "fabric_bom") ? ["the Fabric BOM"] : []),
+      ...(areaOpen(scope, "budget") ? ["the Order Budget's heads and rates"] : []),
+    ];
+    const recalc = (["material_bom", "fabric_bom"] as const)
+      .filter((a) => !areaOpen(scope, a) && areaRecalculable(scope, a))
+      .map((a) => (a === "material_bom" ? "the Material BOM" : "the Fabric BOM"));
+    return { edit, recalc };
+  }, [modules, orderKinds, alreadyKinds]);
 
-  const orderError = tried && !orderId ? "Pick the order to amend" : undefined;
-  const typesError = tried && types.length === 0 ? "Pick at least one Change Category" : undefined;
-  const remarksError = tried && remarks.trim() === "" ? "Say why this order is being amended" : undefined;
-  const ready = !!orderId && types.length > 0 && remarks.trim() !== "";
+  const orderError = tried && !orderId ? "Pick the order to revise" : undefined;
+  const selectionProblem = moduleSelectionProblem({
+    modules: [...new Set([...alreadyModules, ...modules])],
+    orderKinds: [...alreadyKinds, ...orderKinds],
+  });
+  const typesError = tried ? (selectionProblem ?? undefined) : undefined;
+  const remarksError = tried && remarks.trim() === "" ? "Say why this order is being revised" : undefined;
+  /* Something NEW must be picked: a second raise that adds nothing would only
+     re-number the open entry. */
+  const addsSomething = kindsForSelection({ modules, orderKinds }).some((k) => !alreadyKinds.includes(k));
+  const ready = !!orderId && !selectionProblem && addsSomething && remarks.trim() !== "";
 
-  function toggleType(t: AmendmentEntryType, on: boolean) {
-    setTypes((prev) => (on ? (prev.includes(t) ? prev : [...prev, t]) : prev.filter((x) => x !== t)));
+  function toggleModule(m: AmendmentModule, on: boolean) {
+    setModules((prev) => (on ? (prev.includes(m) ? prev : [...prev, m]) : prev.filter((x) => x !== m)));
+    if (m === "order_entry" && !on) setOrderKinds([]);
+  }
+  function toggleKind(k: OrderChangeKind, on: boolean) {
+    setOrderKinds((prev) => (on ? (prev.includes(k) ? prev : [...prev, k]) : prev.filter((x) => x !== k)));
+    if (on) setModules((prev) => (prev.includes("order_entry") ? prev : [...prev, "order_entry"]));
   }
 
   function raise() {
@@ -134,16 +171,31 @@ export function RaiseAmendmentScreen({
       return;
     }
     startTransition(async () => {
-      const res = await raiseOrderAmendment({ order_id: orderId, origin: source, types, remarks: remarks.trim() });
+      /* An Order Entry tick with no NEW detail (the open entry already carries
+         its kinds) is not re-sent: the union keeps what was open. */
+      const sendModules = modules.filter((m) => m !== "order_entry" || orderKinds.length > 0);
+      const res = await raiseOrderAmendment({
+        order_id: orderId,
+        origin: source,
+        modules: sendModules,
+        order_kinds: orderKinds,
+        remarks: remarks.trim(),
+      });
       if (!res.ok) {
         toastError(res.error);
         return;
       }
       success(
         picked?.amending
-          ? `Amendment ${res.entryNo ?? ""} raised — it supersedes ${picked.amending.entry_no ?? "the open entry"} and adds the categories picked`
-          : `Amendment ${res.entryNo ?? ""} raised — the order is open for the categories picked`,
+          ? `Revision ${res.entryNo ?? ""} raised — it supersedes ${picked.amending.entry_no ?? "the open entry"} and adds the modules picked`
+          : `Revision ${res.entryNo ?? ""} raised — the order is open for the modules picked`,
       );
+      if (res.vFinalMissing?.length) {
+        toastError(
+          `The approved version of ${res.vFinalMissing.length} report${res.vFinalMissing.length === 1 ? "" : "s"} could not be frozen — ` +
+            "those reports will print the revision's data with a warning until it is decided",
+        );
+      }
       router.push(res.id ? `/orders/order-amendments/${res.id}` : "/orders/order-amendments");
     });
   }
@@ -151,8 +203,8 @@ export function RaiseAmendmentScreen({
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Raise Amendment"
-        description="Name the approved order, who asked, what kind of change and why. Only the categories picked are unlocked; the revised budget then goes back for approval."
+        title="Raise Revision"
+        description="Name the approved order, who asked, which modules change and why. Only the modules picked are unlocked; the revised budget then goes to the MD for approval."
         actions={
           <Button variant="outline" size="md" onClick={() => router.push("/orders/order-amendments")}>
             ← Back
@@ -187,14 +239,14 @@ export function RaiseAmendmentScreen({
                 <DataPicker
                   id="ra-order"
                   label="Order Ref No"
-                  title="Orders that can be amended"
+                  title="Orders that can be revised"
                   compact
                   rows={pickerRows}
                   value={orderId}
                   onChange={setOrderId}
                   required
                   invalid={!!orderError}
-                  emptyHint="No order to amend — an amendment is raised on an order whose budget has been approved. An open order is edited directly."
+                  emptyHint="No order to revise — a revision is raised on an order whose budget has been approved. An open order is edited directly."
                 />
               </Field>
               <Field label="Origin" required w="code" htmlFor="ra-origin">
@@ -217,52 +269,97 @@ export function RaiseAmendmentScreen({
             )}
             {picked?.amending && (
               <p className="mt-2 rounded-md border border-warning bg-warning-soft px-3 py-2 text-xs text-warning" role="status">
-                Amendment {picked.amending.entry_no ?? ""} is already open on this order ({amendmentTypesLabel(picked.amending.types)}).
-                This entry will supersede it and keep those categories open along with the ones you pick — nothing already
+                Revision {picked.amending.entry_no ?? ""} is already open on this order ({entryScopeLabel(picked.amending.types)}).
+                This entry will supersede it and keep those modules open along with the ones you pick — nothing already
                 changed is lost or re-locked.
               </p>
             )}
 
-            {/* THE CHANGE CATEGORY, A MULTI-SELECT (spec §2): checkboxes, two
-                columns, each with a one-line hint of what it opens. */}
-            <Field label="Change Category" required className="mt-4" error={typesError}>
-              <div
-                className="grid gap-x-6 gap-y-2 sm:grid-cols-2"
-                role="group"
-                aria-label="Change Category"
-              >
-                {AMENDMENT_ENTRY_TYPES.map((t) => {
-                  const on = types.includes(t.value);
-                  const already = picked?.amending?.types.includes(t.value) ?? false;
+            {/* THE MODULE CATEGORY (spec §2): the four modules, in the spec's
+                order, each with the spec's own description. Order Entry's
+                detail sits beneath it, indented — ticking a detail ticks
+                Order Entry, unticking Order Entry clears its detail. */}
+            <Field label="Select Module Category to Revise" required className="mt-4" error={typesError}>
+              <div className="space-y-2" role="group" aria-label="Module Category">
+                {AMENDMENT_MODULES.map((m, i) => {
+                  const already = alreadyModules.includes(m.key);
+                  const on = already || modules.includes(m.key);
                   return (
-                    <label key={t.value} className="flex cursor-pointer items-start gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 h-4 w-4 accent-primary"
-                        checked={on || already}
-                        disabled={already}
-                        onChange={(e) => toggleType(t.value, e.target.checked)}
-                      />
-                      <span>
-                        <span className="font-medium">{t.label}</span>
-                        {already && <span className="ml-1 text-xs text-muted-foreground">(already open)</span>}
-                        <span className="block text-xs text-muted-foreground">{t.hint}</span>
-                      </span>
-                    </label>
+                    <div key={m.key}>
+                      <label className="flex cursor-pointer items-start gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 accent-primary"
+                          checked={on}
+                          disabled={already && m.key !== "order_entry"}
+                          onChange={(e) => toggleModule(m.key, e.target.checked)}
+                        />
+                        <span>
+                          <span className="font-medium">
+                            {i + 1}. {m.label}
+                          </span>
+                          {already && <span className="ml-1 text-xs text-muted-foreground">(already open)</span>}
+                          <span className="ml-1 text-xs text-muted-foreground">({m.hint})</span>
+                        </span>
+                      </label>
+                      {m.key === "order_entry" && on && (
+                        <div
+                          className="ml-6 mt-1.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2"
+                          role="group"
+                          aria-label="What changes on the order"
+                        >
+                          {ORDER_CHANGE_KINDS.map((k) => {
+                            const t = AMENDMENT_ENTRY_TYPES.find((x) => x.value === k);
+                            const kAlready = alreadyKinds.includes(k);
+                            return (
+                              <label key={k} className="flex cursor-pointer items-start gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 h-4 w-4 accent-primary"
+                                  checked={kAlready || orderKinds.includes(k)}
+                                  disabled={kAlready}
+                                  onChange={(e) => toggleKind(k, e.target.checked)}
+                                />
+                                <span>
+                                  <span>{t?.label ?? k}</span>
+                                  {kAlready && <span className="ml-1 text-xs text-muted-foreground">(already open)</span>}
+                                  <span className="block text-xs text-muted-foreground">{t?.hint}</span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
             </Field>
             {opens && (
-              <p className="mt-2 rounded-md border border-info bg-info-soft px-3 py-2 text-xs text-info" role="status">
-                Opens {opens.length > 0 ? opens.join(", ") : "nothing"} — everything else stays as approved.
+              <div className="mt-2 space-y-1 rounded-md border border-info bg-info-soft px-3 py-2 text-xs text-info" role="status">
+                <p>
+                  Unlocks {opens.edit.length > 0 ? opens.edit.join(", ") : "nothing"} — everything else stays read-only, as
+                  approved.
+                </p>
+                {opens.recalc.length > 0 && (
+                  <p>
+                    {opens.recalc.join(" and ")} stay{opens.recalc.length === 1 ? "s" : ""} read-only, but{" "}
+                    {opens.recalc.length === 1 ? "its" : "their"} quantities and weights recalculate automatically when the
+                    order is saved.
+                  </p>
+                )}
+              </div>
+            )}
+            {tried && !selectionProblem && !addsSomething && (
+              <p className="mt-1 text-xs text-danger" role="alert">
+                Everything picked is already open on this order — tick a module or change it does not carry yet.
               </p>
             )}
 
             {/* Mandatory, holds the cursor while blank. Capitals stay the
                 default: the Textarea exemption is withdrawn (AGENTS.md).
                 spell-suggest: exempt -- a Textarea: ↓ and Enter mean next line / new line. */}
-            <Field label="Amendment Remarks" required htmlFor="ra-remarks" className="mt-4" error={remarksError}>
+            <Field label="Revision Remarks" required htmlFor="ra-remarks" className="mt-4" error={remarksError}>
               <Textarea id="ra-remarks" rows={3} required value={remarks} onChange={(e) => setRemarks(e.target.value)} />
             </Field>
 
@@ -271,7 +368,7 @@ export function RaiseAmendmentScreen({
                 Cancel
               </Button>
               <Button type="submit" size="md" disabled={isPending}>
-                {isPending ? "Raising…" : "Raise amendment"}
+                {isPending ? "Raising…" : "Raise revision"}
               </Button>
             </div>
           </form>

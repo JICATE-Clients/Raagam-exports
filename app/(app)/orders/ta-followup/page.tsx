@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Info, OctagonAlert, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Check, ClipboardCheck, Clock, Info, OctagonAlert, Package, type LucideIcon } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import {
   getApprovalsWorklist,
@@ -7,6 +7,7 @@ import {
   type ApprovalWorklistRow,
 } from "@/lib/ta/approvals-worklist";
 import { PageHeader } from "@/components/ui/page-header";
+import { StaticFilterDrawer, StaticFilterSelect, StaticFilterText } from "@/components/ui/filter-drawer-static";
 import { Stat } from "@/components/ui/stat";
 import { StatusDot } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/lib/ui/tone";
@@ -197,6 +198,7 @@ export default async function ApprovalsWorklistPage({
         )}
       </div>
 
+      <QuickStatusLinks filters={filters} bucket={activeBucket} />
       <FilterBar buyers={buyerOptions} owners={ownerOptions} filters={filters} bucket={activeBucket} />
 
       {filtering && filteredRows.length === 0 && wl.rows.length > 0 && (
@@ -290,6 +292,14 @@ function Section({
  * multiple filter inputs at once. Date range is deliberately NOT a fifth
  * control here — the bucket tabs below already ARE "Due Today / Due This
  * Week (Next 7 days) / Overdue (Backlog)".
+ *
+ * DRAWN AS THE GROUPED DRAWER (user, 2026-09-23: "implement the Material BOM
+ * filter in every Orders child"). Not `useFacetFilter` — that is client state,
+ * and this page is server-only on purpose — but its LOOK, via the server-safe
+ * `StaticFilterDrawer`: the same four controls, the same `name`s and URL
+ * params, folded into two questions ("which order" · "where is the
+ * approval"). The one visible difference from Material BOM's panel is the
+ * Apply button, which a GET form cannot do without.
  */
 function FilterBar({
   buyers,
@@ -302,120 +312,132 @@ function FilterBar({
   filters: Filters;
   bucket: Bucket;
 }) {
-  const active = filters.buyer || filters.owner || filters.ref || filters.status !== "all";
+  const active = !!(filters.buyer || filters.owner || filters.ref || filters.status !== "all");
   return (
-    <form
-      method="get"
+    <StaticFilterDrawer
       action="/orders/ta-followup"
-      className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-surface p-2.5"
-    >
-      <input type="hidden" name="bucket" value={bucket} />
-      {/* Raw <select>s, deliberately — components/ui/select.tsx is a client
-          component built for controlled value/onChange, and this bar is a
-          plain GET <form> so the page stays server-only (see tabHref's own
-          note). AGENTS.md's autofill rule covers exactly this case: hand-
-          rolled is fine as long as it sets the opt-out attributes itself, so
-          both get autoComplete="off" + the password-manager trio by hand —
-          a Buyer/Merchandiser list is master data, not something Chrome
-          should ever be re-offering from a saved profile. */}
-      <label className="space-y-1 text-xs font-medium text-muted-foreground" htmlFor="wl-buyer">
-        Buyer
-        <select
-          id="wl-buyer"
-          name="buyer"
-          defaultValue={filters.buyer}
-          autoComplete="off"
-          data-1p-ignore
-          data-lpignore="true"
-          data-form-type="other"
-          className="block h-8 w-40 rounded-md border border-border bg-surface px-2 text-sm"
-        >
-          <option value="">All buyers</option>
-          {buyers.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="space-y-1 text-xs font-medium text-muted-foreground" htmlFor="wl-owner">
-        Merchandiser
-        <select
-          id="wl-owner"
-          name="owner"
-          defaultValue={filters.owner}
-          autoComplete="off"
-          data-1p-ignore
-          data-lpignore="true"
-          data-form-type="other"
-          className="block h-8 w-40 rounded-md border border-border bg-surface px-2 text-sm"
-        >
-          <option value="">All merchandisers</option>
-          {owners.map(([id, name]) => (
-            <option key={id} value={id}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="space-y-1 text-xs font-medium text-muted-foreground" htmlFor="wl-ref">
-        Order / ARI Ref No.
-        {/* Raw <input>, not the shared `Input` primitive — `Input` pulls in
-            `field.tsx`'s `useRequiredHold`, which uses React context and
-            forces a client boundary; importing it here broke this page's
-            server-only build (`createContext` in a Server Component module).
-            caps-input: exempt -- a search box, not a stored value (AGENTS.md,
-            CAPS §"Exempt": "a search box ... including the one in
-            data-picker.tsx"), so no uppercase transform is needed by hand
-            either. */}
-        <input
-          id="wl-ref"
-          name="ref"
-          defaultValue={filters.ref}
-          placeholder="Search…"
-          autoComplete="off"
-          data-1p-ignore
-          data-lpignore="true"
-          data-form-type="other"
-          className="block h-8 w-36 rounded-md border border-border bg-surface px-2 text-sm"
-        />
-      </label>
-      <label className="space-y-1 text-xs font-medium text-muted-foreground" htmlFor="wl-status">
-        Status
-        <select
-          id="wl-status"
-          name="status"
-          defaultValue={filters.status}
-          autoComplete="off"
-          data-1p-ignore
-          data-lpignore="true"
-          data-form-type="other"
-          className="block h-8 w-32 rounded-md border border-border bg-surface px-2 text-sm"
-        >
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABEL[s]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="flex items-center gap-1.5">
-        <button
-          type="submit"
-          className="h-8 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground"
-        >
-          Apply
-        </button>
-        {active && (
+      hidden={{ bucket }}
+      active={active}
+      clearHref={`/orders/ta-followup?bucket=${bucket}`}
+      groups={[
+        {
+          title: "Order",
+          icon: <Package />,
+          children: (
+            <>
+              <StaticFilterText
+                id="wl-ref"
+                name="ref"
+                label="Order / ARI Ref No."
+                defaultValue={filters.ref}
+                placeholder="Search…"
+                wide
+              />
+              <StaticFilterSelect
+                id="wl-buyer"
+                name="buyer"
+                label="Buyer"
+                all="All buyers"
+                defaultValue={filters.buyer}
+                options={buyers.map((b) => ({ value: b, label: b }))}
+                wide
+              />
+            </>
+          ),
+        },
+        {
+          title: "Approval",
+          icon: <ClipboardCheck />,
+          children: (
+            <>
+              {/* Status carries its own "All" (`status=all` is the default the
+                  page parses), so no extra blank option. */}
+              <StaticFilterSelect
+                id="wl-status"
+                name="status"
+                label="Status"
+                all={null}
+                defaultValue={filters.status}
+                options={STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))}
+              />
+              <StaticFilterSelect
+                id="wl-owner"
+                name="owner"
+                label="Merchandiser"
+                all="All merchandisers"
+                defaultValue={filters.owner}
+                options={owners.map(([id, name]) => ({ value: id, label: name }))}
+              />
+            </>
+          ),
+        },
+      ]}
+    />
+  );
+}
+
+/**
+ * THE PENDING / UPDATED BOX (user 2026-09-23: "in budget we have pending,
+ * update, draft button need to implement same order module fully"), as two
+ * server `<Link>`s — `StatusSegment` (components/orders/bom-queue.tsx) is
+ * client state, and this page is server-only on purpose. Same box, same lit
+ * classes (copied: the classes, not the component), driven by the page's own
+ * `status` param, so the box and the drawer's Status select are ONE filter
+ * with two controls and cannot disagree.
+ *
+ *  - Pending → `status=pending`: the first attempt, not yet sent — the work
+ *    waiting on the merchandiser who opens this list. The spec's own word, so
+ *    it keeps the spec's meaning; Rework stays its own drawer option.
+ *  - Updated → `status=approved`: the approval is done.
+ *  - Sent and Rework get no word (a sample with the buyer is not "done", and a
+ *    rework is not a first attempt); they stay one drawer option away.
+ *  - NO DRAFT: an approval has no saved-but-unfinished state.
+ *
+ * DOES NOT OPEN ON PENDING, unlike the client-side box. With no `status` the
+ * page stays on All, as it always has: defaulting to `pending` would hide
+ * every Rework row (the urgent re-tries) and the Approved follow-up panel
+ * from anyone who arrives by the sidebar. Clicking the lit word steps to the
+ * other one, the way `StatusSegment` does.
+ */
+const QUICK_BOX =
+  "inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 text-xs font-medium";
+const QUICK_WORD = "inline-flex h-full items-center gap-1.5 rounded-md px-2.5 transition-colors";
+const QUICK_LIT =
+  "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
+const QUICK_WORDS = [
+  { status: "pending", text: "Pending", icon: Clock },
+  { status: "approved", text: "Updated", icon: Check },
+] as const;
+
+function QuickStatusLinks({ filters, bucket }: { filters: Filters; bucket: Bucket }) {
+  const href = (status: StatusFilter) => {
+    const params = new URLSearchParams({ bucket });
+    if (filters.buyer) params.set("buyer", filters.buyer);
+    if (filters.owner) params.set("owner", filters.owner);
+    if (filters.ref) params.set("ref", filters.ref);
+    params.set("status", status);
+    return `/orders/ta-followup?${params.toString()}`;
+  };
+  const lit = QUICK_WORDS.find((w) => w.status === filters.status);
+  return (
+    <div role="group" aria-label={`Status: ${lit ? lit.text : "all"}`} className={QUICK_BOX}>
+      {QUICK_WORDS.map((w, i) => {
+        const on = filters.status === w.status;
+        const Icon = w.icon;
+        const next = on ? QUICK_WORDS[(i + 1) % QUICK_WORDS.length].status : w.status;
+        return (
           <Link
-            href={`/orders/ta-followup?bucket=${bucket}`}
-            className="h-8 rounded-md border border-border px-3 text-sm leading-8 text-muted-foreground hover:text-foreground"
+            key={w.status}
+            href={href(next)}
+            aria-current={on ? "true" : undefined}
+            className={cn(QUICK_WORD, on ? QUICK_LIT : "text-muted-foreground hover:bg-surface-muted")}
           >
-            Clear
+            <Icon className="h-3.5 w-3.5" aria-hidden />
+            {w.text}
           </Link>
-        )}
-      </div>
-    </form>
+        );
+      })}
+    </div>
   );
 }
 

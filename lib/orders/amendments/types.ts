@@ -1438,6 +1438,17 @@ export interface AmendmentFile {
    * header until then. It is a real state, not a missing answer.
    */
   style_ref_no: string | null;
+  /**
+   * THE STYLE'S COVER PICTURE (0621, user, 2026-09-23) — at most one per
+   * `(amendment_id, style_ref_no)`, held by `uq_goa_files_primary`. Read it
+   * through `coverOf()` in `style-gallery.ts`, never by hand: an order with no
+   * star still has a cover (its first sketch picture), and that fallback is
+   * what every order saved before this column existed depends on.
+   */
+  is_primary: boolean;
+  /** Printed in the "Style images" strip on the order's reports (0621). Opt-in:
+   *  no flag, no picture — a report never guesses which image to print. */
+  print_on_report: boolean;
   created_at: string;
 }
 
@@ -2213,6 +2224,11 @@ export const amendmentFileInput = z.object({
   storage_path: nullableText,
   mime_type: nullableText,
   size_bytes: z.coerce.number().nullable().default(null),
+  /* 0621. `z.boolean()`, not `z.coerce.boolean()` — coercion reads the string
+     "false" as true. One star per style is enforced by `normalizeFileRows`
+     (then the partial unique index), not here: a schema sees one row at a time. */
+  is_primary: z.boolean().default(false),
+  print_on_report: z.boolean().default(false),
 });
 
 /**

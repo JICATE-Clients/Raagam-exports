@@ -18,6 +18,8 @@ import {
   type DcStatus,
 } from "./types";
 import { threeWayMatchStatus } from "@/lib/finance/calc";
+import { acceptedFrom, receiptBand } from "./grn-tolerance";
+import { getGrnReceivingLocations } from "./grn-service";
 
 type OkResult = { ok: true };
 type ErrResult = { ok: false; error: string };
@@ -39,6 +41,14 @@ function revalidateDc(dcId: string): void {
 
 // ---------- GRN ----------
 
+/** The database's tolerance refusal (0620), said the way the screen says it. */
+const OVER_TOLERANCE_MSG =
+  "One or more lines exceed the PO's over-receipt tolerance. A Store Manager must authorise the over-receipt before this GRN can be saved.";
+
+function friendlyGrnError(message: string): string {
+  return /tolerance/i.test(message) ? OVER_TOLERANCE_MSG : message;
+}
+
 export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
   if (!(await can("materials_purchase", "create"))) throw new Error("Forbidden");
 
@@ -47,35 +57,130 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  const { lines, ...headerFields } = parsed.data;
-  const user = await getAppUser();
+  const { lines: rawLines, over_receipt_reason, ...headerFields } = parsed.data;
+  if (rawLines.length === 0) {
+    return { ok: false, error: "Enter Today Recd on at least one line" };
+  }
+
+  /* ACCEPTED IS DERIVED, never typed (0620): Today Recd - Shortage / Rej. The
+     screen computes it the same way; recomputing here is what keeps a stale or
+     hand-crafted payload from posting more into stock than was counted. */
+  const lines = rawLines.map((l) => ({
+    ...l,
+    accepted_qty: acceptedFrom(l.received_qty, l.rejected_qty),
+  }));
+  for (const l of lines) {
+    if (l.rejected_qty > l.received_qty) {
+      return { ok: false, error: `${l.description}: Shortage / Rej cannot exceed Today Recd` };
+    }
+  }
+
+  /* UNIT ISOLATION. `grns_insert` already refuses any unit but the one the
+     operator is working in (is_current_location, 0487); saying so here turns an
+     RLS "violates row-level security policy" into a sentence. */
+  const receiving = await getGrnReceivingLocations();
+  const locationId = headerFields.location_id ?? receiving.defaultId;
+  if (!locationId || !receiving.options.some((o) => o.id === locationId && o.postable)) {
+    return {
+      ok: false,
+      error: "A GRN is received into the unit you are working in. Switch unit in the top bar first.",
+    };
+  }
+
   const supabase = await createClient();
+  const user = await getAppUser();
+
+  /* OVER-RECEIPT TOLERANCE, SERVER SIDE. Same rule as the screen
+     (grn-tolerance.ts) and as the database trigger that backs both (0620). */
+  const poLineIds = Array.from(
+    new Set(lines.map((l) => l.po_line_item_id).filter(Boolean)),
+  ) as string[];
+  let overCount = 0;
+  if (poLineIds.length > 0) {
+    const { data: plData, error: plErr } = await supabase
+      .from("po_line_items")
+      .select("id, quantity, received_qty, purchase_orders!purchase_order_id(over_receipt_tolerance_pct)")
+      .in("id", poLineIds);
+    if (plErr) return { ok: false, error: plErr.message };
+    const byId = new Map(
+      (
+        (plData ?? []) as unknown as {
+          id: string;
+          quantity: number;
+          received_qty: number;
+          purchase_orders: { over_receipt_tolerance_pct: number | null } | null;
+        }[]
+      ).map((r) => [r.id, r]),
+    );
+    const todayByLine = new Map<string, number>();
+    for (const l of lines) {
+      if (!l.po_line_item_id) continue;
+      todayByLine.set(l.po_line_item_id, (todayByLine.get(l.po_line_item_id) ?? 0) + l.accepted_qty);
+    }
+    for (const [id, today] of todayByLine) {
+      const pl = byId.get(id);
+      if (!pl) return { ok: false, error: "A PO line on this GRN no longer exists" };
+      const band = receiptBand({
+        ordered: Number(pl.quantity) || 0,
+        receivedSoFar: Number(pl.received_qty) || 0,
+        acceptedToday: today,
+        tolerancePct: Number(pl.purchase_orders?.over_receipt_tolerance_pct ?? 3),
+      });
+      if (band === "over") overCount++;
+    }
+  }
+
+  const override: Record<string, unknown> = {};
+  if (overCount > 0) {
+    if (!over_receipt_reason) return { ok: false, error: OVER_TOLERANCE_MSG };
+    // `stores:approve` is the Store Manager key (Manager holds it, Store Keeper
+    // does not). The CALLER is stamped as the authoriser, never a client id,
+    // and the database trigger refuses anything else (0620).
+    if (!user || !(await can("stores", "approve"))) {
+      return {
+        ok: false,
+        error: "Only a Store Manager (Stores: Approve) can authorise an over-receipt.",
+      };
+    }
+    override.over_receipt_authorized_by = user.id;
+    override.over_receipt_reason = over_receipt_reason;
+  }
 
   const { data: grn, error } = await supabase
     .from("grns")
-    .insert({ ...headerFields, status: "draft", created_by: user?.id ?? null })
+    .insert({
+      ...headerFields,
+      location_id: locationId,
+      ...override,
+      status: "draft",
+      created_by: user?.id ?? null,
+    })
     .select("id")
     .single();
 
   if (error || !grn) {
-    return { ok: false, error: error?.message ?? "Failed to create GRN" };
+    return { ok: false, error: friendlyGrnError(error?.message ?? "Failed to create GRN") };
+  }
+  const grnId = (grn as { id: string }).id;
+
+  const { error: lineErr } = await supabase.from("grn_line_items").insert(
+    lines.map((l, i) => ({
+      ...l,
+      grn_id: grnId,
+      sort_order: l.sort_order ?? i,
+    })),
+  );
+  if (lineErr) {
+    /* A GRN WITHOUT ITS LINES IS NOT A SAVE. This used to log and return ok,
+       which left an empty draft and told the keeper it had worked. Now that the
+       database refuses an over-tolerance line, that silence would be the whole
+       failure mode, so the header goes too and the reason reaches the screen. */
+    await supabase.from("grns").delete().eq("id", grnId);
+    return { ok: false, error: friendlyGrnError(lineErr.message) };
   }
 
-  if (lines.length > 0) {
-    const { error: lineErr } = await supabase.from("grn_line_items").insert(
-      lines.map((l, i) => ({
-        ...l,
-        grn_id: (grn as { id: string }).id,
-        sort_order: l.sort_order ?? i,
-      })),
-    );
-    if (lineErr) {
-      console.error("[grn] grn_line_items insert error:", lineErr.message);
-    }
-  }
-
-  revalidateGrn((grn as { id: string }).id);
-  return { ok: true, grnId: (grn as { id: string }).id };
+  revalidateGrn(grnId);
+  return { ok: true, grnId };
 }
 
 export async function addGrnLine(
@@ -210,7 +315,7 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
   // must land in its own period or every stock report for that period is wrong.
   const { data: grnData } = await supabase
     .from("grns")
-    .select("id, status, grn_date, location_id")
+    .select("id, status, grn_date, location_id, over_receipt_authorized_by")
     .eq("id", grnId)
     .maybeSingle();
 
@@ -219,9 +324,24 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
     status: string;
     grn_date: string | null;
     location_id: string | null;
+    over_receipt_authorized_by: string | null;
   };
   if (grn.status !== "draft") {
     return { ok: false, error: "GRN is already posted" };
+  }
+
+  // 1b. over-receipt tolerance, re-read NOW: another GRN may have posted
+  // against the same PO lines since this draft was saved. The status trigger
+  // (0620) refuses the same thing; asking first keeps the message readable.
+  if (!grn.over_receipt_authorized_by) {
+    const { data: overRows, error: overErr } = await supabase.rpc(
+      "grn_over_tolerance_lines",
+      { p_grn_id: grnId },
+    );
+    if (overErr) return { ok: false, error: overErr.message };
+    if (((overRows ?? []) as unknown[]).length > 0) {
+      return { ok: false, error: OVER_TOLERANCE_MSG };
+    }
   }
 
   // 2. fetch all lines
@@ -251,7 +371,19 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
     }
   }
 
-  // 3. accumulate received_qty on PO lines + collect stock-in movements
+  // 3. mark GRN posted FIRST (0620). The status trigger measures tolerance as
+  // PO received_qty + this GRN, so it must run before this GRN's quantities are
+  // added to the PO lines; the other way round it counts them twice and refuses
+  // every exact receipt. It also means a retry after a mid-way failure cannot
+  // add the same GRN to a PO line twice: the GRN is no longer a draft.
+  const { error: grnErr } = await supabase
+    .from("grns")
+    .update({ status: "posted" })
+    .eq("id", grnId);
+
+  if (grnErr) return { ok: false, error: friendlyGrnError(grnErr.message) };
+
+  // 3b. accumulate received_qty on PO lines + collect stock-in movements
   const affectedPoIds = new Set<string>();
   const stockIns: {
     store_type: "material" | "rejection";
@@ -285,6 +417,12 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
         .eq("id", line.po_line_item_id);
 
       if (updateErr) {
+        // Back to draft only if nothing has been applied yet; once a PO line
+        // has taken this GRN's quantity, reopening it would let a re-post add
+        // it again.
+        if (affectedPoIds.size === 0) {
+          await supabase.from("grns").update({ status: "draft" }).eq("id", grnId);
+        }
         return { ok: false, error: `Failed to update PO line: ${updateErr.message}` };
       }
       if (line.purchase_order_id) {
@@ -316,14 +454,6 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
       });
     }
   }
-
-  // 4. mark GRN posted
-  const { error: grnErr } = await supabase
-    .from("grns")
-    .update({ status: "posted" })
-    .eq("id", grnId);
-
-  if (grnErr) return { ok: false, error: grnErr.message };
 
   // 5. recompute status for each affected PO
   for (const poId of affectedPoIds) {
@@ -369,14 +499,25 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
       } = await supabase.auth.getUser();
       const { data: storeRows } = await admin
         .from("stores")
-        .select("id, store_type")
+        .select("id, store_type, location_id")
+        .eq("is_active", true)
         .in("store_type", ["material", "rejection"]);
-      const storeByType = new Map(
-        ((storeRows ?? []) as { id: string; store_type: string }[]).map((s) => [
-          s.store_type,
-          s.id,
-        ]),
-      );
+      // UNIT ISOLATION: goods received into a unit land in THAT unit's store.
+      // A unit with no store of the type falls back to any (the previous
+      // behaviour), so a Unit 2 receipt is not silently dropped while Unit 2
+      // has no stores set up.
+      const storeByType = new Map<string, string>();
+      const rowsTyped = (storeRows ?? []) as {
+        id: string;
+        store_type: string;
+        location_id: string | null;
+      }[];
+      for (const st of rowsTyped) {
+        if (st.location_id === grn.location_id) storeByType.set(st.store_type, st.id);
+      }
+      for (const st of rowsTyped) {
+        if (!storeByType.has(st.store_type)) storeByType.set(st.store_type, st.id);
+      }
       const movements = stockIns
         .map((m) => {
           const storeId = storeByType.get(m.store_type);

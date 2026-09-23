@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ClipboardList, FileText, Layers, Printer, Spool, Table, type LucideIcon } from "lucide-react";
+import { ClipboardList, FileText, Layers, Printer, Scissors, Spool, Table, Wallet, type LucideIcon } from "lucide-react";
 import {
   ORDER_REPORTS,
   ORDER_REPORT_SOURCES,
+  onOrderStrip,
   orderReportHref,
   type OrderReportIcon,
   type OrderReportKey,
@@ -59,6 +60,8 @@ const ICONS: Record<OrderReportIcon, LucideIcon> = {
   table: Table,
   spool: Spool,
   printer: Printer,
+  scissors: Scissors,
+  wallet: Wallet,
 };
 
 export type OrderDocumentKey = OrderReportKey;
@@ -76,17 +79,15 @@ export function OrderDocumentTabs({
       className="flex flex-wrap items-stretch gap-2 rounded-md border border-border bg-surface-muted p-1 print:hidden"
     >
       {ORDER_REPORT_SOURCES.map(({ source, label }) => {
-        const reports = ORDER_REPORTS.filter((r) => r.source === source);
+        const reports = ORDER_REPORTS.filter((r) => r.source === source && onOrderStrip(r, current));
         if (reports.length === 0) return null;
         return (
-          /* ONE GROUP PER SOURCE DOCUMENT. With six reports a flat strip read
-             "Fabric Requirement · Fabric BOM Entry Register · …" and left the
-             operator to work out which BOM each came from; the heading says it
-             once, in the words the old strip's tabs used. */
+          /* ONE GROUP PER SOURCE DOCUMENT — for a screen reader only. The
+             visible ORDER / FABRIC BOM headings came off (client 2026-09-23:
+             "just report label is enough, looks duplicated"): with the strip
+             cut to a handful of reports, each label already names its
+             document ("Fabric BOM Entry Register"), so the heading repeated it. */
           <div key={source} role="group" aria-label={label} className="flex flex-wrap items-center gap-1">
-            <span className="px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {label}
-            </span>
             {reports.map((d) => {
               const active = d.key === current;
               const Icon = ICONS[d.icon];

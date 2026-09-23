@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { VFinalBanner } from "@/components/orders/v-final-banner";
+import { vFinalFor } from "@/lib/orders/amendments/v-final";
 import { requirePermission } from "@/lib/auth/server";
 import {
   getFabricRequirementSheet,
@@ -43,12 +45,19 @@ import { OrderDocumentTabs } from "@/components/orders/order-document-tabs";
  */
 export default async function FabricRequirementPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orderId: string }>;
+  /** `?version=proposed` — the amendment's in-flight data instead of V_final (0619). */
+  searchParams: Promise<{ version?: string }>;
 }) {
   await requirePermission("orders", "view");
-  const { orderId } = await params;
-  const data = await getFabricRequirementSheet(orderId);
+  const [{ orderId }, { version }] = await Promise.all([params, searchParams]);
+  /* V_FINAL (0619, spec §4B) — knitting and dyeing work from the approved
+     fabric plan while an amendment is open. */
+  const vf = await vFinalFor("fabric-requirement-sheet", orderId);
+  const proposed = version === "proposed";
+  const data = vf.state === "frozen" && !proposed ? vf.payload : await getFabricRequirementSheet(orderId);
 
   return (
     <div className="space-y-4">
@@ -88,6 +97,13 @@ export default async function FabricRequirementPage({
           push the toolbar buttons off the right on a narrow screen. It carries
           its own `print:hidden`. */}
       <OrderDocumentTabs orderId={orderId} current="fabric" />
+
+      <VFinalBanner
+        state={vf}
+        proposed={proposed}
+        hrefApproved={`/orders/${orderId}/fabric-requirement`}
+        hrefProposed={`/orders/${orderId}/fabric-requirement?version=proposed`}
+      />
 
       {isFabricSheetRefusal(data) ? (
         /*

@@ -34,6 +34,9 @@ import { listFabricBomTasks } from "@/lib/orders/fabric-bom/service";
 import { listMaterialBomTasks } from "@/lib/orders/material-bom-amendment/service";
 import { bomStatusText } from "@/lib/orders/bom-status";
 import { amendmentTypesLabel, marginDelta } from "@/lib/orders/amendments/amendment-entry";
+import { amendmentSubmitProblem } from "@/lib/orders/amendments/submit-gate";
+import { budgetAmendmentScopeOf } from "./lock";
+import { budgetScopeProblem, type BudgetScopeLine } from "./amendment-scope";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -92,8 +95,22 @@ async function writeChildren(
   const { error: ordErr } = await s.from("order_budget_orders").insert(orders);
   if (ordErr) return fail(ordErr.message);
 
-  const lines = data.lines.map((l, i) => ({
-    budget_id: budgetId,
+  const lines = lineRowsOf(data).map((l) => ({ budget_id: budgetId, ...l }));
+
+  if (lines.length) {
+    const { error } = await s.from("order_budget_lines").insert(lines);
+    if (error) return fail(error.message);
+  }
+  return { ok: true };
+}
+
+/**
+ * THE ROWS A SAVE WRITES — one mapping, read by the write above and by the
+ * Order Budget module rule (0619), so the scope check judges exactly what is
+ * about to be stored.
+ */
+function lineRowsOf(data: OrderBudgetInput) {
+  return data.lines.map((l, i) => ({
     sno: i + 1,
     source: l.source,
     garment_order_id: l.garment_order_id ?? null,
@@ -134,12 +151,52 @@ async function writeChildren(
     // 0591 — pulled from a BOM (item / qty / unit are the BOM's).
     from_bom: l.from_bom,
   }));
+}
 
-  if (lines.length) {
-    const { error } = await s.from("order_budget_lines").insert(lines);
-    if (error) return fail(error.message);
+/**
+ * THE ORDER BUDGET MODULE RULE (0619, doc/order/amenment update.md §2): while
+ * an order of this budget is under an amendment that did not pick Order
+ * Budget, the budget's own heads and its approved rates stay as approved. The
+ * budget is not trigger-locked, so this is the guard, not a courtesy.
+ */
+async function refuseOutOfBudgetScope(
+  orderIds: readonly string[],
+  lines: readonly BudgetScopeLine[],
+  header: { currency_code?: string | null; exchange_rate?: number | string | null },
+): Promise<Result | null> {
+  let scope;
+  try {
+    scope = await budgetAmendmentScopeOf(orderIds);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "Could not read the open amendment");
   }
-  return { ok: true };
+  if (!scope) return null;
+  const why = budgetScopeProblem({
+    entryNo: scope.entryNo,
+    baseline: scope.baselineLines,
+    baselineHeader: scope.baselineHeader,
+    next: lines,
+    nextHeader: header,
+  });
+  return why ? fail(why) : null;
+}
+
+/**
+ * The screen's half: which amendment governs this budget, and its approved
+ * lines — so the cells the rule refuses are read-only before Save is pressed.
+ * Null when nothing restricts it.
+ */
+export async function loadBudgetAmendmentScope(orderIds: string[]): Promise<
+  | { ok: true; scope: { entryNo: string | null; baselineLines: BudgetScopeLine[] } | null }
+  | { ok: false; error: string }
+> {
+  if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
+  try {
+    const scope = await budgetAmendmentScopeOf(orderIds);
+    return { ok: true, scope: scope ? { entryNo: scope.entryNo, baselineLines: scope.baselineLines } : null };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not read the open amendment" };
+  }
 }
 
 /**
@@ -354,6 +411,12 @@ export async function updateOrderBudget(id: string, data: OrderBudgetInput): Pro
   if (!guard.ok) return guard;
   const unready = await refuseUnreadyOrders(s, p.data.orders.map((o) => o.garment_order_id));
   if (unready) return unready;
+  const outOfScope = await refuseOutOfBudgetScope(
+    p.data.orders.map((o) => o.garment_order_id),
+    lineRowsOf(p.data),
+    headerOnly(p.data),
+  );
+  if (outOfScope) return outOfScope;
 
   const { error } = await s.from("order_budgets").update(headerOnly(p.data)).eq("id", id);
   if (error) return fail(error.message);
@@ -449,6 +512,21 @@ export async function submitBudget(id: string): Promise<Result> {
   const orderIds = budget.orders.map((o) => o.garment_order_id);
   const unready = await refuseUnreadyOrders(s, orderIds);
   if (unready) return unready;
+  /* THE AMENDMENT'S MODULE RULES (0619, spec §2 rule 2): Order Entry's style
+     quantities re-verified from the stored order, the Fabric BOM recalculated
+     since the entry opened, and — when Order Budget was not picked — the
+     budget's own heads and approved rates as approved. */
+  const outOfScope = await refuseOutOfBudgetScope(orderIds, budget.lines as BudgetScopeLine[], {
+    currency_code: budget.currency_code ?? null,
+    exchange_rate: budget.exchange_rate ?? null,
+  });
+  if (outOfScope) return outOfScope;
+  try {
+    const moduleProblem = await amendmentSubmitProblem(orderIds);
+    if (moduleProblem) return fail(moduleProblem);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "Could not check the amendment's modules");
+  }
   try {
     const { lines: freshLines } = await pullCostLines(orderIds);
     const drift = mergePulled(
@@ -561,6 +639,17 @@ export async function submitBudget(id: string): Promise<Result> {
       .update({ status: "draft", submitted_at: null, submitted_by: null, submitted_summary: null })
       .eq("id", id);
     return fail(`Submitted, but no approval could be started — ${started.error}`);
+  }
+
+  /* THE AMENDED FIGURES, KEPT ON THE ENTRY (0619, spec §2 rule 2: "Order
+     Budget re-calculates profit margin deltas against the baseline"). A
+     reject reverts the budget to V0, and the register must still say what
+     the MD refused. A failure here does not undo the submit — the run is
+     live — so it is logged, and the register falls back to the budget's own
+     submitted summary while the entry is open. */
+  if (amendment) {
+    const { error: recErr } = await s.rpc("order_amendment_record_submission", { p_budget: id, p_kpis: summary });
+    if (recErr) console.error("[budget] recording the amendment's submitted figures:", recErr.message);
   }
 
   await writeAudit({ action: "order_budget.submitted", entityType: "order_budget", entityId: id });
@@ -830,9 +919,7 @@ export async function listCopyableBudgets(): Promise<
       "id, code, budget_date, description, status, " +
         "lines:order_budget_lines(id), " +
         "orders:order_budget_orders(sno, garment_order:garment_order_amendments(" +
-        "customer:customers(name), sales_order:sales_orders(order_number), " +
-        // Named FK column — see `listBudgetableOrders`.
-        "sq_detail:sq_details!sq_detail_id(code)))",
+        "customer:customers(name), sales_order:sales_orders(order_number)))",
     )
     .order("budget_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -853,7 +940,6 @@ export async function listCopyableBudgets(): Promise<
           garment_order: {
             customer: { name: string } | null;
             sales_order: { order_number: string | null } | null;
-            sq_detail: { code: string | null } | null;
           } | null;
         }[]
       | null;
@@ -872,7 +958,6 @@ export async function listCopyableBudgets(): Promise<
       first_order: first
         ? {
             re_no: first.sales_order?.order_number ?? null,
-            sq_no: first.sq_detail?.code ?? null,
             customer_name: first.customer?.name ?? null,
           }
         : null,

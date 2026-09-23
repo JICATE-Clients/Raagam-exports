@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, ClipboardList } from "lucide-react";
+import { Boxes, CalendarRange, ClipboardList, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -22,6 +22,14 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import {
+  createdByFacet,
+  createdDateFacet,
+  flagFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -34,6 +42,7 @@ import { deletePackingAdvice, savePackingAdvice } from "@/lib/orders/packing-adv
 import {
   ASSORTMENT_TYPES,
   ASSORTMENT_TYPE_LABELS,
+  PLA_STATUSES,
   PLA_STATUS_LABELS,
   isAssortmentType,
   plaStatusTone,
@@ -143,6 +152,71 @@ const LINES_W = "max-w-[64rem]";
 /** A line column with the vocabulary width its field takes in the wrapped row. */
 type LineCol = ChildGridColumn<LineRow> & { w: FieldWidth };
 
+/**
+ * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
+ * Material BOM filter in every Orders child"). The list had no filter bar at
+ * all. Every facet is read off the `PackingAdvice` row the table already
+ * shows (its lines ride with it for the Cartons / Packed Pcs columns), so
+ * none costs a query.
+ *
+ * NO DELIVERY URGENCY: an advice carries no delivery date of its own, and
+ * reaching through to the order's would be a new query for a facet the list
+ * cannot show. Assortment Type matches an advice holding ANY line of that
+ * type — an advice can mix them; "Weights" asks whether every carton line is
+ * weighed (a NULL weight is "not weighed yet", never 0).
+ */
+const PLA_FACETS: FacetGroup<PackingAdvice>[] = [
+  {
+    title: "Status & dates",
+    icon: <CalendarRange />,
+    facets: [
+      {
+        key: "status",
+        label: "Status",
+        all: "All statuses",
+        wide: true,
+        counted: true,
+        options: PLA_STATUSES.map((s) => ({ value: s, label: PLA_STATUS_LABELS[s] })),
+        match: (r, v) => r.status === v,
+      },
+      { key: "adviceDate", label: "Date", all: "Any date", date: (r) => r.advice_date },
+      createdDateFacet(),
+    ],
+  },
+  {
+    title: "Customer & destination",
+    icon: <Users />,
+    facets: [
+      { key: "customer", label: "Customer", all: "All customers", wide: true, value: (r) => r.customer?.name },
+      { key: "reNo", label: "RE No", all: "All", value: (r) => r.sales_order?.order_number },
+      { key: "destination", label: "Destination", all: "All", value: (r) => r.country?.name },
+    ],
+  },
+  {
+    title: "Cartons",
+    icon: <Boxes />,
+    facets: [
+      {
+        key: "assortment",
+        label: "Assortment Type",
+        all: "Any",
+        wide: true,
+        counted: true,
+        options: ASSORTMENT_TYPES.map((a) => ({ value: a, label: ASSORTMENT_TYPE_LABELS[a] })),
+        match: (r, v) => r.lines.some((l) => l.assortment_type === v),
+      },
+      flagFacet<PackingAdvice>(
+        "weighed",
+        "Weights",
+        (r) => r.lines.length > 0 && r.lines.every((l) => l.gross_weight != null && l.net_weight != null),
+        "All cartons weighed",
+        "Weights missing",
+      ),
+      createdByFacet(),
+    ],
+  },
+];
+
 export function PackingAdviceScreen({
   rows,
   data,
@@ -171,6 +245,21 @@ export function PackingAdviceScreen({
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
   const keySeq = useRef(0);
+
+  // ---- the list's filters (this component has no early return) --------------
+  const [query, setQuery] = useState("");
+  const facets = useFacetFilter(rows, PLA_FACETS);
+  const facetMatches = facets.matches;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (!facetMatches(r)) return false;
+      if (!needle) return true;
+      return [r.code, r.customer?.name, r.sales_order?.order_number, r.country?.name, r.remarks].some((v) =>
+        (v ?? "").toLowerCase().includes(needle),
+      );
+    });
+  }, [rows, query, facetMatches]);
   const newKey = () => `k${keySeq.current++}`;
 
   const blankLine = (): LineRow => ({
@@ -738,11 +827,20 @@ export function PackingAdviceScreen({
           description="Carton ranges, assortment and weights for an order's destination."
           actions={perms.canCreate ? <Button onClick={openAdd}>New packing advice</Button> : undefined}
         />
+        <FilterBar
+          search={query}
+          onSearch={setQuery}
+          searchPlaceholder="Search advice no, customer or RE No…"
+          activeCount={facets.activeCount}
+          onReset={facets.activeCount ? facets.reset : undefined}
+          panel={facets.panel}
+          right={`${filtered.length} of ${rows.length}`}
+        />
         <DataTable
           columns={withCreatedColumns(columns, rows)}
-          rows={rows}
+          rows={filtered}
           getKey={(r) => r.id}
-          empty="No packing advices yet."
+          empty={rows.length ? "No packing advices match these filters." : "No packing advices yet."}
         />
       </div>
 

@@ -31,7 +31,7 @@
 
 import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, ClipboardList, Layers, Workflow } from "lucide-react";
+import { Boxes, CalendarRange, ClipboardList, Layers, Users, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -51,6 +51,17 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import {
+  createdByFacet,
+  createdDateFacet,
+  flagFacet,
+  urgencyFacet,
+  useFacetFilter,
+  type FacetGroup,
+} from "@/components/ui/filter-drawer";
+import { IWO_STATUSES, IWO_STATUS_LABELS } from "@/lib/orders/internal-work-orders/types";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -185,6 +196,83 @@ const procFacts = (p: ProcRow): IwoMbProcessFacts => ({
   vendor_id: p.vendor_id,
 });
 
+/**
+ * THE PENDING / UPDATED / DRAFT BOX (user, 2026-09-23: "in budget we have
+ * pending, update, draft button need to implement same order module fully").
+ * The three words are read over this list's own "Not started / Draft / Saved"
+ * — the Material BOM column's words — as the question the box asks on the order
+ * BOM queues and Budgeting: is the work still to do, or done.
+ *   Pending = Not started — a work order with no Material BOM yet: the work
+ *                           waiting on whoever opens this list
+ *   Updated = Saved       — the Material BOM is written and final
+ *   Draft   = Draft       — saved as draft, not finished
+ * Every row is one of the three. The drawer's Material BOM facet asks the same
+ * question, so the box stands down while it is set (the Budget Approval rule,
+ * `useQuickStatus`'s `standDown`).
+ */
+const bomWord = (t: IwoMaterialBomTask): QuickWord => (!t.bom ? "pending" : t.bom.is_draft ? "draft" : "updated");
+
+/**
+ * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
+ * Material BOM filter in every Orders child"). The list had no filter bar at
+ * all. Every facet is read off the `IwoMaterialBomTask` the table already
+ * shows, so none costs a query. No For facet: every row here is Accessories.
+ */
+const IWO_MATERIAL_BOM_FACETS: FacetGroup<IwoMaterialBomTask>[] = [
+  {
+    title: "Status & dates",
+    icon: <CalendarRange />,
+    facets: [
+      {
+        key: "bom",
+        label: "Material BOM",
+        all: "All",
+        wide: true,
+        counted: true,
+        options: [
+          { value: "none", label: "Not started" },
+          { value: "draft", label: "Draft" },
+          { value: "saved", label: "Saved" },
+        ],
+        match: (t, v) => (!t.bom ? "none" : t.bom.is_draft ? "draft" : "saved") === v,
+      },
+      { key: "iwoDate", label: "Date", all: "Any date", date: (t) => t.iwo_date },
+      { key: "deliDate", label: "Deli Dt", all: "Any date", date: (t) => t.deli_date },
+    ],
+  },
+  {
+    title: "Work order",
+    icon: <ClipboardList />,
+    facets: [
+      {
+        key: "iwoStatus",
+        label: "Work Order Status",
+        all: "All",
+        wide: true,
+        counted: true,
+        options: IWO_STATUSES.map((s) => ({ value: s, label: IWO_STATUS_LABELS[s] })),
+        match: (t, v) => t.status === v,
+      },
+      flagFacet<IwoMaterialBomTask>(
+        "lines",
+        "Material Lines",
+        (t) => (t.bom?.iwo_material_bom_items.length ?? 0) > 0,
+        "Has lines",
+        "No lines yet",
+      ),
+    ],
+  },
+  {
+    title: "Delivery & created",
+    icon: <Users />,
+    facets: [
+      { ...urgencyFacet<IwoMaterialBomTask>((t) => t.deli_date), wide: true },
+      createdDateFacet(),
+      createdByFacet(),
+    ],
+  },
+];
+
 export function IwoMaterialBomScreen({
   tasks,
   data,
@@ -233,6 +321,27 @@ export function IwoMaterialBomScreen({
   const shellRef = useRef<MasterFullScreenHandle>(null);
 
   const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+
+  // THE LIST'S FILTERS — hooks here, near the top: this component has no early
+  // return today, and a hook down by the list would be the first to break if
+  // one is added (AGENTS.md, hooks above every early return).
+  const [listQuery, setListQuery] = useState("");
+  const listFacets = useFacetFilter(tasks, IWO_MATERIAL_BOM_FACETS);
+  const facetMatches = listFacets.matches;
+  const quick = useQuickStatus(bomWord, {
+    standDown: !!listFacets.values.bom,
+    onPick: () => listFacets.set("bom", ""),
+  });
+  const qm = quick.matches;
+  const listed = useMemo(() => {
+    const needle = listQuery.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (!facetMatches(t)) return false;
+      if (!qm(t)) return false;
+      if (!needle) return true;
+      return [t.code, t.reference_no].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+  }, [tasks, listQuery, facetMatches, qm]);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
   const materialById = useMemo(() => new Map(data.materials.map((m) => [m.id, m])), [data.materials]);
   const uomById = useMemo(() => new Map(data.uoms.map((u) => [u.id, u])), [data.uoms]);
@@ -1114,11 +1223,27 @@ export function IwoMaterialBomScreen({
           description="The Material BOM for an Internal Work Order For Accessories — no garment breakdown; the quantity is typed."
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Material BOM</Button> : undefined}
         />
+        <FilterBar
+          leading={quick.segment}
+          search={listQuery}
+          onSearch={setListQuery}
+          searchPlaceholder="Search I.WO No or RE No…"
+          activeCount={listFacets.activeCount}
+          onReset={listFacets.activeCount ? listFacets.reset : undefined}
+          panel={listFacets.panel}
+          right={`${listed.length} of ${tasks.length}`}
+        />
         <DataTable
           columns={withCreatedColumns(columns, tasks)}
-          rows={tasks}
+          rows={listed}
           getKey={(t) => t.id}
-          empty="No Internal Work Orders For Accessories at this unit yet."
+          empty={
+            !tasks.length
+              ? "No Internal Work Orders For Accessories at this unit yet."
+              : quick.value
+                ? `No ${quick.value} work orders${listFacets.activeCount || listQuery ? " match these filters" : ""}.`
+                : "No work orders match these filters."
+          }
         />
       </div>
 

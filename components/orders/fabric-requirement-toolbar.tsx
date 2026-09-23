@@ -16,7 +16,7 @@ import type { ClothPurchaseLine } from "@/lib/orders/fabric-bom/reports";
  * The three ways off the screen — the fabric sheet's only behaviour.
  *
  * Its own client island so the document stays a server component with nothing to
- * hydrate, exactly as `RequirementToolbar` and `GosPrintButton` are beside it.
+ * hydrate, exactly as `RequirementToolbar` and `GosToolbar` are beside it.
  *
  * ## NO INK-SAFE TOGGLE HERE, DELIBERATELY
  *

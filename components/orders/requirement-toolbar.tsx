@@ -9,7 +9,7 @@ import type { SheetRow } from "@/lib/orders/requirement/sheet";
  * The three ways off the screen — the sheet's only behaviour.
  *
  * Its own client island so the document stays a server component with nothing
- * to hydrate, exactly as `GosPrintButton` is next door.
+ * to hydrate, exactly as `GosToolbar` is next door.
  *
  * ## NO INK-SAFE TOGGLE HERE, DELIBERATELY
  *

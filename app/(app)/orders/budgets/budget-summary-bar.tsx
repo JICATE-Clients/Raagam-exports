@@ -147,7 +147,7 @@ export function BudgetSummaryBar({
         <Figure w="num" label="Currency" value={sales.currency} />
         <Figure w="num" label="Conv" value={sales.conv} />
         <Figure w="hug" label="Avg Price" value={sales.avgPrice} />
-        {/* ORDER Qty — what was sold, and what Avg Price divides by. SQ Qty
+        {/* ORDER Qty — what was sold, and what Avg Price divides by. Cut Qty
             (what is made) is a different, larger figure; see the Budget
             section's pair. */}
         <Figure w="range" label="Order Qty" value={qty} />

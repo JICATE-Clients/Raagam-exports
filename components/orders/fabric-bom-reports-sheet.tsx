@@ -12,6 +12,8 @@ import {
   loadFabricBomEntryRegister,
   loadYarnFabricRequirementReport,
 } from "@/lib/orders/fabric-bom/actions";
+import { loadVFinalForBom } from "@/lib/orders/amendments/v-final-actions";
+import { VFinalSheetNote, type SheetVFinal } from "@/components/orders/v-final-sheet-note";
 import type {
   BomDocHeader,
   EntryRegister,
@@ -96,24 +98,45 @@ export function FabricBomReportsSheet({
     data: YarnFabricRequirementReport | { refused: string };
   } | null>(null);
 
+  /* V_FINAL (0619, spec §4B): while the order is amending, these reports are
+     the APPROVED version frozen at raise; the merchandiser may switch to the
+     proposed figures, and the note says which one is on screen. */
+  const [vf, setVf] = useState<{ forBom: string; data: SheetVFinal } | null>(null);
+  const [showProposed, setShowProposed] = useState(false);
+
   useEffect(() => {
     if (!open || !bomId) return;
     let cancelled = false;
-    Promise.all([loadFabricBomEntryRegister(bomId), loadYarnFabricRequirementReport(bomId)]).then(
-      ([r, y]) => {
-        if (cancelled) return;
-        setRegister({ forBom: bomId, data: r });
-        setRequirement({ forBom: bomId, data: y });
-      },
-    );
+    Promise.all([
+      loadFabricBomEntryRegister(bomId),
+      loadYarnFabricRequirementReport(bomId),
+      loadVFinalForBom("fabric", bomId),
+    ]).then(([r, y, v]) => {
+      if (cancelled) return;
+      setRegister({ forBom: bomId, data: r });
+      setRequirement({ forBom: bomId, data: y });
+      setVf({ forBom: bomId, data: v as SheetVFinal });
+    });
     return () => {
       cancelled = true;
     };
   }, [open, bomId]);
 
-  const registerData = register && bomId && register.forBom === bomId ? register.data : null;
-  const requirementData =
-    requirement && bomId && requirement.forBom === bomId ? requirement.data : null;
+  const vFinal = vf && bomId && vf.forBom === bomId ? vf.data : null;
+  const frozen =
+    vFinal && vFinal.state === "frozen" && !showProposed && !("refused" in (vFinal.payload as object))
+      ? (vFinal.payload as { register: EntryRegister | { refused: string }; requirement: YarnFabricRequirementReport | { refused: string } })
+      : null;
+  const registerData = frozen
+    ? frozen.register
+    : register && bomId && register.forBom === bomId
+      ? register.data
+      : null;
+  const requirementData = frozen
+    ? frozen.requirement
+    : requirement && bomId && requirement.forBom === bomId
+      ? requirement.data
+      : null;
   const loading = open && !!bomId && registerData == null;
 
   return (
@@ -134,6 +157,7 @@ export function FabricBomReportsSheet({
         <div className="p-6 text-sm text-muted-foreground">Loading…</div>
       ) : (
         <div className="bg-[#f1f3f5] p-4">
+          {vFinal && <VFinalSheetNote vf={vFinal} proposed={showProposed} onToggle={() => setShowProposed((v) => !v)} />}
           {/* THE TABS ARE THE REGISTRY'S (client 2026-09-19) — every
               `fabric-bom` entry in `ORDER_REPORTS` with no page of its own, in
               registry order. A tab added here by hand would be a report the
@@ -253,8 +277,9 @@ function Letterhead({ title, header, stageStripe }: { title: string; header: Bom
  * shared row: each report's own title sits beside it, and the two are free
  * to diverge again the moment either report's spec does. `QuantityBand`
  * right below IS still shared — its five facts
- * (Order/Excess/Rejection/Approval/Cut Qty) are the client's Row 2 verbatim
- * for BOTH reports, so there was nothing to fork there.
+ * (Order/Excess/Rejection/Approval/Cut Qty) are the client's Row 2 for BOTH
+ * reports; the Entry Register passes `excessAsPct` to state Excess % instead
+ * of Excess Qty (client 2026-09-23).
  */
 function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
   return (
@@ -281,7 +306,15 @@ function YarnFact({ label, value, mono }: { label: string; value: string | null 
   );
 }
 
-function QuantityBand({ header }: { header: BomDocHeader }) {
+function QuantityBand({
+  header,
+  excessAsPct,
+}: {
+  header: BomDocHeader;
+  /** The Entry Register's header states the order's Excess % in place of the
+   *  Excess Qty (client 2026-09-23). The requirement reports keep the qty. */
+  excessAsPct?: boolean;
+}) {
   const qty = header.qty;
   if (isReportRefusal(qty)) {
     return (
@@ -295,10 +328,17 @@ function QuantityBand({ header }: { header: BomDocHeader }) {
       <span>
         <span className="text-[#8b95a3]">Order Qty</span> {fmtNumber(qty.orderQty)}
       </span>
-      <span>
-        <span className="text-[#8b95a3]">Excess Qty{header.excessPct != null ? ` ${header.excessPct}%` : ""}</span>{" "}
-        {fmtNumber(qty.excessQty)}
-      </span>
+      {excessAsPct ? (
+        <span>
+          <span className="text-[#8b95a3]">Excess %</span>{" "}
+          {header.excessPct != null ? `${fmtNumber(header.excessPct)}%` : "—"}
+        </span>
+      ) : (
+        <span>
+          <span className="text-[#8b95a3]">Excess Qty{header.excessPct != null ? ` ${header.excessPct}%` : ""}</span>{" "}
+          {fmtNumber(qty.excessQty)}
+        </span>
+      )}
       {/* THE PERCENTAGES ARE THE REPORT'S OWN (`approvalPct` / `rejectionPct`,
           derived in lib/orders/fabric-bom/reports.ts). This band used to
           divide them here while the PDF printed none at all — two renderings
@@ -316,7 +356,7 @@ function QuantityBand({ header }: { header: BomDocHeader }) {
         {fmtNumber(qty.approvalQty)}
       </span>
       <span className="ml-auto font-semibold text-[#037bb8]">
-        Cut Qty {fmtNumber(qty.sqQty)}
+        Cut Qty {fmtNumber(qty.cutQty)}
       </span>
     </div>
   );
@@ -502,14 +542,13 @@ function ExportBar({ pdf }: { pdf: (output: PdfOutput) => Promise<void> }) {
 // ---------------------------------------------------------------------------
 
 /**
- * Row 1 of the Entry Register's header — Customer / SC No / Order No / Style
- * Ref No / Delivery, ONE LINE (client spec, 2026-09-11), the same five facts
- * in the same order the reference PDF `FabricBomEntryRegister_*.pdf` prints
- * and `YarnReportFactsRow` above already gives Report 2. Style No / BOM Dt /
- * Computed / SQ No / SQ Description never appear in that printed letterhead
- * either, so this row doesn't carry them on screen — see the note beside
- * `YarnReportFactsRow` for why the two reports each get their own copy of
- * this row rather than a single shared one.
+ * Row 1 of the Entry Register's header — Customer / RE No / Order No / Style
+ * Ref No / Delivery Date, ONE LINE; `QuantityBand excessAsPct` below it is
+ * Row 2 — Order Qty / Excess % / Rejection Allowance / Approval Allowance /
+ * Cut Qty (client 2026-09-23). The PDF letterhead prints the same ten facts in
+ * the same order (`entryRegisterFacts` in reports-export.ts). See the note
+ * beside `YarnReportFactsRow` for why the two reports each get their own copy
+ * of this row rather than a single shared one.
  */
 function EntryRegisterFactsRow({ header }: { header: BomDocHeader }) {
   return (
@@ -518,7 +557,7 @@ function EntryRegisterFactsRow({ header }: { header: BomDocHeader }) {
       <YarnFact label="RE No" value={header.scNo} mono />
       <YarnFact label="Order No" value={header.orderNo} mono />
       <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
-      <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
+      <YarnFact label="Delivery Date" value={fmtDate(header.deliveryFromDate)} mono />
     </div>
   );
 }
@@ -587,7 +626,7 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
 
       <Letterhead title="Fabric BOM Entry Register" header={data.header} />
       <EntryRegisterFactsRow header={data.header} />
-      <QuantityBand header={data.header} />
+      <QuantityBand header={data.header} excessAsPct />
 
       {/* DETAILED VS SUMMARY — a floor operator wants every size row, a
           reviewer wants one line per component averaging piece consumption
@@ -632,7 +671,7 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
           <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
             <Td colSpan={3} className="truncate font-semibold">GRAND TOTAL</Td>
             <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
-            <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.sqQty)}</Td>
+            <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.cutQty)}</Td>
             <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
             <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.netReqWt)}</Td>
             <Td>{""}</Td>
@@ -724,7 +763,7 @@ function EntryColourRows({
       <tr className="border-y-2 border-[#c7cdd4] bg-[#e9ecef] font-semibold uppercase tracking-wide">
         <Td colSpan={3} className="truncate font-semibold text-[#3a4250]">{label} — subtotal</Td>
         <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
-        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.sqQty)}</Td>
+        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.cutQty)}</Td>
         <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
         <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.netReqWt)}</Td>
         <Td>{""}</Td>
@@ -749,7 +788,7 @@ function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: En
           <Td>{s.sizeLabel}</Td>
           <Td mono>{s.dia != null && String(s.dia).trim() ? String(s.dia) : "—"}</Td>
           <Td right mono>{s.purchaseWidth != null ? fmtNumber(s.purchaseWidth) : "—"}</Td>
-          <Td right mono>{fmtNumber(s.sqQty)}</Td>
+          <Td right mono>{fmtNumber(s.cutQty)}</Td>
           <Td right mono>{s.pieceWt != null ? fmtNumber(s.pieceWt) : "—"}</Td>
           <Td right mono>{s.wastagePct != null ? `${s.wastagePct}%` : "—"}</Td>
           <Td right mono>{fmtNumber(s.netReqWt)}</Td>
@@ -770,7 +809,7 @@ function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: En
       <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
         <Td colSpan={3} className="truncate italic">{componentLabel} — subtotal</Td>
         <Td colSpan={5}>{""}</Td>
-        <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.sqQty)}</Td>
+        <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.cutQty)}</Td>
         <Td colSpan={2}>{""}</Td>
         <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.netReqWt)}</Td>
         <Td>{""}</Td>
@@ -798,7 +837,7 @@ function EntryComponentSummaryRow({ colour, comp }: { colour: string; comp: Entr
       <Td><Truncated text={comp.fabricName} /></Td>
       <Td><ItemFormBadge form={comp.itemForm} /></Td>
       <Td right mono>{comp.gsm != null ? fmtNumber(comp.gsm) : "—"}</Td>
-      <Td right mono>{fmtNumber(comp.subtotal.sqQty)}</Td>
+      <Td right mono>{fmtNumber(comp.subtotal.cutQty)}</Td>
       <Td right mono>{avgPieceWt != null ? fmtNumber(avgPieceWt) : "—"}</Td>
       <Td right mono>{fmtNumber(comp.subtotal.netReqWt)}</Td>
       <Td right mono>

@@ -42,7 +42,7 @@ import {
   type FabricComposition,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
-import { isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
+import { isPieceDyed, isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import { colorLossesForStorage } from "@/lib/orders/fabric-bom/color-loss";
 import { diaKnitProblem, type DiaDeclaration } from "@/lib/orders/fabric-bom/dia-knit";
 import {
@@ -664,7 +664,13 @@ async function routeProblem(s: Db, bomId: string | null, p: IwoFabricBomParsed):
     })),
     options,
     lookups.stages,
-    { gatesFor: (itemId) => ({ printDeclared: true, fabricIsYarnDyed: isYarnDyed(typeById.get(itemId) ?? null) }) },
+    {
+      gatesFor: (itemId) => ({
+        printDeclared: true,
+        fabricIsYarnDyed: isYarnDyed(typeById.get(itemId) ?? null),
+        fabricIsPieceDyed: isPieceDyed(typeById.get(itemId) ?? null),
+      }),
+    },
   );
   return problems[0]?.message ?? null;
 }

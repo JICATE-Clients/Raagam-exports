@@ -89,6 +89,8 @@ import { cn } from "@/lib/utils";
 import { today as calendarToday } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
+import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
+import { EmbeddedEditorWait } from "@/components/orders/embedded-editor-wait";
 import { sectionValidity } from "@/lib/screens/validity";
 import { fmtDate, fmtNumber } from "@/lib/format";
 /* THE QUEUE, WHOLE — the filter bar, the counted Status facet, the summary
@@ -240,6 +242,7 @@ import {
 import { FabricBomReportsSheet } from "@/components/orders/fabric-bom-reports-sheet";
 import { yarnShadesFrom, type YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
 import {
+  isPieceDyed,
   isYarnDyed,
   missingFabricLineFields,
   sameFabricType,
@@ -1120,11 +1123,14 @@ export function FabricBomScreen({
   data,
   perms,
   orderLocks,
+  embed = null,
 }: {
   tasks: BomTaskRow[];
   boms: FabricBom[];
   data: FabricBomFormData;
   perms: Perms;
+  /** EMBEDDED in an amendment — open this order's BOM, hide the queue, return on close. */
+  embed?: EmbedTarget | null;
   /** Garment orders locked by an approved budget → the banner's sentence
    *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
   orderLocks: Record<string, string>;
@@ -1307,6 +1313,15 @@ export function FabricBomScreen({
   useOpenIntent((orderId) => {
     const t = tasks.find((x) => x.id === orderId);
     if (t) openTask(t);
+  });
+  /* EMBEDDED IN THE AMENDMENT WORKSPACE (2026-09-23). */
+  useEmbeddedEditor({
+    embed,
+    mode,
+    open: (orderId) => {
+      const t = tasks.find((x) => x.id === orderId);
+      if (t) openTask(t);
+    },
   });
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
@@ -3672,6 +3687,7 @@ export function FabricBomScreen({
     }
     return seen.size === 1 ? [...seen][0] : null;
   };
+
 
   /**
    * THE ONE DIA A NEW SIZE ROW OPENS WITH (client spec, point 5).
@@ -7714,6 +7730,7 @@ export function FabricBomScreen({
       gatesFor: (itemId, combo, componentId) => ({
         printDeclared: printedGroup(lines, itemId, combo, [componentId]),
         fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)),
+        fabricIsPieceDyed: isPieceDyed(fabricTypeOf(itemId)),
       }),
       fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
     }),
@@ -10206,6 +10223,7 @@ export function FabricBomScreen({
                          already holds one from before the fabric's Type
                          was set to Yarn Dyed). */
                       fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
+                      fabricIsPieceDyed={isPieceDyed(fabricTypeOf(r.item_id))}
                       /* 0564 — NOT a narrowing. The grid greys a step this
                          source stops the engine charging for and says so;
                          nothing is withheld from the ▾, because a purchased
@@ -10574,7 +10592,10 @@ export function FabricBomScreen({
 
   return (
     <>
-      <div className="space-y-4">
+      {embed && mode === "list" && (
+        <EmbeddedEditorWait found={tasks.some((x) => x.id === embed.id)} returnHref={embed.returnHref} what="Fabric BOM" />
+      )}
+      <div className="space-y-4" hidden={!!embed}>
         {/* THE PRIMARY ACTION SITS BESIDE THE TITLE, NOT IN A BAND OF ITS OWN.
             It was a right-aligned div sharing a row with the search box, which
             is the shape `--check toolbar-size` recognises as a header row — so

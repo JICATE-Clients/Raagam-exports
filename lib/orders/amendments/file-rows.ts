@@ -13,6 +13,7 @@
  */
 
 import type { AttachmentKind } from "@/components/ui/file-attachments";
+import { normalizePrimary } from "@/lib/orders/amendments/style-gallery";
 
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
 
@@ -25,6 +26,10 @@ export type FileRowInput = {
   size_bytes?: number | null;
   /** The style line this document belongs to (0479). Null = the order's own. */
   style_ref_no?: string | null;
+  /** The style's cover picture (0621) — at most one per style, see below. */
+  is_primary?: boolean | null;
+  /** Printed on the order's reports (0621). */
+  print_on_report?: boolean | null;
 };
 
 export type FileRow = {
@@ -34,6 +39,8 @@ export type FileRow = {
   mime_type: string | null;
   size_bytes: number | null;
   style_ref_no: string | null;
+  is_primary: boolean;
+  print_on_report: boolean;
   sno: number;
 };
 
@@ -99,7 +106,7 @@ export function normalizeFileRows(
   files: readonly FileRowInput[],
   liveStyleKeys?: ReadonlySet<string>,
 ): FileRow[] {
-  return files
+  const rows = files
     .map((r) => ({
       doc_kind: r.doc_kind ?? null,
       file_name: clean(r.file_name),
@@ -107,6 +114,8 @@ export function normalizeFileRows(
       mime_type: clean(r.mime_type),
       size_bytes: r.size_bytes ?? null,
       style_ref_no: clean(r.style_ref_no),
+      is_primary: !!r.is_primary,
+      print_on_report: !!r.print_on_report,
     }))
     .filter((r) => !!r.storage_path)
     /* `liveStyleKeys` is optional so the vectors can exercise the row shape
@@ -126,4 +135,5 @@ export function normalizeFileRows(
         : { ...r, style_ref_no: null },
     )
     .map((r, i) => ({ ...r, sno: i + 1 }));
+  return normalizePrimary(rows).map((r) => ({ ...r, is_primary: !!r.is_primary }));
 }

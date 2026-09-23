@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -19,6 +20,8 @@ import type {
 } from "@/lib/orders/ta-user-rights/service";
 import type { TaUserRight } from "@/lib/orders/ta-user-rights/types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { flagFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 
 const ALL_KEY = "__all__";
 const ACTIONS = ["view", "add", "modify", "delete"] as const;
@@ -66,6 +69,50 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
     }
     return m;
   }, [allRights]);
+
+  /**
+   * THE GROUPED DRAWER over "Configured users" (user, 2026-09-23: "implement
+   * the Material BOM filter in every Orders child"). The matrix itself is an
+   * editor over ONE user and is not filtered — its rows are the activity
+   * master, and hiding one would read as a right that does not exist.
+   *
+   * The summary row carries only name / code / count, so the facets read the
+   * user's rights from `allRights`, which this screen already holds. They ask
+   * the two questions the list exists to answer: who holds the "All
+   * Activities" wildcard, and who can change or delete. No Created group — the
+   * summary is an aggregate over rights rows and carries no `created_at`.
+   */
+  const rightsFacets = useMemo((): FacetGroup<TaUserRightsSummaryRow>[] => {
+    const rulesOf = (r: TaUserRightsSummaryRow) => rightsByUser.get(r.user_id) ?? [];
+    return [
+      {
+        title: "Rights",
+        icon: <ShieldCheck />,
+        facets: [
+          flagFacet(
+            "wildcard",
+            "All Activities",
+            (r) => rulesOf(r).some((x) => x.activity_id == null && (x.can_view || x.can_add || x.can_modify || x.can_delete)),
+            "Has the wildcard",
+            "Per-activity only",
+          ),
+          flagFacet("modify", "Can modify", (r) => rulesOf(r).some((x) => x.can_modify), "Yes", "No"),
+          flagFacet("delete", "Can delete", (r) => rulesOf(r).some((x) => x.can_delete), "Yes", "No"),
+        ],
+      },
+    ];
+  }, [rightsByUser]);
+  const [query, setQuery] = useState("");
+  const facets = useFacetFilter(summary, rightsFacets);
+  const matchesFacets = facets.matches;
+  const filteredSummary = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return summary.filter((r) => {
+      if (!matchesFacets(r)) return false;
+      if (!needle) return true;
+      return [r.name, r.code].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+  }, [summary, query, matchesFacets]);
 
   // Matrix rows: "All Activities" wildcard + each activity.
   const matrixRows = useMemo(
@@ -300,12 +347,26 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
       ) : (
         <div>
           <h3 className="mb-2 text-sm font-semibold text-foreground">Configured users</h3>
-          <DataTable
-            columns={withCreatedColumns(summaryColumns, summary)}
-            rows={summary}
-            getKey={(r) => r.user_id}
-            empty="No user rights configured yet. Pick a user above to start."
-          />
+          <div className="space-y-3">
+            <FilterBar
+              search={query}
+              onSearch={setQuery}
+              searchPlaceholder="Search user or code…"
+              activeCount={facets.activeCount}
+              onReset={facets.activeCount ? facets.reset : undefined}
+              panel={facets.panel}
+            />
+            <DataTable
+              columns={withCreatedColumns(summaryColumns, summary)}
+              rows={filteredSummary}
+              getKey={(r) => r.user_id}
+              empty={
+                summary.length
+                  ? "No users match these filters."
+                  : "No user rights configured yet. Pick a user above to start."
+              }
+            />
+          </div>
         </div>
       )}
     </div>

@@ -761,10 +761,14 @@ export async function refuseReopenedBudget(
          not yet re-approved, no PO. Named by the Amendment Entry when the
          merchandiser's door raised it (0616), by the revision otherwise. */
       const why = reopened.entryNo
-        ? `Amendment ${reopened.entryNo} (${reopened.typesLabel}) is open on it: ${reopened.reason.trim()}`
+        ? `Revision ${reopened.entryNo} (${reopened.typesLabel}) is open on it: ${reopened.reason.trim()}`
         : `${budget} was reopened for revision ${reopened.revisionNo} (${reopened.reason.trim()})`;
+      /* THE SPEC'S BADGE WORD FIRST (0619) — the same "Waiting Amendment" /
+         "Pending MD Approval" the order list shows, so the refusal and the
+         list explain the lock in one vocabulary. */
+      const badge = reopened.pendingMd ? "Pending MD Approval" : "Waiting Revision";
       return (
-        `${order} cannot be purchased for right now — ${why}. ` +
+        `${badge}: ${order} cannot be purchased for right now — ${why}. ` +
         `Raise the purchase order once the revised budget is approved.`
       );
     }
