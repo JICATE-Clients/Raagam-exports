@@ -2857,6 +2857,9 @@ export function BudgetScreen({
    *   Percentage  Qty = SALES VALUE (INR)  Rate typed (%)        Value = Sales x % / 100
    *   Flat        no Qty, no Rate          VALUE TYPED           Value = the sum
    *
+   * (2026-09-24: the Flat sum is now typed in the RATE column — see
+   * `otherRateCol`. The rest of this note is the 09-21 history.)
+   *
    * The engine already computes all three (`lineAmount`: `percent` is a share
    * of `salesBase`, `flat` is the stored `rate` verbatim, `per_unit` is
    * qty x rate). What the spec changes is the GRID: on a Flat line the sum is
@@ -2870,8 +2873,12 @@ export function BudgetScreen({
   const otherQtyCol: CostCol = {
     header: "Qty",
     labelFor: (r) => (r.rate_type === "percent" ? "Sales Value" : "Qty"),
-    showFor: (r) => r.rate_type !== "flat",
     cell: (r) => {
+      /* A FLAT LINE READS 1 (client 2026-09-24, shot 3047: "not yet show the
+         qty"). One lump sum, once — display only, like the note above says:
+         `lineAmount` never multiplies a flat charge, so the 1 is what the
+         Value beside it already means, not a box to type. */
+      if (r.rate_type === "flat") return factFigure(1);
       if (r.rate_type === "percent") {
         const base = salesBase(lineInput(r));
         return (
@@ -2891,22 +2898,21 @@ export function BudgetScreen({
     },
   };
 
+  /* THE RATE COLUMN IS THE ONE THAT IS TYPED, ON EVERY LINE (client
+     2026-09-24, shot 3046: "why the rate entering field is in amount column").
+     The 2026-09-21 matrix typed a Flat sum in the Value column; that put one
+     row's box a column to the right of every other row's, so the Rate column
+     read as a gap. A Flat line now types its lump sum in Rate (it binds
+     `rate`, which IS the flat charge — 0573), and Value shows it back,
+     computed like every other line. It also gives Other Incomes' Flat basis a
+     box: that grid's Value was always computed, so a Flat income had none. */
   const otherRateCol: CostCol = {
     ...rateCol("Rate"),
-    labelFor: (r) => (r.rate_type === "percent" ? "%" : "Rate"),
-    // A Flat line has no rate to type: its sum goes in the Value column.
-    showFor: (r) => r.rate_type !== "flat",
+    labelFor: (r) => (r.rate_type === "percent" ? "%" : r.rate_type === "flat" ? "Amount" : "Rate"),
   };
 
-  /** Value: computed on a Per Pcs / Percentage line; TYPED on a Flat line —
-   *  the same Rate box (it binds `rate`, which IS the flat charge), landed on
-   *  like any price. */
-  const otherValueCol: CostCol = {
-    ...amountCol,
-    header: "Value (INR)",
-    requiredFor: (r) => r.rate_type === "flat" && rateRequired(r),
-    cell: (r, i) => (r.rate_type === "flat" ? rateCol("Value (INR)").cell(r, i) : amountCol.cell(r, i)),
-  };
+  /** Value: always computed — Qty x Rate, Sales x % / 100, or the Flat sum. */
+  const otherValueCol: CostCol = { ...amountCol, header: "Value (INR)" };
 
   const valueCol: CostCol = { ...amountCol, header: "Value (INR)" };
 

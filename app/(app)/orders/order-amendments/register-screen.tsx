@@ -86,6 +86,7 @@ import {
   entryIsOpen,
   entryScopeLabel,
   modulesOf,
+  moduleLabel,
   entryStatusLabel,
   entryStatusMatches,
   entryStatusTone,
@@ -232,6 +233,16 @@ const QUICK_WORD: Record<AmendmentEntryStatus, QuickWord | null> = {
 };
 const entryWord = (r: AmendmentRegisterRow): QuickWord | null => QUICK_WORD[r.status] ?? null;
 
+/** One labelled fact on an order line: "Delivery 31/12/2026". */
+function HeadFact({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="whitespace-nowrap text-xs">
+      <span className="text-muted-foreground">{label}</span>{" "}
+      <span className="font-medium tabular-nums text-foreground">{value}</span>
+    </span>
+  );
+}
+
 /** "+2.10%" / "-3.45%" in percentage points, toned; a refusal says why in words. */
 export function MarginDeltaCell({ margin }: { margin: MarginDelta }) {
   const alert = marginAlert(margin);
@@ -277,9 +288,22 @@ export function AmendmentRegisterScreen({
   const facets = useFacetFilter(rows, REGISTER_FACETS);
   const facetMatch = facets.matches;
   const setFacet = facets.set;
+  /* EVERY FILTER BUT THE BOX'S OWN — what the box counts (a count is what
+     clicking that word would show) and what `filtered` narrows by the word. */
+  const base = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (!facetMatch(r)) return false;
+      if (!q) return true;
+      return [r.entry_no, r.re_no, r.order_code, r.customer_name, r.remarks, entryScopeLabel(r.types)]
+        .filter((v): v is string => !!v)
+        .some((v) => v.toLowerCase().includes(q));
+    });
+  }, [rows, query, facetMatch]);
   const quick = useQuickStatus(entryWord, {
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
+    countRows: base,
   });
   const qm = quick.matches;
 
@@ -314,16 +338,7 @@ export function AmendmentRegisterScreen({
     router.replace(raiseHref(id));
   }, [params, router]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (!facetMatch(r) || !qm(r)) return false;
-      if (!q) return true;
-      return [r.entry_no, r.re_no, r.order_code, r.customer_name, r.remarks, entryScopeLabel(r.types)]
-        .filter((v): v is string => !!v)
-        .some((v) => v.toLowerCase().includes(q));
-    });
-  }, [rows, query, facetMatch, qm]);
+  const filtered = useMemo(() => base.filter(qm), [base, qm]);
 
   /* THE LIST: one line per AMENDED order, its entries beneath, in ENTRY
      order. An order the filters emptied is dropped with its entries; an order
@@ -428,7 +443,37 @@ export function AmendmentRegisterScreen({
       className: "w-[6rem] whitespace-nowrap",
     }),
     entryCol("Origin", (r) => originLabel(r.origin), { className: "w-[7.5rem] whitespace-nowrap" }),
-    entryCol("Change Type", (r) => <Truncated>{entryScopeLabel(r.types)}</Truncated>),
+    /* ONE CHIP PER MODULE (user 2026-09-24, screenshot 3049: the whole
+       "Order Entry (Combo / Color Change, Quantity Addition) + Material BOM +
+       Fabric BOM" sentence on one line pushed the table into a sideways
+       scroll). The chips WRAP inside a bounded column, so the row grows down,
+       never across. One neutral tone for every module: the pill tones are the
+       app's STATUS vocabulary, and a green or red module would read as a
+       state. Order Entry's kinds ride on its chip's tooltip; search still
+       matches them (`entryScopeLabel` above), and the entry's own page lists
+       them in full. */
+    entryCol(
+      "Change Type",
+      (r) => {
+        const kinds = entryScopeLabel(r.types);
+        const mods = modulesOf(r.types);
+        if (mods.length === 0) return <span className="text-xs">{kinds}</span>;
+        return (
+          <div className="flex flex-wrap gap-1">
+            {mods.map((m) => (
+              <span
+                key={m}
+                title={m === "order_entry" ? kinds.split(" + ")[0] : undefined}
+                className="inline-flex items-center whitespace-nowrap rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-foreground"
+              >
+                {moduleLabel(m)}
+              </span>
+            ))}
+          </div>
+        );
+      },
+      { className: "min-w-[12rem] max-w-[20rem]" },
+    ),
     entryCol("Margin Delta", (r) => <MarginDeltaCell margin={r.margin} />, {
       align: "right",
       className: "w-[7rem] whitespace-nowrap",
@@ -505,13 +550,12 @@ export function AmendmentRegisterScreen({
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className="font-mono text-xs font-semibold text-foreground">{h.re_no ?? "—"}</span>
           <Truncated className="max-w-[18rem] text-sm font-medium">{h.customer_name ?? "—"}</Truncated>
-          <span className="text-xs text-muted-foreground">
-            {h.delivery_date ? `delivery ${fmtDate(h.delivery_date)}` : null}
-            {h.delivery_date && h.budget_code ? " · " : null}
-            {h.budget_code
-              ? `budget ${h.budget_code}${h.approved_at ? ` approved ${fmtDate(h.approved_at)}` : ""}`
-              : null}
-          </span>
+          {/* LABELLED FACTS, NOT A SENTENCE (user 2026-09-24, screenshot 3049:
+              "delivery 31/12/2026 · budget 2 approved 22/09/2026" read as
+              loose text). Label muted, value in the foreground. */}
+          {h.delivery_date && <HeadFact label="Delivery" value={fmtDate(h.delivery_date)} />}
+          {h.budget_code && <HeadFact label="Budget" value={h.budget_code} />}
+          {h.approved_at && <HeadFact label="Approved" value={fmtDate(h.approved_at)} />}
         </div>
         {o && perms.canEdit && (
           <Button variant="outline" size="sm" onClick={() => router.push(raiseHref(o.id))}>
