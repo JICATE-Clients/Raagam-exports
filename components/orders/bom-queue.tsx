@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Check, Clock, Pencil } from "lucide-react";
-import { today as todayAtFactory } from "@/lib/calendar";
+import { Check, Clock, FileText, Pencil } from "lucide-react";
 import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -10,6 +9,8 @@ import { CalendarRange, Factory, Users } from "lucide-react";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
+import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
+import { DaysOut } from "@/components/orders/days-out";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import {
   createdByFacet,
@@ -54,37 +55,9 @@ import type { BomTaskRow } from "@/lib/orders/bom-order-basis";
  * — is here.
  */
 
-/**
- * "· 12d" beside a delivery date, and "· 12d late" when it has passed.
- *
- * THE DATE SAYS WHEN AND THE SUFFIX SAYS HOW SOON, which are different
- * questions: a merchandiser scanning a queue is deciding what to plan THIS
- * WEEK, and arithmetic against thirty dates is what they were doing by eye.
- *
- * SILENT BEYOND 60 DAYS. A "· 109d" on an order shipping in December is noise
- * on every card, and noise on every card is what stops the two that say "· 4d"
- * from being seen. Late is never silent and is the only one that takes a
- * colour.
- *
- * NO HYDRATION GUARD IS NEEDED, and that is `todayAtFactory`'s doing rather
- * than luck. It formats in Asia/Kolkata, so the server (UTC) and the operator's
- * browser (IST) agree on what day it is — including during the 5.5 hours every
- * morning when `new Date()` does not. Do not reach for the UTC `today()` that
- * `lib/dashboard/range.ts` exports here.
- */
-export function DaysOut({ iso }: { iso: string }) {
-  const at = Date.parse(`${iso.slice(0, 10)}T00:00:00`);
-  const now = Date.parse(`${todayAtFactory()}T00:00:00`);
-  if (Number.isNaN(at) || Number.isNaN(now)) return null;
-  const days = Math.round((at - now) / 86_400_000);
-
-  if (days < 0) {
-    return <span className="font-normal text-danger"> · {-days}d late</span>;
-  }
-  if (days === 0) return <span className="font-normal text-danger"> · today</span>;
-  if (days > 60) return null;
-  return <span className="font-normal text-muted-foreground"> · {days}d</span>;
-}
+/* Moved to its own file (2026-09-24) so `order-queue-table.tsx` can use it
+   without importing this one back; re-exported so no importer changed. */
+export { DaysOut };
 
 /**
  * THE THREE FIGURES A QUEUE CARD CARRIES, and the order of them is the point.
@@ -285,6 +258,7 @@ export function StatusSegment({
   value,
   onChange,
   draft = false,
+  counts,
 }: {
   /* A plain string, not `BomStatus`: the Budgets queue draws this same box
      over its own vocabulary (2026-09-21, "update and pending options … like
@@ -297,6 +271,10 @@ export function StatusSegment({
    *  caller passes it today. Kept opt-in so a future two-state queue can draw
    *  the box without a word that could only ever show an empty list. */
   draft?: boolean;
+  /** HOW MANY ROWS EACH WORD WOULD SHOW (user 2026-09-24, Order Revisions,
+   *  screenshot 3049: "Pending (2), Updated (1), Draft (1)"). Opt-in — a
+   *  screen passes it through `useQuickStatus`'s `countRows`. */
+  counts?: Partial<Record<QuickWord, number>>;
 }) {
   const words: QuickWord[] = draft ? ["pending", "updated", "draft"] : ["pending", "updated"];
   const current = words.includes(value as QuickWord) ? (value as QuickWord) : null;
@@ -328,6 +306,7 @@ export function StatusSegment({
           >
             <Icon className="h-3.5 w-3.5" aria-hidden />
             {QUICK[s].text}
+            {counts && <span className="tabular-nums opacity-80">({counts[s] ?? 0})</span>}
           </button>
         );
       })}
@@ -358,12 +337,29 @@ export function StatusSegment({
  */
 export function useQuickStatus<R>(
   wordOf: (r: R) => QuickWord | null,
-  opts: { draft?: boolean; standDown?: boolean; onPick?: () => void } = {},
+  opts: {
+    draft?: boolean;
+    standDown?: boolean;
+    onPick?: () => void;
+    /** The rows to COUNT per word — the list with every OTHER filter applied
+     *  (search, Filters panel) and this box's own left off, so a count is
+     *  exactly what clicking that word would show. Omitted = no counts. */
+    countRows?: readonly R[];
+  } = {},
 ) {
-  const { draft = true, standDown = false, onPick } = opts;
+  const { draft = true, standDown = false, onPick, countRows } = opts;
   const [quick, setQuick] = useState<"" | QuickWord>("pending");
   const value = standDown ? "" : quick;
   const matches = useCallback((r: R) => !value || wordOf(r) === value, [value, wordOf]);
+  const counts = useMemo(() => {
+    if (!countRows) return undefined;
+    const c: Partial<Record<QuickWord, number>> = {};
+    for (const r of countRows) {
+      const w = wordOf(r);
+      if (w) c[w] = (c[w] ?? 0) + 1;
+    }
+    return c;
+  }, [countRows, wordOf]);
   const segment = (
     <StatusSegment
       value={value}
@@ -372,6 +368,7 @@ export function useQuickStatus<R>(
         onPick?.();
       }}
       draft={draft}
+      counts={counts}
     />
   );
   return { value, matches, segment };
@@ -641,6 +638,68 @@ export function BomQueue({
           that is where the click lived. The card body IS the button, so keeping
           it would nest one inside the other — the exact invalid markup that
           shaped this component. */}
+      {/* UPDATED IS A TABLE IN THE ORDER ENTRY LISTING'S LAYOUT, CARRYING THIS
+          QUEUE'S OWN DETAILS (user, 2026-09-24, screenshot 3045). Pending and
+          Draft are the work still to do and keep the cards below. Same rows,
+          same search and facets, same click — only the drawing changes. */}
+      {quickStatus && quickFilter === "updated" ? (
+        <OrderQueueTable<BomTaskRow>
+          rows={filtered}
+          heading={(t) => ({ reNo: t.sc_no ?? t.order_code, customer: t.customer_name, poNo: t.po_no })}
+          /* THIS QUEUE'S OWN CARD, AS COLUMNS — the BOM's number, then the three
+             figures `bomCardStats` puts on the card, in the card's order. The
+             middle one is the screen's (`stat`): Styles on Material BOM, Lines
+             on Fabric BOM. No Status column: every row here reads Updated. */
+          columns={[
+            {
+              header: "BOM No",
+              cell: (t) => <span className="font-mono text-xs">{t.bom_code ?? "—"}</span>,
+            },
+            {
+              header: "Production",
+              cell: (t) => (
+                <FigureCell
+                  value={t.production_qty != null ? fmtNumber(t.production_qty) : null}
+                  refusal={t.production_refusal}
+                />
+              ),
+            },
+            {
+              header: filtered[0] ? stat(filtered[0]).label : "",
+              cell: (t) => <FigureCell value={stat(t).value} />,
+            },
+            {
+              header: "Delivery",
+              cell: (t) =>
+                t.delivery_date ? (
+                  <span className="whitespace-nowrap tabular-nums text-xs">
+                    {fmtDate(t.delivery_date)}
+                    <DaysOut iso={t.delivery_date} />
+                  </span>
+                ) : (
+                  <span className="text-xs">—</span>
+                ),
+            },
+          ]}
+          onOpen={onOpen}
+          canDelete={canDelete}
+          canDeleteRow={(t) => !!t.bom_id}
+          onDelete={onDelete}
+          /* The card's Reports button, as the row's ⋮ — the same gate. */
+          menu={
+            onReports
+              ? (t) =>
+                  t.bom_id ? [{ label: "Reports", icon: FileText, onClick: () => onReports(t) }] : []
+              : undefined
+          }
+          isPending={isPending}
+          empty={
+            tasks.length > 0
+              ? `No updated ${noun} BOMs match the search or filters.`
+              : `No confirmed garment orders yet. A ${noun} BOM is planned against an order.`
+          }
+        />
+      ) : (
       <MobileCardList<BomTaskRow>
         /* SIX ACROSS, NOW A FIXED COUNT (client 2026-08-19, then reversed
            2026-09-04: "make it static as 6 card per row"). `columns={6}` used
@@ -700,6 +759,7 @@ export function BomQueue({
         isPending={isPending}
         empty={`No confirmed garment orders yet. A ${noun} BOM is planned against an order.`}
       />
+      )}
     </>
   );
 }

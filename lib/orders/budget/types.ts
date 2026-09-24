@@ -561,6 +561,11 @@ export type BudgetableOrder = {
   /** Why the order cannot be budgeted yet ("Material BOM not saved"), or null
    *  when both are. The picker prints it; the save action refuses on it. */
   bom_refusal: string | null;
+  /** The ORDER's provenance, for the queue's Updated table — the Created
+   *  Date / Created User pair every listing carries (AGENTS.md). The order's,
+   *  not the budget's: the row is an order, as on the BOM queues. */
+  created_at: string;
+  created_by: string | null;
 };
 
 /** One style of a garment order, as the CMT tab and the header need it. */
