@@ -14,7 +14,8 @@ import type { Currency } from "@/lib/masters/types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { ProcessOption } from "./style-processes";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
-import type { GarmentOrderAmendment } from "./types";
+import type { GarmentOrderAmendment, OrderQuickWord } from "./types";
+import { ORDER_QUICK_WHERE } from "./types";
 /* A VALUE import, and the only one this file takes from `./types` — see
    `caseFoldKey` there for why the case fold is declared in a client-safe module
    rather than here: the service stamps the key and the SCREEN collapses on it,
@@ -161,10 +162,103 @@ export type OrderPickerRow = {
   ship_date: string | null;
 };
 
-/** All amendments with embedded order/buyer + child grids. */
-export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
+/**
+ * How many orders are in each of the three words — counted in the DATABASE,
+ * over every order, and deliberately NOT over what `getAmendments` returned.
+ *
+ * THIS IS THE HALF THAT MAKES SERVER-SIDE FILTERING SAFE. The figures on the
+ * Pending / Updated / Draft box used to be a pass over the fetched rows, which
+ * was exact while the fetch was unfiltered. The moment the list is narrowed to
+ * one word, counting the rows on screen can only ever say "Pending 12 ·
+ * Updated 0 · Draft 0" — the two words the operator has not chosen would read
+ * as empty, which is the same lie the box was fixed for on 2026-09-24.
+ *
+ * `head: true` + `count: "exact"` returns NO ROWS — three counts, three
+ * `select count(*)`, no payload. Cheaper than the one list query beside it.
+ *
+ * A FAILED COUNT RETURNS NULL, NOT ZERO, and the box then draws without
+ * figures. Zero is a claim ("nothing is waiting"); absent is the truth
+ * ("nobody counted"). The same reason `hasCreatedInfo` leaves the column out
+ * rather than filling it with dashes.
+ */
+export async function getAmendmentStatusCounts(): Promise<Record<OrderQuickWord, number> | null> {
   const s = await createClient();
-  const { data, error } = await s
+  const zero = (): Record<OrderQuickWord, number> => ({ pending: 0, updated: 0, draft: 0 });
+
+  /* ONE STATEMENT, ONE SNAPSHOT — `garment_order_status_counts()` (0624), a
+     single GROUP BY. It replaced three `count(*)` reads that were each correct
+     at a different instant: an order saved between them was counted by some and
+     not others, so the box could read "Pending 12" over eleven rows.
+     SECURITY INVOKER, so the figures are of the orders this user can list. */
+  const { data, error } = await s.rpc("garment_order_status_counts");
+  if (!error) {
+    const out = zero();
+    for (const r of (data ?? []) as { status: string; n: number | string }[]) {
+      if (r.status === "pending" || r.status === "updated" || r.status === "draft") {
+        /* `count(*)` is bigint, and PostgREST sends bigint as a STRING — it
+           does not fit a JS number safely, so the driver will not narrow it.
+           `+r.n` on a row count is always exact; `r.n` alone would concatenate
+           into "012" the first time anything added to it. */
+        out[r.status] = Number(r.n);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * THE DATABASE MAY BE BEHIND THE CODE, AND A MISSING FUNCTION MUST NOT BLANK
+   * THE FIGURES. Until 0624 is applied the RPC answers PGRST202 ("function not
+   * found"), so this falls back to the three counts it replaced — the exact
+   * behaviour of the previous release, not a degraded one.
+   *
+   * DELETE THIS BRANCH once 0624 is applied everywhere. It is a migration
+   * shim, not a design: two ways to answer one question is the thing this file
+   * keeps being edited to stop, and it is only tolerable because the second way
+   * is the first way's predecessor and disappears with it.
+   */
+  console.error("[amendments] status count RPC unavailable, falling back:", error.message);
+  const one = async (w: OrderQuickWord) => {
+    const where = ORDER_QUICK_WHERE[w];
+    let q = s
+      .from("garment_order_amendments")
+      .select("id", { count: "exact", head: true })
+      .eq("is_draft", where.is_draft);
+    if (where.approval_status) q = q.in("approval_status", [...where.approval_status]);
+    const { count, error: e } = await q;
+    if (e) throw new Error(`${w}: ${e.message}`);
+    return count ?? 0;
+  };
+  try {
+    const [pending, updated, draft] = await Promise.all([one("pending"), one("updated"), one("draft")]);
+    return { pending, updated, draft };
+  } catch (e) {
+    console.error("[amendments] counting by status:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/**
+ * All amendments with embedded order/buyer + child grids.
+ *
+ * `status` NARROWS IT IN SQL (user, 2026-09-24: "the status parameter must be
+ * applied to the database query — add the appropriate WHERE condition"). It
+ * comes from the page's `?status=` param, through `parseOrderQuickWord`, so an
+ * unrecognised value is `null` and the list is unnarrowed rather than empty.
+ * The clause itself is `ORDER_QUICK_WHERE`, the same declaration the row-level
+ * `orderQuickWord` is written beside, so the SQL and the button agree by
+ * construction.
+ *
+ * THE FILTER IS ON THE ORDER, NOT ON ITS CHILDREN. Every embed below hangs off
+ * a row this WHERE already chose, so narrowing costs nothing extra and — this
+ * is the part worth saying — makes the fourteen embeds CHEAPER, since they are
+ * resolved only for the orders being shown.
+ */
+export async function getAmendments(
+  status?: OrderQuickWord | null,
+): Promise<GarmentOrderAmendment[]> {
+  const s = await createClient();
+  const where = status ? ORDER_QUICK_WHERE[status] : null;
+  let q = s
     .from("garment_order_amendments")
     .select(
       "*, sales_order:sales_orders(id,order_number,location_id), " +
@@ -223,6 +317,15 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     )
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
+
+  /* THE WHERE. Applied after the select/order so the builder above stays the
+     one thing every reader of this function already knows by sight. */
+  if (where) {
+    q = q.eq("is_draft", where.is_draft);
+    if (where.approval_status) q = q.in("approval_status", [...where.approval_status]);
+  }
+
+  const { data, error } = await q;
 
   /**
    * A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — the same rule `getStyleRows`

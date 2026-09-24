@@ -1,6 +1,11 @@
 import "server-only";
 import { requirePermission, can } from "@/lib/auth/server";
-import { getAmendments, getAmendmentFormData } from "@/lib/orders/amendments/service";
+import {
+  getAmendments,
+  getAmendmentFormData,
+  getAmendmentStatusCounts,
+} from "@/lib/orders/amendments/service";
+import type { OrderQuickWord } from "@/lib/orders/amendments/types";
 import { listMaterialBomStatus } from "@/lib/orders/material-bom-amendment/service";
 import { previewOrderNumber } from "@/lib/orders/actions";
 import { orderAmendmentStates, orderLockMessages } from "@/lib/orders/order-locks";
@@ -18,12 +23,23 @@ import { orderAmendmentStates, orderLockMessages } from "@/lib/orders/order-lock
  * `requirePermission` returns the AppUser, so the operator's home Unit costs no
  * extra query.
  */
-export async function loadGarmentOrderProps() {
+export async function loadGarmentOrderProps(
+  /**
+   * The `?status=` the operator last chose, already parsed by the page
+   * (`parseOrderQuickWord`). It NARROWS THE SQL — see `getAmendments` — so this
+   * is the one argument here that changes which rows come back rather than
+   * which extras ride along with them.
+   *
+   * `null` is the whole list. That is what an unrecognised value parses to, so
+   * a hand-edited URL shows everything rather than nothing.
+   */
+  status: OrderQuickWord | null = null,
+) {
   const user = await requirePermission("orders", "view");
 
-  const [rows, data, bomStatus, canCreate, canEdit, canDelete, mCreate, mEdit, initialOrderNo, orderLocks, orderAmendments] =
+  const [rows, data, bomStatus, canCreate, canEdit, canDelete, mCreate, mEdit, initialOrderNo, orderLocks, orderAmendments, quickCounts] =
     await Promise.all([
-      getAmendments(),
+      getAmendments(status),
       getAmendmentFormData(),
       // A SEPARATE call, deliberately not a new embed on `getAmendments()`.
       // That select already names 14 relationships and ONE unresolvable name
@@ -71,10 +87,16 @@ export async function loadGarmentOrderProps() {
       /* Orders under an open Amendment Entry (0604 · 0616): the editor unlocks
          the entry's areas and the list's RE Status says "Amending". */
       orderAmendmentStates(),
+      /* THE THREE FIGURES ON THE BOX, counted in the database over EVERY order
+         — not over `rows`, which `status` has just narrowed. Its own three
+         `count(*)` calls, no rows returned; see `getAmendmentStatusCounts`. */
+      getAmendmentStatusCounts(),
     ]);
 
   return {
     rows,
+    status,
+    quickCounts,
     data,
     bomStatus,
     perms: { canCreate, canEdit, canDelete },

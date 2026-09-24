@@ -303,6 +303,9 @@ export function AmendmentRegisterScreen({
   const quick = useQuickStatus(entryWord, {
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
+    /* The figure on each word, over the searched and faceted list with this
+       box's own word left off — an abandoned or superseded entry is in none
+       of the three and so in no figure, the same way it is in no word. */
     countRows: base,
   });
   const qm = quick.matches;

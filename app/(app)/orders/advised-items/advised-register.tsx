@@ -99,13 +99,18 @@ export function AdvisedRegister({ rows }: { rows: AdvisedOrderRow[] }) {
   const setFacet = facets.set;
   /* The drawer's own Status facet asks the same question, so while it is set
      the box stands down (the Budget Approval rule). */
+  /* THE SET THE FIGURES ARE COUNTED OVER — the list with the search and the
+     Filters panel applied and this box's own word left off, so a figure is
+     exactly what clicking that word would show. */
+  const base = useMemo(() => rows.filter(facetMatch), [rows, facetMatch]);
   const quick = useQuickStatus(advisedWord, {
     draft: false,
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
+    countRows: base,
   });
   const qm = quick.matches;
-  const shown = useMemo(() => rows.filter((r) => facetMatch(r) && qm(r)), [rows, facetMatch, qm]);
+  const shown = useMemo(() => base.filter(qm), [base, qm]);
 
   const columns: Column<AdvisedOrderRow>[] = [
     {

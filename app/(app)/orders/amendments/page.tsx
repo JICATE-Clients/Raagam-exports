@@ -1,5 +1,6 @@
 import { GarmentOrderScreen } from "../_garment-order/garment-order-screen";
 import { loadGarmentOrderProps } from "../_garment-order/loader";
+import { parseOrderQuickWord } from "@/lib/orders/amendments/types";
 
 /**
  * THE AMEND DOOR — Amendments ▸ Order Amendment.
@@ -16,7 +17,14 @@ import { loadGarmentOrderProps } from "../_garment-order/loader";
  * Amendment screen's "Details" column, `revalidatePath`, the count map and the
  * mobile section actions all point here and none of them had to move.
  */
-export default async function OrderAmendmentsPage() {
-  const props = await loadGarmentOrderProps();
+export default async function OrderAmendmentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [k: string]: string | string[] | undefined }>;
+}) {
+  /* The amend door narrows in SQL exactly as the entry door does — one screen,
+     so one behaviour; see the note on `/orders/garment-orders`. */
+  const status = parseOrderQuickWord((await searchParams).status);
+  const props = await loadGarmentOrderProps(status);
   return <GarmentOrderScreen {...props} purpose="amend" />;
 }

@@ -1,5 +1,6 @@
 import { GarmentOrderScreen } from "../_garment-order/garment-order-screen";
 import { loadGarmentOrderProps } from "../_garment-order/loader";
+import { parseOrderQuickWord } from "@/lib/orders/amendments/types";
 
 /**
  * THE ENTRY DOOR — Order Entry ▸ Garment Order. Where a garment order is
@@ -29,7 +30,16 @@ import { loadGarmentOrderProps } from "../_garment-order/loader";
  * folder that is not a route at all. It stays under `app/(app)` so
  * `scripts/audit_layout.py` keeps scanning it.
  */
-export default async function GarmentOrderEntryPage() {
-  const props = await loadGarmentOrderProps();
+export default async function GarmentOrderEntryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [k: string]: string | string[] | undefined }>;
+}) {
+  /* THE STATUS COMES OFF THE URL AND GOES INTO THE SQL (user, 2026-09-24).
+     A Promise in Next 16, so it is awaited like `params`. `parseOrderQuickWord`
+     refuses anything that is not one of the three words, and the list is then
+     unnarrowed — a mistyped URL shows everything rather than nothing. */
+  const status = parseOrderQuickWord((await searchParams).status);
+  const props = await loadGarmentOrderProps(status);
   return <GarmentOrderScreen {...props} />;
 }

@@ -121,7 +121,7 @@ import {
 } from "@/lib/orders/bom-status";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { urgencyFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
-import { DaysOut, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { DaysOut, useServerQuickStatus } from "@/components/orders/bom-queue";
 // `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
 // MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds
 // {key,label,content} items and `sections` maps them, so the shape a tab
@@ -348,6 +348,7 @@ import {
   type AmendmentTaActivity,
   type AmendmentTaApproval,
 } from "@/lib/orders/amendments/types";
+import type { OrderQuickWord } from "@/lib/orders/amendments/types";
 // `StylePickerRow` left this import on 2026-08-25 with the Style picker itself —
 // the type describes a master row, and nothing on this screen holds one now.
 import type {
@@ -393,6 +394,20 @@ interface Props {
    * operator can type in are the fields the trigger will accept.
    */
   orderAmendments: Record<string, OrderAmendmentState>;
+  /**
+   * THE WORD THE SERVER FILTERED BY — the page's parsed `?status=`, which
+   * `getAmendments` has already turned into a WHERE (2026-09-24). So `rows`
+   * is ONE word's worth, and the box is told which rather than deciding.
+   * `null` is the whole list: an unrecognised `?status=` parses to null.
+   */
+  status: OrderQuickWord | null;
+  /**
+   * How many orders are in each word, counted in the DATABASE over every
+   * order. It cannot be counted off `rows` any more — those are narrowed, so
+   * the two words not chosen would always read zero. `null` when the count
+   * query failed, and the box then shows no figures rather than zeroes.
+   */
+  quickCounts: Record<OrderQuickWord, number> | null;
   /** The RE No this order WOULD get, resolved on the server so the box is
    *  filled on first paint rather than a round trip later. See the loader. */
   initialOrderNo?: string | null;
@@ -1931,6 +1946,15 @@ function orderQty(r: GarmentOrderAmendment): number | null {
   );
 }
 
+/** The operator's word for each status, for the counter and the empty line.
+ *  Same three words `StatusSegment` prints, so the sentence under the box and
+ *  the button above it cannot come to disagree. */
+const QUICK_LABEL: Record<OrderQuickWord, string> = {
+  pending: "Pending",
+  updated: "Updated",
+  draft: "Draft",
+};
+
 export function GarmentOrderScreen({
   rows,
   bomStatus,
@@ -1942,6 +1966,8 @@ export function GarmentOrderScreen({
   purpose = "entry",
   orderLocks,
   orderAmendments,
+  status,
+  quickCounts,
   embed = null,
 }: Props) {
   /** Read this, never `purpose` directly, so every site asks the same question. */
@@ -5332,18 +5358,15 @@ export function GarmentOrderScreen({
         title: "Status & dates",
         icon: <CalendarRange />,
         facets: [
-          {
-            key: "status",
-            label: "Status",
-            all: "All",
-            wide: true,
-            counted: true,
-            options: [
-              { value: "draft", label: "Draft" },
-              { value: "recorded", label: "Recorded" },
-            ],
-            match: (r, v) => (r.is_draft ? "draft" : "recorded") === v,
-          },
+          /* "STATUS" (Draft / Recorded) LEFT THIS PANEL ON 2026-09-24, when the
+             box above the list started narrowing in SQL. It had asked the box's
+             own question, which was survivable while both filtered the same
+             array — `standDown` kept them from contradicting each other. It is
+             not survivable now: `rows` arrives already narrowed to one word, so
+             a "Draft (0)" here would be counting a slice that excludes drafts
+             by construction, and picking it would empty a list that has plenty.
+             One question, one control. Draft is a word on the box; Recorded is
+             Pending or Updated. */
           { key: "orderDate", label: "Order Date", all: "Any date", date: (r) => r.amend_date },
           { key: "delivery", label: "Delivery Date", all: "Any date", date: (r) => r.delivery_date },
         ],
@@ -5409,26 +5432,39 @@ export function GarmentOrderScreen({
   /* THE PENDING / UPDATED / DRAFT BOX (user, 2026-09-23: "in budget we have
      pending, update, draft button need to implement same order module
      fully"). Over an order the three words mean:
-       Draft   = parked, never recorded (`is_draft`)
-       Pending = recorded, its RE not yet approved — Open or Amending, the
-                 orders still being worked on
-       Updated = RE approved (`orderLocks`), the order is final
-     The drawer's Status and RE Status facets ask the same question, so the
-     box stands down while either is set and clears both when a word is
-     picked — Budget Approval's rule, for the same reason: two independent
-     controls over one state can silently show nothing. */
-  const listWordOf = useCallback(
-    (r: GarmentOrderAmendment): QuickWord =>
-      r.is_draft ? "draft" : orderLocks[r.id] ? "updated" : "pending",
-    [orderLocks],
-  );
-  const listQuick = useQuickStatus(listWordOf, {
-    standDown: !!listFacets.values.status || !!listFacets.values.re,
-    onPick: () => {
-      listFacets.set("status", "");
-      listFacets.set("re", "");
-    },
-  });
+       Draft   = parked with "Save as Draft" (`is_draft`)
+       Pending = recorded with "Save garment order", and no decision taken yet
+                 (`approval_status = 'pending'`, the default on every recorded
+                 order) — it is sitting in Orders ▸ Approve Amendments
+       Updated = decided there — Approved or Rejected. Budget Approval reads
+                 its own two decisions the same way (`APPROVAL_WORD`).
+
+     ## EVERY WORD IS SET BY A BUTTON SOMEBODY PRESSES
+
+     (user, 2026-09-24: "entah button aa click pandramo athukku set aagra
+     mari", asked of Order Entry right after the Budgeting queue was fixed.)
+     Updated used to read `orderLocks[r.id]` — the BUDGET lock, `re_status =
+     'approved'`, written by `sync_re_status_from_budget()` when a budget is
+     approved two modules downstream. Nothing an operator does on THIS screen
+     could reach it, so Updated was empty on every real list and both save
+     buttons landed their order in Pending. Not the Budgeting bug (two words
+     over one row); the opposite one — a word no row could ever have.
+
+     `approval_status` is the axis this screen's own actions drive, and the
+     three words partition the list with no row in two of them and none in
+     none: Save as Draft, Save garment order, then Approve / Reject.
+
+     THE BUDGET LOCK IS NOT LOST — it is what the drawer's RE Status facet
+     (Open · Under revision · Approved) is drawn from, and `orderLocks` still
+     drives the row's edit/delete gating and the editor's banner below.
+
+     The drawer's Status facet (Draft / Recorded) asks the box's question, so
+     the box stands down while it is set and clears it when a word is picked —
+     Budget Approval's rule, for the same reason: two independent controls
+     over one state can silently show nothing. RE STATUS IS NO LONGER ONE OF
+     THEM: it now asks about the budget lock, a different axis the box does
+     not read, so it combines with the box like any other facet. */
+  const listQuick = useServerQuickStatus({ value: status, counts: quickCounts });
 
   if (mode === "list") {
     /* Embedded: the list is not the operator's business — only the one order. */
@@ -5451,8 +5487,12 @@ export function GarmentOrderScreen({
       (id && data.merchandisers.find((m) => m.id === id)?.name) || null;
     const needle = listQuery.trim().toLowerCase();
     const visibleRows = rows.filter((r) => {
+      /* NO `quick.matches` HERE ANY MORE — the WHERE in `getAmendments` has
+         already done it, so `rows` is one word's worth. A second, client-side
+         pass over the same question is a place for the two to disagree, and
+         the one that would win is the one nobody can see. The drawer and the
+         search still narrow further, within the word. */
       if (!listFacets.matches(r)) return false;
-      if (!listQuick.matches(r)) return false;
       if (!needle) return true;
       return [
         r.sales_order?.order_number,
@@ -5597,10 +5637,12 @@ export function GarmentOrderScreen({
         },
       },
       /* "RE STATUS" WITHDRAWN 2026-09-23 (user, screenshot 3025: "status
-         field remove it"). The Pending / Updated / Draft box above the list
-         now answers the question the column did — Pending is Open or
-         Amending, Updated is Approved — and the Filters panel's RE Status
-         facet still reaches each state on its own. Display only, like "Code"
+         field remove it"). The Filters panel's RE Status facet reaches each
+         state on its own — Open · Under revision · Approved.
+         The Pending / Updated / Draft box above the list answered this
+         column's question until 2026-09-24; it now reads the order's own
+         `approval_status` instead (see `listWordOf`), so the facet is the
+         only thing left asking about the budget lock. Display only, like "Code"
          and "Type" above: `orderLocks` and `orderAmendments` still drive the
          locks and the facet. The column's Pending MD Approval / Waiting
          Revision badges (doc/order/amenment update.md) went with it, and the
@@ -5728,10 +5770,29 @@ export function GarmentOrderScreen({
           searchPlaceholder="Search RE No, PO, customer or merchandiser…"
           activeCount={listFacets.activeCount}
           onReset={listFacets.activeCount ? listFacets.reset : undefined}
-          right={`${visibleRows.length} of ${rows.length}`}
+          /* NAMES THE WORD WHILE ONE IS CHOSEN. `rows` is now the SLICE, so a
+             bare "3 of 3" beside a lit Pending reads as "this business has
+             three orders". Saying "3 of 3 Pending" is the same two numbers
+             telling the truth; the figures on the box say what the other two
+             words hold. */
+          right={
+            status
+              ? `${visibleRows.length} of ${rows.length} ${QUICK_LABEL[status]}`
+              : `${visibleRows.length} of ${rows.length}`
+          }
           panel={listFacets.panel}
           leading={listQuick.segment}
         />
+        {/* DIMMED WHILE THE SERVER ANSWERS. Choosing a word is a round trip
+            now (`useServerQuickStatus`), not an array filter, so without this
+            the table sits showing the OLD word's rows with the new word
+            already lit — which reads as the button having done nothing.
+            `aria-busy` says the same thing to a screen reader.
+            Pointer events stay on: the rows shown are real and still openable. */}
+        <div
+          aria-busy={listQuick.isPending || undefined}
+          className={cn("transition-opacity", listQuick.isPending && "opacity-60")}
+        >
         <DataTable
           columns={withCreatedColumns(columns, visibleRows)}
           rows={visibleRows}
@@ -5740,14 +5801,23 @@ export function GarmentOrderScreen({
              PO No and Quantity are `font-mono` in their own cells above. */
           compact
           getKey={(r) => r.id}
+          /* THE THIRD BRANCH IS NEW AND IS THE ONE SERVER FILTERING BROKE.
+             `rows.length === 0` used to mean "there are no orders"; it now also
+             means "none in THIS word", and the old wording told an operator
+             looking at an empty Draft list to go and raise their first order.
+             The word is named, and the box's figures beside it say where the
+             orders actually are. */
           empty={
             rows.length > 0
               ? "No garment orders match the search or filters."
-              : amending
-                ? "No garment orders to amend yet. Raise one under Order Entry ▸ Garment Order."
-                : "No garment orders yet. Use 'New Garment Order' to create the first."
+              : status
+                ? `No garment orders are ${QUICK_LABEL[status]} — the counts above show which word they are in.`
+                : amending
+                  ? "No garment orders to amend yet. Raise one under Order Entry ▸ Garment Order."
+                  : "No garment orders yet. Use 'New Garment Order' to create the first."
           }
         />
+        </div>
       </div>
     );
   }

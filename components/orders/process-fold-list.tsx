@@ -116,6 +116,8 @@ export function ProcessFoldList<T extends { key: string }>({
   foldSummary,
   renderPanel,
   startIndex = 0,
+  hug = false,
+  ruled = false,
 }: {
   columns: FoldListColumn<T>[];
   rows: T[];
@@ -142,6 +144,28 @@ export function ProcessFoldList<T extends { key: string }>({
   foldSummary?: (row: T) => string;
   renderPanel: (row: T, index: number) => ReactNode;
   startIndex?: number;
+  /**
+   * THE BOX ENDS AT THE LAST COLUMN (user 2026-09-24, Budget ▸ Fabric
+   * Processes: the gap after Charges). Without it the bordered box runs the
+   * full pane and every row trails ~400px of blank. Aligned layout only —
+   * stacked rows still fill the width.
+   *
+   * THE PANEL MUST STATE ITS OWN WIDTH when this is on. A fit-content box
+   * sizes to its content, and a `ChildGrid` root is a size-contained
+   * `@container`, which contributes NOTHING to that — the box would hug the
+   * header row and squeeze the open grid down to cards. Wrap the panel's grid
+   * in a div of the width its `tableFrom` needs (see Fabric Processes).
+   */
+  hug?: boolean;
+  /**
+   * A LINE BETWEEN EVERY COLUMN, as well as the one between rows — the list
+   * reads as a table (user 2026-09-24, Budget ▸ Fabric Processes: "columns
+   * and rows, lines, like a table, neat and compact"). The cells trade the
+   * 8px gap for 8px of padding each side of a 1px rule, and the header takes
+   * the muted ground a `ChildGrid` header has. Aligned layout only; the
+   * stacked rows are label/value pairs, and a rule between those is noise.
+   */
+  ruled?: boolean;
 }) {
   /**
    * EVERY COLUMN DECLARES A WIDTH, SO THE ROW STOPS AT THE LAST ONE.
@@ -181,24 +205,31 @@ export function ProcessFoldList<T extends { key: string }>({
        actually has, not against the viewport. Any narrower and it would measure
        a row instead. */
     <div className="@container">
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div
+        className={cn(
+          "overflow-hidden rounded-lg border border-border",
+          hug && "@4xl:w-fit @4xl:max-w-full",
+        )}
+      >
         {/* THE HEADER BAND, and it is only drawn where the cells line up under
             it. Stacked, each value carries its own label — a band over a column
             of wrapped pairs would be a heading for nothing. */}
         <div
           className={cn(
-            "hidden items-center gap-2 border-b border-border px-2 py-1.5 @4xl:flex",
+            "hidden items-center border-b border-border @4xl:flex",
+            ruled ? "items-stretch bg-surface-muted" : "gap-2 px-2 py-1.5",
             GRID_HEADER_TEXT,
           )}
         >
           {/* `S No` — legacy's own first column, and the one thing the client
               named that this list did not have. `w-8`, matching the row. */}
-          <span className="w-8 shrink-0 text-center">S No</span>
+          <span className={cn("w-8 shrink-0 text-center", ruled && "py-1.5")}>S No</span>
           {columns.map((c, ci) => (
             <span
               key={ci}
               className={cn(
                 "min-w-0",
+                ruled && "border-l border-border px-2 py-1.5",
                 c.width ? "shrink-0" : "flex-1",
                 c.align === "right" ? "text-right" : "text-left",
               )}
@@ -249,6 +280,15 @@ export function ProcessFoldList<T extends { key: string }>({
                       })}
                   className={cn(
                     "flex items-start gap-2 px-2 py-1",
+                    ruled && "@4xl:items-stretch @4xl:gap-0 @4xl:p-0",
+                    /* THE ROW RULE, DRAWN HERE AND NOT ON `data-grid-row` (user
+                       2026-09-24: "horizontal lines for the rows"). The Orders
+                       skin sets every `[data-grid-row]`'s border transparent
+                       (globals.css, the "overlay boxes" rule), so the wrapper's
+                       `border-b` never showed and a ruled list had column lines
+                       and no row lines. A TOP rule on every line after the
+                       first: the header band above draws the first one. */
+                    ruled && i > 0 && "@4xl:border-t @4xl:border-border",
                     !showsFold && "cursor-pointer outline-none focus-visible:bg-surface-muted",
                     /* FULL STRENGTH, NEVER `/60`. `--surface-muted` is
                        `#f0f8e5`; 60% of it over white is not a state change, and
@@ -291,7 +331,8 @@ export function ProcessFoldList<T extends { key: string }>({
                       the half of the request that says "alignment". */}
                   <div
                     className={cn(
-                      "hidden min-w-0 items-start gap-2 @4xl:flex",
+                      "hidden min-w-0 @4xl:flex",
+                      ruled ? "items-stretch" : "items-start gap-2",
                       hugsColumns ? "shrink-0" : "flex-1",
                     )}
                   >
@@ -302,6 +343,7 @@ export function ProcessFoldList<T extends { key: string }>({
                         onClick={c.control ? (e) => e.stopPropagation() : undefined}
                         className={cn(
                           "flex min-h-7 min-w-0 flex-col justify-center",
+                          ruled && "border-l border-border px-2 py-1",
                           c.width ? "shrink-0" : "flex-1",
                           c.align === "right" ? "text-right" : "text-left",
                         )}

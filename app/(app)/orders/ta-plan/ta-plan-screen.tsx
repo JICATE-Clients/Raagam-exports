@@ -194,22 +194,27 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
   const facets = useFacetFilter(rows, PLAN_FACETS);
   const matchesFacets = facets.matches;
   const setFacet = facets.set;
-  const quick = useQuickStatus(planWord, {
-    draft: false,
-    standDown: !!facets.values.scheduled,
-    onPick: () => setFacet("scheduled", ""),
-  });
-  const qm = quick.matches;
-  const filtered = useMemo(() => {
+  /* THE SET THE FIGURES ARE COUNTED OVER — the list with the search and the
+     Filters panel applied and this box's own word left off, so a figure is
+     exactly what clicking that word would show. */
+  const base = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return rows.filter((r) => {
-      if (!matchesFacets(r) || !qm(r)) return false;
+      if (!matchesFacets(r)) return false;
       if (!needle) return true;
       return [r.code, r.customer?.name, r.sales_order?.order_number, r.order_no, r.style?.style_name].some((v) =>
         (v ?? "").toLowerCase().includes(needle),
       );
     });
-  }, [rows, query, matchesFacets, qm]);
+  }, [rows, query, matchesFacets]);
+  const quick = useQuickStatus(planWord, {
+    draft: false,
+    standDown: !!facets.values.scheduled,
+    onPick: () => setFacet("scheduled", ""),
+    countRows: base,
+  });
+  const qm = quick.matches;
+  const filtered = useMemo(() => base.filter(qm), [base, qm]);
 
   const activityName = useMemo(() => {
     const m = new Map<string, string>();

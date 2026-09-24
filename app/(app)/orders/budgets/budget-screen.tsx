@@ -2467,16 +2467,22 @@ export function BudgetScreen({
      = 1056. */
   const garmentProcessColumns: CostCol[] = withRowRules([
     { ...processCol((p) => p.for_garments || p.for_components), width: FIELD_WIDTH_CSS.range },
-    { ...garmentTypeCol, width: FIELD_WIDTH_CSS.range },
+    /* 2026-09-24 (user: "Type, Reqd, Amount compact tight"): range -> hug,
+       all three (-72). Type's widest value is "Processwise" (~70px of the
+       72 a `hug` cell leaves inside its padding; `Truncated` reveals it on a
+       wider theme font); Reqd is "50,000 PCS" at the top end; Amount prints
+       no forced decimals, so "12,50,000" is nine characters.
+       1040 - 72 = 968, + 72 = 1040 beside the rail. */
+    { ...garmentTypeCol, width: FIELD_WIDTH_CSS.hug },
     { ...descCol("For"), width: FIELD_WIDTH_CSS.range },
     { ...countCol("No of Pcs", "no_of_pcs"), width: FIELD_WIDTH_CSS.hug },
     // 2026-09-23: hug -> num (-16) to pay for Import beside the rail — a
     // multiplier is a digit or two ("1", "2").
     { ...countCol("No of Units", "no_of_units"), width: FIELD_WIDTH_CSS.num },
-    { ...derivedReqdUnitCol, width: FIELD_WIDTH_CSS.range },
+    { ...derivedReqdUnitCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charge"), width: FIELD_WIDTH_CSS.hug },
-    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    { ...amountCol, width: FIELD_WIDTH_CSS.hug },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
     /* 2026-09-23 (client): Import on Garment Processes too — rupees unless
        imported (`rupeesOnly`), so the rate header no longer says "(INR)".
@@ -3409,8 +3415,13 @@ export function BudgetScreen({
       rows={fabricGroups}
       openKey={fabricOpenKey}
       onToggle={setFabricOpenKey}
+      hug
+      ruled
       renderPanel={(g) => (
-        <div>
+        /* 64rem: the `5xl` its grid's `tableFrom` needs, stated because the
+           list hugs (`hug`) and a `ChildGrid` root cannot size a fit-content
+           box — without it the open group would squeeze the grid to cards. */
+        <div className="w-[64rem] max-w-full">
           {/* THE PANEL IS THE GRID (2026-09-22) — For moved up into the fold
               row (`fabricFoldColumns`). The group's lines come from the split,
               so this grid cannot grow — and it may be emptied, like every
@@ -3887,11 +3898,17 @@ export function BudgetScreen({
        *  alike (both draw no badge). AND THE RUPEES SO FAR (2026-09-22): the
        *  sum of the tab's priced lines, the same "refused counts 0" the
        *  Amount column's totals band uses, so progress reads as money as
-       *  well as a count — "17 lines · ₹ 2,14,300" beside a badge of 3. */
+       *  well as a count — "17 lines · ₹ 2,14,300".
+       *  THE OPEN RATES WIN THE LINE WHILE THERE ARE ANY (user 2026-09-24,
+       *  the Components-style rail): the rail no longer draws a red badge —
+       *  its dot turns amber instead — so the count moves here, "17 lines · 3
+       *  to rate", and the rupees come back once every line is priced. */
       const tabMeta = (source: string) => {
         const own = lines.filter((c) => c.source === source);
         const n = own.length;
         if (n === 0) return "no lines";
+        const open = tabProblems(source);
+        if (open > 0) return `${n} ${n === 1 ? "line" : "lines"} · ${open} to rate`;
         const sum = own.reduce((acc, r) => {
           const a = amountOf(r);
           return acc + (isRefusal(a) ? 0 : a);
@@ -3910,7 +3927,7 @@ export function BudgetScreen({
                   2026-09-21, screenshot 204339 — the Material BOM's item
                   listing as the reference). `side` on the primitive; it only
                   switches in on a pane wide enough for the grids to stay
-                  tables beside it — see `Tabs` for the 92rem arithmetic. */}
+                  tables beside it — see `Tabs` for the 76rem arithmetic. */}
               <Tabs
                 side
                 value={purchaseTab}
