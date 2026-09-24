@@ -128,16 +128,39 @@ async function ordersWithFabricBom(sb: SB): Promise<string[]> {
  * The tracker for every order with a recorded Fabric BOM, or for one order.
  */
 export async function getFabricTa(opts: { salesOrderId?: string } = {}): Promise<FabricTaResult> {
-  const t = today();
   const [sb, user, canEdit] = await Promise.all([createClient(), getAppUser(), can("orders", "edit")]);
-  const notes: string[] = [];
-  const result: FabricTaResult = { today: t, orders: [], staffNames: {}, viewerEmployeeId: null, canEdit, notes };
+  const result: FabricTaResult = { today: today(), orders: [], staffNames: {}, viewerEmployeeId: null, canEdit, notes: [] };
   if (!user) return result;
-  result.viewerEmployeeId = (await myDepartment(sb, user.id))?.employeeId ?? null;
+
+  /* WHO IS LOOKING RUNS BESIDE THE LOAD, NOT AHEAD OF IT (2026-09-24, "T&A
+     tab takes 2 seconds") — three serial reads that only feed the "mine"
+     highlight. Same split, same reason, as the trims tracker's `getTrimTa`. */
+  const [viewer] = await Promise.all([myDepartment(sb, user.id), loadFabricTaInto(sb, result, opts)]);
+  result.viewerEmployeeId = viewer?.employeeId ?? null;
+  return result;
+}
+
+/**
+ * Fills `result` in. THE REQUIREMENT REPORT IS THE CRITICAL PATH — it is a
+ * chain of its own — so the work is split into two chains that run side by
+ * side instead of one queue:
+ *
+ *   report chain: report ‖ BOM requirements ‖ sources → process kinds ‖
+ *                 materials ‖ PO lines → PO headers ‖ GRN lines → GRN headers
+ *   order chain:  current amendments ‖ activities ‖ marks ‖ process orders →
+ *                 ladder dates ‖ buyers ‖ owners ‖ issues ‖ receipts → their lines
+ *
+ * Every round trip is ~260 ms of network and ~0 ms of query (the tables hold
+ * tens of rows), so the wait is the number of SERIAL rounds and nothing else.
+ * The order chain needs nothing the report produces, so it now costs nothing.
+ */
+async function loadFabricTaInto(sb: SB, result: FabricTaResult, opts: { salesOrderId?: string }): Promise<void> {
+  const t = result.today;
+  const notes = result.notes;
 
   /* ---- 1. Which orders, and each one's CURRENT Fabric BOM. ------------------ */
   const soIds = opts.salesOrderId ? [opts.salesOrderId] : await ordersWithFabricBom(sb);
-  if (!soIds.length) return result;
+  if (!soIds.length) return;
 
   const current = await Promise.all(soIds.map(async (so) => [so, await currentFabricBom(so)] as const));
   const bomOf = new Map<string, { id: string; code: string | null }>();
@@ -149,85 +172,190 @@ export async function getFabricTa(opts: { salesOrderId?: string } = {}): Promise
     bomOf.set(so, { id: c.bom.id, code: c.bom.code });
   }
   const liveSo = [...bomOf.keys()];
-  if (!liveSo.length) return result;
+  if (!liveSo.length) return;
   const bomIds = [...bomOf.values()].map((b) => b.id);
 
-  /* ---- 2. The requirement report per BOM — the quantities. ------------------ */
-  const reports = new Map<string, Awaited<ReturnType<typeof yarnFabricRequirementReport>>>();
-  await Promise.all(
-    liveSo.map(async (so) => {
-      reports.set(so, await yarnFabricRequirementReport(bomOf.get(so)!.id));
-    }),
-  );
+  const [reportSide, orderSide] = await Promise.all([reportChain(), orderChain()]);
+  if (!reportSide) return;
 
-  /* ---- 3. The BOMs' own fabrics, finished weight and sources. --------------- */
-  const [reqQ, scopeQ, soQ] = await Promise.all([
-    sb.from("order_fabric_bom_requirements").select("bom_id, item_id, required_qty, refusal_reason").in("bom_id", bomIds),
-    sb.from("order_fabric_bom_process_scope").select("bom_id, item_id, source").in("bom_id", bomIds),
-    sb.from("sales_orders").select("id, order_number").in("id", liveSo),
-  ]);
-  fail("Fabric BOM requirements", reqQ.error);
-  fail("Fabric sources", scopeQ.error);
-  fail("Orders", soQ.error);
-  const reqs = (reqQ.data ?? []) as { bom_id: string; item_id: string | null; required_qty: number | null; refusal_reason: string | null }[];
-  const sourceOf = new Map<string, FabricTaSource>();
-  for (const r of (scopeQ.data ?? []) as { bom_id: string; item_id: string; source: string | null }[]) {
-    sourceOf.set(`${r.bom_id}|${r.item_id}`, asSource(r.source));
-  }
+  /* ---- 2–3. The report chain: quantities, the BOMs' own fabrics, finished
+     weight and sources, then the materials and the PO → GRN documents. ------ */
+  async function reportChain() {
+    const reports = new Map<string, Awaited<ReturnType<typeof yarnFabricRequirementReport>>>();
+    const [, reqQ, scopeQ] = await Promise.all([
+      Promise.all(
+        liveSo.map(async (so) => {
+          reports.set(so, await yarnFabricRequirementReport(bomOf.get(so)!.id));
+        }),
+      ),
+      sb.from("order_fabric_bom_requirements").select("bom_id, item_id, required_qty, refusal_reason").in("bom_id", bomIds),
+      sb.from("order_fabric_bom_process_scope").select("bom_id, item_id, source").in("bom_id", bomIds),
+    ]);
+    fail("Fabric BOM requirements", reqQ.error);
+    fail("Fabric sources", scopeQ.error);
+    const reqs = (reqQ.data ?? []) as { bom_id: string; item_id: string | null; required_qty: number | null; refusal_reason: string | null }[];
+    const sourceOf = new Map<string, FabricTaSource>();
+    for (const r of (scopeQ.data ?? []) as { bom_id: string; item_id: string; source: string | null }[]) {
+      sourceOf.set(`${r.bom_id}|${r.item_id}`, asSource(r.source));
+    }
 
-  /* Process kinds for every stage group the reports carry — the ONLY way to
-     tell a knitting line from a dyeing one (flags on the master, never a name). */
-  const processIds = new Set<string>();
-  for (const r of reports.values()) {
-    if (isReportRefusal(r)) continue;
-    for (const g of r.stageBreakdown) processIds.add(g.processId);
-  }
-  const kinds = new Map<string, { is_knitting: boolean; is_cloth_purchase: boolean }>();
-  if (processIds.size) {
-    const { data, error } = await sb.from("processes").select("id, is_knitting, is_cloth_purchase").in("id", [...processIds]);
-    fail("Process master", error);
-    for (const p of (data ?? []) as { id: string; is_knitting: boolean | null; is_cloth_purchase: boolean | null }[]) {
+    /* Process kinds for every stage group the reports carry — the ONLY way to
+       tell a knitting line from a dyeing one (flags on the master, never a name). */
+    const processIds = new Set<string>();
+    for (const r of reports.values()) {
+      if (isReportRefusal(r)) continue;
+      for (const g of r.stageBreakdown) processIds.add(g.processId);
+    }
+
+    /* The subjects: yarns off the report, fabrics off the stored requirement. */
+    const yarnIds = new Set<string>();
+    const fabricIds = new Set<string>();
+    for (const r of reports.values()) if (!isReportRefusal(r)) for (const y of r.yarns) yarnIds.add(y.itemId);
+    for (const q of reqs) if (q.item_id) fabricIds.add(q.item_id);
+    const itemIds = [...new Set([...yarnIds, ...fabricIds])];
+    if (!itemIds.length) return null;
+
+    // Purchase orders → GRNs. Yarn feeds 6/7; the fabric itself feeds the
+    // purchased-cloth steps (the engine decides which by source).
+    const [kindQ, itemsQ, poLineQ] = await Promise.all([
+      processIds.size
+        ? sb.from("processes").select("id, is_knitting, is_cloth_purchase").in("id", [...processIds])
+        : Promise.resolve({ data: [], error: null }),
+      sb.from("items").select("id, code, name").in("id", itemIds),
+      sb
+        .from("po_line_items")
+        .select("id, purchase_order_id, sales_order_id, item_id, quantity")
+        .in("sales_order_id", liveSo)
+        .in("item_id", itemIds),
+    ]);
+    fail("Process master", kindQ.error);
+    fail("Materials", itemsQ.error);
+    fail("Purchase order lines", poLineQ.error);
+    const kinds = new Map<string, { is_knitting: boolean; is_cloth_purchase: boolean }>();
+    for (const p of (kindQ.data ?? []) as { id: string; is_knitting: boolean | null; is_cloth_purchase: boolean | null }[]) {
       kinds.set(p.id, { is_knitting: !!p.is_knitting, is_cloth_purchase: !!p.is_cloth_purchase });
     }
+    const items = new Map(((itemsQ.data ?? []) as { id: string; code: string | null; name: string | null }[]).map((i) => [i.id, i]));
+
+    type PoLine = { id: string; purchase_order_id: string; sales_order_id: string; item_id: string; quantity: number | null };
+    const poLineRows = (poLineQ.data ?? []) as PoLine[];
+    const poIds = [...new Set(poLineRows.map((l) => l.purchase_order_id))];
+    const [poHeadQ, grnLineQ] = await Promise.all([
+      poIds.length
+        ? sb.from("purchase_orders").select("id, code, status, order_date, approved_at, created_at").in("id", poIds)
+        : Promise.resolve({ data: [], error: null }),
+      poLineRows.length
+        ? sb.from("grn_line_items").select("grn_id, po_line_item_id, received_qty, accepted_qty").in("po_line_item_id", poLineRows.map((l) => l.id))
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    fail("Purchase orders", poHeadQ.error);
+    fail("GRN lines", grnLineQ.error);
+    const grnLines = (grnLineQ.data ?? []) as { grn_id: string; po_line_item_id: string; received_qty: number | null; accepted_qty: number | null }[];
+    const grnIds = [...new Set(grnLines.map((g) => g.grn_id))];
+    const grnHeadQ = grnIds.length ? await sb.from("grns").select("id, code, status, grn_date").in("id", grnIds) : { data: [], error: null };
+    fail("GRNs", grnHeadQ.error);
+
+    return { reports, reqs, sourceOf, kinds, yarnIds, fabricIds, items, poLineRows, poHeadQ, grnLines, grnHeadQ };
   }
 
-  /* The subjects: yarns off the report, fabrics off the stored requirement. */
-  const yarnIds = new Set<string>();
-  const fabricIds = new Set<string>();
-  for (const r of reports.values()) if (!isReportRefusal(r)) for (const y of r.yarns) yarnIds.add(y.itemId);
-  for (const q of reqs) if (q.item_id) fabricIds.add(q.item_id);
-  const itemIds = [...new Set([...yarnIds, ...fabricIds])];
-  if (!itemIds.length) return result;
+  /* ---- 4–5. The order chain: the order's own T&A dates, buyers, marks and
+     owners, and the process-order documents. Nothing here reads the report. */
+  async function orderChain() {
+    const [currentAmend, actsQ, marksQ, procQ, soQ] = await Promise.all([
+      currentAmendmentsBySalesOrder(sb, liveSo),
+      sb.from("ta_activities").select("id, short_name").in("short_name", ["CUT", "YRNPUR", "KNIT", "DYE"]),
+      sb
+        .from("order_fabric_ta_marks")
+        .select("sales_order_id, item_id, step_code, tolerance_pct, done_on, remarks, assigned_staff_id")
+        .in("sales_order_id", liveSo),
+      sb.from("process_orders").select("id, code, sales_order_id, process_type, status").in("sales_order_id", liveSo),
+      sb.from("sales_orders").select("id, order_number").in("id", liveSo),
+    ]);
+    fail("T&A activities", actsQ.error);
+    fail("Fabric T&A marks", marksQ.error);
+    fail("Process orders", procQ.error);
+    fail("Orders", soQ.error);
 
-  /* ---- 4. Masters and the order's own T&A dates. ---------------------------- */
-  const currentAmend = await currentAmendmentsBySalesOrder(sb, liveSo);
-  const currentIds = [...currentAmend.values()].map((a) => a.id);
-  const [itemsQ, actsQ] = await Promise.all([
-    sb.from("items").select("id, code, name").in("id", itemIds),
-    sb.from("ta_activities").select("id, short_name").in("short_name", ["CUT", "YRNPUR", "KNIT", "DYE"]),
-  ]);
-  fail("Materials", itemsQ.error);
-  fail("T&A activities", actsQ.error);
-  const items = new Map(((itemsQ.data ?? []) as { id: string; code: string | null; name: string | null }[]).map((i) => [i.id, i]));
-  const actCode = new Map(((actsQ.data ?? []) as { id: string; short_name: string }[]).map((a) => [a.id, a.short_name]));
-  const ladderDate = new Map<string, string>();
-  if (currentIds.length && actCode.size) {
-    const { data, error } = await sb
-      .from("garment_order_amendment_ta_activities")
-      .select("amendment_id, activity_id, target_date")
-      .in("amendment_id", currentIds)
-      .in("activity_id", [...actCode.keys()]);
-    fail("The order T&A schedule", error);
-    for (const r of (data ?? []) as { amendment_id: string; activity_id: string; target_date: string | null }[]) {
-      const code = actCode.get(r.activity_id);
-      if (!code || !r.target_date) continue;
-      const k = `${r.amendment_id}|${code}`;
-      const prev = ladderDate.get(k);
-      if (!prev || r.target_date < prev) ladderDate.set(k, r.target_date);
+    const currentIds = [...currentAmend.values()].map((a) => a.id);
+    const actCode = new Map(((actsQ.data ?? []) as { id: string; short_name: string }[]).map((a) => [a.id, a.short_name]));
+    type Proc = { id: string; code: string | null; sales_order_id: string; process_type: string; status: string };
+    const procRows = ((procQ.data ?? []) as Proc[]).filter((p) => p.status !== "cancelled");
+    const procIds = procRows.map((p) => p.id);
+
+    const marks = new Map<string, Partial<Record<FabricTaStepCode, FabricTaMark>>>();
+    const staffIds = new Set<string>();
+    for (const m of (marksQ.data ?? []) as {
+      sales_order_id: string;
+      item_id: string;
+      step_code: FabricTaStepCode;
+      tolerance_pct: number | null;
+      done_on: string | null;
+      remarks: string | null;
+      assigned_staff_id: string | null;
+    }[]) {
+      const k = `${m.sales_order_id}|${m.item_id}`;
+      const bag = marks.get(k) ?? {};
+      bag[m.step_code] = { tolerancePct: m.tolerance_pct, doneOn: m.done_on, remarks: m.remarks, assignedStaffId: m.assigned_staff_id };
+      marks.set(k, bag);
+      if (m.assigned_staff_id) staffIds.add(m.assigned_staff_id);
     }
+
+    const [ladderQ, buyerQ, staffQ, issueQ, receiptQ] = await Promise.all([
+      currentIds.length && actCode.size
+        ? sb
+            .from("garment_order_amendment_ta_activities")
+            .select("amendment_id, activity_id, target_date")
+            .in("amendment_id", currentIds)
+            .in("activity_id", [...actCode.keys()])
+        : Promise.resolve({ data: [], error: null }),
+      currentIds.length
+        ? sb.from("garment_order_amendments").select("id, sales_order_id, customer:customers(name)").in("id", currentIds)
+        : Promise.resolve({ data: [], error: null }),
+      staffIds.size ? sb.from("employees").select("id, name").in("id", [...staffIds]) : Promise.resolve({ data: [], error: null }),
+      procIds.length
+        ? sb.from("process_material_issues").select("id, code, process_order_id, issue_date, status").in("process_order_id", procIds)
+        : Promise.resolve({ data: [], error: null }),
+      procIds.length
+        ? sb.from("process_material_receipts").select("id, code, process_order_id, receipt_date, status").in("process_order_id", procIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    fail("The order T&A schedule", ladderQ.error);
+    fail("Buyers", buyerQ.error);
+    fail("Employees", staffQ.error);
+    fail("Process issues", issueQ.error);
+    fail("Process receipts", receiptQ.error);
+
+    type Issue = { id: string; code: string | null; process_order_id: string; issue_date: string | null; status: string };
+    type Receipt = { id: string; code: string | null; process_order_id: string; receipt_date: string | null; status: string };
+    const issues = ((issueQ.data ?? []) as Issue[]).filter((i) => i.status !== "cancelled");
+    const receipts = ((receiptQ.data ?? []) as Receipt[]).filter((r) => r.status !== "cancelled");
+    const [issueLineQ, receiptLineQ] = await Promise.all([
+      issues.length
+        ? sb.from("process_material_issue_lines").select("issue_id, item_id, quantity").in("issue_id", issues.map((i) => i.id))
+        : Promise.resolve({ data: [], error: null }),
+      receipts.length
+        ? sb.from("process_material_receipt_lines").select("receipt_id, item_id, received_qty, accepted_qty").in("receipt_id", receipts.map((r) => r.id))
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    fail("Process issue lines", issueLineQ.error);
+    fail("Process receipt lines", receiptLineQ.error);
+
+    return { currentAmend, actCode, ladderQ, buyerQ, staffQ, marks, procRows, issues, receipts, issueLineQ, receiptLineQ, soQ };
   }
 
-  /* ---- 5. Documents. ---------------------------------------------------------- */
+  const { reports, reqs, sourceOf, kinds, yarnIds, fabricIds, items, poLineRows, poHeadQ, grnLines, grnHeadQ } = reportSide;
+  const { currentAmend, actCode, ladderQ, buyerQ, staffQ, marks, procRows, issues, receipts, issueLineQ, receiptLineQ, soQ } = orderSide;
+
+  const ladderDate = new Map<string, string>();
+  for (const r of (ladderQ.data ?? []) as { amendment_id: string; activity_id: string; target_date: string | null }[]) {
+    const code = actCode.get(r.activity_id);
+    if (!code || !r.target_date) continue;
+    const k = `${r.amendment_id}|${code}`;
+    const prev = ladderDate.get(k);
+    if (!prev || r.target_date < prev) ladderDate.set(k, r.target_date);
+  }
+
+  /* ---- 6. Documents → events. ------------------------------------------------ */
   const events = new Map<string, Partial<Record<FabricTaStream, FabricTaEvent[]>>>();
   const push = (so: string, item: string, stream: FabricTaStream, e: FabricTaEvent) => {
     const k = `${so}|${item}`;
@@ -236,73 +364,7 @@ export async function getFabricTa(opts: { salesOrderId?: string } = {}): Promise
     events.set(k, bag);
   };
 
-  // 5a. Purchase orders → GRNs. Yarn feeds 6/7; the fabric itself feeds the
-  //     purchased-cloth steps (the engine decides which by source).
-  const { data: poLines, error: poErr } = await sb
-    .from("po_line_items")
-    .select("id, purchase_order_id, sales_order_id, item_id, quantity")
-    .in("sales_order_id", liveSo)
-    .in("item_id", itemIds);
-  fail("Purchase order lines", poErr);
-  type PoLine = { id: string; purchase_order_id: string; sales_order_id: string; item_id: string; quantity: number | null };
-  const poLineRows = (poLines ?? []) as PoLine[];
-  const poIds = [...new Set(poLineRows.map((l) => l.purchase_order_id))];
-
-  // 5b. Process orders for these orders → issues and receipts.
-  const { data: procs, error: procErr } = await sb
-    .from("process_orders")
-    .select("id, code, sales_order_id, process_type, status")
-    .in("sales_order_id", liveSo);
-  fail("Process orders", procErr);
-  type Proc = { id: string; code: string | null; sales_order_id: string; process_type: string; status: string };
-  const procRows = ((procs ?? []) as Proc[]).filter((p) => p.status !== "cancelled");
   const procById = new Map(procRows.map((p) => [p.id, p]));
-  const procIds = procRows.map((p) => p.id);
-
-  const [poHeadQ, grnLineQ, issueQ, receiptQ, marksQ] = await Promise.all([
-    poIds.length
-      ? sb.from("purchase_orders").select("id, code, status, order_date, approved_at, created_at").in("id", poIds)
-      : Promise.resolve({ data: [], error: null }),
-    poLineRows.length
-      ? sb.from("grn_line_items").select("grn_id, po_line_item_id, received_qty, accepted_qty").in("po_line_item_id", poLineRows.map((l) => l.id))
-      : Promise.resolve({ data: [], error: null }),
-    procIds.length
-      ? sb.from("process_material_issues").select("id, code, process_order_id, issue_date, status").in("process_order_id", procIds)
-      : Promise.resolve({ data: [], error: null }),
-    procIds.length
-      ? sb.from("process_material_receipts").select("id, code, process_order_id, receipt_date, status").in("process_order_id", procIds)
-      : Promise.resolve({ data: [], error: null }),
-    sb
-      .from("order_fabric_ta_marks")
-      .select("sales_order_id, item_id, step_code, tolerance_pct, done_on, remarks, assigned_staff_id")
-      .in("sales_order_id", liveSo),
-  ]);
-  fail("Purchase orders", poHeadQ.error);
-  fail("GRN lines", grnLineQ.error);
-  fail("Process issues", issueQ.error);
-  fail("Process receipts", receiptQ.error);
-  fail("Fabric T&A marks", marksQ.error);
-
-  type Issue = { id: string; code: string | null; process_order_id: string; issue_date: string | null; status: string };
-  type Receipt = { id: string; code: string | null; process_order_id: string; receipt_date: string | null; status: string };
-  const issues = ((issueQ.data ?? []) as Issue[]).filter((i) => i.status !== "cancelled");
-  const receipts = ((receiptQ.data ?? []) as Receipt[]).filter((r) => r.status !== "cancelled");
-  const grnLines = (grnLineQ.data ?? []) as { grn_id: string; po_line_item_id: string; received_qty: number | null; accepted_qty: number | null }[];
-  const grnIds = [...new Set(grnLines.map((g) => g.grn_id))];
-
-  const [grnHeadQ, issueLineQ, receiptLineQ] = await Promise.all([
-    grnIds.length ? sb.from("grns").select("id, code, status, grn_date").in("id", grnIds) : Promise.resolve({ data: [], error: null }),
-    issues.length
-      ? sb.from("process_material_issue_lines").select("issue_id, item_id, quantity").in("issue_id", issues.map((i) => i.id))
-      : Promise.resolve({ data: [], error: null }),
-    receipts.length
-      ? sb.from("process_material_receipt_lines").select("receipt_id, item_id, received_qty, accepted_qty").in("receipt_id", receipts.map((r) => r.id))
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-  fail("GRNs", grnHeadQ.error);
-  fail("Process issue lines", issueLineQ.error);
-  fail("Process receipt lines", receiptLineQ.error);
-
   const poHead = new Map(
     ((poHeadQ.data ?? []) as { id: string; code: string | null; status: string; order_date: string | null; approved_at: string | null; created_at: string }[]).map(
       (p) => [p.id, p],
@@ -367,37 +429,12 @@ export async function getFabricTa(opts: { salesOrderId?: string } = {}): Promise
     });
   }
 
-  /* ---- 6. Marks, owners, buyers. --------------------------------------------- */
-  const marks = new Map<string, Partial<Record<FabricTaStepCode, FabricTaMark>>>();
-  const staffIds = new Set<string>();
-  for (const m of (marksQ.data ?? []) as {
-    sales_order_id: string;
-    item_id: string;
-    step_code: FabricTaStepCode;
-    tolerance_pct: number | null;
-    done_on: string | null;
-    remarks: string | null;
-    assigned_staff_id: string | null;
-  }[]) {
-    const k = `${m.sales_order_id}|${m.item_id}`;
-    const bag = marks.get(k) ?? {};
-    bag[m.step_code] = { tolerancePct: m.tolerance_pct, doneOn: m.done_on, remarks: m.remarks, assignedStaffId: m.assigned_staff_id };
-    marks.set(k, bag);
-    if (m.assigned_staff_id) staffIds.add(m.assigned_staff_id);
-  }
-  if (staffIds.size) {
-    const { data, error } = await sb.from("employees").select("id, name").in("id", [...staffIds]);
-    fail("Employees", error);
-    for (const e of (data ?? []) as { id: string; name: string | null }[]) result.staffNames[e.id] = e.name ?? "—";
-  }
+  /* ---- Owners, buyers, order refs. ------------------------------------------- */
+  for (const e of (staffQ.data ?? []) as { id: string; name: string | null }[]) result.staffNames[e.id] = e.name ?? "—";
   const buyerOf = new Map<string, string>();
-  if (currentIds.length) {
-    const { data, error } = await sb.from("garment_order_amendments").select("id, sales_order_id, customer:customers(name)").in("id", currentIds);
-    fail("Buyers", error);
-    for (const r of (data ?? []) as unknown as { sales_order_id: string; customer: { name: string | null } | { name: string | null }[] | null }[]) {
-      const c = Array.isArray(r.customer) ? r.customer[0] : r.customer;
-      if (c?.name) buyerOf.set(r.sales_order_id, c.name);
-    }
+  for (const r of (buyerQ.data ?? []) as unknown as { sales_order_id: string; customer: { name: string | null } | { name: string | null }[] | null }[]) {
+    const c = Array.isArray(r.customer) ? r.customer[0] : r.customer;
+    if (c?.name) buyerOf.set(r.sales_order_id, c.name);
   }
   const orderRef = new Map(((soQ.data ?? []) as { id: string; order_number: string | null }[]).map((s) => [s.id, s.order_number]));
 
@@ -510,5 +547,5 @@ export async function getFabricTa(opts: { salesOrderId?: string } = {}): Promise
   }
 
   result.orders.sort((a, b) => (a.orderRef ?? "").localeCompare(b.orderRef ?? ""));
-  return result;
+  return;
 }

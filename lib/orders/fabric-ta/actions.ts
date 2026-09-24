@@ -76,14 +76,15 @@ export async function saveFabricTaMark(raw: FabricTaMarkInput): Promise<Result> 
 export async function loadFabricTaForGarmentOrder(
   garmentOrderId: string,
 ): Promise<{ ok: true; result: import("./service").FabricTaResult } | { ok: false; error: string }> {
-  if (!(await can("orders", "view"))) return { ok: false, error: "You do not have permission to view order T&A." };
   if (!z.string().uuid().safeParse(garmentOrderId).success) return { ok: false, error: "Pick an order first." };
+  // The permission check and the order hop run together — the answer is still
+  // refused before anything is returned, it just no longer costs a round trip.
   const sb = await createClient();
-  const { data, error } = await sb
-    .from("garment_order_amendments")
-    .select("sales_order_id")
-    .eq("id", garmentOrderId)
-    .maybeSingle();
+  const [allowed, { data, error }] = await Promise.all([
+    can("orders", "view"),
+    sb.from("garment_order_amendments").select("sales_order_id").eq("id", garmentOrderId).maybeSingle(),
+  ]);
+  if (!allowed) return { ok: false, error: "You do not have permission to view order T&A." };
   // A failed read is an error, never an empty tracker (see the service header).
   if (error) return { ok: false, error: `Could not read the order: ${error.message}` };
   const so = (data as { sales_order_id: string | null } | null)?.sales_order_id;
