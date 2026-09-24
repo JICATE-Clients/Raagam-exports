@@ -429,7 +429,7 @@ export async function getOrderBudgetReport(salesOrderId: string): Promise<OrderB
             baselineKpis: baseline.kpis,
             submittedKpis: open.amended_kpis ?? budget.submitted_summary,
           }),
-          rows: compareToBaseline({ general: baseline.general as GeneralSummary }, general),
+          rows: compareToBaseline({ general: baseline.general as GeneralSummary, lines: baseline.lines }, general),
         }
       : null;
 

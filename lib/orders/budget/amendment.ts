@@ -42,6 +42,8 @@ import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { INITIATED_OPTIONS } from "@/lib/orders/amendments/types";
 import {
   isRefusal,
+  lineAmount,
+  type BudgetLineInput,
   type BudgetTotals,
   type GeneralCategoryKey,
   type GeneralSummary,
@@ -376,6 +378,46 @@ export type BaselineRow = {
 };
 
 /**
+ * A baseline frozen BEFORE Fabric took `fabric_process` (2026-09-24, see
+ * `GENERAL_CATEGORIES`) holds the fabric steps inside its Processing row.
+ * Compared as stored, every such revision would report the fabric steps as a
+ * rise in Fabric and an equal fall in Processing — a variance nobody made. So
+ * the old grouping is regrouped from the approved LINES the baseline froze
+ * beside it: their `fabric_process` amount moves from Processing to Fabric.
+ * Total, sales and profit are untouched (the move is inside the matrix).
+ *
+ * A process line is never a percentage, so `lineAmount` needs no sales base.
+ * If the lines are missing or one refuses, the two rows REFUSE rather than
+ * compare wrongly — a variance against the wrong grouping is not a variance.
+ */
+function regroupedRows(b: Partial<GeneralSummary>, lines: unknown): Partial<GeneralSummary["rows"][number]>[] {
+  const rows: Partial<GeneralSummary["rows"][number]>[] = Array.isArray(b.rows) ? b.rows : [];
+  if (b.grouping === 2 || rows.length === 0) return rows;
+
+  let moved: number | Refusal = 0;
+  if (!Array.isArray(lines)) {
+    moved = { refused: "Approved lines not recorded — the fabric steps cannot be regrouped" };
+  } else {
+    for (const l of lines as BudgetLineInput[]) {
+      if (l?.source !== "fabric_process") continue;
+      const a = lineAmount(l);
+      if (isRefusal(a)) {
+        moved = { refused: a.refused };
+        break;
+      }
+      moved = money(moved + a);
+    }
+  }
+  const shift = (key: GeneralCategoryKey, sign: 1 | -1) => (r: Partial<GeneralSummary["rows"][number]>) => {
+    if (r?.key !== key) return r;
+    const was = r.amount;
+    if (isRefusal(moved)) return { ...r, amount: moved };
+    return typeof was === "number" ? { ...r, amount: money(was + sign * moved) } : r;
+  };
+  return rows.map(shift("fabric", 1)).map(shift("processing", -1));
+}
+
+/**
  * Approved baseline vs Current, row by row: each General category, then the
  * total and the bottom line.
  *
@@ -388,11 +430,11 @@ export type BaselineRow = {
  * jsonb, so a field that is not a number or a refusal is "Not recorded".
  */
 export function compareToBaseline(
-  baseline: Pick<BudgetBaseline, "general">,
+  baseline: Pick<BudgetBaseline, "general"> & { lines?: unknown },
   current: GeneralSummary,
 ): BaselineRow[] {
   const b = (baseline.general ?? {}) as Partial<GeneralSummary>;
-  const bRows = Array.isArray(b.rows) ? b.rows : [];
+  const bRows = regroupedRows(b, baseline.lines);
 
   const row = (
     key: BaselineRow["key"],

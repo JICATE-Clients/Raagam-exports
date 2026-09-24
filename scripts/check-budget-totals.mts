@@ -1142,9 +1142,9 @@ check(
   GENERAL_CATEGORIES.map((c) => [c.key, c.label, [...c.sources]]),
   [
     ["yarn", "Yarn", ["yarn"]],
-    ["fabric", "Fabric", ["fabric"]],
+    ["fabric", "Fabric", ["fabric", "fabric_process"]],
     ["accessories", "Accessories", ["material"]],
-    ["processing", "Processing", ["yarn_process", "fabric_process", "material_process", "garment_process"]],
+    ["processing", "Processing", ["yarn_process", "material_process", "garment_process"]],
     ["cmt", "CMT", ["cmt"]],
     ["other", "Other Expenses", ["expense"]],
   ],
@@ -1187,9 +1187,9 @@ check(
   GENERAL.rows.map((r) => [r.key, r.amount, r.pctOfSales]),
   [
     ["yarn", 1_200_000, 30.88],
-    ["fabric", 300_000, 7.72],
+    ["fabric", 650_000, 16.73],
     ["accessories", 400_000, 10.29],
-    ["processing", 550_000, 14.15],
+    ["processing", 200_000, 5.15],
     ["cmt", 625_000, 16.08],
     ["other", 100_000, 2.57],
   ],

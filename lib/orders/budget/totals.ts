@@ -965,20 +965,35 @@ export type GeneralCategory = {
  * does not show; one in two rows would be counted twice beneath a total that
  * counts it once. Income is not a row — it is not a cost (see the header).
  */
+/*
+ * FABRIC = FABRIC PURCHASE + FABRIC PROCESS (client, 2026-09-24, audio
+ * record-1790058936329: "this fabric cost alone is not coming … it shows as
+ * zero, but I have given all the rates"). A fabric knitted from our own yarn
+ * raises NO `fabric` line — Rule 1 in the pull, its cloth cost IS the yarn — so
+ * with `fabric_process` under Processing, every in-house fabric read Fabric 0
+ * while its knitting, dyeing, compacting and stentering sat one row down. The
+ * job-work charges on the cloth are fabric cost, so they are counted here and
+ * Processing keeps the yarn, trim and garment steps. Still one row per source,
+ * so the matrix total is unchanged — only where the fabric steps are read.
+ */
 export const GENERAL_CATEGORIES: readonly GeneralCategory[] = [
   { key: "yarn", label: "Yarn", sources: ["yarn"] },
-  { key: "fabric", label: "Fabric", sources: ["fabric"] },
+  { key: "fabric", label: "Fabric", sources: ["fabric", "fabric_process"] },
   { key: "accessories", label: "Accessories", sources: ["material"] },
   {
     key: "processing",
     label: "Processing",
-    sources: ["yarn_process", "fabric_process", "material_process", "garment_process"],
+    sources: ["yarn_process", "material_process", "garment_process"],
   },
   { key: "cmt", label: "CMT", sources: ["cmt"] },
   { key: "other", label: "Other Expenses", sources: ["expense"] },
 ];
 
 export type GeneralSummary = {
+  /** 2 = Fabric carries `fabric_process` (2026-09-24). A stored summary without
+   *  it was grouped with the fabric steps under Processing — see
+   *  `compareToBaseline`, which regroups it before comparing. */
+  grouping?: 2;
   rows: {
     key: GeneralCategoryKey;
     label: string;
@@ -1041,6 +1056,7 @@ export function generalSummary(totals: BudgetTotals, cutQty: number | Refusal): 
         : money(totals.cost / cutQty);
 
   return {
+    grouping: 2,
     rows,
     total: { amount: totals.cost, pctOfSales: pctOf(totals.cost, totals.sales) },
     sales: totals.sales,
