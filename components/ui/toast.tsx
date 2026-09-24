@@ -85,7 +85,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       {/* z-[200]: must outrank Sheet (z-90/91) and dialog pickers (z-100/101), or a Save
           error fired while one is open renders invisibly behind it. */}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[200] flex w-full max-w-xs flex-col gap-2">
+      <div className="pointer-events-none fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom))] right-4 z-[200] md:bottom-4 flex w-full max-w-xs flex-col gap-2">
         {/*
          * TWO regions, both always mounted. A live region only announces nodes
          * inserted into it while it is already in the accessibility tree, so the

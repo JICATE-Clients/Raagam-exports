@@ -1,5 +1,6 @@
 import type { SeededAmendmentChildren } from "./order-seed";
 import { orderUnitLabel } from "./types";
+import { layoutLabel } from "@/lib/orders/cad-lifecycle/types";
 
 /**
  * Orders ▸ Garment Order Amendment — what actually changed.
@@ -234,6 +235,10 @@ const STYLES: TabSpec<StyleRow> = {
      * the PCS / SET the screen shows, never the stored 'piece' / 'set'.
      */
     { field: "unit_kind", label: "Order Unit", format: (v) => orderUnitLabel(v as string | null) },
+    /* LAYOUT TYPE (0628) — typed on the line and read by the CAD approval, so a
+       change an approver cannot see is a hole in the record (unit_kind's
+       argument above). Worded as the screen shows it. */
+    { field: "layout_type", label: "Layout Type", format: (v) => (v ? layoutLabel(v as string) : "") },
     { field: "order_unit_id", label: "Stock Unit (order)" },
     { field: "plan_unit_id", label: "Stock Unit (plan)" },
     { field: "po_qty", label: "PO Qty" },

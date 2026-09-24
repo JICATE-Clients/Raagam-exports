@@ -31,6 +31,7 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
   onOpen,
   canDelete = false,
   canDeleteRow,
+  lockedRow,
   onDelete,
   menu,
   isPending = false,
@@ -45,6 +46,14 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
   onOpen: (row: T) => void;
   canDelete?: boolean;
   canDeleteRow?: (row: T) => boolean;
+  /**
+   * An APPROVED order (or one whose open Revision does not cover this module):
+   * the row offers the EYE instead of the pencil and no bin (client
+   * 2026-09-24). The eye opens the same record — the editor is already
+   * read-only for it (`MasterFullScreen locked`) — and the server refuses a
+   * delete regardless; this is the half that stops offering one.
+   */
+  lockedRow?: (row: T) => boolean;
   onDelete?: (row: T) => void;
   menu?: (row: T) => RowMenuItem[];
   isPending?: boolean;
@@ -78,20 +87,26 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
       cell: (r) => <span className="font-mono text-xs">{heading(r).poNo ?? "—"}</span>,
     },
     ...columns,
-    rowActionsColumn((r) => (
-      <RowActions
-        label={heading(r).reNo}
-        /* NO EYE: these queues have no read-only view of their own, and the
-           automatic one would only repeat the row's columns back. The pencil
-           opens the record, as the RE No does. */
-        view={false}
-        onEdit={() => onOpen(r)}
-        onDelete={onDelete ? () => onDelete(r) : undefined}
-        canDelete={canDelete && (canDeleteRow ? canDeleteRow(r) : true)}
-        menu={menu?.(r)}
-        isPending={isPending}
-      />
-    )),
+    rowActionsColumn((r) => {
+      const locked = lockedRow?.(r) ?? false;
+      return (
+        <RowActions
+          label={heading(r).reNo}
+          /* NO AUTOMATIC EYE: these queues have no read-only view of their own,
+             and the automatic one would only repeat the row's columns back. The
+             pencil opens the record, as the RE No does — and on a LOCKED row the
+             eye takes its place, opening the same (read-only) record. */
+          view={false}
+          onView={locked ? () => onOpen(r) : undefined}
+          onEdit={() => onOpen(r)}
+          canEdit={!locked}
+          onDelete={onDelete ? () => onDelete(r) : undefined}
+          canDelete={canDelete && !locked && (canDeleteRow ? canDeleteRow(r) : true)}
+          menu={menu?.(r)}
+          isPending={isPending}
+        />
+      );
+    }),
   ];
 
   return (

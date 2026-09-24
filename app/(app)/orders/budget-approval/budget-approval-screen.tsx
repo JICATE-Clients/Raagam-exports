@@ -56,10 +56,14 @@ import {
 import { decideBudget, reopenBudget } from "@/lib/orders/budget/actions";
 import { kpisFromJson } from "@/lib/orders/budget/amendment";
 import { lineInputOf, orderInputsOfSnapshot } from "@/lib/orders/budget/figures";
-import { actOnRun, getApprovalPanel } from "@/lib/approvals/actions";
+import { actOnSubject } from "@/lib/approvals/actions";
+import { loadBudgetApprovalSheet } from "@/lib/orders/budget/approval-sheet-actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
+import { VarianceTable } from "@/components/orders/revision-variance-table";
+import type { RevisionComparisonData } from "@/lib/orders/order-amendments/service";
+import { isRefusal } from "@/lib/orders/budget/totals";
 import type {
   ApprovalRun,
   CanActVerdict,
@@ -251,12 +255,17 @@ export function BudgetApprovalScreen({
     verdict: CanActVerdict | null;
     timeline: TimelineRow[];
     names: Record<string, string>;
+    /** The revised budget's Original · Last · Latest (null = not a revision). */
+    revision: RevisionComparisonData | null;
   } | null>(null);
 
+  /* The panel AND the revision comparison, one action (2026-09-24): the
+     comparison used to be computed in the page loader for every submitted
+     budget on every render, including the re-render each decision triggers. */
   useEffect(() => {
     if (!openId) return;
-    void getApprovalPanel(WORKFLOWS.order_budget.subjectTable, openId).then((p) =>
-      setLoaded({ forId: openId, ...p }),
+    void loadBudgetApprovalSheet(openId).then(({ panel: p, revision }) =>
+      setLoaded({ forId: openId, ...p, revision }),
     );
   }, [openId]);
 
@@ -342,7 +351,7 @@ export function BudgetApprovalScreen({
       if (res.ok) {
         success(decision === "approved" ? "Budget approved" : "Budget rejected");
         close();
-        router.refresh();
+        // `decideBudget` revalidates this page in its own response (`rev()`).
       } else {
         toastError(res.error);
       }
@@ -355,7 +364,7 @@ export function BudgetApprovalScreen({
       if (res.ok) {
         success("Sent back to draft");
         close();
-        router.refresh();
+        // `reopenBudget` revalidates this page in its own response (`rev()`).
       } else {
         toastError(res.error);
       }
@@ -383,27 +392,23 @@ export function BudgetApprovalScreen({
     const comment = rowComment.trim();
     if (kind === "cancel" && !comment) return;
     start(async () => {
-      const p = await getApprovalPanel(WORKFLOWS.order_budget.subjectTable, row.id);
-      let res;
-      if (p.run && p.run.status === "in_progress") {
-        if (!p.verdict?.can_act) {
-          toastError("This budget is waiting on someone else's step, not yours");
-          return;
-        }
-        res = await actOnRun({
-          runId: p.run.id,
-          action: kind === "approve" ? "approve" : "reject",
-          lockVersion: p.run.lock_version,
-          comment: comment || undefined,
-          subjectPath: "/orders/budget-approval",
-        });
-      } else {
+      /* ONE ACTION, NOT TWO (2026-09-24): `actOnSubject` finds the run and
+         decides in the same request; only a budget with no live run falls
+         back to the legacy `decideBudget`. Both revalidate this page in their
+         own response, so there is no `router.refresh()` after them. */
+      let res: { ok: true } | { ok: false; error: string; noRun?: true } = await actOnSubject({
+        subjectTable: WORKFLOWS.order_budget.subjectTable,
+        subjectId: row.id,
+        action: kind === "approve" ? "approve" : "reject",
+        comment: comment || undefined,
+        subjectPath: "/orders/budget-approval",
+      });
+      if (!res.ok && res.noRun) {
         res = await decideBudget(row.id, kind === "approve" ? "approved" : "rejected", comment || null);
       }
       if (res.ok) {
         success(kind === "approve" ? "Budget approved" : "Budget cancelled");
         closeRowAct();
-        router.refresh();
       } else {
         toastError(res.error);
       }
@@ -805,6 +810,98 @@ export function BudgetApprovalScreen({
               </DetailSection>
             )}
 
+            {/* THE REVISION, IN FULL, ABOVE THE BUTTONS (client 2026-09-24) —
+                Original (V0) · Last · Latest by cost head, with the margin move
+                as the headline. The same table the Revision's own Overview
+                prints, so the MD signs against exactly what the merchandiser
+                saw. Absent on a first-time budget: nothing to compare with. */}
+            {budget && panel?.revision && (() => {
+              const rc = panel.revision;
+              const was = rc.baselineKpis?.profit_pct;
+              const now = rc.currentKpis?.profit_pct;
+              const known = was !== undefined && now !== undefined && !isRefusal(was) && !isRefusal(now);
+              const d = known ? Math.round((now - was) * 100) / 100 : null;
+              return (
+                <>
+                <DetailSection
+                  label={`Revision ${rc.entryNo ?? ""} — budget comparison`}
+                  cols={1}
+                  className={SHEET_BOX_W}
+                >
+                  {/* WHO, WHEN, WHAT KIND — the revision's own facts, so the MD
+                      knows what they are signing before reading a figure. */}
+                  <dl className="mb-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
+                    <div><dt className="text-muted-foreground">Raised by</dt><dd>{rc.raisedBy ?? "—"}</dd></div>
+                    <div><dt className="text-muted-foreground">Raised on</dt><dd>{rc.raisedAt ? fmtDateTime(rc.raisedAt) : "—"}</dd></div>
+                    <div><dt className="text-muted-foreground">Category</dt><dd>{rc.categories || "—"}</dd></div>
+                  </dl>
+                  <p className="mb-2 text-sm">
+                    Profit margin{" "}
+                    {known ? (
+                      <>
+                        <span className="tabular-nums">{fmtNumber(was)}%</span> →{" "}
+                        <span className="tabular-nums font-semibold">{fmtNumber(now)}%</span>{" "}
+                        <span className={cn("tabular-nums font-medium", d! < 0 ? "text-danger" : d! > 0 ? "text-success" : "text-muted-foreground")}>
+                          ({d! > 0 ? "+" : ""}{fmtNumber(d!)} pts)
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">— could not be compared</span>
+                    )}
+                  </p>
+                  {rc.currentRefusal && (
+                    <p className="mb-2 text-xs text-warning">Latest Budget figures could not be read: {rc.currentRefusal}</p>
+                  )}
+                  <VarianceTable detail={rc} />
+                </DetailSection>
+
+                {/* WHAT CHANGED IN THE ORDER — raise-time snapshot vs now, field
+                    by field (client 2026-09-24). No per-field cost column: an
+                    order field moves cost only through the BOMs and budget,
+                    which the table above already breaks down by head. */}
+                <DetailSection label="What changed in order details" cols={1} className={SHEET_BOX_W}>
+                  {rc.changesRefusal ? (
+                    <p className="text-xs text-warning">The order could not be compared: {rc.changesRefusal}</p>
+                  ) : rc.changes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No order details changed — this revision moves the BOMs or the budget only.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[36rem] text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                            <th className="py-2 pr-3 font-semibold">Section / Field</th>
+                            <th className="py-2 px-3 font-semibold">Old value</th>
+                            <th className="py-2 pl-3 font-semibold">New value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rc.changes.map((c, i) => (
+                            <tr key={i} className="border-b border-border/60 align-top">
+                              <td className="py-1.5 pr-3">
+                                <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                                  {c.section}{c.row ? ` · ${c.row}` : ""}
+                                </span>
+                                {c.field}
+                              </td>
+                              <td className="py-1.5 px-3 tabular-nums text-muted-foreground">{c.before}</td>
+                              <td className="py-1.5 pl-3 tabular-nums font-medium">{c.after}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </DetailSection>
+
+                {rc.reason && (
+                  <DetailSection label="Merchandiser's reason for revision" cols={1} className={SHEET_BOX_W}>
+                    <p className="text-sm">{rc.reason}</p>
+                  </DetailSection>
+                )}
+                </>
+              );
+            })()}
+
             {budget.decision_remark && (
               <DetailSection label="Decision" cols={1} className={SHEET_BOX_W}>
                 <p className="text-sm">{budget.decision_remark}</p>
@@ -835,6 +932,9 @@ export function BudgetApprovalScreen({
                       run={panel.run}
                       verdict={panel.verdict}
                       subjectPath="/orders/budget-approval"
+                      /* The sheet's run and verdict were read before the
+                         decision — close it rather than show a stale bar. */
+                      onDone={() => setOpenId(null)}
                     />
                   </div>
                 )}

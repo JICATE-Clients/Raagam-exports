@@ -13,8 +13,10 @@ import type { BomStatus } from "@/lib/orders/bom-status";
 import { getRunForSubject, getTimeline } from "@/lib/approvals/service";
 import type { ApprovalRun, TimelineRow } from "@/lib/approvals/types";
 import { budgetLineKey } from "@/lib/orders/budget/amendment-scope";
+import { orderChangesSince, type OrderFieldChange } from "./order-changes";
 import { manualEntryMessage, moduleOfBudgetSource, type ManualEntryItem } from "@/lib/orders/amendments/manual-entry";
 import {
+  entryScopeLabel,
   entryStatusOf,
   marginDelta,
   scopeFromJson,
@@ -55,6 +57,8 @@ export type AmendmentRegisterRow = {
   amend_no: number;
   origin: string;
   types: string[];
+  /** What changes inside each other module (0630) — read with `entryScopeLabel(types, details)`. */
+  details: string[];
   remarks: string;
   outcome: string;
   status: AmendmentEntryStatus;
@@ -82,6 +86,7 @@ type RevisionRow = {
   source: string;
   amendment_type: string;
   amendment_types: string[] | null;
+  module_details: string[] | null;
   reason: string;
   baseline: unknown;
   outcome: string;
@@ -119,7 +124,7 @@ function revisionQuery(s: Awaited<ReturnType<typeof createClient>>) {
   return s
     .from("order_budget_revisions")
     .select(
-      "id, entry_no, garment_order_id, budget_id, source, amendment_type, amendment_types, reason, " +
+      "id, entry_no, garment_order_id, budget_id, source, amendment_type, amendment_types, module_details, reason, " +
         "baseline, outcome, reopened_at, reopened_by, closed_at, scope, " +
         "rejection_reason, revert_error, amended_kpis, submitted_at, " +
         "order:garment_order_amendments!garment_order_id(id, code, customer:customers(name), sales_order:sales_orders(order_number)), " +
@@ -140,6 +145,7 @@ function shapeRow(r: RevisionRow, amendNo: number): AmendmentRegisterRow {
     amend_no: amendNo,
     origin: r.source,
     types,
+    details: r.module_details ?? [],
     remarks: r.reason,
     outcome: r.outcome,
     status: entryStatusOf({ outcome: r.outcome, budgetStatus: r.budget?.status }),
@@ -303,13 +309,18 @@ export type DownstreamDoc = {
 export type AmendmentEntryDetail = {
   row: AmendmentRegisterRow;
   scope: FrozenScope;
-  /** Frozen at open (the money) — the left column of the variance matrix. */
+  /** Frozen at open (the money) — the LAST BUDGET, the version approved just before this entry. */
   baseline: BudgetBaseline | null;
   baselineKpis: BudgetKpis | null;
-  /** The budget's figures NOW — the right column. Null when it cannot be read. */
+  /** The ORIGINAL BUDGET (V0): the baseline the order's first entry froze. Same as `baselineKpis` on Rev #1. */
+  originalKpis: BudgetKpis | null;
+  /** The budget's figures NOW — the LATEST BUDGET. Null when it cannot be read. */
   currentKpis: BudgetKpis | null;
   currentRefusal: string | null;
+  /** Last → Latest, row by row. */
   variance: BaselineRow[];
+  /** V0's figure per variance row key. */
+  original: Partial<Record<BaselineRow["key"], number | Refusal>>;
   /** Order-level side-by-side: quantity and delivery from the two KPI sets. */
   changes: AmendmentChange[];
   downstream: DownstreamDoc[];
@@ -360,12 +371,34 @@ export async function getAmendmentEntry(id: string, canEdit: boolean): Promise<A
   const baseline = (r.baseline as BudgetBaseline | null) ?? null;
   const baselineKpis = kpisFromJson(baseline?.kpis);
 
+  /* THE ORIGINAL BUDGET (V0) — what the order was FIRST approved at. Every
+     entry freezes the version approved just before it (`baseline` above, the
+     "Last Budget"), so V0 is the baseline the order's FIRST entry froze. On
+     Rev #1 the two are the same record; they part from Rev #2 on, once a
+     revision has itself been approved. A superseding raise copies its
+     predecessor's baseline, so the earliest entry is V0 whichever it is. */
+  let original: BudgetBaseline | null = baseline;
+  if (amendNo > 1 && r.garment_order_id) {
+    const { data: first, error: firstErr } = await s
+      .from("order_budget_revisions")
+      .select("baseline")
+      .eq("garment_order_id", r.garment_order_id)
+      .not("baseline", "is", null)
+      .order("reopened_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (firstErr) throw new Error(`Could not read the original budget: ${firstErr.message}`);
+    original = ((first?.baseline as BudgetBaseline | null) ?? null) || baseline;
+  }
+  const originalKpis = kpisFromJson(original?.kpis);
+
   /* THE RIGHT COLUMN: the budget's figures now, from the SAME assembler the
      budget screen and submit use. A budget that cannot be read leaves the
      column saying why rather than blank. */
   let currentKpis: BudgetKpis | null = null;
   let currentRefusal: string | null = null;
   let variance: BaselineRow[] = [];
+  let originalRows: BaselineRow[] = [];
   let manualEntries: ManualEntryItem[] = [];
   if (row.budget_id) {
     try {
@@ -375,6 +408,9 @@ export async function getAmendmentEntry(id: string, canEdit: boolean): Promise<A
         const figures = await budgetFiguresOf(budget);
         currentKpis = figures.kpis;
         if (baseline) variance = compareToBaseline(baseline, figures.general);
+        /* Same comparison against V0; only its `baseline` side is read — the
+           variance the screen prints is Latest − Last. */
+        if (original) originalRows = compareToBaseline(original, figures.general);
         /* THE GAPS, ONLY WHILE THE ENTRY IS OPEN — a closed entry's budget is
            the approved (or reverted) one, and a gap there is not this
            amendment's to fill. */
@@ -407,9 +443,11 @@ export async function getAmendmentEntry(id: string, canEdit: boolean): Promise<A
     scope: scopeFromJson(r.scope),
     baseline,
     baselineKpis,
+    originalKpis,
     currentKpis,
     currentRefusal,
     variance,
+    original: Object.fromEntries(originalRows.map((x) => [x.key, x.baseline])),
     changes,
     downstream,
     manualEntries,
@@ -417,6 +455,97 @@ export async function getAmendmentEntry(id: string, canEdit: boolean): Promise<A
     timeline,
     names: { ...names, ...actorNames },
     perms: { canEdit },
+  };
+}
+
+/**
+ * THE MD'S VIEW OF A REVISION (client 2026-09-24): Original · Last · Latest by
+ * cost head, for the approval sheet directly above Approve / Reject.
+ *
+ * The same three columns `getAmendmentEntry` builds, computed from a budget the
+ * caller ALREADY HOLDS — the approval page loads every budget with its lines
+ * and revisions — so the only read of its own is V0 (and only from Rev #2 on).
+ * `getAmendmentEntry` would re-read the budget and add the downstream BOMs,
+ * manual entries, run and timeline: ~10 round trips per budget, for figures
+ * this sheet does not show. Null = no open revision: a first-time budget has
+ * nothing to compare against.
+ */
+export type RevisionComparisonData = {
+  entryNo: string | null;
+  /** The revision's own facts, for the sheet's header (spec: RE · Rev · raised by · categories · reason). */
+  raisedBy: string | null;
+  raisedAt: string | null;
+  categories: string;
+  reason: string | null;
+  /** "What changed in order details" — raise-time snapshot vs the order now. */
+  changes: OrderFieldChange[];
+  changesRefusal: string | null;
+  baselineKpis: BudgetKpis | null;
+  originalKpis: BudgetKpis | null;
+  currentKpis: BudgetKpis | null;
+  currentRefusal: string | null;
+  variance: BaselineRow[];
+  original: Partial<Record<BaselineRow["key"], number | Refusal>>;
+};
+
+export async function getRevisionComparison(
+  budget: NonNullable<Awaited<ReturnType<typeof getOrderBudget>>>,
+): Promise<RevisionComparisonData | null> {
+  type Rev = {
+    id: string; outcome?: string; baseline: unknown; entry_no?: string | null; garment_order_id?: string | null;
+    reopened_at: string; reopened_by_name?: string | null; reason?: string | null;
+    amendment_types?: string[] | null; amendment_type?: string | null; order_snapshot?: unknown;
+    module_details?: string[] | null;
+  };
+  const open = ((budget.revisions ?? []) as unknown as Rev[]).find((r) => r.outcome === "open");
+  if (!open) return null;
+  const baseline = (open.baseline as BudgetBaseline | null) ?? null;
+
+  /* V0 is the baseline the order's FIRST entry froze — same rule, and the same
+     query, as `getAmendmentEntry`. Read alongside the figures, not before. */
+  const s = await createClient();
+  const [firstRes, figuresRes, changesRes] = await Promise.all([
+    open.garment_order_id
+      ? s
+          .from("order_budget_revisions")
+          .select("baseline")
+          .eq("garment_order_id", open.garment_order_id)
+          .not("baseline", "is", null)
+          .order("reopened_at", { ascending: true })
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    budgetFiguresOf(budget).then(
+      (f) => ({ ok: true as const, f }),
+      (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "The budget's figures could not be worked out" }),
+    ),
+    open.garment_order_id
+      ? orderChangesSince(open.order_snapshot, open.garment_order_id).then(
+          (c) => ({ ok: true as const, c }),
+          (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "The order could not be compared" }),
+        )
+      : Promise.resolve({ ok: true as const, c: [] as OrderFieldChange[] }),
+  ]);
+  if (firstRes.error) throw new Error(`Could not read the original budget: ${firstRes.error.message}`);
+  const original = ((firstRes.data?.baseline as BudgetBaseline | null) ?? null) || baseline;
+
+  const figures = figuresRes.ok ? figuresRes.f : null;
+  const originalRows = figures && original ? compareToBaseline(original, figures.general) : [];
+  const types = open.amendment_types?.length ? open.amendment_types : open.amendment_type ? [open.amendment_type] : [];
+  return {
+    entryNo: open.entry_no ?? null,
+    raisedBy: open.reopened_by_name ?? null,
+    raisedAt: open.reopened_at ?? null,
+    categories: types.length ? entryScopeLabel(types, open.module_details ?? []) : "",
+    reason: open.reason?.trim() || null,
+    changes: changesRes.ok ? changesRes.c : [],
+    changesRefusal: changesRes.ok ? null : changesRes.error,
+    baselineKpis: kpisFromJson(baseline?.kpis),
+    originalKpis: kpisFromJson(original?.kpis),
+    currentKpis: figures?.kpis ?? null,
+    currentRefusal: figuresRes.ok ? null : figuresRes.error,
+    variance: figures && baseline ? compareToBaseline(baseline, figures.general) : [],
+    original: Object.fromEntries(originalRows.map((x) => [x.key, x.baseline])),
   };
 }
 

@@ -95,6 +95,7 @@ import {
   type AmendmentEntryStatus,
   type MarginDelta,
 } from "@/lib/orders/amendments/amendment-entry";
+import { revisionLandingOf } from "@/components/orders/amendment-tabs";
 import { abandonOrderAmendment } from "@/lib/orders/order-amendments/actions";
 import type { AmendableOrder, AmendmentRegisterRow } from "@/lib/orders/order-amendments/service";
 
@@ -114,7 +115,7 @@ type OrderHead = {
 /** One flat array for `DataTable`: an order line, then its entries. */
 type RegisterLine =
   | { kind: "order"; id: string; head: OrderHead; count: number }
-  | ({ kind: "entry" } & AmendmentRegisterRow);
+  | ({ kind: "entry"; sno: number } & AmendmentRegisterRow);
 
 /**
  * THE REGISTER'S FILTERS PANEL — the grouped drawer every Orders child draws
@@ -233,6 +234,17 @@ const QUICK_WORD: Record<AmendmentEntryStatus, QuickWord | null> = {
 };
 const entryWord = (r: AmendmentRegisterRow): QuickWord | null => QUICK_WORD[r.status] ?? null;
 
+/**
+ * WHERE OPENING AN ENTRY LANDS (client 2026-09-24) — its category's tab while
+ * the merchandiser still has work in it (Draft, or Returned by the MD); the
+ * Overview once it is with the MD or closed, since nothing on a tab can be
+ * changed then and the Overview is where its state and figures are.
+ */
+const openHref = (r: AmendmentRegisterRow): string =>
+  r.status === "draft" || r.status === "returned"
+    ? revisionLandingOf(r.id, r.types)
+    : `/orders/order-amendments/${r.id}`;
+
 /** One labelled fact on an order line: "Delivery 31/12/2026". */
 function HeadFact({ label, value }: { label: string; value: string }) {
   return (
@@ -295,7 +307,7 @@ export function AmendmentRegisterScreen({
     return rows.filter((r) => {
       if (!facetMatch(r)) return false;
       if (!q) return true;
-      return [r.entry_no, r.re_no, r.order_code, r.customer_name, r.remarks, entryScopeLabel(r.types)]
+      return [r.entry_no, r.re_no, r.order_code, r.customer_name, r.remarks, entryScopeLabel(r.types, r.details)]
         .filter((v): v is string => !!v)
         .some((v) => v.toLowerCase().includes(q));
     });
@@ -383,9 +395,12 @@ export function AmendmentRegisterScreen({
       (a.entries[0]?.created_at ?? "").localeCompare(b.entries[0]?.created_at ?? ""),
     );
     const out: RegisterLine[] = [];
+    /* S.No counts the ENTRY lines 1, 2, 3 down the page — the order heads
+       between them are not rows of the register and take no number. */
+    let sno = 0;
     for (const g of sorted) {
       out.push({ kind: "order", id: `order:${g.head.key}`, head: g.head, count: g.entries.length });
-      for (const r of [...g.entries].sort((a, b) => a.amend_no - b.amend_no)) out.push({ kind: "entry", ...r });
+      for (const r of [...g.entries].sort((a, b) => a.amend_no - b.amend_no)) out.push({ kind: "entry", sno: ++sno, ...r });
     }
     return out;
   }, [filtered, orders]);
@@ -419,7 +434,7 @@ export function AmendmentRegisterScreen({
      left to take the remaining width, through `Truncated`. */
   const entryCol = (
     header: string,
-    cell: (r: AmendmentRegisterRow) => ReactNode,
+    cell: (r: AmendmentRegisterRow & { sno: number }) => ReactNode,
     extra?: Pick<Column<RegisterLine>, "align" | "className">,
   ): Column<RegisterLine> => ({
     header,
@@ -428,23 +443,28 @@ export function AmendmentRegisterScreen({
   });
 
   const columns: Column<RegisterLine>[] = [
+    /* S.NO, NOT THE ENTRY NO (client 2026-09-24: "hide raw entry IDs, keep
+       only a clean S.No"). REV/26-27/000n is still searched (the filter reads
+       `entry_no`) and still names the entry on its own page, in the Abandon
+       prompt and on the row menu — it is only no longer a column. The link to
+       the entry moved onto Revision, the column that now identifies the row. */
+    entryCol("S.No", (r) => <span className="tabular-nums">{r.sno}</span>, {
+      align: "right",
+      className: "w-[4rem] whitespace-nowrap",
+    }),
     entryCol(
-      "Entry No",
+      "Revision",
       (r) => (
         <button
           type="button"
-          className="font-mono text-xs font-medium text-primary hover:underline"
-          onClick={() => router.push(`/orders/order-amendments/${r.id}`)}
+          className="tabular-nums font-medium text-primary hover:underline"
+          onClick={() => router.push(openHref(r))}
         >
-          {r.entry_no ?? `Rev ${r.amend_no}`}
+          Rev #{r.amend_no}
         </button>
       ),
-      { className: "w-[9.5rem] whitespace-nowrap" },
+      { className: "w-[6rem] whitespace-nowrap" },
     ),
-    entryCol("Revision", (r) => <span className="tabular-nums">Rev #{r.amend_no}</span>, {
-      align: "right",
-      className: "w-[6rem] whitespace-nowrap",
-    }),
     entryCol("Origin", (r) => originLabel(r.origin), { className: "w-[7.5rem] whitespace-nowrap" }),
     /* ONE CHIP PER MODULE (user 2026-09-24, screenshot 3049: the whole
        "Order Entry (Combo / Color Change, Quantity Addition) + Material BOM +
@@ -458,7 +478,7 @@ export function AmendmentRegisterScreen({
     entryCol(
       "Change Type",
       (r) => {
-        const kinds = entryScopeLabel(r.types);
+        const kinds = entryScopeLabel(r.types, r.details);
         const mods = modulesOf(r.types);
         if (mods.length === 0) return <span className="text-xs">{kinds}</span>;
         return (
@@ -499,7 +519,7 @@ export function AmendmentRegisterScreen({
       return (
         <RowActions
           label={r.entry_no ?? r.re_no}
-          onView={() => router.push(`/orders/order-amendments/${r.id}`)}
+          onView={() => router.push(openHref(r))}
           isPending={isPending}
           menu={[
             ...(r.garment_order_id

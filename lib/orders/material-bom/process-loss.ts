@@ -319,9 +319,19 @@ export function isWholeUnitUom(code: string | null | undefined): boolean {
  * site, where it is visible." Changing the clamp would silently re-round Fabric
  * BOM, Fabric Plan and CAD weights, none of which asked for this.
  *
- * UP, NEVER TO-NEAREST. Shipping short is the failure a material buffer exists
- * to prevent and the cost the other way is at most one unit — `ceilToPrecision`
- * makes the same argument at length.
+ * ## A COUNTABLE UNIT ROUNDS HALF-UP (client 2026-09-24) — NOT UP
+ *
+ * This was "UP, NEVER TO-NEAREST" from 2026-08-29 (30.1 Gross -> 31), on the
+ * argument that shipping short is what a material buffer exists to prevent.
+ * The client has since set the rule by worked example: "5321.50 -> 5322,
+ * 5321.75 -> 5322, 5321.49 -> 5321, 5321.10 -> 5321". The later instruction
+ * wins. The buffer argument is not lost, it moved: the process loss % already
+ * inflated this figure, and a line that must never ship short says so in its
+ * loss, not in its rounding.
+ *
+ * ONLY THE COUNTABLE BRANCH. A measured unit (metres, kilograms) still ceils
+ * to its own precision — blanket whole-number rounding is the thing that was
+ * rejected once already, and the new rule is about discrete items.
  */
 export function roundRequirement(
   value: number,
@@ -338,12 +348,13 @@ export function roundRequirement(
      * is precisely what those vectors are for — the call reads correct, compiles,
      * and silently does nothing.
      *
-     * So the ceil is written out, with the `toFixed(6)` that helper carries and
-     * for the same stated reason: `150.0000000000001` must ceil to 150, not 151.
-     * Without it every clean figure that reached a whole number through a
-     * multiplication would gain a unit.
+     * So the rounding is written out, with the `toFixed(6)` that helper carries,
+     * and it matters just as much for half-up: 5321.5 reached through a
+     * multiplication can arrive as 5321.499999999999, and a bare Math.round
+     * would take that DOWN to 5321 — the one case the client's example names.
+     * (Math.round is half-up for the positive quantities that reach here.)
      */
-    return Math.ceil(Number(value.toFixed(6)));
+    return Math.round(Number(value.toFixed(6)));
   }
   return ceilToPrecision(value, uomPrecision(decimals));
 }

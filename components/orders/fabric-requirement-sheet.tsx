@@ -1,4 +1,5 @@
 import { DocumentPrintStyles } from "./document-print-styles";
+import { CadPendingBadge } from "@/components/orders/cad/cad-pending-badge";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import {
   fabricConsumptionLabel,
@@ -36,7 +37,14 @@ import type { FabricRequirementSheetData } from "@/lib/orders/fabric-requirement
  * exports is a client island beside it — this is the document, and a document
  * that re-renders is a document that can differ from the one that was signed.
  */
-export function FabricRequirementSheetDocument({ data }: { data: FabricRequirementSheetData }) {
+export function FabricRequirementSheetDocument({
+  data,
+  cadPending = false,
+}: {
+  data: FabricRequirementSheetData;
+  /** The order's CAD is not yet approved (0628) — stamp the sheet. Read live by the page. */
+  cadPending?: boolean;
+}) {
   const rows = fabricRequirementSheetRows(data.rows, data.names);
   const yarns = yarnSheetRows(data.yarns, data.names);
   const summary = fabricRequirementSummary(rows);
@@ -68,6 +76,12 @@ export function FabricRequirementSheetDocument({ data }: { data: FabricRequireme
             </div>
           </div>
         </div>
+        {/* CAD PENDING (0628) — a bordered badge, not a watermark (cad-lifecycle/stamp.ts). */}
+        {cadPending && (
+          <div className="border-b border-border px-5 py-2">
+            <CadPendingBadge />
+          </div>
+        )}
 
         <dl className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] border-b border-border">
           <Fact label="Customer" value={data.order.customer} />

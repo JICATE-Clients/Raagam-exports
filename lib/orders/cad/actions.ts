@@ -16,6 +16,7 @@ import {
 } from "./weights";
 import { kilogramUom } from "@/lib/uom/kilogram";
 import { assertOrderWritable } from "@/lib/orders/budget/lock";
+import { cadFabricBomProblem } from "@/lib/orders/cad-lifecycle/guard";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -486,6 +487,13 @@ export async function seedFabricBomFromCad(garmentOrderId: string): Promise<CadS
   // The CAD handoff writes the FABRIC BOM, so that is the area it names (0616).
   const lock = await assertOrderWritable(garmentOrderId, "fabric_bom");
   if (!lock.ok) return { ok: false, error: lock.error };
+
+  /* THE CAD GATE (doc/order/cad.md §7, 0628): "refuse the creation OR SEEDING
+     of a Fabric BOM" while any style's CAD is unapproved. The sheet being
+     submitted (planSeed's own rule) is the marker; the lifecycle approval is
+     the buyer's — the seed now needs both. */
+  const cadBlock = await cadFabricBomProblem(garmentOrderId);
+  if (cadBlock) return { ok: false, error: cadBlock.replace("a Fabric BOM cannot be created yet", "the Fabric BOM cannot be seeded from it yet") };
 
   const plan = await planSeed(garmentOrderId);
   if ("error" in plan) return { ok: false, error: plan.error };

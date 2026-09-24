@@ -166,6 +166,12 @@ export interface Customer {
   color_spec_applicable: boolean;
   tcs_applicable: boolean;
   gst_no: string | null;
+  /**
+   * CAD Review Days (0628, doc/order/cad.md §3.3): how long this buyer takes to
+   * review a CAD pattern. A CAD dispatch's Expected Approval Date = Dispatch
+   * Date + this. NULL = not set — the dispatch then carries no expected date.
+   */
+  cad_review_days: number | null;
   is_draft: boolean;
   /**
    * Published by Applicant ▸ Also Customer (0371). Non-null means this row is
@@ -276,6 +282,15 @@ export const customerInput = z.object({
   // here: rows saved before this validation existed must stay editable, and a
   // GSTIN copied off an invoice has to be savable while the customer is chased.
   gst_no: nullableKind("gstin"),
+  // CAD Review Days (0628) — the column's CHECK is 0..365; said here too,
+  // because `lib/data-io` would write straight past an action-only rule.
+  cad_review_days: z
+    .number()
+    .int("CAD Review Days must be a whole number")
+    .min(0, "CAD Review Days cannot be negative")
+    .max(365, "CAD Review Days cannot be more than 365")
+    .nullable()
+    .default(null),
   is_draft: z.boolean().default(false),
   // children
   contacts: z.array(customerContactInput).default([]),

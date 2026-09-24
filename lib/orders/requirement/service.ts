@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import type { SheetNames, StoredRequirement } from "./sheet";
 import { companyAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import { currentMaterialBom } from "@/lib/orders/material-bom-amendment/requirement-report";
+import { loadMaterialBomDocHeader, type BomDocHeader } from "@/lib/orders/fabric-bom/reports";
+import type { ReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 
 /**
  * Reading one order's Accessories Requirement.
@@ -50,6 +52,15 @@ export type RequirementSheetData = {
     gstin: string | null;
     email: string | null;
   };
+  /**
+   * THE RP PRINTOUT'S HEADER BAND (client 2026-09-24, "Accessories
+   * Requirement.pdf") — Customer, Delivery window, and RE No / Order No /
+   * Style Ref No / Style / Unit over Order · Excess · Approval · Rej.Allow ·
+   * Cut. The SAME header the Yarn & Fabric Requirement prints, read by the
+   * same loader (`loadMaterialBomDocHeader`), so the two documents agree on
+   * every figure in it. A refusal (no Approval Qty yet) prints its sentence.
+   */
+  header: BomDocHeader | ReportRefusal;
   rows: StoredRequirement[];
   names: SheetNames;
 };
@@ -105,11 +116,11 @@ export async function getRequirementSheet(
     };
   }
 
-  const [reqRes, orderRes, scRes, coRes] = await Promise.all([
+  const [reqRes, orderRes, scRes, coRes, header, lineRes] = await Promise.all([
     s
       .from("material_bom_amendment_requirements")
       .select(
-        "item_id, sno, slice_label, size_id, item_color_id, no_of_items, per_pieces, " +
+        "item_id, item_line_id, sno, slice_label, size_id, item_color_id, no_of_items, per_pieces, " +
           "required_qty, refusal_reason, consumption_uom_id",
       )
       .eq("amendment_id", bom.id)
@@ -123,6 +134,10 @@ export async function getRequirementSheet(
       : Promise.resolve({ data: null, error: null }),
     s.from("sales_orders").select("order_number").eq("id", salesOrderId).maybeSingle(),
     s.from("company_profile").select("*").limit(1).maybeSingle(),
+    loadMaterialBomDocHeader(bom.id),
+    /* THE BOM LINE EACH ROW CAME FROM, for the printout's Specification
+       column — legacy's "Type:Local" is the line's supply type. */
+    s.from("material_bom_amendment_items").select("id, supply_type, specification").eq("amendment_id", bom.id),
   ]);
 
   if (reqRes.error) {
@@ -160,7 +175,12 @@ export async function getRequirementSheet(
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  const names: SheetNames = { items: {}, uoms: {}, sizes: {}, colours: {} };
+  // A failed read is an error, not a sheet whose every Specification is blank.
+  if (lineRes.error) return { refused: `Could not read the Material BOM lines: ${lineRes.error.message}` };
+  const names: SheetNames = { items: {}, uoms: {}, sizes: {}, colours: {}, lines: {} };
+  for (const l of (lineRes.data ?? []) as { id: string; supply_type: string | null; specification: string | null }[]) {
+    names.lines![l.id] = { supplyType: l.supply_type, specification: l.specification };
+  }
   for (const r of (itemRes.data ?? []) as unknown as {
     id: string;
     name: string;
@@ -216,6 +236,7 @@ export async function getRequirementSheet(
       gstin: str("gstin"),
       email: str("email"),
     },
+    header,
     rows,
     names,
   };

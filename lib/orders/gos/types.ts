@@ -234,6 +234,17 @@ export type GosStyle = {
   coordinateWarning: string | null;
   /** `garment_styles.approved_sample_id` resolved to `samples.code`. */
   approvedSampleNo: string | null;
+  /**
+   * THE STYLE'S CAD STATUS (doc/order/cad.md §6.2, 0628): "Approved (V2)" when
+   * its latest CAD version is approved, else "Pending" (printed red).
+   *
+   * OPTIONAL AND OVERLAID, never built into the sheet: CAD is not an amended
+   * fact, so it is read LIVE at the page (`withCadStatus`) and laid over both
+   * a fresh sheet and a frozen V_final one — a frozen copy would otherwise
+   * keep saying "Pending" after the buyer approved. Absent / null = the status
+   * could not be read, which prints as the dash, never as a guessed word.
+   */
+  cad?: { text: string; pending: boolean } | null;
   poQty: number;
   /** The colourways, in the order the Combos tab lists them. */
   colourways: string[];

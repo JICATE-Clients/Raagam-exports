@@ -84,6 +84,7 @@ import {
 } from "@/lib/orders/material-bom/requirement";
 import { kilogramUom } from "@/lib/uom/kilogram";
 import { assertOrderRecalculable, assertOrderWritable } from "@/lib/orders/budget/lock";
+import { cadFabricBomProblem } from "@/lib/orders/cad-lifecycle/guard";
 import type { RecalcResult } from "@/lib/orders/bom-recalc-types";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
@@ -102,9 +103,10 @@ function fail(msg: string): Result {
  *
  * THE AREA IS NAMED (0604 · 0616): under an open Amendment Entry the order is
  * `amending` and this document is writable only if the entry's categories open
- * the Fabric BOM. `writePalette` writes the ORDER's colour tables, which a BOM
- * Revision does not open — it is diff-based, so an unchanged palette writes
- * nothing, and a changed one is refused by the trigger with the entry named.
+ * the Fabric BOM. `writePalette` writes the ORDER's colour tables, and since
+ * 0627 a revision that picked the Fabric BOM opens exactly those two (the
+ * palette overlay) — so the Colour/Print tab re-saves freely inside one. It is
+ * diff-based, so an unchanged palette writes nothing.
  */
 async function orderLockProblem(
   ...orderIds: (string | null | undefined)[]
@@ -2431,6 +2433,13 @@ export async function createFabricBom(data: FabricBomFormInput): Promise<Result>
 
   const locked = await orderLockProblem(p.data.garment_order_id);
   if (locked) return fail(locked);
+
+  /* THE CAD GATE (doc/order/cad.md §7, 0628): no Fabric BOM is CREATED until
+     every style's CAD is approved. The table's trigger refuses it regardless;
+     asked here first so the refusal is the sentence, not a raw error. Only
+     creation — a BOM that already exists keeps saving (updateFabricBom). */
+  const cadBlock = await cadFabricBomProblem(p.data.garment_order_id);
+  if (cadBlock) return fail(cadBlock);
 
   const s = await createClient();
 

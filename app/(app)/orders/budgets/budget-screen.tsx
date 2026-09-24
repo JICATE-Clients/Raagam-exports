@@ -30,6 +30,7 @@
  * beside it for the same reason.
  */
 
+import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -49,7 +50,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Toggle } from "@/components/ui/toggle";
 import { Tabs } from "@/components/ui/tabs";
 import {
   Field,
@@ -1675,63 +1675,15 @@ export function BudgetScreen({
     ),
   });
 
-  /* FOC AND IMPORT ARE THE MERCHANDISER'S, ON EVERY LINE (user 2026-09-19:
-     "now it don't allow to enable, make it enable"). A pulled accessory line
-     STARTS from the Material BOM line's own FOC / supply type (0474), but it is
-     a sourcing call the budget may change — so they are never locked with the
-     BOM's facts, and a refresh keeps what was set (`operatorFacts`,
-     pull-merge.ts). */
-  /* OFF THE TYPING PATH WHILE UNTICKED (client rule, 2026-09-21: "imports …
-     and non-essential controls are pushed to the end of the tab sequence so
-     merchandisers can enter rates without extra keypresses"). The house
-     mechanism is `data-focus-optional` (lib/focus.ts): Tab and Enter step
-     over the switch, ↑↓←→ and the mouse still reach it — never `tabIndex=-1`,
-     which would make it mouse-only. Marked only while OFF, the same shape as
-     Material ▸ Fabric ▸ Direct Purchase: once ticked the switch is back on
-     the path, so undoing it costs no arrow key. */
-  const flagToggle = (r: CostRow, key: "is_foc" | "is_import", aria: string, className?: string) => (
-    <span data-focus-optional={r[key] ? undefined : ""}>
-      <Toggle
-        checked={r[key]}
-        ariaLabel={aria}
-        disabled={rateLock(r)}
-        onChange={(v) =>
-          /* IMPORT OFF IS INR (client 2026-09-23). The currency columns hide
-             with the switch (`importOnly`), so a foreign currency left behind
-             would price the line in dollars with nothing on screen saying so —
-             switching Import off takes the line back to rupees. */
-          setCost(
-            r.key,
-            key !== "is_import"
-              ? { [key]: v }
-              : !v
-                ? { is_import: false, currency_code: "", ex_rate: "" }
-                : /* IMPORT ON STARTS IN THE ORDER'S CURRENCY (client 2026-09-24,
-                     shot 3041: switched on, the line still read INR with a blank
-                     Ex Rate). An imported line is quoted in foreign money, and
-                     the order's own currency and rate (the header's Currency /
-                     Conv) are the ones it is most likely quoted in — the same
-                     prefill `pickCurrency` gives. A currency already on the
-                     line is kept; an INR order has nothing to prefill. */
-                  !r.currency_code && orderCurrency && orderCurrency !== "INR"
-                  ? {
-                      is_import: true,
-                      currency_code: orderCurrency,
-                      ex_rate: orderRate != null ? String(orderRate) : "",
-                    }
-                  : { is_import: true },
-          )
-        }
-        className={className}
-      />
-    </span>
-  );
-  const toggleCol = (header: string, key: "is_foc" | "is_import", aria: string): CostCol => ({
-    header,
-    cell: (r) => flagToggle(r, key, aria),
-  });
-  const focCol = toggleCol("FOC", "is_foc", "Free of cost");
-  const importCol = toggleCol("Import", "is_import", "Imported");
+  /* FOC AND IMPORT ARE HIDDEN ON EVERY BUDGET TAB (user 2026-09-24: "in budget
+     child all tab included foc import field hide it"). The switches are gone
+     from every cost grid; the columns `is_foc` / `is_import` stay on the line
+     and are still saved as they stand, so a line pulled with FOC from its
+     Material BOM (0474) is still FOC. Curr · Ex Rate · INR Rate below still
+     show on a line that already HOLDS a foreign currency (`importOnly`) —
+     hiding a currency that prices the line would be a silent dollar figure.
+     The switch, its INR reset and its order-currency prefill (`flagToggle`)
+     are in git history (before 2026-09-24) if the columns come back. */
 
   /**
    * CURR · EX RATE · INR RATE ONLY ON AN IMPORT LINE (client 2026-09-23: "after
@@ -1743,50 +1695,19 @@ export function BudgetScreen({
    * HOLDS a foreign currency keeps them regardless: hiding a currency that is
    * pricing the line would be the silent state the Import-off reset prevents.
    * All three purchase grids carry it (Fabric Purchases since 2026-09-24); the
-   * process tabs stack the same cells inside Import (`importStackCol`).
+   * Garment Processes and CMTs stacked them inside Import until 2026-09-24.
+   *
+   * THE THREE STAND TO THE RIGHT OF THE SWITCH (user 2026-09-24: "if I click
+   * the import the field should enable in right side … after the import
+   * button"). They are what the switch opens, so they open beside it — the
+   * row ends Amount · FOC · Import · Curr · Ex Rate · INR Rate on every grid
+   * that draws them as columns, and Tab runs straight from the switch into
+   * Curr. Widths are unchanged, so every grid's sum is too.
    */
   const importOnly = (c: CostCol): CostCol => ({
     ...c,
     showFor: (r) => (r.is_import || !!r.currency_code) && (!c.showFor || c.showFor(r)),
   });
-
-  /**
-   * THE SAME RULE WHERE THERE IS NO ROOM FOR THREE MORE COLUMNS — Process Rates
-   * and CMTs (client 2026-09-23: "not only here, CMT and process rate tab
-   * too"). Those grids stand beside the Process Rates rail or at 43px of
-   * headroom, so Curr · Ex Rate · INR Rate open INSIDE the Import cell, under
-   * its switch, on an imported line only — one `num` column instead of four.
-   * Same cells, same rules (`currencyCol` / `exRateCol` / `inrRateCol`), just
-   * stacked; a line holding a foreign currency shows them whatever the switch.
-   *
-   * 2026-09-24 (client, shot 3041): Yarn / Accessories / Fabric Processes
-   * have the width and now draw real columns (`importOnly`). This stack is
-   * left to Garment Processes and CMTs, which have none to give — tidied:
-   * the three sit under a rule below the switch with small sentence-case
-   * captions, and INR Rate reads "—" until it can be computed instead of a
-   * caption with nothing under it.
-   */
-  const stackLabel = "text-[10px] font-medium leading-tight text-muted-foreground";
-  const importStackCol: CostCol = {
-    header: "Import",
-    cell: (r, i) => (
-      <div className="space-y-1">
-        {flagToggle(r, "is_import", "Imported")}
-        {(r.is_import || !!r.currency_code) && (
-          <div className="space-y-0.5 border-t border-border pt-1">
-            <div className={stackLabel}>Curr</div>
-            {currencyCol.cell(r, i)}
-            <div className={stackLabel}>Ex Rate{exRateRequired(r) ? " *" : ""}</div>
-            {exRateCol.cell(r, i)}
-            <div className={stackLabel}>INR Rate</div>
-            <div className="text-right">
-              {inrRateCol.cell(r, i) ?? <span className="text-sm text-muted-foreground">—</span>}
-            </div>
-          </div>
-        )}
-      </div>
-    ),
-  };
 
   /**
    * THE CURRENCY'S BLANK IS INR, AND SAYS SO. `currency_code` NULL is INR by
@@ -2110,11 +2031,6 @@ export function BudgetScreen({
     ),
   };
 
-  const garmentTypeCol: CostCol = {
-    header: "Type",
-    cell: (r) => <Truncated className="text-sm">{BASIS_LABELS[r.basis ?? "process"]}</Truncated>,
-  };
-
   /**
    * STAGE and COLOUR of a yarn purchase, READ-ONLY and in one 88px cell (user
    * 2026-09-19, screenshot 2952: "Stage, color field is missing in yarn
@@ -2316,15 +2232,13 @@ export function BudgetScreen({
     { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    // FOC and Import in their OWN columns (user 2026-09-19: "foc and imports
+    // toggle in separate field and cell"), at the END of the row (2026-09-22).
     // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-23).
     { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.hug },
-    { ...amountCol, width: FIELD_WIDTH_CSS.range },
-    // FOC and Import in their OWN columns (user 2026-09-19: "foc and imports
-    // toggle in separate field and cell"), at the END of the row (2026-09-22).
-    { ...focCol, width: FIELD_WIDTH_CSS.num },
-    { ...importCol, width: FIELD_WIDTH_CSS.num },
   ]));
 
   /* Fabric Purchases — 176 + 200 + 88 + 72 + 72 + 72 + 88 + 88 + 112 = 968,
@@ -2359,12 +2273,11 @@ export function BudgetScreen({
     { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
     // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-24).
     { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.hug },
-    { ...amountCol, width: FIELD_WIDTH_CSS.range },
-    { ...importCol, width: FIELD_WIDTH_CSS.num },
   ]));
 
   /* Accessories Purchases — 144 + 112 + 72 + 88 + 88 + 72 + 88 + 72 + 88
@@ -2389,15 +2302,13 @@ export function BudgetScreen({
     { ...identityCol("Item"), width: FIELD_WIDTH_CSS.name },
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    // FOC and Import in their own columns, as on Yarn Purchases (user
+    // 2026-09-19), at the row's end (2026-09-22).
     // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-23).
     { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.hug },
-    { ...amountCol, width: FIELD_WIDTH_CSS.range },
-    // FOC and Import in their own columns, as on Yarn Purchases (user
-    // 2026-09-19), at the row's end (2026-09-22).
-    { ...focCol, width: FIELD_WIDTH_CSS.num },
-    { ...importCol, width: FIELD_WIDTH_CSS.num },
   ]));
 
   /* Yarn Processes — 112 + 112 + 88 + 72 + 88 + 72 + 88 + 72 + 88 + 88 + 88
@@ -2424,12 +2335,10 @@ export function BudgetScreen({
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.num },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
     { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.num },
-    { ...amountCol, width: FIELD_WIDTH_CSS.range },
-    { ...focCol, width: FIELD_WIDTH_CSS.num },
-    { ...importCol, width: FIELD_WIDTH_CSS.num },
   ]));
 
   /* Accessories Processes — the same steps as Yarn Processes: 1024, + 72 =
@@ -2444,12 +2353,10 @@ export function BudgetScreen({
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
     { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.num },
-    { ...amountCol, width: FIELD_WIDTH_CSS.range },
-    { ...focCol, width: FIELD_WIDTH_CSS.num },
-    { ...importCol, width: FIELD_WIDTH_CSS.num },
   ]));
 
   /* Garment Processes — 112 + 112 + 112 + 72 + 88 + 88 + 88 + 72 + 88 + 88
@@ -2465,29 +2372,48 @@ export function BudgetScreen({
      2026-09-22: Reqd + UOM -> one `range` cell (`derivedReqdUnitCol`), FOC
      last: 112 + 112 + 112 + 88 + 88 + 112 + 88 + 88 + 112 + 72 = 984, + 72
      = 1056. */
+  /* 2026-09-24 (user, "Confirmed Field Removals"): Type, For and Rate Type
+     are GONE from this grid, with FOC and Import. A garment step is charged
+     Reqd × Charge in rupees — every stored line was already `per_unit`, and
+     a new one is `per_unit` by `blankRow`, so nothing now prices it Flat.
+     "For" held the line's "PROCESS · STYLE · COMPONENT" label — the only
+     place a line said WHICH STYLE it is for — so the style moves into a
+     Style Ref No column of its own, first, the way CMTs name their lines
+     (multi-style isolation). A hand-added line has no style, so its first
+     cell is its typed description, as on CMTs.
+     112 + 112 + 88 + 72 + 88 + 88 + 88 = 648, + 72 = 720. */
   const garmentProcessColumns: CostCol[] = withRowRules([
+    {
+      header: "Style Ref No",
+      width: FIELD_WIDTH_CSS.range,
+      labelFor: (r) => (r.style_ref_no ? "Style Ref No" : "Description"),
+      cell: (r) =>
+        r.style_ref_no ? (
+          <div className="min-w-0 leading-tight">
+            <Truncated className="text-sm">{r.style_ref_no}</Truncated>
+            {/* A component step names its part beneath — the description's
+                third segment ("PROCESS · STYLE · COMPONENT", the service). */}
+            {r.basis === "part" && (
+              <Truncated className="text-xs text-muted-foreground">
+                {r.description.split(" · ")[2] ?? ""}
+              </Truncated>
+            )}
+          </div>
+        ) : (
+          <Input
+            className="h-8"
+            readOnly={!editable}
+            value={r.description}
+            onChange={(e) => setCost(r.key, { description: e.target.value })}
+          />
+        ),
+    },
     { ...processCol((p) => p.for_garments || p.for_components), width: FIELD_WIDTH_CSS.range },
-    /* 2026-09-24 (user: "Type, Reqd, Amount compact tight"): range -> hug,
-       all three (-72). Type's widest value is "Processwise" (~70px of the
-       72 a `hug` cell leaves inside its padding; `Truncated` reveals it on a
-       wider theme font); Reqd is "50,000 PCS" at the top end; Amount prints
-       no forced decimals, so "12,50,000" is nine characters.
-       1040 - 72 = 968, + 72 = 1040 beside the rail. */
-    { ...garmentTypeCol, width: FIELD_WIDTH_CSS.hug },
-    { ...descCol("For"), width: FIELD_WIDTH_CSS.range },
     { ...countCol("No of Pcs", "no_of_pcs"), width: FIELD_WIDTH_CSS.hug },
-    // 2026-09-23: hug -> num (-16) to pay for Import beside the rail — a
-    // multiplier is a digit or two ("1", "2").
     { ...countCol("No of Units", "no_of_units"), width: FIELD_WIDTH_CSS.num },
     { ...derivedReqdUnitCol, width: FIELD_WIDTH_CSS.hug },
-    { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charge"), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.hug },
-    { ...focCol, width: FIELD_WIDTH_CSS.num },
-    /* 2026-09-23 (client): Import on Garment Processes too — rupees unless
-       imported (`rupeesOnly`), so the rate header no longer says "(INR)".
-       984 - 16 + 72 = 1040, + 72 = 1112 <= 1120 beside the rail. */
-    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
 
   /** One Fabric Processes group's lines — the first cell names the grain the
@@ -2513,12 +2439,10 @@ export function BudgetScreen({
       // 2026-09-24: Curr · Ex Rate · INR Rate as columns, only while a line
       // in this group is imported. 824 + 216 = 1040, clearing the fold
       // panel's ~1,070.
+      { ...amountCol, width: FIELD_WIDTH_CSS.range },
       { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
       { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
       { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.num },
-      { ...amountCol, width: FIELD_WIDTH_CSS.range },
-      { ...focCol, width: FIELD_WIDTH_CSS.num },
-      { ...importCol, width: FIELD_WIDTH_CSS.num },
     ]));
 
   // ---- CMTs -----------------------------------------------------------------
@@ -2683,7 +2607,6 @@ export function BudgetScreen({
     /* 2026-09-23 (client): Import on CMTs — rupees unless imported
        (`rupeesOnly`). Coordinate and Style / Article give 32 each:
        1040 - 64 + 72 = 1048, + 72 = 1120 <= the 1120 panel beside the rail. */
-    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
   ]);
 
   /**
@@ -3859,13 +3782,13 @@ export function BudgetScreen({
             </FieldRow>
           </div>
 
-          {!editable && (
+          {/* An APPROVED budget says so in the lock banner above every section
+              (`locked`, below); this note is left to the other read-only states. */}
+          {!editable && status !== "approved" && (
             <p className="mt-3 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
               {status === "submitted"
                 ? "This budget is with the approver. It cannot be changed until it comes back."
-                : perms.canApprove
-                  ? "An approved budget cannot be changed. Reopen it (Amendment) to revise it — its orders stay locked until then."
-                  : "An approved budget cannot be changed. An approver can reopen it (Amendment) to revise it."}
+                : "This budget cannot be changed."}
             </p>
           )}
 
@@ -4341,6 +4264,28 @@ export function BudgetScreen({
             </Button>
           ) : undefined,
         }}
+        /* NO SAVE THAT CANNOT SAVE (user 2026-09-24). A budget that is not
+           draft / rejected used to keep a dimmed "Save budget" whose click ran
+           `revealFirstProblem` — which returns silently on a valid budget, so
+           on an approved one the button did nothing at all. Now:
+            - APPROVED: `locked` — the banner on every section and the one-Close
+              footer, with "+ Raise Revision" to the register when the budget
+              is for ONE order (a multi-order budget has no single order to
+              pick, so it says the words without the link);
+            - any other read-only state (with the approver): `viewOnly`.
+           The approver's Reopen stays in the header — it is not a field. */
+        locked={
+          editId && status === "approved"
+            ? {
+                message: "This budget is approved — it and its orders are read-only. To change them, raise a revision.",
+                action:
+                  pickedOrders.length === 1 && pickedOrders[0].garment_order_id ? (
+                    <RaiseRevisionLink orderId={pickedOrders[0].garment_order_id} />
+                  ) : undefined,
+              }
+            : false
+        }
+        viewOnly={!editable && status !== "approved"}
         sections={sections}
         summary={<BudgetSummaryBar totals={totals} sales={sales} unrated={unratedStatus} />}
         footer={{

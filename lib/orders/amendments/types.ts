@@ -816,6 +816,14 @@ export interface AmendmentStyle {
    */
   unit_kind: string | null;
   /**
+   * LAYOUT TYPE — 'open_width' | 'tubular' | null (0628, doc/order/cad.md §7;
+   * user 2026-09-24). The style's fabric layout: a CAD whose marker layout
+   * disagrees cannot be approved (`cad_decide`). Per STYLE — 0527/0533's
+   * per-COMPONENT one was removed on 2026-09-05 and is not this. NULL is "not
+   * declared", which the CAD check reads as "nothing to compare against".
+   */
+  layout_type: string | null;
+  /**
    * PIECES. Always pieces, on a set pack too — see `packs_ordered`.
    */
   po_qty: number;
@@ -1832,6 +1840,13 @@ export const amendmentStyleInput = z.object({
      straight to Postgres and the action is not on that path. */
   unit_kind: z
     .enum(["piece", "set"])
+    .nullish()
+    .transform((v) => v ?? null),
+  /* LAYOUT TYPE (0628). An enum for `unit_kind`'s reason: the stored words are
+     'open_width' / 'tubular', the operator reads Open Width / Tubular, and the
+     column's CHECK refuses anything else — so does this, before the round trip. */
+  layout_type: z
+    .enum(["open_width", "tubular"])
     .nullish()
     .transform((v) => v ?? null),
   po_qty: num,

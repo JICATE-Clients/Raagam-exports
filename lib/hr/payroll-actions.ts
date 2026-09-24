@@ -229,6 +229,16 @@ export async function calculatePayroll(runId: string): Promise<ActionResult> {
     if (staffInserts.length > 0) {
       const { error: sErr } = await supabase.from("payroll_lines").insert(staffInserts);
       if (sErr) return { ok: false, error: sErr.message };
+
+      /* APPROVED FINES (0629, doc/order/punishment fine.md §6):
+           Net = (Gross) − (ESI + PF + Approved Fines)
+         applied by ONE SQL function that an approval also calls for a single
+         staff line, so the figure a late approval writes and the figure a
+         recalculation writes cannot disagree. It caps the fines at the
+         configured share of gross (and at what is left after ESI/PF) and flags
+         the line `fine_review` instead of paying out a negative net. */
+      const { error: fErr } = await supabase.rpc("hr_payroll_apply_fines", { p_run_id: runId });
+      if (fErr) return { ok: false, error: fErr.message };
     }
   }
 
@@ -340,7 +350,7 @@ export async function lockPayroll(runId: string): Promise<ActionResult> {
     const admin = createAdminClient();
     const { data: linesData } = await admin
       .from("payroll_lines")
-      .select("actual_gross, actual_net, esi, pf, extra_wage")
+      .select("actual_gross, actual_net, esi, pf, extra_wage, fine_deduction")
       .eq("payroll_run_id", runId);
     const agg = (
       (linesData ?? []) as {
@@ -349,6 +359,7 @@ export async function lockPayroll(runId: string): Promise<ActionResult> {
         esi: number;
         pf: number;
         extra_wage: number;
+        fine_deduction: number;
       }[]
     ).reduce(
       (a, l) => ({
@@ -357,8 +368,9 @@ export async function lockPayroll(runId: string): Promise<ActionResult> {
         esi: a.esi + (l.esi || 0),
         pf: a.pf + (l.pf || 0),
         extra: a.extra + (l.extra_wage || 0),
+        fines: a.fines + Number(l.fine_deduction || 0),
       }),
-      { gross: 0, net: 0, esi: 0, pf: 0, extra: 0 },
+      { gross: 0, net: 0, esi: 0, pf: 0, extra: 0, fines: 0 },
     );
 
     if (agg.gross > 0) {
@@ -373,6 +385,9 @@ export async function lockPayroll(runId: string): Promise<ActionResult> {
         { code: "2100", debit: 0, credit: money(agg.esi), description: "ESI payable" },
         { code: "2110", debit: 0, credit: money(agg.pf), description: "PF payable" },
         { code: "1020", debit: 0, credit: money(agg.extra), description: "Extra wages — A/C 2" },
+        // 0629 — fines recovered from salary: the net above is already net of
+        // them, so without this credit the journal would not balance.
+        { code: "4100", debit: 0, credit: money(agg.fines), description: "Staff fine recoveries" },
       ].filter((l) => l.debit > 0 || l.credit > 0);
 
       const {

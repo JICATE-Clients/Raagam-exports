@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { can } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -17,7 +18,7 @@ import {
   type StartRunArgs,
 } from "./service";
 import type { ApprovalFlowDraft, RunAction } from "./types";
-import { notifyCurrentApprovers } from "./notify";
+import { notifyCurrentApprovers, notifyRequesterOfDecision } from "./notify";
 
 /**
  * Raagam's server-action skin over the approval service.
@@ -104,8 +105,13 @@ export async function startApproval(args: StartRunArgs): Promise<Result> {
     const run = await svcStart(args);
     revalidateApprovals();
     /* Step 1's approvers are told now (Phase 5). After the run exists and
-       never able to fail it — `notifyCurrentApprovers` swallows everything. */
-    await notifyCurrentApprovers(run.id, { reason: "started" });
+       never able to fail it — `notifyCurrentApprovers` swallows everything.
+       AFTER THE RESPONSE, not before it (client 2026-09-24, "Send to MD takes
+       time"): a web push to every subscribed device was the slowest leg of the
+       submit, and the operator waited on it for nothing — the run is already
+       live and nothing they see depends on the push landing. `after` keeps the
+       request alive until it settles (Vercel `waitUntil`). */
+    after(() => notifyCurrentApprovers(run.id, { reason: "started" }));
     return okay(run.id);
   } catch (e) {
     return fail(explain(e, "Could not start the approval"));
@@ -147,14 +153,60 @@ export async function actOnRun(params: {
        one. Either way that step's approvers are told. A completed or rejected
        run has nobody left to ask. */
     if (run.status === "in_progress") {
-      await notifyCurrentApprovers(run.id, {
-        reason: params.action === "return" ? "returned" : "advanced",
-      });
+      // After the response — same reason as `startApproval` above.
+      const reason = params.action === "return" ? "returned" : "advanced";
+      after(() => notifyCurrentApprovers(run.id, { reason }));
     }
+    /* AND THE REQUESTER — the merchandiser who sent it — hears the outcome
+       (client 2026-09-24). `notifyRequesterOfDecision` decides which decisions
+       are theirs to hear; after the response, like the push above. */
+    const { action, comment } = params;
+    after(() => notifyRequesterOfDecision(run.id, { action, comment }));
     return okay();
   } catch (e) {
     return fail(explain(e, "Could not record the decision"));
   }
+}
+
+/**
+ * Decide a SUBJECT's live run in ONE request — for a list's row icon, which
+ * knows the document, not its run (2026-09-24, "approving takes 3 s").
+ *
+ * The row icon used to call `getApprovalPanel` (run + verdict + the whole
+ * timeline + actor names) and then `actOnRun`: two server actions, which
+ * Next runs one after the other, and a timeline nobody read. This resolves
+ * the run and asks `approval_can_act` itself, then decides with the run's
+ * FRESH `lock_version` — the same door, one queue slot.
+ *
+ * `noRun: true` = nothing live to decide (never started, or cancelled): the
+ * caller falls back to its legacy decision path, as it did before.
+ */
+export async function actOnSubject(params: {
+  subjectTable: string;
+  subjectId: string;
+  action: RunAction;
+  comment?: string;
+  subjectPath?: string;
+}): Promise<Result | { ok: false; noRun: true; error: string }> {
+  if (!(await can("approvals", "approve"))) return fail("Forbidden");
+  let run;
+  try {
+    run = await getRunForSubject(params.subjectTable, params.subjectId);
+  } catch (e) {
+    return fail(explain(e, "Could not read the approval"));
+  }
+  if (!run || run.status !== "in_progress") {
+    return { ok: false, noRun: true, error: "No approval is running for this document" };
+  }
+  const verdict = await canAct(run.id).catch(() => null);
+  if (!verdict?.can_act) return fail("This is waiting on someone else's step, not yours");
+  return actOnRun({
+    runId: run.id,
+    action: params.action,
+    lockVersion: run.lock_version,
+    comment: params.comment,
+    subjectPath: params.subjectPath,
+  });
 }
 
 /**

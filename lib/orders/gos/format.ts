@@ -52,6 +52,8 @@ export function gosStyleFacts(style: GosStyle): [string, string][] {
     ["Style Ref", txt(style.styleRef)],
     ["Article No", txt(style.articleNo)],
     ["Approved Sample No", txt(style.approvedSampleNo)],
+    // "Approved (V2)" / "Pending" (0628, §6.2) — red when pending, on screen and in the PDF.
+    ["CAD", style.cad ? style.cad.text : DASH],
     ["Unit", gosUnitText(style)],
     ["Description", txt(style.description)],
   ];

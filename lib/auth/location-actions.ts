@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { listMyLocations } from "./location";
+import { forgetAppUser } from "./server";
 
 /**
  * Switch the session's current unit.
@@ -50,6 +51,10 @@ export async function setCurrentLocation(
     .eq("id", user.user.id);
 
   if (error) return { ok: false, error: error.message };
+
+  // The user was memoised for this request (lib/auth/server.ts) with the OLD
+  // unit; the re-render below must read the new one.
+  await forgetAppUser();
 
   // The unit is read in the ROOT LAYOUT (app/(app)/layout.tsx) and by every
   // policy underneath it, so every rendered segment depends on it.

@@ -5,7 +5,7 @@ import {
   listMaterialBomAmendments,
   listMaterialBomTasks,
 } from "@/lib/orders/material-bom-amendment/service";
-import { orderLockMessages } from "@/lib/orders/order-locks";
+import { orderLocks } from "@/lib/orders/order-locks";
 import { MbaMasterScreen } from "./mba-master-screen";
 
 /**
@@ -22,7 +22,7 @@ import { MbaMasterScreen } from "./mba-master-screen";
 export default async function MaterialBomPage() {
   await requirePermission("orders", "view");
 
-  const [tasks, boms, copySources, data, canCreate, canEdit, canDelete, mCreate, mEdit, orderLocks] =
+  const [tasks, boms, copySources, data, canCreate, canEdit, canDelete, mCreate, mEdit, locks] =
     await Promise.all([
       listMaterialBomTasks(),
       listMaterialBomAmendments(),
@@ -34,7 +34,7 @@ export default async function MaterialBomPage() {
       can("masters", "create"),
       can("masters", "edit"),
       // Orders locked by an approved budget (Phase 5) — the editor's banner.
-      orderLockMessages(undefined, "material_bom"),
+      orderLocks(undefined, "material_bom"),
     ]);
 
   // No wrapper and no PageHeader here — the screen renders its own, and the
@@ -47,7 +47,8 @@ export default async function MaterialBomPage() {
       data={data}
       perms={{ canCreate, canEdit, canDelete }}
       masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
-      orderLocks={orderLocks}
+      orderLocks={locks.messages}
+      raiseFor={locks.raiseFor}
     />
   );
 }

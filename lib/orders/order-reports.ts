@@ -119,6 +119,9 @@ export const ORDER_REPORTS = [
      per colour × size: Order, Approval, Rej.Allow and their Total, the pieces
      the cutting table is asked for. Same arithmetic as Approval Qty's breakup. */
   { key: "cutting-chart", label: "Cutting Chart", source: "order", icon: "scissors", page: "cutting-chart", vFinal: "cutting-chart" },
+  /* ON ORDER ENTRY'S STRIP SINCE 2026-09-24 (client: "instead of the Fabric
+     BOM Entry Register … Accessories Requirement", in the RP printout's format —
+     "Accessories Requirement.pdf"). It took the register's place there. */
   {
     key: "material",
     label: "Accessories Requirement",
@@ -126,7 +129,6 @@ export const ORDER_REPORTS = [
     icon: "clipboard-list",
     page: "requirement",
     vFinal: "requirement-sheet",
-    orderStrip: false,
   },
   /* THE EDITOR'S REQUIREMENT TAB, ON PAPER (client 2026-09-20) — Item Name,
      Item Color, Calculated Qty, Required Qty, Uom, Purchase Uom, Stage. Not a
@@ -150,7 +152,17 @@ export const ORDER_REPORTS = [
     vFinal: "fabric-requirement-sheet",
     orderStrip: false,
   },
-  { key: "fabric-bom-register", label: "Fabric BOM Entry Register", source: "fabric-bom", icon: "table", vFinal: "fabric-bom-reports" },
+  /* OFF ORDER ENTRY'S STRIP SINCE 2026-09-24 — Accessories Requirement took
+     its place there (client). Still registered: the Fabric BOM editor's own
+     Reports sheet, its URL and its V_final capture are unchanged. */
+  {
+    key: "fabric-bom-register",
+    label: "Fabric BOM Entry Register",
+    source: "fabric-bom",
+    icon: "table",
+    vFinal: "fabric-bom-reports",
+    orderStrip: false,
+  },
   { key: "yarn-fabric-requirement", label: "Yarn & Fabric Requirement", source: "fabric-bom", icon: "spool", vFinal: "fabric-bom-reports" },
   /* The weight sent to the printer (client 2026-09-19) — read off the SAME
      report object as Yarn & Fabric Requirement, so the two never disagree. */
@@ -192,11 +204,10 @@ export function isMaterialBomSheetReport<R extends OrderReportDef>(r: R): r is R
 
 /**
  * ORDER ENTRY'S REPORTS STRIP (client 2026-09-23). The client's list is five
- * outputs: the Garment Order Sheet, the Fabric BOM Entry Register as Detailed
- * and as Summary (ONE entry — the register's own Detailed / Summary switch),
- * Yarn & Fabric Requirement, and the Order Budget & Profit Margin report (not
- * built yet; its format is still to come). Everything else is marked
- * `orderStrip: false`. The page being shown always stays on the strip, so a
+ * outputs: the Garment Order Sheet, the Accessories Requirement (in the Fabric
+ * BOM Entry Register's place since 2026-09-24), Yarn & Fabric Requirement, and
+ * the Order Budget & Profit Margin report — plus the Cutting Chart. Everything
+ * else is marked `orderStrip: false`. The page being shown always stays on the strip, so a
  * report reached from its editor still reads as "you are here".
  */
 export function onOrderStrip(r: OrderReportDef, current?: string): boolean {

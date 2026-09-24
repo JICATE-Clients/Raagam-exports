@@ -68,3 +68,17 @@ export function fmtDateTime(value: string | null | undefined): string {
   const time = d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
   return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}, ${time}`;
 }
+
+/**
+ * Date + time to the MILLISECOND, 24-hour — "29/07/2026 15:45:07.123". For an
+ * audit log whose order matters to the millisecond (HR fine events, 0629:
+ * "Timestamp: Precision to the millisecond"). Everything else uses
+ * `fmtDateTime`; a clock this precise is noise on an ordinary list.
+ */
+export function fmtDateTimeMs(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "—";
+  const ms = String(d.getMilliseconds()).padStart(3, "0");
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${ms}`;
+}

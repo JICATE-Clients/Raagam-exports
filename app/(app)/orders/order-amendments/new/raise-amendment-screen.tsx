@@ -53,15 +53,20 @@ import {
   areaRecalculable,
   entryScopeLabel,
   kindsForSelection,
+  MODULE_DETAILS,
+  moduleDetailProblem,
   moduleSelectionProblem,
+  type DetailModule,
   modulesOf,
   openAreasOf,
+  scopeFromJson,
   unionScope,
   type AmendmentModule,
   type AmendmentOrigin,
   type OrderChangeKind,
 } from "@/lib/orders/amendments/amendment-entry";
 import { raiseOrderAmendment } from "@/lib/orders/order-amendments/actions";
+import { revisionLandingOf } from "@/components/orders/amendment-tabs";
 import type { AmendableOrder } from "@/lib/orders/order-amendments/service";
 
 /** What a preview line says the selection opens — the areas' own words. */
@@ -98,6 +103,8 @@ export function RaiseAmendmentScreen({
   const [source, setSource] = useState<AmendmentOrigin>(AMENDMENT_ORIGINS[0].value);
   const [modules, setModules] = useState<AmendmentModule[]>([]);
   const [orderKinds, setOrderKinds] = useState<OrderChangeKind[]>([]);
+  /** What changes inside the other modules picked (0630) — `<module>.<detail>`. */
+  const [details, setDetails] = useState<string[]>([]);
   const [remarks, setRemarks] = useState("");
   const [tried, setTried] = useState(false);
 
@@ -131,9 +138,15 @@ export function RaiseAmendmentScreen({
   const opens = useMemo(() => {
     const kinds = [...alreadyKinds, ...kindsForSelection({ modules, orderKinds })];
     if (kinds.length === 0) return null;
-    const scope = unionScope(kinds);
+    /* READ as the trigger reads it — with 0627's widening, so a picked Order
+       Entry previews as the whole document, which is what it now opens. The
+       always-open files are not this selection's doing, so not listed. */
+    const scope = scopeFromJson(unionScope(kinds));
+    const orderWhole = scope.garment_order_amendments?.columns === null;
     const edit = [
-      ...openAreasOf(scope).map((a) => AREA_WORDS[a] ?? a),
+      ...(orderWhole
+        ? ["the whole Order Entry"]
+        : openAreasOf(scope).filter((a) => a !== "files").map((a) => AREA_WORDS[a] ?? a)),
       ...(areaOpen(scope, "material_bom") ? ["the Material BOM"] : []),
       ...(areaOpen(scope, "fabric_bom") ? ["the Fabric BOM"] : []),
       ...(areaOpen(scope, "budget") ? ["the Order Budget's heads and rates"] : []),
@@ -145,10 +158,13 @@ export function RaiseAmendmentScreen({
   }, [modules, orderKinds, alreadyKinds]);
 
   const orderError = tried && !orderId ? "Pick the order to revise" : undefined;
-  const selectionProblem = moduleSelectionProblem({
-    modules: [...new Set([...alreadyModules, ...modules])],
-    orderKinds: [...alreadyKinds, ...orderKinds],
-  });
+  const selectionProblem =
+    moduleSelectionProblem({
+      modules: [...new Set([...alreadyModules, ...modules])],
+      orderKinds: [...alreadyKinds, ...orderKinds],
+    }) ??
+    // Only the modules THIS raise adds: an open entry's already carry detail.
+    moduleDetailProblem(modules.filter((m) => !alreadyModules.includes(m)), details);
   const typesError = tried ? (selectionProblem ?? undefined) : undefined;
   const remarksError = tried && remarks.trim() === "" ? "Say why this order is being revised" : undefined;
   /* Something NEW must be picked: a second raise that adds nothing would only
@@ -159,6 +175,12 @@ export function RaiseAmendmentScreen({
   function toggleModule(m: AmendmentModule, on: boolean) {
     setModules((prev) => (on ? (prev.includes(m) ? prev : [...prev, m]) : prev.filter((x) => x !== m)));
     if (m === "order_entry" && !on) setOrderKinds([]);
+    if (!on) setDetails((prev) => prev.filter((d) => !d.startsWith(`${m}.`)));
+  }
+  /* Ticking a detail ticks its module, as a kind ticks Order Entry. */
+  function toggleDetail(m: DetailModule, value: string, on: boolean) {
+    setDetails((prev) => (on ? (prev.includes(value) ? prev : [...prev, value]) : prev.filter((x) => x !== value)));
+    if (on) setModules((prev) => (prev.includes(m) ? prev : [...prev, m]));
   }
   function toggleKind(k: OrderChangeKind, on: boolean) {
     setOrderKinds((prev) => (on ? (prev.includes(k) ? prev : [...prev, k]) : prev.filter((x) => x !== k)));
@@ -179,6 +201,7 @@ export function RaiseAmendmentScreen({
         origin: source,
         modules: sendModules,
         order_kinds: orderKinds,
+        module_details: details.filter((d) => sendModules.some((m) => d.startsWith(`${m}.`))),
         remarks: remarks.trim(),
       });
       if (!res.ok) {
@@ -196,7 +219,14 @@ export function RaiseAmendmentScreen({
             "those reports will print the revision's data with a warning until it is decided",
         );
       }
-      router.push(res.id ? `/orders/order-amendments/${res.id}` : "/orders/order-amendments");
+      /* STRAIGHT TO THE WORK (client 2026-09-24): the tab — and for Order
+         Entry the section — of the category just picked, not the Overview.
+         On a superseding raise that is what THIS raise added. */
+      router.push(
+        res.id
+          ? revisionLandingOf(res.id, kindsForSelection({ modules: sendModules, orderKinds }))
+          : "/orders/order-amendments",
+      );
     });
   }
 
@@ -328,6 +358,29 @@ export function RaiseAmendmentScreen({
                               </label>
                             );
                           })}
+                        </div>
+                      )}
+                      {/* THE OTHER MODULES' DETAIL (client 2026-09-24, screenshot
+                          3051) — the same indented list Order Entry opens. A
+                          module an open entry already carries shows none: its
+                          detail came with it. */}
+                      {m.key !== "order_entry" && on && !already && (
+                        <div
+                          className="ml-6 mt-1.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-3"
+                          role="group"
+                          aria-label={`What changes in the ${m.label}`}
+                        >
+                          {MODULE_DETAILS[m.key as DetailModule].map((d) => (
+                            <label key={d.value} className="flex cursor-pointer items-start gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 accent-primary"
+                                checked={details.includes(d.value)}
+                                onChange={(e) => toggleDetail(m.key as DetailModule, d.value, e.target.checked)}
+                              />
+                              <span>{d.label}</span>
+                            </label>
+                          ))}
                         </div>
                       )}
                     </div>

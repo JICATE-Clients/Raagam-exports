@@ -35,6 +35,9 @@
  * the scrollbar returns, on a screen nobody re-measures.
  */
 
+import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
+import { CadLifecycleLink } from "@/components/orders/cad/cad-lifecycle-link";
+import { checkCadForFabricBom } from "@/lib/orders/cad-lifecycle/actions";
 import {
   Fragment,
   useEffect,
@@ -788,7 +791,9 @@ function PaletteTable<T extends { key: string }>({
   width: string;
 }) {
   return (
-    <div className={cn("min-w-0 flex-1", width)}>
+    /* `max-sm:max-w-none`: stacked on a phone (see the row of four), each
+       panel takes the line rather than its desktop cap. */
+    <div className={cn("min-w-0 flex-1", width, "max-sm:max-w-none")}>
       <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
@@ -1123,6 +1128,7 @@ export function FabricBomScreen({
   data,
   perms,
   orderLocks,
+  raiseFor = {},
   embed = null,
 }: {
   tasks: BomTaskRow[];
@@ -1134,6 +1140,12 @@ export function FabricBomScreen({
   /** Garment orders locked by an approved budget → the banner's sentence
    *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
   orderLocks: Record<string, string>;
+  /**
+   * Locked document -> the APPROVED order its "+ Raise Revision" links to
+   * (`orderLocks`, lib/orders/order-locks.ts). Approved locks only: an
+   * amending order already has its revision. Absent key = no link.
+   */
+  raiseFor?: Record<string, string>;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -2280,6 +2292,28 @@ export function FabricBomScreen({
 
   const seedRows =
     seedState && seedState.forOrder === form.garment_order_id ? seedState.rows : null;
+
+  /* THE CAD GATE, SAID BEFORE ANYTHING IS TYPED (doc/order/cad.md §7, 0628).
+     A NEW Fabric BOM cannot be created while any style's CAD is unapproved —
+     the table's trigger refuses the insert. Asked the moment an order is
+     picked for a new BOM, so the editor opens read-only with the reason and a
+     link, instead of accepting a whole BOM that Save then refuses. A saved BOM
+     (`editId`) is never asked: only creation is gated. Keyed on `forOrder`
+     like `seedState`, for its reason. */
+  const [cadBlock, setCadBlock] = useState<{ forOrder: string; message: string | null } | null>(null);
+  useEffect(() => {
+    const id = form.garment_order_id;
+    if (!id || editId) return;
+    let cancelled = false;
+    checkCadForFabricBom(id).then((message) => {
+      if (!cancelled) setCadBlock({ forOrder: id, message });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.garment_order_id, editId]);
+  const cadBlockMessage =
+    !editId && cadBlock && cadBlock.forOrder === form.garment_order_id ? cadBlock.message : null;
 
   const pickedOrder = useMemo(
     () => data.orders.find((o) => o.id === form.garment_order_id) ?? null,
@@ -6005,13 +6039,20 @@ export function FabricBomScreen({
                   are a SAFETY NET only: they engage below the tracks' summed
                   floors (788px), where shrinking further would clip values.
                   At any ordinary pane width no scrollbar is drawn. */}
+              {/* ON A PHONE THE BAR STACKS (2026-09-24, 390px): the 788px of
+                  track floors left a sideways scroller whose first heading was
+                  clipped ("SSORT COLOUR-ISE"). Below `sm` the header band hides,
+                  the body band is one column, and each cell prints its own
+                  heading from `data-label` above its control. CSS only — the
+                  controls are rendered ONCE, so focus order, ids and Ctrl+Del
+                  are exactly the desktop ones. Nothing at 640px+ moves. */}
               <div className="max-w-full overflow-x-auto">
-              <div className="w-full min-w-fit overflow-hidden rounded-lg border border-border-strong bg-surface">
+              <div className="w-full min-w-fit overflow-hidden rounded-lg border border-border-strong bg-surface max-sm:min-w-0">
                 {/* THE HEADER BAND. Plain text, not a second `<Field>` — a
                     label has nothing to hold a cursor or a value, so it needs
                     none of what `Field` provides beyond the words themselves. */}
                 <div
-                  className="grid bg-surface-muted"
+                  className="grid bg-surface-muted max-sm:hidden"
                   style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
                 >
                   {manualEntryColumns.map((c, ci) => (
@@ -6051,17 +6092,19 @@ export function FabricBomScreen({
                     room survives as `py-2`, which cannot desync anything
                     horizontal. */}
                 <div
-                  className="grid items-center border-t border-border-strong py-2"
+                  className="grid items-center border-t border-border-strong py-2 max-sm:grid-cols-1! max-sm:gap-y-2.5 max-sm:border-t-0 max-sm:px-1.5"
                   style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
                 >
                   {manualEntryColumns.map((c, ci) => (
                     <div
                       key={c.header + ci}
+                      data-label={c.cardLabel ?? c.header}
                       /* `min-w-0` lets the control shrink to its track instead
                          of pushing the track wider than its floor. */
                       className={cn(
                         "min-w-0 px-1.5",
-                        ci > 0 && "border-l border-border-strong",
+                        ci > 0 && "border-l border-border-strong max-sm:border-l-0",
+                        "max-sm:before:mb-1 max-sm:before:block max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:uppercase max-sm:before:tracking-wide max-sm:before:text-muted-foreground max-sm:before:content-[attr(data-label)]",
                       )}
                     >
                       <RequiredScope required={false} label={c.cardLabel ?? c.header}>
@@ -9029,8 +9072,12 @@ export function FabricBomScreen({
               `flex-nowrap` HOLDS THE LINE, and the trade is that below ~900px
               of pane the four overflow rather than stacking. 210 + 210 + 210 +
               280 + 3 gaps = 946px, so that is outside this editor's normal
-              width. */}
-          <div className="flex w-full flex-row flex-nowrap items-start gap-3 [&_input]:text-xs [&_select]:text-xs">
+              width.
+
+              ON A PHONE THE FOUR STACK (2026-09-24, 390px): held on one line
+              they were ~85px each — a "#" column and a squashed box, nothing
+              typeable. `max-sm:` only, so the desktop line above is untouched. */}
+          <div className="flex w-full flex-row flex-nowrap items-start gap-3 max-sm:flex-col [&_input]:text-xs [&_select]:text-xs">
             <PaletteTable<PaletteRow>
               /* "Fabric Colour", NOT "Colour" (client 2026-09-09) — this panel
                  sits beside "Yarn Colour" and read as the unqualified default
@@ -10646,6 +10693,8 @@ export function FabricBomScreen({
              action the drawer also carried is the card's own button below. */
           onOpen={openTask}
           canDelete={perms.canDelete}
+          /* An approved order offers no bin, and its Updated row an eye (2026-09-24). */
+          lockedRow={(t) => !!orderLocks[t.id]}
           /* `bom_id` is non-null here by `canDeleteRow` — a Pending row has no
              document, and the card hides the ✕ on exactly those. */
           onDelete={(t) => remove(t.bom_id as string)}
@@ -10660,7 +10709,19 @@ export function FabricBomScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
-        locked={lockMessage ? { message: lockMessage } : false}
+        locked={
+          lockMessage
+            ? {
+                message: lockMessage,
+                action:
+                  form.garment_order_id && raiseFor[form.garment_order_id] ? (
+                    <RaiseRevisionLink orderId={raiseFor[form.garment_order_id]} />
+                  ) : undefined,
+              }
+            : cadBlockMessage
+              ? { message: cadBlockMessage, action: <CadLifecycleLink /> }
+              : false
+        }
         /* A compact 200px Sections rail whose labels still fit — "Fabric
            Allocation" clipped at 192px, and 240px read as too wide (operator,
            2026-09-17). See the prop. */

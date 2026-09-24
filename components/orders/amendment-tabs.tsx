@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { Lock, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { modulesOf, type AmendmentModule } from "@/lib/orders/amendments/amendment-entry";
+import {
+  AMENDMENT_ENTRY_TYPE_VALUES,
+  modulesOf,
+  type AmendmentModule,
+} from "@/lib/orders/amendments/amendment-entry";
 import type { AmendmentHead } from "@/lib/orders/order-amendments/service";
 
 /**
@@ -25,6 +29,43 @@ const TABS: { key: AmendmentTab; label: string; module: AmendmentModule | null }
 
 export function amendmentTabHref(entryId: string, tab: AmendmentTab): string {
   return tab === "overview" ? `/orders/order-amendments/${entryId}` : `/orders/order-amendments/${entryId}/${tab}`;
+}
+
+/**
+ * WHERE A REVISION OPENS (client 2026-09-24: "selecting a revision category
+ * … will automatically redirect the user to that specific tab"). The category
+ * picked at Raise names the work, so opening the revision lands on it — the
+ * module's tab and, for Order Entry, the rail section — instead of on
+ * Overview, where the operator only read "open the Order tab" and clicked.
+ *
+ * ONE MAP, IN THE KINDS' OWN ORDER. With several picked, the first in
+ * `AMENDMENT_ENTRY_TYPES` order wins, so the order's own changes come before
+ * the modules they recalculate. An Order Entry section is a key of the Order
+ * editor's rail; `ORDER_TAB_SECTIONS` is the set the Order tab accepts back.
+ *
+ * READ AT THE DOORS ONLY — Raise and the register's open. The Overview route
+ * itself never redirects: Save and Cancel inside a tab return there, and a
+ * redirect on arrival would put the operator straight back in the tab.
+ */
+const LANDING: Partial<Record<string, { tab: AmendmentTab; section?: string }>> = {
+  qty_addition: { tab: "order", section: "quantities" },
+  qty_cancellation: { tab: "order", section: "quantities" },
+  price_change: { tab: "order", section: "prices" },
+  delivery_date_ext: { tab: "order", section: "orderinfo" },
+  combo_colour_change: { tab: "order", section: "combos" },
+  fabric_bom_revision: { tab: "fabric-bom" },
+  material_bom_revision: { tab: "material-bom" },
+  budget_revision: { tab: "budget" },
+  bom_revision: { tab: "fabric-bom" },
+};
+export const ORDER_TAB_SECTIONS: readonly string[] = ["quantities", "prices", "orderinfo", "combos"];
+
+export function revisionLandingOf(entryId: string, types: readonly string[]): string {
+  const first = AMENDMENT_ENTRY_TYPE_VALUES.find((k) => types.includes(k));
+  const to = first ? LANDING[first] : undefined;
+  if (!to) return amendmentTabHref(entryId, "overview");
+  const href = amendmentTabHref(entryId, to.tab);
+  return to.section ? `${href}?section=${to.section}` : href;
 }
 
 export function AmendmentTabs({ head, current }: { head: AmendmentHead; current: AmendmentTab }) {

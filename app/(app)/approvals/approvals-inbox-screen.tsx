@@ -11,7 +11,7 @@ import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { buttonClasses } from "@/components/ui/button";
-import { fmtDate, fmtNumber } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { Sheet } from "@/components/ui/sheet";
 import { FIELD_ROW } from "@/components/ui/field";
 import { FigureCell, HighlightTile, signTone } from "../orders/budgets/budget-general";
@@ -21,6 +21,9 @@ import { WORKFLOWS, WORKFLOW_LIST, workflowLabel } from "@/lib/approvals/workflo
 import { isRefusal, type Refusal } from "@/lib/orders/material-bom/requirement";
 import type { BudgetKpis } from "@/lib/orders/budget/amendment";
 import type { CanActVerdict, QueueItem, StrandedRun } from "@/lib/approvals/types";
+import { RevisionComparePanel } from "@/components/approvals/revision-compare-panel";
+import { revisionCompareAction } from "@/lib/approvals/revision-compare-actions";
+import type { RevisionCompare } from "@/lib/approvals/revision-compare";
 
 /** A queue row with the two keys `withCreators` / `withCreatedColumns` read. */
 export type QueueRow = QueueItem & {
@@ -40,7 +43,29 @@ export type BudgetCard = {
   code: string | null;
   currency: string | null;
   kpis: BudgetKpis | null;
+  /** The budget's customers and "STYLE REF / DESCRIPTION"s, comma-joined. */
+  customer: string | null;
+  styles: string | null;
+  /**
+   * The OPEN revision entry on this budget, or null for a first submit
+   * (client 2026-09-24: the MD's card names the RE, the Rev #, who raised it
+   * and why). `revNo` is the register's own "Rev #n".
+   */
+  revision: {
+    entryId: string;
+    entryNo: string | null;
+    revNo: number | null;
+    reason: string | null;
+    raisedBy: string | null;
+    raisedAt: string;
+  } | null;
 };
+
+/** "HO/RE/26-27/0001" — the RE No(s) a budget card leads with, else its code. */
+function reOf(b: BudgetCard | undefined): string | null {
+  const re = b?.kpis?.re_nos.join(", ");
+  return re || b?.code || null;
+}
 
 /**
  * MY APPROVALS — every module's pending sign-offs in one queue.
@@ -85,6 +110,22 @@ export function ApprovalsInboxScreen({
    * a held row would be a stale copy of something that has just moved on.
    */
   const [decideOn, setDecideOn] = useState<string | null>(null);
+  /**
+   * THE OPEN REVISION'S LAST-vs-LATEST, keyed by the entry it is for. Fetched
+   * by the TAP that opens the sheet — an event, not an effect — and dropped
+   * if the MD has moved on to another card before it answers. `result: null`
+   * is "still working it out".
+   */
+  const [compare, setCompare] = useState<{ entryId: string; result: RevisionCompare | null } | null>(null);
+  const openDecision = (r: QueueRow) => {
+    setDecideOn(r.run_id);
+    const rev = budgets[r.subject_id]?.revision;
+    if (!rev || compare?.entryId === rev.entryId) return;
+    setCompare({ entryId: rev.entryId, result: null });
+    revisionCompareAction(rev.entryId)
+      .catch((): RevisionCompare => ({ ok: false, refused: "The comparison could not be loaded" }))
+      .then((result) => setCompare((c) => (c?.entryId === rev.entryId ? { entryId: rev.entryId, result } : c)));
+  };
 
   /**
    * HOW MANY SIT UNDER EACH WORKFLOW — the counts, in the facet, exactly as
@@ -111,6 +152,8 @@ export function ApprovalsInboxScreen({
   /** The open card's stored figures. NULL for a non-budget workflow, and for a
    *  budget submitted before `submitted_summary` existed. */
   const kpis = decideRow ? (budgets[decideRow.subject_id]?.kpis ?? null) : null;
+  const decideCard = decideRow ? budgets[decideRow.subject_id] : undefined;
+  const decideRevision = decideCard?.revision ?? null;
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -130,8 +173,11 @@ export function ApprovalsInboxScreen({
    * dead link in a work queue is worse than no link: it reads as a broken screen
    * rather than as a workflow nobody has finished wiring.
    */
+  /* `:id` is the subject — the same substitution notify.ts and sla.ts make.
+     Unreplaced, IWO Budget and Staff Fine rows linked to `?open=:id` and
+     opened nothing. */
   const hrefFor = (r: QueueRow) =>
-    WORKFLOWS[r.workflow_key as keyof typeof WORKFLOWS]?.href ?? null;
+    WORKFLOWS[r.workflow_key as keyof typeof WORKFLOWS]?.href.replace(":id", r.subject_id) ?? null;
 
   /** "3d 4h" — a queue is read for how LONG something has waited, not for when
    *  it arrived, and the Created Date column already carries the when. */
@@ -333,16 +379,36 @@ export function ApprovalsInboxScreen({
         <MobileCardList<QueueRow>
           rows={filtered}
           getKey={(r) => r.run_id}
-          title={(r) => workflowLabel(r.workflow_key)}
-          subtitle={(r) => budgets[r.subject_id]?.code ?? null}
-          pill={(r) =>
-            r.is_overdue ? (
-              <StatusPill tone="danger">Overdue</StatusPill>
+          /* A BUDGET CARD LEADS WITH ITS RE NO (client 2026-09-24) — the number
+             the MD knows the order by — then the customer and style under it.
+             Every other workflow keeps its label. */
+          title={(r) =>
+            budgets[r.subject_id] ? (
+              <span className="font-mono">{reOf(budgets[r.subject_id]) ?? workflowLabel(r.workflow_key)}</span>
             ) : (
-              <StatusPill tone="warning">Awaiting you</StatusPill>
+              workflowLabel(r.workflow_key)
             )
           }
-          meta={(r) => `Step ${r.step_order} · ${r.step_label} · waiting ${waited(r.waiting_hours)}`}
+          subtitle={(r) => {
+            const b = budgets[r.subject_id];
+            if (!b) return null;
+            const line = [b.customer, b.styles].filter(Boolean).join(" · ");
+            return line ? <Truncated>{line}</Truncated> : b.code;
+          }}
+          pill={(r) => {
+            /* "REV #2 · PENDING" — a revision says which one, in the pill the
+               queue already reads for state. */
+            const rev = budgets[r.subject_id]?.revision;
+            const word = r.is_overdue ? "Overdue" : rev ? "Pending" : "Awaiting you";
+            return (
+              <StatusPill tone={r.is_overdue ? "danger" : "warning"}>
+                {rev?.revNo ? `Rev #${rev.revNo} · ${word}` : word}
+              </StatusPill>
+            );
+          }}
+          meta={(r) =>
+            `${budgets[r.subject_id] ? `${workflowLabel(r.workflow_key)} · ` : ""}Step ${r.step_order} · ${r.step_label} · waiting ${waited(r.waiting_hours)}`
+          }
           stats={(r) => cardStats(budgets[r.subject_id])}
           /* TAP THE CARD TO DECIDE. `onEdit` is the primitive's tap slot; the
              word is historical (it opens a record) and this opens the sheet
@@ -350,8 +416,14 @@ export function ApprovalsInboxScreen({
              verdict is not tappable at all rather than opening a sheet with
              nothing in it — see `queueVerdicts` in the page for when that
              happens. */
-          onEdit={(r) => (verdicts[r.run_id] ? setDecideOn(r.run_id) : undefined)}
-          footerNote={(r) => (r.created_by_name ? `Raised by ${r.created_by_name}` : null)}
+          onEdit={(r) => (verdicts[r.run_id] ? openDecision(r) : undefined)}
+          /* WHO RAISED IT, AND WHEN — for a revision, the merchandiser who
+             raised the ENTRY and the time they did; otherwise the requester. */
+          footerNote={(r) => {
+            const rev = budgets[r.subject_id]?.revision;
+            if (rev) return `Raised by ${rev.raisedBy ?? r.created_by_name ?? "—"} · ${fmtDateTime(rev.raisedAt)}`;
+            return r.created_by_name ? `Raised by ${r.created_by_name} · ${fmtDateTime(r.started_at)}` : null;
+          }}
           empty="Nothing is waiting on you. Requests appear here the moment a step names you as an approver."
         />
       </div>
@@ -362,12 +434,48 @@ export function ApprovalsInboxScreen({
           open
           onClose={() => setDecideOn(null)}
           title={
-            budgets[decideRow.subject_id]?.code
-              ? `${workflowLabel(decideRow.workflow_key)} · ${budgets[decideRow.subject_id]?.code}`
-              : workflowLabel(decideRow.workflow_key)
+            decideRevision
+              ? `${reOf(decideCard) ?? "Revision"}${decideRevision.revNo ? ` · Rev #${decideRevision.revNo}` : ""}`
+              : decideCard?.code
+                ? `${workflowLabel(decideRow.workflow_key)} · ${decideCard.code}`
+                : workflowLabel(decideRow.workflow_key)
           }
         >
           <div className="space-y-4 p-4">
+            {/* A REVISION IS DECIDED ON LAST vs LATEST (client 2026-09-24) — who
+                raised it and why, the P&L both ways, and the cost heads that
+                moved. The submitted totals below still follow: they are the
+                figures the run froze, the same ones the push carried. */}
+            {decideRevision && (
+              <>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-muted-foreground">Customer</dt>
+                  <dd>{decideCard?.customer ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Style</dt>
+                  <dd>{decideCard?.styles ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Revision</dt>
+                  <dd className="font-mono">{decideRevision.entryNo ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Raised by</dt>
+                  <dd>
+                    {decideRevision.raisedBy ?? decideRow.created_by_name ?? "—"} ·{" "}
+                    {fmtDateTime(decideRevision.raisedAt)}
+                  </dd>
+                </dl>
+                <RevisionComparePanel
+                  state={compare?.entryId === decideRevision.entryId ? compare.result : null}
+                />
+                <div className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
+                  <span className="font-semibold">Reason for revision: </span>
+                  {decideRevision.reason ?? <span className="text-muted-foreground">None given</span>}
+                </div>
+                <Link
+                  href={`/orders/order-amendments/${decideRevision.entryId}`}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Open the full revision (every line, Original Budget, what changed)
+                </Link>
+              </>
+            )}
             {/**
               * THE SAME COMPONENTS THE DESKTOP APPROVAL SCREEN USES.
               *
@@ -473,6 +581,10 @@ function cardStats(b: BudgetCard | undefined): CardStat[] {
 
   return [
     { label: "Order qty", value: money(k.order_qty) },
+    {
+      label: "Delivery",
+      value: k.delivery_dates.length ? k.delivery_dates.map((d) => fmtDate(d)).join(", ") : "—",
+    },
     { label: "Gross sales", value: money(k.total_income) },
     { label: "Expenses", value: money(k.total_expenses) },
     { label: "Profit", value: money(k.profit), lead: true },

@@ -185,7 +185,7 @@ async function loadFabricTaInto(sb: SB, result: FabricTaResult, opts: { salesOrd
     const [, reqQ, scopeQ] = await Promise.all([
       Promise.all(
         liveSo.map(async (so) => {
-          reports.set(so, await yarnFabricRequirementReport(bomOf.get(so)!.id));
+          reports.set(so, await yarnFabricRequirementReport(bomOf.get(so)!.id, { allocation: false }));
         }),
       ),
       sb.from("order_fabric_bom_requirements").select("bom_id, item_id, required_qty, refusal_reason").in("bom_id", bomIds),

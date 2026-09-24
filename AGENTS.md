@@ -1280,6 +1280,17 @@ never drags an amending order back to `open`.
   `budget_revision`). The module is DERIVED from the kinds (`modulesOf`), never a
   second column. **An unpicked module stays read-only** — "Order Entry + Fabric
   BOM keeps Material BOM read-only" is asserted by `check:amendment-scope`.
+- **A PICKED MODULE OPENS WHOLE (0627, client 2026-09-24: "click back into any
+  chosen module … edit and re-save freely").** The kinds no longer narrow Order
+  Entry: any Order Entry kind opens the WHOLE order document — Order Info,
+  Styles, Pack Types, every grid, T&A — and the kinds survive only as what the
+  MD is told changed. A picked Fabric BOM also opens the order's dyeing/print
+  tables its Colour/Print tab writes. It is a READ-TIME overlay in
+  `order_amendment_of` (twin: `scopeFromJson`'s `ORDER_ENTRY_WHOLE` /
+  `FABRIC_BOM_PALETTE`), like 0622's files — the seed and every stored scope
+  are untouched, so it reached the entries already open. What did NOT move: an
+  unpicked module, an approved order with no revision, and a budget with the MD
+  (`assertEditable`) all stay locked.
 - **A quantity or colourway kind opens the BOMs' DERIVED rows only**
   (`BOM_DERIVED_SCOPE`: requirements, yarn purchase / stage process weights, the
   header's computed stamp) — so an untouched BOM recalculates while its authored

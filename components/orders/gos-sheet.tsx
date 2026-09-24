@@ -271,11 +271,22 @@ function Box({ children }: { children: React.ReactNode }) {
   return <section className="border border-t-0 border-border bg-white px-5 py-3">{children}</section>;
 }
 
-function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function Fact({
+  label,
+  value,
+  mono = false,
+  danger = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  /** Red ink — a CAD status still Pending (spec §6.2: "display Pending in red text"). */
+  danger?: boolean;
+}) {
   return (
     <div className="flex min-w-0 gap-1.5">
       <span className="shrink-0 text-[#8b95a3]">{label}:</span>
-      <span className={`min-w-0 font-semibold ${mono ? "font-mono" : ""}`}>{value}</span>
+      <span className={`min-w-0 font-semibold ${mono ? "font-mono" : ""} ${danger ? "text-[#b3261e]" : ""}`}>{value}</span>
     </div>
   );
 }
@@ -318,7 +329,13 @@ function StyleBlock({
          */}
         <div className="gos-keep grid grid-cols-1 gap-x-6 gap-y-1 text-[12.5px] sm:grid-cols-2 lg:grid-cols-4">
           {gosStyleFacts(style).map(([label, value]) => (
-            <Fact key={label} label={label} value={value} mono={label === "Style Ref"} />
+            <Fact
+              key={label}
+              label={label}
+              value={value}
+              mono={label === "Style Ref"}
+              danger={label === "CAD" && !!style.cad?.pending}
+            />
           ))}
         </div>
         {style.coordinateWarning && (

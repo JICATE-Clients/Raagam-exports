@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cadPendingForFabricBom } from "@/lib/orders/cad-lifecycle/report-status";
 import { VFinalBanner } from "@/components/orders/v-final-banner";
 import { vFinalFor } from "@/lib/orders/amendments/v-final";
 import { requirePermission } from "@/lib/auth/server";
@@ -58,6 +59,9 @@ export default async function FabricRequirementPage({
   const vf = await vFinalFor("fabric-requirement-sheet", orderId);
   const proposed = version === "proposed";
   const data = vf.state === "frozen" && !proposed ? vf.payload : await getFabricRequirementSheet(orderId);
+  /* THE CAD STAMP IS LIVE (0628) — read now, never frozen with the sheet, so an
+     approval recorded after the freeze lifts it. */
+  const cadPending = isFabricSheetRefusal(data) ? false : await cadPendingForFabricBom(data.bom.id);
 
   return (
     <div className="space-y-4">
@@ -86,6 +90,7 @@ export default async function FabricRequirementPage({
               scNo: data.order.scNo,
               orderNo: data.order.orderNo,
               computedAt: data.bom.computedAt ? fmtDateTime(data.bom.computedAt) : null,
+              cadPending,
             }}
           />
         )}
@@ -131,7 +136,7 @@ export default async function FabricRequirementPage({
           </CardBody>
         </Card>
       ) : (
-        <FabricRequirementSheetDocument data={data} />
+        <FabricRequirementSheetDocument data={data} cadPending={cadPending} />
       )}
     </div>
   );
