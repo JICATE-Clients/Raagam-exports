@@ -293,6 +293,9 @@ export function IwoScreen({
   const quick = useQuickStatus(iwoWord, {
     standDown: !!facets.values.status,
     onPick: () => facets.set("status", ""),
+    /* The figure on each word, over the same set the drawer counts —
+       a cancelled IWO is in none of the three and so in no figure. */
+    rows,
   });
   const qm = quick.matches;
   const filtered = useMemo(() => {

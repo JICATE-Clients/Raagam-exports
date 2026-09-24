@@ -413,6 +413,8 @@ export function IwoBudgetScreen({
   const quick = useQuickStatus(budgetWord, {
     standDown: !!listFacets.values.budget,
     onPick: () => listFacets.set("budget", ""),
+    /* The figure on each word, over the same set the drawer counts. */
+    rows: tasks,
   });
   const qm = quick.matches;
   const listed = useMemo(() => {

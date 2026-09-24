@@ -280,6 +280,10 @@ export function AmendmentRegisterScreen({
   const quick = useQuickStatus(entryWord, {
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
+    /* The figure on each word, over the same set the drawer counts — an
+       abandoned or superseded entry is in none of the three and so in no
+       figure, the same way it is in no word. */
+    rows,
   });
   const qm = quick.matches;
 

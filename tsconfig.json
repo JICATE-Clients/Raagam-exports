@@ -53,6 +53,7 @@
     "scripts/check-amendment-scope.mts",
     "scripts/check-amendment-modules.mts",
     "scripts/check-order-value.mts",
+    "scripts/check-order-status-filter.mts",
     "scripts/check-bom-requirement.mts",
     "scripts/check-bom-colour-required.mts",
     "scripts/check-pack-composition.mts",

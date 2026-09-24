@@ -10,6 +10,7 @@ import { styleProcessInput, type ProcessKind } from "./style-processes";
    kinds are declared once, in the component that renders them; see
    `AmendmentFile`. */
 import type { AttachmentKind } from "@/components/ui/file-attachments";
+import type { ApprovalStatus } from "@/lib/orders/approve-amendments/types";
 
 // ============================================================================
 // Garment Orders ▸ Garment Order Amendment. Header + 10 sub-tabs.
@@ -1580,10 +1581,79 @@ export interface AmendmentCountrySize {
   countrywise: boolean;
 }
 
+/**
+ * THE THREE WORDS OF THE ORDER LIST, AS ONE DECLARATION — read by the SQL that
+ * narrows the list and by the box that asks for it, so the filter and the
+ * button can never come to mean different things.
+ *
+ *   Draft   = parked with "Save as Draft"                    is_draft
+ *   Pending = recorded, no decision taken yet                approval_status 'pending'
+ *   Updated = decided in Orders ▸ Approve Amendments         'approved' | 'rejected'
+ *
+ * Every word is set by a button somebody presses (user, 2026-09-24), which is
+ * the property the old mapping lost: Updated used to read the BUDGET lock
+ * (`re_status`), written two modules downstream, so nothing on Order Entry
+ * could reach it and the word was empty on every real list.
+ *
+ * `orderQuickWord` is the row's answer and `ORDER_QUICK_WHERE` is the same
+ * answer as a query. THEY MUST AGREE: `scripts/check-order-status-filter.mts`
+ * asserts every row's word is the one whose WHERE would have returned it.
+ */
+export const ORDER_QUICK_WORDS = ["pending", "updated", "draft"] as const;
+export type OrderQuickWord = (typeof ORDER_QUICK_WORDS)[number];
+
+/** The word a row counts as. One word per row — never three separate tests. */
+export function orderQuickWord(
+  r: Pick<GarmentOrderAmendment, "is_draft" | "approval_status">,
+): OrderQuickWord {
+  return r.is_draft ? "draft" : r.approval_status === "pending" ? "pending" : "updated";
+}
+
+/**
+ * The same three answers as a WHERE, for `getAmendments`. Stated as data rather
+ * than a switch in the service so the check above can replay each one against
+ * the rows, and so a fourth word cannot be added on one side only.
+ *
+ * `updated` uses `in`, not `neq('pending')`: a NULL `approval_status` would
+ * pass a `neq` — Postgres three-valued logic — and land an undecided order in
+ * Updated. The column is `not null default 'pending'` (0129), so this is a
+ * belt on braces; it costs nothing and it is the failure that would be silent.
+ */
+export const ORDER_QUICK_WHERE: Record<
+  OrderQuickWord,
+  { is_draft: boolean; approval_status?: readonly string[] }
+> = {
+  draft: { is_draft: true },
+  pending: { is_draft: false, approval_status: ["pending"] },
+  updated: { is_draft: false, approval_status: ["approved", "rejected"] },
+};
+
+/** The `?status=` param, or null for "no narrowing". Anything unrecognised is
+ *  null rather than an error: a hand-edited URL shows the whole list, which is
+ *  the safe way to be wrong about a filter. */
+export function parseOrderQuickWord(v: string | string[] | undefined): OrderQuickWord | null {
+  const raw = Array.isArray(v) ? v[0] : v;
+  return (ORDER_QUICK_WORDS as readonly string[]).includes(raw ?? "")
+    ? (raw as OrderQuickWord)
+    : null;
+}
+
 export interface GarmentOrderAmendment {
   id: string;
   code: string | null;
   is_draft: boolean;
+  /**
+   * The order's OWN decision state (0129), written only by Approve Amendments
+   * (`decideAmendment`) and defaulting to 'pending' on every recorded order.
+   *
+   * Typed here because the list reads it: it is the axis the Pending / Updated
+   * / Draft box on Order Entry is drawn from, and it was coming back from
+   * `getAmendments`'s `select("*")` untyped. NOT `re_status` beside it in the
+   * table — that one is the budget lock, written by
+   * `sync_re_status_from_budget()` two modules downstream, and the list reads
+   * it through `orderLockMessages()` for the RE Status facet instead.
+   */
+  approval_status: ApprovalStatus;
   // order header
   sales_order_id: string | null;
   amend_date: string;

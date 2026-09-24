@@ -103,6 +103,8 @@ export function AdvisedRegister({ rows }: { rows: AdvisedOrderRow[] }) {
     draft: false,
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
+    /* The figure on each word, over the same set the drawer counts. */
+    rows,
   });
   const qm = quick.matches;
   const shown = useMemo(() => rows.filter((r) => facetMatch(r) && qm(r)), [rows, facetMatch, qm]);

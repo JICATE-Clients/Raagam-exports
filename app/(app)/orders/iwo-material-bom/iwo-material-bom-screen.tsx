@@ -331,6 +331,8 @@ export function IwoMaterialBomScreen({
   const quick = useQuickStatus(bomWord, {
     standDown: !!listFacets.values.bom,
     onPick: () => listFacets.set("bom", ""),
+    /* The figure on each word, over the same set the drawer counts. */
+    rows: tasks,
   });
   const qm = quick.matches;
   const listed = useMemo(() => {

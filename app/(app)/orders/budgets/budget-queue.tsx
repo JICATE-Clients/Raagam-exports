@@ -8,7 +8,7 @@ import { flagFacet, urgencyFacet, useFacetFilter, type FacetGroup } from "@/comp
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
-import { DaysOut, StatusSegment } from "@/components/orders/bom-queue";
+import { DaysOut, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import type { StatusTone } from "@/lib/ui/tone";
 import {
   budgetStatusText,
@@ -50,6 +50,30 @@ export type QueueStatus = "none" | BudgetStatus;
 const QUEUE_ORDER: readonly QueueStatus[] = ["none", "rejected", "draft", "submitted", "approved"];
 
 const statusOf = (o: BudgetableOrder): QueueStatus => o.in_budget?.status ?? "none";
+
+/**
+ * WHICH OF THE THREE WORDS AN ORDER COUNTS AS — one word per order, and that
+ * is the whole point of stating it as a function.
+ *
+ * DRAFT USED TO SHOW UNDER UPDATED AS WELL (user, 2026-09-24: "budgeting la
+ * draft datas lam updated la kaatuthu"). The box was hand-rolled here as a
+ * `useState` and three independent `if` lines in the filter, and the Updated
+ * line read `statusOf(o) === "none"` — "a budget exists, whatever its state" —
+ * so a draft satisfied Draft AND Updated. Three separate tests over one state
+ * can overlap; a `wordOf` cannot, because it returns ONE word. That is why the
+ * screen now goes through `useQuickStatus` rather than keeping the three lines
+ * with the middle one patched.
+ *
+ * `rejected` stays UPDATED, unchanged by that fix — it is a budget that has
+ * been through the approver, which is what the word means on the Approval
+ * queue beside this one. It is also editable again here, so if it should read
+ * as Draft ("back with the merchandiser", the reading `returned` gets on the
+ * Order Revisions register) that is a separate decision, not this bug.
+ */
+const budgetWord = (o: BudgetableOrder): QuickWord => {
+  const s = statusOf(o);
+  return s === "none" ? "pending" : s === "draft" ? "draft" : "updated";
+};
 const statusText = (s: QueueStatus) => (s === "none" ? "Not budgeted" : budgetStatusText(s));
 /** Not budgeted is the work waiting, so it takes the warning colour. An order
  *  with the approver is `info` here, so it doesn't read as another pending job. */
@@ -159,21 +183,6 @@ export function BudgetQueue({
   isPending?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  /* THE PENDING / UPDATED BOX, FABRIC BOM'S OWN (user 2026-09-21: "update and
-     pending options displayed to be like fabric bom") — the same component, at
-     the front of the search row. A budget has five states, not a BOM's two
-     ends, so the two words are read as the question the box asks on the BOM
-     queues — is the work still to do, or done:
-       Pending = "Not budgeted" (no budget on the order yet — the work waiting)
-       Updated = a budget exists, whatever its approval state
-       Draft   = a budget exists and is still being written (user 2026-09-22,
-                 the third word on every one of the three queues)
-     Its OWN state, as on `BomQueue`: it never moves the Filters panel's Status
-     facet, which still reaches Draft / Submitted / Approved / Rejected.
-     OPENS ON PENDING (user 2026-09-22), as the BOM queues and Budget Approval
-     do — the orders not yet budgeted are the work this screen exists for. */
-  const [quickFilter, setQuickFilter] = useState<"" | "pending" | "updated" | "draft">("pending");
-
   /** Ready orders, in work order and then by delivery, soonest first. */
   const ready = useMemo(
     () =>
@@ -194,19 +203,45 @@ export function BudgetQueue({
   const facets = useFacetFilter(ready, BUDGET_QUEUE_FACETS);
   const facetMatch = facets.matches;
 
+  /* THE PENDING / UPDATED BOX, FABRIC BOM'S OWN (user 2026-09-21: "update and
+     pending options displayed to be like fabric bom") — the same component, at
+     the front of the search row. A budget has five states, not a BOM's two
+     ends, so the two words are read as the question the box asks on the BOM
+     queues — is the work still to do, or done:
+       Pending = "Not budgeted" (no budget on the order yet — the work waiting)
+       Updated = a budget that has left the merchandiser — Submitted, Approved
+                 or Rejected
+       Draft   = a budget exists and is still being written (user 2026-09-22,
+                 the third word on every one of the three queues)
+     `budgetWord` above says which, and says why it is a function rather than
+     three tests in the filter.
+     Its OWN state, as on `BomQueue`: it never moves the Filters panel's Status
+     facet, which still reaches Draft / Submitted / Approved / Rejected — so no
+     `standDown` and no `onPick` here, unlike Budget Approval's box (user
+     2026-09-21: "Pending and Update should not be connected to the filters").
+     OPENS ON PENDING (user 2026-09-22), as the BOM queues and Budget Approval
+     do — the orders not yet budgeted are the work this screen exists for. */
+  const quick = useQuickStatus(budgetWord, {
+    /* The figure on each word, over READY orders — the same set the drawer's
+       Status facet counts, and the same one `filtered` is drawn from. The
+       orders still waiting on a BOM are not cards here and are not counted
+       here either; the summary on the right of the bar is what says how many
+       they are. */
+    rows: ready,
+  });
+  const quickMatches = quick.matches;
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return ready.filter((o) => {
       if (!facetMatch(o)) return false;
-      if (quickFilter === "pending" && statusOf(o) !== "none") return false;
-      if (quickFilter === "updated" && statusOf(o) === "none") return false;
-      if (quickFilter === "draft" && statusOf(o) !== "draft") return false;
+      if (!quickMatches(o)) return false;
       if (!needle) return true;
       return [o.re_no, o.order_code, o.po_no, o.customer_name].some((v) =>
         (v ?? "").toLowerCase().includes(needle),
       );
     });
-  }, [ready, query, quickFilter, facetMatch]);
+  }, [ready, query, quickMatches, facetMatch]);
 
   const summary = useMemo(() => {
     const open = ready.filter((o) => statusOf(o) === "none").length;
@@ -257,7 +292,7 @@ export function BudgetQueue({
         onSearch={setQuery}
         searchPlaceholder="Search RE No, PO or customer…"
         activeCount={facets.activeCount}
-        leading={<StatusSegment value={quickFilter} onChange={setQuickFilter} draft />}
+        leading={quick.segment}
         onReset={facets.activeCount ? facets.reset : undefined}
         panel={facets.panel}
         right={`${summary} · ${filtered.length} of ${ready.length}`}

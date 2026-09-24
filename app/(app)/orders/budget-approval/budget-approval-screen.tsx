@@ -33,7 +33,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { StatusPill } from "@/components/ui/status-pill";
-import { StatusSegment } from "@/components/orders/bom-queue";
+import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { Truncated } from "@/components/ui/truncated";
 import { Tooltip } from "@/components/ui/tooltip";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -50,6 +50,7 @@ import {
   budgetStatusTone,
   canTransition,
   type BudgetApprovalRow,
+  type BudgetStatus,
   type OrderBudget,
 } from "@/lib/orders/budget/types";
 import { decideBudget, reopenBudget } from "@/lib/orders/budget/actions";
@@ -108,6 +109,30 @@ const FIGURES_BOX_W = SHEET_BOX_W;
  * row (see `quick` below), not this panel: the Status facet here starts at
  * All and, once set, takes over from the box.
  */
+
+/**
+ * WHICH OF THE THREE WORDS A BUDGET COUNTS AS, on an APPROVAL queue:
+ *
+ *  - Pending — `submitted`: with the approver, the one decision this screen
+ *    is waiting on, and what it opens on.
+ *  - Updated — `approved` / `rejected`: decided. The Order Revisions register
+ *    reads both the same way.
+ *  - Draft — not yet submitted, still with the merchandiser.
+ *
+ * STATED AS A MAP, NOT AS THREE TESTS IN THE FILTER. Those three tests were
+ * what let a draft show under Updated as well as Draft on the Budgeting queue
+ * next door (user, 2026-09-24) — this screen's three happened to be disjoint,
+ * which is not the same as being unable to overlap. A `wordOf` returns one
+ * word, and `BudgetStatus` keys the record, so a fifth state is a type error
+ * here rather than a row that silently belongs to no word.
+ */
+const APPROVAL_WORD: Record<BudgetStatus, QuickWord> = {
+  submitted: "pending",
+  approved: "updated",
+  rejected: "updated",
+  draft: "draft",
+};
+const approvalWord = (r: BudgetApprovalRow): QuickWord => APPROVAL_WORD[r.status];
 
 function approvalFacets(rows: BudgetApprovalRow[]): FacetGroup<BudgetApprovalRow>[] {
   return [
@@ -241,21 +266,27 @@ export function BudgetApprovalScreen({
   /** Default: what is waiting. The queue lists everything so an approver can
    *  answer "what did I approve last week?", but the work is what opens. */
   /* THE PENDING / UPDATED / DRAFT BOX, MATERIAL BOM'S OWN (user 2026-09-21 ·
-     09-22), first on the search row. On an approval queue the words mean:
-       Pending = Submitted, awaiting a decision (what the screen opens on)
-       Updated = decided — Approved or Rejected
-       Draft   = not yet submitted
+     09-22), first on the search row — `APPROVAL_WORD` above says which word a
+     budget counts as, and why that is a map rather than three tests here.
      ONE FILTER, TWO CONTROLS, and deliberately connected, unlike the BOM
      queues' box and Filters panel: an independent box left at Updated beside
      a Status facet at Draft would show nothing, silently. So a word in the box
      clears the drawer's Status, and while the drawer's Status is set the box
-     stands down (`quickOn`) — derived, not synced, so the two cannot drift.
-     The drawer (user 2026-09-23) still reaches each state on its own. */
-  const [quick, setQuick] = useState<"" | "pending" | "updated" | "draft">("pending");
+     stands down — `useQuickStatus`'s `standDown` / `onPick`, which is this
+     screen's own rule generalised, derived rather than synced so the two
+     cannot drift. The drawer (user 2026-09-23) still reaches each state on
+     its own. */
   const groups = useMemo(() => approvalFacets(rows), [rows]);
   const facets = useFacetFilter(rows, groups);
   const facetMatch = facets.matches;
-  const quickOn = facets.values.status ? "" : quick;
+  const setFacet = facets.set;
+  const quick = useQuickStatus(approvalWord, {
+    standDown: !!facets.values.status,
+    onPick: () => setFacet("status", ""),
+    /* The figure on each word, over the same set the drawer counts. */
+    rows,
+  });
+  const quickMatches = quick.matches;
   const [search, setSearch] = useState("");
 
   // The remark is typed and unsaved until a decision is taken, so it is real
@@ -370,16 +401,14 @@ export function BudgetApprovalScreen({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (quickOn === "pending" && r.status !== "submitted") return false;
-      if (quickOn === "updated" && r.status !== "approved" && r.status !== "rejected") return false;
-      if (quickOn === "draft" && r.status !== "draft") return false;
+      if (!quickMatches(r)) return false;
       if (!facetMatch(r)) return false;
       if (!q) return true;
       return [r.code, r.description]
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q));
     });
-  }, [rows, quickOn, facetMatch, search]);
+  }, [rows, quickMatches, facetMatch, search]);
 
   const columns: Column<BudgetApprovalRow>[] = [
     {
@@ -524,16 +553,7 @@ export function BudgetApprovalScreen({
           search={search}
           onSearch={setSearch}
           searchPlaceholder="Search budget or group…"
-          leading={
-            <StatusSegment
-              value={quickOn}
-              onChange={(v) => {
-                setQuick(v);
-                facets.set("status", "");
-              }}
-              draft
-            />
-          }
+          leading={quick.segment}
           activeCount={facets.activeCount}
           onReset={facets.activeCount ? facets.reset : undefined}
           panel={facets.panel}
@@ -545,7 +565,7 @@ export function BudgetApprovalScreen({
           rows={filtered}
           getKey={(r) => r.id}
           empty={
-            quickOn === "pending" && facets.activeCount === 0
+            quick.value === "pending" && facets.activeCount === 0
               ? "Nothing is waiting for approval."
               : "No budget matches these filters."
           }

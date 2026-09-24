@@ -45,7 +45,7 @@ export interface TabItem {
    *  disappears teaches the operator nothing about why. */
   disabled?: boolean;
   /**
-   * A second line under the label — "3 lines", "no lines" — drawn ONLY in the
+   * A second line under the label — "3 lines · 1 to rate", "no lines" — drawn ONLY in the
    * side-rail layout (`side` below), where a tab is a row with room for it. The
    * horizontal strip is one line tall and stays that way: a meta line there
    * would grow every strip in the app by a row for the sake of two screens.
@@ -72,13 +72,40 @@ export function Tabs({
    * (user 2026-09-21, screenshot 204339: "the header bar single line into rail
    * type … took reference from material bom item listing").
    *
-   * ONLY WHEN THE PANE CAN AFFORD IT. The rail takes 11rem + 1rem gap = 192px
-   * off the panel, and every Budget grid is width-laid-out against its own
-   * container (`tableFrom`): steal 192px from a 1,155px laptop pane and every
-   * `5xl` grid drops to cards. So the rail switches in by container query at
-   * 76rem (1,216px): the panel beside it is then >= 1,024, which is what a
+   * ONLY WHEN THE PANE CAN AFFORD IT. The rail takes 12rem + an 8px gap =
+   * 200px off the panel, and every Budget grid is width-laid-out against its
+   * own container (`tableFrom`): steal that from a 1,155px laptop pane and
+   * every `5xl` grid drops to cards. So the rail switches in by container query
+   * at 76.5rem (1,224px): the panel beside it is then >= 1,024, which is what a
    * `5xl` grid needs to stay a table. Below that the strip is the horizontal
    * one, byte for byte. A screen never picks the width; the pane does.
+   *
+   * THE RAIL IS FABRIC BOM ▸ COMPONENTS' RAIL, COMPACTED (user 2026-09-24,
+   * approved from the "Process Rate Rail" artifact over screenshot 140658):
+   * one rounded box per tab, a state dot on the left, the label in capitals
+   * with `meta` under it, a 2px primary ring on the open one.
+   *
+   * THE TRACK IS A FIXED 12rem, AND EVERY PIXEL OF IT IS SPOKEN FOR.
+   * - It was `auto` for an hour: hugging the longest label made the rail
+   *   ~210px and Garment Processes (then 1,112) grew a scrollbar (user
+   *   2026-09-24).
+   * - Then 11rem, where "ACCESSORIES PROCESSES" (~158px of bold capitals)
+   *   wrapped and stood one box taller than its neighbours (screenshot
+   *   112812). 12rem, with the entry's right padding and dot gap cut to 8 and
+   *   6, leaves the label 164px — one line.
+   * - 12rem + the 8px gap is 200px, so the client's ~1,312px pane (1920 @
+   *   125%) leaves 1,112 beside the rail — EXACTLY Yarn Purchases' 1,112. Zero
+   *   headroom: widening this track, or the gap, means re-cutting the grids'
+   *   arithmetic in budget-screen.tsx first.
+   * The ring colours are the literal neutrals
+   * `globals.css` gives `[data-md-list-item]`, for the same reason it gives
+   * them: the Orders skin's `--border` is sage and read as a tinted box.
+   *
+   * THE DOT CARRIES THE STATE, SO THE RAIL DRAWS NO RED BADGE: amber = this
+   * tab has `problems`, green = `done`, grey = neither — Material BOM's own
+   * rail dot. The count itself belongs in `meta` ("3 lines · 1 to rate"); the
+   * dot still announces it through its aria-label. The horizontal strip keeps
+   * its badge unchanged.
    *
    * THE NUMBER WAS 92rem FOR AN HOUR AND THE RAIL NEVER SHOWED (screenshots
    * 2994, 2996). It was chosen so the one `7xl` grid (Yarn Purchases, 1,232px
@@ -151,7 +178,7 @@ export function Tabs({
     <div
       className={cn(
         side &&
-          "@min-[76rem]/tabs:grid @min-[76rem]/tabs:grid-cols-[11rem_1fr] @min-[76rem]/tabs:items-start @min-[76rem]/tabs:gap-4",
+          "@min-[76.5rem]/tabs:grid @min-[76.5rem]/tabs:grid-cols-[12rem_minmax(0,1fr)] @min-[76.5rem]/tabs:items-start @min-[76.5rem]/tabs:gap-2",
       )}
     >
       <div
@@ -194,10 +221,10 @@ export function Tabs({
          */
         className={cn(
           "flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border",
-          // The side rail: a column with a right rule, no scrolling — three or
-          // four rows never overflow a pane that is 1,472px wide.
+          // The side rail: a column of boxes 4px apart, no rule and no
+          // scrolling — three or four rows never overflow the pane.
           side &&
-            "@min-[76rem]/tabs:flex-col @min-[76rem]/tabs:gap-0.5 @min-[76rem]/tabs:overflow-visible @min-[76rem]/tabs:border-b-0 @min-[76rem]/tabs:border-r @min-[76rem]/tabs:pr-3",
+            "@min-[76.5rem]/tabs:flex-col @min-[76.5rem]/tabs:gap-1 @min-[76.5rem]/tabs:overflow-visible @min-[76.5rem]/tabs:border-b-0",
         )}
       >
         {items.map((item) => {
@@ -229,17 +256,63 @@ export function Tabs({
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground hover:text-foreground",
                 item.disabled && "cursor-not-allowed opacity-50 hover:text-muted-foreground",
-                // As a rail row: full width, the accent on the LEFT edge, the
-                // label and its badge on one line and `meta` under them. The
-                // active row is tinted the way a selected table row is
-                // (`bg-primary/5`, data-table.tsx) — a 2px edge alone is
-                // too little to mark one row of four.
+                // As a rail row: a rounded box with an inset 1px ring (no
+                // layout cost, so the row does not resize when it opens), the
+                // open one ringed 2px in primary and set bold. See `side`.
                 side &&
-                  "@min-[76rem]/tabs:w-full @min-[76rem]/tabs:flex-col @min-[76rem]/tabs:items-start @min-[76rem]/tabs:gap-0.5 @min-[76rem]/tabs:whitespace-normal @min-[76rem]/tabs:rounded-r-md @min-[76rem]/tabs:border-b-0 @min-[76rem]/tabs:border-l-2 @min-[76rem]/tabs:px-2.5 @min-[76rem]/tabs:py-1.5 @min-[76rem]/tabs:text-left",
-                side && isActive && "@min-[76rem]/tabs:bg-primary/5",
+                  "@min-[76.5rem]/tabs:w-full @min-[76.5rem]/tabs:whitespace-normal @min-[76.5rem]/tabs:rounded-[9px] @min-[76.5rem]/tabs:border-b-0 @min-[76.5rem]/tabs:bg-surface @min-[76.5rem]/tabs:py-1 @min-[76.5rem]/tabs:pl-2 @min-[76.5rem]/tabs:pr-2 @min-[76.5rem]/tabs:text-left @min-[76.5rem]/tabs:text-foreground",
+                side &&
+                  (isActive
+                    ? "@min-[76.5rem]/tabs:font-bold @min-[76.5rem]/tabs:shadow-[inset_0_0_0_2px_var(--primary)]"
+                    : "@min-[76.5rem]/tabs:shadow-[inset_0_0_0_1px_#cfd5dd] @min-[76.5rem]/tabs:hover:bg-surface-muted dark:@min-[76.5rem]/tabs:shadow-[inset_0_0_0_1px_#333b47]"),
               )}
             >
-              <span className="flex items-center gap-1.5">
+              {/* The rail's own row — dot, then label over `meta`. Rendered
+                  beside the strip's row rather than restyling it, and only one
+                  of the two is ever displayed, so the tab's accessible name
+                  is never read twice (`display: none` leaves the name). */}
+              {side && (
+                <span className="hidden min-w-0 items-center gap-1.5 @min-[76.5rem]/tabs:flex">
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 shrink-0 rounded-full",
+                      item.problems
+                        ? "bg-warning"
+                        : item.done
+                          ? "bg-success"
+                          : "bg-border-strong opacity-50",
+                    )}
+                    aria-label={
+                      item.problems
+                        ? `${item.problems} problem${item.problems === 1 ? "" : "s"}`
+                        : item.done
+                          ? "has data"
+                          : "empty"
+                    }
+                  />
+                  <span className="min-w-0">
+                    <span
+                      className={cn(
+                        "block text-[13px] uppercase leading-tight",
+                        isActive ? "font-bold" : "font-semibold",
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                    {item.meta != null && (
+                      <span
+                        className={cn(
+                          "block text-[11px] uppercase leading-tight",
+                          isActive ? "font-bold text-foreground" : "font-normal text-muted-foreground",
+                        )}
+                      >
+                        {item.meta}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              )}
+              <span className={cn("flex items-center gap-1.5", side && "@min-[76.5rem]/tabs:hidden")}>
               {item.label}
               {/* `bg-danger-soft text-danger` is the app's existing danger badge
                   idiom (status-pill.tsx) and the theme-safe one — there is no
@@ -264,16 +337,11 @@ export function Tabs({
                 />
               ) : null}
               </span>
-              {side && item.meta != null && (
-                <span className="hidden text-[11px] font-normal leading-tight text-muted-foreground @min-[76rem]/tabs:block">
-                  {item.meta}
-                </span>
-              )}
             </button>
           );
         })}
       </div>
-      <div className={cn("pt-4", side && "@min-[76rem]/tabs:min-w-0 @min-[76rem]/tabs:pt-0")} role="tabpanel">
+      <div className={cn("pt-4", side && "@min-[76.5rem]/tabs:min-w-0 @min-[76.5rem]/tabs:pt-0")} role="tabpanel">
         {current?.content}
       </div>
     </div>

@@ -198,6 +198,8 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
     draft: false,
     standDown: !!facets.values.scheduled,
     onPick: () => setFacet("scheduled", ""),
+    /* The figure on each word, over the same set the drawer counts. */
+    rows,
   });
   const qm = quick.matches;
   const filtered = useMemo(() => {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
+import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
 import { Check, Clock, Pencil } from "lucide-react";
 import { today as todayAtFactory } from "@/lib/calendar";
 import type { StatusTone } from "@/lib/ui/tone";
@@ -281,10 +282,14 @@ const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
 const QUICK_LIT =
   "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
 
+/** How many rows each word holds, for the figure beside it. */
+export type QuickCounts = Partial<Record<QuickWord, number>>;
+
 export function StatusSegment({
   value,
   onChange,
   draft = false,
+  counts,
 }: {
   /* A plain string, not `BomStatus`: the Budgets queue draws this same box
      over its own vocabulary (2026-09-21, "update and pending options … like
@@ -297,6 +302,29 @@ export function StatusSegment({
    *  caller passes it today. Kept opt-in so a future two-state queue can draw
    *  the box without a word that could only ever show an empty list. */
   draft?: boolean;
+  /**
+   * THE FIGURE BESIDE EACH WORD (user, 2026-09-24: "add dynamic counts to each
+   * status button — the count must come from the backend, not hardcoded").
+   *
+   * Counted from the rows the SERVER sent, by `useQuickStatus`'s own `rows`
+   * option — never a literal, and never a second query: the list is already
+   * fetched whole by the server component, so the figure and the rows behind
+   * it cannot disagree. `undefined` draws the box exactly as it did before.
+   *
+   * COUNTED OVER THE WHOLE SET, NOT THE SEARCHED ONE — the rule the Filters
+   * drawer's counted facets already follow (`useFacetFilter`: counts are over
+   * `rows`). A figure that moved with every keystroke would answer "how many
+   * match what I have typed", which the `N of M` on the right of the same bar
+   * already answers; this one answers "how much work is in each state", which
+   * is why an operator looks at a queue at all.
+   *
+   * A ZERO IS SHOWN AND THE WORD STAYS CHOOSABLE. Zero is information — the
+   * drawer says the same of a state with no rows. It does NOT disable the word
+   * the way the drawer disables an option, because this box cycles: clicking
+   * the lit word steps to the next one, and a disabled stop in that cycle is a
+   * dead press with nothing on screen to explain it.
+   */
+  counts?: QuickCounts;
 }) {
   const words: QuickWord[] = draft ? ["pending", "updated", "draft"] : ["pending", "updated"];
   const current = words.includes(value as QuickWord) ? (value as QuickWord) : null;
@@ -315,6 +343,7 @@ export function StatusSegment({
     >
       {words.map((s, i) => {
         const Icon = QUICK[s].icon;
+        const n = counts?.[s];
         return (
           <button
             key={s}
@@ -328,11 +357,67 @@ export function StatusSegment({
           >
             <Icon className="h-3.5 w-3.5" aria-hidden />
             {QUICK[s].text}
+            {/* Tabular so the three figures line up as they change, and dimmed
+                so the WORD stays what the eye lands on. On the lit word it
+                inherits `text-primary-foreground` and only the opacity
+                separates it, which keeps the preset's own contrast. */}
+            {n != null && <span className="tabular-nums opacity-70">{n}</span>}
           </button>
         );
       })}
     </div>
   );
+}
+
+/**
+ * THE SELECTED WORD IS IN THE URL (user, 2026-09-24: "the selected status
+ * should update the URL/API query parameter").
+ *
+ * `?status=pending` — the word itself, the same spelling `QuickWord` uses, so
+ * a link to a queue carries which pile of work it was opened on. Every Orders
+ * route is request-dynamic (each page's loader awaits `cookies()` through
+ * `lib/supabase/server`), so `useSearchParams` has the value during SSR and
+ * the first paint is already the right pile — no prerender, and so none of the
+ * client-render bailout the hook's own docs warn about.
+ *
+ * ## `replaceState`, NOT `pushState`, AND NOT `router.replace`
+ *
+ * `router.replace` re-runs the server component, so every chip click would
+ * refetch the whole list — on Order Entry that is `getAmendments()` and its
+ * fourteen embeds, for a filter the rows on screen can already answer. The
+ * native History API is the documented way to move the URL without that
+ * (Next 16, "Native History API": pushState/replaceState "integrate into the
+ * Next.js Router, allowing you to sync with usePathname and useSearchParams").
+ *
+ * `pushState` would put every chip click in the back stack, so Back would walk
+ * Draft → Updated → Pending instead of leaving the screen. A filter is not a
+ * place you navigated to.
+ *
+ * ## WHAT IS AND IS NOT PASSED TO THE SERVER
+ *
+ * The param reaches the server on any render of the route that starts at the
+ * URL — a reload, a shared link, a bookmark, a `router.refresh()` after a save.
+ * The SERVICES do not narrow their SQL by it: these lists are fetched whole and
+ * the box is a display slice, the same arrangement AGENTS.md records for
+ * pagination ("It is a display slice, not a query"). Narrowing the SQL would
+ * also take the counts with it — `counts` is a pass over the rows that arrived,
+ * so a server that returned only Pending rows could no longer say how many
+ * Updated ones exist without a second, disagreeable query.
+ */
+const QUICK_PARAM = "status";
+
+function readQuickParam(sp: ReadonlyURLSearchParams, param: string): QuickWord | null {
+  const raw = sp.get(param);
+  return raw === "pending" || raw === "updated" || raw === "draft" ? raw : null;
+}
+
+/** Writes the word, KEEPING every other param — these routes carry `?new=1`,
+ *  `?budget=&line=&field=` and an entry id, and a filter must not eat them. */
+function writeQuickParam(param: string, v: string) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  params.set(param, v);
+  window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
 }
 
 /**
@@ -358,23 +443,123 @@ export function StatusSegment({
  */
 export function useQuickStatus<R>(
   wordOf: (r: R) => QuickWord | null,
-  opts: { draft?: boolean; standDown?: boolean; onPick?: () => void } = {},
+  opts: {
+    draft?: boolean;
+    standDown?: boolean;
+    onPick?: () => void;
+    /**
+     * THE ROWS TO COUNT — pass the screen's FULL set, the same one handed to
+     * `useFacetFilter`, not the searched or already-filtered one. See
+     * `StatusSegment`'s `counts` for why, and for why a zero still shows.
+     *
+     * Optional so the box draws unchanged without it. `wordOf` is walked once
+     * per row, so this must be a module constant or a `useCallback` — every
+     * caller's already is, because `matches` has the same requirement.
+     */
+    rows?: readonly R[];
+    /**
+     * The URL param the word is kept in. Defaults to `status`; name it only
+     * where two boxes share one route, or they would overwrite each other.
+     */
+    param?: string;
+  } = {},
 ) {
-  const { draft = true, standDown = false, onPick } = opts;
-  const [quick, setQuick] = useState<"" | QuickWord>("pending");
+  const { draft = true, standDown = false, onPick, rows, param = QUICK_PARAM } = opts;
+  const sp = useSearchParams();
+  /* SEEDED FROM THE URL, THEN OWNED HERE. The seed is what makes a shared link
+     open on its own pile; the state is what makes a click instant. A Back that
+     changes ONLY the query does not move the box — the price of not re-reading
+     `sp` every render, and cheap next to a chip click that refetched the list. */
+  const [quick, setQuick] = useState<"" | QuickWord>(() => readQuickParam(sp, param) ?? "pending");
   const value = standDown ? "" : quick;
   const matches = useCallback((r: R) => !value || wordOf(r) === value, [value, wordOf]);
+  /* ONE PASS, AND ONLY WHEN THE ROWS CHANGE. The count cannot be a second
+     query: these lists arrive whole from the server component, so counting
+     them here is counting exactly what was fetched — a query would be a
+     second answer able to disagree with the rows on screen. */
+  const counts = useMemo<QuickCounts | undefined>(() => {
+    if (!rows) return undefined;
+    const n: Record<QuickWord, number> = { pending: 0, updated: 0, draft: 0 };
+    for (const r of rows) {
+      const w = wordOf(r);
+      if (w) n[w] += 1;
+    }
+    return n;
+  }, [rows, wordOf]);
   const segment = (
     <StatusSegment
       value={value}
       onChange={(v) => {
         setQuick(v);
+        writeQuickParam(param, v);
         onPick?.();
       }}
       draft={draft}
+      counts={counts}
     />
   );
-  return { value, matches, segment };
+  return { value, matches, segment, counts };
+}
+
+/**
+ * THE BOX WHEN THE **SERVER** DOES THE NARROWING (user, 2026-09-24: "the status
+ * parameter must be applied to the database query — add the appropriate WHERE
+ * condition"). Order Entry is the first screen on it; `useQuickStatus` above
+ * stays the client-side form the other eleven still use.
+ *
+ * ## WHAT MOVES, AND WHAT THAT COSTS
+ *
+ * The word is no longer state here — it is the `?status=` the PAGE read and
+ * turned into a WHERE, handed back down as `value`. So a click cannot filter
+ * anything on its own: it navigates, the server component re-runs, and the new
+ * rows arrive. `router.replace`, not `replaceState`, precisely because the
+ * refetch IS the point now; `scroll: false` so the list does not jump to the
+ * top under the operator; `replace` so Back leaves the screen rather than
+ * walking three filter choices.
+ *
+ * `isPending` comes back with it. A click is a round trip, which the
+ * client-side box never was, and a queue that sits unchanged for half a second
+ * after a press reads as a dead button — the caller dims the list with it.
+ *
+ * ## THE COUNTS MUST COME FROM SOMEWHERE ELSE, AND THAT IS THE WHOLE TRICK
+ *
+ * `counts` is passed in, from the server's own `count(*)` per word over EVERY
+ * row. It can no longer be a pass over the rows on screen, because those are
+ * now one word's worth: counting them would report `Updated 0 · Draft 0`
+ * whenever Pending is chosen. Null counts draw the box with no figures, which
+ * is the honest answer when the count query failed — never zeroes.
+ */
+export function useServerQuickStatus({
+  value,
+  counts,
+  draft = true,
+  param = QUICK_PARAM,
+}: {
+  /** The word the SERVER filtered by — the page's parsed `?status=`. */
+  value: QuickWord | null;
+  /** Counted in the database over every row; null draws no figures. */
+  counts?: QuickCounts | null;
+  draft?: boolean;
+  param?: string;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const pick = useCallback(
+    (v: QuickWord) => {
+      /* Every other param is kept — these routes carry `?new=1` and an entry
+         id, and choosing a filter must not close the editor the operator has
+         open. */
+      const params = new URLSearchParams(window.location.search);
+      params.set(param, v);
+      const href = `${window.location.pathname}?${params.toString()}`;
+      startTransition(() => router.replace(href, { scroll: false }));
+    },
+    [param, router],
+  );
+  const segment = (
+    <StatusSegment value={value ?? ""} onChange={pick} draft={draft} counts={counts ?? undefined} />
+  );
+  return { value, segment, isPending };
 }
 
 /**
@@ -518,8 +703,33 @@ export function BomQueue({
      Filters badge. Now the two are independent and both apply: the box narrows
      the queue, the panel narrows it further, and neither changes the other. */
   /* `"pending"`, not `""` — see `StatusSegment`'s note: the queue opens on the
-     work still to do (user 2026-09-22). */
-  const [quickFilter, setQuickFilter] = useState<"" | BomStatus>("pending");
+     work still to do (user 2026-09-22) — unless the URL names another pile,
+     which is `readQuickParam`'s job (2026-09-24). This queue keeps its own
+     state rather than calling `useQuickStatus`, because it matches on
+     `BomStatus` directly; the URL half is the same two helpers either way, so
+     the two cannot spell the param differently. */
+  const sp = useSearchParams();
+  const [quickFilter, setQuickFilter] = useState<"" | BomStatus>(
+    () => readQuickParam(sp, QUICK_PARAM) ?? "pending",
+  );
+  const pickQuick = useCallback((v: QuickWord) => {
+    setQuickFilter(v);
+    writeQuickParam(QUICK_PARAM, v);
+  }, []);
+  /* THE FIGURE ON EACH WORD (user 2026-09-24) — over every task the server
+     sent, the same set the drawer counts its Status facet over. Not through
+     `useQuickStatus`: this queue matches on `BomStatus` directly, because its
+     own vocabulary IS the three words plus Recalculate and Unresolved. Those
+     last two are in no word and so in no figure — the counted Status facet in
+     the drawer is where they are answered, which is the arrangement the
+     `null` word gives every other screen. */
+  const quickCounts = useMemo<QuickCounts>(() => {
+    const n: Record<QuickWord, number> = { pending: 0, updated: 0, draft: 0 };
+    for (const t of tasks) {
+      if (t.status === "pending" || t.status === "updated" || t.status === "draft") n[t.status] += 1;
+    }
+    return n;
+  }, [tasks]);
   /* THE GROUPED DRAWER — every BOM queue's, since 2026-09-23 (Fabric BOM
      had a lone Status select until then). */
   const facets = useFacetFilter(tasks, BOM_FACETS);
@@ -607,9 +817,9 @@ export function BomQueue({
         leading={
           quickStatus ? (
             quickDraft ? (
-              <StatusSegment value={quickFilter} onChange={setQuickFilter} draft />
+              <StatusSegment value={quickFilter} onChange={pickQuick} draft counts={quickCounts} />
             ) : (
-              <StatusSegment value={quickFilter} onChange={setQuickFilter} />
+              <StatusSegment value={quickFilter} onChange={pickQuick} counts={quickCounts} />
             )
           ) : undefined
         }
