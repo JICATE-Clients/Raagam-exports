@@ -332,6 +332,7 @@ export function MasterFullScreen({
   onEnterSection,
   railCollapsed = false,
   fitRail = false,
+  railHeading = "Sections",
   onExpandRail,
   initialSection,
   summary,
@@ -475,6 +476,17 @@ export function MasterFullScreen({
    * spacing are the client's own (2026-08-27).
    */
   fitRail?: boolean;
+  /**
+   * What the rail calls itself. Default "Sections".
+   *
+   * A generic word is right on a generic editor, and wrong on one the operator
+   * knows by the thing it holds — the HR record's rail is the staff member's
+   * own file, so it says so (client 2026-09-19: "there is name called sections
+   * right, make the name as staff info"). Kept as a PROP rather than a rename
+   * because this shell carries every master in the app; "Staff Info" over a
+   * Vendor's rail would be worse than the generic word it replaced.
+   */
+  railHeading?: string;
   /**
    * Bring the rail back. Required in spirit by `railCollapsed`: without it the
    * fold is a one-way door, and the operator has no way to reach another section
@@ -1442,8 +1454,15 @@ export function MasterFullScreen({
             railCollapsed && "md:hidden",
           )}
         >
-          <span className="ty-sidebar-group hidden px-2 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground md:block">
-            Sections
+          {/* BIGGER AND BOLDER, and `ty-sidebar-group` had to GO for it to be
+              either (client 2026-09-19). That class is set by the compact type
+              scale as `html[data-type-scale="compact"] .ty-sidebar-group`,
+              which at (0,2,1) outranks any Tailwind utility beside it — so the
+              `text-[10.5px] font-bold` written here was never what rendered;
+              11px at weight 500 was. Dropping the class is what lets the
+              utilities win, rather than piling on an `!important`. */}
+          <span className="hidden px-2 pb-1.5 pt-1 text-sm font-bold uppercase tracking-wide text-foreground md:block">
+            {railHeading}
           </span>
           {railRows.map((s) => {
             const isActive = section === s.key;
@@ -1677,7 +1696,7 @@ export function MasterFullScreen({
                 className="mb-3 hidden items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground md:inline-flex"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
-                Sections
+                {railHeading}
               </button>
             )}
             {/* THE RAIL NAMES THE SECTION, SO THE SECTION DOES NOT NAME
