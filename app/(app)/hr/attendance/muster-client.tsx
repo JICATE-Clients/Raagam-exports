@@ -200,10 +200,29 @@ export default function MusterClient({
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-            <table className="w-full border-collapse text-xs">
+            {/* EVERY DAY COLUMN THE SAME WIDTH, declared rather than hinted.
+                `w-full` with the browser's automatic table layout sizes each
+                column to its own content, so day 1 came out narrower than day
+                31 and the numbers along the top sat at uneven intervals
+                (client 2026-09-17: "the numbering looks odd in month view").
+                `table-fixed` plus a colgroup settles it: the days and the
+                totals take the widths named here, the NAME column is the one
+                left unsized so it absorbs whatever is spare, and the table's
+                own min-width is what makes the wrapper scroll on a phone
+                instead of squeezing 31 columns into 360px. */}
+            <table className="w-full min-w-[68rem] table-fixed border-collapse text-xs">
+              <colgroup>
+                <col />
+                {days.map((d) => (
+                  <col key={d} className="w-6" />
+                ))}
+                {["P", "A", "L", "OT", "Hrs"].map((h) => (
+                  <col key={h} className="w-10" />
+                ))}
+              </colgroup>
               <thead>
                 <tr className="border-b border-border bg-surface-muted">
-                  <th className="sticky left-0 z-10 min-w-40 bg-surface-muted px-3 py-1.5 text-left text-xs font-bold text-muted-foreground">
+                  <th className="sticky left-0 z-10 bg-surface-muted px-3 py-1.5 text-left text-xs font-bold text-muted-foreground">
                     Worker
                   </th>
                   {days.map((d) => {
@@ -214,7 +233,7 @@ export default function MusterClient({
                         key={d}
                         scope="col"
                         className={cn(
-                          "w-6 border-l border-border px-0 py-1 text-center font-semibold",
+                          "border-l border-border px-0 py-1 text-center font-semibold tabular-nums",
                           dow === 0 || holiday
                             ? "bg-surface-muted text-muted-foreground"
                             : "text-foreground",
@@ -244,7 +263,7 @@ export default function MusterClient({
                     <th
                       key={h}
                       scope="col"
-                      className="w-10 border-l border-border px-1 py-1 text-right text-xs font-bold text-muted-foreground"
+                      className="border-l border-border px-1 py-1 text-right text-xs font-bold text-muted-foreground"
                     >
                       {h}
                     </th>
