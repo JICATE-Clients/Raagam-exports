@@ -11,16 +11,13 @@ import {
   Contact,
   FileText,
   HeartHandshake,
-  Info,
   Home,
   Languages,
-  Paperclip,
   PhoneCall,
-  ToggleLeft,
   UserRound,
   Users,
   UsersRound,
-  type LucideIcon,
+  type LucideIcon
 } from "lucide-react";
 
 import type { PersonKind } from "@/lib/hr/types";
@@ -73,26 +70,41 @@ import type { PersonKind } from "@/lib/hr/types";
 export type PersonSectionKey =
   | "detail"
   | "employment"
-  | "dates"
   | "statutory"
-  | "status"
+  | "shifts"
   | "addresses"
   | "personal"
-  | "identifiers"
-  | "enclosure"
+  | "documents"
   | "education"
   | "languages"
   | "background"
-  | "other-details"
-  | "external-refs"
-  | "emergency"
-  | "internal-ref"
-  | "shifts"
-  | "general"
   | "family"
   | "experience"
   | "reference"
-  | "nomination";
+  | "external-refs"
+  | "emergency"
+  | "internal-ref"
+  | "nomination"
+  | "detail-person"
+  | "detail-posting"
+  | "employment-engagement"
+  | "employment-worker-terms-and-wages"
+  | "employment-card-and-facilities"
+  | "employment-service-dates"
+  | "statutory-tax"
+  | "statutory-worker-category"
+  | "personal-basics"
+  | "personal-physical"
+  | "personal-medical"
+  | "documents-document-numbers"
+  | "documents-copies-collected"
+  | "documents-licences-held"
+  | "documents-verification"
+  | "education-schooling"
+  | "education-technical-training"
+  | "background-how-they-joined"
+  | "background-home-and-family"
+  | "background-conduct-and-achievements";
 
 /**
  * ONE RAIL FOR BOTH. The client asked for a worker's record to be the staff
@@ -112,89 +124,62 @@ const ALL_SECTIONS: {
   /** Owns no pane — clicking it opens its first child. */
   groupOnly?: boolean;
 }[] = [
-  { key: "detail", label: "Detail", icon: FileText },
-  /**
-   * THE FOUR THAT USED TO BE HEADINGS INSIDE DETAIL (client 2026-09-11: "in
-   * detail the 3 lines can be there, under the details other all heading can
-   * show in left side bar under the detail like employement dtas and all so if
-   * i click from the left side only those regarding fields can show").
-   *
-   * Detail was ~700 lines of one pane — the identity block plus Employment,
-   * Dates, Statutory and Status stacked under `GroupHeading`s. Each is now its
-   * own rail row, indented with `sub`, so opening one shows only its fields.
-   * Detail keeps exactly the three identity rows it opens on.
-   *
-   * ORDER IS THE NESTING (`sub` indents; it does not declare a parent), so
-   * these four must stay directly beneath Detail. Their `GroupHeading`s are
-   * dropped inside the panes: the rail row now says the name, and repeating it
-   * as a heading is the duplication the de-clutter rule removes elsewhere.
-   */
-  { key: "employment", label: "Employment", icon: ClipboardList, sub: true },
-  { key: "dates", label: "Dates", icon: CalendarDays, sub: true },
-  { key: "statutory", label: "Statutory", icon: FileCheck, sub: true },
-  { key: "status", label: "Status", icon: ToggleLeft, sub: true },
-  // Dated spells, not a field on Detail — see `hr_shift_assignments` (0554).
-  // WORKERS ONLY — filtered out for staff by `personSections` below.
-  { key: "shifts", label: "Shifts", icon: Clock },
   /*
-   * NO SALARY REGISTRY AND NO BANK ACCOUNT ON THE RECORD (client 2026-09-16:
-   * "in add new staff, remove salary and bank bcz it is outside is there right
-   * that is enough").
+   * EVERY HEADING IS A ROW (client 2026-09-22: "every heading should be in the
+   * left side"). A pane that used to hold several headed groups is now a
+   * group-only parent — it owns no pane, clicking it opens its first child —
+   * and each heading is a child row whose pane is the flat run of fields that
+   * stood under it. The rail is the only place a name appears; no pane draws a
+   * heading of its own.
    *
-   * Both are HR sub-modules of their own since 2026-09-12 — `/hr/salary-registry`
-   * and `/hr/bank-details` list every person, count who is still pending, and
-   * fill the details in from the list through the same server actions. Two
-   * places to enter one salary was the drift this screen's own comments warned
-   * about, and the client has now chosen which one stays.
-   *
-   * The COLUMNS stay on the record and still round-trip through this editor
-   * unchanged (`openEdit` loads them, save writes them back), so saving a person
-   * here cannot blank a salary entered on the worklist. Only the panes are gone.
+   * ORDER IS THE NESTING: `sub` indents a row under the nearest non-sub row
+   * above it, so a parent's children must follow it directly.
    */
-  { key: "general", label: "General", icon: Contact, groupOnly: true },
+  { key: "detail", label: "Identity", icon: FileText, groupOnly: true },
+  { key: "detail-person", label: "Person", icon: FileText, sub: true },
+  { key: "detail-posting", label: "Posting", icon: FileText, sub: true },
+  { key: "employment", label: "Job & Wages", icon: ClipboardList, groupOnly: true },
+  { key: "employment-engagement", label: "Engagement", icon: ClipboardList, sub: true },
+  // WORKERS ONLY — filtered out for staff by `personSections`.
+  { key: "employment-worker-terms-and-wages", label: "Worker Terms & Wages", icon: ClipboardList, sub: true },
+  // Joining, probation, confirmation, leaving: the dates of the JOB. Date of
+  // birth went to About the Person ▸ Basics, and with that "Key Dates" had no
+  // reason to be a category of its own (2026-09-22).
+  { key: "employment-service-dates", label: "Service Dates", icon: CalendarDays, sub: true },
+  { key: "employment-card-and-facilities", label: "Facilities", icon: ClipboardList, sub: true },
+  { key: "statutory", label: "Tax & Category", icon: FileCheck, groupOnly: true },
+  { key: "statutory-tax", label: "Tax", icon: FileCheck, sub: true },
+  { key: "statutory-worker-category", label: "Worker Category", icon: FileCheck, sub: true },
+  // Dated spells, not a field on Identity — see `hr_shift_assignments` (0554).
+  // WORKERS ONLY — filtered out for staff by `personSections` below.
+  { key: "shifts", label: "Shift Assignment", icon: Clock },
   // Both addresses on one pane, side by side (client 2026-09-16).
-  { key: "addresses", label: "Addresses", icon: Home, sub: true },
-  { key: "personal", label: "Personal", icon: UserRound, sub: true },
-  { key: "identifiers", label: "Identifiers", icon: Fingerprint, sub: true },
-  /**
-   * THE FIVE POPUPS LEGACY HANGS OFF GENERAL (client 2026-09-12, five
-   * screenshots: "we missed this 5 child in general add these i want all fields
-   * from here") — EDP4 reaches them through buttons scattered across the tab;
-   * here they are rail rows, so nothing is behind a button an operator has to
-   * know about.
-   *
-   * "Details" and "Other Details" are legacy's own two names for two different
-   * popups, which is unusable as a pair of rail labels. They are named for what
-   * they hold instead: how someone reached us and their household, and their
-   * physical particulars and documents.
-   */
-  { key: "enclosure", label: "Enclosure", icon: Paperclip, sub: true },
-  {
-    key: "education",
-    label: "Education & Technical",
-    icon: GraduationCap,
-    sub: true,
-  },
-  { key: "languages", label: "Languages", icon: Languages, sub: true },
-  { key: "background", label: "Background", icon: ClipboardList, sub: true },
-  { key: "other-details", label: "Other Details", icon: Info, sub: true },
-  { key: "family", label: "Family Details", icon: Users },
-  { key: "experience", label: "Work Experience", icon: Briefcase },
-  { key: "reference", label: "Reference", icon: Contact, groupOnly: true },
-  {
-    key: "external-refs",
-    label: "External References",
-    icon: UsersRound,
-    sub: true,
-  },
+  { key: "addresses", label: "Address", icon: Home },
+  { key: "personal", label: "About the Person", icon: UserRound, groupOnly: true },
+  { key: "personal-basics", label: "Basics", icon: UserRound, sub: true },
+  { key: "personal-physical", label: "Physical", icon: UserRound, sub: true },
+  { key: "personal-medical", label: "Medical", icon: UserRound, sub: true },
+  { key: "documents", label: "ID & Documents", icon: Fingerprint, groupOnly: true },
+  { key: "documents-document-numbers", label: "Document Numbers", icon: Fingerprint, sub: true },
+  { key: "documents-copies-collected", label: "Copies Collected", icon: Fingerprint, sub: true },
+  { key: "documents-licences-held", label: "Licences Held", icon: Fingerprint, sub: true },
+  { key: "documents-verification", label: "Verification", icon: Fingerprint, sub: true },
+  { key: "education", label: "Education & Training", icon: GraduationCap, groupOnly: true },
+  { key: "education-schooling", label: "Schooling", icon: GraduationCap, sub: true },
+  { key: "education-technical-training", label: "Technical Training", icon: GraduationCap, sub: true },
+  { key: "languages", label: "Languages Known", icon: Languages },
+  { key: "background", label: "Background", icon: ClipboardList, groupOnly: true },
+  { key: "background-how-they-joined", label: "How They Joined", icon: ClipboardList, sub: true },
+  { key: "background-home-and-family", label: "Home & Family", icon: ClipboardList, sub: true },
+  { key: "background-conduct-and-achievements", label: "Conduct & Achievements", icon: ClipboardList, sub: true },
+  { key: "family", label: "Family Members", icon: Users },
+  { key: "experience", label: "Previous Employment", icon: Briefcase },
+  { key: "reference", label: "References", icon: Contact, groupOnly: true },
+  { key: "external-refs", label: "Outside References", icon: UsersRound, sub: true },
   { key: "emergency", label: "Emergency Contacts", icon: PhoneCall, sub: true },
-  {
-    key: "internal-ref",
-    label: "Internal Reference",
-    icon: Contact,
-    sub: true,
-  },
-  { key: "nomination", label: "Nomination", icon: HeartHandshake },
+  { key: "internal-ref", label: "Inside the Company", icon: Contact, sub: true },
+  { key: "nomination", label: "Nominee", icon: HeartHandshake },
+
 ];
 
 /**
@@ -227,7 +212,8 @@ const ALL_SECTIONS: {
  * outright for staff instead.
  */
 export function personSections(kind: PersonKind) {
+  const workerOnly = new Set<PersonSectionKey>(["shifts", "employment-worker-terms-and-wages"]);
   return kind === "worker"
     ? ALL_SECTIONS
-    : ALL_SECTIONS.filter((s) => s.key !== "shifts");
+    : ALL_SECTIONS.filter((s) => !workerOnly.has(s.key));
 }
