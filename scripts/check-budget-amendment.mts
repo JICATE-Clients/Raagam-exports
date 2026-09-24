@@ -349,5 +349,39 @@ check(
   "Approved figure unknown — Not recorded",
 );
 
+/* A BASELINE FROZEN UNDER THE OLD GROUPING (before 2026-09-24: the fabric
+   steps under Processing, no `grouping` marker). Nothing moved, so nothing
+   may vary — the 3,50,000 of fabric process is regrouped from its lines. */
+const OLD_GENERAL = {
+  ...GENERAL,
+  grouping: undefined,
+  rows: GENERAL.rows.map((r) =>
+    r.key === "fabric"
+      ? { ...r, amount: (r.amount as number) - 350_000 }
+      : r.key === "processing"
+        ? { ...r, amount: (r.amount as number) + 350_000 }
+        : r,
+  ),
+};
+const OLD_DIFF = compareToBaseline(
+  roundTrip(budgetBaseline({ kpis: KPIS, general: OLD_GENERAL, lines: LINES })),
+  GENERAL,
+);
+check(
+  "an old-grouping baseline is regrouped: Fabric and Processing vary by 0",
+  ["fabric", "processing"].map((k) => OLD_DIFF.find((r) => r.key === k)!.variance),
+  [0, 0],
+);
+check(
+  "…and without its lines it refuses rather than invent a variance",
+  refusalOf(compareToBaseline({ general: OLD_GENERAL }, GENERAL).find((r) => r.key === "fabric")!.variance),
+  "Approved figure unknown — Approved lines not recorded — the fabric steps cannot be regrouped",
+);
+check(
+  "a new-grouping baseline is never regrouped twice",
+  compareToBaseline(roundTrip(BASELINE), GENERAL).find((r) => r.key === "fabric")!.variance,
+  0,
+);
+
 console.log(failed === 0 ? "\nOK — every budget amendment vector holds." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

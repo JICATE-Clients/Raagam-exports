@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadTrimTaForGarmentOrder } from "@/lib/orders/trim-ta/actions";
 import type { TrimTaResult } from "@/lib/orders/trim-ta/service";
+import { recallTaView, rememberTaView } from "@/lib/orders/ta-view-cache";
 import { TrimsOrderBoard } from "./trims-order-board";
 
 type Loaded = { key: string; result: { ok: true; data: TrimTaResult } | { ok: false; error: string } };
@@ -31,6 +32,7 @@ export function TrimTaSection({ garmentOrderId, bomDirty }: { garmentOrderId: st
     if (!garmentOrderId) return;
     let alive = true;
     loadTrimTaForGarmentOrder(garmentOrderId).then((result) => {
+      if (result.ok) rememberTaView(`trim:${garmentOrderId}`, result.data);
       if (alive) setLoaded({ key, result });
     });
     return () => {
@@ -45,7 +47,15 @@ export function TrimTaSection({ garmentOrderId, bomDirty }: { garmentOrderId: st
   }
   // Keep showing the previous answer while a reload after an edit is in flight,
   // so the board does not blink out under the operator's cursor.
-  const current = loaded && (loaded.key === key || loaded.key.startsWith(`${garmentOrderId}|`)) ? loaded : null;
+  // Before the first answer for this order lands, the last one read for it
+  // stands in — the section remounts on every return (`ta-view-cache.ts`).
+  const remembered = recallTaView<TrimTaResult>(`trim:${garmentOrderId}`);
+  const current =
+    loaded && (loaded.key === key || loaded.key.startsWith(`${garmentOrderId}|`))
+      ? loaded
+      : remembered
+        ? { key, result: { ok: true as const, data: remembered } }
+        : null;
   if (!current) return <p className="text-xs text-muted-foreground">Reading the trims schedule…</p>;
   if (!current.result.ok) return <p className="text-xs text-danger">{current.result.error}</p>;
 

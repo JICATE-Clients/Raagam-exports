@@ -1475,8 +1475,14 @@ export type YarnFabricRequirementReport = {
 export async function yarnFabricRequirementReport(
   bomId: string,
 ): Promise<YarnFabricRequirementReport | ReportRefusal> {
-  const header = await loadBomDocHeader(bomId);
-  if (isReportRefusal(header)) return header;
+  /* THE REGISTER STARTS FIRST AND IS AWAITED LAST (2026-09-24, "T&A tab takes
+     2 seconds" — the Fabric BOM T&A tab reads this report). It needs nothing
+     but `bomId`, and it used to begin only after every read below had
+     finished, adding its own chain of round trips to the end of this one. The
+     `.catch` only marks the promise handled for the early refusals that never
+     await it; the `await` at the bottom still sees any rejection. */
+  const registerP = fabricBomEntryRegister(bomId);
+  registerP.catch(() => {});
 
   const s = await createClient();
 
@@ -1485,11 +1491,16 @@ export async function yarnFabricRequirementReport(
      computed by `writeYarns` at Save time from this exact same route data
      (`yarnPurchase`, 2026-09-11). The STAGE LEDGER below, by contrast, is
      genuinely live-computed — it has never been persisted in ladder form (see
-     `comboUpliftBreakdown`'s header), so there is nothing stored to read. */
-  const { data: yarnRows, error: yarnErr } = await s
-    .from("order_fabric_bom_yarns")
-    .select("item_id, purchase_qty, uom_id, refusal_reason, stages:order_fabric_bom_yarn_stages(loss_pct)")
-    .eq("bom_id", bomId);
+     `comboUpliftBreakdown`'s header), so there is nothing stored to read.
+     Read beside the header, not after it: it keys on `bomId` alone. */
+  const [header, { data: yarnRows, error: yarnErr }] = await Promise.all([
+    loadBomDocHeader(bomId),
+    s
+      .from("order_fabric_bom_yarns")
+      .select("item_id, purchase_qty, uom_id, refusal_reason, stages:order_fabric_bom_yarn_stages(loss_pct)")
+      .eq("bom_id", bomId),
+  ]);
+  if (isReportRefusal(header)) return header;
 
   if (yarnErr) return { refused: `Could not read the yarn purchase rows: ${yarnErr.message}` };
 
@@ -2653,7 +2664,7 @@ export async function yarnFabricRequirementReport(
   /* THE REGISTER, READ ONCE MORE FOR THE ALLOCATION SECTION — its rows are
      what the section regroups, and building them a second way here would be
      two implementations of one document. */
-  const register = await fabricBomEntryRegister(bomId);
+  const register = await registerP;
 
   return {
     header,

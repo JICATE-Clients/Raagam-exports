@@ -73,15 +73,16 @@ export async function saveTrimTaMark(raw: TrimTaMarkInput): Promise<Result> {
 export async function loadTrimTaForGarmentOrder(
   garmentOrderId: string,
 ): Promise<{ ok: true; data: TrimTaResult } | { ok: false; error: string }> {
-  if (!(await can("orders", "view"))) return { ok: false, error: "You do not have permission to view orders." };
   if (!z.string().uuid().safeParse(garmentOrderId).success) return { ok: false, error: "No garment order given." };
 
+  // The permission check and the order hop run together — the answer is still
+  // refused before anything is returned, it just no longer costs a round trip.
   const sb = await createClient();
-  const { data: go, error } = await sb
-    .from("garment_order_amendments")
-    .select("sales_order_id")
-    .eq("id", garmentOrderId)
-    .maybeSingle();
+  const [allowed, { data: go, error }] = await Promise.all([
+    can("orders", "view"),
+    sb.from("garment_order_amendments").select("sales_order_id").eq("id", garmentOrderId).maybeSingle(),
+  ]);
+  if (!allowed) return { ok: false, error: "You do not have permission to view orders." };
   if (error) return { ok: false, error: `The garment order could not be read: ${error.message}` };
   const soId = (go as { sales_order_id: string | null } | null)?.sales_order_id;
   if (!soId) return { ok: false, error: "This garment order has no sales order behind it yet." };
