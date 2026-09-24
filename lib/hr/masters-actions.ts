@@ -46,6 +46,24 @@ export async function updateContractor(id: string, data: ContractorInput): Promi
   return { ok: true };
 }
 
+/**
+ * A PERSON RECORD NEEDS A PHOTOGRAPH (client 2026-09-18: "photo should be
+ * mand"). The editor blocks Save on it as well; this is the guard behind it.
+ *
+ * NOT DECLARED IN `personInput`, and that is the decision worth reading. The
+ * schema is what `lib/data-io/entities.ts` parses a SPREADSHEET with, for both
+ * `workers` and `staff` — and a spreadsheet row carries no photograph. Putting
+ * the rule there would not make bulk import stricter, it would make it
+ * impossible. So it sits on the door an operator comes through, and an IMPORT
+ * CAN STILL BRING IN A ROW WITH NO FACE: do not read the column as never-null
+ * until that hole is closed on purpose.
+ */
+function missingPhoto(data: { photo_url?: string | null }): Result | null {
+  return String(data.photo_url ?? "").trim()
+    ? null
+    : { ok: false, error: "Photo is required." };
+}
+
 /* ---- Workers ---- */
 
 export async function createWorker(
@@ -57,6 +75,8 @@ export async function createWorker(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
   }
+  const noPhoto = missingPhoto(parsed.data);
+  if (noPhoto) return noPhoto;
   const supabase = await createClient();
   const { data: row, error } = await supabase
     .from("workers")
@@ -82,6 +102,8 @@ export async function updateWorker(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
   }
+  const noPhoto = missingPhoto(parsed.data);
+  if (noPhoto) return noPhoto;
   const supabase = await createClient();
   const { error } = await supabase
     .from("workers")
@@ -211,6 +233,8 @@ export async function createStaff(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
   }
+  const noPhoto = missingPhoto(parsed.data);
+  if (noPhoto) return noPhoto;
   const supabase = await createClient();
   const { data: row, error } = await supabase
     .from("staff")
@@ -236,6 +260,8 @@ export async function updateStaff(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
   }
+  const noPhoto = missingPhoto(parsed.data);
+  if (noPhoto) return noPhoto;
   const supabase = await createClient();
   const { error } = await supabase
     .from("staff")

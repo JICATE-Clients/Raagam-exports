@@ -38,6 +38,8 @@ export type PersonProfileAsideProps = {
   phone: string | null;
   address: string | null;
   bloodGroup: string | null;
+  /** The record cannot be saved without a photograph (client 2026-09-18). */
+  photoRequired?: boolean;
 };
 
 /**
@@ -120,7 +122,12 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
                 />
               </div>
             ) : (
-              <div className="grid h-20 w-20 place-items-center rounded-2xl bg-primary-soft text-2xl font-bold text-primary ring-4 ring-surface">
+              <div
+                className={
+                  (p.photoRequired ? "border-2 border-dashed border-danger " : "") +
+                  "grid h-20 w-20 place-items-center rounded-2xl bg-primary-soft text-2xl font-bold text-primary ring-4 ring-surface"
+                }
+              >
                 {initials(p.name) ? (
                   <span aria-hidden>{initials(p.name)}</span>
                 ) : (
@@ -152,6 +159,34 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
                 <StatusPill tone="info">New</StatusPill>
               )}
             </div>
+            {/* A PHOTOGRAPH IS PART OF THE RECORD (client 2026-09-18: "photo
+                should be mand"), so it carries the same red star every other
+                mandatory field on this screen carries.
+
+                THE STAR IS NOT WIRED THROUGH `Field`, and that is the one way
+                this differs from every other required control. `useRequiredHold`
+                stamps `data-required-empty` to hold the CURSOR in a blank box —
+                there is no box here to hold it in, and a hold on a control whose
+                only affordance is a file dialog would cage an operator with
+                nothing to type. SAVE refuses instead: "Photo" is a field of
+                `sectionValidity` in person-client, so the button goes dead and
+                `onBlockedSave` names it. */}
+            {p.photoRequired && (
+              <p className="text-xs font-medium text-foreground">
+                Photograph
+                {/* required-star: exempt -- there is no box to hold the cursor
+                    in. `<Field required>` draws this star AND stamps
+                    `data-required-empty`, which refuses Tab until the field is
+                    filled; a hold on a control whose only affordance opens a
+                    file dialog would cage the operator with nothing to type.
+                    Save refuses instead — "Photo" is a `sectionValidity` field
+                    in person-client, so the button goes dead and
+                    `onBlockedSave` names it. */}
+                <span aria-hidden className="ml-0.5 text-danger">
+                  *
+                </span>
+              </p>
+            )}
             {/* `showPreview={false}`: the avatar above IS the preview, so the
                 control contributes only its buttons and the size hint. */}
             <PhotoUpload
