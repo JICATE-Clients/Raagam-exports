@@ -1260,8 +1260,10 @@ never drags an amending order back to `open`.
   button, badge and message says Revision — Orders ▸ Order Management ▸ Order
   Revisions, Raise Revision, Rev #n, Waiting Revision — and the two database
   sentences (`order_lock_message`, `order_amendment_refusal`) with their TS twins.
-  LABELS ONLY: tables, functions, routes (`/orders/order-amendments`) and the
-  `AMD/26-27/0001` numbering keep the old word, so no link or entry broke.
+  LABELS ONLY: tables, functions and routes (`/orders/order-amendments`) keep
+  the old word, so no link or entry broke. NUMBERING followed on 2026-09-24
+  (0624, user): a NEW entry is `REV/26-27/000n`, continuing the year's one count
+  across both prefixes; the entries already raised keep their `AMD/…` numbers.
 - **AN AMENDMENT IS WORKED INSIDE ITS OWN PAGE (user 2026-09-23).** The register
   is the one way in (Raise Amendment → order picker); Order Entry's three-dot menu
   carries no Amend items, and Order Entry / the BOM screens show an amending order

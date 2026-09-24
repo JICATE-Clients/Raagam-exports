@@ -1,7 +1,7 @@
 "use server";
 
 import { can } from "@/lib/auth/server";
-import { salesOrderOfBom, vFinalFor, type VFinalPayloads, type VFinalState } from "./v-final";
+import { salesOrderOfBom, vFinalFor, type VFinalState } from "./v-final";
 
 /**
  * V_FINAL FOR THE EDITORS' OWN REPORT SHEETS (0619, spec §4B). The Fabric BOM
@@ -28,4 +28,8 @@ export async function loadVFinalForBom<K extends "fabric" | "material">(
   }
 }
 
-export type { VFinalPayloads };
+/* NO TYPE RE-EXPORT FROM THIS FILE (2026-09-24). `export type { VFinalPayloads }`
+   stood here, and the "use server" loader turns EVERY export of an actions file
+   into a runtime value: a type has none, so the module threw "VFinalPayloads is
+   not defined" at evaluation and took down every screen importing these actions
+   (Material BOM's T&A tab). Import types from `./v-final`. */
