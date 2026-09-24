@@ -540,9 +540,12 @@ export function MasterFullScreen({
    *    the way out ("Reopen the budget (Amendment Protocol) to change it").
    *  - **Every field inside is read-only**, through `LockScope`: the primitives
    *    read it, so no editor has to thread `readOnly` through its cells.
-   *  - **Save REFUSES WITH THE MESSAGE and stays ENABLED** — the footer's own
-   *    rule (`onBlockedSave`): a disabled Save hands Enter and Ctrl+S to the
-   *    button before it, which is the 2026-07-25 bug. Clicked, it says why.
+   *  - **The footer is one Close, as for `viewOnly`** (user 2026-09-24: an
+   *    approved order showed a dimmed Save that could only ever refuse — "no
+   *    orphaned save buttons"). This REVERSES the earlier rule, under which
+   *    Save stayed enabled and toasted the reason: a Save that exists to say
+   *    no is a button the operator keeps trying. Ctrl+S still answers with the
+   *    message (`fireSave`), so the key is never silent.
    *
    * The DATABASE is the lock (0576's triggers); this is what makes the refusal a
    * sentence on screen before anything is typed rather than an error after.
@@ -554,8 +557,12 @@ export function MasterFullScreen({
    * areas only; a SECTION whose key is in the set is unlocked whole (its
    * content is wrapped for it), a header FIELD is wrapped by the screen. The
    * banner then reads the entry, not the refusal, and Save is live.
+   *
+   * **`action`** — the way out, drawn at the banner's right (an order's
+   * "+ Raise Revision", which LINKS to the register rather than raising here:
+   * the register stays the one door, user 2026-09-23 / 09-24).
    */
-  locked?: { message: ReactNode; open?: readonly string[] } | false;
+  locked?: { message: ReactNode; open?: readonly string[]; action?: ReactNode } | false;
   /**
    * OPENED TO READ, NOT TO CHANGE — the row's Eye (client 2026-09-19, Order
    * Entry: the Eye used to open a sheet of raw columns; "open the full order
@@ -699,7 +706,10 @@ export function MasterFullScreen({
    */
   const nextSectionKey =
     sections[sections.findIndex((s) => s.key === section) + 1]?.key ?? null;
-  const stepping = !viewOnly && !!footer.stepper && nextSectionKey !== null;
+  /* READ, NOT EDITED: the Eye, or a lock with nothing open (see `locked`).
+     Both get the one-Close footer and no step guards. */
+  const reading = viewOnly || (!!locked && !(locked.open && locked.open.length > 0));
+  const stepping = !reading && !!footer.stepper && nextSectionKey !== null;
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1082,7 +1092,7 @@ export function MasterFullScreen({
    * either — see `StepBlock`.
    */
   const stepBlockOf = (fromKey: string): StepBlock | null => {
-    if (viewOnly) return null; // a reader is never sealed out — see `viewOnly`
+    if (reading) return null; // a reader is never sealed out — see `viewOnly`
     const r = footer.stepGuard?.(fromKey);
     if (!r) return null;
     return typeof r === "string" ? { reason: r } : r;
@@ -1703,9 +1713,10 @@ export function MasterFullScreen({
             {locked && (
               <div
                 role="status"
-                className="mb-4 rounded-md border border-warning bg-warning-soft px-3 py-2 text-sm text-warning"
+                className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-warning bg-warning-soft px-3 py-2 text-sm text-warning"
               >
-                {locked.message}
+                <div className="min-w-0 flex-1">{locked.message}</div>
+                {locked.action}
               </div>
             )}
             {paneHeading && active && (
@@ -1885,7 +1896,7 @@ export function MasterFullScreen({
               outline: it is the surface's primary (and only) action, so it is
               also what Enter off the last field and `submitTargetOf` resolve
               to, and nothing else can be. */}
-          {viewOnly ? (
+          {reading ? (
             <Button size="sm" onClick={footer.onCancel}>
               Close
             </Button>

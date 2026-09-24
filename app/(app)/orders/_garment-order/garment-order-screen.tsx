@@ -1,5 +1,9 @@
 "use client";
 
+import { PenTool } from "lucide-react";
+import { OrderCadTab } from "@/components/orders/cad/order-cad-tab";
+import { LAYOUT_TYPES } from "@/lib/orders/cad-lifecycle/types";
+import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
 import {
   Fragment,
   type FocusEvent,
@@ -387,6 +391,12 @@ interface Props {
    */
   orderLocks: Record<string, string>;
   /**
+   * Locked document -> the APPROVED order its "+ Raise Revision" links to
+   * (`orderLocks`, lib/orders/order-locks.ts). Approved locks only: an
+   * amending order already has its revision. Absent key = no link.
+   */
+  raiseFor?: Record<string, string>;
+  /**
    * Orders under an OPEN AMENDMENT ENTRY (0604 · 0616), keyed by amendment id.
    * Resolved by the loader (`orderAmendmentStates`) for the same reason as
    * `orderLocks`: this screen reads it with a plain const. The editor opens
@@ -501,6 +511,8 @@ type StyleRow = {
   plan_unit_id: string | null;
   /** ORDER UNIT - 'piece' (shown PCS) or 'set' (SET), typed by the operator (0471). */
   unit_kind: string | null;
+  /** LAYOUT TYPE — 'open_width' / 'tubular' / null (0628): read by the CAD approval. */
+  layout_type: string | null;
   /** PIECES, always — see `packs_ordered`. */
   po_qty: string;
   /**
@@ -1054,6 +1066,7 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       order_unit_id: x.order_unit_id,
       plan_unit_id: x.plan_unit_id,
       unit_kind: x.unit_kind ?? null,
+      layout_type: x.layout_type ?? null,
       po_qty: num(x.po_qty),
       packs_ordered: x.packs_ordered == null ? "" : String(x.packs_ordered),
       description: txt(x.description),
@@ -1825,6 +1838,11 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
   "Style Category": "code",
   "Article No.": "code",
   "Order Unit": "num",
+  /* LAYOUT TYPE (0628) — "Open Width" is the longest value, ~75px at text-sm,
+     so `range` (112). The line's declared floors go 988 -> 1,112 with the gap,
+     inside the operator's 1,229px pane; Description still grows into the rest
+     and is the cell that wraps first, as the note below intends. */
+  "Layout Type": "range",
   "PO Qty": "range",
   /* `Process` AND `Sizes` ARE NOT ON THIS ROW. Both live on the composition
      line below it — Sizes beside Coordinate, and the Process [Click] button as
@@ -1965,6 +1983,7 @@ export function GarmentOrderScreen({
   initialOrderNo = null,
   purpose = "entry",
   orderLocks,
+  raiseFor = {},
   orderAmendments,
   status,
   quickCounts,
@@ -2093,15 +2112,22 @@ export function GarmentOrderScreen({
    * here even when its only reader is 4,000 lines below.
    */
   const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
+  /* NOT ON THE LIST (2026-09-24, "every click takes 2–3 s"): server actions run
+     one at a time, so this fetch — fired on EVERY mount, list included — sat
+     in the queue ahead of whatever the operator clicked next (a row's action,
+     the T&A tab). The picker only exists inside an open order, so it loads the
+     first time one opens, and once. */
+  const sqLoaded = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-    loadSqOptions().then((res) => {
-      if (!cancelled && res.ok) setSqOptions(res.rows);
+    if (mode === "list" || sqLoaded.current) return;
+    sqLoaded.current = true;
+    // No cancel flag: with the once-only ref, Strict Mode's second effect run
+    // returns early, so a flag set by the first run's cleanup would drop the
+    // only response. A set after unmount is a no-op.
+    void loadSqOptions().then((res) => {
+      if (res.ok) setSqOptions(res.rows);
     });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [mode]);
   /**
    * WHICH STRUCTURES THE OPERATOR HAS FINISHED WITH — the gate on the
    * `structureProblems` advisory (client 2026-08-18: "remove this message; if
@@ -2503,6 +2529,9 @@ export function GarmentOrderScreen({
     order_unit_id: null,
     plan_unit_id: null,
     unit_kind: null,
+    // NULL, never a default — a seeded row is saved unless the save drops it
+    // (AGENTS.md "Editable sub-tables"), and a guessed layout decides a CAD.
+    layout_type: null,
     po_qty: "",
     packs_ordered: "",
     description: "",
@@ -4505,6 +4534,9 @@ export function GarmentOrderScreen({
            the same step — "" is not a kind, so it is NULL, which is what "not
            answered" is stored as. */
         unit_kind: isUnitKind(r.unit_kind) ? r.unit_kind : null,
+        /* LAYOUT TYPE (0628). Narrowed the way `unit_kind` is: the Select hands
+           back a plain string and "" is "not declared", stored NULL. */
+        layout_type: LAYOUT_TYPES.find((l) => l.value === r.layout_type)?.value ?? null,
         /* PIECES, ALWAYS — and on a set pack that means the DERIVED figure,
            not the box the operator can no longer type in (0467).
            `packs x pieces-per-pack` is computed here rather than mirrored into
@@ -7721,6 +7753,34 @@ export function GarmentOrderScreen({
           {UNIT_KIND_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {orderUnitLabel(o.value)}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      header: "Layout Type",
+      /* THE STYLE'S FABRIC LAYOUT (0628, doc/order/cad.md §7; user 2026-09-24:
+         "Bring it back on the style"). A CAD whose marker is laid out the other
+         way cannot be approved on Orders ▸ CAD ▸ CAD Lifecycle, so this is the
+         declaration that check compares against.
+
+         NOT the per-COMPONENT Layout Type the client removed on 2026-09-05
+         (0527 → 0533); that one sat on Components and gated a picker. This is
+         one answer per style, and it gates nothing on this screen.
+
+         OPTIONAL, with the blank option first: an undeclared layout is "nothing
+         to compare against" for the CAD check, not an error, and a hold on it
+         would cage every line typed before the CAD room is involved. */
+      cell: (r) => (
+        <Select
+          value={r.layout_type ?? ""}
+          onChange={(e) => updateStyle(r.key, { layout_type: e.target.value || null })}
+        >
+          <option value=""></option>
+          {LAYOUT_TYPES.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
             </option>
           ))}
         </Select>
@@ -23314,6 +23374,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         // on the rail without this line being remembered.
         problems: validity.bySection[t.key],
       })),
+    /* CAD (doc/order/cad.md; user 2026-09-24: "Both"). This order's CAD
+       lifecycle per style — the same steps and sheets as Orders ▸ CAD ▸ CAD
+       Lifecycle (`useCadActions`). A component that reads its own rows, so no
+       hook joins this screen below its early return. Its writes are CAD
+       documents through their own actions, never this order's Save; the Eye's
+       read-only view passes canEdit=false. */
+    {
+      key: "cad",
+      label: "CAD",
+      icon: PenTool,
+      content: <OrderCadTab orderId={editId} canEdit={perms.canEdit && !viewOnly} />,
+    },
   ];
 
   return (
@@ -23475,13 +23547,23 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         ref={shellRef}
         mount="page"
         open
+        /* INSIDE A REVISION, ON THE CATEGORY'S SECTION (client 2026-09-24): a
+           Price Change opens on Prices, a quantity change on Quantities — the
+           Order tab's `?section=`, from `revisionLandingOf`. Everywhere else
+           there is no section and the note above still holds. */
+        initialSection={embed?.section ?? undefined}
         /* THE APPROVAL LOCK (Phase 5) — a plain lookup, no hook: this is far
            below the `if (mode === "list")` return. The server guard and 0576's
            triggers are the lock; this is the banner, the read-only fields and
            a Save that explains. Order Amendment (purpose="amend") locks too. */
         locked={
           editId && orderLocks[editId]
-            ? { message: orderLocks[editId] }
+            ? /* APPROVED: the way out is a link to the register (user
+                 2026-09-24), which stays the one door a revision goes through. */
+              {
+                message: orderLocks[editId],
+                action: raiseFor[editId] ? <RaiseRevisionLink orderId={raiseFor[editId]} /> : undefined,
+              }
             : editId && orderAmendments[editId]
               ? embed
                 ? /* AMENDING (0604 · 0616), inside the amendment: locked, with the

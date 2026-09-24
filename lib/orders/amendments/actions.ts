@@ -121,6 +121,10 @@ function normalizeStyles(data: AmendmentInput) {
        * it leaves the derived piece count with nothing to show its working.
        */
       unit_kind: r.unit_kind,
+      /* LAYOUT TYPE (0628) — in the map AND the keep test below, the two
+         halves the note above records losing `unit_kind` and `packs_ordered`
+         to. */
+      layout_type: r.layout_type,
       packs_ordered: r.packs_ordered,
       po_qty: Number(r.po_qty) || 0,
       description: clean(r.description),
@@ -147,6 +151,7 @@ function normalizeStyles(data: AmendmentInput) {
            components with it. Adding a column to the map and not to the test is
            exactly the half-wiring that lost these two in the first place. */
         r.unit_kind ||
+        r.layout_type ||
         r.packs_ordered ||
         r.po_qty ||
         r.description,
@@ -1558,14 +1563,16 @@ async function writeChildren(
    * `comboTreeProblem` uses for a rule Zod cannot state, arriving one layer
    * further in because this rule needs the database as well as the payload.
    */
-  const ta = await taActivityRows(s, amendmentId, data, quantityRows);
-  if (!ta.ok) return fail(ta.error);
-
   /**
-   * The order's approval tracker — RESOLVED HERE, ONE CALL AFTER THE LADDER
-   * ABOVE, for the same "before the delete loop" reason `ta` is.
+   * The order's approval tracker — RESOLVED ALONGSIDE THE LADDER, for the same
+   * "before the delete loop" reason `ta` is. The two read different tables and
+   * neither reads the other's answer, so they share one round trip.
    */
-  const approvals = await taApprovalRows(s, amendmentId, data);
+  const [ta, approvals] = await Promise.all([
+    taActivityRows(s, amendmentId, data, quantityRows),
+    taApprovalRows(s, amendmentId, data),
+  ]);
+  if (!ta.ok) return fail(ta.error);
   if (!approvals.ok) return fail(approvals.error);
 
   const inserts: [string, Record<string, unknown>[]][] = [
@@ -1627,28 +1634,45 @@ async function writeChildren(
 
   // Delete-all-then-reinsert each child grid wholesale — the grids the scope
   // opens, or every grid outside an amendment.
+  //
+  // ONE ROUND OF DELETES, THEN ONE ROUND OF INSERTS — NOT ONE TABLE AT A TIME.
+  // Every table in this list references only the header (`amendment_id`),
+  // never another table in it (a size names its style by `style_key` text, not
+  // by FK), and their only triggers are the order lock and `updated_at`. So
+  // nothing here depends on write order, and running ~20 tables serially cost
+  // ~40 round trips (~260 ms each) — a Save that took 10+ seconds to answer
+  // (client 2026-09-24). If a table is ever added with an FK to ANOTHER table
+  // in this list, it needs its own later round.
   const writable = inserts.filter(([t]) => mayRewrite(t));
-  for (const [t] of writable) {
-    const { error } = await s.from(t).delete().eq("amendment_id", amendmentId);
-    if (error) return fail(error.message);
-  }
+  const deletes = await Promise.all(
+    writable.map(([t]) => s.from(t).delete().eq("amendment_id", amendmentId)),
+  );
+  const delErr = deletes.find((r) => r.error)?.error;
+  if (delErr) return fail(delErr.message);
 
-  for (const [table, rows] of writable) {
-    if (!rows.length) continue;
-    const { error } = await s
-      .from(table)
-      .insert(rows.map((r) => ({ ...r, amendment_id: amendmentId })));
-    if (error) return fail(error.message);
-  }
+  const written = await Promise.all(
+    writable
+      .filter(([, rows]) => rows.length > 0)
+      .map(([table, rows]) =>
+        s.from(table).insert(rows.map((r) => ({ ...r, amendment_id: amendmentId }))),
+      ),
+  );
+  const insErr = written.find((r) => r.error)?.error;
+  if (insErr) return fail(insErr.message);
 
   /* The two nested trees hang off grids above; they were deleted with their
-     parents (cascade) and are rebuilt only when the parent was rewritten. */
-  if (mayRewrite("garment_order_amendment_combos")) {
-    const comboResult = await writeComboTree(s, amendmentId, data, comboRows);
-    if (!comboResult.ok) return comboResult;
-  }
-  if (!mayRewrite("garment_order_amendment_quantities")) return { ok: true };
-  return writeAssortTree(s, amendmentId, data);
+     parents (cascade) and are rebuilt only when the parent was rewritten.
+     Independent of each other (combos vs quantities), so built side by side. */
+  const [comboResult, assortResult] = await Promise.all([
+    mayRewrite("garment_order_amendment_combos")
+      ? writeComboTree(s, amendmentId, data, comboRows)
+      : Promise.resolve<Result>({ ok: true }),
+    mayRewrite("garment_order_amendment_quantities")
+      ? writeAssortTree(s, amendmentId, data)
+      : Promise.resolve<Result>({ ok: true }),
+  ]);
+  if (!comboResult.ok) return comboResult;
+  return assortResult;
 }
 
 /** Child tables 0576 does NOT lock — T&A is execution, and is always written. */
@@ -2284,17 +2308,19 @@ export async function updateAmendment(
    * 0478 applied. The order keeps the owner it was created with, which is what
    * that column has always meant. See the create path above.
    */
-  if (sales_order_id) {
-    await s
-      .from("sales_orders")
-      .update({
-        currency_code: p.data.currency_code,
-        ship_date: p.data.delivery_date,
-      })
-      .eq("id", sales_order_id);
-  }
-
-  const childRes = await writeChildren(s, id, p.data, scope);
+  // A different table from every child grid, so it rides alongside them.
+  const [, childRes] = await Promise.all([
+    sales_order_id
+      ? s
+          .from("sales_orders")
+          .update({
+            currency_code: p.data.currency_code,
+            ship_date: p.data.delivery_date,
+          })
+          .eq("id", sales_order_id)
+      : null,
+    writeChildren(s, id, p.data, scope),
+  ]);
   if (!childRes.ok) return childRes;
   await writeAudit({
     action: "garment_order_amendment.updated",
@@ -2392,6 +2418,22 @@ export async function deleteAmendment(id: string): Promise<Result> {
     );
   }
   const s = await createClient();
+  /* AN ORDER WITH AN APPROVED BUDGET HISTORY STAYS (0576). Its
+     `order_budget_revisions` rows are ON DELETE RESTRICT — a once-approved
+     budget's history is kept, and `deleteOrderBudget` refuses the budget for
+     the same reason — so the RPC below would die on a bare foreign-key error
+     (user 2026-09-24: "why can't able to delete the first order"). Said here,
+     with the count, before the database says it in its own words. */
+  const { count: revisions, error: revErr } = await s
+    .from("order_budget_revisions")
+    .select("id", { count: "exact", head: true })
+    .eq("garment_order_id", id);
+  if (revErr) return fail(revErr.message);
+  if ((revisions ?? 0) > 0) {
+    return fail(
+      `This order's budget has an approved history (${revisions} revision${revisions === 1 ? "" : "s"}), so the order cannot be deleted — keep it, or raise a Revision to change it.`,
+    );
+  }
   const { error } = await s.rpc("delete_garment_order_document", { p_id: id });
   if (error) return fail(error.message);
   rev();

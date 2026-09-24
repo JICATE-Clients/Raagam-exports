@@ -22,6 +22,7 @@
  * It is handed the same `FabricSheetRow[]` the on-screen document renders, so
  * the paper, the screen and the purchase order cannot disagree. See `sheet.ts`.
  */
+import { drawCadPendingStamp } from "@/lib/orders/cad-lifecycle/stamp";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
@@ -43,6 +44,8 @@ export type FabricSheetMeta = {
   scNo: string | null;
   orderNo: string | null;
   computedAt: string | null;
+  /** The order's CAD is not yet approved (0628) — stamp every page. */
+  cadPending?: boolean;
 };
 
 /** A filesystem-safe stem: `FabricRequirement_HO-RE-2627-0001`. */
@@ -233,6 +236,8 @@ export function exportFabricRequirementPdf(
     doc.text(`Page ${p} / ${pages}`, RIGHT, doc.internal.pageSize.getHeight() - 20, {
       align: "right",
     });
+    // CAD PENDING (0628) on every page — see lib/orders/cad-lifecycle/stamp.ts.
+    if (meta.cadPending) drawCadPendingStamp(doc);
   }
 
   doc.save(`${stem(meta)}.pdf`);

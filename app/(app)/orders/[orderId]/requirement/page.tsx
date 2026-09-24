@@ -3,10 +3,8 @@ import { VFinalBanner } from "@/components/orders/v-final-banner";
 import { vFinalFor } from "@/lib/orders/amendments/v-final";
 import { requirePermission } from "@/lib/auth/server";
 import { getRequirementSheet, isSheetRefusal } from "@/lib/orders/requirement/service";
-import { requirementRows } from "@/lib/orders/requirement/sheet";
 import { RequirementSheetDocument } from "@/components/orders/requirement-sheet";
 import { RequirementToolbar } from "@/components/orders/requirement-toolbar";
-import { fmtDateTime } from "@/lib/format";
 import { Card, CardBody } from "@/components/ui/card";
 import { OrderDocumentTabs } from "@/components/orders/order-document-tabs";
 
@@ -63,19 +61,7 @@ export default async function RequirementPage({
           <span className="text-sm font-medium">Accessories Requirement</span>
         </div>
         {!isSheetRefusal(data) && (
-          <RequirementToolbar
-            rows={requirementRows(data.rows, data.names)}
-            meta={{
-              company: data.company.name ?? "RAAGAM EXPORTS",
-              address: data.company.address,
-              gstin: data.company.gstin,
-              docNo: data.bom.code,
-              customer: data.order.customer,
-              scNo: data.order.scNo,
-              orderNo: data.order.orderNo,
-              computedAt: data.bom.computedAt ? fmtDateTime(data.bom.computedAt) : null,
-            }}
-          />
+          <RequirementToolbar data={data} />
         )}
       </div>
 

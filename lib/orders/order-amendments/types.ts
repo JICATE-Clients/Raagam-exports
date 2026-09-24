@@ -3,7 +3,9 @@ import { capsName } from "@/lib/validation/formats";
 import {
   AMENDMENT_MODULES,
   AMENDMENT_ORIGINS,
+  MODULE_DETAIL_VALUES,
   ORDER_CHANGE_KINDS,
+  moduleSelectionProblem,
   type AmendmentModule,
   type OrderChangeKind,
 } from "@/lib/orders/amendments/amendment-entry";
@@ -33,10 +35,17 @@ export const raiseAmendmentInput = z
     order_kinds: z
       .array(z.enum(ORDER_CHANGE_KINDS as unknown as [OrderChangeKind, ...OrderChangeKind[]]))
       .default([]),
+    /* What changes inside each other module picked (0630) — a record, not a
+       scope. Required per module the same way Order Entry's kinds are. */
+    module_details: z.array(z.enum(MODULE_DETAIL_VALUES as [string, ...string[]])).default([]),
     remarks: capsName("Say why this order is being revised"),
   })
   .refine((v) => !v.modules.includes("order_entry") || v.order_kinds.length > 0, {
     message: "Say what changes on the order — PO Qty, Delivery Date, FOB Price or Color Combos",
     path: ["order_kinds"],
+  })
+  .superRefine((v, ctx) => {
+    const problem = moduleSelectionProblem({ modules: v.modules, orderKinds: v.order_kinds, details: v.module_details });
+    if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["module_details"] });
   });
 export type RaiseAmendmentInput = z.input<typeof raiseAmendmentInput>;

@@ -510,28 +510,39 @@ export async function submitBudget(id: string): Promise<Result> {
      run against the STORED lines: anything it would change (a moved quantity, a
      new BOM line, a stale one, a re-fit fabric process) refuses the submit. */
   const orderIds = budget.orders.map((o) => o.garment_order_id);
-  const unready = await refuseUnreadyOrders(s, orderIds);
+  /* THE FOUR GATES BELOW ARE READS, AND NONE READS ANOTHER'S ANSWER — so they
+     run as one round (client 2026-09-24, "Send to MD takes time"). Each one is
+     still ANSWERED in the order it always was: the first refusal in this list
+     is the one the operator is told, exactly as when they ran serially.
+     A thrown gate is caught into its own sentence, so one failure cannot
+     reject the whole round with the wrong message. */
+  const caught = <T,>(p: Promise<T>, fallback: string) =>
+    p.then(
+      (value) => ({ ok: true as const, value }),
+      (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : fallback }),
+    );
+  const [unready, outOfScope, moduleCheck, pulled] = await Promise.all([
+    refuseUnreadyOrders(s, orderIds),
+    /* THE AMENDMENT'S MODULE RULES (0619, spec §2 rule 2): Order Entry's style
+       quantities re-verified from the stored order, the Fabric BOM recalculated
+       since the entry opened, and — when Order Budget was not picked — the
+       budget's own heads and approved rates as approved. */
+    refuseOutOfBudgetScope(orderIds, budget.lines as BudgetScopeLine[], {
+      currency_code: budget.currency_code ?? null,
+      exchange_rate: budget.exchange_rate ?? null,
+    }),
+    caught(amendmentSubmitProblem(orderIds), "Could not check the amendment's modules"),
+    caught(pullCostLines(orderIds), "The BOMs could not be read to check this budget"),
+  ]);
   if (unready) return unready;
-  /* THE AMENDMENT'S MODULE RULES (0619, spec §2 rule 2): Order Entry's style
-     quantities re-verified from the stored order, the Fabric BOM recalculated
-     since the entry opened, and — when Order Budget was not picked — the
-     budget's own heads and approved rates as approved. */
-  const outOfScope = await refuseOutOfBudgetScope(orderIds, budget.lines as BudgetScopeLine[], {
-    currency_code: budget.currency_code ?? null,
-    exchange_rate: budget.exchange_rate ?? null,
-  });
   if (outOfScope) return outOfScope;
-  try {
-    const moduleProblem = await amendmentSubmitProblem(orderIds);
-    if (moduleProblem) return fail(moduleProblem);
-  } catch (e) {
-    return fail(e instanceof Error ? e.message : "Could not check the amendment's modules");
-  }
-  try {
-    const { lines: freshLines } = await pullCostLines(orderIds);
+  if (!moduleCheck.ok) return fail(moduleCheck.error);
+  if (moduleCheck.value) return fail(moduleCheck.value);
+  if (!pulled.ok) return fail(pulled.error);
+  {
     const drift = mergePulled(
       budget.lines.map((l) => ({ ...l, key: l.id, qty: l.qty == null ? null : Number(l.qty) })),
-      freshLines,
+      pulled.value.lines,
     );
     if (!pullMergeIsEmpty(drift)) {
       const n = pullMergeSize(drift);
@@ -539,8 +550,6 @@ export async function submitBudget(id: string): Promise<Result> {
         `The BOMs have changed since this budget was filled (${n} line${n === 1 ? "" : "s"}) — open it, press Refresh from BOMs, and save before sending it`,
       );
     }
-  } catch (e) {
-    return fail(e instanceof Error ? e.message : "The BOMs could not be read to check this budget");
   }
 
   const { totals } = figures;
@@ -554,26 +563,35 @@ export async function submitBudget(id: string): Promise<Result> {
      one total and the stored summary another. Written while the budget is
      still draft, before the status moves (0576 freezes it once approved). */
   const byOrder = new Map(figures.facts.map((o) => [o.id, o] as const));
-  for (const o of budget.orders) {
-    const f = byOrder.get(o.garment_order_id);
-    if (!f) continue;
-    const { error: snapErr } = await s
-      .from("order_budget_orders")
-      .update({
-        sales_value: f.sales_value,
-        // `chk_obo_value_or_reason` (0428): exactly one of the two.
-        sales_refusal: f.sales_value == null ? (f.sales_refusal ?? "this order has no value yet") : null,
-      })
-      .eq("id", o.id);
-    if (snapErr) return fail(snapErr.message);
-  }
+  // One row per order, each its own row — written as one round, not one by one.
+  const [snaps, appUser] = await Promise.all([
+    Promise.all(
+      budget.orders.flatMap((o) => {
+        const f = byOrder.get(o.garment_order_id);
+        if (!f) return [];
+        return [
+          s
+            .from("order_budget_orders")
+            .update({
+              sales_value: f.sales_value,
+              // `chk_obo_value_or_reason` (0428): exactly one of the two.
+              sales_refusal: f.sales_value == null ? (f.sales_refusal ?? "this order has no value yet") : null,
+            })
+            .eq("id", o.id),
+        ];
+      }),
+    ),
+    getAppUser(),
+  ]);
+  const snapErr = snaps.find((r) => r.error)?.error;
+  if (snapErr) return fail(snapErr.message);
 
   const { error } = await s
     .from("order_budgets")
     .update({
       status: "submitted",
       submitted_at: new Date().toISOString(),
-      submitted_by: (await getAppUser())?.id ?? null,
+      submitted_by: appUser?.id ?? null,
       submitted_summary: summary,
     })
     .eq("id", id);

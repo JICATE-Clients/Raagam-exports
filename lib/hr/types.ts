@@ -370,6 +370,8 @@ export interface PayrollSettings {
   esi_rate: number;
   pf_rate: number;
   currency: string;
+  /** 0629 — approved fines may take at most this % of a staff line's gross. */
+  max_fine_pct: number;
   updated_at: string;
 }
 
@@ -433,6 +435,11 @@ export interface PayrollLine {
   pieces: number;
   extra_wage: number;
   total_net: number;
+  /** 0629 — approved fines deducted (capped), the part held back over the
+   *  cap, and whether the cap bit (the line needs review). Staff lines only. */
+  fine_deduction: number;
+  fine_over_cap: number;
+  fine_review: boolean;
   details: Record<string, unknown>;
   created_at: string;
 }
@@ -939,6 +946,7 @@ export const payrollSettingsInput = z.object({
   esi_rate: z.coerce.number().min(0).max(1).default(0.0075),
   pf_rate: z.coerce.number().min(0).max(1).default(0.12),
   currency: z.string().default("INR"),
+  max_fine_pct: z.coerce.number().gt(0, "Fine cap must be above 0%").max(100).default(25),
 });
 export type PayrollSettingsInput = z.infer<typeof payrollSettingsInput>;
 

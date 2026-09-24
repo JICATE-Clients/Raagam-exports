@@ -1,5 +1,5 @@
 /**
- * Order Entry ▸ T&A ▸ Work Flow — the six pre-production OFFICE milestones
+ * Order Entry ▸ T&A ▸ Work Flow — the eight pre-production OFFICE milestones
  * (doc/order/orderentry workflow feature.md; plan in
  * doc/order/orderentry-workflow-plan.md; table + triggers in 0607).
  *
@@ -20,11 +20,13 @@ import { addWorkingDays, isRefusal } from "@/lib/ta/schedule";
 import { daysBetween } from "@/lib/calendar";
 
 // ============================================================================
-// THE SIX
+// THE EIGHT (six from 0607; Pattern Sent / Pattern Approval from 0628)
 // ============================================================================
 
 export const WORK_FLOW_CODES = [
   "ORDER_ENTRY",
+  "PATTERN_SENT",
+  "PATTERN_APPROVAL",
   "CAD_COMPLETION",
   "MATERIAL_BOM",
   "FABRIC_BOM",
@@ -37,7 +39,7 @@ export type WorkFlowMilestoneDef = {
   code: WorkFlowCode;
   sn: number;
   label: string;
-  /** Default working days after Day 0. MUST equal `work_flow_milestone_defaults()` (0607). */
+  /** Default working days after Day 0. MUST equal `work_flow_milestone_defaults()` (0628, was 0607). */
   days: number;
   /** What finishing it means, in the operator's words — the row's sub-line. */
   doneWhen: string;
@@ -72,9 +74,35 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
     alerts: true,
     href: "/orders/garment-orders",
   },
+  /* PATTERN SENT / PATTERN APPROVAL (0628, doc/order/cad.md §4.3). Stamped by
+     the CAD lifecycle's own writes (`cad_work_flow_sync`) with the EVENT's
+     date — the last style's dispatch date, the last style's approval date —
+     not the day someone happened to record it. */
+  {
+    code: "PATTERN_SENT",
+    sn: 2,
+    label: "Pattern Sent",
+    days: 2,
+    doneWhen: "CAD dispatched to the buyer for every style",
+    ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "CAD TECHNICIAN"],
+    ownerTagsLabel: "CAD / Sampling / Pattern Maker",
+    alerts: true,
+    href: "/orders/cad-lifecycle",
+  },
+  {
+    code: "PATTERN_APPROVAL",
+    sn: 3,
+    label: "Pattern Approval",
+    days: 2,
+    doneWhen: "Buyer approved the CAD for every style",
+    ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "CAD TECHNICIAN", "MERCHANDISER", "MERCHANDISING"],
+    ownerTagsLabel: "CAD / Sampling / Merchandiser",
+    alerts: true,
+    href: "/orders/cad-lifecycle",
+  },
   {
     code: "CAD_COMPLETION",
-    sn: 2,
+    sn: 4,
     label: "CAD Completion",
     days: 2,
     doneWhen: "CAD sheet submitted",
@@ -85,7 +113,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   },
   {
     code: "MATERIAL_BOM",
-    sn: 3,
+    sn: 5,
     label: "Material BOM",
     days: 3,
     doneWhen: "Material BOM saved (not as a draft)",
@@ -96,7 +124,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   },
   {
     code: "FABRIC_BOM",
-    sn: 4,
+    sn: 6,
     label: "Fabric BOM",
     days: 3,
     doneWhen: "Fabric BOM saved (not as a draft)",
@@ -107,7 +135,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   },
   {
     code: "BUDGETING",
-    sn: 5,
+    sn: 7,
     label: "Budgeting",
     days: 4,
     doneWhen: "Budget submitted for approval",
@@ -118,7 +146,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   },
   {
     code: "BUDGET_APPROVAL",
-    sn: 6,
+    sn: 8,
     label: "Budget Approval",
     days: 4,
     doneWhen: "Budget approved",

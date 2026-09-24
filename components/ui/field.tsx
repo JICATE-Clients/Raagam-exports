@@ -166,6 +166,29 @@ export function UnlockScope({ area, children }: { area: string; children: ReactN
   return <LockCtx.Provider value={value}>{children}</LockCtx.Provider>;
 }
 
+/**
+ * A SURFACE THAT WRITES A DIFFERENT DOCUMENT, hosted inside a locked one.
+ *
+ * The one deliberate exception to "a lock only ever adds". Order Entry ▸ CAD
+ * (doc/order/cad.md, 0628) shows the order's CAD lifecycle inside the order
+ * editor, but the CAD records are their OWN documents: 0576 left the CAD tables
+ * outside the order lock on purpose, and a buyer's rework can arrive after the
+ * order is approved. Without this, an approved order's LockScope would render
+ * every field in the CAD sheets read-only — a refusal the database would not
+ * make.
+ *
+ * It does NOT re-open the order: nothing the order's Save writes may sit
+ * inside it. Use it only around a surface whose writes go through their own
+ * actions and are guarded by their own database rules; the caller decides
+ * whether the surface is editable at all (the Eye's read-only view hides the
+ * CAD actions instead). Same shape as `Sheet` resetting `RequiredScope` at its
+ * portal boundary.
+ */
+export function SeparateDocumentScope({ children }: { children: ReactNode }) {
+  const value = useMemo<LockState>(() => ({ locked: false, open: new Set<string>() }), []);
+  return <LockCtx.Provider value={value}>{children}</LockCtx.Provider>;
+}
+
 /** True inside a locked record — the control renders read-only / disabled. */
 export function useLocked(): boolean {
   return useContext(LockCtx).locked;
@@ -566,8 +589,11 @@ export const FIELD_ROW_TOP = `${FIELD_ROW_BASE} items-start`;
  * its own 85px box wraps to two lines and its control still sits on the row's
  * line with the others.
  */
+/* `max-sm:flex-wrap`: "never folded" is a DESKTOP promise. On a phone a
+   field takes its own line (see the `max-sm:w-full` on `Field`), and a row
+   that still refused to fold would push every field past the screen edge. */
 const FIELD_ROW_NOWRAP_BASE =
-  "flex flex-nowrap gap-x-2.5 gap-y-2 [&>*]:shrink-0";
+  "flex flex-nowrap max-sm:flex-wrap gap-x-2.5 gap-y-2 [&>*]:shrink-0";
 
 /** The nowrap row, bottom-aligned — the same axis `FIELD_ROW` uses. */
 export const FIELD_ROW_NOWRAP = `${FIELD_ROW_NOWRAP_BASE} items-end`;
@@ -903,7 +929,16 @@ export function Field({
       // — the lines style puts the label BESIDE the line instead of above it
       // (globals.css). A marker, not a prop: the screen still declares nothing.
       data-field
-      className={cn(w ? FIELD_WIDTH[w] : SPAN[size], "min-w-0", className)}
+      /* A WIDTH STEP IS A DESKTOP WIDTH; ON A PHONE THE FIELD TAKES THE LINE
+         (2026-09-24, Order Info at 390px: Deli.Dt and Received Date at `code`
+         144px printed "31-12-202…" — a phone's date box needs ~150px at the 16px
+         it must use to stop iOS zooming, so the YEAR was the part cut off).
+         `max-sm:` only, so nothing at 640px and up moves — including every
+         desktop dialog, which is what the "same 72px everywhere" note on
+         `FIELD_WIDTH` protects. On the Field, not in that map: 22 call sites
+         read `FIELD_WIDTH` directly as matrix column widths, and a full-width
+         column would wreck those tables instead of freeing a field. */
+      className={cn(w ? cn(FIELD_WIDTH[w], "max-sm:w-full") : SPAN[size], "min-w-0", className)}
       // `"" : undefined` rather than a boolean: React drops an `undefined`
       // attribute entirely, and `[data-focus-optional]` matches an empty value —
       // so the cell is either marked or carries nothing at all. `false` would

@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "mobile-navigation": {
+      "source": "heaptracetechnology/heaptrace-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/heaptrace-mobile/skills/mobile-navigation/SKILL.md",
+      "computedHash": "c5f9dc309be459abe8c58f86d8596d29273a1117b740bb659c31223bb1882d0a"
+    },
     "pagination": {
       "source": "claude-dev-suite/claude-dev-suite",
       "sourceType": "github",

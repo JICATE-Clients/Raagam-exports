@@ -75,7 +75,7 @@ const MATRIX_W = "max-w-[30rem]";
 /**
  * THE BASELINE TABLE'S CAP — the same tracks, three figure columns.
  *
- *     176 + 3 x 144    label + Approved baseline / Current / Variance
+ *     176 + 3 x 144    label + Last Budget / Latest Budget / Variance
  *   + 3 x 16           `gap-4`
  *   + 2 x 12 + 2 x 1   `px-3` and the border
  *   = 682  ->  44rem (704), 22px of slack
@@ -341,8 +341,8 @@ function BaselineHeader() {
   return (
     <div className="flex items-end gap-4 border-b border-border px-3 py-2 text-xs font-bold uppercase tracking-wide text-foreground">
       <span className={cn(FIELD_WIDTH[COL.label], "shrink-0")}>Compared with approval</span>
-      <span className={cn(FIELD_WIDTH[COL.amount], "shrink-0 text-right")}>Approved baseline</span>
-      <span className={cn(FIELD_WIDTH[COL.amount], "shrink-0 text-right")}>Current</span>
+      <span className={cn(FIELD_WIDTH[COL.amount], "shrink-0 text-right")}>Last Budget</span>
+      <span className={cn(FIELD_WIDTH[COL.amount], "shrink-0 text-right")}>Latest Budget</span>
       <span className={cn(FIELD_WIDTH[COL.amount], "shrink-0 text-right")}>Variance</span>
     </div>
   );

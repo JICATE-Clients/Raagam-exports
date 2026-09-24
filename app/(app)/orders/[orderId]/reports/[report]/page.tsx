@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cadOrderPending } from "@/lib/orders/cad-lifecycle/guard";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { Card, CardBody } from "@/components/ui/card";
@@ -76,9 +77,21 @@ export default async function OrderReportPage({
         snap && !("refused" in snap)
           ? [snap.register, snap.requirement]
           : await Promise.all([fabricBomEntryRegister(bomId), yarnFabricRequirementReport(bomId)]);
+      /* THE CAD STAMP IS LIVE (0628): a frozen copy carries the flag as it stood
+         at the freeze, so it is re-read now — off the order the frozen header
+         names — and laid over it. A live report already read it. */
+      const frozenHeader =
+        snap && !("refused" in snap)
+          ? !("refused" in register)
+            ? register.header
+            : !("refused" in requirement)
+              ? requirement.header
+              : null
+          : null;
+      const cadPending = frozenHeader ? await cadOrderPending(frozenHeader.garmentOrderId) : undefined;
       body = (
         <div className="rounded-md bg-[#f1f3f5] p-4">
-          <FabricBomReportView report={report.key} register={register} requirement={requirement} />
+          <FabricBomReportView report={report.key} register={register} requirement={requirement} cadPending={cadPending} />
         </div>
       );
     }

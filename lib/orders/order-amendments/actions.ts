@@ -91,6 +91,26 @@ export async function raiseOrderAmendment(input: RaiseAmendmentInput): Promise<R
   const row = ((data ?? []) as { entry_id: string; entry_no: string | null }[])[0];
   if (!row) return fail("The revision was not recorded");
 
+  /* WHAT CHANGES INSIDE EACH MODULE (0630) — a record beside the kinds. A
+     superseding raise carries the open entry's detail forward with the new,
+     as the RPC carries its kinds. A failure here does not undo the raise:
+     the revision is open and correct, only its label is shorter. */
+  {
+    let details = p.data.module_details;
+    if (amending) {
+      const { data: prev } = await s
+        .from("order_budget_revisions")
+        .select("module_details")
+        .eq("id", amending.entryId)
+        .maybeSingle();
+      details = [...((prev as { module_details: string[] | null } | null)?.module_details ?? []), ...details];
+    }
+    if (details.length) {
+      const { error: detErr } = await s.rpc("set_order_amendment_details", { p_entry: row.entry_id, p_details: details });
+      if (detErr) console.error("[order-amendments] recording module detail:", detErr.message);
+    }
+  }
+
   /* V_FINAL IS FROZEN NOW, on the FIRST raise only (spec §4B): this is the one
      moment the live rows are the approved version — the RE was locked until
      the RPC above returned. A superseding raise does not capture (the live

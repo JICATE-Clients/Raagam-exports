@@ -148,31 +148,116 @@ async function budgetCards(rows: QueueRow[]): Promise<Record<string, BudgetCard>
   if (ids.length === 0) return {};
   try {
     const s = await createClient();
+    /* THE CARD'S HEADER FACTS RIDE THE SAME READ (client 2026-09-24): customer
+       and style off the budget's orders, and its revision entries — the open
+       one is what makes this card a REVISION ("Rev #n", who raised it, why).
+       `order_budget_orders` → `garment_order_amendments` and the budget →
+       entry embed each have one FK, so both stay bare. */
     const { data, error } = await s
       .from("order_budgets")
-      .select("id, code, currency_code, submitted_summary")
+      .select(
+        "id, code, currency_code, submitted_summary, " +
+          "orders:order_budget_orders(garment_order:garment_order_amendments(customer:customers(name), " +
+          "styles:garment_order_amendment_styles(sno, style_ref_no, style_description))), " +
+          "revisions:order_budget_revisions(id, entry_no, reason, outcome, reopened_by, reopened_at, garment_order_id)",
+      )
       .in("id", ids);
     if (error) {
       console.error("[approvals] budget cards:", error.message);
       return {};
     }
-    const out: Record<string, BudgetCard> = {};
-    for (const b of (data ?? []) as {
+    type Style = { sno: number; style_ref_no: string | null; style_description: string | null };
+    type Entry = {
+      id: string;
+      entry_no: string | null;
+      reason: string | null;
+      outcome: string;
+      reopened_by: string | null;
+      reopened_at: string;
+      garment_order_id: string | null;
+    };
+    type Row = {
       id: string;
       code: string | null;
       currency_code: string | null;
       submitted_summary: unknown;
-    }[]) {
+      orders: { garment_order: { customer: { name: string | null } | null; styles: Style[] | null } | null }[] | null;
+      revisions: Entry[] | null;
+    };
+    const budgets = (data ?? []) as unknown as Row[];
+
+    /* The open entry per budget — the latest, should two ever be open. */
+    const openEntry = new Map<string, Entry>();
+    for (const b of budgets) {
+      const open = (b.revisions ?? [])
+        .filter((e) => e.outcome === "open")
+        .sort((x, y) => y.reopened_at.localeCompare(x.reopened_at))[0];
+      if (open) openEntry.set(b.id, open);
+    }
+
+    /* REV #n IS THE REGISTER'S NUMBER — the order's entries up to this one,
+       counted (`amend_no` on Orders ▸ Order Revisions), so the MD reads the same
+       number on the phone as on the register. One read for every card. */
+    const orderIds = [...new Set([...openEntry.values()].flatMap((e) => (e.garment_order_id ? [e.garment_order_id] : [])))];
+    const entriesByOrder = new Map<string, string[]>();
+    if (orderIds.length > 0) {
+      const { data: all } = await s
+        .from("order_budget_revisions")
+        .select("garment_order_id, reopened_at")
+        .in("garment_order_id", orderIds);
+      for (const e of (all ?? []) as { garment_order_id: string; reopened_at: string }[]) {
+        entriesByOrder.set(e.garment_order_id, [...(entriesByOrder.get(e.garment_order_id) ?? []), e.reopened_at]);
+      }
+    }
+    const names = await namesOf([...openEntry.values()].map((e) => e.reopened_by));
+
+    const out: Record<string, BudgetCard> = {};
+    for (const b of budgets) {
+      const orders = (b.orders ?? []).flatMap((o) => (o.garment_order ? [o.garment_order] : []));
+      const customers = [...new Set(orders.map((o) => (o.customer?.name ?? "").trim()).filter(Boolean))];
+      const styles = orders
+        .flatMap((o) => [...(o.styles ?? [])].sort((x, y) => x.sno - y.sno))
+        .map((st) => [st.style_ref_no, st.style_description].map((v) => (v ?? "").trim()).filter(Boolean).join(" / "))
+        .filter(Boolean);
+      const e = openEntry.get(b.id);
       out[b.id] = {
         code: b.code,
         currency: b.currency_code,
         kpis: kpisFromJson(b.submitted_summary),
+        customer: customers.join(", ") || null,
+        styles: [...new Set(styles)].join(", ") || null,
+        revision: e
+          ? {
+              entryId: e.id,
+              entryNo: e.entry_no,
+              revNo: e.garment_order_id
+                ? Math.max(1, (entriesByOrder.get(e.garment_order_id) ?? []).filter((at) => at <= e.reopened_at).length)
+                : null,
+              reason: (e.reason ?? "").trim() || null,
+              raisedBy: e.reopened_by ? (names[e.reopened_by] ?? null) : null,
+              raisedAt: e.reopened_at,
+            }
+          : null,
       };
     }
     return out;
   } catch {
     return {};
   }
+}
+
+/** Display names through `creator_names()` — SECURITY DEFINER, because
+ *  `profiles_read_own` hides every other user's profile from an embed. */
+async function namesOf(ids: (string | null)[]): Promise<Record<string, string>> {
+  const list = [...new Set(ids.filter((v): v is string => !!v))];
+  if (list.length === 0) return {};
+  const s = await createClient();
+  const { data } = await s.rpc("creator_names", { ids: list });
+  const out: Record<string, string> = {};
+  for (const p of (data ?? []) as { id: string; full_name: string | null }[]) {
+    if (p.full_name) out[p.id] = p.full_name;
+  }
+  return out;
 }
 
 /**

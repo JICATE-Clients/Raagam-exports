@@ -156,6 +156,70 @@ async function noticeFor(
   };
 }
 
+/**
+ * TELL THE REQUESTER WHAT WAS DECIDED (client 2026-09-24: "upon MD
+ * approval/rework, dispatch push/in-app alert exclusively to the assigned
+ * Merchandiser").
+ *
+ * Until this, a decision told only the NEXT step's approvers — so a final
+ * approve, a reject, or a return on a one-step flow (which re-queues the run
+ * at step 1, 0502) told the merchandiser nothing, and they learned the
+ * revision's fate by opening the register. The requester is `requested_by`,
+ * the person who pressed Send to MD — the merchandiser, and only them.
+ *
+ * Only a decision that CHANGES what the requester must do is sent: a final
+ * approval, a rejection, a return for rework. An approve that merely advances
+ * the run to a second step is still with approvers, and is theirs to be told.
+ * Never throws — same contract as `notifyCurrentApprovers`.
+ */
+export async function notifyRequesterOfDecision(
+  runId: string,
+  v: { action: "approve" | "reject" | "return"; comment?: string },
+): Promise<void> {
+  try {
+    const s = await createClient();
+    const { data, error } = await s
+      .from("approval_runs")
+      .select("workflow_key, subject_id, context, status, requested_by")
+      .eq("id", runId)
+      .maybeSingle();
+    if (error || !data) return;
+    const run = data as Pick<ApprovalRun, "workflow_key" | "subject_id" | "context" | "status" | "requested_by">;
+    if (!run.requested_by) return;
+    if (v.action === "approve" && run.status !== "completed") return;
+
+    const ctx = run.context as Record<string, unknown> | null;
+    const am = run.workflow_key === "order_budget" ? amendmentOf(ctx?.amendment) : null;
+    let what = workflowLabel(run.workflow_key);
+    if (am) what = `Revision ${am.entry_no ?? ""} on ${am.order_ref ?? "the order"}`.replace("  ", " ");
+    else if (run.workflow_key === "order_budget") {
+      const { data: b } = await s.from("order_budgets").select("code").eq("id", run.subject_id).maybeSingle();
+      const code = ((b as { code: string | null } | null)?.code ?? "").trim();
+      what = code ? `Budget ${code}` : "Your budget";
+    }
+    const decl = WORKFLOWS[run.workflow_key as WorkflowKey];
+    const href = decl?.href.replace(":id", run.subject_id) ?? "/approvals";
+    const note = v.comment?.trim() ? `"${v.comment.trim()}"` : undefined;
+
+    const payload: NotificationInput =
+      v.action === "approve"
+        ? { title: `${what} was approved`, body: note, href, type: "success" }
+        : v.action === "return"
+          ? { title: `${what} was returned for rework`, body: note, href, type: "warning" }
+          : {
+              title: `${what} was not approved`,
+              body: [note, am ? "The order and its BOMs are back at the last approved version." : null]
+                .filter((l): l is string => !!l)
+                .join("\n") || undefined,
+              href,
+              type: "danger",
+            };
+    await notify({ userIds: [run.requested_by] }, payload);
+  } catch {
+    // Never fail the decision over a notification.
+  }
+}
+
 /** The amendment block `submitBudget` puts on the run's context — read back
  *  field by field, so a context written by an older build reads as "none". */
 function amendmentOf(v: unknown): {

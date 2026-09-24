@@ -16,7 +16,8 @@
  *    shortfall on a large one, and the two implementations look equally
  *    plausible in a diff. `two stages compound, they do not sum` is the
  *    assertion that separates them.
- * 2. **Whole-unit rounding is scoped to countable UOMs.** Blanket rounding was
+ * 2. **Whole-unit rounding is scoped to countable UOMs** (half-up since
+ *    2026-09-24; it was a ceil before). Blanket rounding was
  *    built once and REJECTED by the client (see `uomPrecision`'s note), so a
  *    rewrite that "simplifies" this back to `Math.ceil` everywhere is reinstating
  *    a decision that was reversed. `metres keep their decimals` is the guard.
@@ -90,9 +91,10 @@ function row(p: Partial<ProcessLossRow> = {}): ProcessLossRow {
 
   // The client's own worked example, end to end.
   check(
-    "the client's example: 100 x 1.02 x 1.03 -> 106 Gross",
+    // 106 until 2026-09-24 (round UP); half-up since, and 105.06 is under .5.
+    "the client's example: 100 x 1.02 x 1.03 = 105.06 -> 105 Gross",
     requiredWithProcessLoss(100, [row({ sno: 1, loss_pct: 2 }), row({ sno: 2, loss_pct: 3 })], "GROSS", 2),
-    106,
+    105,
   );
   // ...AND THE UNROUNDED FIGURE THE CLIENT PUBLISHED, 105.06, WHICH THE GROSS
   // VECTOR ABOVE CANNOT SEE. It reads the figure through a `ceil`, so it asserts
@@ -197,10 +199,19 @@ function row(p: Partial<ProcessLossRow> = {}): ProcessLossRow {
   // 105.06 is 106 in a countable unit and stays 105.06 in a measured one. That
   // contrast IS the rule, and asserting the two sides side by side is what a
   // "simplify it to Math.ceil everywhere" rewrite has to break to pass.
-  check("105.06 Gross rounds up to 106", roundRequirement(105.06, "GROSS", 2), 106);
+  check("105.06 Gross rounds half-up to 105", roundRequirement(105.06, "GROSS", 2), 105);
   check("105.06 metres stays 105.06", roundRequirement(105.06, "MTR", 2), 105.06);
   check("30.6 Gross rounds up to 31", roundRequirement(30.6, "GROSS", 2), 31);
-  check("30.1 Gross rounds up to 31", roundRequirement(30.1, "GROSS", 2), 31);
+  check("30.1 Gross rounds half-up to 30", roundRequirement(30.1, "GROSS", 2), 30);
+
+  // THE CLIENT'S FOUR (2026-09-24): ">= 0.5 up, < 0.5 down".
+  check("5321.50 Pcs -> 5322", roundRequirement(5321.5, "PCS", 2), 5322);
+  check("5321.75 Pcs -> 5322", roundRequirement(5321.75, "PCS", 2), 5322);
+  check("5321.49 Pcs -> 5321", roundRequirement(5321.49, "PCS", 2), 5321);
+  check("5321.10 Pcs -> 5321", roundRequirement(5321.1, "PCS", 2), 5321);
+  // A .5 REACHED THROUGH ARITHMETIC must still go up. 5321.5 - 1e-10 is what a
+  // multiplication can hand back; without the toFixed(6) it rounds DOWN.
+  check("a float-short .5 still rounds up", roundRequirement(5321.5 - 1e-10, "PCS", 2), 5322);
   check("an exact 30 Gross stays 30", roundRequirement(30, "GROSS", 2), 30);
 
   // THE REVERSAL'S SCOPE. Blanket rounding was rejected once; metres must keep
@@ -235,7 +246,7 @@ function row(p: Partial<ProcessLossRow> = {}): ProcessLossRow {
   check(
     "a dye loss applies on top of the line's wastage",
     requiredWithProcessLoss(withWastage, [row({ loss_pct: 2 })], "GROSS", 2),
-    106, // ceil(103 * 1.02) = ceil(105.06)
+    105, // round(103 * 1.02) = round(105.06), half-up since 2026-09-24
   );
 
   // A measured unit keeps its precision through the loss too.

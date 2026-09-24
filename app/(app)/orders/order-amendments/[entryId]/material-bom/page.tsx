@@ -8,7 +8,7 @@ import {
   listMaterialBomAmendments,
   listMaterialBomTasks,
 } from "@/lib/orders/material-bom-amendment/service";
-import { orderLockMessages } from "@/lib/orders/order-locks";
+import { orderLocks } from "@/lib/orders/order-locks";
 import { MbaMasterScreen } from "../../../material-bom/mba-master-screen";
 
 /**
@@ -20,7 +20,7 @@ export default async function AmendmentMaterialBomTab({ params }: { params: Prom
   const { entryId } = await params;
   const head = await getAmendmentHead(entryId);
   if (!head || !head.garment_order_id) notFound();
-  const [tasks, boms, copySources, data, canCreate, canEdit, canDelete, mCreate, mEdit, orderLocks] =
+  const [tasks, boms, copySources, data, canCreate, canEdit, canDelete, mCreate, mEdit, locks] =
     await Promise.all([
       listMaterialBomTasks(),
       listMaterialBomAmendments(),
@@ -31,7 +31,7 @@ export default async function AmendmentMaterialBomTab({ params }: { params: Prom
       can("orders", "delete"),
       can("masters", "create"),
       can("masters", "edit"),
-      orderLockMessages(undefined, "material_bom"),
+      orderLocks(undefined, "material_bom"),
     ]);
   return (
     <div className="space-y-3">
@@ -43,7 +43,8 @@ export default async function AmendmentMaterialBomTab({ params }: { params: Prom
         data={data}
         perms={{ canCreate, canEdit, canDelete }}
         masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
-        orderLocks={orderLocks}
+        orderLocks={locks.messages}
+      raiseFor={locks.raiseFor}
         embed={{ id: head.garment_order_id, returnHref: `/orders/order-amendments/${entryId}` }}
       />
     </div>

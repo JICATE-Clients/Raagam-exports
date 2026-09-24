@@ -95,6 +95,11 @@ const OPERATOR_WORDS: Record<string, string> = {
   lte: 'is at most',
 };
 
+/** Resolvers implemented in `approval_rbac_resolve_dynamic`, in words. */
+const RESOLVER_WORDS: Record<string, string> = {
+  md_or_hr_manager: 'anyone with the "Managing Director" or "HR Manager" role',
+};
+
 function humaniseKey(key: string): string {
   return key.replace(/_id$/, '').replace(/[_.]/g, ' ');
 }
@@ -156,7 +161,11 @@ export function describeStep(
     );
   }
   if (step.approver_role_key) who.push(`anyone with the "${step.approver_role_key}" role`);
-  if (step.approver_resolver) who.push(`the requester's ${humaniseKey(step.approver_resolver)}`);
+  if (step.approver_resolver) {
+    /* A resolver that is not about the requester says what it really resolves
+       to — "the requester's md or hr manager" would misdescribe 0629's. */
+    who.push(RESOLVER_WORDS[step.approver_resolver] ?? `the requester's ${humaniseKey(step.approver_resolver)}`);
+  }
 
   let sentence = `Step ${step.step_order} — ${step.step_label}: ${who.join(', or ') || 'NOBODY'} approves.`;
 

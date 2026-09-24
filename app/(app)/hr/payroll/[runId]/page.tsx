@@ -12,6 +12,8 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Stat } from "@/components/ui/stat";
 import { RunActions } from "./run-actions";
+import { countPendingFinesInPeriod } from "@/lib/hr/fines-service";
+import Link from "next/link";
 import type { LineWithName, ContractorPayrollWithName } from "@/lib/hr/payroll-service";
 import type { PayrollStatus } from "@/lib/hr/types";
 import type { StatusTone } from "@/components/ui/status-pill";
@@ -153,6 +155,24 @@ const staffColumns: Column<LineWithName>[] = [
       <span className="tabular-nums text-sm text-danger">{row.pf > 0 ? `(${fmtMoney(row.pf)})` : "—"}</span>
     ),
   },
+  /* 0629 — approved fines (capped), and the flag when the cap bit. The net
+     beside it is already net of the deducted part. */
+  {
+    header: "Fines",
+    align: "right",
+    cell: (row) => (
+      <span className="inline-flex flex-col items-end">
+        <span className="tabular-nums text-sm text-danger">
+          {Number(row.fine_deduction) > 0 ? `(${fmtMoney(row.fine_deduction)})` : "—"}
+        </span>
+        {row.fine_review && (
+          <span className="text-xs font-medium text-warning">
+            Review · {fmtMoney(row.fine_over_cap)} over cap, not deducted
+          </span>
+        )}
+      </span>
+    ),
+  },
   {
     header: "Net",
     align: "right",
@@ -216,6 +236,9 @@ export default async function RunDetailPage({
   if (!run) notFound();
 
   const isWorkerRun = run.run_kind === "worker";
+  const pendingFines = isWorkerRun ? 0 : await countPendingFinesInPeriod(run.period_start, run.period_end);
+  const totalFines = lines.reduce((s, l) => s + Number(l.fine_deduction || 0), 0);
+  const flaggedLines = lines.filter((l) => l.fine_review).length;
 
   // summary totals
   const totalActualGross = lines.reduce((s, l) => s + l.actual_gross, 0);
@@ -309,9 +332,34 @@ export default async function RunDetailPage({
             value={fmtMoney(totalNet)}
             tone="neutral"
           />
+          {!isWorkerRun && (
+            <Stat label="Total fines" value={fmtMoney(totalFines)} hint="Approved fines deducted" tone="neutral" />
+          )}
           <Stat label="Total ESI" value={fmtMoney(totalEsi)} tone="neutral" />
           <Stat label="Total PF" value={fmtMoney(totalPf)} tone="neutral" />
         </div>
+      )}
+
+      {/* 0629 — fines that change this run's figures, said before approval */}
+      {!isWorkerRun && (pendingFines > 0 || flaggedLines > 0) && (
+        <Card>
+          <CardBody className="space-y-1 text-sm">
+            {pendingFines > 0 && (
+              <p>
+                <span className="font-medium text-warning">{pendingFines} fine{pendingFines === 1 ? "" : "s"} awaiting approval</span>{" "}
+                for this period. Once approved they are deducted from the staff line automatically while this run is
+                draft or calculated; after the run is approved they are refused for this month.{" "}
+                <Link href="/hr/fines" className="text-primary underline-offset-2 hover:underline">Open Fines &amp; Deductions</Link>
+              </p>
+            )}
+            {flaggedLines > 0 && (
+              <p>
+                <span className="font-medium text-warning">{flaggedLines} line{flaggedLines === 1 ? "" : "s"} flagged for review</span>{" "}
+                — approved fines exceed the cap set in Payroll Settings, so only the capped amount was deducted.
+              </p>
+            )}
+          </CardBody>
+        </Card>
       )}
 
       {/* payroll lines */}

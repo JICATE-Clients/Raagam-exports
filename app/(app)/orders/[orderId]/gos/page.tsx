@@ -3,6 +3,7 @@ import { VFinalBanner } from "@/components/orders/v-final-banner";
 import { vFinalFor } from "@/lib/orders/amendments/v-final";
 import { requirePermission } from "@/lib/auth/server";
 import { getGarmentOrderSheet } from "@/lib/orders/gos/service";
+import { withCadStatus } from "@/lib/orders/gos/cad-status";
 import { getReportStyleImages } from "@/lib/orders/gos/style-images";
 import { isRefusal } from "@/lib/orders/gos/types";
 import { GosSheetDocument } from "@/components/orders/gos-sheet";
@@ -58,7 +59,10 @@ export default async function GosPage({
      BESIDE the sheet on every render — never frozen with it, because a signed
      URL outlives no amendment. See `getReportStyleImages`. */
   const [sheet, styleImages, company] = await Promise.all([
-    vf.state === "frozen" && !proposed ? vf.payload : getGarmentOrderSheet(orderId),
+    /* THE CAD LINE IS LIVE (0628, §6.2) — laid over the frozen copy too, since
+       an approval recorded after the freeze must read "Approved", not "Pending". */
+    (async () =>
+      withCadStatus(vf.state === "frozen" && !proposed ? vf.payload : await getGarmentOrderSheet(orderId), orderId))(),
     getReportStyleImages(orderId),
     /* The letterhead, read live like the pictures — not part of what an
        amendment approves, so never frozen (`getDocLetterhead`). */

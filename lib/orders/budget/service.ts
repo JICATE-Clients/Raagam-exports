@@ -429,7 +429,10 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
       .order("created_at", { ascending: true }),
     s
       .from("order_budget_orders")
-      .select("garment_order_id, budget:order_budgets(id, code, status)"),
+      /* `revisions` — its revision entries' outcomes, so the queue can tell a
+         REVISION with the MD from a first submit (`in_revision` below). One
+         FK from the entry to the budget, so the embed is bare. */
+      .select("garment_order_id, budget:order_budgets(id, code, status, revisions:order_budget_revisions(outcome))"),
     /* THE PREREQUISITE GATE (user 2026-09-19) — which orders have a SAVED
        Fabric BOM and a SAVED Material BOM. `is_draft = false` is the test
        `pullCostLines` uses to decide what it pulls, so "ready to budget" and
@@ -459,17 +462,26 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
 
   type Covered = {
     garment_order_id: string;
-    budget: { id: string; code: string | null; status: BudgetStatus } | null;
+    budget: {
+      id: string;
+      code: string | null;
+      status: BudgetStatus;
+      revisions: { outcome: string }[] | null;
+    } | null;
   };
-  const covered = new Map<string, { id: string; code: string | null; status: BudgetStatus }>();
+  const covered = new Map<string, NonNullable<BudgetableOrder["in_budget"]>>();
   for (const c of (coveredRes.data ?? []) as unknown as Covered[]) {
     if (!c.budget) continue;
+    const { revisions, ...budget } = c.budget;
     const held = covered.get(c.garment_order_id);
     // AN APPROVED BUDGET WINS THE MENTION. An order sitting in three drafts and
     // one approved budget needs to report the approved one — that is the state
     // that will refuse a second approval.
-    if (!held || (held.status !== "approved" && c.budget.status === "approved")) {
-      covered.set(c.garment_order_id, c.budget);
+    if (!held || (held.status !== "approved" && budget.status === "approved")) {
+      covered.set(c.garment_order_id, {
+        ...budget,
+        in_revision: (revisions ?? []).some((r) => r.outcome === "open"),
+      });
     }
   }
 
@@ -1244,7 +1256,7 @@ async function fabricReportsFor(
 ): Promise<Map<string, YarnFabricRequirementReport | { refused: string }>> {
   return new Map(
     await Promise.all(
-      [...new Set(bomIds)].map(async (id) => [id, await yarnFabricRequirementReport(id)] as const),
+      [...new Set(bomIds)].map(async (id) => [id, await yarnFabricRequirementReport(id, { allocation: false })] as const),
     ),
   );
 }
@@ -1728,24 +1740,29 @@ async function shapeBudgets(rows: OrderBudget[]): Promise<OrderBudget[]> {
       shaped.flatMap((b) => b.revisions.flatMap((r) => [r.reopened_by, r.baseline_approved_by])).filter(Boolean),
     ),
   ] as string[];
-  if (ids.length > 0) {
-    const s = await createClient();
-    const { data, error } = await s.rpc("creator_names", { ids });
-    // A name that cannot be read is a dash on screen, not a failed page — the
-    // revision itself (who, why, when) is still there.
-    if (!error) {
-      const byId = new Map(((data ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name]));
-      for (const b of shaped) {
-        const name = (id: string | null) => (id ? (byId.get(id) ?? null) : null);
-        b.revisions = b.revisions.map((r) => ({
-          ...r,
-          reopened_by_name: name(r.reopened_by),
-          baseline_approved_by_name: name(r.baseline_approved_by),
-        }));
-      }
+  /* THE TWO NAME LOOKUPS SIDE BY SIDE (2026-09-24): both read only the rows,
+     so the reopeners' names and the Created User column share one round trip
+     instead of queueing — this runs on every render of the approval queue,
+     including the one each decision triggers. */
+  const s = await createClient();
+  const [namesRes, withNames] = await Promise.all([
+    ids.length > 0 ? s.rpc("creator_names", { ids }) : Promise.resolve({ data: [], error: null }),
+    withCreators(shaped),
+  ]);
+  // A name that cannot be read is a dash on screen, not a failed page — the
+  // revision itself (who, why, when) is still there.
+  if (!namesRes.error && ids.length > 0) {
+    const byId = new Map(((namesRes.data ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name]));
+    const name = (id: string | null) => (id ? (byId.get(id) ?? null) : null);
+    for (const b of withNames) {
+      b.revisions = b.revisions.map((r) => ({
+        ...r,
+        reopened_by_name: name(r.reopened_by),
+        baseline_approved_by_name: name(r.baseline_approved_by),
+      }));
     }
   }
-  return withCreators(shaped);
+  return withNames;
 }
 
 export async function listOrderBudgets(): Promise<OrderBudget[]> {
