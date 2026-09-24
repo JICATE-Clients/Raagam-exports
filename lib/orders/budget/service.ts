@@ -417,7 +417,7 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
     s
       .from("garment_order_amendments")
       .select(
-        "id, code, po_no, delivery_date, customer:customers(name), " +
+        "id, code, po_no, delivery_date, created_at, created_by, customer:customers(name), " +
           "sales_order:sales_orders(order_number), " +
           /* The FK column is NAMED, the way `fabric-bom/reports.ts` reads the
              same pair — a second FK to `sq_details` would otherwise turn this
@@ -492,6 +492,8 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
     code: string | null;
     po_no: string | null;
     delivery_date: string | null;
+    created_at: string;
+    created_by: string | null;
     customer: { name: string } | null;
     sales_order: { order_number: string | null } | null;
     sq_detail: { code: string | null } | null;
@@ -506,7 +508,7 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
     ex_rate: null,
   });
 
-  return ((ordersRes.data ?? []) as unknown as OrderRow[]).map((o) => {
+  const rows = ((ordersRes.data ?? []) as unknown as OrderRow[]).map((o): BudgetableOrder => {
     const v = values.ok
       ? (values.byOrder.get(o.id) ?? unread("this order could not be read"))
       : unread(`the order's prices could not be read — ${values.error}`);
@@ -537,8 +539,13 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
       fabric_bom_saved: fabricSaved.has(o.id),
       material_bom_saved: materialSaved.has(o.id),
       bom_refusal: bomRefusalOf(fabricSaved.has(o.id), materialSaved.has(o.id)),
+      created_at: o.created_at,
+      created_by: o.created_by,
     };
   });
+  /* The queue's Updated table shows Created User (AGENTS.md "Created Date /
+     Created User") — `created_by` is a uuid, resolved to a name here. */
+  return withCreators(rows);
 }
 
 // ---------------------------------------------------------------------------

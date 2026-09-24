@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadFabricTaForGarmentOrder } from "@/lib/orders/fabric-ta/actions";
 import type { FabricTaResult } from "@/lib/orders/fabric-ta/service";
+import { recallTaView, rememberTaView } from "@/lib/orders/ta-view-cache";
 import { FabricTaLadder } from "./fabric-ta-ladder";
 
 /**
@@ -47,6 +48,7 @@ export function FabricTaTab({
     if (!garmentOrderId) return;
     let cancelled = false;
     loadFabricTaForGarmentOrder(garmentOrderId).then((res) => {
+      if (res.ok) rememberTaView(`fabric:${garmentOrderId}`, res.result);
       if (cancelled) return;
       setState(res.ok ? { for: garmentOrderId, data: res.result } : { for: garmentOrderId, error: res.error });
     });
@@ -58,8 +60,12 @@ export function FabricTaTab({
   if (!garmentOrderId) {
     return <p className="text-sm text-muted-foreground">Pick the garment order first — the T&A follows that order.</p>;
   }
-  // A result for a PREVIOUS order is never shown under this one.
-  const current = state && state.for === garmentOrderId ? state : null;
+  // A result for a PREVIOUS order is never shown under this one. With no
+  // answer yet for THIS order, the last one read for it stands in while the
+  // fresh read runs (`ta-view-cache.ts` — the tab remounts on every return).
+  const remembered = recallTaView<FabricTaResult>(`fabric:${garmentOrderId}`);
+  const current =
+    state && state.for === garmentOrderId ? state : remembered ? { for: garmentOrderId, data: remembered } : null;
   if (!current) return <p className="text-sm text-muted-foreground">Reading the order&apos;s T&A…</p>;
   if (!current.data) return <p className="text-sm text-danger">{current.error}</p>;
 

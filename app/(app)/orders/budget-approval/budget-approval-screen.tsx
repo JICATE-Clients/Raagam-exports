@@ -280,14 +280,26 @@ export function BudgetApprovalScreen({
   const facets = useFacetFilter(rows, groups);
   const facetMatch = facets.matches;
   const setFacet = facets.set;
+  const [search, setSearch] = useState("");
+  /* THE SET THE FIGURES ARE COUNTED OVER — the list with the search and the
+     Filters panel applied and this box's own word left off, so a figure is
+     exactly what clicking that word would show. */
+  const base = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (!facetMatch(r)) return false;
+      if (!q) return true;
+      return [r.code, r.description]
+        .filter(Boolean)
+        .some((v) => (v as string).toLowerCase().includes(q));
+    });
+  }, [rows, facetMatch, search]);
   const quick = useQuickStatus(approvalWord, {
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
-    /* The figure on each word, over the same set the drawer counts. */
-    rows,
+    countRows: base,
   });
   const quickMatches = quick.matches;
-  const [search, setSearch] = useState("");
 
   // The remark is typed and unsaved until a decision is taken, so it is real
   // unsaved work — a silent auto-reload mid-sentence loses it.
@@ -398,17 +410,7 @@ export function BudgetApprovalScreen({
     });
   }
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (!quickMatches(r)) return false;
-      if (!facetMatch(r)) return false;
-      if (!q) return true;
-      return [r.code, r.description]
-        .filter(Boolean)
-        .some((v) => (v as string).toLowerCase().includes(q));
-    });
-  }, [rows, quickMatches, facetMatch, search]);
+  const filtered = useMemo(() => base.filter(quickMatches), [base, quickMatches]);
 
   const columns: Column<BudgetApprovalRow>[] = [
     {

@@ -1700,7 +1700,27 @@ export function BudgetScreen({
              with the switch (`importOnly`), so a foreign currency left behind
              would price the line in dollars with nothing on screen saying so —
              switching Import off takes the line back to rupees. */
-          setCost(r.key, key === "is_import" && !v ? { is_import: false, currency_code: "", ex_rate: "" } : { [key]: v })
+          setCost(
+            r.key,
+            key !== "is_import"
+              ? { [key]: v }
+              : !v
+                ? { is_import: false, currency_code: "", ex_rate: "" }
+                : /* IMPORT ON STARTS IN THE ORDER'S CURRENCY (client 2026-09-24,
+                     shot 3041: switched on, the line still read INR with a blank
+                     Ex Rate). An imported line is quoted in foreign money, and
+                     the order's own currency and rate (the header's Currency /
+                     Conv) are the ones it is most likely quoted in — the same
+                     prefill `pickCurrency` gives. A currency already on the
+                     line is kept; an INR order has nothing to prefill. */
+                  !r.currency_code && orderCurrency && orderCurrency !== "INR"
+                  ? {
+                      is_import: true,
+                      currency_code: orderCurrency,
+                      ex_rate: orderRate != null ? String(orderRate) : "",
+                    }
+                  : { is_import: true },
+          )
         }
         className={className}
       />
@@ -1722,8 +1742,8 @@ export function BudgetScreen({
    * while no line on the grid is imported (`usedColumns`). A line that already
    * HOLDS a foreign currency keeps them regardless: hiding a currency that is
    * pricing the line would be the silent state the Import-off reset prevents.
-   * Grids with no Import switch (Fabric Purchases, the process tabs) keep the
-   * columns as they were.
+   * All three purchase grids carry it (Fabric Purchases since 2026-09-24); the
+   * process tabs stack the same cells inside Import (`importStackCol`).
    */
   const importOnly = (c: CostCol): CostCol => ({
     ...c,
@@ -1738,23 +1758,31 @@ export function BudgetScreen({
    * its switch, on an imported line only — one `num` column instead of four.
    * Same cells, same rules (`currencyCol` / `exRateCol` / `inrRateCol`), just
    * stacked; a line holding a foreign currency shows them whatever the switch.
+   *
+   * 2026-09-24 (client, shot 3041): Yarn / Accessories / Fabric Processes
+   * have the width and now draw real columns (`importOnly`). This stack is
+   * left to Garment Processes and CMTs, which have none to give — tidied:
+   * the three sit under a rule below the switch with small sentence-case
+   * captions, and INR Rate reads "—" until it can be computed instead of a
+   * caption with nothing under it.
    */
+  const stackLabel = "text-[10px] font-medium leading-tight text-muted-foreground";
   const importStackCol: CostCol = {
     header: "Import",
     cell: (r, i) => (
       <div className="space-y-1">
         {flagToggle(r, "is_import", "Imported")}
         {(r.is_import || !!r.currency_code) && (
-          <>
-            <div className="text-[10px] font-semibold uppercase text-muted-foreground">Curr</div>
+          <div className="space-y-0.5 border-t border-border pt-1">
+            <div className={stackLabel}>Curr</div>
             {currencyCol.cell(r, i)}
-            <div className="text-[10px] font-semibold uppercase text-muted-foreground">
-              Ex Rate{exRateRequired(r) ? " *" : ""}
-            </div>
+            <div className={stackLabel}>Ex Rate{exRateRequired(r) ? " *" : ""}</div>
             {exRateCol.cell(r, i)}
-            <div className="text-[10px] font-semibold uppercase text-muted-foreground">INR Rate</div>
-            <div className="text-right">{inrRateCol.cell(r, i)}</div>
-          </>
+            <div className={stackLabel}>INR Rate</div>
+            <div className="text-right">
+              {inrRateCol.cell(r, i) ?? <span className="text-sm text-muted-foreground">—</span>}
+            </div>
+          </div>
         )}
       </div>
     ),
@@ -2278,10 +2306,10 @@ export function BudgetScreen({
    * line with no stage yet counts as needing it. Filtered AFTER `withRowRules`
    * so the check script still measures the full-width table above.
    */
-  const usedColumns = (source: BudgetSource, cols: CostCol[]) => {
-    const rows = costs.filter((c) => c.source === source);
-    return cols.filter((c) => !c.showFor || rows.length === 0 || rows.some((r) => c.showFor!(r)));
-  };
+  const usedIn = (rows: CostRow[], cols: CostCol[]) =>
+    cols.filter((c) => !c.showFor || rows.length === 0 || rows.some((r) => c.showFor!(r)));
+  const usedColumns = (source: BudgetSource, cols: CostCol[]) =>
+    usedIn(costs.filter((c) => c.source === source), cols);
   const yarnPurchaseColumns: CostCol[] = usedColumns("yarn", withRowRules([
     { ...identityCol("Yarn"), width: FIELD_WIDTH_CSS.term },
     { ...stageCol("yarn_stage"), width: FIELD_WIDTH_CSS.hug },
@@ -2320,17 +2348,23 @@ export function BudgetScreen({
      (the note above), so it scrolled sideways there. The three moves:
      Fabric + "Fabric & Colour" -> one `term` cell (-112), Reqd + Unit -> one
      `range` (-48), Ex Rate -> num (-16): 176 + 88 + 88 + 112 + 88 + 72 + 72
-     + 88 + 112 = 896, + 72 = 968. */
+     + 88 + 112 = 896, + 72 = 968.
+     2026-09-24 (client): + Import (num 72) at the row's end, and Curr · Ex
+     Rate · INR Rate only once it is on — the rule Yarn / Accessories
+     Purchases and the process tabs already follow. 968 + 72 = 1040, + 72 =
+     1112 <= 1120 beside the rail and <= 1155 -> 5xl. */
   const fabricPurchaseColumns: CostCol[] = usedColumns("fabric", withRowRules([
     { ...identityCol("Fabric"), width: FIELD_WIDTH_CSS.term },
     { ...stageCol("fabric_stage"), width: FIELD_WIDTH_CSS.hug },
     { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.num },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-24).
+    { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
   ]));
 
   /* Accessories Purchases — 144 + 112 + 72 + 88 + 88 + 72 + 88 + 72 + 88
@@ -2377,34 +2411,46 @@ export function BudgetScreen({
      (the note above the purchase grids). Reqd + Unit -> one `range` (-48),
      Ex Rate -> num (-16), Rate before Curr, FOC last: 112 + 112 + 88 + 112 +
      88 + 88 + 72 + 72 + 88 + 112 + 72 = 1016, + 72 = 1088. */
-  const yarnProcessColumns: CostCol[] = withRowRules([
+  /* 2026-09-24 (client, shot 3041): the stacked Import cell made an imported
+     row six boxes tall, so Curr · Ex Rate · INR Rate are COLUMNS here, as on
+     Purchase Rates — drawn only while a line on the grid is imported
+     (`importOnly` + `usedColumns`). Paid for by Shade / Stage and Rate Type
+     hug -> num (-32; a shade and "Per KGS" both truncate with a reveal), INR
+     Rate num: 928 - 32 + 72 + 72 + 72 = 1112 <= 1120 beside the rail. */
+  const yarnProcessColumns: CostCol[] = usedColumns("yarn_process", withRowRules([
     { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.range },
     { ...processCol((p) => p.for_yarn), width: FIELD_WIDTH_CSS.range },
-    { ...descCol("Shade / Stage"), width: FIELD_WIDTH_CSS.hug },
+    { ...descCol("Shade / Stage"), width: FIELD_WIDTH_CSS.num },
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
-    { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
+    { ...rateTypeCol, width: FIELD_WIDTH_CSS.num },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
+    { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.num },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
-    // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
-    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
-  ]);
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
+  ]));
 
   /* Accessories Processes — the same steps as Yarn Processes: 1024, + 72 =
      1096 <= 1155 -> 5xl.
      2026-09-22, the same three moves and the same order as Yarn Processes:
      112 + 144 + 112 + 88 + 88 + 72 + 72 + 88 + 112 + 72 = 960, + 72 = 1032. */
-  const accessoryProcessColumns: CostCol[] = withRowRules([
+  /* 2026-09-24: Curr · Ex Rate · INR Rate as columns, only while a line is
+     imported — Yarn Processes' change. 872 + 72 + 72 + 72 = 1088 <= 1120. */
+  const accessoryProcessColumns: CostCol[] = usedColumns("material_process", withRowRules([
     { ...processCol((p) => p.for_trims), width: FIELD_WIDTH_CSS.range },
     { ...itemCol("For"), width: FIELD_WIDTH_CSS.code },
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
+    { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
+    { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.num },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
-    // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
-    { ...importStackCol, width: FIELD_WIDTH_CSS.num },
-  ]);
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
+  ]));
 
   /* Garment Processes — 112 + 112 + 112 + 72 + 88 + 88 + 88 + 72 + 88 + 88
      + 112 = 1032, + 72 = 1104 <= 1155 -> 5xl.
@@ -2451,8 +2497,8 @@ export function BudgetScreen({
    *  -> 5xl (Rate num -> hug on 2026-09-21, option A). It sits in the fold's panel, ~50px narrower than the pane (the
    *  panel's indent and the list's frame) — still 1,105 at the smallest pane,
    *  which this clears by 121. */
-  const fabricLineColumns = (basis: string): CostCol[] =>
-    withRowRules([
+  const fabricLineColumns = (basis: string, lines: CostRow[]): CostCol[] =>
+    usedIn(lines, withRowRules([
       {
         header: basis === "color" ? "Colour" : basis === "process" ? "Process" : "Fabric",
         width: FIELD_WIDTH_CSS.term,
@@ -2464,11 +2510,16 @@ export function BudgetScreen({
       // = 912, + 72 = 984.
       { ...rateTypeCol, width: FIELD_WIDTH_CSS.code },
       { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
+      // 2026-09-24: Curr · Ex Rate · INR Rate as columns, only while a line
+      // in this group is imported. 824 + 216 = 1040, clearing the fold
+      // panel's ~1,070.
+      { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
+      { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
+      { ...importOnly(inrRateCol), width: FIELD_WIDTH_CSS.num },
       { ...amountCol, width: FIELD_WIDTH_CSS.range },
       { ...focCol, width: FIELD_WIDTH_CSS.num },
-      // 2026-09-23: Curr · Ex Rate · INR Rate open inside Import (`importStackCol`).
-      { ...importStackCol, width: FIELD_WIDTH_CSS.num },
-    ]);
+      { ...importCol, width: FIELD_WIDTH_CSS.num },
+    ]));
 
   // ---- CMTs -----------------------------------------------------------------
   //
@@ -2812,6 +2863,9 @@ export function BudgetScreen({
    *   Percentage  Qty = SALES VALUE (INR)  Rate typed (%)        Value = Sales x % / 100
    *   Flat        no Qty, no Rate          VALUE TYPED           Value = the sum
    *
+   * (2026-09-24: the Flat sum is now typed in the RATE column — see
+   * `otherRateCol`. The rest of this note is the 09-21 history.)
+   *
    * The engine already computes all three (`lineAmount`: `percent` is a share
    * of `salesBase`, `flat` is the stored `rate` verbatim, `per_unit` is
    * qty x rate). What the spec changes is the GRID: on a Flat line the sum is
@@ -2825,8 +2879,12 @@ export function BudgetScreen({
   const otherQtyCol: CostCol = {
     header: "Qty",
     labelFor: (r) => (r.rate_type === "percent" ? "Sales Value" : "Qty"),
-    showFor: (r) => r.rate_type !== "flat",
     cell: (r) => {
+      /* A FLAT LINE READS 1 (client 2026-09-24, shot 3047: "not yet show the
+         qty"). One lump sum, once — display only, like the note above says:
+         `lineAmount` never multiplies a flat charge, so the 1 is what the
+         Value beside it already means, not a box to type. */
+      if (r.rate_type === "flat") return factFigure(1);
       if (r.rate_type === "percent") {
         const base = salesBase(lineInput(r));
         return (
@@ -2846,22 +2904,21 @@ export function BudgetScreen({
     },
   };
 
+  /* THE RATE COLUMN IS THE ONE THAT IS TYPED, ON EVERY LINE (client
+     2026-09-24, shot 3046: "why the rate entering field is in amount column").
+     The 2026-09-21 matrix typed a Flat sum in the Value column; that put one
+     row's box a column to the right of every other row's, so the Rate column
+     read as a gap. A Flat line now types its lump sum in Rate (it binds
+     `rate`, which IS the flat charge — 0573), and Value shows it back,
+     computed like every other line. It also gives Other Incomes' Flat basis a
+     box: that grid's Value was always computed, so a Flat income had none. */
   const otherRateCol: CostCol = {
     ...rateCol("Rate"),
-    labelFor: (r) => (r.rate_type === "percent" ? "%" : "Rate"),
-    // A Flat line has no rate to type: its sum goes in the Value column.
-    showFor: (r) => r.rate_type !== "flat",
+    labelFor: (r) => (r.rate_type === "percent" ? "%" : r.rate_type === "flat" ? "Amount" : "Rate"),
   };
 
-  /** Value: computed on a Per Pcs / Percentage line; TYPED on a Flat line —
-   *  the same Rate box (it binds `rate`, which IS the flat charge), landed on
-   *  like any price. */
-  const otherValueCol: CostCol = {
-    ...amountCol,
-    header: "Value (INR)",
-    requiredFor: (r) => r.rate_type === "flat" && rateRequired(r),
-    cell: (r, i) => (r.rate_type === "flat" ? rateCol("Value (INR)").cell(r, i) : amountCol.cell(r, i)),
-  };
+  /** Value: always computed — Qty x Rate, Sales x % / 100, or the Flat sum. */
+  const otherValueCol: CostCol = { ...amountCol, header: "Value (INR)" };
 
   const valueCol: CostCol = { ...amountCol, header: "Value (INR)" };
 
@@ -3370,11 +3427,11 @@ export function BudgetScreen({
               so this grid cannot grow — and it may be emptied, like every
               pulled grid. */}
           <ChildGrid<CostRow>
-            columns={fabricLineColumns(basisOf(g))}
+            columns={fabricLineColumns(basisOf(g), g.lines)}
             rows={g.lines}
             tableFrom="5xl"
             flatRows
-            renderMobileRow={(row, i) => costCard(fabricLineColumns(basisOf(g)), row, i)}
+            renderMobileRow={(row, i) => costCard(fabricLineColumns(basisOf(g), g.lines), row, i)}
             hideAdd
             lockExisting={!editable}
             keepOne={false}

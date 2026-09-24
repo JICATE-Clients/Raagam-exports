@@ -328,22 +328,24 @@ export function IwoMaterialBomScreen({
   const [listQuery, setListQuery] = useState("");
   const listFacets = useFacetFilter(tasks, IWO_MATERIAL_BOM_FACETS);
   const facetMatches = listFacets.matches;
-  const quick = useQuickStatus(bomWord, {
-    standDown: !!listFacets.values.bom,
-    onPick: () => listFacets.set("bom", ""),
-    /* The figure on each word, over the same set the drawer counts. */
-    rows: tasks,
-  });
-  const qm = quick.matches;
-  const listed = useMemo(() => {
+  /* THE SET THE FIGURES ARE COUNTED OVER — the list with the search and the
+     Filters panel applied and this box's own word left off, so a figure is
+     exactly what clicking that word would show. */
+  const base = useMemo(() => {
     const needle = listQuery.trim().toLowerCase();
     return tasks.filter((t) => {
       if (!facetMatches(t)) return false;
-      if (!qm(t)) return false;
       if (!needle) return true;
       return [t.code, t.reference_no].some((v) => (v ?? "").toLowerCase().includes(needle));
     });
-  }, [tasks, listQuery, facetMatches, qm]);
+  }, [tasks, listQuery, facetMatches]);
+  const quick = useQuickStatus(bomWord, {
+    standDown: !!listFacets.values.bom,
+    onPick: () => listFacets.set("bom", ""),
+    countRows: base,
+  });
+  const qm = quick.matches;
+  const listed = useMemo(() => base.filter(qm), [base, qm]);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
   const materialById = useMemo(() => new Map(data.materials.map((m) => [m.id, m])), [data.materials]);
   const uomById = useMemo(() => new Map(data.uoms.map((u) => [u.id, u])), [data.uoms]);

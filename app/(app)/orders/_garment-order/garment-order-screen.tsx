@@ -101,6 +101,7 @@ import { isRefusal, orderTaLadder } from "@/lib/orders/ta/order-ladder";
 import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
 import { getTaActivityWip, completeTaActivity } from "@/lib/ta/worklist-actions";
 import { loadTrimTaForGarmentOrder } from "@/lib/orders/trim-ta/actions";
+import { rememberTaView } from "@/lib/orders/ta-view-cache";
 import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import { ACTIVITY_SHORT_NAME_TO_STAGE, type ProductionStage } from "@/lib/production/types";
 import type { StageWip } from "@/lib/production/service";
@@ -5234,30 +5235,48 @@ export function GarmentOrderScreen({
      same state, not a hook: the panel owns its own state. */
   const [taView, setTaView] = useState<"activity" | "approval" | "workflow">("workflow");
 
-  const [taBypassByStage, setTaBypassByStage] = useState<Partial<Record<ProductionStage, StageWip>>>({});
+  /* THE TWO T&A READS BELOW WAIT FOR THE ACTIVITY VIEW (2026-09-24, "T&A tab
+     takes 2 seconds to read"). Both feed columns of the Activity grid and
+     nothing else — Bypass, and GRN Linked — but they used to fire the moment
+     an order OPENED, whichever section the operator was on. Server Actions
+     are QUEUED (next/dist/docs 07-mutating-data.md: "Using them for data
+     fetching introduces sequential execution"), so the full trims tracker
+     ran ahead of every other action this screen made, T&A's own Work Flow
+     panel — the view the tab opens on — included. */
+  const taActivityShown = taView === "activity";
+
+  /* Keyed by what it was READ FOR, and derived — so an answer for another
+     order or another set of stages is never shown, and the effect never has
+     to clear state to say so (`react-hooks/set-state-in-effect`). */
+  const taBypassKey = editId && taFloorStagesKey && taActivityShown ? `${editId}|${taFloorStagesKey}` : null;
+  const [taBypassFor, setTaBypassFor] = useState<{ key: string; wip: Partial<Record<ProductionStage, StageWip>> } | null>(null);
   useEffect(() => {
-    if (!editId || !taFloorStagesKey) {
-      setTaBypassByStage({});
-      return;
-    }
+    if (!taBypassKey) return;
     let cancelled = false;
-    const stages = taFloorStagesKey.split(",") as ProductionStage[];
-    void getTaActivityWip(editId, stages).then((res) => {
-      if (!cancelled) setTaBypassByStage(res);
+    const [amendmentId, stagesKey] = taBypassKey.split("|");
+    void getTaActivityWip(amendmentId, stagesKey.split(",") as ProductionStage[]).then((res) => {
+      if (!cancelled) setTaBypassFor({ key: taBypassKey, wip: res });
     });
     return () => {
       cancelled = true;
     };
-  }, [editId, taFloorStagesKey]);
+  }, [taBypassKey]);
+  const taBypassByStage: Partial<Record<ProductionStage, StageWip>> =
+    taBypassFor && taBypassFor.key === taBypassKey ? taBypassFor.wip : {};
 
   /* T&A ▸ "GRN LINKED" (see `taTrimGrn`). Only for a saved order, and a failed
      read leaves `null` — the cell then says nothing, never "no GRN". Above the
-     `if (mode === "list")` return, like every hook in this component. */
+     `if (mode === "list")` return, like every hook in this component.
+     Read once per order, the first time the Activity view shows (see
+     `taActivityShown`), and filed where Material BOM ▸ Trims T&A looks first
+     (`ta-view-cache.ts`) — it is the same tracker, so that tab then paints at once. */
+  const taTrimGrnRead = !!editId && taTrimGrnFor?.id === editId;
   useEffect(() => {
-    if (!editId) return;
+    if (!editId || !taActivityShown || taTrimGrnRead) return;
     let cancelled = false;
     void loadTrimTaForGarmentOrder(editId)
       .then((res) => {
+        if (res.ok) rememberTaView(`trim:${editId}`, res.data);
         if (cancelled) return;
         if (!res.ok) {
           setTaTrimGrnFor({ id: editId, grn: null });
@@ -5281,7 +5300,7 @@ export function GarmentOrderScreen({
     return () => {
       cancelled = true;
     };
-  }, [editId]);
+  }, [editId, taActivityShown, taTrimGrnRead]);
 
   /**
    * THE ROAD LINE IS GONE (2026-09-10, replacing the icon-timeline with the
@@ -16124,10 +16143,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
                  SO FROM 1250px THE BORDER IS OFF AND A `::before` DRAWS THE
                  LINE, absolutely, with the row `relative` as its box:
-                 `left-[calc(-50.375rem-1px)]` reaches back over the row's
+                 `left-[calc(-46.875rem-1px)]` reaches back over the row's
                  `gap-x-2.5` (0.625rem), the fabric half's transparent 1px
-                 `border-r` and its `pr-2.5` + 46rem of tracks + five 0.625rem
-                 gaps (49.75rem) — the same arithmetic the fabric | parts
+                 `border-r` and its `pr-2.5` + 42.5rem of tracks + five 0.625rem
+                 gaps (46.25rem) — the same arithmetic the fabric | parts
                  divider is placed by — to the fabric row's left edge, where
                  `ChildGrid`'s own rules begin. `right-[-2.25rem]` is `gap-2`
                  + the 28px chip, so it ends where they end. A pseudo, NOT the
@@ -16154,10 +16173,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                  comment), so a fabric whose half runs to a second line — Yarn
                  Color on a yarn-dyed fabric, the advisory — paints over the
                  line rather than under it. Below 1250px the halves stack, the
-                 pseudo is off and the plain `border-t` is back. */
-              "min-[1250px]:relative min-[1250px]:border-t-0",
-              "min-[1250px]:before:pointer-events-none min-[1250px]:before:absolute min-[1250px]:before:top-0 min-[1250px]:before:h-0 min-[1250px]:before:border-t min-[1250px]:before:border-border min-[1250px]:before:content-['']",
-              "min-[1250px]:before:left-[calc(-50.375rem_-_1px)] min-[1250px]:before:-right-9 min-[1250px]:first:before:hidden",
+                 pseudo is off and the plain `border-t` is back.
+
+                 REVERSED 2026-09-24 (user, screenshot 3037: "the left side lines
+                 just boz the one fabric those Coordinate* Component* Colour* Roll
+                 form print — now there is no difference"). A part line running
+                 Structure to ✕ is the same length and weight as the line BETWEEN
+                 FABRICS, so a fabric with four parts read as four fabrics. The
+                 pseudo is gone and the row's own `border-t` stands at every
+                 width: a PART line spans only the parts half, and a line reaching
+                 the left edge now means "next fabric" and nothing else. The
+                 paragraphs above are the overruled design; restoring the full
+                 width needs a new decision, not a tidy-up. */
               PART_TRACK,
             )}
           >
@@ -16694,8 +16721,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         absolute line over the whole box instead, and the per-row borders
         stay only as transparent 1px spacers.
 
-        `left-[50.5rem]` IS ARITHMETIC, NOT A MEASUREMENT: `px-3` (0.75rem)
-        + the fabric track (9.5 + 11 + 5 + 6 + 7 + 7.5 = 46rem, and five
+        `left-[47rem]` IS ARITHMETIC, NOT A MEASUREMENT: `px-3` (0.75rem)
+        + the fabric track (9.5 + 11 + 4.5 + 4.5 + 5.5 + 7.5 = 42.5rem, and five
         `gap-x-2.5` = 3.125rem) + that half's `pr-2.5` (0.625rem). It was
         42.875rem until Range took its own 7rem column (2026-09-21). It lands on
         the transparent border exactly. Change the fabric track or those
@@ -16704,7 +16731,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         the halves sit side by side. */}
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-y-0 left-[50.5rem] hidden border-r border-border min-[1250px]:block"
+      className="pointer-events-none absolute inset-y-0 left-[47rem] hidden border-r border-border min-[1250px]:block"
     />
     {/* NO PARTS | ACTIONS DIVIDER. One was drawn here for an hour on
         2026-09-22 (a second absolute rule at 77.875rem, before the part ✕ /
@@ -16717,7 +16744,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       aria-hidden
       className="mb-2 hidden items-end gap-x-2.5 border-b border-border pb-1 pr-9 min-[1250px]:flex"
     >
-      <div className="grid flex-none grid-cols-[9.5rem_11rem_5rem_6rem_7rem_7.5rem] gap-x-2.5 self-stretch border-r border-transparent pr-2.5">
+      <div className="grid flex-none grid-cols-[9.5rem_11rem_4.5rem_4.5rem_5.5rem_7.5rem] gap-x-2.5 self-stretch border-r border-transparent pr-2.5">
         {head("Structure", true)}
         {head("Composition", true)}
         {head("GSM", anyGsm)}
@@ -17170,6 +17197,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 control inside a `1fr` cell: that leaves the CELL at its old width
                 and floats the value in dead space.
 
+                COMPACTED 2026-09-24 (user, screenshot 3037: "compact the field
+                size see the gsm, tolerance range"): GSM 5rem → 4.5rem and
+                Tolerance 6rem → 4.5rem (both `num`, 72px — three digits and two
+                digits; the range hint Tolerance was once sized for is its own
+                Range column now), Range 7rem → 5.5rem (`hug`). The fabric | parts
+                divider and the part-row rule's `::before` moved 3.5rem with them.
+                The GSM / Tolerance figures in the list below are the OLD ones.
+
                 WHY THESE FIGURES, each derived rather than picked:
 
                 - Structure `9.5rem` (152px) — a fabric category name, and the
@@ -17256,7 +17291,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 300px — the worst mobile break in this module. Below `lg` the five
                 stack one per line at full width, which is the same answer the
                 outer track at `min-[1250px]` gives the two halves. */}
-            <div className="grid items-start gap-x-2.5 gap-y-2 lg:grid-cols-[9.5rem_11rem_5rem_6rem_7rem_7.5rem]">
+            <div className="grid items-start gap-x-2.5 gap-y-2 lg:grid-cols-[9.5rem_11rem_4.5rem_4.5rem_5.5rem_7.5rem]">
               {/* `term` (176px), NOT `name` (288px) — client 2026-08-19, asking for
                   Structure and Composition "as xs(2) size" like the part row below.
 
@@ -17571,8 +17606,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
                   This reverses the 2026-09-11 "range as helper text under the
                   box" and the older removal of the read-only Gsm Range box
-                  (see the notes below); the later instruction wins. */}
-              <Field label="Range" w="range" className="w-full">
+                  (see the notes below); the later instruction wins.
+
+                  `hug` (88px), NOT `range` (user 2026-09-24, screenshot 3037:
+                  "compact the field size see the gsm, tolerance range"). A
+                  fabric GSM is three digits, so the widest value is
+                  "999 - 999" — ~60px of `text-sm` centred in 88px. */}
+              <Field label="Range" w="hug" className="w-full">
                 <Input
                   readOnly
                   aria-label="Range"

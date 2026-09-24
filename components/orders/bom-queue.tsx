@@ -2,8 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
-import { Check, Clock, Pencil } from "lucide-react";
-import { today as todayAtFactory } from "@/lib/calendar";
+import { Check, Clock, FileText, Pencil } from "lucide-react";
 import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -11,6 +10,8 @@ import { CalendarRange, Factory, Users } from "lucide-react";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
+import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
+import { DaysOut } from "@/components/orders/days-out";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import {
   createdByFacet,
@@ -55,37 +56,9 @@ import type { BomTaskRow } from "@/lib/orders/bom-order-basis";
  * — is here.
  */
 
-/**
- * "· 12d" beside a delivery date, and "· 12d late" when it has passed.
- *
- * THE DATE SAYS WHEN AND THE SUFFIX SAYS HOW SOON, which are different
- * questions: a merchandiser scanning a queue is deciding what to plan THIS
- * WEEK, and arithmetic against thirty dates is what they were doing by eye.
- *
- * SILENT BEYOND 60 DAYS. A "· 109d" on an order shipping in December is noise
- * on every card, and noise on every card is what stops the two that say "· 4d"
- * from being seen. Late is never silent and is the only one that takes a
- * colour.
- *
- * NO HYDRATION GUARD IS NEEDED, and that is `todayAtFactory`'s doing rather
- * than luck. It formats in Asia/Kolkata, so the server (UTC) and the operator's
- * browser (IST) agree on what day it is — including during the 5.5 hours every
- * morning when `new Date()` does not. Do not reach for the UTC `today()` that
- * `lib/dashboard/range.ts` exports here.
- */
-export function DaysOut({ iso }: { iso: string }) {
-  const at = Date.parse(`${iso.slice(0, 10)}T00:00:00`);
-  const now = Date.parse(`${todayAtFactory()}T00:00:00`);
-  if (Number.isNaN(at) || Number.isNaN(now)) return null;
-  const days = Math.round((at - now) / 86_400_000);
-
-  if (days < 0) {
-    return <span className="font-normal text-danger"> · {-days}d late</span>;
-  }
-  if (days === 0) return <span className="font-normal text-danger"> · today</span>;
-  if (days > 60) return null;
-  return <span className="font-normal text-muted-foreground"> · {days}d</span>;
-}
+/* Moved to its own file (2026-09-24) so `order-queue-table.tsx` can use it
+   without importing this one back; re-exported so no importer changed. */
+export { DaysOut };
 
 /**
  * THE THREE FIGURES A QUEUE CARD CARRIES, and the order of them is the point.
@@ -222,6 +195,10 @@ export function BomQueuePill({ status }: { status: BomStatus }) {
  * already opened on Pending; this makes the other three agree with it.
  */
 export type QuickWord = "pending" | "updated" | "draft";
+/** The figure beside each word. Partial because a word with no rows is absent
+ *  rather than zero — `StatusSegment` draws the `?? 0`, so the two readers
+ *  (this box and the server-counted one below) cannot print it differently. */
+export type QuickCounts = Partial<Record<QuickWord, number>>;
 /**
  * ICON + WORD, THE CHOSEN ONE IN THE THEME'S COLOUR (user 2026-09-22, option
  * H of the eight mocked up that morning — "4th one apply" — and then, the
@@ -282,9 +259,6 @@ const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
 const QUICK_LIT =
   "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
 
-/** How many rows each word holds, for the figure beside it. */
-export type QuickCounts = Partial<Record<QuickWord, number>>;
-
 export function StatusSegment({
   value,
   onChange,
@@ -302,28 +276,16 @@ export function StatusSegment({
    *  caller passes it today. Kept opt-in so a future two-state queue can draw
    *  the box without a word that could only ever show an empty list. */
   draft?: boolean;
-  /**
-   * THE FIGURE BESIDE EACH WORD (user, 2026-09-24: "add dynamic counts to each
-   * status button — the count must come from the backend, not hardcoded").
+  /** HOW MANY ROWS EACH WORD WOULD SHOW (user 2026-09-24, Order Revisions,
+   *  screenshot 3049: "Pending (2), Updated (1), Draft (1)"). Opt-in — a
+   *  screen passes it through `useQuickStatus`'s `countRows`.
    *
-   * Counted from the rows the SERVER sent, by `useQuickStatus`'s own `rows`
-   * option — never a literal, and never a second query: the list is already
-   * fetched whole by the server component, so the figure and the rows behind
-   * it cannot disagree. `undefined` draws the box exactly as it did before.
-   *
-   * COUNTED OVER THE WHOLE SET, NOT THE SEARCHED ONE — the rule the Filters
-   * drawer's counted facets already follow (`useFacetFilter`: counts are over
-   * `rows`). A figure that moved with every keystroke would answer "how many
-   * match what I have typed", which the `N of M` on the right of the same bar
-   * already answers; this one answers "how much work is in each state", which
-   * is why an operator looks at a queue at all.
-   *
-   * A ZERO IS SHOWN AND THE WORD STAYS CHOOSABLE. Zero is information — the
-   * drawer says the same of a state with no rows. It does NOT disable the word
-   * the way the drawer disables an option, because this box cycles: clicking
-   * the lit word steps to the next one, and a disabled stop in that cycle is a
-   * dead press with nothing on screen to explain it.
-   */
+   *  COUNTED OVER THE LIST WITH EVERY *OTHER* FILTER APPLIED and this box's
+   *  own word left off, so the figure is exactly what clicking that word
+   *  would show. A zero is still drawn and the word stays choosable: zero is
+   *  information, and this box CYCLES — clicking the lit word steps to the
+   *  next — so a disabled stop in that cycle is a dead press with nothing on
+   *  screen to explain it. */
   counts?: QuickCounts;
 }) {
   const words: QuickWord[] = draft ? ["pending", "updated", "draft"] : ["pending", "updated"];
@@ -343,7 +305,6 @@ export function StatusSegment({
     >
       {words.map((s, i) => {
         const Icon = QUICK[s].icon;
-        const n = counts?.[s];
         return (
           <button
             key={s}
@@ -357,67 +318,12 @@ export function StatusSegment({
           >
             <Icon className="h-3.5 w-3.5" aria-hidden />
             {QUICK[s].text}
-            {/* Tabular so the three figures line up as they change, and dimmed
-                so the WORD stays what the eye lands on. On the lit word it
-                inherits `text-primary-foreground` and only the opacity
-                separates it, which keeps the preset's own contrast. */}
-            {n != null && <span className="tabular-nums opacity-70">{n}</span>}
+            {counts && <span className="tabular-nums opacity-80">({counts[s] ?? 0})</span>}
           </button>
         );
       })}
     </div>
   );
-}
-
-/**
- * THE SELECTED WORD IS IN THE URL (user, 2026-09-24: "the selected status
- * should update the URL/API query parameter").
- *
- * `?status=pending` — the word itself, the same spelling `QuickWord` uses, so
- * a link to a queue carries which pile of work it was opened on. Every Orders
- * route is request-dynamic (each page's loader awaits `cookies()` through
- * `lib/supabase/server`), so `useSearchParams` has the value during SSR and
- * the first paint is already the right pile — no prerender, and so none of the
- * client-render bailout the hook's own docs warn about.
- *
- * ## `replaceState`, NOT `pushState`, AND NOT `router.replace`
- *
- * `router.replace` re-runs the server component, so every chip click would
- * refetch the whole list — on Order Entry that is `getAmendments()` and its
- * fourteen embeds, for a filter the rows on screen can already answer. The
- * native History API is the documented way to move the URL without that
- * (Next 16, "Native History API": pushState/replaceState "integrate into the
- * Next.js Router, allowing you to sync with usePathname and useSearchParams").
- *
- * `pushState` would put every chip click in the back stack, so Back would walk
- * Draft → Updated → Pending instead of leaving the screen. A filter is not a
- * place you navigated to.
- *
- * ## WHAT IS AND IS NOT PASSED TO THE SERVER
- *
- * The param reaches the server on any render of the route that starts at the
- * URL — a reload, a shared link, a bookmark, a `router.refresh()` after a save.
- * The SERVICES do not narrow their SQL by it: these lists are fetched whole and
- * the box is a display slice, the same arrangement AGENTS.md records for
- * pagination ("It is a display slice, not a query"). Narrowing the SQL would
- * also take the counts with it — `counts` is a pass over the rows that arrived,
- * so a server that returned only Pending rows could no longer say how many
- * Updated ones exist without a second, disagreeable query.
- */
-const QUICK_PARAM = "status";
-
-function readQuickParam(sp: ReadonlyURLSearchParams, param: string): QuickWord | null {
-  const raw = sp.get(param);
-  return raw === "pending" || raw === "updated" || raw === "draft" ? raw : null;
-}
-
-/** Writes the word, KEEPING every other param — these routes carry `?new=1`,
- *  `?budget=&line=&field=` and an entry id, and a filter must not eat them. */
-function writeQuickParam(param: string, v: string) {
-  if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
-  params.set(param, v);
-  window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
 }
 
 /**
@@ -441,30 +347,47 @@ function writeQuickParam(param: string, v: string) {
  * so while that facet is set the box goes dark (derived, never synced), and
  * `onPick` lets the screen clear the facet when a word is chosen.
  */
+const QUICK_PARAM = "status";
+
+function readQuickParam(sp: ReadonlyURLSearchParams, param: string): QuickWord | null {
+  const raw = sp.get(param);
+  return raw === "pending" || raw === "updated" || raw === "draft" ? raw : null;
+}
+
+/** Writes the word, KEEPING every other param — these routes carry `?new=1`,
+ *  `?budget=&line=&field=` and an entry id, and a filter must not eat them. */
+function writeQuickParam(param: string, v: string) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  params.set(param, v);
+  window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+}
+
 export function useQuickStatus<R>(
   wordOf: (r: R) => QuickWord | null,
   opts: {
     draft?: boolean;
     standDown?: boolean;
     onPick?: () => void;
-    /**
-     * THE ROWS TO COUNT — pass the screen's FULL set, the same one handed to
-     * `useFacetFilter`, not the searched or already-filtered one. See
-     * `StatusSegment`'s `counts` for why, and for why a zero still shows.
-     *
-     * Optional so the box draws unchanged without it. `wordOf` is walked once
-     * per row, so this must be a module constant or a `useCallback` — every
-     * caller's already is, because `matches` has the same requirement.
-     */
-    rows?: readonly R[];
+    /** The rows to COUNT per word — the list with every OTHER filter applied
+     *  (search, Filters panel) and this box's own left off, so a count is
+     *  exactly what clicking that word would show. Omitted = no counts. */
+    countRows?: readonly R[];
     /**
      * The URL param the word is kept in. Defaults to `status`; name it only
      * where two boxes share one route, or they would overwrite each other.
+     *
+     * `replaceState`, NOT `pushState` and NOT `router.replace`: the latter
+     * re-runs the server component, so every chip click would refetch the
+     * whole list for a slice this hook already holds in memory. The word is in
+     * the URL so a link to a queue carries which pile of work it was opened
+     * on — see `useServerQuickStatus` below for the screens where the SERVER
+     * does the narrowing and the refetch IS the point.
      */
     param?: string;
   } = {},
 ) {
-  const { draft = true, standDown = false, onPick, rows, param = QUICK_PARAM } = opts;
+  const { draft = true, standDown = false, onPick, countRows, param = QUICK_PARAM } = opts;
   const sp = useSearchParams();
   /* SEEDED FROM THE URL, THEN OWNED HERE. The seed is what makes a shared link
      open on its own pile; the state is what makes a click instant. A Back that
@@ -473,19 +396,15 @@ export function useQuickStatus<R>(
   const [quick, setQuick] = useState<"" | QuickWord>(() => readQuickParam(sp, param) ?? "pending");
   const value = standDown ? "" : quick;
   const matches = useCallback((r: R) => !value || wordOf(r) === value, [value, wordOf]);
-  /* ONE PASS, AND ONLY WHEN THE ROWS CHANGE. The count cannot be a second
-     query: these lists arrive whole from the server component, so counting
-     them here is counting exactly what was fetched — a query would be a
-     second answer able to disagree with the rows on screen. */
   const counts = useMemo<QuickCounts | undefined>(() => {
-    if (!rows) return undefined;
-    const n: Record<QuickWord, number> = { pending: 0, updated: 0, draft: 0 };
-    for (const r of rows) {
+    if (!countRows) return undefined;
+    const c: QuickCounts = {};
+    for (const r of countRows) {
       const w = wordOf(r);
-      if (w) n[w] += 1;
+      if (w) c[w] = (c[w] ?? 0) + 1;
     }
-    return n;
-  }, [rows, wordOf]);
+    return c;
+  }, [countRows, wordOf]);
   const segment = (
     <StatusSegment
       value={value}
@@ -561,6 +480,7 @@ export function useServerQuickStatus({
   );
   return { value, segment, isPending };
 }
+
 
 /**
  * THE QUEUE'S FILTERS PANEL — the grouped drawer (user, 2026-09-21, Material
@@ -703,11 +623,13 @@ export function BomQueue({
      Filters badge. Now the two are independent and both apply: the box narrows
      the queue, the panel narrows it further, and neither changes the other. */
   /* `"pending"`, not `""` — see `StatusSegment`'s note: the queue opens on the
-     work still to do (user 2026-09-22) — unless the URL names another pile,
-     which is `readQuickParam`'s job (2026-09-24). This queue keeps its own
-     state rather than calling `useQuickStatus`, because it matches on
-     `BomStatus` directly; the URL half is the same two helpers either way, so
-     the two cannot spell the param differently. */
+     work still to do (user 2026-09-22). */
+  /* `"pending"`, not `""` — the queue opens on the work still to do (user
+     2026-09-22) — unless the URL names another pile, which is
+     `readQuickParam`'s job (2026-09-24). This queue keeps its own state rather
+     than calling `useQuickStatus`, because it matches on `BomStatus` directly;
+     the URL half is the same two helpers either way, so the two cannot spell
+     the param differently. */
   const sp = useSearchParams();
   const [quickFilter, setQuickFilter] = useState<"" | BomStatus>(
     () => readQuickParam(sp, QUICK_PARAM) ?? "pending",
@@ -716,20 +638,6 @@ export function BomQueue({
     setQuickFilter(v);
     writeQuickParam(QUICK_PARAM, v);
   }, []);
-  /* THE FIGURE ON EACH WORD (user 2026-09-24) — over every task the server
-     sent, the same set the drawer counts its Status facet over. Not through
-     `useQuickStatus`: this queue matches on `BomStatus` directly, because its
-     own vocabulary IS the three words plus Recalculate and Unresolved. Those
-     last two are in no word and so in no figure — the counted Status facet in
-     the drawer is where they are answered, which is the arrangement the
-     `null` word gives every other screen. */
-  const quickCounts = useMemo<QuickCounts>(() => {
-    const n: Record<QuickWord, number> = { pending: 0, updated: 0, draft: 0 };
-    for (const t of tasks) {
-      if (t.status === "pending" || t.status === "updated" || t.status === "draft") n[t.status] += 1;
-    }
-    return n;
-  }, [tasks]);
   /* THE GROUPED DRAWER — every BOM queue's, since 2026-09-23 (Fabric BOM
      had a lone Status select until then). */
   const facets = useFacetFilter(tasks, BOM_FACETS);
@@ -746,6 +654,36 @@ export function BomQueue({
       );
     });
   }, [tasks, query, quickStatus, quickFilter, matchesFacets]);
+
+  /**
+   * THE FIGURE ON EACH WORD (user 2026-09-24) — over the list with the search
+   * and the Filters panel applied and THIS box's own word left off, so a
+   * figure is exactly what clicking that word would show. Same rule
+   * `useQuickStatus`'s `countRows` states; this queue counts for itself only
+   * because it matches on `BomStatus` directly rather than through the hook.
+   *
+   * Recalculate and Unresolved are in no word and so in no figure — the
+   * counted Status facet in the drawer is where those are answered, which is
+   * the arrangement the `null` word gives every other screen.
+   */
+  const quickCounts = useMemo<QuickCounts>(() => {
+    const needle = query.trim().toLowerCase();
+    const c: QuickCounts = {};
+    for (const t of tasks) {
+      if (!matchesFacets(t)) continue;
+      if (
+        needle &&
+        ![t.sc_no, t.order_code, t.po_no, t.customer_name].some((v) =>
+          (v ?? "").toLowerCase().includes(needle),
+        )
+      )
+        continue;
+      if (t.status === "pending" || t.status === "updated" || t.status === "draft") {
+        c[t.status] = (c[t.status] ?? 0) + 1;
+      }
+    }
+    return c;
+  }, [tasks, query, matchesFacets]);
 
   /**
    * WHAT THE QUEUE AMOUNTS TO — the one figure a merchandiser wants before
@@ -851,6 +789,68 @@ export function BomQueue({
           that is where the click lived. The card body IS the button, so keeping
           it would nest one inside the other — the exact invalid markup that
           shaped this component. */}
+      {/* UPDATED IS A TABLE IN THE ORDER ENTRY LISTING'S LAYOUT, CARRYING THIS
+          QUEUE'S OWN DETAILS (user, 2026-09-24, screenshot 3045). Pending and
+          Draft are the work still to do and keep the cards below. Same rows,
+          same search and facets, same click — only the drawing changes. */}
+      {quickStatus && quickFilter === "updated" ? (
+        <OrderQueueTable<BomTaskRow>
+          rows={filtered}
+          heading={(t) => ({ reNo: t.sc_no ?? t.order_code, customer: t.customer_name, poNo: t.po_no })}
+          /* THIS QUEUE'S OWN CARD, AS COLUMNS — the BOM's number, then the three
+             figures `bomCardStats` puts on the card, in the card's order. The
+             middle one is the screen's (`stat`): Styles on Material BOM, Lines
+             on Fabric BOM. No Status column: every row here reads Updated. */
+          columns={[
+            {
+              header: "BOM No",
+              cell: (t) => <span className="font-mono text-xs">{t.bom_code ?? "—"}</span>,
+            },
+            {
+              header: "Production",
+              cell: (t) => (
+                <FigureCell
+                  value={t.production_qty != null ? fmtNumber(t.production_qty) : null}
+                  refusal={t.production_refusal}
+                />
+              ),
+            },
+            {
+              header: filtered[0] ? stat(filtered[0]).label : "",
+              cell: (t) => <FigureCell value={stat(t).value} />,
+            },
+            {
+              header: "Delivery",
+              cell: (t) =>
+                t.delivery_date ? (
+                  <span className="whitespace-nowrap tabular-nums text-xs">
+                    {fmtDate(t.delivery_date)}
+                    <DaysOut iso={t.delivery_date} />
+                  </span>
+                ) : (
+                  <span className="text-xs">—</span>
+                ),
+            },
+          ]}
+          onOpen={onOpen}
+          canDelete={canDelete}
+          canDeleteRow={(t) => !!t.bom_id}
+          onDelete={onDelete}
+          /* The card's Reports button, as the row's ⋮ — the same gate. */
+          menu={
+            onReports
+              ? (t) =>
+                  t.bom_id ? [{ label: "Reports", icon: FileText, onClick: () => onReports(t) }] : []
+              : undefined
+          }
+          isPending={isPending}
+          empty={
+            tasks.length > 0
+              ? `No updated ${noun} BOMs match the search or filters.`
+              : `No confirmed garment orders yet. A ${noun} BOM is planned against an order.`
+          }
+        />
+      ) : (
       <MobileCardList<BomTaskRow>
         /* SIX ACROSS, NOW A FIXED COUNT (client 2026-08-19, then reversed
            2026-09-04: "make it static as 6 card per row"). `columns={6}` used
@@ -910,6 +910,7 @@ export function BomQueue({
         isPending={isPending}
         empty={`No confirmed garment orders yet. A ${noun} BOM is planned against an order.`}
       />
+      )}
     </>
   );
 }

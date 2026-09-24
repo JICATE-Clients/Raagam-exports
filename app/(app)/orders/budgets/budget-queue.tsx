@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { DaysOut, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
 import type { StatusTone } from "@/lib/ui/tone";
 import {
   budgetStatusText,
@@ -221,27 +222,26 @@ export function BudgetQueue({
      2026-09-21: "Pending and Update should not be connected to the filters").
      OPENS ON PENDING (user 2026-09-22), as the BOM queues and Budget Approval
      do — the orders not yet budgeted are the work this screen exists for. */
-  const quick = useQuickStatus(budgetWord, {
-    /* The figure on each word, over READY orders — the same set the drawer's
-       Status facet counts, and the same one `filtered` is drawn from. The
-       orders still waiting on a BOM are not cards here and are not counted
-       here either; the summary on the right of the bar is what says how many
-       they are. */
-    rows: ready,
-  });
-  const quickMatches = quick.matches;
-
-  const filtered = useMemo(() => {
+  /* THE SET THE FIGURES ARE COUNTED OVER — READY orders with the search and
+     the Filters panel applied and this box's own word left off, so a figure is
+     exactly what clicking that word would show. The orders still waiting on a
+     BOM are not cards here and are not counted here either; the summary on the
+     right of the bar is what says how many they are. */
+  const base = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return ready.filter((o) => {
       if (!facetMatch(o)) return false;
-      if (!quickMatches(o)) return false;
       if (!needle) return true;
       return [o.re_no, o.order_code, o.po_no, o.customer_name].some((v) =>
         (v ?? "").toLowerCase().includes(needle),
       );
     });
-  }, [ready, query, quickMatches, facetMatch]);
+  }, [ready, query, facetMatch]);
+
+  const quick = useQuickStatus(budgetWord, { countRows: base });
+  const quickMatches = quick.matches;
+
+  const filtered = useMemo(() => base.filter(quickMatches), [base, quickMatches]);
 
   const summary = useMemo(() => {
     const open = ready.filter((o) => statusOf(o) === "none").length;
@@ -298,6 +298,60 @@ export function BudgetQueue({
         right={`${summary} · ${filtered.length} of ${ready.length}`}
       />
 
+      {/* UPDATED IS A TABLE IN THE ORDER ENTRY LISTING'S LAYOUT, CARRYING THIS
+          QUEUE'S OWN DETAILS (user, 2026-09-24, screenshot 3045) — the same
+          switch as the BOM queues. Pending and Draft keep the cards. */}
+      {quick.value === "updated" ? (
+        <OrderQueueTable<BudgetableOrder>
+          rows={filtered}
+          heading={(o) => ({ reNo: o.re_no ?? o.order_code, customer: o.customer_name, poNo: o.po_no })}
+          /* THIS QUEUE'S OWN CARD, AS COLUMNS — the budget it is in (number and
+             state: "Updated" here is every order that HAS a budget, so a
+             rejected one and an approved one must not read alike), then the
+             card's three figures in the card's order. */
+          columns={[
+            {
+              header: "Budget",
+              cell: (o) => (
+                <span className="flex items-center gap-2 whitespace-nowrap text-xs">
+                  {o.in_budget?.code && <span className="font-mono">{o.in_budget.code}</span>}
+                  <StatusPill tone={statusTone(statusOf(o))}>{statusText(statusOf(o))}</StatusPill>
+                </span>
+              ),
+            },
+            {
+              header: "Order Qty",
+              cell: (o) => <FigureCell value={o.qty != null ? fmtNumber(o.qty) : null} refusal={o.sales_refusal} />,
+            },
+            {
+              header: "Cut Qty",
+              cell: (o) => <FigureCell value={o.cut_qty != null ? fmtNumber(o.cut_qty) : null} refusal={o.cut_refusal} />,
+            },
+            {
+              header: "Delivery",
+              cell: (o) =>
+                o.delivery_date ? (
+                  <span className="whitespace-nowrap tabular-nums text-xs">
+                    {fmtDate(o.delivery_date)}
+                    <DaysOut iso={o.delivery_date} />
+                  </span>
+                ) : (
+                  <span className="text-xs">—</span>
+                ),
+            },
+          ]}
+          onOpen={onOpen}
+          canDelete={canDelete}
+          canDeleteRow={canDeleteRow}
+          onDelete={onDelete}
+          isPending={isPending}
+          empty={
+            ready.length > 0
+              ? "No budgeted orders match the search or filters."
+              : "No confirmed garment orders yet. A budget is built on an order's saved Fabric BOM and Material BOM."
+          }
+        />
+      ) : (
       <MobileCardList<BudgetableOrder>
         columns={6}
         rows={filtered}
@@ -336,6 +390,7 @@ export function BudgetQueue({
             : "No confirmed garment orders yet. A budget is built on an order's saved Fabric BOM and Material BOM."
         }
       />
+      )}
     </>
   );
 }

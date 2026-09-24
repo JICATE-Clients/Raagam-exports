@@ -290,23 +290,25 @@ export function IwoScreen({
   const [query, setQuery] = useState("");
   const facets = useFacetFilter(rows, IWO_FACETS);
   const facetMatches = facets.matches;
-  const quick = useQuickStatus(iwoWord, {
-    standDown: !!facets.values.status,
-    onPick: () => facets.set("status", ""),
-    /* The figure on each word, over the same set the drawer counts —
-       a cancelled IWO is in none of the three and so in no figure. */
-    rows,
-  });
-  const qm = quick.matches;
-  const filtered = useMemo(() => {
+  /* THE SET THE FIGURES ARE COUNTED OVER — the list with the search and the
+     Filters panel applied and this box's own word left off, so a figure is
+     exactly what clicking that word would show. */
+  const base = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return rows.filter((r) => {
       if (!facetMatches(r)) return false;
-      if (!qm(r)) return false;
       if (!needle) return true;
       return [r.code, r.reference_no, r.remarks].some((v) => (v ?? "").toLowerCase().includes(needle));
     });
-  }, [rows, query, facetMatches, qm]);
+  }, [rows, query, facetMatches]);
+  const quick = useQuickStatus(iwoWord, {
+    standDown: !!facets.values.status,
+    onPick: () => facets.set("status", ""),
+    /* A cancelled IWO is in none of the three words and so in no figure. */
+    countRows: base,
+  });
+  const qm = quick.matches;
+  const filtered = useMemo(() => base.filter(qm), [base, qm]);
 
   const set = (patch: Partial<Form>) => {
     setForm((f) => ({ ...f, ...patch }));

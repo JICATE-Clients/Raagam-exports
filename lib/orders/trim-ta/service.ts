@@ -80,6 +80,8 @@ export interface TrimTaResult {
 
 const ISSUED = new Set(["approved", "partially_received", "received", "closed"]);
 
+type SB = Awaited<ReturnType<typeof createClient>>;
+
 function fail(what: string, error: { message: string } | null): void {
   if (error) throw new Error(`${what} could not be read: ${error.message}. This is an error, not an empty tracker.`);
 }
@@ -93,14 +95,30 @@ const num = (v: unknown): number => {
  * The tracker for every order with a recorded Material BOM, or for one order.
  */
 export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<TrimTaResult> {
-  const t = today();
   const [sb, user, canEdit] = await Promise.all([createClient(), getAppUser(), can("orders", "edit")]);
-  const notes: string[] = [];
-  const result: TrimTaResult = { today: t, orders: [], staffNames: {}, viewerEmployeeId: null, canEdit, notes };
+  const result: TrimTaResult = { today: today(), orders: [], staffNames: {}, viewerEmployeeId: null, canEdit, notes: [] };
   if (!user) return result;
 
-  const viewer = await myDepartment(sb, user.id);
+  /* WHO IS LOOKING RUNS BESIDE THE LOAD, NOT AHEAD OF IT (2026-09-24, "T&A
+     tab takes 2 seconds"). It is three serial reads that only feed the "mine"
+     highlight, and it used to hold every read below behind it. Every round
+     trip here is ~260 ms of network and ~0 ms of query — the tables are tiny
+     — so the wait is the NUMBER OF SERIAL ROUNDS, and nothing else. */
+  const [viewer] = await Promise.all([myDepartment(sb, user.id), loadTrimTaInto(sb, result, opts)]);
   result.viewerEmployeeId = viewer?.employeeId ?? null;
+  return result;
+}
+
+/**
+ * Fills `result` in as few serial rounds as the reads' own dependencies allow:
+ * the BOMs → (their content ‖ activities ‖ marks ‖ current amendments) →
+ * (masters ‖ ladder dates ‖ PO lines ‖ DC lines ‖ owners ‖ buyers) →
+ * (PO headers ‖ GRN lines ‖ DC headers) → GRN headers. A read joins a round
+ * the moment everything it filters by is known — never later.
+ */
+async function loadTrimTaInto(sb: SB, result: TrimTaResult, opts: { salesOrderId?: string }): Promise<void> {
+  const t = result.today;
+  const notes = result.notes;
 
   /* ---- 1. Which orders: those with a RECORDED BOM (a draft is not a plan). -- */
   let soIds: string[];
@@ -114,7 +132,7 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
       .not("garment_order_id", "is", null);
     fail("Material BOMs", error);
     const goIds = [...new Set(((recorded ?? []) as { garment_order_id: string }[]).map((r) => r.garment_order_id))];
-    if (!goIds.length) return result;
+    if (!goIds.length) return;
     const { data: gos, error: goErr } = await sb
       .from("garment_order_amendments")
       .select("sales_order_id")
@@ -122,18 +140,20 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
     fail("Garment orders", goErr);
     soIds = [...new Set(((gos ?? []) as { sales_order_id: string | null }[]).map((g) => g.sales_order_id).filter((x): x is string => !!x))];
   }
-  if (!soIds.length) return result;
+  if (!soIds.length) return;
 
   const boms = await recordedBomsForOrders(sb, soIds);
   const bomIds = [...boms.values()].map((b) => b.bom?.id).filter((x): x is string => !!x);
   const allGoIds = [...boms.values()].flatMap((b) => b.goIds);
   if (!bomIds.length) {
     if (opts.salesOrderId) notes.push("This order has no recorded Material BOM yet — trims are scheduled once one is saved out of draft.");
-    return result;
+    return;
   }
 
-  /* ---- 2. The BOMs' own content, and every BOM id of each order (for DCs). -- */
-  const [linesQ, reqQ, procQ, allBomQ, soQ, currentAmend] = await Promise.all([
+  /* ---- 2. The BOMs' own content, every BOM id of each order (for DCs), and
+     the two reads that need nothing but the order ids — activities and marks
+     used to wait two and three rounds for inputs they never read. --------- */
+  const [linesQ, reqQ, procQ, allBomQ, soQ, currentAmend, actsQ, marksQ] = await Promise.all([
     sb
       .from("material_bom_amendment_items")
       .select("id, amendment_id, item_id, category_id, vendor_id, supply_type, send_out, moq, round_to, purchase_uom_id")
@@ -146,12 +166,19 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
     sb.from("material_bom_amendments").select("id, garment_order_id").in("garment_order_id", allGoIds),
     sb.from("sales_orders").select("id, order_number").in("id", soIds),
     currentAmendmentsBySalesOrder(sb, soIds),
+    sb.from("ta_activities").select("id, short_name").in("short_name", ["CUT", "PACK", "SEWTRIM", "PACKTRIM"]),
+    sb
+      .from("order_trim_ta_marks")
+      .select("sales_order_id, item_id, step_code, tolerance_pct, done_on, remarks, assigned_staff_id")
+      .in("sales_order_id", soIds),
   ]);
   fail("Material BOM lines", linesQ.error);
   fail("Material BOM requirements", reqQ.error);
   fail("Material BOM processes", procQ.error);
   fail("Material BOM amendments", allBomQ.error);
   fail("Orders", soQ.error);
+  fail("T&A activities", actsQ.error);
+  fail("Trim T&A marks", marksQ.error);
 
   type Line = LineRow & {
     amendment_id: string;
@@ -166,13 +193,47 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
   const reqs = (reqQ.data ?? []) as (ReqRow & { amendment_id: string })[];
   const procs = (procQ.data ?? []) as { amendment_id: string; item_id: string | null }[];
   const itemIds = [...new Set(lines.map((l) => l.item_id).filter((x): x is string => !!x))];
-  if (!itemIds.length) return result;
+  if (!itemIds.length) return;
 
-  /* ---- 3. Masters: item class, category class, units, vendor lead times. --- */
+  const currentIds = [...currentAmend.values()].map((a) => a.id);
+  const actCode = new Map(((actsQ.data ?? []) as { id: string; short_name: string }[]).map((a) => [a.id, a.short_name]));
+
+  const allBomRows = (allBomQ.data ?? []) as { id: string; garment_order_id: string }[];
+  const soOfGo = new Map<string, string>();
+  for (const [so, b] of boms) for (const g of b.goIds) soOfGo.set(g, so);
+  const soOfBom = new Map(allBomRows.map((b) => [b.id, soOfGo.get(b.garment_order_id) ?? ""]));
+
+  const marks = new Map<string, Partial<Record<TrimStepCode, TrimStepMark>>>();
+  const staffIds = new Set<string>();
+  for (const m of (marksQ.data ?? []) as {
+    sales_order_id: string;
+    item_id: string;
+    step_code: TrimStepCode;
+    tolerance_pct: number | null;
+    done_on: string | null;
+    remarks: string | null;
+    assigned_staff_id: string | null;
+  }[]) {
+    const k = `${m.sales_order_id}|${m.item_id}`;
+    const bag = marks.get(k) ?? {};
+    bag[m.step_code] = {
+      tolerancePct: m.tolerance_pct,
+      doneOn: m.done_on,
+      remarks: m.remarks,
+      assignedStaffId: m.assigned_staff_id,
+    };
+    marks.set(k, bag);
+    if (m.assigned_staff_id) staffIds.add(m.assigned_staff_id);
+  }
+
+  /* ---- 3. ONE ROUND for everything the BOM lines and step 2 unlock: masters
+     (item class, category class, units, vendor lead times), the order's own
+     T&A dates (stored by the last save of the tab), the first link of both
+     document chains (PO lines, BOM-linked DC lines), owners and buyers. ---- */
   const categoryIds = [...new Set(lines.map((l) => l.category_id).filter((x): x is string => !!x))];
   const vendorIds = [...new Set(lines.map((l) => l.vendor_id).filter((x): x is string => !!x))];
   const uomIds = [...new Set(lines.map((l) => l.purchase_uom_id).filter((x): x is string => !!x))];
-  const [itemsQ, catsQ, uomQ, leadQ, classQ] = await Promise.all([
+  const [itemsQ, catsQ, uomQ, leadQ, classQ, ladderQ, poLineQ, dcLineQ, staffQ, buyerQ] = await Promise.all([
     sb.from("items").select("id, code, name, item_class_id").in("id", itemIds),
     categoryIds.length ? sb.from("categories").select("id, item_class_id").in("id", categoryIds) : Promise.resolve({ data: [], error: null }),
     uomIds.length ? sb.from("uoms").select("id, code").in("id", uomIds) : Promise.resolve({ data: [], error: null }),
@@ -180,12 +241,39 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
       ? sb.from("master_vendor_item_categories").select("vendor_id, category_id, lead_days").in("vendor_id", vendorIds)
       : Promise.resolve({ data: [], error: null }),
     sb.from("config_lookups").select("id, code").eq("kind", "item_class"),
+    currentIds.length && actCode.size
+      ? sb
+          .from("garment_order_amendment_ta_activities")
+          .select("amendment_id, activity_id, target_date")
+          .in("amendment_id", currentIds)
+          .in("activity_id", [...actCode.keys()])
+      : Promise.resolve({ data: [], error: null }),
+    sb
+      .from("po_line_items")
+      .select("id, purchase_order_id, sales_order_id, item_id, quantity")
+      .in("sales_order_id", soIds)
+      .in("item_id", itemIds),
+    allBomRows.length
+      ? sb
+          .from("dc_line_items")
+          .select("delivery_challan_id, mba_amendment_id, item_id, sent_qty, returned_qty, returned_on")
+          .in("mba_amendment_id", allBomRows.map((b) => b.id))
+      : Promise.resolve({ data: [], error: null }),
+    staffIds.size ? sb.from("employees").select("id, name").in("id", [...staffIds]) : Promise.resolve({ data: [], error: null }),
+    currentIds.length
+      ? sb.from("garment_order_amendments").select("id, sales_order_id, customer:customers(name)").in("id", currentIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   fail("Materials", itemsQ.error);
   fail("Categories", catsQ.error);
   fail("Units", uomQ.error);
   fail("Vendor lead times", leadQ.error);
   fail("Item classes", classQ.error);
+  fail("The order T&A schedule", ladderQ.error);
+  fail("Purchase order lines", poLineQ.error);
+  fail("Delivery challan lines", dcLineQ.error);
+  fail("Employees", staffQ.error);
+  fail("Buyers", buyerQ.error);
 
   const classCode = new Map(((classQ.data ?? []) as { id: string; code: string }[]).map((c) => [c.id, c.code]));
   const catClass = new Map(((catsQ.data ?? []) as { id: string; item_class_id: string | null }[]).map((c) => [c.id, c.item_class_id]));
@@ -200,27 +288,9 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
     leadOf.set(k, Math.max(leadOf.get(k) ?? 0, r.lead_days));
   }
 
-  /* ---- 4. The order's own T&A dates (stored by the last save of the tab). --- */
-  const currentIds = [...currentAmend.values()].map((a) => a.id);
-  const { data: acts, error: actErr } = await sb
-    .from("ta_activities")
-    .select("id, short_name")
-    .in("short_name", ["CUT", "PACK", "SEWTRIM", "PACKTRIM"]);
-  fail("T&A activities", actErr);
-  const actCode = new Map(((acts ?? []) as { id: string; short_name: string }[]).map((a) => [a.id, a.short_name]));
-  const ladderRows: { amendment_id: string; activity_id: string; target_date: string | null }[] = [];
-  if (currentIds.length && actCode.size) {
-    const { data, error } = await sb
-      .from("garment_order_amendment_ta_activities")
-      .select("amendment_id, activity_id, target_date")
-      .in("amendment_id", currentIds)
-      .in("activity_id", [...actCode.keys()]);
-    fail("The order T&A schedule", error);
-    ladderRows.push(...((data ?? []) as typeof ladderRows));
-  }
   // amendment → code → earliest stored date (a code can repeat on a ladder).
   const ladderDate = new Map<string, string>();
-  for (const r of ladderRows) {
+  for (const r of (ladderQ.data ?? []) as { amendment_id: string; activity_id: string; target_date: string | null }[]) {
     const code = actCode.get(r.activity_id);
     if (!code || !r.target_date) continue;
     const k = `${r.amendment_id}|${code}`;
@@ -228,45 +298,17 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
     if (!prev || r.target_date < prev) ladderDate.set(k, r.target_date);
   }
 
-  /* ---- 5. Documents: PO lines → PO headers → GRNs; BOM-linked DCs. ---------- */
-  const { data: poLines, error: poErr } = await sb
-    .from("po_line_items")
-    .select("id, purchase_order_id, sales_order_id, item_id, quantity")
-    .in("sales_order_id", soIds)
-    .in("item_id", itemIds);
-  fail("Purchase order lines", poErr);
+  for (const e of (staffQ.data ?? []) as { id: string; name: string | null }[]) result.staffNames[e.id] = e.name ?? "—";
+
+  const buyerOf = new Map<string, string>();
+  for (const r of (buyerQ.data ?? []) as unknown as { sales_order_id: string; customer: { name: string | null } | { name: string | null }[] | null }[]) {
+    const c = Array.isArray(r.customer) ? r.customer[0] : r.customer;
+    if (c?.name) buyerOf.set(r.sales_order_id, c.name);
+  }
+
+  /* ---- 4–5. The rest of both document chains: PO headers and GRN lines,
+     then GRN headers; DC headers ride the first of those two rounds. ------- */
   type PoLine = { id: string; purchase_order_id: string; sales_order_id: string; item_id: string; quantity: number | null };
-  const poLineRows = (poLines ?? []) as PoLine[];
-  const poIds = [...new Set(poLineRows.map((l) => l.purchase_order_id))];
-
-  const allBomRows = (allBomQ.data ?? []) as { id: string; garment_order_id: string }[];
-  const soOfGo = new Map<string, string>();
-  for (const [so, b] of boms) for (const g of b.goIds) soOfGo.set(g, so);
-  const soOfBom = new Map(allBomRows.map((b) => [b.id, soOfGo.get(b.garment_order_id) ?? ""]));
-
-  const [poHeadQ, grnLineQ, dcLineQ, marksQ] = await Promise.all([
-    poIds.length
-      ? sb.from("purchase_orders").select("id, code, status, order_date, approved_at, created_at").in("id", poIds)
-      : Promise.resolve({ data: [], error: null }),
-    poLineRows.length
-      ? sb.from("grn_line_items").select("grn_id, po_line_item_id, received_qty, accepted_qty").in("po_line_item_id", poLineRows.map((l) => l.id))
-      : Promise.resolve({ data: [], error: null }),
-    allBomRows.length
-      ? sb
-          .from("dc_line_items")
-          .select("delivery_challan_id, mba_amendment_id, item_id, sent_qty, returned_qty, returned_on")
-          .in("mba_amendment_id", allBomRows.map((b) => b.id))
-      : Promise.resolve({ data: [], error: null }),
-    sb
-      .from("order_trim_ta_marks")
-      .select("sales_order_id, item_id, step_code, tolerance_pct, done_on, remarks, assigned_staff_id")
-      .in("sales_order_id", soIds),
-  ]);
-  fail("Purchase orders", poHeadQ.error);
-  fail("GRN lines", grnLineQ.error);
-  fail("Delivery challan lines", dcLineQ.error);
-  fail("Trim T&A marks", marksQ.error);
-
   type GrnLine = { grn_id: string; po_line_item_id: string; received_qty: number | null; accepted_qty: number | null };
   type DcLine = {
     delivery_challan_id: string;
@@ -276,16 +318,28 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
     returned_qty: number | null;
     returned_on: string | null;
   };
-  const grnLines = (grnLineQ.data ?? []) as GrnLine[];
+  const poLineRows = (poLineQ.data ?? []) as PoLine[];
+  const poIds = [...new Set(poLineRows.map((l) => l.purchase_order_id))];
   const dcLines = (dcLineQ.data ?? []) as DcLine[];
-  const grnIds = [...new Set(grnLines.map((g) => g.grn_id))];
   const dcIds = [...new Set(dcLines.map((d) => d.delivery_challan_id))];
-  const [grnHeadQ, dcHeadQ] = await Promise.all([
-    grnIds.length ? sb.from("grns").select("id, code, status, grn_date").in("id", grnIds) : Promise.resolve({ data: [], error: null }),
+
+  const [poHeadQ, grnLineQ, dcHeadQ] = await Promise.all([
+    poIds.length
+      ? sb.from("purchase_orders").select("id, code, status, order_date, approved_at, created_at").in("id", poIds)
+      : Promise.resolve({ data: [], error: null }),
+    poLineRows.length
+      ? sb.from("grn_line_items").select("grn_id, po_line_item_id, received_qty, accepted_qty").in("po_line_item_id", poLineRows.map((l) => l.id))
+      : Promise.resolve({ data: [], error: null }),
     dcIds.length ? sb.from("delivery_challans").select("id, code, status, dc_date, updated_at").in("id", dcIds) : Promise.resolve({ data: [], error: null }),
   ]);
-  fail("GRNs", grnHeadQ.error);
+  fail("Purchase orders", poHeadQ.error);
+  fail("GRN lines", grnLineQ.error);
   fail("Delivery challans", dcHeadQ.error);
+
+  const grnLines = (grnLineQ.data ?? []) as GrnLine[];
+  const grnIds = [...new Set(grnLines.map((g) => g.grn_id))];
+  const grnHeadQ = grnIds.length ? await sb.from("grns").select("id, code, status, grn_date").in("id", grnIds) : { data: [], error: null };
+  fail("GRNs", grnHeadQ.error);
 
   const poHead = new Map(
     ((poHeadQ.data ?? []) as { id: string; code: string | null; status: string; order_date: string | null; approved_at: string | null; created_at: string }[]).map((p) => [p.id, p]),
@@ -344,47 +398,6 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
     }
   }
 
-  const marks = new Map<string, Partial<Record<TrimStepCode, TrimStepMark>>>();
-  const staffIds = new Set<string>();
-  for (const m of (marksQ.data ?? []) as {
-    sales_order_id: string;
-    item_id: string;
-    step_code: TrimStepCode;
-    tolerance_pct: number | null;
-    done_on: string | null;
-    remarks: string | null;
-    assigned_staff_id: string | null;
-  }[]) {
-    const k = `${m.sales_order_id}|${m.item_id}`;
-    const bag = marks.get(k) ?? {};
-    bag[m.step_code] = {
-      tolerancePct: m.tolerance_pct,
-      doneOn: m.done_on,
-      remarks: m.remarks,
-      assignedStaffId: m.assigned_staff_id,
-    };
-    marks.set(k, bag);
-    if (m.assigned_staff_id) staffIds.add(m.assigned_staff_id);
-  }
-  if (staffIds.size) {
-    const { data, error } = await sb.from("employees").select("id, name").in("id", [...staffIds]);
-    fail("Employees", error);
-    for (const e of (data ?? []) as { id: string; name: string | null }[]) result.staffNames[e.id] = e.name ?? "—";
-  }
-
-  /* ---- 6. Buyer names (current amendment's customer). ------------------------ */
-  const buyerOf = new Map<string, string>();
-  if (currentIds.length) {
-    const { data, error } = await sb
-      .from("garment_order_amendments")
-      .select("id, sales_order_id, customer:customers(name)")
-      .in("id", currentIds);
-    fail("Buyers", error);
-    for (const r of (data ?? []) as unknown as { sales_order_id: string; customer: { name: string | null } | { name: string | null }[] | null }[]) {
-      const c = Array.isArray(r.customer) ? r.customer[0] : r.customer;
-      if (c?.name) buyerOf.set(r.sales_order_id, c.name);
-    }
-  }
   const orderRef = new Map(((soQ.data ?? []) as { id: string; order_number: string | null }[]).map((s) => [s.id, s.order_number]));
 
   /* ---- 7. Assemble. ---------------------------------------------------------- */
@@ -468,5 +481,5 @@ export async function getTrimTa(opts: { salesOrderId?: string } = {}): Promise<T
     );
   }
   result.orders.sort((a, b) => (a.orderRef ?? "").localeCompare(b.orderRef ?? ""));
-  return result;
+  return;
 }

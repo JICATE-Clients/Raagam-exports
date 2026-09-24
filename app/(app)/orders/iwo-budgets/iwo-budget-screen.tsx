@@ -410,22 +410,24 @@ export function IwoBudgetScreen({
   const [listQuery, setListQuery] = useState("");
   const listFacets = useFacetFilter(tasks, IWO_BUDGET_FACETS);
   const facetMatches = listFacets.matches;
-  const quick = useQuickStatus(budgetWord, {
-    standDown: !!listFacets.values.budget,
-    onPick: () => listFacets.set("budget", ""),
-    /* The figure on each word, over the same set the drawer counts. */
-    rows: tasks,
-  });
-  const qm = quick.matches;
-  const listed = useMemo(() => {
+  /* THE SET THE FIGURES ARE COUNTED OVER — the list with the search and the
+     Filters panel applied and this box's own word left off, so a figure is
+     exactly what clicking that word would show. */
+  const base = useMemo(() => {
     const needle = listQuery.trim().toLowerCase();
     return tasks.filter((t) => {
       if (!facetMatches(t)) return false;
-      if (!qm(t)) return false;
       if (!needle) return true;
       return [t.code, t.reference_no, t.budget?.code].some((v) => (v ?? "").toLowerCase().includes(needle));
     });
-  }, [tasks, listQuery, facetMatches, qm]);
+  }, [tasks, listQuery, facetMatches]);
+  const quick = useQuickStatus(budgetWord, {
+    standDown: !!listFacets.values.budget,
+    onPick: () => listFacets.set("budget", ""),
+    countRows: base,
+  });
+  const qm = quick.matches;
+  const listed = useMemo(() => base.filter(qm), [base, qm]);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
   const iwoFor: IwoFor | null = picked?.iwo_for ?? null;
   const status = picked?.budget?.status ?? "draft";
