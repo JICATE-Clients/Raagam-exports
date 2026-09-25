@@ -123,6 +123,10 @@ export function useCadActions({
         },
       ];
     }
+    // SEND AND THE BUYER'S DECISION ARE THE MERCHANDISER'S (user 2026-09-25,
+    // screenshot 3082), so their corrections live on Order Entry only. The
+    // CAD Queue has nothing to correct once the pattern has been sent.
+    if (!assignOnly) return [];
     if (v.decision?.status === "pending") {
       return [
         { label: "Undo send", danger: true, onClick: () => run(() => undoCadDispatch(v.dispatch!.id), "Send undone") },
@@ -152,8 +156,12 @@ export function useCadActions({
   function stepItems(r: CadStyleRow): RowMenuItem[] {
     const label = stepLabel(r);
     if (!label || !canEdit || !r.on_order) return [];
-    // No "Pattern Status" item (user 2026-09-25, screenshot 3071): the status
-    // is set on Order Entry ▸ CAD. Once it is Ready the step is Send CAD again.
+    // NO SEND CAD / CAD APPROVAL IN THE QUEUE (user 2026-09-25, screenshot
+    // 3082: Pattern Status "only triggers" — Ready goes to the merchandiser,
+    // who sends and records the approval on Order Entry ▸ CAD). The Pattern
+    // Status item left on 3071; the status is the queue's own column.
+    const step = cadNextStep(r.state);
+    if (!assignOnly && (step === "dispatch" || step === "decide")) return [];
     if (label === CAD_STEP_LABEL.pattern) return [];
     return [{ label, onClick: () => startStep(r, null) }];
   }

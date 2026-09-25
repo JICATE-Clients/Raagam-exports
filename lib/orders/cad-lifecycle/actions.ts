@@ -22,6 +22,7 @@ import {
   type PatternMakerRow,
 } from "./types";
 import { getCadLifecycleFormData, listCadStyles } from "./service";
+import { notifyPatternReady } from "./notify";
 
 /**
  * Orders ▸ CAD ▸ CAD Lifecycle — the writes (0628).
@@ -81,6 +82,15 @@ function patternDetails(d: {
     cut_type: d.cut_type,
     component_cuts: d.component_cuts,
   };
+}
+
+/**
+ * Was this version ALREADY Ready? The merchandiser is told on the move INTO
+ * Ready only (user 2026-09-25) — re-saving a Ready sheet must not re-notify.
+ */
+async function isReady(s: Awaited<ReturnType<typeof createClient>>, id: string): Promise<boolean> {
+  const { data } = await s.from("order_cad_allocations").select("pattern_status").eq("id", id).maybeSingle();
+  return (data as { pattern_status?: string } | null)?.pattern_status === "ready";
 }
 
 const zodMessage = (e: { issues: { message: string }[] }) => e.issues[0]?.message ?? "Invalid input";
@@ -151,11 +161,13 @@ export async function updatePatternWork(id: string, data: PatternWorkInput): Pro
   const p = patternWorkInput.safeParse(data);
   if (!p.success) return fail(zodMessage(p.error));
   const s = await createClient();
+  const wasReady = await isReady(s, id);
   const { error } = await s
     .from("order_cad_allocations")
     .update({ pattern_status: p.data.pattern_status, component_cuts: p.data.component_cuts })
     .eq("id", id);
   if (error) return fail(error.message);
+  if (!wasReady && p.data.pattern_status === "ready") await notifyPatternReady(id);
   await writeAudit({
     action: "order_cad_allocation.pattern_work",
     entityType: "order_cad_allocation",
@@ -182,6 +194,7 @@ export async function savePatternSheet(allocationId: string, data: PatternSheetI
     (l) => l.colour || l.size_id || l.table_dia != null || l.width_form || l.avg_pcs_weight_g != null || l.remark,
   );
   const s = await createClient();
+  const wasReady = await isReady(s, allocationId);
   const { error } = await s.rpc("cad_save_pattern_sheet", {
     p_allocation: allocationId,
     p_status: p.data.pattern_status,
@@ -189,6 +202,7 @@ export async function savePatternSheet(allocationId: string, data: PatternSheetI
     p_lines: typed,
   });
   if (error) return fail(error.message);
+  if (!wasReady && p.data.pattern_status === "ready") await notifyPatternReady(allocationId);
   await writeAudit({
     action: "order_cad_allocation.pattern_sheet",
     entityType: "order_cad_allocation",

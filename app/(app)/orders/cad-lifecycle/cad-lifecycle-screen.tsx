@@ -180,7 +180,7 @@ export function CadLifecycleScreen({
     <div className="space-y-4">
       <PageHeader
         title="CAD Queue"
-        description="Assign each style's CAD to a pattern maker, send it to the buyer, and record the buyer's approval. An order's Fabric BOM can be created once every style's CAD is approved."
+        description="Each style's pattern: set its Pattern Status and fill the Pattern Sheet. Marking it Ready tells the merchandiser, who sends the CAD to the buyer from Order Entry ▸ CAD."
       />
       <MasterListShell<CadStyleRow>
         rows={shown}
