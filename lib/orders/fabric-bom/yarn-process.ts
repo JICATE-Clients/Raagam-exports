@@ -174,6 +174,10 @@ export type YarnProcessOption = {
    *  unclassified = offered in every stage. Optional so IWO's loader and every
    *  older vector stay well-formed. */
   stage_roles?: readonly YarnStageRole[];
+  /** LOOSE FABRIC CONVERSION (0633) — `processes.is_unravelling`. A step
+   *  naming such a process asks for a Source Loose Fabric and adds no loss on
+   *  the yarn side (`./loose-conversion.ts`). Optional: IWO's loader omits it. */
+  is_unravelling?: boolean;
 };
 
 /**
@@ -192,6 +196,11 @@ export type FabricComposition = {
   fabric_id: string;
   fabric_name: string;
   components: YarnComponent[];
+  /** Is this cloth knitted from pre-dyed yarn? (`items.fabric_type_id`, read
+   *  through `isYarnDyedFabricType`.) Only a LOOSE FABRIC CONVERSION reads it
+   *  (0633, `./loose-conversion.ts`): a converted yarn serves the yarn-dyed
+   *  cloths' share and no other. Optional — absent reads as "not yarn-dyed". */
+  yarn_dyed?: boolean;
 };
 
 /**
@@ -288,6 +297,10 @@ export type YarnStageRow = {
    *  see `./color-loss.ts`. */
   color_wise_loss?: boolean;
   color_losses?: ColorLossDraft;
+  /** LOOSE FABRIC CONVERSION (0633) — on a CONVERSION (UNRAVELLING) step, the
+   *  loose fabric this yarn is unravelled from. Optional so IWO's rows and
+   *  every older caller stay well-formed. */
+  source_loose_fabric_id?: string | null;
 };
 
 /**
@@ -325,6 +338,7 @@ export const blankYarnStage = (key: string): YarnStageRow => ({
   loss_pct: "",
   color_wise_loss: false,
   color_losses: {},
+  source_loose_fabric_id: null,
 });
 
 /**
@@ -1495,6 +1509,10 @@ export const fabricBomYarnStageInput = z.object({
   /* ASSORT COLOR-WISE LOSS (0606) — see `fabricBomProcessInput`'s twin. */
   color_wise_loss: z.coerce.boolean().default(false),
   color_losses: colorLossesInput,
+  /* LOOSE FABRIC CONVERSION (0633) — meaningful only on a CONVERSION step;
+     the action nulls it on any other (the master's flag decides, never this
+     payload). */
+  source_loose_fabric_id: z.string().uuid().nullable().default(null),
 });
 
 /**

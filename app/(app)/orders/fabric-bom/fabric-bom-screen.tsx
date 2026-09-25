@@ -208,7 +208,6 @@ import {
   comboKey,
   compositionsBuyingYarn,
   deriveYarnRows,
-  yarnPurchase,
   yarnRowAnswered,
   type FabricComposition,
   type FabricGross,
@@ -217,6 +216,14 @@ import {
   type YarnRow,
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
+import {
+  conversionLinksOf,
+  conversionStepProblems,
+  linkedLooseFabricIds,
+  planConversions,
+  withoutConversionSteps,
+  yarnPurchaseWithConversion,
+} from "@/lib/orders/fabric-bom/loose-conversion";
 import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
 import { FabricTaTab } from "@/components/orders/fabric-ta/fabric-ta-tab";
 import { yarnStageProblems } from "@/lib/orders/fabric-bom/yarn-stage-routes";
@@ -2582,6 +2589,8 @@ export function FabricBomScreen({
               /* 0606 — ASSORT COLOR-WISE LOSS. */
               color_wise_loss: !!st.color_wise_loss,
               color_losses: colorLossesToDraft(st.color_losses),
+              /* 0633 — LOOSE FABRIC CONVERSION's source. */
+              source_loose_fabric_id: st.source_loose_fabric_id ?? null,
             })),
           },
         ]),
@@ -7190,12 +7199,33 @@ export function FabricBomScreen({
    * joined, so re-ordering the fabric lines — which changes nothing about which
    * yarns are involved — does not refetch either.
    */
+  /* LOOSE FABRIC CONVERSION (0633) — a CONVERSION step is the master's
+     `is_unravelling` flag, the same list the yarn grid's ▾ is drawn from. */
+  const isUnravelling = (processId: string) =>
+    !!data.yarnProcesses.find((p) => p.id === processId)?.is_unravelling;
+  /* THE LOOSE FABRICS THE ANSWERS NAME, as a string for the same reason as
+     below. Read off the ANSWERS rather than the derived rows because the rows
+     are derived FROM the compositions this key fetches — a loose fabric is on
+     no line, and its blend must be read or its greige yarn has no row. */
+  const answerLooseKey = linkedLooseFabricIds(
+    conversionLinksOf(
+      Object.entries(yarnAnswers).map(([item_id, a]) => ({ item_id, stages: a.stages })),
+      isUnravelling,
+    ),
+  )
+    .sort()
+    .join(",");
   const fabricIdKey = useMemo(
     () =>
-      [...new Set(lines.map((l) => l.item_id).filter((id): id is string => !!id))]
+      [
+        ...new Set([
+          ...lines.map((l) => l.item_id).filter((id): id is string => !!id),
+          ...(answerLooseKey ? answerLooseKey.split(",") : []),
+        ]),
+      ]
         .sort()
         .join(","),
-    [lines],
+    [lines, answerLooseKey],
   );
 
   /**
@@ -7615,12 +7645,75 @@ export function FabricBomScreen({
     );
   })();
 
+  /* WHERE EACH FABRIC COMES FROM, hoisted out of `weightFor` so the
+     conversion plan below reads the identical map. */
+  const sourceMap = new Map(
+    [...new Set([...procScopes.map((s) => s.item_id), ...routeSources.keys()])].map((id) => [
+      id,
+      sourceOf(id),
+    ]),
+  );
+  const fabricUom = data.uoms.find((u) => u.id === fabricGross.find((f) => f.uom_id)?.uom_id);
+
+  /**
+   * LOOSE FABRIC CONVERSION (0633) — which yarns are unravelled from which
+   * loose fabric, off the DERIVED rows (what the payload sends), planned once
+   * per render. `normalizeYarns` (actions.ts) calls the same `planConversions`
+   * on the same inputs, so the converted weight previewed is the one stored.
+   * Plain consts, not memos: a pass over this document's own rows.
+   */
+  const conversionLinks = conversionLinksOf(yarnRows, isUnravelling);
+  const looseFabricIds = new Set(linkedLooseFabricIds(conversionLinks));
+  const conversionPlan = planConversions({
+    links: conversionLinks,
+    fabrics: fabricGross,
+    compositions: compositionById,
+    routesByFabric,
+    decimals: fabricUom?.decimal_places_allowed ?? null,
+    sourceByFabric: sourceMap,
+    nameOf: (id) => fabricById.get(id),
+  });
+  /** The yarns a loose fabric is unravelled into — for its Fabric Process row. */
+  const yarnsConvertedFrom = (fabricId: string) =>
+    yarnRows.filter((y) => conversionLinks.get(y.item_id) === fabricId).map((y) => y.name);
+  /** A loose fabric must be GREIGE cloth — a yarn-dyed one cannot be dyed
+   *  with the body. Held value kept, the "Disabled rows" rule. */
+  const looseFabricOptions = fabrics.filter((f) => !isYarnDyed(f.fabric_type));
+
+  /**
+   * THE ROUTE THE SPEC INJECTS (0633 §3C) — picking a Source Loose Fabric gives
+   * it [GREIGE] KNITTING → [DYED] DYEING → [DYED] CONVERSION on Fabric Process,
+   * once: a loose fabric that already has a route keeps it untouched. Each
+   * process is found by the master's KIND FLAG and each stage by the process's
+   * own base classification (`stage_roles`), never by a name or a code string.
+   * Losses are left for the planner, except the unravelling step's 2.00 %
+   * (the spec's default).
+   */
+  const injectLooseRoute = (fabricId: string) => {
+    if (procs.some((p) => p.item_id === fabricId)) return;
+    const live = data.processes.filter((p) => p.for_fabric && !p.inactive);
+    const steps = [
+      { p: live.find((x) => x.is_knitting), loss: "" },
+      { p: live.find((x) => x.is_dyeing), loss: "" },
+      { p: live.find((x) => x.is_unravelling), loss: "2" },
+    ].filter((x): x is { p: (typeof live)[number]; loss: string } => !!x.p);
+    if (!steps.length) return;
+    mutProcs((xs) => [
+      ...xs,
+      ...steps.map(({ p, loss }) => ({
+        ...blankFabricProcess(newKey(), fabricId),
+        stage_id: p.stage_roles.find((r) => r.is_base)?.stage_id ?? null,
+        process_id: p.id,
+        loss_pct: loss,
+      })),
+    ]);
+  };
+
   const weightFor = (r: YarnRow) => {
-    const uom = data.uoms.find((u) => u.id === fabricGross.find((f) => f.uom_id)?.uom_id);
-    return yarnPurchase(
-      r.item_id,
-      fabricGross,
-      compositionById,
+    const uom = fabricUom;
+    return yarnPurchaseWithConversion(r.item_id, conversionPlan, {
+      fabrics: fabricGross,
+      compositions: compositionById,
       routesByFabric,
       /* `combo` SCOPES THE LOSS AGAIN (0504, restored 0529) — the same call the
          action's `normalizeYarns` makes, so the preview and the stored figure
@@ -7628,15 +7721,16 @@ export function FabricBomScreen({
          whatever its fabric(s) already contribute via `routesByFabric`. */
       /* `dyed` (2026-09-19) — a step in a coloured yarn stage is the hand-typed
          dyeing step; `yarnPurchase` leaves it out of the purchase weight when the
-         shades already carry a dye loss. `writeYarns` marks it the same way. */
-      r.stages.map((st) => ({
+         shades already carry a dye loss. `writeYarns` marks it the same way.
+         Less any CONVERSION step (0633) — its loss is the loose fabric's. */
+      ownStages: withoutConversionSteps(r.stages, isUnravelling).map((st) => ({
         combo: st.combo || null,
         loss_pct: numOrNull(st.loss_pct),
         dyed: !!st.stage_id && dyedYarnStageIds.has(st.stage_id),
         /* 0606 — same gate as `writeYarns`. */
         color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses),
       })),
-      uom?.decimal_places_allowed ?? null,
+      decimals: uom?.decimal_places_allowed ?? null,
       /* WHERE EACH FABRIC COMES FROM (0564) — BYTE-FOR-BYTE the expression the
          server's `sourceByFabricOf` uses, on purpose. This is one computation
          with two call sites, not two implementations that happen to agree: the
@@ -7649,16 +7743,11 @@ export function FabricBomScreen({
       /* 2026-09-19: READ OFF THE ROUTE (`sourceOf`) for every fabric the
          route or a stored scope names — the server's `sourceByFabricOf` now
          reads the same derivation, so preview and stored figure still match. */
-      new Map(
-        [...new Set([...procScopes.map((s) => s.item_id), ...routeSources.keys()])].map((id) => [
-          id,
-          sourceOf(id),
-        ]),
-      ),
+      sourceByFabric: sourceMap,
       /* PER-SHADE DYEING LOSS (0568) — see `yarnShades` above for why this is
          passed before the column that can set it exists. */
-      yarnShades,
-    );
+      shades: yarnShades,
+    });
   };
 
   // ---- validity ------------------------------------------------------------
@@ -7774,9 +7863,22 @@ export function FabricBomScreen({
         printDeclared: printedGroup(lines, itemId, combo, [componentId]),
         fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)),
         fabricIsPieceDyed: isPieceDyed(fabricTypeOf(itemId)),
+        /* 0633 — CONVERSION runs on a linked loose fabric's route only. */
+        looseFabricRoute: looseFabricIds.has(itemId),
       }),
       fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
     }),
+    /* LOOSE FABRIC CONVERSION (0633) — a CONVERSION step names its source, a
+       linked loose fabric keeps its CONVERSION step (the spec's "prevent
+       deleting a loose fabric line while linked"), and nothing else runs one.
+       `conversionProblem` (actions.ts) refuses the same sentences. */
+    ...conversionStepProblems({
+      yarns: yarnRows.map((y) => ({ name: y.name, stages: y.stages })),
+      links: conversionLinks,
+      routeSteps: procs,
+      isUnravelling,
+      fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
+    }).map((message) => ({ item_id: "", row_key: "", message })),
     /* CHECKPOINTS A + B (client 2026-09-19): a printed line whose route never
        prints, and a Printing step serving no printed line. The server's
        `printRouteProblem` runs the identical function on the payload. */
@@ -8406,6 +8508,29 @@ export function FabricBomScreen({
         {isRefusal(w) && (
           <p className="mb-1.5 text-xs text-danger">{w.refused}</p>
         )}
+        {/* WHAT THE CONVERSION COMES TO (0633) — the dyed yarn the unravelling
+            must deliver, and the greige loose fabric to knit for it. Only on a
+            converting yarn that computed; a refusal says why above. */}
+        {(() => {
+          const conv = conversionPlan.converted.get(r.item_id);
+          if (!conv || isRefusal(conv)) return null;
+          const unit = data.uoms.find((u) => u.id === conv.uom_id)?.code ?? "";
+          const feeds = conv.fabricIds.map((id) => fabricById.get(id) ?? "").filter(Boolean);
+          return (
+            <p className="mb-1.5 text-xs text-muted-foreground">
+              Unravelled from{" "}
+              <span className="font-medium text-foreground">
+                {fabricById.get(conv.loose_fabric_id) ?? "the loose fabric"}
+              </span>
+              : {fmtNumber(conv.qty)} {unit} dyed yarn
+              {feeds.length ? ` for ${feeds.join(", ")}` : ""}
+              {conv.looseKnitQty != null
+                ? ` · knit ${fmtNumber(conv.looseKnitQty)} ${unit} of loose fabric`
+                : ""}
+              . Its greige yarn is bought on that yarn&apos;s own row.
+            </p>
+          );
+        })()}
         <YarnProcessGrid
           rows={r.stages}
           onChange={(next) => setYarnStages(r.item_id, next)}
@@ -8418,6 +8543,10 @@ export function FabricBomScreen({
           combos={combos}
           /* 0606 — ASSORT COLOR-WISE LOSS; this BOM's yarn-stage table holds it. */
           colourLoss
+          /* 0633 — LOOSE FABRIC CONVERSION: greige cloths a CONVERSION step
+             may name, and the route injected when one is picked. */
+          looseFabrics={looseFabricOptions}
+          onLooseFabricPicked={injectLooseRoute}
           /* THE SCREEN'S OWN GENERATOR, so a process added to a reopened BOM
              cannot collide with the keys `openExisting` has already issued. */
           newKey={newKey}
@@ -8552,11 +8681,19 @@ export function FabricBomScreen({
               because a row that has simply lost its colourways looks like a row
               whose lines said nothing. The next save drops these route rows, and
               this is the operator's chance to see that coming. */}
-          {r.lines.length === 0 && (
-            <div className="text-xs text-warning">
-              no fabric line uses this any more — this route will be dropped on Save
-            </div>
-          )}
+          {r.lines.length === 0 &&
+            (looseFabricIds.has(r.item_id) ? (
+              /* A LOOSE FABRIC (0633) is on no line by design — knitted, dyed
+                 with the body and unravelled, never cut. Said so, instead of
+                 the "will be dropped" warning, which is not true of it. */
+              <div className="text-xs text-muted-foreground">
+                Loose fabric — unravelled into {yarnsConvertedFrom(r.item_id).join(", ") || "yarn"}
+              </div>
+            ) : (
+              <div className="text-xs text-warning">
+                no fabric line uses this any more — this route will be dropped on Save
+              </div>
+            ))}
         </div>
       ),
     },
@@ -10271,6 +10408,9 @@ export function FabricBomScreen({
                          was set to Yarn Dyed). */
                       fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
                       fabricIsPieceDyed={isPieceDyed(fabricTypeOf(r.item_id))}
+                      /* 0633 — only a linked loose fabric's route may run
+                         CONVERSION (unravelling). */
+                      looseFabricRoute={looseFabricIds.has(r.item_id)}
                       /* 0564 — NOT a narrowing. The grid greys a step this
                          source stops the engine charging for and says so;
                          nothing is withheld from the ▾, because a purchased
@@ -10590,6 +10730,9 @@ export function FabricBomScreen({
           /* 0606 — same gate as the fabric route's. */
           color_wise_loss: !!st.color_wise_loss && !st.combo,
           color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses) ?? {},
+          /* 0633 — the conversion link; the server nulls it on any step the
+             master does not flag as unravelling. */
+          source_loose_fabric_id: st.source_loose_fabric_id ?? null,
         })),
       })),
     };

@@ -93,7 +93,7 @@ import {
 } from "@/components/ui/filter-drawer";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
@@ -122,13 +122,20 @@ import {
   comboUplift,
   deriveYarnRows,
   isRefusal,
-  yarnPurchase,
   yarnRowAnswered,
   type FabricComposition,
   type YarnRow,
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
-import { routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
+import {
+  conversionLinksOf,
+  conversionStepProblems,
+  linkedLooseFabricIds,
+  planConversions,
+  withoutConversionSteps,
+  yarnPurchaseWithConversion,
+} from "@/lib/orders/fabric-bom/loose-conversion";
+import { blankFabricProcess, routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
 import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
 import { diaKey, diaKnitProblem, knitLabel } from "@/lib/orders/fabric-bom/dia-knit";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
@@ -740,6 +747,8 @@ export function IwoFabricBomScreen({
               loss_pct: str(st.loss_pct),
               color_wise_loss: !!st.color_wise_loss,
               color_losses: colorLossesToDraft(st.color_losses),
+              /* 0636 — LOOSE FABRIC CONVERSION's source. */
+              source_loose_fabric_id: st.source_loose_fabric_id ?? null,
             })),
           },
         ]),
@@ -783,7 +792,19 @@ export function IwoFabricBomScreen({
   // ---- Yarn Process + Fabric Process (step 3) -------------------------------
 
   /** The fabrics the lines name, as one key — what the composition load answers. */
-  const fabricIdKey = [...new Set(lines.map((l) => l.item_id).filter(Boolean))].sort().join(",");
+  /* LOOSE FABRIC CONVERSION (0636) — a CONVERSION step is the master's
+     `is_unravelling` flag. The loose fabrics the ANSWERS name join the
+     composition load (the order screen's `answerLooseKey`, for its reason:
+     a loose fabric is on no line, and its greige yarn needs a row). */
+  const isUnravelling = (processId: string) =>
+    !!data.yarnProcesses.find((p) => p.id === processId)?.is_unravelling;
+  const answerLooseIds = linkedLooseFabricIds(
+    conversionLinksOf(
+      Object.entries(yarnAnswers).map(([item_id, a]) => ({ item_id, stages: a.stages })),
+      isUnravelling,
+    ),
+  );
+  const fabricIdKey = [...new Set([...lines.map((l) => l.item_id).filter(Boolean), ...answerLooseIds])].sort().join(",");
 
   useEffect(() => {
     // No round trip for no fabrics — that case is DERIVED below (`comp`), never
@@ -895,6 +916,44 @@ export function IwoFabricBomScreen({
   /** The Yarn Colour panel's names — what a shade may be. */
   const yarnColourNames = [...new Set(palette.yarn.map((r) => normName(r.value)).filter(Boolean))];
 
+  /* LOOSE FABRIC CONVERSION (0636) — the order screen's plan, on this BOM's
+     buckets and the derived rows the payload sends; `writeYarns` runs the
+     same `planConversions`. A For = Yarn BOM has no cloth, so no plan. */
+  const conversionLinks = yarnMode ? new Map<string, string | null>() : conversionLinksOf(yarnRows, isUnravelling);
+  const looseFabricIds = new Set(linkedLooseFabricIds(conversionLinks));
+  const conversionPlan = planConversions({
+    links: conversionLinks,
+    fabrics: fabricGross,
+    compositions: compositionById,
+    routesByFabric,
+    decimals: data.kgUom?.decimals ?? null,
+    nameOf: (id) => fabricById.get(id)?.name,
+  });
+  /** A loose fabric is GREIGE cloth — a yarn-dyed one cannot be dyed with the body. */
+  const looseFabricOptions = data.fabrics.filter((f) => !isYarnDyed(f.fabric_type));
+  /** The order screen's `injectLooseRoute`: [GREIGE] KNITTING → [DYED] DYEING
+   *  → [DYED] CONVERSION, once, by the master's kind flags and base stages. */
+  const injectLooseRoute = (fabricId: string) => {
+    if (procs.some((p) => p.item_id === fabricId)) return;
+    const live = data.processes.filter((p) => p.for_fabric && !p.inactive);
+    const steps = [
+      { p: live.find((x) => x.is_knitting), loss: "" },
+      { p: live.find((x) => x.is_dyeing), loss: "" },
+      { p: live.find((x) => x.is_unravelling), loss: "2" },
+    ].filter((x): x is { p: (typeof live)[number]; loss: string } => !!x.p);
+    if (!steps.length) return;
+    setProcs((prev) => [
+      ...prev,
+      ...steps.map(({ p, loss }) => ({
+        ...blankFabricProcess(newKey(), fabricId),
+        stage_id: p.stage_roles.find((r) => r.is_base)?.stage_id ?? null,
+        process_id: p.id,
+        loss_pct: loss,
+      })),
+    ]);
+    setDirty(true);
+  };
+
   /** One yarn's purchase weight, or the refusal standing in for it — the order
    *  engine, with the arguments the save passes (no source; shades on a DYED
    *  Yarn IWO line, 0592). */
@@ -924,25 +983,25 @@ export function IwoFabricBomScreen({
           : null,
       );
     }
-    return yarnPurchase(
-      r.item_id,
-      fabricGross,
-      compositionById,
+    return yarnPurchaseWithConversion(r.item_id, conversionPlan, {
+      fabrics: fabricGross,
+      compositions: compositionById,
       routesByFabric,
       // `dyed` marks a yarn step in a coloured stage — a shade's own dye loss
       // replaces it rather than stacking ("ONE DYEING LOSS"); the save passes
-      // the same flag.
-      r.stages.map((st) => ({
+      // the same flag. Less any CONVERSION step (0636) — its loss is the
+      // loose fabric's.
+      ownStages: withoutConversionSteps(r.stages, isUnravelling).map((st) => ({
         combo: st.combo || null,
         loss_pct: num(st.loss_pct),
         dyed: !!st.stage_id && dyedStageIds.has(st.stage_id),
         // 0613 — the same gate the action's `build` stores through.
         color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses),
       })),
-      data.kgUom?.decimals ?? null,
-      new Map(),
-      yarnShades,
-    );
+      decimals: data.kgUom?.decimals ?? null,
+      sourceByFabric: new Map(),
+      shades: yarnShades,
+    });
   };
 
   /** Gross Yarn for one card row: its weight through its fabric's route losses
@@ -1093,9 +1152,22 @@ export function IwoFabricBomScreen({
         printDeclared,
         fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)),
         fabricIsPieceDyed: isPieceDyed(fabricTypeOf(itemId)),
+        /* 0636 — CONVERSION runs on a linked loose fabric's route only. */
+        looseFabricRoute: looseFabricIds.has(itemId),
       }),
       fabricName: (itemId) => fabricById.get(itemId)?.name ?? "This fabric",
     }),
+    /* LOOSE FABRIC CONVERSION (0636) — the order screen's Save rules; the
+       action's `conversionProblem` refuses the same sentences. */
+    ...(yarnMode
+      ? []
+      : conversionStepProblems({
+          yarns: yarnRows.map((y) => ({ name: y.name, stages: y.stages })),
+          links: conversionLinks,
+          routeSteps: procs,
+          isUnravelling,
+          fabricName: (itemId) => fabricById.get(itemId)?.name ?? "This fabric",
+        }).map((message) => ({ item_id: "", row_key: "", message }))),
     // Phase 2 — a GREIGE fabric's route stops at Greige (the save's rule too).
     ...iwoGreigeRouteProblems(procs, fabricStageOf, (id) => fabricStageRank(id), {
       fabric: (itemId) => fabricById.get(itemId)?.name ?? "This fabric",
@@ -1299,6 +1371,9 @@ export function IwoFabricBomScreen({
           loss_pct: num(st.loss_pct),
           color_wise_loss: !!st.color_wise_loss && !st.combo,
           color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses) ?? {},
+          /* 0636 — the conversion link; the action nulls it on any step the
+             master does not flag as unravelling. */
+          source_loose_fabric_id: st.source_loose_fabric_id ?? null,
         })),
       })),
     };
@@ -2017,10 +2092,35 @@ export function IwoFabricBomScreen({
     return (
       <>
         {isRefusal(w) && <p className="mb-1.5 text-xs text-danger">{w.refused}</p>}
+        {/* WHAT THE CONVERSION COMES TO (0636) — the order screen's line. */}
+        {(() => {
+          const conv = conversionPlan.converted.get(r.item_id);
+          if (!conv || isRefusal(conv)) return null;
+          const feeds = conv.fabricIds.map((id) => fabricById.get(id)?.name ?? "").filter(Boolean);
+          return (
+            <p className="mb-1.5 text-xs text-muted-foreground">
+              Unravelled from{" "}
+              <span className="font-medium text-foreground">
+                {fabricById.get(conv.loose_fabric_id)?.name ?? "the loose fabric"}
+              </span>
+              : {fmtNumber(conv.qty)} KGS dyed yarn
+              {feeds.length ? ` for ${feeds.join(", ")}` : ""}
+              {conv.looseKnitQty != null ? ` · knit ${fmtNumber(conv.looseKnitQty)} KGS of loose fabric` : ""}
+              . Its greige yarn is bought on that yarn&apos;s own row.
+            </p>
+          );
+        })()}
         <YarnProcessGrid
           rows={r.stages}
           onChange={(next) => setYarnStages(r.item_id, next)}
-          processes={data.yarnProcesses}
+          /* 0636 — a For = Yarn BOM has no cloth to knit a loose fabric into,
+             so CONVERSION is not offered there (a step already holding it
+             survives, and the Save refuses it by name). */
+          processes={
+            yarnMode
+              ? data.yarnProcesses.filter((p) => !p.is_unravelling || r.stages.some((st) => st.process_id === p.id))
+              : data.yarnProcesses
+          }
           stages={data.yarnStages}
           lossFor={data.processLookups.lossFor}
           combos={combos}
@@ -2030,6 +2130,10 @@ export function IwoFabricBomScreen({
              BOM's yarn-stage table holds the map since 0613. No Descriptions
              column either (client screenshot 2982). */
           colourLoss
+          /* 0636 — LOOSE FABRIC CONVERSION: greige cloths a CONVERSION step
+             may name, and the route injected when one is picked. */
+          looseFabrics={yarnMode ? [] : looseFabricOptions}
+          onLooseFabricPicked={injectLooseRoute}
           newKey={newKey}
           canCreate={perms.canCreate}
           canEdit={perms.canEdit}
@@ -2055,8 +2159,23 @@ export function IwoFabricBomScreen({
       ),
       form: rollUp(ls.map((l) => fabricFormLabel(l.fabric_form))),
       colours: [...new Set(ls.flatMap((l) => plannedColours(l.cells)))],
+      loose: false,
     };
   });
+  /* THE LINKED LOOSE FABRICS (0636) — on no line, so the list above cannot
+     name them; their route is real and is what grosses their greige yarn. */
+  for (const itemId of looseFabricIds) {
+    if (fabricRouteRows.some((r) => r.item_id === itemId)) continue;
+    fabricRouteRows.push({
+      key: itemId,
+      item_id: itemId,
+      name: fabricById.get(itemId)?.name ?? "",
+      structureType: "",
+      form: "",
+      colours: [],
+      loose: true,
+    });
+  }
   type FabricRouteRow = (typeof fabricRouteRows)[number];
 
   const fabricRouteColumns: FoldListColumn<FabricRouteRow>[] = [
@@ -2066,6 +2185,13 @@ export function IwoFabricBomScreen({
       cell: (r) => (
         <div className="min-w-0 text-sm text-foreground">
           <Truncated>{r.name || "(fabric not in the master)"}</Truncated>
+          {/* 0636 — a loose fabric is on no line by design. */}
+          {r.loose && (
+            <div className="text-xs text-muted-foreground">
+              Loose fabric — unravelled into{" "}
+              {yarnRows.filter((y) => conversionLinks.get(y.item_id) === r.item_id).map((y) => y.name).join(", ") || "yarn"}
+            </div>
+          )}
         </div>
       ),
     },
@@ -2528,6 +2654,8 @@ export function IwoFabricBomScreen({
                   printDeclared={printDeclared}
                   fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
                   fabricIsPieceDyed={isPieceDyed(fabricTypeOf(r.item_id))}
+                  /* 0636 — only a linked loose fabric's route may run CONVERSION. */
+                  looseFabricRoute={looseFabricIds.has(r.item_id)}
                   source="yarn_knit"
                   /* 0613 — COLOR WISE lists this fabric's line Colours, each
                      with its own loss (the order screen passes `r.combos`; an

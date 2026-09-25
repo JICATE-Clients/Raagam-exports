@@ -339,6 +339,10 @@ export interface FabricBomYarnStage {
   process_qty: number | null;
   uom_id: string | null;
   refusal_reason: string | null;
+  /** LOOSE FABRIC CONVERSION (0633) — on a CONVERSION step, the loose fabric
+   *  unravelled into this yarn; `process_qty` is then the dyed yarn it must
+   *  deliver. NULL on every other step. */
+  source_loose_fabric_id?: string | null;
 }
 
 /** One stored requirement row. Written by the server, never by the form. */

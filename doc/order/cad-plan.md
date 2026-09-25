@@ -100,3 +100,38 @@ Spec: `doc/order/cad.md`. Migration: `0628_cad_lifecycle.sql`. Code:
 - IWO Fabric BOMs are not gated — IWOs are not garment orders with styles.
 - The CAD tables stay outside the budget-approval order lock, as 0576 left
   0460's — CAD rework on an approved order is recorded, not refused.
+
+## 6. 2026-09-25 — the Order Entry ▸ CAD tab spec (0632 · 0634)
+
+The spec restated the lifecycle (allocation, dispatch, expected date, decision,
+T&A sync), and those parts were already live. What it added:
+
+| Spec | Built |
+|---|---|
+| Fit Wash Process Yes/No + Length / Width Shrinkage % (mandatory on Yes) | `fit_wash`, `length_shrink_pct`, `width_shrink_pct` on the VERSION; CHECK (0634 fixed a NULL hole in 0632's) + `allocationProblemAt` |
+| Cut Type One-Way / Two-Way | `cut_type` |
+| Component Cut Method per style component (Direct Shape / Fit Form) | `component_cuts` jsonb, name snapshotted; rows from Order Info ▸ Style Components; validated by the allocation trigger |
+| CAD Type: Initial Fit / Grading & Size Set / Marker-Consumption / Shrinkage-Wash | labels renamed (stored values unchanged); `shrinkage_wash` added, needs Fit Wash = Yes |
+| Designer from "CAD Designer" / "Pattern Maker" | CAD DESIGNER seeded as a third accepted designation |
+| .PDF marker upload | accepted BESIDE a .DXF/.PDS/.PLT, never instead of one |
+| Transmission Proof attachment | `order_cad_dispatch_files.kind = 'proof'` (.PDF .JPG .PNG .EML .MSG) under `v{n}/proof/`; counts as proof of dispatch |
+
+Pattern details freeze at dispatch, like every other allocation field.
+
+**Deliberately NOT changed:** Rework does not auto-create V2. It leaves the style
+at "Rework required" and the next step is Re-allocate, which pre-fills V2 from
+V1 (maker, type and now the pattern details). V2 still needs a new Target
+Date, and a system-made version would have to invent one.
+
+## 7. 2026-09-25 — the tab shows the form, not a table (0637)
+
+- Order Entry ▸ CAD renders the next step's form in place (`cad-form-frame.tsx`);
+  the style table was removed at the user's request. One strip above the form:
+  Style (a select when the order has more than one), status, history, corrections.
+- Component Cut Method is a table of the style's components — Coordinate ·
+  Component · Structure · Cut Method — keyed (coordinate, component) by 0637, so
+  a TOP and a BOTTOM FRONT BODY are two rows.
+- Test employee TST-PATT-1 (PATTERN MAKER 1, designation PATTERN MAKER) added
+  to the live database on request.
+
+- **Fit Wash Process → "Bit Wash"** (user 2026-09-25). Label only; the column stays `fit_wash`.

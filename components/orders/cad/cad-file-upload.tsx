@@ -19,6 +19,13 @@
  * `upsert: false`, so nothing is ever overwritten. The row is written only
  * when the dispatch is recorded (`cad_dispatch`); a sheet cancelled before
  * then hands its paths to `discardCadUploads`.
+ *
+ * ## TWO KINDS, ONE WIDGET (0632)
+ *
+ * `kind="pattern"` takes the CAD files and a .PDF marker print; `kind="proof"`
+ * takes the email slip / courier docket (.PDF .JPG .PNG .EML .MSG) into the
+ * version's `proof/` sub-folder. The rules are `isPatternFile` / `isProofFile`
+ * — the same lists 0632's CHECK and `cad_dispatch` hold.
  */
 
 import { useRef, useState } from "react";
@@ -31,8 +38,11 @@ import {
   CAD_FILE_ACCEPT,
   CAD_FILE_MAX_MB,
   cadStoragePath,
-  isCadFile,
+  isPatternFile,
+  isProofFile,
+  PROOF_FILE_ACCEPT,
   type CadFileInput,
+  type CadFileKind,
 } from "@/lib/orders/cad-lifecycle/types";
 
 /** Seconds — long enough to download, short enough that a copied link is not a leak. */
@@ -63,6 +73,7 @@ export function CadFileUpload({
   styleRef,
   versionNo,
   disabled,
+  kind = "pattern",
 }: {
   files: CadFileInput[];
   onChange: (next: CadFileInput[]) => void;
@@ -70,6 +81,7 @@ export function CadFileUpload({
   styleRef: string;
   versionNo: number;
   disabled?: boolean;
+  kind?: CadFileKind;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -78,9 +90,13 @@ export function CadFileUpload({
   async function upload(list: FileList) {
     setError(null);
     const picked = Array.from(list);
-    const bad = picked.find((f) => !isCadFile(f.name));
+    const bad = picked.find((f) => !(kind === "proof" ? isProofFile(f.name) : isPatternFile(f.name)));
     if (bad) {
-      setError(`${bad.name} is not a CAD file — only .DXF, .PDS and .PLT are accepted.`);
+      setError(
+        kind === "proof"
+          ? `${bad.name} cannot be a transmission proof — attach a .PDF, .JPG, .PNG, .EML or .MSG.`
+          : `${bad.name} is not a CAD file — only .DXF, .PDS, .PLT and a .PDF marker are accepted.`,
+      );
       return;
     }
     const big = picked.find((f) => f.size > CAD_FILE_MAX_MB * 1024 * 1024);
@@ -95,7 +111,7 @@ export function CadFileUpload({
       const added: CadFileInput[] = [];
       for (let i = 0; i < picked.length; i++) {
         const f = picked[i];
-        const path = cadStoragePath(orderId, styleRef, versionNo, f.name, stamp, files.length + i);
+        const path = cadStoragePath(orderId, styleRef, versionNo, f.name, stamp, files.length + i, kind);
         const { error: upErr } = await supabase.storage
           .from(CAD_BUCKET)
           .upload(path, f, { upsert: false, contentType: f.type || "application/octet-stream" });
@@ -103,7 +119,7 @@ export function CadFileUpload({
           setError(`${f.name}: ${upErr.message}`);
           break;
         }
-        added.push({ file_name: f.name, storage_path: path, mime_type: f.type || null, size_bytes: f.size });
+        added.push({ kind, file_name: f.name, storage_path: path, mime_type: f.type || null, size_bytes: f.size });
       }
       if (added.length > 0) onChange([...files, ...added]);
     } catch (e) {
@@ -155,7 +171,7 @@ export function CadFileUpload({
             ref={inputRef}
             type="file"
             multiple
-            accept={CAD_FILE_ACCEPT}
+            accept={kind === "proof" ? PROOF_FILE_ACCEPT : CAD_FILE_ACCEPT}
             className="hidden"
             onChange={(e) => e.target.files && e.target.files.length > 0 && upload(e.target.files)}
           />
@@ -167,11 +183,22 @@ export function CadFileUpload({
             onClick={() => inputRef.current?.click()}
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" aria-hidden />}
-            {busy ? "Uploading…" : files.length > 0 ? "Add another file" : "Attach CAD file"}
+            {busy
+              ? "Uploading…"
+              : files.length > 0
+                ? "Add another file"
+                : kind === "proof"
+                  ? "Attach email slip / docket"
+                  : "Attach CAD file"}
           </Button>
         </>
       )}
-      <p className="text-xs text-muted-foreground">.DXF, .PDS or .PLT · up to {CAD_FILE_MAX_MB} MB each · mandatory</p>
+      <p className="text-xs text-muted-foreground">
+        {kind === "proof"
+          ? ".PDF, .JPG, .PNG, .EML or .MSG"
+          : ".DXF, .PDS or .PLT (mandatory) · a .PDF marker alongside"}{" "}
+        · up to {CAD_FILE_MAX_MB} MB each
+      </p>
       {error && (
         <p role="alert" className="text-xs text-danger">
           {error}

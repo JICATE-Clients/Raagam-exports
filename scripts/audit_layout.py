@@ -1231,7 +1231,10 @@ def check_autofill(path: Path, code: str, slug: str):
 # above it does, and the detail page already shows that. Matched on the path
 # because that is what actually distinguishes them: a `[id]` segment means the
 # page is about one record, so every table on it is that record's parts.
-LINE_TABLE_PATH = re.compile(r"/\[[A-Za-z]+\]/|[/-]tabs\.tsx$|/sections/|report-view|ioc-costing")
+# `-tabs?`: a ONE-tab panel file (`order-cad-tab.tsx`, `fabric-ta-tab.tsx`) is a
+# tab panel exactly as a `-tabs.tsx` bundle is — AGENTS.md exempts "tab panels"
+# by path, and the singular spelling fell outside the pattern (2026-09-25).
+LINE_TABLE_PATH = re.compile(r"/\[[A-Za-z]+\]/|[/-]tabs?\.tsx$|/sections/|report-view|ioc-costing")
 
 
 def check_created_columns(path: Path, code: str, slug: str):

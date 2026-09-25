@@ -30,6 +30,7 @@
     "check:fabric-components": "npx --yes tsx scripts/check-fabric-components.mts",
     "check:fabric-plan": "npx --yes tsx scripts/check-fabric-plan.mts",
     "check:yarn-process": "npx --yes tsx scripts/check-yarn-process.mts",
+    "check:loose-conversion": "npx --yes tsx scripts/check-loose-conversion.mts",
     "check:color-wise-loss": "npx --yes tsx scripts/check-color-wise-loss.mts",
     "check:iwo-fabric-bom": "npx --yes tsx scripts/check-iwo-fabric-bom.mts",
     "check:iwo-material-bom": "npx --yes tsx scripts/check-iwo-material-bom.mts",

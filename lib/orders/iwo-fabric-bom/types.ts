@@ -144,6 +144,8 @@ export interface IwoFabricBomYarnStageRow {
   process_qty: number | null;
   uom_id: string | null;
   refusal_reason: string | null;
+  /** 0636 — on a CONVERSION step, the loose fabric unravelled into this yarn. */
+  source_loose_fabric_id?: string | null;
 }
 
 /** One shade of a DYED Yarn IWO line (0592). `purchase_qty` is the server's,

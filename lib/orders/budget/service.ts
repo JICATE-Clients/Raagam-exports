@@ -794,7 +794,7 @@ export async function pullCostLines(
         "sno, stage_id, process_qty, uom_id, combo, process_id, " +
           /* `is_cloth_purchase` (0583 · 0612) — a step that BUYS the yarn is
              not a process charge; see the loop below. */
-          "process:processes!process_id(name, is_cloth_purchase), " +
+          "process:processes!process_id(name, is_cloth_purchase, is_unravelling), " +
           /* `stage_id` AND `loss_for_id` BOTH point at config_lookups, so the
              FK column is NAMED — a bare `config_lookups(name)` is a 300 that
              would empty this whole select (AGENTS.md). */
@@ -960,6 +960,10 @@ export async function pullCostLines(
       skipped++;
       continue;
     }
+    /* NOTHING BOUGHT, NO LINE (0633). A yarn wholly unravelled from a loose
+       fabric stores 0 — a real answer, not a refusal: its greige yarn is
+       bought on the loose fabric's yarn row, which pulls its own line. */
+    if (Number(r.purchase_qty) === 0) continue;
     if (r.item_id) itemIds.add(r.item_id);
     lines.push({
       source: "yarn",
@@ -998,7 +1002,7 @@ export async function pullCostLines(
     uom_id: string | null;
     combo: string | null;
     process_id: string | null;
-    process: { name: string; is_cloth_purchase: boolean | null } | null;
+    process: { name: string; is_cloth_purchase: boolean | null; is_unravelling?: boolean | null } | null;
     stage: { name: string | null; code: string | null } | null;
     yarn: {
       item_id: string | null;
@@ -1022,6 +1026,13 @@ export async function pullCostLines(
        Purchase Rates holds raw material; Process Rates holds job work only.
        Read off the master's flag (0612), never the name. */
     if (r.process.is_cloth_purchase) continue;
+    /* A YARN'S CONVERSION STEP IS NOT CHARGED HERE (0633). It only names the
+       loose fabric the yarn is unravelled from; the unravelling is the
+       CONVERSION step of that loose fabric's ROUTE, which the Fabric BOM's
+       stage ledger prints and the `fabric_process` pull below costs — with
+       the fabric's KNITTING and DYEING beside it. Pulling the yarn's step too
+       would charge the same unravelling twice. */
+    if (r.process.is_unravelling) continue;
     /* THE DOUBLE-COUNT RULE (client 2026-09-19): a hand-typed step in a
        coloured stage (DYED) on a yarn whose dyeing is already charged per
        shade above is the same dyeing — not pulled a second time. */

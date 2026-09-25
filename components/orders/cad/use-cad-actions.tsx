@@ -28,10 +28,10 @@ type Open =
   | null;
 
 export const CAD_STEP_LABEL = {
-  allocate: "Allocate",
-  dispatch: "Dispatch",
-  decide: "Record decision",
-  reallocate: "Re-allocate",
+  allocate: "Assign CAD",
+  dispatch: "Send CAD",
+  decide: "CAD Approval",
+  reallocate: "Re-assign CAD",
 } as const;
 
 export function useCadActions({
@@ -79,11 +79,11 @@ export function useCadActions({
     if (!v.dispatch) {
       return [
         {
-          label: `Edit V${v.version_no} allocation`,
+          label: `Edit V${v.version_no} assignment`,
           onClick: () => setOpen({ kind: "allocate", mode: "edit", row: r, origin: null }),
         },
         {
-          label: `Delete V${v.version_no} allocation`,
+          label: `Delete V${v.version_no} assignment`,
           danger: true,
           onClick: () => run(() => deleteCadAllocation(v.id), `V${v.version_no} allocation deleted`),
         },
@@ -91,7 +91,7 @@ export function useCadActions({
     }
     if (v.decision?.status === "pending") {
       return [
-        { label: "Undo dispatch", danger: true, onClick: () => run(() => undoCadDispatch(v.dispatch!.id), "Dispatch undone") },
+        { label: "Undo send", danger: true, onClick: () => run(() => undoCadDispatch(v.dispatch!.id), "Send undone") },
       ];
     }
     return [

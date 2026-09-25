@@ -30,10 +30,15 @@ import {
   cadSheetLabel,
   cadStateOf,
   cadStoragePath,
+  cutKey,
   decisionProblem,
   dispatchProblem,
   isCadFile,
+  isPatternFile,
+  isProofFile,
   istLocalToIso,
+  PATTERN_FILE_EXTENSIONS,
+  PROOF_FILE_EXTENSIONS,
   PATTERN_MAKER_DESIGNATIONS,
   patternMakerOptions,
   type CadDecision,
@@ -182,7 +187,25 @@ check("dispatch before allocation refused", dispatchProblem({ ...good, dispatch_
 check("email alone is proof enough", dispatchProblem({ ...good, courier_tracking_no: "  ", email_sent_at: "2026-09-24T10:00" }, ver, today), null);
 check("blank courier and no email refused", dispatchProblem({ ...good, courier_tracking_no: "  " }, ver, today)?.startsWith("Enter a Courier"), true);
 check("no file refused", dispatchProblem({ ...good, files: [] }, ver, today)?.startsWith("Attach the CAD file"), true);
-check("a PDF refused by name", dispatchProblem({ ...good, files: [{ file_name: "a.pdf" }] }, ver, today), "a.pdf is not a CAD file — only .DXF, .PDS and .PLT are accepted.");
+// 0632: a PDF marker rides ALONG with a real CAD file, never instead of it.
+check("a PDF alone is refused — it is a picture of a marker, not a pattern", dispatchProblem({ ...good, files: [{ file_name: "a.pdf" }] }, ver, today)?.startsWith("Attach the CAD file"), true);
+check("a PDF beside a .DXF passes", dispatchProblem({ ...good, files: [{ file_name: "a.dxf" }, { file_name: "a.pdf" }] }, ver, today), null);
+check("a .jpg is not a pattern file", dispatchProblem({ ...good, files: [{ file_name: "a.dxf" }, { file_name: "b.jpg" }] }, ver, today), "b.jpg is not a CAD file — only .DXF, .PDS, .PLT and a .PDF marker are accepted.");
+check("a proof slip alone is proof enough", dispatchProblem({ ...good, courier_tracking_no: null, proof_files: [{ file_name: "slip.PNG" }] }, ver, today), null);
+check("a .dxf is not a proof", dispatchProblem({ ...good, proof_files: [{ file_name: "x.dxf" }] }, ver, today), "x.dxf cannot be a transmission proof — attach a .PDF, .JPG, .PNG, .EML or .MSG.");
+check("pattern vs proof lists", [isPatternFile("m.PDF"), isProofFile("m.PDF"), isPatternFile("s.eml"), isProofFile("s.eml")], [true, true, false, true]);
+
+// 0637: a cut row is (coordinate, component) — TOP and BOTTOM FRONT BODY are two rows.
+check("cutKey: two coordinates → two keys", cutKey({ coordinate_id: "T", component_id: "FB" }) !== cutKey({ coordinate_id: "B", component_id: "FB" }), true);
+check("cutKey: no coordinate keys as '-' (0637's SQL coalesce)", cutKey({ coordinate_id: null, component_id: "FB" }), "-|FB");
+
+// 0632: pattern details.
+const alloc = { pattern_maker_id: "e", cad_type: "first_pattern", target_date: today };
+check("fit wash No needs no percentages", allocationProblem({ ...alloc, fit_wash: false }, today), null);
+check("fit wash Yes with both → ok", allocationProblem({ ...alloc, fit_wash: true, length_shrink_pct: 3.5, width_shrink_pct: 2 }, today), null);
+check("fit wash Yes, length blank → refused", allocationProblem({ ...alloc, fit_wash: true, length_shrink_pct: null, width_shrink_pct: 2 }, today)?.startsWith("Enter the Length Shrinkage"), true);
+check("fit wash Yes, 0% width → refused (0 is not a shrinkage)", allocationProblem({ ...alloc, fit_wash: true, length_shrink_pct: 3, width_shrink_pct: 0 }, today)?.startsWith("Enter the Width Shrinkage"), true);
+check("Shrinkage / Wash pattern with Fit Wash No → refused", allocationProblem({ ...alloc, cad_type: "shrinkage_wash", fit_wash: false }, today), "A Shrinkage / Wash Pattern needs Bit Wash = Yes.");
 check(
   "marker planning needs a layout; first pattern does not",
   [dispatchProblem(good, { ...ver, cad_type: "marker_planning" }, today) !== null, dispatchProblem(good, ver, today)],
@@ -224,6 +247,7 @@ const staff = [
 ];
 check("offers pattern maker + CAD technician, case/space-insensitive; not the packer, not the inactive", patternMakerOptions(staff, null).items.map((e) => e.id), ["a", "b"]);
 check("the held (inactive) maker survives, last", patternMakerOptions(staff, "d").items.map((e) => e.id), ["a", "b", "d"]);
+check("CAD DESIGNER qualifies (0632)", patternMakerOptions([{ id: "x", code: null, name: "RAMESH", inactive: false, designation: "CAD Designer" }], null).items.length, 1);
 check("nobody tagged → empty, with the reason — never everyone", patternMakerOptions([staff[2]], null).items.length === 0 && !!patternMakerOptions([staff[2]], null).hint, true);
 
 // ---------------------------------------------------------------------------
@@ -235,9 +259,16 @@ const sqlStates = [...new Set([...statesFn.matchAll(/'(not_allocated|allocated|p
 const approvalCheck = sql.match(/status\s+text not null default 'pending' check \(status in \(([^)]*)\)\)/)?.[1] ?? "";
 const sqlDecisions = [...approvalCheck.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
 check("SQL states = TS states", [...sqlStates, ...sqlDecisions.filter((d) => d !== "pending")].sort(), [...CAD_STATES].sort());
-const extCheck = sql.match(/extension\s+text not null check \(extension in \(([^)]*)\)\)/)?.[1] ?? "";
-check("SQL file extensions = TS", [...extCheck.matchAll(/'([a-z]+)'/g)].map((m) => m[1]), [...CAD_FILE_EXTENSIONS]);
-const desigCheck = sql.match(/v_desig not in \(([^)]*)\)/)?.[1] ?? "";
+// Files and designations were redefined by 0632 — the LATEST definition is the one that runs.
+const sql632 = readFileSync(new URL("../supabase/migrations/0632_cad_pattern_details.sql", import.meta.url), "utf8");
+const kindCheck = sql632.match(/constraint chk_ocdf_kind_extension check \(([\s\S]*?)\)\);/)?.[1] ?? "";
+const extsOf = (kind: string) =>
+  [...(kindCheck.match(new RegExp(`kind = '${kind}'\\s+and extension in \\(([^)]*)\\)`))?.[1] ?? "").matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+check("SQL pattern extensions = TS", extsOf("pattern"), [...PATTERN_FILE_EXTENSIONS]);
+check("SQL proof extensions = TS", extsOf("proof"), [...PROOF_FILE_EXTENSIONS]);
+const rpcCad = sql632.match(/if v_ext <> 'pdf' then v_cad/) !== null;
+check("SQL counts every non-PDF pattern file as the real CAD file (TS: CAD_FILE_EXTENSIONS)", [rpcCad, [...CAD_FILE_EXTENSIONS]], [true, PATTERN_FILE_EXTENSIONS.filter((e) => e !== "pdf")]);
+const desigCheck = sql632.match(/v_desig not in \(([^)]*)\)/)?.[1] ?? "";
 check("SQL Pattern Maker designations = TS", [...desigCheck.matchAll(/'([A-Z ]+)'/g)].map((m) => m[1]), [...PATTERN_MAKER_DESIGNATIONS]);
 
 if (failed > 0) {

@@ -15,11 +15,11 @@ import {
   type WorkFlowRow,
 } from "@/lib/orders/work-flow/types";
 import {
-  loadWorkFlow,
   updateWorkFlowMilestone,
   type WorkFlowLoad,
   type WorkFlowPatch,
 } from "@/lib/orders/work-flow/actions";
+import { readWorkFlow, recallWorkFlow, rememberWorkFlow } from "@/lib/orders/order-tab-reads";
 
 /**
  * Order Entry ▸ T&A ▸ Work Flow — the six office milestones between an order
@@ -63,28 +63,32 @@ type Draft = { days: string };
 
 export function WorkFlowPanel({ amendmentId }: { amendmentId: string | null }) {
   const toast = useToast();
-  const [data, setData] = useState<WorkFlowLoad | null>(null);
+  /* KEYED BY THE ORDER IT WAS READ FOR, so an answer for another order is
+     never shown and nothing has to clear state to say so. Until this order's
+     own read lands, the last answer remembered for it paints (`order-tab-reads`
+     — usually already there, because the order screen started the read the
+     moment the order opened); only a first-ever visit shows "Loading…". */
+  const [loadedFor, setLoadedFor] = useState<{ id: string; data: WorkFlowLoad } | null>(null);
+  const data: WorkFlowLoad | null =
+    loadedFor && loadedFor.id === amendmentId
+      ? loadedFor.data
+      : amendmentId
+        ? (recallWorkFlow(amendmentId) ?? null)
+        : null;
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
+    if (!amendmentId) return;
     let live = true;
-    /* A REJECTED LOAD MUST END THE SPINNER. Without the `catch`, a server
-       action that throws (or a dev server still holding a stale action id)
-       left "Loading Work Flow…" on screen for ever with nothing to report. */
-    loadWorkFlow(amendmentId ?? "")
-      .then((res) => {
-        if (!live) return;
-        setData(res);
-        setDrafts({});
-      })
-      .catch((e: unknown) => {
-        if (!live) return;
-        setData({
-          ok: false,
-          error: `Work Flow could not load: ${e instanceof Error ? e.message : String(e)}. Reload the page; if it persists, restart the dev server.`,
-        });
-      });
+    /* A FAILED LOAD ENDS THE SPINNER: `readWorkFlow` never rejects — a network
+       or server failure comes back as `ok: false` with a sentence to show,
+       never "Loading Work Flow…" for ever. */
+    void readWorkFlow(amendmentId).then((res) => {
+      if (!live) return;
+      setLoadedFor({ id: amendmentId, data: res });
+      setDrafts({});
+    });
     return () => {
       live = false;
     };
@@ -137,9 +141,12 @@ export function WorkFlowPanel({ amendmentId }: { amendmentId: string | null }) {
   const { day0, today, employees } = data;
 
   function patchRow(id: string, next: Partial<WorkFlowRow>) {
-    setData((prev) =>
-      prev && prev.ok ? { ...prev, rows: prev.rows.map((r) => (r.id === id ? { ...r, ...next } : r)) } : prev,
-    );
+    if (!amendmentId || !data?.ok) return;
+    // From the answer ON SCREEN, which may still be the remembered one.
+    const updated: WorkFlowLoad = { ...data, rows: data.rows.map((r) => (r.id === id ? { ...r, ...next } : r)) };
+    setLoadedFor({ id: amendmentId, data: updated });
+    // A return to the tab must show the saved milestone, not the pre-save one.
+    rememberWorkFlow(amendmentId, updated);
   }
 
   function save(row: WorkFlowRow, patch: WorkFlowPatch, optimistic: Partial<WorkFlowRow>) {

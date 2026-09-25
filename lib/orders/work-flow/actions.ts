@@ -57,15 +57,18 @@ const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? 
  * error, because "no milestones" would read as a real, unremarkable answer.
  */
 export async function loadWorkFlow(amendmentId: string): Promise<WorkFlowLoad> {
-  if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
   if (!amendmentId) return { ok: false, error: "Save the order first — the Work Flow starts when the order exists." };
   const s = await createClient();
 
-  const { data: doc, error: docErr } = await s
-    .from("garment_order_amendments")
-    .select("sales_order_id")
-    .eq("id", amendmentId)
-    .maybeSingle();
+  // THE PERMISSION CHECK RIDES ALONGSIDE THE FIRST READ (2026-09-25, "T&A tab
+  // shows Loading"). Every round trip is ~260 ms and they were three in a row;
+  // the read is RLS-scoped, so fetching it before the answer is known leaks
+  // nothing — the result is simply discarded on a refusal.
+  const [allowed, { data: doc, error: docErr }] = await Promise.all([
+    can("orders", "view"),
+    s.from("garment_order_amendments").select("sales_order_id").eq("id", amendmentId).maybeSingle(),
+  ]);
+  if (!allowed) return { ok: false, error: "Forbidden" };
   if (docErr) return { ok: false, error: docErr.message };
   const salesOrderId = str((doc as Row | null)?.sales_order_id);
   if (!salesOrderId) return { ok: false, error: "This order has no RE No yet, so it has no Work Flow." };

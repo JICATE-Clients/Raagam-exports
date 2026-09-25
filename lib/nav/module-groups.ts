@@ -569,9 +569,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "cad-room",
         label: "CAD",
-        description: "Allocate, dispatch and approve each style's CAD, and weigh its marker panels",
+        description: "Assign, send and approve each style's CAD, and weigh its marker panels",
         children: [
-          { href: "/orders/cad-lifecycle", label: "CAD Lifecycle", description: "Allocate a style's CAD to a pattern maker, dispatch it to the buyer, and record Approved or Rework" },
+          { href: "/orders/cad-lifecycle", label: "CAD Queue", description: "Assign a style's CAD to a pattern maker, send it to the buyer, and record Approved or Rework" },
           { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
         ],
       },

@@ -9,8 +9,12 @@ import {
   comboUpliftBreakdown,
   resolveRouteComponents,
   stageCoversCombo,
+  type FabricComposition,
+  type FabricGross,
   type RouteStage,
 } from "./yarn-process";
+import { conversionLinksOf, linkedLooseFabricIds, planConversions } from "./loose-conversion";
+import { isYarnDyedFabricType } from "@/lib/masters/fabric-name";
 import {
   asFabricSource,
   clothPurchaseLabel,
@@ -1568,24 +1572,42 @@ export async function yarnFabricRequirementReport(
      genuinely live-computed — it has never been persisted in ladder form (see
      `comboUpliftBreakdown`'s header), so there is nothing stored to read.
      Read beside the header, not after it: it keys on `bomId` alone. */
-  const [header, { data: yarnRows, error: yarnErr }] = await Promise.all([
+  const [header, { data: yarnRows, error: yarnErr }, unravelRes] = await Promise.all([
     loadBomDocHeader(bomId),
     s
       .from("order_fabric_bom_yarns")
-      .select("item_id, purchase_qty, uom_id, refusal_reason, stages:order_fabric_bom_yarn_stages(loss_pct)")
+      /* `process_id, source_loose_fabric_id` (0633) — which yarn is unravelled
+         from which loose fabric, so the loose fabric's own route prints below
+         and the stripes it replaces do not. */
+      .select(
+        "item_id, purchase_qty, uom_id, refusal_reason, " +
+          "stages:order_fabric_bom_yarn_stages(loss_pct, process_id, source_loose_fabric_id)",
+      )
       .eq("bom_id", bomId),
+    s.from("processes").select("id").eq("is_unravelling", true),
   ]);
   if (isReportRefusal(header)) return header;
 
   if (yarnErr) return { refused: `Could not read the yarn purchase rows: ${yarnErr.message}` };
+  /* READ, NOT COALESCED AWAY: an empty answer would print a converted yarn's
+     collar stripes as yarn to dye and drop the loose fabric's route. */
+  if (unravelRes.error) return { refused: `Could not read the conversion process: ${unravelRes.error.message}` };
 
   const rows = (yarnRows ?? []) as unknown as {
     item_id: string;
     purchase_qty: number | null;
     uom_id: string | null;
     refusal_reason: string | null;
-    stages: { loss_pct: number | string | null }[] | null;
+    stages: { loss_pct: number | string | null; process_id: string | null; source_loose_fabric_id: string | null }[] | null;
   }[];
+  /* LOOSE FABRIC CONVERSION (0633) — the links, off the STORED steps and the
+     master's flag, exactly as `normalizeYarns` read them at Save. */
+  const unravelling = new Set(((unravelRes.data ?? []) as { id: string }[]).map((r) => r.id));
+  const conversionLinks = conversionLinksOf(
+    rows.map((r) => ({ item_id: r.item_id, stages: r.stages ?? [] })),
+    (id) => unravelling.has(id),
+  );
+  const looseFabricIds = linkedLooseFabricIds(conversionLinks);
 
   /* THE YARN'S OWN TREATMENTS, COMPOUNDED — `/(1-L)` per stage, sequentially,
      which is `comboUplift`'s form and `yarnPurchase`'s own reading of the same
@@ -1869,11 +1891,16 @@ export async function yarnFabricRequirementReport(
     if (entry?.widthForm) widthFormByFabric.set(r.item_id, entry.widthForm);
   }
 
-  const fabricItemIds = [...netByFabricComboPanels.keys()];
+  /* PLUS THE LINKED LOOSE FABRICS (0633) — on no requirement row (a loose
+     fabric is unravelled, never cut), but their route and blend are read like
+     any cloth's so their ladder prints and their greige yarn is traced. */
+  const fabricItemIds = [...new Set([...netByFabricComboPanels.keys(), ...looseFabricIds])];
   /* THE ROUTE AND THE MIXINGS IN ONE ROUND (2026-09-24, "T&A tab takes
      2 seconds"): both key on `fabricItemIds` alone and neither reads the
-     other, but the mixings used to wait for the route to land first. */
-  const [processesRes, mixRes] = await Promise.all([
+     other, but the mixings used to wait for the route to land first. The
+     fabric TYPES and the kilogram's precision (0633) join the same round,
+     and only when this document converts a yarn. */
+  const [processesRes, mixRes, fabricTypeRes, kgPrecisionRes] = await Promise.all([
     fabricItemIds.length
       ? s
           .from("order_fabric_bom_processes")
@@ -1885,7 +1912,14 @@ export async function yarnFabricRequirementReport(
     fabricItemIds.length
       ? s.from("material_mixings").select("item_id, component_item_id, blend_pct, shade").in("item_id", fabricItemIds)
       : Promise.resolve({ data: [] as unknown[], error: null }),
+    looseFabricIds.length && fabricItemIds.length
+      ? s.from("items").select("id, fabric_type:config_lookups!fabric_type_id(name)").in("id", fabricItemIds)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
+    looseFabricIds.length && reqUomIds.length === 1
+      ? s.from("uoms").select("decimal_places_allowed").eq("id", reqUomIds[0]).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
+  if (fabricTypeRes.error) return { refused: `Could not read the fabric types: ${fabricTypeRes.error.message}` };
   if ((processesRes as { error: { message: string } | null }).error) {
     return {
       refused: `Could not read the process ledger: ${(processesRes as { error: { message: string } }).error.message}`,
@@ -1942,7 +1976,7 @@ export async function yarnFabricRequirementReport(
     blend_pct: number | null;
     shade: string | null;
   }[];
-  const compositionByFabric = new Map<string, { fabric_id: string; fabric_name: string; components: { yarn_id: string; blend_pct: number | null }[] }>();
+  const compositionByFabric = new Map<string, FabricComposition>();
   const shadesByYarn = new Map<string, Set<string>>();
   for (const m of mixRows) {
     if (!m.item_id || !m.component_item_id) continue;
@@ -2040,6 +2074,87 @@ export async function yarnFabricRequirementReport(
   }
   // Real fabric names into the compositions built above, now that they exist.
   for (const comp of compositionByFabric.values()) comp.fabric_name = itemNames.get(comp.fabric_id) ?? "(fabric not found)";
+
+  /* ---- LOOSE FABRIC CONVERSION (0633) ---------------------------------------
+     THE SAME `planConversions` THE SAVE RAN, on the same stored inputs — the
+     requirement bucketed per (entry, colourway) exactly as `fabricGrossOf`
+     buckets it, each cloth's route, blend and yarn-dyed type — so the loose
+     fabric's demand printed here is the demand its greige yarn was bought
+     against. Two effects, and only two:
+
+      - the loose fabric becomes one more cloth in the ledger below, so its
+        KNITTING, DYEING and CONVERSION sections print (and the Budget's
+        fabric-process lines, which are read off these sections, cost them);
+      - a converted yarn's yarn-dyed cloths leave the YARN DYEING block and the
+        yarn drawer for that yarn — their colour comes from the loose fabric's
+        dye bath, and their yarn is unravelled, not bought. */
+  const convertedFeeds = new Map<string, Set<string>>();
+  /** Printed under the ledger with the other unresolved slices, below. */
+  const conversionRefusals: string[] = [];
+  if (conversionLinks.size) {
+    const typeById = new Map<string, string | null>(
+      (
+        (fabricTypeRes.data ?? []) as {
+          id: string;
+          fabric_type: { name: string | null } | { name: string | null }[] | null;
+        }[]
+      ).map((r) => [r.id, (Array.isArray(r.fabric_type) ? r.fabric_type[0]?.name : r.fabric_type?.name) ?? null]),
+    );
+    for (const comp of compositionByFabric.values()) {
+      comp.yarn_dyed = isYarnDyedFabricType(typeById.get(comp.fabric_id) ?? null);
+    }
+    const buckets = new Map<string, FabricGross>();
+    for (const r of reqRows) {
+      if (!r.item_id || !r.entry_id) continue;
+      const bucket = `${r.entry_id}::${comboKey(r.combo)}`;
+      const held = buckets.get(bucket);
+      if (held && held.gross === null) continue; // a refusal poisons its bucket, as in `fabricGrossOf`
+      const panels = [...new Set(panelsByEntry.get(r.entry_id) ?? [])];
+      buckets.set(bucket, {
+        fabric_id: r.item_id,
+        yd_part: partByEntry.get(r.entry_id) || null,
+        combo: r.combo,
+        gross: r.required_qty == null ? null : (held?.gross ?? 0) + Number(r.required_qty),
+        uom_id: r.consumption_uom_id,
+        component_ids: panels,
+        printed: printedGroup(printLines, r.item_id, r.combo, panels),
+      });
+    }
+    const plan = planConversions({
+      links: conversionLinks,
+      fabrics: [...buckets.values()],
+      compositions: compositionByFabric,
+      routesByFabric: routeByFabric,
+      decimals: (kgPrecisionRes.data as { decimal_places_allowed: number | null } | null)?.decimal_places_allowed ?? null,
+      sourceByFabric,
+      nameOf: (id) => itemNames.get(id),
+    });
+    for (const [yarnId, c] of plan.converted) {
+      if ("refused" in c) {
+        conversionRefusals.push(`${itemNames.get(yarnId) ?? "A yarn"}: ${c.refused}`);
+        continue;
+      }
+      convertedFeeds.set(yarnId, new Set(c.fabricIds));
+    }
+    for (const d of plan.looseDemand) {
+      if (d.gross == null) continue;
+      const byCombo = netByFabricComboPanels.get(d.fabric_id) ?? new Map<string, Map<string, NetSlice>>();
+      const byPanels = byCombo.get(d.combo ?? "") ?? new Map<string, NetSlice>();
+      const held = byPanels.get("|") ?? {
+        net: 0,
+        nos: 0,
+        garments: new Map<string, number>(),
+        consWt: 0,
+        dias: new Set<string>(),
+        panels: [],
+        part: "",
+      };
+      held.net += d.gross;
+      byPanels.set("|", held);
+      byCombo.set(d.combo ?? "", byPanels);
+      netByFabricComboPanels.set(d.fabric_id, byCombo);
+    }
+  }
 
   /* THE CLOTHS' BUYING UNITS, resolved to codes. A second `uoms` read rather
      than widening the one above: that one is keyed on the requirement rows'
@@ -2219,7 +2334,7 @@ export async function yarnFabricRequirementReport(
 
   const componentNames = await routeComponentNames(s, routeRows.map((p) => p.component_id));
   if (isReportRefusal(componentNames)) return componentNames;
-  const stageLedgerRefusals: string[] = [];
+  const stageLedgerRefusals: string[] = [...conversionRefusals];
 
   /* A FAILED PROCESS SELECT IS SAID, NOT SWALLOWED.
      `processRes.data ?? []` above reads a failure as "this database has no
@@ -2488,6 +2603,9 @@ export async function yarnFabricRequirementReport(
           for (const comp of composition.components) {
             const declared = composition.components.filter((c) => c.yarn_id === comp.yarn_id);
             if (declared[0] !== comp) continue; // one contribution per yarn per (fabric, combo), not one per mixing row
+            /* 0633 — this cloth's share of a CONVERTED yarn is unravelled, not
+               bought; the loose fabric's own contribution stands for it. */
+            if (convertedFeeds.get(comp.yarn_id)?.has(fabricId)) continue;
             const everyPctKnown = declared.every((c) => c.blend_pct != null);
             const share = everyPctKnown
               ? declared.reduce((sum, c) => sum + (c.blend_pct ?? 0), 0) / 100
@@ -2521,6 +2639,10 @@ export async function yarnFabricRequirementReport(
           const yd = ydComboFor(part);
           mixing.forEach((m, i) => {
             if (m.mixing_pct == null || !m.yarn_item_id) return; // a share the panel refused: named there, not guessed here
+            /* 0633 — a stripe knitted from CONVERTED yarn is dyed in the loose
+               fabric's bath (its DYEING section), never as yarn: a dye-house
+               lot here would charge the same colour twice. */
+            if (convertedFeeds.get(m.yarn_item_id)?.has(fabricId)) return;
             dyeingSlices.push({
               yarnItemId: m.yarn_item_id,
               yarnName: m.yarn_name,

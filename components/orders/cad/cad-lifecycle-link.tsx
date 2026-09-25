@@ -9,7 +9,7 @@ import { buttonClasses } from "@/components/ui/button";
 export function CadLifecycleLink() {
   return (
     <Link href="/orders/cad-lifecycle" className={buttonClasses({ size: "sm", className: "shrink-0" })}>
-      Open CAD Lifecycle
+      Open CAD Queue
     </Link>
   );
 }

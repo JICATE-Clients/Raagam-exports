@@ -203,8 +203,8 @@ export function CadLifecycleScreen({
   return (
     <div className="space-y-4">
       <PageHeader
-        title="CAD Lifecycle"
-        description="Allocate each style's CAD to a pattern maker, dispatch it to the buyer, and record the buyer's decision. An order's Fabric BOM can be created once every style's CAD is approved."
+        title="CAD Queue"
+        description="Assign each style's CAD to a pattern maker, send it to the buyer, and record the buyer's approval. An order's Fabric BOM can be created once every style's CAD is approved."
       />
       <MasterListShell<CadStyleRow>
         rows={shown}
@@ -238,7 +238,7 @@ export function CadLifecycleScreen({
           pill: (r) => <StatusPill tone={CAD_STATE_META[r.state].tone}>{CAD_STATE_META[r.state].label}</StatusPill>,
           meta: (r) => {
             const v = latestVersion(r.versions);
-            return v ? `V${v.version_no} · ${v.pattern_maker_name ?? "—"} · target ${fmtDate(v.target_date)}` : "Not allocated";
+            return v ? `V${v.version_no} · ${v.pattern_maker_name ?? "—"} · target ${fmtDate(v.target_date)}` : "Not assigned";
           },
           onView: (r) => cad.showHistory(r),
           onEdit: canEdit ? (r) => cad.startStep(r, null) : undefined,

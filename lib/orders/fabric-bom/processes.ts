@@ -124,6 +124,10 @@ export type FabricProcessOption = {
   name: string;
   inactive: boolean;
   for_fabric: boolean;
+  /** LOOSE FABRIC CONVERSION (0633) — `processes.is_unravelling`. Withheld
+   *  from every route except a linked loose fabric's (`looseFabricRoute`).
+   *  Optional so fixtures and IWO rows written before it read as "not". */
+  is_unravelling?: boolean;
   /** Is this process a PRINT step (AOP, rotary, bit printing, …)? (0528) —
    *  `processesForFabric` reads it to refuse "Print" until the order has
    *  declared a Roll form print / AOP. */
@@ -420,6 +424,9 @@ export function processesForFabric(
      *  opened on row 3 stands down to its other base rather than offering
      *  DYED FABRIC PURCHASE. Default true = withhold nothing. */
     routeStartAllowed?: boolean;
+    /** 0633 — is this a linked LOOSE FABRIC's route? Only then is CONVERSION
+     *  (unravelling) offered. Default false. Mirrors `gatedForStage`. */
+    looseFabricRoute?: boolean;
     /* NO `usedInStage` HERE, deliberately. "A stage runs each process once"
        is enforced by the picker's own `usedIds` (`processesUsedInStage`),
        which keeps a taken process VISIBLE, greyed "(already added)", rather
@@ -432,13 +439,15 @@ export function processesForFabric(
   const printDeclared = opts.printDeclared ?? true;
   const fabricIsYarnDyed = opts.fabricIsYarnDyed ?? false;
   const routeStartAllowed = opts.routeStartAllowed ?? true;
+  const looseFabricRoute = opts.looseFabricRoute ?? false;
   const flagged = narrowToStage(
     options.filter(
       (p) =>
         p.for_fabric &&
         (printDeclared || !p.is_print) &&
         (!fabricIsYarnDyed || !p.is_dyeing) &&
-        (routeStartAllowed || !isRouteStart(p)),
+        (routeStartAllowed || !isRouteStart(p)) &&
+        (looseFabricRoute || !p.is_unravelling),
     ),
     { stageId: opts.stageId, isFirstOfStage: opts.isFirstOfStage },
   );
