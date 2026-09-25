@@ -135,3 +135,33 @@ Date, and a system-made version would have to invent one.
   to the live database on request.
 
 - **Fit Wash Process → "Bit Wash"** (user 2026-09-25). Label only; the column stays `fit_wash`.
+
+## 8. 2026-09-25 — Pattern Status, Order Sheet, clean-up (0638 · 0639)
+
+- **Pattern Status** on each version (0638): Garment Not Received (default) →
+  Acknowledged → Ready. It sits INSIDE Assign → Send → Buyer decision (user:
+  "add it inside"). **Send requires Ready** (user): `cad_dispatch` refuses
+  otherwise. Frozen at dispatch; dispatched versions backfilled Ready.
+- The Pattern Master's step is `PatternWorkForm` (`cad-pattern-work.tsx`): the
+  status plus the **Order Sheet** grid. In the tab it shows first, with Send
+  beneath it once Ready; in the CAD Queue the row's button reads "Pattern Status"
+  until Ready, and the ⋯ menu has "Pattern status & notes".
+- **Order Sheet** (`OrderSheetSection`): the style's sizes, and per component
+  Coordinate · Component · Structure · GSM (from the order's combos) · Cut Method
+  · **Notes** (piece weight, opening-dia adjustments). A row may hold notes
+  without a method. **No dia column**: the order holds no dia (only the Fabric
+  BOM does, and it cannot exist before the CAD is approved).
+- **View Order Sheet** on every CAD row's menu → the Garment Order Sheet report
+  (href from `ORDER_REPORTS`).
+- **CAD Type** removed from the Order Entry tab; the tab stores Initial Fit
+  Pattern; the CAD Queue sheet still shows and edits it.
+- **CAD Markers** back off the menu (`retired` group), URL and search intact.
+- **BIT WASHING** (0639): BITWASH renamed; BIO WASH switched off (nothing used either).
+- Kept by decision: buyer **Send + Approval** (they drive the Fabric BOM gate and
+  the T&A Pattern Sent / Approval dates).
+- **Not built yet:** the CAD → Fabric BOM auto-fill (spec §3).
+
+## 9. 2026-09-25 — the Pattern Maker's sheet (0640) and the queue
+
+- CAD Queue: Ver / Dispatched / Expected Approval / Status / Next columns removed; a **Pattern Status** dropdown column saves on change (read-only once sent). The ⋯ menu holds the next step (not Pattern Status), View Order Sheet and **Delete** only.
+- `PatternWorkForm` is now the register the pattern room keeps: header Pattern Status · Date · Buyer · RE No / Style Name · Style; lines Fabric · GSM · Type of Parts · Colour · Size · Table Dia · Tubular / Open Width · Avg CAD Pcs Wt (g) · Remark (`order_cad_pattern_lines`, saved atomically by `cad_save_pattern_sheet`, frozen at dispatch). Seeded one line per style component; untyped lines are not saved. These typed numbers are what the Fabric BOM auto-fill will read.

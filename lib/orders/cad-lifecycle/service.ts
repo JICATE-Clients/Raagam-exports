@@ -13,6 +13,7 @@ import {
   type ComponentCut,
   type CutType,
   type LayoutType,
+  type PatternStatus,
   type StyleComponent,
   type PatternMakerRow,
 } from "./types";
@@ -47,14 +48,23 @@ const ORDER_SELECT =
   "styles:garment_order_amendment_styles(sno, style_ref_no, style_description, layout_type), " +
   // 0632's Cut Method rows. One FK each way (checked against the catalog, 2026-09-25).
   // `components` has no `name` — the label every other screen shows is `short_name`.
-  "components:garment_order_amendment_style_components(sno, style_ref_no, component_id, coordinate_id, " +
+  "components:garment_order_amendment_style_components(sno, style_ref_no, component_id, coordinate_id, fabric_category_id, " +
   "component:components(short_name), coordinate:items!coordinate_id(name), " +
-  "structure:categories!fabric_category_id(name))";
+  "structure:categories!fabric_category_id(name)), " +
+  // 0638's Order Sheet view: the style's sizes, and GSM per structure from its combos.
+  "sizes:garment_order_amendment_style_sizes(style_ref_no, sno, size_id, size:config_lookups!size_id(name)), " +
+  "combos:garment_order_amendment_combos(style_ref_no, structures:garment_order_amendment_combo_structures(structure_id, gsm, " +
+  "parts:garment_order_amendment_combo_components(color_name)))";
 
 const VERSION_SELECT =
   "id, garment_order_id, style_ref_no, version_no, pattern_maker_id, cad_type, allocation_date, " +
-  "target_date, remarks, fit_wash, length_shrink_pct, width_shrink_pct, cut_type, component_cuts, " +
-  "is_submitted, created_at, created_by, " +
+  "target_date, remarks, fit_wash, length_shrink_pct, width_shrink_pct, cut_type, component_cuts, pattern_status, " +
+  "pattern_date, is_submitted, created_at, created_by, " +
+  // 0640 — the Pattern Maker's sheet. Every FK on the table is single (catalog, 2026-09-25).
+  "lines:order_cad_pattern_lines(sno, coordinate_id, component_id, fabric_category_id, gsm, colour, size_id, " +
+  "table_dia, width_form, avg_pcs_weight_g, remark, coordinate:items!coordinate_id(name), " +
+  "component:components!component_id(short_name), fabric:categories!fabric_category_id(name), " +
+  "size:config_lookups!size_id(name)), " +
   "pattern_maker:employees!pattern_maker_id(name), " +
   "dispatch:order_cad_dispatches(id, dispatch_date, courier_tracking_no, email_sent_at, layout_type, " +
   "expected_approval_date, remarks, " +
@@ -82,6 +92,18 @@ type OrderLite = {
         component: One<{ short_name: string | null }>;
         coordinate: One<{ name: string | null }>;
         structure: One<{ name: string | null }>;
+        fabric_category_id?: string | null;
+      }[]
+    | null;
+  sizes:
+    | { style_ref_no: string | null; sno: number | null; size_id: string | null; size: One<{ name: string | null }> }[]
+    | null;
+  combos:
+    | {
+        style_ref_no: string | null;
+        structures:
+          | { structure_id: string | null; gsm: number | string | null; parts: { color_name: string | null }[] | null }[]
+          | null;
       }[]
     | null;
 };
@@ -104,6 +126,27 @@ type VersionLite = {
   width_shrink_pct: number | string | null;
   cut_type: CutType | null;
   component_cuts: ComponentCut[] | null;
+  pattern_status: PatternStatus | null;
+  pattern_date: string | null;
+  lines:
+    | {
+        sno: number;
+        coordinate_id: string | null;
+        component_id: string;
+        fabric_category_id: string | null;
+        gsm: number | string | null;
+        colour: string | null;
+        size_id: string | null;
+        table_dia: number | string | null;
+        width_form: LayoutType | null;
+        avg_pcs_weight_g: number | string | null;
+        remark: string | null;
+        coordinate: One<{ name: string | null }>;
+        component: One<{ short_name: string | null }>;
+        fabric: One<{ name: string | null }>;
+        size: One<{ name: string | null }>;
+      }[]
+    | null;
   is_submitted: boolean;
   created_at: string | null;
   created_by: string | null;
@@ -150,6 +193,27 @@ function toVersion(v: VersionLite): CadVersion {
     width_shrink_pct: v.width_shrink_pct == null ? null : Number(v.width_shrink_pct),
     cut_type: v.cut_type,
     component_cuts: Array.isArray(v.component_cuts) ? v.component_cuts : [],
+    pattern_status: v.pattern_status ?? "garment_not_received",
+    pattern_date: v.pattern_date,
+    pattern_lines: [...(v.lines ?? [])]
+      .sort((a, b) => a.sno - b.sno)
+      .map((l) => ({
+        coordinate_id: l.coordinate_id,
+        coordinate_name: one(l.coordinate)?.name ?? null,
+        component_id: l.component_id,
+        component_name: one(l.component)?.short_name ?? "",
+        fabric_category_id: l.fabric_category_id,
+        fabric_name: one(l.fabric)?.name ?? null,
+        // numeric columns arrive as strings from PostgREST.
+        gsm: l.gsm == null ? null : Number(l.gsm),
+        colour: l.colour,
+        size_id: l.size_id,
+        size_name: one(l.size)?.name ?? null,
+        table_dia: l.table_dia == null ? null : Number(l.table_dia),
+        width_form: l.width_form,
+        avg_pcs_weight_g: l.avg_pcs_weight_g == null ? null : Number(l.avg_pcs_weight_g),
+        remark: l.remark,
+      })),
     is_submitted: v.is_submitted,
     created_at: v.created_at,
     created_by: v.created_by,
@@ -199,6 +263,7 @@ export async function listCadStyles(orderIds?: readonly string[]): Promise<CadSt
       garment_order_id: o.id,
       order_code: o.code,
       re_no: o.sales_order?.order_number ?? null,
+      sales_order_id: o.sales_order?.id ?? null,
       po_no: o.po_no,
       customer_id: o.customer?.id ?? null,
       customer_name: o.customer?.name ?? null,
@@ -207,6 +272,47 @@ export async function listCadStyles(orderIds?: readonly string[]): Promise<CadSt
     };
     // Each style's components, first-declared order, one per (coordinate,
     // component) — 0637's key: a TOP and a BOTTOM each have a FRONT BODY.
+    // GSM per (style, structure) from the order's combos — a structure used in
+    // two combos at two GSMs reads "160 / 180", never one of them silently.
+    const gsmBy = new Map<string, Set<string>>();
+    for (const cb of o.combos ?? []) {
+      const csk = styleKey(cb.style_ref_no ?? "");
+      for (const st of cb.structures ?? []) {
+        if (!st.structure_id || st.gsm == null || `${st.gsm}` === "") continue;
+        const k = `${csk}|${st.structure_id}`;
+        const set = gsmBy.get(k) ?? new Set<string>();
+        set.add(`${Number(st.gsm)}`);
+        gsmBy.set(k, set);
+      }
+    }
+    // Colours per style from its combos (0640's COLOUR picker), first-seen order.
+    const coloursBy = new Map<string, string[]>();
+    for (const cb of o.combos ?? []) {
+      const csk = styleKey(cb.style_ref_no ?? "");
+      const list = coloursBy.get(csk) ?? [];
+      for (const st of cb.structures ?? [])
+        for (const pt of st.parts ?? []) {
+          const c = pt.color_name?.trim().toUpperCase();
+          if (c && !list.includes(c)) list.push(c);
+        }
+      coloursBy.set(csk, list);
+    }
+    // Sizes per style, in the order's own sequence — names, and id + name pairs.
+    const sizeOptsBy = new Map<string, { id: string; name: string }[]>();
+    const sizesBy = new Map<string, string[]>();
+    for (const sz of [...(o.sizes ?? [])].sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0))) {
+      const name = one(sz.size)?.name?.trim();
+      if (!name || !sz.style_ref_no?.trim()) continue;
+      const ssk = styleKey(sz.style_ref_no);
+      const list = sizesBy.get(ssk) ?? [];
+      if (!list.includes(name)) list.push(name);
+      sizesBy.set(ssk, list);
+      if (sz.size_id) {
+        const opts = sizeOptsBy.get(ssk) ?? [];
+        if (!opts.some((x) => x.id === sz.size_id)) opts.push({ id: sz.size_id, name });
+        sizeOptsBy.set(ssk, opts);
+      }
+    }
     const componentsBy = new Map<string, StyleComponent[]>();
     const comps = [...(o.components ?? [])].sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0));
     for (const c of comps) {
@@ -220,6 +326,10 @@ export async function listCadStyles(orderIds?: readonly string[]): Promise<CadSt
         coordinate_id: c.coordinate_id,
         coordinate_name: one(c.coordinate)?.name ?? null,
         structure: one(c.structure)?.name ?? null,
+        fabric_category_id: c.fabric_category_id ?? null,
+        gsm: c.fabric_category_id
+          ? [...(gsmBy.get(`${sk}|${c.fabric_category_id}`) ?? [])].join(" / ") || null
+          : null,
       };
       if (!list.some((x) => cutKey(x) === cutKey(entry))) list.push(entry);
       componentsBy.set(sk, list);
@@ -240,6 +350,9 @@ export async function listCadStyles(orderIds?: readonly string[]): Promise<CadSt
         style_description: st.style_description,
         layout_type: (st.layout_type as LayoutType | null) ?? null,
         components: componentsBy.get(styleKey(ref)) ?? [],
+        sizes: sizesBy.get(styleKey(ref)) ?? [],
+        size_options: sizeOptsBy.get(styleKey(ref)) ?? [],
+        colours: coloursBy.get(styleKey(ref)) ?? [],
         on_order: true,
         versions,
         state: cadStateOf(versions),
@@ -257,6 +370,9 @@ export async function listCadStyles(orderIds?: readonly string[]): Promise<CadSt
         style_description: null,
         layout_type: null,
         components: [],
+        sizes: [],
+        size_options: [],
+        colours: [],
         on_order: false,
         versions,
         state: cadStateOf(versions),

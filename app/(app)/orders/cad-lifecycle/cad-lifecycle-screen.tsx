@@ -45,6 +45,7 @@ import {
   type PatternMakerRow,
 } from "@/lib/orders/cad-lifecycle/types";
 import { useCadActions } from "@/components/orders/cad/use-cad-actions";
+import { PatternStatusCell } from "@/components/orders/cad/pattern-status-cell";
 
 /** Pending = CAD work still owed on the style; Updated = approved. */
 const cadWord = (r: CadStyleRow): QuickWord => (r.state === "approved" ? "updated" : "pending");
@@ -142,14 +143,6 @@ export function CadLifecycleScreen({
       ),
     },
     {
-      header: "Ver",
-      align: "right",
-      cell: (r) => {
-        const v = latestVersion(r.versions);
-        return <span className="tabular-nums text-sm">{v ? `V${v.version_no}` : "—"}</span>;
-      },
-    },
-    {
       header: "Pattern Maker",
       cell: (r) => {
         const v = latestVersion(r.versions);
@@ -171,33 +164,16 @@ export function CadLifecycleScreen({
       },
     },
     {
-      header: "Dispatched",
-      cell: (r) => {
-        const d = latestVersion(r.versions)?.dispatch;
-        return <span className="text-sm tabular-nums">{d ? fmtDate(d.dispatch_date) : "—"}</span>;
-      },
+      // THE PATTERN MASTER'S DROPDOWN (2026-09-25 spec §2; user: "add on
+      // pattern status"). Saves on change; read-only once the CAD is sent.
+      header: "Pattern Status",
+      cell: (r) => <PatternStatusCell row={r} canEdit={canEdit} />,
     },
-    {
-      header: "Expected Approval",
-      cell: (r) => {
-        const d = latestVersion(r.versions)?.dispatch;
-        return <span className="text-sm tabular-nums">{d?.expected_approval_date ? fmtDate(d.expected_approval_date) : "—"}</span>;
-      },
-    },
-    {
-      header: "Status",
-      cell: (r) => {
-        const meta = CAD_STATE_META[r.state];
-        const late = cadLateness(latestVersion(r.versions), today);
-        return (
-          <div className="flex flex-wrap items-center gap-1">
-            <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
-            {late.late && <StatusPill tone="danger">{`${late.days}d ${late.what}`}</StatusPill>}
-          </div>
-        );
-      },
-    },
-    { header: "Next", cell: (r) => cad.stepButton(r) },
+    // NO Ver / Dispatched / Expected Approval / Status / Next COLUMNS (user
+    // 2026-09-25, screenshot 3069: "this field no need to display here"). The
+    // Pending / Updated segment still splits the queue by state, and the row's
+    // next step — Assign CAD, Pattern Status, Send CAD, CAD Approval — is the
+    // FIRST item of its ⋯ menu (`cad.stepItems`), so nothing became unreachable.
   ];
 
   return (
@@ -224,7 +200,7 @@ export function CadLifecycleScreen({
         columns={columns}
         actions={{
           onView: (r) => cad.showHistory(r),
-          menu: cad.menuFor,
+          menu: (r) => [...cad.stepItems(r), ...cad.menuFor(r)],
         }}
         rowLabel={(r) => `${r.re_no ?? r.order_code ?? ""} ${r.style_ref_no}`}
         empty={

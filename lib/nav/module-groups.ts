@@ -569,10 +569,12 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "cad-room",
         label: "CAD",
-        description: "Assign, send and approve each style's CAD, and weigh its marker panels",
+        description: "Assign, send and approve each style's CAD",
         children: [
           { href: "/orders/cad-lifecycle", label: "CAD Queue", description: "Assign a style's CAD to a pattern maker, send it to the buyer, and record Approved or Rework" },
-          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
+          // CAD MARKERS LEFT THIS GROUP ON 2026-09-25 (user: remove the "CAD
+          // Maker child" from the CAD sub-module). Back to `retired` below, the
+          // same way it went on 09-03 — off the menu, URL and search intact.
         ],
       },
       {
@@ -876,6 +878,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // Both `page.tsx` files render a PageHeader + DataTable and import no
           // HubCard, so assertion 8 is satisfied here exactly as it was there.
           { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
+          // Hidden again 2026-09-25 (user) — see the CAD group's note above.
+          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
           /* CAD MARKERS LEFT THIS GROUP ON 2026-09-24 — it is a child of the CAD
              sub-module again (above), beside the CAD Lifecycle the doc/order/cad.md
              build added (user: "New 'CAD' sidebar group"). It was hidden here on

@@ -195,6 +195,10 @@ check("a proof slip alone is proof enough", dispatchProblem({ ...good, courier_t
 check("a .dxf is not a proof", dispatchProblem({ ...good, proof_files: [{ file_name: "x.dxf" }] }, ver, today), "x.dxf cannot be a transmission proof — attach a .PDF, .JPG, .PNG, .EML or .MSG.");
 check("pattern vs proof lists", [isPatternFile("m.PDF"), isProofFile("m.PDF"), isPatternFile("s.eml"), isProofFile("s.eml")], [true, true, false, true]);
 
+// 0638: Send requires the Pattern Master's Ready — refused first, before any field.
+check("dispatch refused while pattern not Ready", dispatchProblem(good, { ...ver, pattern_status: "acknowledged" }, today), "The pattern is not Ready yet — mark it Ready before sending.");
+check("dispatch passes once Ready", dispatchProblem(good, { ...ver, pattern_status: "ready" }, today), null);
+
 // 0637: a cut row is (coordinate, component) — TOP and BOTTOM FRONT BODY are two rows.
 check("cutKey: two coordinates → two keys", cutKey({ coordinate_id: "T", component_id: "FB" }) !== cutKey({ coordinate_id: "B", component_id: "FB" }), true);
 check("cutKey: no coordinate keys as '-' (0637's SQL coalesce)", cutKey({ coordinate_id: null, component_id: "FB" }), "-|FB");
