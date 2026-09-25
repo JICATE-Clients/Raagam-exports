@@ -41,7 +41,7 @@ import {
 import { useCadActions } from "./use-cad-actions";
 import { SectionBody } from "@/components/masters/master-full-screen";
 import { DetailSection } from "@/components/masters/detail-section";
-import { AllocationSheet } from "./cad-sheets";
+import { AllocationSheet, DecisionSheet, DispatchSheet } from "./cad-sheets";
 
 export function OrderCadTab({ orderId, canEdit }: { orderId: string | null; canEdit: boolean }) {
   const [data, setData] = useState<{
@@ -219,6 +219,25 @@ function InlineStep({
           {ps && <StatusPill tone={ps.tone}>{`Pattern: ${ps.label}`}</StatusPill>}
         </div>
         <AllocationSheet inline row={row} mode="edit" employees={employees} onClose={onDone} />
+        {/* READY → THE MERCHANDISER SENDS (user 2026-09-25, screenshot 3082).
+            The CAD Queue no longer offers Send; the Pattern Master's Ready
+            notifies whoever assigned it, and the Send form appears here. */}
+        {v.pattern_status === "ready" && (
+          <div className="pt-4">
+            <DispatchSheet inline row={row} onClose={onDone} />
+          </div>
+        )}
+      </div>
+    );
+  }
+  // SENT, AWAITING THE BUYER: the merchandiser records the decision here.
+  if (editable && v?.dispatch && step === "decide") {
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
+        </div>
+        <DecisionSheet inline row={row} onClose={onDone} />
       </div>
     );
   }
@@ -238,7 +257,7 @@ function InlineStep({
       )}
       {v && !v.decision?.decided_on && (
         <p className="text-sm text-muted-foreground">
-          The pattern sheet, sending and the buyer&apos;s approval are done on Orders ▸ CAD ▸ CAD Queue.
+          The pattern sheet is filled on Orders ▸ CAD ▸ CAD Queue; you are notified when it is Ready.
         </p>
       )}
     </DetailSection>
