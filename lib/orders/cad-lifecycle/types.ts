@@ -89,17 +89,60 @@ export type ComponentCut = {
   component_name: string;
   coordinate_id?: string | null;
   coordinate_name?: string | null;
-  method: CutMethod;
+  /** Null when the row carries only notes (0638). */
+  method: CutMethod | null;
+  /** The CAD master's note for this panel — piece weight, an opening-dia adjustment (0638). */
+  notes?: string | null;
+};
+
+// ============================================================================
+// PATTERN STATUS (0638) — the Pattern Master's three words, between Assign and
+// Send. cad_dispatch refuses a pattern that is not Ready (user 2026-09-25).
+// ============================================================================
+
+export const PATTERN_STATUSES = [
+  { value: "garment_not_received", label: "Garment Not Received", tone: "warning" },
+  { value: "acknowledged", label: "Acknowledged", tone: "info" },
+  { value: "ready", label: "Ready", tone: "success" },
+] as const;
+export type PatternStatus = (typeof PATTERN_STATUSES)[number]["value"];
+export const patternStatusMeta = (s: string | null | undefined) =>
+  PATTERN_STATUSES.find((p) => p.value === s) ?? PATTERN_STATUSES[0];
+
+/**
+ * One line of the Pattern Maker's sheet (0640) — FABRIC · GSM · TYPE of PARTS ·
+ * COLOUR · SIZE · TABLE DIA · TUBULAR & OPEN WIDTH · AVG CAD PCS WEIGHT · REMARK.
+ * Names ride along for display; the ids are what is stored.
+ */
+export type PatternLine = {
+  coordinate_id: string | null;
+  coordinate_name: string | null;
+  component_id: string;
+  component_name: string;
+  fabric_category_id: string | null;
+  fabric_name: string | null;
+  gsm: number | null;
+  colour: string | null;
+  size_id: string | null;
+  size_name: string | null;
+  table_dia: number | null;
+  width_form: LayoutType | null;
+  avg_pcs_weight_g: number | null;
+  remark: string | null;
 };
 
 /** A component of the style, as the order declares it today (Order Info ▸ Style Components). */
 export type StyleComponent = {
   component_id: string;
   name: string;
+  /** The structure id — seeds a Pattern line's FABRIC (0640). */
+  fabric_category_id?: string | null;
   coordinate_id: string | null;
   coordinate_name: string | null;
   /** The fabric structure the panel is cut from (SINGLE JERSEY …). */
   structure: string | null;
+  /** GSM from the order's combos for that structure ("160" or "160 / 180"). */
+  gsm: string | null;
 };
 
 /** The one identity of a cut row — the same test 0637's trigger makes. */
@@ -186,6 +229,11 @@ export type CadVersion = {
   width_shrink_pct: number | null;
   cut_type: CutType | null;
   component_cuts: ComponentCut[];
+  pattern_status: PatternStatus;
+  /** 0640 — the DATE on the Pattern Maker's sheet. */
+  pattern_date: string | null;
+  /** 0640 — the Pattern Maker's sheet, in display order. */
+  pattern_lines: PatternLine[];
   is_submitted: boolean;
   created_at: string | null;
   created_by: string | null;
@@ -424,11 +472,52 @@ export const allocationInput = z.object({
         component_name: z.string(),
         coordinate_id: z.string().uuid().nullish(),
         coordinate_name: z.string().nullish(),
-        method: z.enum(["direct_shape", "fit_form"]),
+        method: z
+          .enum(["direct_shape", "fit_form"])
+          .nullish()
+          .transform((v) => v ?? null),
+        notes: z
+          .string()
+          .trim()
+          .nullish()
+          .transform((v) => (v ? v.toUpperCase() : null)),
       }),
     )
     .default([]),
 });
+
+const numOrNull = z.coerce.number().positive().nullish().transform((v) => v ?? null);
+const uuidOrNull = z.string().uuid().nullish().transform((v) => v ?? null);
+
+/** The Pattern Maker's sheet (0640) — status, date and the lines, saved together. */
+export const patternSheetInput = z.object({
+  pattern_status: z.enum(["garment_not_received", "acknowledged", "ready"]),
+  pattern_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().transform((v) => v ?? null),
+  lines: z
+    .array(
+      z.object({
+        coordinate_id: uuidOrNull,
+        component_id: z.string().uuid({ message: "Choose the Type of Part on every line" }),
+        fabric_category_id: uuidOrNull,
+        gsm: numOrNull,
+        colour: z.string().trim().nullish().transform((v) => (v ? v.toUpperCase() : null)),
+        size_id: uuidOrNull,
+        table_dia: numOrNull,
+        width_form: z.enum(["open_width", "tubular"]).nullish().transform((v) => v ?? null),
+        avg_pcs_weight_g: numOrNull,
+        remark: z.string().trim().nullish().transform((v) => (v ? v.toUpperCase() : null)),
+      }),
+    )
+    .default([]),
+});
+export type PatternSheetInput = z.input<typeof patternSheetInput>;
+
+/** The Pattern Master's step (0638): status + the Order Sheet grid's methods and notes. */
+export const patternWorkInput = z.object({
+  pattern_status: z.enum(["garment_not_received", "acknowledged", "ready"]),
+  component_cuts: allocationInput.shape.component_cuts,
+});
+export type PatternWorkInput = z.input<typeof patternWorkInput>;
 export type AllocationInput = z.input<typeof allocationInput>;
 
 export const cadFileInput = z.object({
@@ -538,10 +627,14 @@ export function dispatchProblemAt(
     /** 0632 — the email slip / courier docket; proof of dispatch on its own. */
     proof_files?: readonly { file_name: string }[];
   },
-  version: { allocation_date: string; cad_type: string },
+  version: { allocation_date: string; cad_type: string; pattern_status?: string },
   today: string,
 ): CadProblem<DispatchField> | null {
   const proofFiles = d.proof_files ?? [];
+  // 0638 — the same refusal cad_dispatch raises first.
+  if (version.pattern_status !== undefined && version.pattern_status !== "ready") {
+    return { field: null, message: "The pattern is not Ready yet — mark it Ready before sending." };
+  }
   if (!d.dispatch_date) return { field: "date", message: "Enter the Dispatch Date." };
   if (d.dispatch_date > today) return { field: "date", message: "The Dispatch Date cannot be in the future." };
   if (d.dispatch_date < version.allocation_date) {
@@ -633,6 +726,8 @@ export type CadStyleRow = {
   garment_order_id: string;
   order_code: string | null;
   re_no: string | null;
+  /** The RE's `sales_orders.id` — what the Garment Order Sheet page is keyed by. */
+  sales_order_id: string | null;
   po_no: string | null;
   customer_id: string | null;
   customer_name: string | null;
@@ -644,6 +739,12 @@ export type CadStyleRow = {
   layout_type: LayoutType | null;
   /** The style's components as the order declares it today (0632's Cut Method rows). */
   components: StyleComponent[];
+  /** The style's sizes in the order's own sequence (Order Info ▸ Style ▸ Sizes). */
+  sizes: string[];
+  /** The same sizes with their ids — the Pattern sheet's SIZE picker (0640). */
+  size_options: { id: string; name: string }[];
+  /** The style's colours from its combos — the Pattern sheet's COLOUR picker (0640). */
+  colours: string[];
   /**
    * FALSE for a style that has CAD history but is no longer on the order (a
    * renamed or removed style — styles are keyed by their ref TEXT). Kept on

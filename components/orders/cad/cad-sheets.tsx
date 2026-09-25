@@ -180,7 +180,11 @@ export function AllocationSheet({
   const seed = mode === "new" ? null : latest;
   const today = istToday();
   const [makerId, setMakerId] = useState<string | null>(seed?.pattern_maker_id ?? null);
-  const [cadType, setCadType] = useState<CadType | "">(seed?.cad_type ?? "");
+  // NO CAD TYPE IN ORDER ENTRY (user 2026-09-25: "remove CAD Type from the
+  // Order Entry CAD tab"). The column is NOT NULL, so the tab stores Initial
+  // Fit Pattern; the CAD team can still change it from the CAD Queue, where
+  // this same form opens as a sheet WITH the field.
+  const [cadType, setCadType] = useState<CadType | "">(seed?.cad_type ?? (inline ? "first_pattern" : ""));
   const [target, setTarget] = useState<string>(mode === "edit" ? (seed?.target_date ?? "") : "");
   const [remarks, setRemarks] = useState<string>(mode === "edit" ? (seed?.remarks ?? "") : "");
   // 0632's pattern details — seeded from the previous version on Re-allocate
@@ -194,7 +198,11 @@ export function AllocationSheet({
   const allocationDate = mode === "edit" ? (latest?.allocation_date ?? today) : today;
   const title =
     mode === "edit"
-      ? `Edit CAD assignment · ${row.style_ref_no}${versionWord(nextVersion)}`
+      ? // On Order Entry the assigned form simply STAYS on the page (user
+        // 2026-09-25, screenshot 3078), so it is named for what it is, not "Edit".
+        inline
+        ? `CAD Assignment · ${row.style_ref_no}${versionWord(nextVersion)}`
+        : `Edit CAD assignment · ${row.style_ref_no}${versionWord(nextVersion)}`
       : mode === "reallocate"
         ? `Re-assign CAD · ${row.style_ref_no}${versionWord(nextVersion)}`
         : `Assign CAD · ${row.style_ref_no}`;
@@ -291,16 +299,18 @@ export function AllocationSheet({
               onChange={setMakerId}
             />
           </Field>
-          <Field label="CAD Type" required w="term" htmlFor="cad-type" error={errorFor(problem, "type")}>
-            <Select id="cad-type" value={cadType} onChange={(e) => setCadType(e.target.value as CadType | "")}>
-              <option value="" />
-              {CAD_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {!inline && (
+            <Field label="CAD Type" required w="term" htmlFor="cad-type" error={errorFor(problem, "type")}>
+              <Select id="cad-type" value={cadType} onChange={(e) => setCadType(e.target.value as CadType | "")}>
+                <option value="" />
+                {CAD_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <Field label="Allocation Date" w="code" htmlFor="cad-alloc-date">
             <Input id="cad-alloc-date" readOnly value={fmtDate(allocationDate)} />
           </Field>
@@ -330,6 +340,7 @@ export function AllocationSheet({
         value={pattern}
         onChange={setPattern}
         components={row.components}
+        sizes={row.sizes}
         errors={{ length: errorFor(problem, "length"), width: errorFor(problem, "width") }}
       />
       <Problem text={serverError} />

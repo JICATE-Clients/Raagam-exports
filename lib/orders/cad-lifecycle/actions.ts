@@ -11,6 +11,10 @@ import {
   decisionInput,
   dispatchInput,
   istLocalToIso,
+  patternWorkInput,
+  patternSheetInput,
+  type PatternSheetInput,
+  type PatternWorkInput,
   type AllocationInput,
   type CadStyleRow,
   type DecisionInput,
@@ -61,7 +65,14 @@ function patternDetails(d: {
   length_shrink_pct: number | null;
   width_shrink_pct: number | null;
   cut_type: string | null;
-  component_cuts: { component_id: string; component_name: string; method: string }[];
+  component_cuts: {
+    component_id: string;
+    component_name: string;
+    coordinate_id?: string | null;
+    coordinate_name?: string | null;
+    method: string | null;
+    notes?: string | null;
+  }[];
 }) {
   return {
     fit_wash: d.fit_wash,
@@ -128,6 +139,64 @@ export async function updateCadAllocation(id: string, data: AllocationInput): Pr
   await writeAudit({ action: "order_cad_allocation.updated", entityType: "order_cad_allocation", entityId: id });
   rev();
   return { ok: true, id };
+}
+
+/**
+ * The Pattern Master's step (0638): Pattern Status, and the Order Sheet grid's
+ * cut methods and notes. Only while the version has not been sent — the
+ * trigger freezes both at dispatch, and cad_dispatch requires Ready.
+ */
+export async function updatePatternWork(id: string, data: PatternWorkInput): Promise<Result> {
+  if (!(await can("orders", "edit"))) return fail("You do not have permission to update the pattern.");
+  const p = patternWorkInput.safeParse(data);
+  if (!p.success) return fail(zodMessage(p.error));
+  const s = await createClient();
+  const { error } = await s
+    .from("order_cad_allocations")
+    .update({ pattern_status: p.data.pattern_status, component_cuts: p.data.component_cuts })
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await writeAudit({
+    action: "order_cad_allocation.pattern_work",
+    entityType: "order_cad_allocation",
+    entityId: id,
+    metadata: { pattern_status: p.data.pattern_status },
+  });
+  rev();
+  return { ok: true, id };
+}
+
+/**
+ * The Pattern Maker's sheet (0640): status, date and every line, in ONE
+ * transaction (`cad_save_pattern_sheet`). Refused by the database once the
+ * version is sent. A line the operator typed nothing into is dropped here —
+ * the seeded part / fabric / GSM are the order's own values, not evidence the
+ * line was filled (AGENTS.md "THE SEEDED ROW IS SAVED UNLESS THE SAVE SIDE
+ * DROPS IT").
+ */
+export async function savePatternSheet(allocationId: string, data: PatternSheetInput): Promise<Result> {
+  if (!(await can("orders", "edit"))) return fail("You do not have permission to update the pattern sheet.");
+  const p = patternSheetInput.safeParse(data);
+  if (!p.success) return fail(zodMessage(p.error));
+  const typed = p.data.lines.filter(
+    (l) => l.colour || l.size_id || l.table_dia != null || l.width_form || l.avg_pcs_weight_g != null || l.remark,
+  );
+  const s = await createClient();
+  const { error } = await s.rpc("cad_save_pattern_sheet", {
+    p_allocation: allocationId,
+    p_status: p.data.pattern_status,
+    p_date: p.data.pattern_date,
+    p_lines: typed,
+  });
+  if (error) return fail(error.message);
+  await writeAudit({
+    action: "order_cad_allocation.pattern_sheet",
+    entityType: "order_cad_allocation",
+    entityId: allocationId,
+    metadata: { pattern_status: p.data.pattern_status, lines: typed.length },
+  });
+  rev();
+  return { ok: true, id: allocationId };
 }
 
 export async function deleteCadAllocation(id: string): Promise<Result> {

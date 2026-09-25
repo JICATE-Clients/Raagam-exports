@@ -34,13 +34,14 @@ import {
   CAD_STATE_META,
   cadNextStep,
   latestVersion,
+  patternStatusMeta,
   type CadStyleRow,
   type PatternMakerRow,
 } from "@/lib/orders/cad-lifecycle/types";
 import { useCadActions } from "./use-cad-actions";
 import { SectionBody } from "@/components/masters/master-full-screen";
 import { DetailSection } from "@/components/masters/detail-section";
-import { AllocationSheet, DecisionSheet, DispatchSheet } from "./cad-sheets";
+import { AllocationSheet } from "./cad-sheets";
 
 export function OrderCadTab({ orderId, canEdit }: { orderId: string | null; canEdit: boolean }) {
   const [data, setData] = useState<{
@@ -80,7 +81,7 @@ export function OrderCadTab({ orderId, canEdit }: { orderId: string | null; canE
         ? { forOrder: orderId, rows: remembered.rows, employees: remembered.employees, canEdit: remembered.canEdit }
         : null;
   const editable = canEdit && !!current?.canEdit;
-  const cad = useCadActions({ employees: current?.employees ?? [], canEdit: editable, onChanged: reload });
+  const cad = useCadActions({ employees: current?.employees ?? [], canEdit: editable, onChanged: reload, assignOnly: true });
   // THE STYLE WHOSE FORM IS SHOWN IN PLACE (user 2026-09-25, screenshot 3059).
   // Declared ABOVE the early returns (AGENTS.md "Hooks above every early
   // return"). Null = the first style that still has a step to take.
@@ -189,25 +190,12 @@ function InlineStep({
 }) {
   const step = cadNextStep(row.state);
   const v = latestVersion(row.versions);
-  if (!editable || !step) {
-    // Nothing to fill: say where the style stands instead of leaving a blank.
-    const meta = CAD_STATE_META[row.state];
-    return (
-      <DetailSection label="CAD Status">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="font-semibold">{row.style_ref_no}</span>
-          <StatusPill tone={meta.tone}>{v ? `${meta.label} (V${v.version_no})` : meta.label}</StatusPill>
-        </div>
-        {v?.decision?.decided_on && (
-          <p className="text-sm text-muted-foreground">Decided {fmtDate(v.decision.decided_on)} · full history under the eye icon.</p>
-        )}
-        {!editable && step && (
-          <p className="text-sm text-muted-foreground">You can view this CAD but not change it.</p>
-        )}
-      </DetailSection>
-    );
-  }
-  if (step === "allocate" || step === "reallocate") {
+  // ORDER ENTRY ASSIGNS, AND ONLY ASSIGNS (user 2026-09-25, screenshot 3076:
+  // "no more in order entry … just assign only"). The Pattern sheet, Send CAD
+  // and CAD Approval are the CAD team's, on Orders ▸ CAD ▸ CAD Queue.
+  const meta = CAD_STATE_META[row.state];
+  const ps = v ? patternStatusMeta(v.pattern_status) : null;
+  if (editable && (step === "allocate" || step === "reallocate")) {
     return (
       <AllocationSheet
         inline
@@ -218,6 +206,41 @@ function InlineStep({
       />
     );
   }
-  if (step === "dispatch") return <DispatchSheet inline row={row} onClose={onDone} />;
-  return <DecisionSheet inline row={row} onClose={onDone} />;
+  // ASSIGNED, NOT YET SENT: THE ASSIGN FORM STAYS, FILLED IN (user 2026-09-25,
+  // screenshot 3078: "that first pattern assigning form will need [to] list
+  // here"). Editable until the CAD is sent — that is also how an assignment is
+  // corrected now that "Edit V1" left the menu. The status line above it says
+  // where the pattern room has got to.
+  if (editable && v && !v.dispatch) {
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
+          {ps && <StatusPill tone={ps.tone}>{`Pattern: ${ps.label}`}</StatusPill>}
+        </div>
+        <AllocationSheet inline row={row} mode="edit" employees={employees} onClose={onDone} />
+      </div>
+    );
+  }
+  // Sent (or read-only): say where the style stands.
+  return (
+    <DetailSection label="CAD Status">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-semibold">{row.style_ref_no}</span>
+        <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
+        {ps && !v?.dispatch && <StatusPill tone={ps.tone}>{`Pattern: ${ps.label}`}</StatusPill>}
+      </div>
+      {v && (
+        <p className="text-sm text-muted-foreground">
+          {v.pattern_maker_name ?? "—"} · target {fmtDate(v.target_date)}
+          {v.decision?.decided_on ? ` · decided ${fmtDate(v.decision.decided_on)}` : ""}
+        </p>
+      )}
+      {v && !v.decision?.decided_on && (
+        <p className="text-sm text-muted-foreground">
+          The pattern sheet, sending and the buyer&apos;s approval are done on Orders ▸ CAD ▸ CAD Queue.
+        </p>
+      )}
+    </DetailSection>
+  );
 }

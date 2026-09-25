@@ -1,19 +1,17 @@
 "use client";
 
 /**
- * The CAD version's PATTERN DETAILS (0632) — the Order Entry ▸ CAD spec's
- * "Compact CAD Entry Details": Bit Wash (the spec's "Fit Wash Process", renamed
- * by the user 2026-09-25 — LABEL only, the column stays `fit_wash`; on Yes, the two shrinkage
- * percentages), Cut Type, and a Cut Method per style component.
+ * The CAD version's PATTERN DETAILS (0632) and the embedded ORDER SHEET (0638).
  *
- * ITS OWN FILE so the Allocation sheet gains one element, not forty lines —
- * and the History card reads the same words through `PatternDetailsView`.
+ * Pattern Details — the Order Entry ▸ CAD spec's "Compact CAD Entry Details":
+ * Bit Wash (the spec's "Fit Wash Process", renamed by the user 2026-09-25 —
+ * LABEL only, the column stays `fit_wash`; on Yes, the two shrinkage
+ * percentages) and Cut Type.
  *
- * THE COMPONENT LIST IS THE STYLE'S, TODAY, PLUS WHAT THE VERSION ALREADY HOLDS.
- * Rows come from Order Info ▸ Style Components (`row.components`). A method
- * saved on a component the style has since dropped is still listed — tagged —
- * so an edit cannot silently erase it (the "Disabled rows" rule: a filled field
- * shown empty is lost on the next save). A blank method is simply not stored.
+ * Order Sheet — see `OrderSheetSection` below.
+ *
+ * ITS OWN FILE so the Allocation form gains one element, not a hundred lines —
+ * and the History card reads the same words through `patternFactLines`.
  */
 
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -75,96 +73,20 @@ export function PatternDetailsFields({
   value,
   onChange,
   components,
+  sizes,
   errors,
 }: {
   value: PatternDetailsValue;
   onChange: (next: PatternDetailsValue) => void;
   components: StyleComponent[];
+  sizes: string[];
   errors?: { length?: string; width?: string };
 }) {
   const set = (patch: Partial<PatternDetailsValue>) => onChange({ ...value, ...patch });
-
-  // Today's components, then any held method whose component left the style.
-  // An entry saved before 0637 carries no coordinate: it still answers for its
-  // component on every coordinate, until a method is picked for that row.
-  type Row = StyleComponent & { gone?: boolean };
-  const heldFor = (c: StyleComponent) =>
-    value.component_cuts.find((x) => cutKey(x) === cutKey(c)) ??
-    value.component_cuts.find((x) => !x.coordinate_id && x.component_id === c.component_id);
-  const rows: Row[] = [
-    ...components,
-    ...value.component_cuts
-      .filter((x) => !components.some((c) => heldFor(c) === x))
-      .map((x) => ({
-        component_id: x.component_id,
-        name: x.component_name,
-        coordinate_id: x.coordinate_id ?? null,
-        coordinate_name: x.coordinate_name ?? null,
-        structure: null,
-        gone: true,
-      })),
-  ];
-  function setMethod(comp: StyleComponent, method: CutMethod | "") {
-    const held = heldFor(comp);
-    const rest = value.component_cuts.filter((x) => x !== held);
-    set({
-      component_cuts: method
-        ? [
-            ...rest,
-            {
-              component_id: comp.component_id,
-              component_name: comp.name,
-              coordinate_id: comp.coordinate_id,
-              coordinate_name: comp.coordinate_name,
-              method,
-            },
-          ]
-        : rest,
-    });
-  }
-
-  const gridRows = rows.map((c) => ({ ...c, key: cutKey(c) }));
-  type GridRow = (typeof gridRows)[number];
-  // Four vocabulary widths: 176 × 4 = 704 + 72 chrome = 776 ≤ 1155
-  // (check:grid-budget). Coordinate / Component / Structure are facts from
-  // Order Info ▸ Style Components; the method is the one field per row.
-  const componentCutColumns: ChildGridColumn<GridRow>[] = [
-    { header: "Coordinate", width: FIELD_WIDTH_CSS.term, cell: (c) => <Truncated className="text-sm">{c.coordinate_name ?? "—"}</Truncated> },
-    {
-      header: "Component",
-      width: FIELD_WIDTH_CSS.term,
-      cell: (c) => (
-        <span className="min-w-0 leading-tight">
-          <Truncated className="text-sm">{c.name}</Truncated>
-          {c.gone && <span className="block text-xs text-warning">No longer on the style</span>}
-        </span>
-      ),
-    },
-    { header: "Structure", width: FIELD_WIDTH_CSS.term, cell: (c) => <Truncated className="text-sm">{c.structure ?? "—"}</Truncated> },
-    {
-      header: "Cut Method",
-      width: FIELD_WIDTH_CSS.term,
-      cell: (c) => (
-        <Select
-          aria-label={`Cut Method — ${c.coordinate_name ? `${c.coordinate_name} ` : ""}${c.name}`}
-          value={heldFor(c)?.method ?? ""}
-          onChange={(e) => setMethod(c, e.target.value as CutMethod | "")}
-        >
-          <option value="" />
-          {CUT_METHODS.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
-  ];
-
   return (
     <>
       <DetailSection label="Pattern Details">
-        {/* code 144 + term 176 + gap 12 = 332. */}
+        {/* code 144 × 3 + term 176 + 3 gaps 36 = 644. */}
         <FieldRow align="start">
           <Field label="Bit Wash" w="code" htmlFor="cad-fit-wash">
             <Select
@@ -221,38 +143,195 @@ export function PatternDetailsFields({
           </Field>
         </FieldRow>
       </DetailSection>
-      {/* frameless: the grid draws the one frame (ONE FRAME PER GRID). */}
-      <DetailSection label="Component Cut Method" frameless>
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            This style has no components yet — add them on Order Info ▸ Style Components.
-          </p>
-        ) : (
-          /* default-row: exempt -- rows are DERIVED from the style's components;
-             it cannot grow, so no seed, no + Add, no ✕ (advised-lines precedent). */
-          <ChildGrid<GridRow>
-            columns={componentCutColumns}
-            rows={gridRows}
-            tableFrom="5xl"
-            flatRows
-            hideAdd
-            hideRemove
-            keepOne={false}
-            onAdd={() => false}
-            onRemove={() => {}}
-            renderMobileRow={(row, i) => (
-              <FieldRow align="start" gap="tight">
-                {componentCutColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} w={fieldWidthStep(c.width) ?? "hug"}>
-                    {c.cell(row, i)}
-                  </Field>
-                ))}
-              </FieldRow>
-            )}
-          />
-        )}
-      </DetailSection>
+      <OrderSheetSection
+        components={components}
+        sizes={sizes}
+        cuts={value.component_cuts}
+        onChange={(component_cuts) => set({ component_cuts })}
+      />
     </>
+  );
+}
+
+/**
+ * THE ORDER SHEET, EMBEDDED (record-1790318990226.wav, 2026-09-25): the style's
+ * sizes and components as the order declares them — coordinate, component,
+ * structure, GSM — fetched, never retyped; plus the two things the CAD master
+ * adds per panel: the Cut Method and a NOTE (piece weight, an opening-dia
+ * adjustment), so nothing lives in an outside spreadsheet.
+ *
+ * NO DIA COLUMN, DELIBERATELY. The order holds no dia: dia exists only on the
+ * Fabric BOM, and the Fabric BOM cannot be created until this CAD is approved
+ * (0628's guard). A dia column here would be empty on every order, every time.
+ * A dia the pattern depends on goes in the row's Notes.
+ *
+ * THE ROWS ARE THE STYLE'S, TODAY, PLUS WHAT THE VERSION ALREADY HOLDS. An
+ * entry on a component the style has since dropped is still listed — tagged —
+ * so an edit cannot silently erase it (the "Disabled rows" rule). A row with
+ * neither a method nor a note is simply not stored (0638's trigger agrees).
+ *
+ * Used by Assign and by the Pattern Master's own step (`PatternWorkForm`), so
+ * the two can never list different rows or store notes differently.
+ */
+export function OrderSheetSection({
+  components,
+  sizes,
+  cuts,
+  onChange,
+}: {
+  components: StyleComponent[];
+  sizes: string[];
+  cuts: ComponentCut[];
+  onChange: (next: ComponentCut[]) => void;
+}) {
+  // An entry saved before 0637 carries no coordinate: it still answers for its
+  // component on every coordinate, until something is changed on that row.
+  type Row = StyleComponent & { gone?: boolean };
+  const heldFor = (c: StyleComponent) =>
+    cuts.find((x) => cutKey(x) === cutKey(c)) ??
+    cuts.find((x) => !x.coordinate_id && x.component_id === c.component_id);
+  const rows: Row[] = [
+    ...components,
+    ...cuts
+      .filter((x) => !components.some((c) => heldFor(c) === x))
+      .map((x) => ({
+        component_id: x.component_id,
+        name: x.component_name,
+        coordinate_id: x.coordinate_id ?? null,
+        coordinate_name: x.coordinate_name ?? null,
+        structure: null,
+        gsm: null,
+        gone: true,
+      })),
+  ];
+
+  /** One row changed: stored while it holds a method OR a note (0638), dropped when both are blank. */
+  function patch(comp: StyleComponent, next: { method?: CutMethod | null; notes?: string }) {
+    const held = heldFor(comp);
+    const rest = cuts.filter((x) => x !== held);
+    const method = next.method !== undefined ? next.method : (held?.method ?? null);
+    const notes = next.notes !== undefined ? next.notes : (held?.notes ?? "");
+    if (!method && !notes?.trim()) {
+      onChange(rest);
+      return;
+    }
+    onChange([
+      ...rest,
+      {
+        component_id: comp.component_id,
+        component_name: comp.name,
+        coordinate_id: comp.coordinate_id,
+        coordinate_name: comp.coordinate_name,
+        method,
+        notes: notes || null,
+      },
+    ]);
+  }
+
+  const gridRows = rows.map((c) => ({ ...c, key: cutKey(c) }));
+  type GridRow = (typeof gridRows)[number];
+  // code 144 + term 176 × 3 + hug 88 + name 288 = 1,048 + 72 chrome = 1,120
+  // ≤ 1,155 (check:grid-budget). Four facts from the order, two fields.
+  const orderSheetColumns: ChildGridColumn<GridRow>[] = [
+    {
+      header: "Coordinate",
+      width: FIELD_WIDTH_CSS.code,
+      cell: (c) => <Truncated className="text-sm">{c.coordinate_name ?? "—"}</Truncated>,
+    },
+    {
+      header: "Component",
+      width: FIELD_WIDTH_CSS.term,
+      cell: (c) => (
+        <span className="min-w-0 leading-tight">
+          <Truncated className="text-sm">{c.name}</Truncated>
+          {c.gone && <span className="block text-xs text-warning">No longer on the style</span>}
+        </span>
+      ),
+    },
+    {
+      header: "Structure",
+      width: FIELD_WIDTH_CSS.term,
+      cell: (c) => <Truncated className="text-sm">{c.structure ?? "—"}</Truncated>,
+    },
+    {
+      header: "GSM",
+      width: FIELD_WIDTH_CSS.hug,
+      align: "right",
+      cell: (c) => <span className="text-sm tabular-nums">{c.gsm ?? "—"}</span>,
+    },
+    {
+      header: "Cut Method",
+      width: FIELD_WIDTH_CSS.term,
+      cell: (c) => (
+        <Select
+          aria-label={`Cut Method — ${c.coordinate_name ? `${c.coordinate_name} ` : ""}${c.name}`}
+          value={heldFor(c)?.method ?? ""}
+          onChange={(e) => patch(c, { method: (e.target.value || null) as CutMethod | null })}
+        >
+          <option value="" />
+          {CUT_METHODS.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      header: "Notes",
+      width: FIELD_WIDTH_CSS.name,
+      cell: (c) => (
+        <Input
+          aria-label={`Notes — ${c.coordinate_name ? `${c.coordinate_name} ` : ""}${c.name}`}
+          value={heldFor(c)?.notes ?? ""}
+          onChange={(e) => patch(c, { notes: e.target.value })}
+        />
+      ),
+    },
+  ];
+
+  return (
+    // frameless: the grid draws the one frame (ONE FRAME PER GRID).
+    <DetailSection
+      label="Order Sheet"
+      frameless
+      action={
+        sizes.length > 0 ? (
+          <span className="text-xs text-muted-foreground">
+            Sizes <span className="font-medium text-foreground">{sizes.join(" · ")}</span>
+          </span>
+        ) : undefined
+      }
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          This style has no components yet — add them on Order Info ▸ Style Components.
+        </p>
+      ) : (
+        /* default-row: exempt -- rows are DERIVED from the style's components;
+           it cannot grow, so no seed, no + Add, no ✕ (advised-lines precedent). */
+        <ChildGrid<GridRow>
+          columns={orderSheetColumns}
+          rows={gridRows}
+          tableFrom="5xl"
+          flatRows
+          hideAdd
+          hideRemove
+          keepOne={false}
+          onAdd={() => false}
+          onRemove={() => {}}
+          renderMobileRow={(row, i) => (
+            <FieldRow align="start" gap="tight">
+              {orderSheetColumns.map((c, ci) => (
+                <Field key={ci} label={c.header} w={fieldWidthStep(c.width) ?? "hug"}>
+                  {c.cell(row, i)}
+                </Field>
+              ))}
+            </FieldRow>
+          )}
+        />
+      )}
+    </DetailSection>
   );
 }
 
@@ -272,8 +351,16 @@ export function patternFactLines(v: {
   ];
   if (v.cut_type) lines.push(["Cut Type", cutTypeLabel(v.cut_type)]);
   if (v.component_cuts.length > 0) {
-    lines.push(["Cut Method", v.component_cuts
-          .map((c) => `${c.coordinate_name ? `${c.coordinate_name} ` : ""}${c.component_name}: ${cutMethodLabel(c.method)}`).join(" · ")]);
+    lines.push([
+      "Cut Method",
+      v.component_cuts
+        .map(
+          (c) =>
+            `${c.coordinate_name ? `${c.coordinate_name} ` : ""}${c.component_name}: ${cutMethodLabel(c.method)}` +
+            (c.notes ? ` (${c.notes})` : ""),
+        )
+        .join(" · "),
+    ]);
   }
   return lines;
 }
