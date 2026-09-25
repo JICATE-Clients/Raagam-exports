@@ -368,6 +368,7 @@ reading markers off the document cannot replace it.
 | Tab, arrows, Enter, Escape, holds, every `data-focus-*` / `data-grid-*` marker | `raagam-keyboard-contract` |
 | Pickers, icon fields, `config_lookups` kinds, the child build recipe | `raagam-masters-picker-wiring` |
 | Reports and the item fact model | `raagam-report-data` |
+| How the same screen behaves on phone / tablet / small laptop | `raagam-responsive-ui` |
 | Anatomy, columns, field width, grouping, child rows, row actions, density | `doc/ui/LAYOUT.md` §1–§4, §6, §6a, §9, §10 |
 | CAPS, dates, duplicates, disabled rows, created columns, autofill | `AGENTS.md`, the STANDING sections |
 

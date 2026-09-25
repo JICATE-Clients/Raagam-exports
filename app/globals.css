@@ -1327,6 +1327,31 @@ body {
   max-width: 100%;
 }
 
+/* BIGGER TYPE, THIS EDITOR ONLY (client 2026-09-18: "font size should be
+   big"). The app-wide answer already exists and is deliberately NOT what this
+   is: `lib/type-scale.ts` offers Standard and Compact, the top bar switches
+   between them, and Compact was made the default on 2026-09-16 at another
+   client's request. Changing that default would resize all 128 screens to
+   settle a complaint about one, so the step up lives on the surface that
+   asked for it — the same one attribute that already gives this editor its
+   underlines, so no call site changes and no other screen moves.
+
+   14px against Compact's 12px label / 13px value: a full step, still inside
+   the scale rather than an arbitrary size. The label column widens with it —
+   at 9.5rem the longer labels ("Correspondence Address") began wrapping to two
+   lines, which puts the colon above its own line. */
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) {
+  grid-template-columns: 10.5rem minmax(0, 1fr);
+}
+[data-field-style="lines"] [data-field-label],
+[data-field-style="lines"] input:not([type="checkbox"]):not([type="radio"]),
+[data-field-style="lines"] select,
+[data-field-style="lines"] textarea,
+[data-field-style="lines"] [data-field-trigger] {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* TWO COLUMNS, ONE FIELD PER LINE (client 2026-09-16: "in every fields you
    can do like left side right side, so that it will look compacted, and
    everything will look neat and tidy"). Every `FieldGrid` under the lines
