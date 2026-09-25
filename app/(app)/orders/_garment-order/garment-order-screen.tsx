@@ -2,6 +2,7 @@
 
 import { PenTool } from "lucide-react";
 import { OrderCadTab } from "@/components/orders/cad/order-cad-tab";
+import { prefetchOrderTabs } from "@/lib/orders/order-tab-reads";
 import { LAYOUT_TYPES } from "@/lib/orders/cad-lifecycle/types";
 import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
 import {
@@ -5302,6 +5303,18 @@ export function GarmentOrderScreen({
      Read once per order, the first time the Activity view shows (see
      `taActivityShown`), and filed where Material BOM ▸ Trims T&A looks first
      (`ta-view-cache.ts`) — it is the same tracker, so that tab then paints at once. */
+  /* T&A ▸ WORK FLOW AND CAD START READING WHEN THE ORDER OPENS (2026-09-25,
+     "the T&A tab and CAD tab show a loading message"). Each tab used to ask
+     only on mount — and a rail section mounts only when clicked — through a
+     server action that queued behind any other. These are GET routes now,
+     which run concurrently, so starting them here costs the operator's next
+     click nothing; the tab then finds its answer ready (`order-tab-reads.ts`).
+     Keyed on the saved order only: a new order has no Work Flow or CAD yet.
+     Above the `if (mode === "list")` return, like every hook here. */
+  useEffect(() => {
+    if (mode === "edit" && editId) prefetchOrderTabs(editId);
+  }, [mode, editId]);
+
   const taTrimGrnRead = !!editId && taTrimGrnFor?.id === editId;
   useEffect(() => {
     if (!editId || !taActivityShown || taTrimGrnRead) return;

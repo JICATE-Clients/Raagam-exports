@@ -52,7 +52,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { FIELD_WIDTH_CSS, Field, FieldRow, fieldWidthStep } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
@@ -132,6 +132,9 @@ type Form = { garment_order_id: string | null; marker_date: string; remark: stri
 const today = () => new Date().toISOString().slice(0, 10);
 const BLANK = (): Form => ({ garment_order_id: null, marker_date: today(), remark: "" });
 const newKey = () => crypto.randomUUID();
+
+/** The CAD Sheet section's cap — its arithmetic is at the use site. */
+const SHEET_W = "max-w-[46rem]";
 
 const blankLayout = (key: string): LayoutRow => ({
   key,
@@ -772,10 +775,12 @@ export function CadScreen({
     return [...out];
   }, [panels, layouts]);
 
+  // Widths from the vocabulary (lib/ui/sizes.ts): term 176 + range 112 +
+  // name 288 + name 288 = 864px + 72px chrome = 936 ≤ 1155 at tableFrom 5xl.
   const layoutColumns: ChildGridColumn<LayoutRow>[] = [
     {
       header: "Style",
-      width: "12rem",
+      width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
         <Select
           aria-label="Style"
@@ -795,7 +800,7 @@ export function CadScreen({
     {
       header: "Dia",
       align: "right",
-      width: "7rem",
+      width: FIELD_WIDTH_CSS.range,
       cell: (r) => (
         <Input
           aria-label="Dia"
@@ -808,7 +813,7 @@ export function CadScreen({
     },
     {
       header: "Marker PDF",
-      width: "18rem",
+      width: FIELD_WIDTH_CSS.name,
       cell: (r) => (
         <CadMarkerFile
           value={r.file}
@@ -819,6 +824,7 @@ export function CadScreen({
     },
     {
       header: "Notes",
+      width: FIELD_WIDTH_CSS.name,
       cell: (r) => (
         <Input
           aria-label="Notes"
@@ -830,10 +836,12 @@ export function CadScreen({
     },
   ];
 
+  // term 176 + name 288 + range 112 + range 112 + party 200 = 888px + 72px
+  // chrome = 960 ≤ 1155 at tableFrom 5xl.
   const weightColumns: ChildGridColumn<WeightRow>[] = [
     {
       header: "Marker",
-      width: "12rem",
+      width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
         <Select
           aria-label="Marker"
@@ -852,6 +860,7 @@ export function CadScreen({
     },
     {
       header: "Panel",
+      width: FIELD_WIDTH_CSS.name,
       cell: (r) => (
         <RecordPicker
           label="Panel"
@@ -869,7 +878,7 @@ export function CadScreen({
     {
       header: "Grams",
       align: "right",
-      width: "8rem",
+      width: FIELD_WIDTH_CSS.range,
       cell: (r) => (
         <Input
           aria-label="Grams"
@@ -883,7 +892,7 @@ export function CadScreen({
     {
       header: "KG / gmt",
       align: "right",
-      width: "8rem",
+      width: FIELD_WIDTH_CSS.range,
       cell: (r) => {
         const kg = consumptionFromGrams(numOrNull(r.grams), "KGS");
         // A REFUSAL IS PRINTED, NEVER A ZERO — and here the ordinary refusal is
@@ -899,7 +908,7 @@ export function CadScreen({
     },
     {
       header: "Notes",
-      width: "12rem",
+      width: FIELD_WIDTH_CSS.party,
       cell: (r) => (
         <Input
           aria-label="Notes"
@@ -1185,12 +1194,20 @@ export function CadScreen({
       content: (
         <SectionBody title="CAD Sheet">
           {/* `display: contents`, so this wrapper carries the listener and NO
-              layout — `FieldGrid` stays the direct grid child of `SectionBody`
-              and the spacing above the panels error is unchanged. Events still
+              layout — the capped field block below sits directly in
+              `SectionBody` and the spacing above the panels error is
+              unchanged. Events still
               travel through it: the event tree does not care about `display`. */}
           <div className="contents" onKeyDownCapture={onCadFlowKeyDown}>
-          <FieldGrid>
-            <Field label="Garment order" required size="sm" htmlFor="cad-order">
+          {/* WIDTH BY THE KIND OF VALUE (raagam-screen-layout, "BUILD IT
+              COMPACT"). One row: party 200 (the order, named by its customer)
+              + code 144 (Date) + party 200 (Customer) + code 144 (Delivery)
+              + 3 gaps × 12 = 724px, so the cap is 46rem (736px) — Remark takes
+              that width beneath instead of the whole pane. A definite cap,
+              never `max-w-fit` (it computes to 0 under @container/section). */}
+          <div className={SHEET_W}>
+          <FieldRow>
+            <Field label="Garment order" required w="party" htmlFor="cad-order">
               <RecordPicker
                 id="cad-order"
                 label="Garment order"
@@ -1223,7 +1240,7 @@ export function CadScreen({
                 }}
               />
             </Field>
-            <Field label="Date" required size="sm" htmlFor="cad-date">
+            <Field label="Date" required w="code" htmlFor="cad-date">
               <Input
                 id="cad-date"
                 type="date"
@@ -1231,27 +1248,28 @@ export function CadScreen({
                 onChange={(e) => set({ marker_date: e.target.value })}
               />
             </Field>
-            <Field label="Customer" size="sm" htmlFor="cad-cust">
+            <Field label="Customer" w="party" htmlFor="cad-cust">
               {/* READ-ONLY, from the order. A readOnly field never holds the
                   cursor (AGENTS.md, Mandatory fields) and leaves the Tab path. */}
               <Input id="cad-cust" readOnly value={pickedOrder?.customer_name ?? ""} />
             </Field>
-            <Field label="Delivery" size="sm" htmlFor="cad-del">
+            <Field label="Delivery" w="code" htmlFor="cad-del">
               <Input
                 id="cad-del"
                 readOnly
                 value={pickedOrder?.delivery_date ? fmtDate(pickedOrder.delivery_date) : ""}
               />
             </Field>
-            <Field label="Remark" size="full" htmlFor="cad-remark">
-              <Textarea
-                id="cad-remark"
-                rows={2}
-                value={form.remark}
-                onChange={(e) => set({ remark: e.target.value })}
-              />
-            </Field>
-          </FieldGrid>
+          </FieldRow>
+          <Field label="Remark" htmlFor="cad-remark" className="mt-3">
+            <Textarea
+              id="cad-remark"
+              rows={2}
+              value={form.remark}
+              onChange={(e) => set({ remark: e.target.value })}
+            />
+          </Field>
+          </div>
           </div>
 
           {panelsErr && (
@@ -1288,13 +1306,15 @@ export function CadScreen({
                default stacked cell is a bare div around a RequiredScope with NO
                visible label, so the fallback would be four unlabelled boxes. */
             renderMobileRow={(row) => (
-              <FieldGrid>
+              /* THE CARD KEEPS THE TABLE'S WIDTHS — `fieldWidthStep` reads each
+                 column's step back out of its FIELD_WIDTH_CSS width. */
+              <FieldRow align="start" gap="tight">
                 {layoutColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                  <Field key={ci} label={c.header} required={c.required} w={fieldWidthStep(c.width) ?? "hug"}>
                     {c.cell(row, ci)}
                   </Field>
                 ))}
-              </FieldGrid>
+              </FieldRow>
             )}
             onAdd={() => mutLayouts((xs) => [...xs, blankLayout(newKey())])}
             onRemove={(r) => {
@@ -1343,13 +1363,13 @@ export function CadScreen({
             tableFrom="5xl"
             centerHeaders
             renderMobileRow={(row) => (
-              <FieldGrid>
+              <FieldRow align="start" gap="tight">
                 {weightColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                  <Field key={ci} label={c.header} required={c.required} w={fieldWidthStep(c.width) ?? "hug"}>
                     {c.cell(row, ci)}
                   </Field>
                 ))}
-              </FieldGrid>
+              </FieldRow>
             )}
             onAdd={() =>
               mutWeights((xs) => [...xs, blankWeight(newKey(), layouts[0]?.key ?? "")])

@@ -23,14 +23,14 @@ export async function cadFabricBomProblem(garmentOrderId: string): Promise<strin
   }
   const rows = (data ?? []) as { style_ref_no: string; state: CadState }[];
   if (rows.length === 0) {
-    return "The CAD is not approved for every style of this order, so a Fabric BOM cannot be created yet — the order has no styles. Approve it on Orders ▸ CAD ▸ CAD Lifecycle first.";
+    return "The CAD is not approved for every style of this order, so a Fabric BOM cannot be created yet — the order has no styles. Approve it on Orders ▸ CAD ▸ CAD Queue first.";
   }
   const open = rows.filter((r) => r.state !== "approved");
   if (open.length === 0) return null;
   return (
     "The CAD is not approved for every style of this order, so a Fabric BOM cannot be created yet — " +
     open.map((r) => `${r.style_ref_no} (${(CAD_STATE_META[r.state]?.label ?? r.state).toLowerCase()})`).join(", ") +
-    ". Approve it on Orders ▸ CAD ▸ CAD Lifecycle first."
+    ". Approve it on Orders ▸ CAD ▸ CAD Queue first."
   );
 }
 

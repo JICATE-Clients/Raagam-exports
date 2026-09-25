@@ -25,7 +25,7 @@ import { getCadLifecycleFormData, listCadStyles } from "./service";
  * THIN ON PURPOSE. Every rule the spec states — sequential versions, the
  * Pattern Maker's designation, no future dates, dispatch proof, a mandatory
  * .DXF/.PDS/.PLT attachment, rework comments, the layout check — is enforced
- * by the DATABASE (0628's trigger and RPCs), because `lib/data-io`, a second
+ * by the DATABASE (0628's trigger and RPCs, widened by 0632), because `lib/data-io`, a second
  * tab and a stale screen all reach the table without this file. The raised
  * messages are operator sentences, so they are handed straight back.
  *
@@ -36,11 +36,40 @@ import { getCadLifecycleFormData, listCadStyles } from "./service";
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 const fail = (error: string): Result => ({ ok: false, error });
 
+/**
+ * NOT `/orders/garment-orders` (2026-09-25, "saving and approving are slow").
+ * Revalidating the page the operator is ON makes Next re-run its whole loader
+ * and re-render it inside the action's response — for Order Entry that is the
+ * 12-query `loadGarmentOrderProps` and the 19,000-line screen, paid on every
+ * Assign / Send / Approval from the order's CAD tab. Nothing that page loads
+ * is CAD data: the tab reads its own (`/api/orders/[id]/cad`) and refetches
+ * after each step. The other paths here are not the current page, so marking
+ * them stale costs nothing.
+ */
 function rev(): void {
   revalidatePath("/orders/cad-lifecycle");
   revalidatePath("/orders/fabric-bom");
-  revalidatePath("/orders/garment-orders");
   revalidatePath("/reports/cad-completion");
+}
+
+/**
+ * The version's pattern details (0632). Fit Wash = No sends NULL percentages —
+ * 0632's CHECK refuses a figure left behind from a Yes that was switched off.
+ */
+function patternDetails(d: {
+  fit_wash: boolean;
+  length_shrink_pct: number | null;
+  width_shrink_pct: number | null;
+  cut_type: string | null;
+  component_cuts: { component_id: string; component_name: string; method: string }[];
+}) {
+  return {
+    fit_wash: d.fit_wash,
+    length_shrink_pct: d.fit_wash ? d.length_shrink_pct : null,
+    width_shrink_pct: d.fit_wash ? d.width_shrink_pct : null,
+    cut_type: d.cut_type,
+    component_cuts: d.component_cuts,
+  };
 }
 
 const zodMessage = (e: { issues: { message: string }[] }) => e.issues[0]?.message ?? "Invalid input";
@@ -64,6 +93,7 @@ export async function allocateCad(data: AllocationInput): Promise<Result> {
       cad_type: p.data.cad_type,
       target_date: p.data.target_date,
       remarks: p.data.remarks,
+      ...patternDetails(p.data),
     })
     .select("id, version_no")
     .single();
@@ -91,6 +121,7 @@ export async function updateCadAllocation(id: string, data: AllocationInput): Pr
       cad_type: p.data.cad_type,
       target_date: p.data.target_date,
       remarks: p.data.remarks,
+      ...patternDetails(p.data),
     })
     .eq("id", id);
   if (error) return fail(error.message);
@@ -128,7 +159,11 @@ export async function dispatchCad(data: DispatchInput): Promise<Result> {
     p_email_at: istLocalToIso(p.data.email_sent_at),
     p_layout: p.data.layout_type,
     p_remarks: p.data.remarks,
-    p_files: p.data.files.map((f) => ({
+    p_files: [
+      ...p.data.files.map((f) => ({ ...f, kind: "pattern" as const })),
+      ...p.data.proof_files.map((f) => ({ ...f, kind: "proof" as const })),
+    ].map((f) => ({
+      kind: f.kind,
       file_name: f.file_name,
       storage_path: f.storage_path,
       mime_type: f.mime_type ?? null,
@@ -140,7 +175,7 @@ export async function dispatchCad(data: DispatchInput): Promise<Result> {
     action: "order_cad.dispatched",
     entityType: "order_cad_allocation",
     entityId: p.data.allocation_id,
-    metadata: { files: p.data.files.length },
+    metadata: { files: p.data.files.length, proof_files: p.data.proof_files.length },
   });
   rev();
   return { ok: true, id: id as string };
@@ -238,13 +273,16 @@ export type OrderCadData =
   | { ok: false; error: string };
 
 export async function getOrderCad(garmentOrderId: string): Promise<OrderCadData> {
-  if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
   try {
-    const [rows, form, canEdit] = await Promise.all([
+    // One round, not two: the view check rides beside the (RLS-scoped) reads
+    // and a refusal discards them (2026-09-25, "CAD tab shows Loading").
+    const [canView, rows, form, canEdit] = await Promise.all([
+      can("orders", "view"),
       listCadStyles([garmentOrderId]),
       getCadLifecycleFormData(),
       can("orders", "edit"),
     ]);
+    if (!canView) return { ok: false, error: "Forbidden" };
     return { ok: true, rows, employees: form.employees, canEdit };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not read the CAD for this order." };

@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { isInactive } from "@/lib/masters/inactive";
+import { isYarnDyedFabricType } from "@/lib/masters/fabric-name";
 import { withCreators } from "@/lib/created-by";
 import {
   bomTaskRows,
@@ -742,7 +743,7 @@ export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
      BEFORE the select that needs it. */
   const { data, error } = await s
     .from("processes")
-    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting, is_cloth_purchase, has_sub_categories")
+    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting, is_cloth_purchase, has_sub_categories, is_unravelling")
     .order("name");
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (AGENTS.md) — `data ?? []`
   // on a missing column (e.g. `is_dyeing` before 0557 is applied) turns a
@@ -831,12 +832,16 @@ export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     is_knitting: boolean | null;
     is_cloth_purchase: boolean | null;
     has_sub_categories: boolean | null;
+    is_unravelling: boolean | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
     name: p.name,
     inactive: p.inactive ?? false,
     for_fabric: p.for_fabric ?? false,
+    /* 0633 — LOOSE FABRIC CONVERSION: offered only on a linked loose
+       fabric's route (`looseFabricRoute`). */
+    is_unravelling: p.is_unravelling ?? false,
     is_print: p.is_print ?? false,
     is_dyeing: p.is_dyeing ?? false,
     is_knitting: p.is_knitting ?? false,
@@ -899,7 +904,7 @@ export async function getFabricProcessLookupRows(): Promise<FabricProcessLookups
 export async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
   const s = await createClient();
   const [{ data, error }, roles, fabricStages, yarnStages] = await Promise.all([
-    s.from("processes").select("id, name, inactive, for_yarn").order("name"),
+    s.from("processes").select("id, name, inactive, for_yarn, is_unravelling").order("name"),
     /* THE STAGE CLASSIFICATION (2026-09-21) — the same rows the fabric loader
        reads, mapped onto yarn-stage ids by code (`yarnStageTwins`). */
     s.from("process_fabric_stages").select("process_id, stage_id, is_base"),
@@ -933,12 +938,15 @@ export async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
     name: string;
     inactive: boolean | null;
     for_yarn: boolean | null;
+    is_unravelling: boolean | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
     name: p.name,
     inactive: p.inactive ?? false,
     for_yarn: p.for_yarn ?? false,
+    /* 0633 — a CONVERSION step asks for a Source Loose Fabric. */
+    is_unravelling: p.is_unravelling ?? false,
     stage_roles: rolesByProcess.get(p.id) ?? [],
   }));
 }
@@ -1200,14 +1208,28 @@ export async function getBomYarnComposition(
 
   const yarnIds = [...new Set(mixes.map((m) => m.component_item_id as string))];
 
+  /* THE CLOTH'S FABRIC TYPE RIDES ALONG (0633) — a loose fabric conversion
+     serves only the yarn-dyed cloths' share of a yarn (`./loose-conversion.ts`).
+     Same `config_lookups!fabric_type_id` embed `yarnDyedProblem` reads, and the
+     same shared word test; normalised because PostgREST may answer an object
+     or an array. */
   const { data: itemRows } = await s
     .from("items")
-    .select("id, name, is_active")
+    .select("id, name, is_active, fabric_type:config_lookups!fabric_type_id(name)")
     .in("id", [...new Set([...yarnIds, ...ids])]);
 
   const byId = new Map(
-    ((itemRows ?? []) as { id: string; name: string; is_active: boolean }[]).map((r) => [r.id, r]),
+    ((itemRows ?? []) as {
+      id: string;
+      name: string;
+      is_active: boolean;
+      fabric_type: { name: string | null } | { name: string | null }[] | null;
+    }[]).map((r) => [r.id, r]),
   );
+  const fabricTypeOf = (id: string) => {
+    const t = byId.get(id)?.fabric_type;
+    return (Array.isArray(t) ? t[0]?.name : t?.name) ?? null;
+  };
 
   const byFabric = new Map<string, FabricComposition>();
   for (const m of mixes) {
@@ -1220,6 +1242,7 @@ export async function getBomYarnComposition(
          them. */
       fabric_name: byId.get(fabricId)?.name ?? "",
       components: [],
+      yarn_dyed: isYarnDyedFabricType(fabricTypeOf(fabricId)),
     };
     comp.components.push({
       yarn_id: m.component_item_id as string,

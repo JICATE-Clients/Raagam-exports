@@ -188,6 +188,10 @@ export type FabricStageGates = {
    *  `gatedForStage` ignores it. See `washStageBlocked`. */
   fabricIsPieceDyed?: boolean;
   routeStartAllowed?: boolean;
+  /** Is this route a LINKED LOOSE FABRIC's (0633)? Only then is CONVERSION
+   *  (unravelling, `is_unravelling`) offered. Default false: every ordinary
+   *  cloth's route withholds it — a body fabric is cut, never unravelled. */
+  looseFabricRoute?: boolean;
 };
 
 /**
@@ -218,12 +222,14 @@ function gatedForStage(
   const printDeclared = gates.printDeclared ?? true;
   const fabricIsYarnDyed = gates.fabricIsYarnDyed ?? false;
   const routeStartAllowed = gates.routeStartAllowed ?? true;
+  const looseFabricRoute = gates.looseFabricRoute ?? false;
   return options.filter(
     (p) =>
       p.for_fabric &&
       (printDeclared || !p.is_print) &&
       (!fabricIsYarnDyed || !p.is_dyeing) &&
-      (routeStartAllowed || !isRouteStart(p)),
+      (routeStartAllowed || !isRouteStart(p)) &&
+      (looseFabricRoute || !p.is_unravelling),
   );
 }
 

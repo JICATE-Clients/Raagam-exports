@@ -62,7 +62,7 @@ import {
   yarnBasesForStage,
   yarnStageMismatch,
 } from "@/lib/orders/fabric-bom/yarn-stage-routes";
-import { RecordPicker } from "@/components/masters/record-picker";
+import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import {
@@ -98,6 +98,8 @@ export function YarnProcessGrid({
   canEdit = false,
   readOnly = false,
   colourLoss = false,
+  looseFabrics = [],
+  onLooseFabricPicked,
 }: {
   /** THIS yarn's steps only — they live on the yarn row, so there is nothing to
    *  filter and no way for one to be orphaned. */
@@ -150,6 +152,16 @@ export function YarnProcessGrid({
    *  cannot store the map never shows a control whose figures the save would
    *  drop on the floor. */
   colourLoss?: boolean;
+  /**
+   * LOOSE FABRIC CONVERSION (0633) — the fabrics a CONVERSION step may name as
+   * its Source Loose Fabric: greige cloths (a yarn-dyed one cannot be
+   * piece-dyed with the body). Empty on a caller that does not support the
+   * conversion (IWO), where the step is simply never offered a source.
+   */
+  looseFabrics?: PickerItem[];
+  /** Called when a source is picked, so the screen can inject the loose
+   *  fabric's KNITTING -> DYEING -> CONVERSION route on Fabric Process. */
+  onLooseFabricPicked?: (fabricId: string) => void;
 }) {
   /* The options as the stage rules read them — YARN processes only (a fabric
      process classified to GREIGE, KNITTING say, is not a base a yarn row can
@@ -159,6 +171,9 @@ export function YarnProcessGrid({
   const stageNameOf = (id: string | null) => (id ? stages.find((s) => s.id === id)?.name : null) || "this stage";
   const patch = (key: string, next: Partial<YarnStageRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
+  /** Is this step a LOOSE FABRIC CONVERSION (0633)? Off the master's flag. */
+  const isConversion = (r: YarnStageRow) =>
+    !!r.process_id && !!processes.find((p) => p.id === r.process_id)?.is_unravelling;
 
   /*
    * NO `usedIds` ON THE PROCESS PICKER, for `FabricProcessGrid`'s reason: a
@@ -260,7 +275,27 @@ export function YarnProcessGrid({
                 isFirstOfStage: opensYarnStage(rows, at),
               })}
               value={r.process_id}
-              onChange={(id) => patch(r.key, { process_id: id })}
+              onChange={(id) => {
+                const picked = processes.find((p) => p.id === id);
+                if (picked?.is_unravelling) {
+                  /* A CONVERSION STEP (0633): the Stage defaults to the one
+                     it opens (DYED — off the master's classification, never a
+                     code string), and it carries no loss, colour or For of its
+                     own — the unravelling loss is a step of the loose fabric's
+                     route, applied there once. */
+                  patch(r.key, {
+                    process_id: id,
+                    stage_id: r.stage_id ?? picked.stage_roles?.find((x) => x.is_base)?.stage_id ?? null,
+                    loss_for_id: null,
+                    combo: "",
+                    loss_pct: "",
+                    color_wise_loss: false,
+                    color_losses: {},
+                  });
+                  return;
+                }
+                patch(r.key, { process_id: id, source_loose_fabric_id: null });
+              }}
               disabled={readOnly}
               required={yarnStageStarted(r)}
               /* Empty-and-explain. An empty list means the Process master has
@@ -280,6 +315,30 @@ export function YarnProcessGrid({
                 The first step under {stageNameOf(r.stage_id)} must be{" "}
                 {yarnBasesForStage(yarnOpts, r.stage_id).map((b) => b.name).join(" or ")}.
               </p>
+            )}
+            {/* SOURCE LOOSE FABRIC (0633) — rendered only on a CONVERSION
+                step, the spec's "dynamically renders a dropdown selector".
+                Mandatory: a conversion that names no loose fabric cannot say
+                where its greige yarn goes, and `conversionStepProblems`
+                refuses the Save in the same words on both sides. Picking one
+                injects the loose fabric's route on Fabric Process. */}
+            {isConversion(r) && (
+              <div className="mt-1">
+                <p className="px-1 text-[11px] text-muted-foreground">Source loose fabric</p>
+                <RecordPicker
+                  label=""
+                  compact
+                  items={looseFabrics}
+                  value={r.source_loose_fabric_id ?? null}
+                  onChange={(id) => {
+                    patch(r.key, { source_loose_fabric_id: id });
+                    if (id) onLooseFabricPicked?.(id);
+                  }}
+                  disabled={readOnly}
+                  required
+                  emptyHint="No greige fabric on the material master — create the loose fabric on Master Data ▸ Materials"
+                />
+              </div>
             )}
           </div>
         );
@@ -308,7 +367,10 @@ export function YarnProcessGrid({
        */
       header: "For",
       width: "8rem",
-      cell: (r) => (
+      cell: (r) =>
+        isConversion(r) ? (
+          <span className="text-sm text-muted-foreground">—</span>
+        ) : (
         <LookupDialogPicker
           kind="process_loss_for"
           label="For"
@@ -341,7 +403,7 @@ export function YarnProcessGrid({
           canCreate={canCreate && !readOnly}
           canEdit={canEdit && !readOnly}
         />
-      ),
+        ),
     },
     ...(colourLoss
       ? []
@@ -439,7 +501,14 @@ export function YarnProcessGrid({
          left, so the table is narrower than before. */
       width: colourLoss ? "7rem" : "4.5rem",
       cell: (r) =>
-        /* For = COLOR WISE → each colour's loss in the list; PROCESS WISE → the
+        /* A CONVERSION STEP HAS NO LOSS HERE (0633) — it is the CONVERSION
+           step of the loose fabric's route, typed on Fabric Process, so the
+           yarn is never grossed by it twice. Said, not left blank. */
+        isConversion(r) ? (
+          <span className="block text-right text-[11px] leading-tight text-muted-foreground">
+            on loose fabric route
+          </span>
+        ) : /* For = COLOR WISE → each colour's loss in the list; PROCESS WISE → the
            one box. `isColorWiseFor` is the rule both process grids read. */
         colourLoss && isColorWiseFor(r.loss_for_id, lossFor) ? (
           <ColorLossControl

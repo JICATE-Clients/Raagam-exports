@@ -28,10 +28,16 @@ import { daysBetween } from "@/lib/calendar";
 // VOCABULARY
 // ============================================================================
 
+/**
+ * The stored values are 0628's; the LABELS are the 2026-09-25 Order Entry ▸ CAD
+ * spec's words. `shrinkage_wash` is 0632's, and needs Fit Wash = Yes (a
+ * shrinkage pattern with no shrinkage to build in is refused by both sides).
+ */
 export const CAD_TYPES = [
-  { value: "first_pattern", label: "First Pattern", hint: "Initial creation from the tech pack / sketch" },
-  { value: "grading", label: "Grading", hint: "Sizing expansion from the approved base size" },
-  { value: "marker_planning", label: "Marker Planning", hint: "Nesting the patterns for consumption" },
+  { value: "first_pattern", label: "Initial Fit Pattern", hint: "Initial creation from the tech pack / sketch" },
+  { value: "grading", label: "Grading & Size Set Pattern", hint: "Sizing expansion from the approved base size" },
+  { value: "marker_planning", label: "Marker / Consumption Pattern", hint: "Nesting the patterns for consumption" },
+  { value: "shrinkage_wash", label: "Shrinkage / Wash Pattern", hint: "Built-in allowance for the bit wash" },
 ] as const;
 export type CadType = (typeof CAD_TYPES)[number]["value"];
 export const cadTypeLabel = (t: string | null | undefined) =>
@@ -52,7 +58,66 @@ export const layoutLabel = (t: string | null | undefined) =>
  * Master Data ▸ Associates ▸ Employee. The database trigger checks the same
  * two names.
  */
-export const PATTERN_MAKER_DESIGNATIONS = ["PATTERN MAKER", "CAD TECHNICIAN"] as const;
+export const PATTERN_MAKER_DESIGNATIONS = ["PATTERN MAKER", "CAD TECHNICIAN", "CAD DESIGNER"] as const;
+
+// ============================================================================
+// PATTERN DETAILS (0632) — the spec's "Compact CAD Entry Details", on the version
+// ============================================================================
+
+export const CUT_TYPES = [
+  { value: "one_way", label: "One-Way Cutting" },
+  { value: "two_way", label: "Two-Way Cutting" },
+] as const;
+export type CutType = (typeof CUT_TYPES)[number]["value"];
+export const cutTypeLabel = (t: string | null | undefined) => CUT_TYPES.find((c) => c.value === t)?.label ?? "—";
+
+export const CUT_METHODS = [
+  { value: "direct_shape", label: "Direct Shape" },
+  { value: "fit_form", label: "Fit Form Cutting" },
+] as const;
+export type CutMethod = (typeof CUT_METHODS)[number]["value"];
+export const cutMethodLabel = (m: string | null | undefined) =>
+  CUT_METHODS.find((c) => c.value === m)?.label ?? "—";
+
+/**
+ * One style component's cut method. Names are SNAPSHOTTED: a sent version is
+ * history. Keyed by (coordinate, component) since 0637 — a TOP and a BOTTOM
+ * each have a FRONT BODY. Entries saved under 0632 carry no coordinate.
+ */
+export type ComponentCut = {
+  component_id: string;
+  component_name: string;
+  coordinate_id?: string | null;
+  coordinate_name?: string | null;
+  method: CutMethod;
+};
+
+/** A component of the style, as the order declares it today (Order Info ▸ Style Components). */
+export type StyleComponent = {
+  component_id: string;
+  name: string;
+  coordinate_id: string | null;
+  coordinate_name: string | null;
+  /** The fabric structure the panel is cut from (SINGLE JERSEY …). */
+  structure: string | null;
+};
+
+/** The one identity of a cut row — the same test 0637's trigger makes. */
+export const cutKey = (c: { coordinate_id?: string | null; component_id: string }) =>
+  `${c.coordinate_id || "-"}|${c.component_id}`;
+
+/** "Bit wash 3.5% L × 2% W · Two-Way Cutting" — the one-line summary the tab and history print. */
+export function patternSummary(v: {
+  fit_wash: boolean;
+  length_shrink_pct: number | null;
+  width_shrink_pct: number | null;
+  cut_type: string | null;
+}): string {
+  const parts: string[] = [];
+  if (v.fit_wash) parts.push(`Bit wash ${v.length_shrink_pct ?? "?"}% L × ${v.width_shrink_pct ?? "?"}% W`);
+  if (v.cut_type) parts.push(cutTypeLabel(v.cut_type));
+  return parts.join(" · ");
+}
 
 // ============================================================================
 // STATE
@@ -71,15 +136,19 @@ export type CadState = (typeof CAD_STATES)[number];
 export type CadDecisionStatus = "pending" | "approved" | "rework";
 
 export const CAD_STATE_META: Record<CadState, { label: string; tone: StatusTone; next: string }> = {
-  not_allocated: { label: "Not allocated", tone: "neutral", next: "Allocate" },
-  allocated: { label: "Allocated", tone: "info", next: "Dispatch" },
-  pending: { label: "Awaiting buyer", tone: "warning", next: "Record decision" },
+  not_allocated: { label: "Not assigned", tone: "neutral", next: "Assign CAD" },
+  allocated: { label: "Assigned", tone: "info", next: "Send CAD" },
+  pending: { label: "Awaiting buyer", tone: "warning", next: "CAD Approval" },
   approved: { label: "Approved", tone: "success", next: "—" },
-  rework: { label: "Rework required", tone: "danger", next: "Re-allocate" },
+  rework: { label: "Rework required", tone: "danger", next: "Re-assign CAD" },
 };
+
+export type CadFileKind = "pattern" | "proof";
 
 export type CadFile = {
   id: string;
+  /** 0632: the pattern (+ PDF marker) or the transmission proof. */
+  kind: CadFileKind;
   file_name: string;
   storage_path: string;
   extension: string;
@@ -112,6 +181,11 @@ export type CadVersion = {
   allocation_date: string;
   target_date: string;
   remarks: string | null;
+  fit_wash: boolean;
+  length_shrink_pct: number | null;
+  width_shrink_pct: number | null;
+  cut_type: CutType | null;
+  component_cuts: ComponentCut[];
   is_submitted: boolean;
   created_at: string | null;
   created_by: string | null;
@@ -207,8 +281,20 @@ export function cadCompletionOf(
 // FILES (spec §3.1 and "File Revision Architecture")
 // ============================================================================
 
+/** The real pattern formats — at least one is mandatory on a dispatch. */
 export const CAD_FILE_EXTENSIONS = ["dxf", "pds", "plt"] as const;
-export const CAD_FILE_ACCEPT = ".dxf,.pds,.plt,.DXF,.PDS,.PLT";
+/**
+ * What a PATTERN file may be (0632): the formats above plus a .PDF marker print,
+ * which rides ALONG with a real CAD file and never replaces it — a PDF is a
+ * picture of a marker, not a pattern a cutting room can load.
+ */
+export const PATTERN_FILE_EXTENSIONS = ["dxf", "pds", "plt", "pdf"] as const;
+/** The transmission proof — an email slip or a courier docket (0632). */
+export const PROOF_FILE_EXTENSIONS = ["pdf", "jpg", "jpeg", "png", "eml", "msg"] as const;
+const acceptOf = (exts: readonly string[]) =>
+  exts.flatMap((e) => [`.${e}`, `.${e.toUpperCase()}`]).join(",");
+export const CAD_FILE_ACCEPT = acceptOf(PATTERN_FILE_EXTENSIONS);
+export const PROOF_FILE_ACCEPT = acceptOf(PROOF_FILE_EXTENSIONS);
 export const CAD_FILE_MAX_MB = 50;
 export const CAD_BUCKET = "garment-order-docs";
 
@@ -219,6 +305,10 @@ export function cadFileExtension(fileName: string): string | null {
 }
 export const isCadFile = (fileName: string) =>
   (CAD_FILE_EXTENSIONS as readonly string[]).includes(cadFileExtension(fileName) ?? "");
+export const isPatternFile = (fileName: string) =>
+  (PATTERN_FILE_EXTENSIONS as readonly string[]).includes(cadFileExtension(fileName) ?? "");
+export const isProofFile = (fileName: string) =>
+  (PROOF_FILE_EXTENSIONS as readonly string[]).includes(cadFileExtension(fileName) ?? "");
 
 /** A style ref as one path segment — style codes carry SLASHES (0402). */
 export function cadPathSegment(styleRef: string): string {
@@ -242,11 +332,15 @@ export function cadStoragePath(
   fileName: string,
   stamp: number,
   index = 0,
+  kind: CadFileKind = "pattern",
 ): string {
   const seg = cadPathSegment(styleRef);
   const ext = cadFileExtension(fileName) ?? "bin";
   const suffix = index > 0 ? `-${index + 1}` : "";
-  return `cad/${orderId}/${seg}/v${versionNo}/${seg}_${versionNo}_${stamp}${suffix}.${ext}`;
+  // A proof sits in its own sub-folder of the SAME version folder, so
+  // cad_dispatch's "stored under this version" test holds for both kinds.
+  const sub = kind === "proof" ? "proof/" : "";
+  return `cad/${orderId}/${seg}/v${versionNo}/${sub}${seg}_${versionNo}_${stamp}${suffix}.${ext}`;
 }
 
 // ============================================================================
@@ -280,7 +374,7 @@ export function patternMakerOptions(
     hint =
       rows.length === 0
         ? "No employees have been entered yet. Add the pattern makers on Master Data ▸ Associates ▸ Employee first."
-        : "No employee has the Designation PATTERN MAKER or CAD TECHNICIAN, so there is nobody to allocate to. Set it on Master Data ▸ Associates ▸ Employee.";
+        : "No employee has the Designation PATTERN MAKER, CAD TECHNICIAN or CAD DESIGNER, so there is nobody to assign it to. Set it on Master Data ▸ Associates ▸ Employee.";
   }
   if (currentValue && !items.some((r) => r.id === currentValue)) {
     const held = rows.find((r) => r.id === currentValue);
@@ -311,19 +405,40 @@ export const allocationInput = z.object({
   garment_order_id: z.string().uuid(),
   style_ref_no: z.string().trim().min(1, "Style is required"),
   pattern_maker_id: z.string().uuid({ message: "Pattern Maker is required" }),
-  cad_type: z.enum(["first_pattern", "grading", "marker_planning"], { message: "CAD Type is required" }),
+  cad_type: z.enum(["first_pattern", "grading", "marker_planning", "shrinkage_wash"], {
+    message: "CAD Type is required",
+  }),
   target_date: isoDate,
   remarks: text,
+  fit_wash: z.boolean().default(false),
+  length_shrink_pct: z.coerce.number().nullish().transform((v) => v ?? null),
+  width_shrink_pct: z.coerce.number().nullish().transform((v) => v ?? null),
+  cut_type: z
+    .enum(["one_way", "two_way"])
+    .nullish()
+    .transform((v) => v ?? null),
+  component_cuts: z
+    .array(
+      z.object({
+        component_id: z.string().uuid(),
+        component_name: z.string(),
+        coordinate_id: z.string().uuid().nullish(),
+        coordinate_name: z.string().nullish(),
+        method: z.enum(["direct_shape", "fit_form"]),
+      }),
+    )
+    .default([]),
 });
 export type AllocationInput = z.input<typeof allocationInput>;
 
 export const cadFileInput = z.object({
+  kind: z.enum(["pattern", "proof"]).default("pattern"),
   file_name: z.string().min(1),
   storage_path: z.string().min(1),
   mime_type: z.string().nullish(),
   size_bytes: z.number().nullish(),
 });
-export type CadFileInput = z.infer<typeof cadFileInput>;
+export type CadFileInput = z.input<typeof cadFileInput>;
 
 export const dispatchInput = z.object({
   allocation_id: z.string().uuid(),
@@ -337,6 +452,8 @@ export const dispatchInput = z.object({
     .transform((v) => v ?? null),
   remarks: text,
   files: z.array(cadFileInput),
+  /** The email slip / courier docket (0632) — proof of dispatch on its own. */
+  proof_files: z.array(cadFileInput).default([]),
 });
 export type DispatchInput = z.input<typeof dispatchInput>;
 
@@ -355,64 +472,155 @@ export function istLocalToIso(v: string | null | undefined): string | null {
   return m ? `${m[1]}T${m[2]}:${m[3]}:00+05:30` : null;
 }
 
+/**
+ * A refusal AND THE FIELD IT IS ABOUT, so the sheet prints the sentence under
+ * that field (raagam-screen-layout: "a warning sits UNDER THE FIELD it is
+ * about"). `field: null` is a refusal no single field owns — the layout
+ * mismatch — and the sheet shows those above its footer. The `…Problem`
+ * functions below return the bare sentence, unchanged, for the callers and the
+ * vectors in `scripts/check-cad-lifecycle.mts` that assert the words.
+ */
+export type CadProblem<F extends string> = { field: F | null; message: string };
+
+export type AllocationField = "maker" | "type" | "target" | "length" | "width";
+export type DispatchField = "date" | "proof" | "layout" | "files";
+export type DecisionField = "status" | "date" | "comments";
+
 /** Spec §2.3 / §7: target on or after the allocation date (= today). */
-export function allocationProblem(
-  a: { pattern_maker_id: string | null; cad_type: string | null; target_date: string | null },
+export function allocationProblemAt(
+  a: {
+    pattern_maker_id: string | null;
+    cad_type: string | null;
+    target_date: string | null;
+    /** 0632 — optional so a caller that predates the pattern details still type-checks. */
+    fit_wash?: boolean;
+    length_shrink_pct?: number | null;
+    width_shrink_pct?: number | null;
+  },
   today: string,
-): string | null {
-  if (!a.pattern_maker_id) return "Choose the Pattern Maker.";
-  if (!a.cad_type) return "Choose the CAD Type.";
-  if (!a.target_date) return "Enter the Internal Target Date.";
-  if (a.target_date < today) return "The Internal Target Date cannot be before today's Allocation Date.";
+): CadProblem<AllocationField> | null {
+  if (!a.pattern_maker_id) return { field: "maker", message: "Choose the Pattern Maker." };
+  if (!a.cad_type) return { field: "type", message: "Choose the CAD Type." };
+  if (!a.target_date) return { field: "target", message: "Enter the Internal Target Date." };
+  if (a.target_date < today) {
+    return { field: "target", message: "The Internal Target Date cannot be before today's Allocation Date." };
+  }
+  // 0632's chk_oca_shrinkage_wash_needs_fit_wash / chk_oca_fit_wash_shrinkage.
+  if (a.cad_type === "shrinkage_wash" && !a.fit_wash) {
+    return { field: "type", message: "A Shrinkage / Wash Pattern needs Bit Wash = Yes." };
+  }
+  if (a.fit_wash) {
+    const bad = (v: number | null | undefined) => v == null || !(v > 0 && v < 100);
+    if (bad(a.length_shrink_pct)) {
+      return { field: "length", message: "Enter the Length Shrinkage % (more than 0, less than 100)." };
+    }
+    if (bad(a.width_shrink_pct)) {
+      return { field: "width", message: "Enter the Width Shrinkage % (more than 0, less than 100)." };
+    }
+  }
   return null;
 }
 
+export function allocationProblem(
+  ...args: Parameters<typeof allocationProblemAt>
+): string | null {
+  return allocationProblemAt(...args)?.message ?? null;
+}
+
 /** Spec §3.1, §3.2, §7 — the same refusals `cad_dispatch` raises. */
-export function dispatchProblem(
+export function dispatchProblemAt(
   d: {
     dispatch_date: string | null;
     courier_tracking_no: string | null;
     email_sent_at: string | null;
     layout_type: string | null;
     files: readonly { file_name: string }[];
+    /** 0632 — the email slip / courier docket; proof of dispatch on its own. */
+    proof_files?: readonly { file_name: string }[];
   },
   version: { allocation_date: string; cad_type: string },
   today: string,
-): string | null {
-  if (!d.dispatch_date) return "Enter the Dispatch Date.";
-  if (d.dispatch_date > today) return "The Dispatch Date cannot be in the future.";
-  if (d.dispatch_date < version.allocation_date) return "The Dispatch Date cannot be before the Allocation Date.";
-  if (!d.courier_tracking_no?.trim() && !d.email_sent_at) {
-    return "Enter a Courier Tracking Number or an Email Timestamp — a dispatch needs proof it was sent.";
+): CadProblem<DispatchField> | null {
+  const proofFiles = d.proof_files ?? [];
+  if (!d.dispatch_date) return { field: "date", message: "Enter the Dispatch Date." };
+  if (d.dispatch_date > today) return { field: "date", message: "The Dispatch Date cannot be in the future." };
+  if (d.dispatch_date < version.allocation_date) {
+    return { field: "date", message: "The Dispatch Date cannot be before the Allocation Date." };
+  }
+  // Every file is judged before the "is there enough" questions — cad_dispatch's order.
+  const bad = d.files.find((f) => !isPatternFile(f.file_name));
+  if (bad) {
+    return {
+      field: "files",
+      message: `${bad.file_name} is not a CAD file — only .DXF, .PDS, .PLT and a .PDF marker are accepted.`,
+    };
+  }
+  const badProof = proofFiles.find((f) => !isProofFile(f.file_name));
+  if (badProof) {
+    return {
+      field: "proof",
+      message: `${badProof.file_name} cannot be a transmission proof — attach a .PDF, .JPG, .PNG, .EML or .MSG.`,
+    };
+  }
+  if (!d.courier_tracking_no?.trim() && !d.email_sent_at && proofFiles.length === 0) {
+    return {
+      field: "proof",
+      message:
+        "Enter a Courier Tracking Number or an Email Timestamp, or attach the email slip / courier docket — a dispatch needs proof it was sent.",
+    };
   }
   if (version.cad_type === "marker_planning" && !d.layout_type) {
-    return "A Marker Planning CAD needs its Layout Type (Open Width / Tubular).";
+    return { field: "layout", message: "A Marker Planning CAD needs its Layout Type (Open Width / Tubular)." };
   }
-  if (d.files.length === 0) return "Attach the CAD file (.DXF, .PDS or .PLT) — a dispatch cannot be recorded without it.";
-  const bad = d.files.find((f) => !isCadFile(f.file_name));
-  if (bad) return `${bad.file_name} is not a CAD file — only .DXF, .PDS and .PLT are accepted.`;
+  if (!d.files.some((f) => isCadFile(f.file_name))) {
+    return {
+      field: "files",
+      message:
+        "Attach the CAD file (.DXF, .PDS or .PLT) — a dispatch cannot be recorded without it. A .PDF marker goes with it, not instead of it.",
+    };
+  }
   return null;
 }
 
+export function dispatchProblem(...args: Parameters<typeof dispatchProblemAt>): string | null {
+  return dispatchProblemAt(...args)?.message ?? null;
+}
+
 /** Spec §4.2 and §7's layout check — the same refusals `cad_decide` raises. */
-export function decisionProblem(
+export function decisionProblemAt(
   d: { status: string | null; decided_on: string | null; buyer_comments: string | null },
   dispatch: { dispatch_date: string; layout_type: string | null },
   styleLayout: string | null,
   styleRef: string,
   today: string,
-): string | null {
-  if (d.status !== "approved" && d.status !== "rework") return "Choose Approved or Rework Required.";
-  if (!d.decided_on) return "Enter the Decision Date.";
-  if (d.decided_on > today) return "The Decision Date cannot be in the future.";
-  if (d.decided_on < dispatch.dispatch_date) return "The Decision Date cannot be before the Dispatch Date.";
+): CadProblem<DecisionField> | null {
+  if (d.status !== "approved" && d.status !== "rework") {
+    return { field: "status", message: "Choose Approved or Rework Required." };
+  }
+  if (!d.decided_on) return { field: "date", message: "Enter the Decision Date." };
+  if (d.decided_on > today) return { field: "date", message: "The Decision Date cannot be in the future." };
+  if (d.decided_on < dispatch.dispatch_date) {
+    return { field: "date", message: "The Decision Date cannot be before the Dispatch Date." };
+  }
   if (d.status === "rework" && !d.buyer_comments?.trim()) {
-    return "Enter the Buyer Alteration Comments — a Rework cannot be recorded without them.";
+    return {
+      field: "comments",
+      message: "Enter the Buyer Alteration Comments — a Rework cannot be recorded without them.",
+    };
   }
   if (d.status === "approved" && styleLayout && dispatch.layout_type && styleLayout !== dispatch.layout_type) {
-    return `Layout mismatch: the CAD marker is ${layoutLabel(dispatch.layout_type)} but style ${styleRef} is declared ${layoutLabel(styleLayout)} on the order. Correct the order's Layout Type or send the CAD back for rework.`;
+    return {
+      // Two records disagree — the order's and the dispatch's. Neither is a
+      // field on this sheet, so the sentence stands above the footer.
+      field: null,
+      message: `Layout mismatch: the CAD marker is ${layoutLabel(dispatch.layout_type)} but style ${styleRef} is declared ${layoutLabel(styleLayout)} on the order. Correct the order's Layout Type or send the CAD back for rework.`,
+    };
   }
   return null;
+}
+
+export function decisionProblem(...args: Parameters<typeof decisionProblemAt>): string | null {
+  return decisionProblemAt(...args)?.message ?? null;
 }
 
 // ============================================================================
@@ -434,6 +642,8 @@ export type CadStyleRow = {
   style_ref_no: string;
   style_description: string | null;
   layout_type: LayoutType | null;
+  /** The style's components as the order declares it today (0632's Cut Method rows). */
+  components: StyleComponent[];
   /**
    * FALSE for a style that has CAD history but is no longer on the order (a
    * renamed or removed style — styles are keyed by their ref TEXT). Kept on

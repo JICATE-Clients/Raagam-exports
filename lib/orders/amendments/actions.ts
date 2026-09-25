@@ -2232,13 +2232,15 @@ export async function updateAmendment(
   id: string,
   data: AmendmentInput,
 ): Promise<Result> {
-  if (!(await can("orders", "edit"))) return fail("Forbidden");
   /* THE APPROVAL LOCK (Phase 5), before anything else and before the first
      write: this save deletes and re-inserts ~20 child grids, and 0576's
      triggers refusing it halfway would read as a half-run save rather than as
      a lock. Order Amendment saves through here too, and is locked on purpose
-     (user 2026-09-18) — changes go through the budget's Amendment Protocol. */
-  const lock = await assertOrderWritable(id, "order");
+     (user 2026-09-18) — changes go through the budget's Amendment Protocol.
+     Asked ALONGSIDE the permission check (both are reads, 2026-09-25): the
+     permission is still judged first, so a refused user never sees a lock. */
+  const [allowed, lock] = await Promise.all([can("orders", "edit"), assertOrderWritable(id, "order")]);
+  if (!allowed) return fail("Forbidden");
   if (!lock.ok) return fail(lock.error);
   /* THE SCOPED SAVE (0604 · 0616). Under an open Amendment Entry the order is
      `amending`, and the trigger accepts only the entry's frozen scope: named

@@ -137,9 +137,20 @@ export async function assertOrderWritable(
 ): Promise<{ ok: true; amendment: OrderAmendment | null } | { ok: false; error: string }> {
   if (!orderId) return { ok: true, amendment: null };
   try {
-    const lock = await orderLockOf(orderId);
+    // Both reads at once — two independent questions every Orders save asks
+    // before its first write (~260 ms a round trip, 2026-09-25). The LOCK
+    // STILL WINS: a failed amendment read is held back until the lock is
+    // judged, so a locked order still says "locked", never a read error.
+    const [lock, amendmentRead] = await Promise.all([
+      orderLockOf(orderId),
+      orderAmendmentOf(orderId).then(
+        (a) => ({ ok: true as const, a }),
+        (e: unknown) => ({ ok: false as const, e }),
+      ),
+    ]);
     if (lock) return { ok: false, error: orderLockMessage(lock) };
-    const amendment = await orderAmendmentOf(orderId);
+    if (!amendmentRead.ok) throw amendmentRead.e;
+    const amendment = amendmentRead.a;
     if (amendment && !areaOpen(amendment.scope, area)) {
       return { ok: false, error: outOfScopeMessage(amendment, area) };
     }
@@ -240,9 +251,20 @@ export async function assertOrderRecalculable(
 ): Promise<{ ok: true; amendment: OrderAmendment | null } | { ok: false; error: string }> {
   if (!orderId) return { ok: true, amendment: null };
   try {
-    const lock = await orderLockOf(orderId);
+    // Both reads at once — two independent questions every Orders save asks
+    // before its first write (~260 ms a round trip, 2026-09-25). The LOCK
+    // STILL WINS: a failed amendment read is held back until the lock is
+    // judged, so a locked order still says "locked", never a read error.
+    const [lock, amendmentRead] = await Promise.all([
+      orderLockOf(orderId),
+      orderAmendmentOf(orderId).then(
+        (a) => ({ ok: true as const, a }),
+        (e: unknown) => ({ ok: false as const, e }),
+      ),
+    ]);
     if (lock) return { ok: false, error: orderLockMessage(lock) };
-    const amendment = await orderAmendmentOf(orderId);
+    if (!amendmentRead.ok) throw amendmentRead.e;
+    const amendment = amendmentRead.a;
     if (amendment && !areaRecalculable(amendment.scope, area)) {
       return { ok: false, error: outOfScopeMessage(amendment, area) };
     }

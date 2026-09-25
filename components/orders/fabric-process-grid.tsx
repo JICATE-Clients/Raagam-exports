@@ -127,6 +127,7 @@ export function FabricProcessGrid({
   printDeclaredFor,
   subCategories = false,
   fabricIsYarnDyed = false,
+  looseFabricRoute = false,
   fabricIsPieceDyed = false,
   source = "yarn_knit",
   canCreate = false,
@@ -204,6 +205,9 @@ export function FabricProcessGrid({
    *  Fabric Dyeing step here would double it. Defaults `false` (never
    *  withhold) so an unfilled call site sees every process it always has. */
   fabricIsYarnDyed?: boolean;
+  /** LOOSE FABRIC CONVERSION (0633) — this route is a linked loose fabric's,
+   *  the one place CONVERSION (unravelling) is offered. Default false. */
+  looseFabricRoute?: boolean;
   /** Is THIS fabric piece-dyed (Solid / Printed)? Withholds the WASH stage
    *  (client 2026-09-23, `washStageBlocked`). Defaults `false` (never withhold). */
   fabricIsPieceDyed?: boolean;
@@ -347,6 +351,7 @@ export function FabricProcessGrid({
     printDeclared: printOk(r),
     fabricIsYarnDyed,
     routeStartAllowed: routeStartOk(r),
+    looseFabricRoute,
   });
   const baseCandidatesFor = (r: FabricProcessRow) => processesForFabric(processes, gatesFor(r));
   /**
