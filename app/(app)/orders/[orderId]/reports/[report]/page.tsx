@@ -20,6 +20,8 @@ import { currentFabricBom, isFabricSheetRefusal } from "@/lib/orders/fabric-requ
 import { fabricBomEntryRegister, yarnFabricRequirementReport } from "@/lib/orders/fabric-bom/reports";
 import { VFinalBanner } from "@/components/orders/v-final-banner";
 import { vFinalFor } from "@/lib/orders/amendments/v-final";
+import { getReportStyleImages } from "@/lib/orders/gos/style-images";
+import { pickReportThumbnail } from "@/lib/orders/gos/report-thumbnail";
 
 /**
  * ANY REGISTERED ORDER REPORT WITHOUT A PAGE OF ITS OWN, at
@@ -64,6 +66,10 @@ export default async function OrderReportPage({
   let body: React.ReactNode;
   if (isFabricBomSheetReport(report)) {
     const snap = frozen as import("@/lib/orders/amendments/v-final").VFinalPayloads["fabric-bom-reports"] | null;
+    /* THE HEADER THUMBNAIL'S PICTURES (2026-09-26), started now and read after
+       the report — loaded BESIDE it on every render, never frozen with it (a
+       signed URL lives an hour). A failure is no picture, never a broken page. */
+    const imagesP = getReportStyleImages(orderId).catch(() => null);
     const current = snap ? null : await currentFabricBom(orderId);
     if (snap && "refused" in snap) {
       body = <Refusal message={snap.refused} href="/orders/fabric-bom" action="Open Fabric BOM →" />;
@@ -88,10 +94,23 @@ export default async function OrderReportPage({
               ? requirement.header
               : null
           : null;
-      const cadPending = frozenHeader ? await cadOrderPending(frozenHeader.garmentOrderId) : undefined;
+      const [cadPending, images] = await Promise.all([
+        frozenHeader ? cadOrderPending(frozenHeader.garmentOrderId) : undefined,
+        imagesP,
+      ]);
+      /* The style it belongs to is read off the report's own header — set
+         only when the BOM covers ONE style (`pickReportThumbnail`). */
+      const shownHeader = !("refused" in register) ? register.header : !("refused" in requirement) ? requirement.header : null;
+      const thumbnail = pickReportThumbnail(images, shownHeader?.styleRefNo);
       body = (
         <div className="rounded-md bg-[#f1f3f5] p-4">
-          <FabricBomReportView report={report.key} register={register} requirement={requirement} cadPending={cadPending} />
+          <FabricBomReportView
+            report={report.key}
+            register={register}
+            requirement={requirement}
+            cadPending={cadPending}
+            thumbnail={thumbnail}
+          />
         </div>
       );
     }

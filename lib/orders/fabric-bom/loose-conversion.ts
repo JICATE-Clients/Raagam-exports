@@ -46,6 +46,17 @@
  * fabric's route carries the same step with the same loss, and applying both
  * would divide by (1 - L) twice.
  *
+ * ## CONVERSION IS A YARN STEP ONLY (client spec 2026-09-26, "Exclude
+ * CONVERSION Process from Fabric Process Tab")
+ *
+ * The unravelling loss used to live on the loose fabric's ROUTE, as a
+ * CONVERSION step on Fabric Process. It now lives on the yarn: the CONVERSION
+ * step's own Loss % (`stepLosses`), which a colour's Details Loss % overrides.
+ * A route SAVED with its CONVERSION step still works — with no loss typed on
+ * the yarn side, that route step's loss is the one applied, exactly as
+ * before; with one typed, the route's is divided back out (below), so the one
+ * physical loss is never taken twice.
+ *
  * ## PER-COLOUR DETAILS (0645) — legacy's [Click] ▸ Details
  *
  * The step may carry one row per colourway (`conversion_details`): Loss %,
@@ -166,6 +177,29 @@ export function conversionDetailsOf(
   return out;
 }
 
+/**
+ * yarn → its CONVERSION step's own Loss % (2026-09-26). Takes the form's text
+ * or the stored number; a blank loss is left out, so a route saved before the
+ * move keeps answering with its own CONVERSION step.
+ */
+export function conversionStepLossesOf(
+  yarns: readonly {
+    item_id: string;
+    stages: readonly { process_id?: string | null; loss_pct?: number | string | null }[];
+  }[],
+  isUnravelling: (processId: string) => boolean,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const y of yarns) {
+    const step = y.stages.find((st) => !!st.process_id && isUnravelling(st.process_id));
+    const raw = step?.loss_pct;
+    if (raw == null || String(raw).trim() === "") continue;
+    const n = Number(raw);
+    if (Number.isFinite(n)) out.set(y.item_id, n);
+  }
+  return out;
+}
+
 /** A colourway's name as the details compare it — trimmed, upper-cased. */
 const comboKey = (c: string | null | undefined) => (c ?? "").trim().toUpperCase();
 
@@ -202,6 +236,22 @@ export type ConvertedYarn = {
   /** Greige loose fabric to KNIT — the target grossed by every step of the
    *  loose fabric's route except knitting. `null` when the route refuses. */
   looseKnitQty: number | null;
+  /**
+   * EACH COLOUR'S PART (2026-09-26) — for the Yarn & Fabric Requirement
+   * report's CONVERSION block, printed under Yarn Purchase: the converted yarn
+   * that colour needs (`delivered`), the unravelling loss applied to it, and
+   * the loose fabric to unravel for it (`toLoose`). Summed they are the plan's
+   * own figures; nothing here is computed a second way.
+   */
+  parts: {
+    combo: string;
+    position: string | null;
+    colour: string | null;
+    looseFabricId: string;
+    delivered: number;
+    lossPct: number | null;
+    toLoose: number;
+  }[];
 };
 
 export type ConversionPlan = {
@@ -216,6 +266,10 @@ export type ConversionInput = {
   /** Per-colour Details (0645) — optional; without them every colour uses the
    *  step's loose fabric and no extra loss, exactly as before. */
   details?: ConversionDetails;
+  /** yarn → its CONVERSION step's own Loss % (2026-09-26, `conversionStepLossesOf`).
+   *  A colour's Details loss wins over it; absent = the loose fabric route's
+   *  CONVERSION step (a route saved before the move) answers, as before. */
+  stepLosses?: ReadonlyMap<string, number | null>;
   /** The BOM's own cloth slices — never including the loose fabrics. */
   fabrics: readonly FabricGross[];
   /** Must include the loose fabrics' compositions. */
@@ -381,6 +435,7 @@ export function planConversions(input: ConversionInput): ConversionPlan {
 
     let looseKnitQty: number | null = 0;
     let badLoss: string | null = null;
+    const parts: ConvertedYarn["parts"] = [];
     for (const c of demandParts) {
       /* THIS COLOUR'S LOOSE FABRIC AND LOSS — by colour, else by stripe
          position, else by colourway (rows saved earlier), else the step's. */
@@ -397,7 +452,7 @@ export function planConversions(input: ConversionInput): ConversionPlan {
          below) — so the one physical loss is applied once, at the colour's
          figure. */
       let gross = c.gross;
-      const L = d?.loss_pct;
+      const L = d?.loss_pct ?? input.stepLosses?.get(yarnId) ?? null;
       if (L != null && input.isUnravelling) {
         if (L < 0 || L >= 100) {
           badLoss = c.colour || c.position || c.combo || "every colourway";
@@ -419,6 +474,15 @@ export function planConversions(input: ConversionInput): ConversionPlan {
         gross,
         uom_id: target.uom_id,
       });
+      parts.push({
+        combo: c.combo,
+        position: c.position,
+        colour: c.colour,
+        looseFabricId: cLoose,
+        delivered: c.gross,
+        lossPct: L,
+        toLoose: gross,
+      });
     }
     if (badLoss) {
       converted.set(yarnId, {
@@ -434,6 +498,7 @@ export function planConversions(input: ConversionInput): ConversionPlan {
       byCombo: target.byCombo,
       fabricIds: [...new Set(feeds.map((f) => f.fabric_id))],
       looseKnitQty,
+      parts,
     });
   }
 
@@ -548,18 +613,11 @@ export function conversionStepProblems(args: {
       out.push(`${y.name}: pick the Source Loose Fabric on its CONVERSION step.`);
     }
   }
+  /* NO "ITS ROUTE MUST KEEP THE CONVERSION STEP" RULE (2026-09-26): CONVERSION
+     is a yarn step only now, so a loose fabric's route is KNITTING -> DYEING and
+     the unravelling loss is typed on the yarn. A route saved with the step
+     still passes — it is honoured when the yarn names no loss. */
   const linked = new Set(linkedLooseFabricIds(args.links, args.details));
-  for (const id of linked) {
-    const kept = args.routeSteps.some(
-      (p) => p.item_id === id && !!p.process_id && args.isUnravelling(p.process_id),
-    );
-    if (!kept) {
-      out.push(
-        `${args.fabricName(id)} is the source loose fabric of a yarn CONVERSION, so its route must ` +
-          "keep the CONVERSION step — remove the conversion on Yarn Process first.",
-      );
-    }
-  }
   const misplaced = new Set(
     args.routeSteps
       .filter((p) => !!p.process_id && args.isUnravelling(p.process_id) && !linked.has(p.item_id))

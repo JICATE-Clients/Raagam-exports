@@ -131,6 +131,7 @@ import {
 } from "@/lib/orders/fabric-bom/yarn-process";
 import {
   conversionDetailsOf,
+  conversionStepLossesOf,
   conversionLinksOf,
   conversionStepProblems,
   linkedLooseFabricIds,
@@ -935,6 +936,7 @@ export function IwoFabricBomScreen({
   const conversionPlan = planConversions({
     links: conversionLinks,
     details: conversionDetails,
+    stepLosses: yarnMode ? new Map() : conversionStepLossesOf(yarnRows, isUnravelling),
     isUnravelling,
     fabrics: fabricGross,
     compositions: compositionById,
@@ -948,13 +950,14 @@ export function IwoFabricBomScreen({
    *  → [DYED] CONVERSION, once, by the master's kind flags and base stages. */
   const injectLooseRoute = (fabricId: string) => {
     if (procs.some((p) => p.item_id === fabricId)) return;
-    /* The unravelling step joins by its KIND flag, "Fabric" tick or not —
-       see `processesForFabric`. */
-    const live = data.processes.filter((p) => (p.for_fabric || !!p.is_unravelling) && !p.inactive);
+    /* KNITTING and DYEING only — CONVERSION is a yarn step (2026-09-26), so it
+       is never placed on the loose fabric's route; see `processesForFabric`. */
+    const live = data.processes.filter((p) => p.for_fabric && !p.is_unravelling && !p.inactive);
     const steps = [
       { p: live.find((x) => x.is_knitting), loss: "" },
       { p: live.find((x) => x.is_dyeing), loss: "" },
-      { p: live.find((x) => x.is_unravelling), loss: "2" },
+      /* NO CONVERSION STEP (2026-09-26): CONVERSION is a yarn step only — its
+         loss is the yarn CONVERSION step's Loss % (2.00 by default there). */
     ].filter((x): x is { p: (typeof live)[number]; loss: string } => !!x.p);
     if (!steps.length) return;
     setProcs((prev) => [

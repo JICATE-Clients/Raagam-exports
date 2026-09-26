@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
 import type { ConfigLookup, Transporter, GstRate, Attribute } from "./extras-types";
+import { naturalSizeOrder } from "./size-order";
 
 export async function listConfigLookups(): Promise<ConfigLookup[]> {
   const s = await createClient();
@@ -10,7 +11,15 @@ export async function listConfigLookups(): Promise<ConfigLookup[]> {
     .select("*")
     .order("kind")
     .order("name");
-  return withCreators((data ?? []) as ConfigLookup[]);
+  /* SIZES IN SIZE ORDER, not alphabetical (2026-09-26 audit: the Sizes master
+     read L, M, S, XL, XS). Every other kind keeps ORDER BY name; within
+     kind='size' the app's one size rule (`naturalSizeOrder`) re-sorts. The
+     kinds stay grouped, so a stable sort that only compares two sizes is
+     enough. */
+  const rows = ((data ?? []) as ConfigLookup[]).slice().sort((a, b) =>
+    a.kind === "size" && b.kind === "size" ? naturalSizeOrder(a.name, b.name) : 0,
+  );
+  return withCreators(rows);
 }
 
 export async function listTransporters(): Promise<Transporter[]> {

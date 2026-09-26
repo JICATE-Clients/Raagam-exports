@@ -96,6 +96,7 @@ import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
 import { EmbeddedEditorWait } from "@/components/orders/embedded-editor-wait";
 import { sectionValidity } from "@/lib/screens/validity";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { sortBySize } from "@/lib/masters/size-order";
 /* THE QUEUE, WHOLE — the filter bar, the counted Status facet, the summary
    sentence and the six-across cards, shared with Material BOM rather than
    drawn a second time here. See the header comment on that file. */
@@ -220,6 +221,7 @@ import {
 } from "@/lib/orders/fabric-bom/yarn-process";
 import {
   conversionDetailsOf,
+  conversionStepLossesOf,
   conversionLinksOf,
   conversionStepProblems,
   linkedLooseFabricIds,
@@ -3688,7 +3690,9 @@ export function FabricBomScreen({
             qty: sl.qty,
           });
       }
-      out.set(key, [...seen.values()]);
+      /* IN SIZE ORDER (2026-09-26 audit): the slices arrive in database order,
+         so XL could head the Manual rows above S. */
+      out.set(key, sortBySize([...seen.values()], (z) => z.label));
     }
     return out;
   }, [order, pickedOrder]);
@@ -7393,16 +7397,30 @@ export function FabricBomScreen({
     compositions: FabricComposition[];
     yarns: { id: string; name: string; inactive: boolean }[];
   } | null>(null);
+  /* A FAILED READ IS SAID, NOT SWALLOWED (spec 2026-09-26, "the loading
+     message never clears"): it used to `return` on `!res.ok`, and a thrown
+     read was an unhandled rejection — either way `comp` stayed null and the tab
+     read "Reading the compositions…" for good. Keyed like `compState`. */
+  const [compError, setCompError] = useState<{ forFabrics: string; error: string } | null>(null);
 
   useEffect(() => {
     // NO ROUND TRIP FOR NO FABRICS. The empty case is answered below without
     // state — see `comp`.
     if (!fabricIdKey) return;
     let cancelled = false;
-    loadBomYarnComposition(fabricIdKey.split(",")).then((res) => {
-      if (cancelled || !res.ok) return;
-      setCompState({ forFabrics: fabricIdKey, ...res.data });
-    });
+    loadBomYarnComposition(fabricIdKey.split(","))
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.ok) {
+          setCompError({ forFabrics: fabricIdKey, error: res.error });
+          return;
+        }
+        setCompState({ forFabrics: fabricIdKey, ...res.data });
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setCompError({ forFabrics: fabricIdKey, error: e instanceof Error ? e.message : "Could not read the compositions" });
+      });
     return () => {
       cancelled = true;
     };
@@ -7421,11 +7439,24 @@ export function FabricBomScreen({
    * so its identity is stable and the memos reading it do not re-run each
    * render.
    */
+  /* KEEP THE LAST ANSWER WHILE FABRICS ARE ONLY BEING ADDED (2026-09-26).
+     Picking a loose fabric in Yarn Process ▸ Conversion adds it to the key, and
+     the exact-match rule below blanked the whole tab — the open Details popup
+     with it — for a round trip. When every fabric of the loaded answer is still
+     in the key, it is the same document growing, so the answer stands until
+     the fuller one lands. A key that DROPS a fabric (another order, a line
+     removed) still waits: that is the "another document's yarns" case the note
+     above exists to refuse. */
+  const compCovers = (loaded: string, wanted: string) => {
+    const want = new Set(wanted.split(","));
+    return loaded.split(",").every((id) => want.has(id));
+  };
   const comp = !fabricIdKey
     ? EMPTY_COMPOSITION
-    : compState && compState.forFabrics === fabricIdKey
+    : compState && (compState.forFabrics === fabricIdKey || compCovers(compState.forFabrics, fabricIdKey))
       ? compState
       : null;
+  const compFailed = compError && compError.forFabrics === fabricIdKey ? compError.error : null;
 
   /**
    * EACH FABRIC'S SOURCE, READ OFF ITS ROUTE (client 2026-09-19) — a branch that
@@ -7820,6 +7851,8 @@ export function FabricBomScreen({
   const conversionPlan = planConversions({
     links: conversionLinks,
     details: conversionDetails,
+    // The yarn CONVERSION step's own loss (2026-09-26) — `normalizeYarns` passes the same.
+    stepLosses: conversionStepLossesOf(yarnRows, isUnravelling),
     isUnravelling,
     fabrics: fabricGross,
     compositions: compositionById,
@@ -7884,7 +7917,7 @@ export function FabricBomScreen({
 
   /**
    * THE ROUTE THE SPEC INJECTS (0633 §3C) — picking a Source Loose Fabric gives
-   * it [GREIGE] KNITTING → [DYED] DYEING → [DYED] CONVERSION on Fabric Process,
+   * it [GREIGE] KNITTING → [DYED] DYEING (CONVERSION left it 2026-09-26 — a yarn step only) on Fabric Process,
    * once: a loose fabric that already has a route keeps it untouched. Each
    * process is found by the master's KIND FLAG and each stage by the process's
    * own base classification (`stage_roles`), never by a name or a code string.
@@ -7893,13 +7926,14 @@ export function FabricBomScreen({
    */
   const injectLooseRoute = (fabricId: string) => {
     if (procs.some((p) => p.item_id === fabricId)) return;
-    /* The unravelling step joins by its KIND flag, "Fabric" tick or not —
-       see `processesForFabric`. */
-    const live = data.processes.filter((p) => (p.for_fabric || !!p.is_unravelling) && !p.inactive);
+    /* KNITTING and DYEING only — CONVERSION is a yarn step (2026-09-26), so it
+       is never placed on the loose fabric's route; see `processesForFabric`. */
+    const live = data.processes.filter((p) => p.for_fabric && !p.is_unravelling && !p.inactive);
     const steps = [
       { p: live.find((x) => x.is_knitting), loss: "" },
       { p: live.find((x) => x.is_dyeing), loss: "" },
-      { p: live.find((x) => x.is_unravelling), loss: "2" },
+      /* NO CONVERSION STEP (2026-09-26): CONVERSION is a yarn step only — its
+         loss is the yarn CONVERSION step's Loss % (2.00 by default there). */
     ].filter((x): x is { p: (typeof live)[number]; loss: string } => !!x.p);
     if (!steps.length) return;
     mutProcs((xs) => [
@@ -10161,6 +10195,10 @@ export function FabricBomScreen({
               Name a fabric on Fabric Allocation first — the yarns come from what each
               fabric is made of.
             </p>
+          ) : !comp && compFailed ? (
+            <p role="alert" className="text-sm text-danger">
+              Could not read the fabrics&apos; compositions — {compFailed}
+            </p>
           ) : !comp ? (
             <p className="text-sm text-muted-foreground">Reading the compositions…</p>
           ) : yarnRows.length === 0 ? (
@@ -11009,7 +11047,10 @@ export function FabricBomScreen({
             of the width. `actions` puts it where Material BOM's is. */}
         <PageHeader
           title="Fabric BOM"
-          description="Step 3 — fabric per component and colour, with the net requirement each order implies."
+          /* NO "Step 3 — …" SUBTITLE (client spec 2026-09-26, "Remove
+             Explanatory Guidance Headers": named by the client, so this one
+             goes; AGENTS.md's no-sweep rule for PageHeader descriptions is
+             about removing them by analogy, which this is not). */
           actions={
             perms.canCreate ? (
               <Button size="md" onClick={() => openNew(null)}>
@@ -11301,11 +11342,9 @@ export function FabricBomScreen({
               footer={<SubSheetFooter onDone={() => setAssortFor(null)} parent="fabric BOM" />}
             >
               <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  This weight is for the colourways ticked here. Leave Assort Colour-Wise
-                  off instead to use it for every colourway — an empty tick list is refused
-                  rather than read as &quot;all&quot;.
-                </p>
+                {/* No guidance paragraph (client spec 2026-09-26, "Remove
+                    Explanatory Guidance Headers Across Popups"). The empty-tick
+                    refusal still says itself on Save. */}
                 {comboOptions.length === 0 && stray.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     This order declares no colourways yet — add them on Color/Print Details
@@ -11546,17 +11585,12 @@ export function FabricBomScreen({
                     </tbody>
                   </table>
                 </div>
-                {/* WHY A PANEL CAN ONLY BE HERE ONCE, said where the grid
-                    refuses. It is arithmetic and not tidiness: entries are the
-                    counting unit, so the garment's fabric weight is their sum,
-                    and that sum is only right while the entries partition the
-                    panels. */}
-                <p className="text-xs text-muted-foreground">
-                  A panel belongs to one fabric entry per style — the weights are
-                  summed, so a panel counted twice is its cloth bought twice. A Set
-                  item&apos;s TOP and BOTTOM are separate panels even where they share a
-                  component name, so each is chosen under its own coordinate.
-                </p>
+                {/* WHY A PANEL CAN ONLY BE HERE ONCE — entries are the counting
+                    unit, so the garment's fabric weight is their sum, and that
+                    sum is only right while the entries partition the panels.
+                    The sentence that said so on screen is gone (client spec
+                    2026-09-26, "Remove Explanatory Guidance Headers Across
+                    Popups"); the grid still refuses a panel twice. */}
               </div>
             </Sheet>
           );

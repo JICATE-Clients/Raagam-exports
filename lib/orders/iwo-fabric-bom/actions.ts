@@ -44,6 +44,7 @@ import {
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import {
   conversionDetailsOf,
+  conversionStepLossesOf,
   conversionLinksOf,
   conversionStepProblems,
   linkedLooseFabricIds,
@@ -484,7 +485,8 @@ async function writeYarns(
             loss_for_id: st.loss_for_id ?? null,
             combo: null,
             description: st.description ?? null,
-            loss_pct: null,
+            /* The unravelling loss is the CONVERSION step's own (2026-09-26). */
+            loss_pct: st.loss_pct ?? null,
             ...colorLossesForStorage(false, {}),
             source_loose_fabric_id: st.source_loose_fabric_id ?? null,
             conversion_details: st.conversion_details ?? [],
@@ -653,6 +655,7 @@ async function writeYarns(
     const plan = planConversions({
       links,
       details,
+      stepLosses: conversionStepLossesOf(p.yarns, isUnravelling),
       isUnravelling,
       fabrics: gross,
       compositions: compById,

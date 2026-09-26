@@ -15,6 +15,7 @@ import autoTable, { type CellInput, type RowInput } from "jspdf-autotable";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { fitLogo, loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
 import type { ReportStyleImages } from "./style-images";
+import { pickReportThumbnail, withoutThumbnail } from "./report-thumbnail";
 import { isRefusal, type GosSheet, type GosStyle } from "./types";
 import type { DocLetterhead } from "./letterhead";
 import {
@@ -141,6 +142,25 @@ export async function exportGosPdf(
     return y + 4;
   };
 
+  /* THE HEADER THUMBNAIL (2026-09-26) — the picture the page shows beside the
+     facts (`pickReportThumbnail`), fitted into an 86 pt square at the facts'
+     top-left; the facts table moves right by its width only when it drew. A
+     picture that will not load draws nothing, and the sheet still prints. */
+  const thumbSrc = pickReportThumbnail(images, sheet.styles.length === 1 ? sheet.styles[0].styleRef : null);
+  const thumb = thumbSrc ? await loadLetterheadImage(thumbSrc.url) : null;
+  const THUMB = 86;
+  let factsLeft = M;
+  let thumbBottom = 0;
+  if (thumb) {
+    const { w, h: th } = fitLogo(thumb, THUMB - 4, THUMB - 4);
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.4);
+    doc.rect(M, top + 8, THUMB, THUMB);
+    doc.addImage(thumb.dataUrl, "PNG", M + (THUMB - w) / 2, top + 8 + (THUMB - th) / 2, w, th);
+    factsLeft = M + THUMB + 8;
+    thumbBottom = top + 8 + THUMB;
+  }
+
   // THE BOXED HEADER — four label/value column pairs, read down.
   const cols = gosHeaderColumns(sheet);
   const depth = Math.max(...cols.map((c) => c.length));
@@ -148,12 +168,18 @@ export async function exportGosPdf(
   for (let i = 0; i < depth; i++) headerBody.push(cols.flatMap((c) => c[i] ?? ["", ""]));
   autoTable(doc, {
     ...grid,
+    margin: { left: factsLeft, right: M },
     body: headerBody,
     startY: top + 8,
     columnStyles: { 0: { textColor: 110 }, 2: { textColor: 110 }, 4: { textColor: 110 }, 6: { textColor: 110 }, 1: { fontStyle: "bold" }, 3: { fontStyle: "bold" }, 5: { fontStyle: "bold" }, 7: { fontStyle: "bold" } },
   });
+  /* The header block is at least as tall as the picture beside it, so what
+     follows starts below both. */
+  if (thumbBottom > lastY()) (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY = thumbBottom;
 
-  const groups = "failed" in images ? [] : images;
+  /* The thumbnailed picture does not print again below. */
+  const rest = withoutThumbnail(images, thumb ? thumbSrc : null);
+  const groups = "failed" in rest ? [] : rest;
   const styleRefs = new Set(sheet.styles.map((st) => st.styleRef?.trim()).filter(Boolean));
   const imagesOf = (ref: string | null | undefined) =>
     groups.find((g) => g.styleRef != null && g.styleRef === ref?.trim())?.images ?? [];

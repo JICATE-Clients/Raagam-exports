@@ -73,9 +73,10 @@ export const cutTypeLabel = (t: string | null | undefined) => CUT_TYPES.find((c)
 
 export const CUT_METHODS = [
   { value: "direct_shape", label: "Direct Shape" },
-  // "Bit Form Cutting" is the pattern room's word (user 2026-09-26); the
-  // stored value stays `fit_form`, so no saved cut changes.
-  { value: "fit_form", label: "Bit Form Cutting" },
+  // "Bit Cutting" is the pattern room's word (user 2026-09-26: first "Bit Form
+  // Cutting", then the spec's "Bit Cutting"); the stored value stays
+  // `fit_form`, so no saved cut changes.
+  { value: "fit_form", label: "Bit Cutting" },
 ] as const;
 export type CutMethod = (typeof CUT_METHODS)[number]["value"];
 export const cutMethodLabel = (m: string | null | undefined) =>

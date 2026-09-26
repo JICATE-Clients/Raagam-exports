@@ -9,6 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { CadPendingBadge } from "@/components/orders/cad/cad-pending-badge";
+import { ReportThumbnail } from "@/components/orders/report-thumbnail";
+import type { ReportStyleImage } from "@/lib/orders/gos/style-images";
+import { loadHeaderThumbnail } from "@/lib/orders/gos/report-thumbnail-actions";
 import {
   loadFabricBomEntryRegister,
   loadYarnFabricRequirementReport,
@@ -104,6 +107,10 @@ export function FabricBomReportsSheet({
      proposed figures, and the note says which one is on screen. */
   const [vf, setVf] = useState<{ forBom: string; data: SheetVFinal } | null>(null);
   const [showProposed, setShowProposed] = useState(false);
+  /* THE HEADER THUMBNAIL (2026-09-26) — keyed by BOM like the reports, loaded
+     AFTER them because the order and style it belongs to are read off the
+     report's own header. A failure resolves to no picture, never an error. */
+  const [thumb, setThumb] = useState<{ forBom: string; data: ReportStyleImage | null } | null>(null);
 
   useEffect(() => {
     if (!open || !bomId) return;
@@ -117,6 +124,13 @@ export function FabricBomReportsSheet({
       setRegister({ forBom: bomId, data: r });
       setRequirement({ forBom: bomId, data: y });
       setVf({ forBom: bomId, data: v as SheetVFinal });
+      const hdr = !("refused" in r) ? r.header : !("refused" in y) ? y.header : null;
+      if (!hdr) return;
+      loadHeaderThumbnail(hdr.garmentOrderId, hdr.styleRefNo)
+        .catch(() => null)
+        .then((t) => {
+          if (!cancelled) setThumb({ forBom: bomId, data: t });
+        });
     });
     return () => {
       cancelled = true;
@@ -140,6 +154,7 @@ export function FabricBomReportsSheet({
       : null;
   const loading = open && !!bomId && registerData == null;
   const liveRegister = register && bomId && register.forBom === bomId ? register.data : null;
+  const thumbnail = thumb && bomId && thumb.forBom === bomId ? thumb.data : null;
   const liveCadPending =
     liveRegister && !("refused" in liveRegister) ? liveRegister.header.cadPending : undefined;
 
@@ -179,6 +194,7 @@ export function FabricBomReportsSheet({
                   /* A FROZEN copy takes the CAD flag from the LIVE register
                      loaded beside it (0628) — the stamp follows today's CAD. */
                   cadPending={frozen ? liveCadPending : undefined}
+                  thumbnail={thumbnail}
                 />
               ),
             }))}
@@ -202,6 +218,13 @@ export function FabricBomReportsSheet({
 type FabricBomReportData = {
   register: EntryRegister | { refused: string } | null;
   requirement: YarnFabricRequirementReport | { refused: string } | null;
+  /**
+   * The style picture for the header's top-left (2026-09-26) — loaded BESIDE
+   * the report, never inside it: a signed URL lives an hour and the report may
+   * be a frozen V_final copy (`pickReportThumbnail`). Null/absent → no picture
+   * column at all.
+   */
+  thumbnail?: ReportStyleImage | null;
 };
 
 /**
@@ -219,9 +242,9 @@ function withCadFlag<T extends { header: BomDocHeader } | { refused: string } | 
 }
 
 const FABRIC_BOM_REPORT_VIEWS: Record<FabricBomReportKey, (d: FabricBomReportData) => React.ReactNode> = {
-  "fabric-bom-register": (d) => <EntryRegisterView data={d.register} />,
-  "yarn-fabric-requirement": (d) => <RequirementReportView data={d.requirement} />,
-  "printing-requirement": (d) => <PrintRequirementView data={d.requirement} />,
+  "fabric-bom-register": (d) => <EntryRegisterView data={d.register} thumbnail={d.thumbnail ?? null} />,
+  "yarn-fabric-requirement": (d) => <RequirementReportView data={d.requirement} thumbnail={d.thumbnail ?? null} />,
+  "printing-requirement": (d) => <PrintRequirementView data={d.requirement} thumbnail={d.thumbnail ?? null} />,
 };
 
 export function FabricBomReportView({
@@ -238,6 +261,7 @@ export function FabricBomReportView({
       {FABRIC_BOM_REPORT_VIEWS[report]({
         register: withCadFlag(data.register, cadPending),
         requirement: withCadFlag(data.requirement, cadPending),
+        thumbnail: data.thumbnail,
       })}
     </>
   );
@@ -325,9 +349,9 @@ function Letterhead({ title, header, stageStripe }: { title: string; header: Bom
  * reports; the Entry Register passes `excessAsPct` to state Excess % instead
  * of Excess Qty (client 2026-09-23).
  */
-function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
+function YarnReportFactsRow({ header, thumbnail }: { header: BomDocHeader; thumbnail: ReportStyleImage | null }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
+    <FactsBlock thumbnail={thumbnail}>
       <YarnFact label="Customer" value={header.customer} />
       <YarnFact label="RE No" value={header.scNo} mono />
       <YarnFact label="Order No" value={header.orderNo} mono />
@@ -337,6 +361,20 @@ function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
           abstain the ref itself makes. */}
       <YarnFact label="Style" value={header.styleName} />
       <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
+    </FactsBlock>
+  );
+}
+
+/**
+ * THE FACTS ROW'S FRAME — with the style picture at its top-left when one was
+ * ticked "Print on reports" (2026-09-26), the facts beside it unchanged. No
+ * picture → no left column at all, the facts take the full width.
+ */
+function FactsBlock({ thumbnail, children }: { thumbnail: ReportStyleImage | null; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
+      {thumbnail && <ReportThumbnail image={thumbnail} />}
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-5 gap-y-1">{children}</div>
     </div>
   );
 }
@@ -594,15 +632,15 @@ function ExportBar({ pdf }: { pdf: (output: PdfOutput) => Promise<void> }) {
  * beside `YarnReportFactsRow` for why the two reports each get their own copy
  * of this row rather than a single shared one.
  */
-function EntryRegisterFactsRow({ header }: { header: BomDocHeader }) {
+function EntryRegisterFactsRow({ header, thumbnail }: { header: BomDocHeader; thumbnail: ReportStyleImage | null }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
+    <FactsBlock thumbnail={thumbnail}>
       <YarnFact label="Customer" value={header.customer} />
       <YarnFact label="RE No" value={header.scNo} mono />
       <YarnFact label="Order No" value={header.orderNo} mono />
       <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
       <YarnFact label="Delivery Date" value={fmtDate(header.deliveryFromDate)} mono />
-    </div>
+    </FactsBlock>
   );
 }
 
@@ -656,7 +694,13 @@ function EntryRegisterGridCols({ cols }: { cols: readonly { label: string; width
   );
 }
 
-function EntryRegisterView({ data }: { data: EntryRegister | { refused: string } | null }) {
+function EntryRegisterView({
+  data,
+  thumbnail,
+}: {
+  data: EntryRegister | { refused: string } | null;
+  thumbnail: ReportStyleImage | null;
+}) {
   const [viewMode, setViewMode] = useState<"detailed" | "summary">("detailed");
 
   if (!data) return null;
@@ -666,10 +710,10 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
 
   return (
     <div>
-      <ExportBar pdf={(output) => exportEntryRegisterPdf(data, output)} />
+      <ExportBar pdf={(output) => exportEntryRegisterPdf(data, output, thumbnail?.url ?? null)} />
 
       <Letterhead title="Fabric BOM Entry Register" header={data.header} />
-      <EntryRegisterFactsRow header={data.header} />
+      <EntryRegisterFactsRow header={data.header} thumbnail={thumbnail} />
       <QuantityBand header={data.header} excessAsPct />
 
       {/* DETAILED VS SUMMARY — a floor operator wants every size row, a
@@ -1062,8 +1106,10 @@ function StageBadge({ state }: { state: string }) {
 
 function RequirementReportView({
   data,
+  thumbnail,
 }: {
   data: YarnFabricRequirementReport | { refused: string } | null;
+  thumbnail: ReportStyleImage | null;
 }) {
   /* HOOKS ABOVE THE EARLY RETURN BELOW, ALWAYS (AGENTS.md's standing rule —
      this exact file's sibling screen has taken production down five times
@@ -1085,10 +1131,10 @@ function RequirementReportView({
 
   return (
     <div>
-      <ExportBar pdf={(output) => exportYarnRequirementPdf(data, output)} />
+      <ExportBar pdf={(output) => exportYarnRequirementPdf(data, output, thumbnail?.url ?? null)} />
 
       <Letterhead title="Yarn &amp; Fabric Requirement Report" header={data.header} stageStripe />
-      <YarnReportFactsRow header={data.header} />
+      <YarnReportFactsRow header={data.header} thumbnail={thumbnail} />
       <QuantityBand header={data.header} />
       <StageKey />
 
@@ -1141,6 +1187,25 @@ function RequirementReportView({
                 <Td right mono className="font-semibold">{fmtNumber(data.yarnGrandTotal.qty)}</Td>
               </tr>
             )}
+            {/* CONVERSION — DIRECTLY UNDER YARN PURCHASE (client spec
+                2026-09-26): unravelling dyed loose fabric into dyed yarn is a
+                yarn process, so it reads with the yarns. Plan Wt is the
+                converted yarn a colour needs, To Ordered the loose fabric
+                unravelled for it. `?? []` — a frozen V_final copy predates it. */}
+            {(data.conversion ?? []).map((l, i) => (
+              <tr key={`conv-${i}`} className="odd:bg-white even:bg-[#fafbfc]">
+                <Td>{i === 0 ? <StageBadge state="DYED" /> : ""}</Td>
+                <Td>{i === 0 ? "CONVERSION" : ""}</Td>
+                <Td wrap>
+                  {l.yarnName}
+                  <span className="block text-[11px] text-muted-foreground">from {l.looseFabricName}</span>
+                </Td>
+                <Td>{l.colour ?? "—"}</Td>
+                <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                <Td right mono>{l.lossPct != null ? fmtNumber(l.lossPct) : "—"}</Td>
+                <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+              </tr>
+            ))}
             {/* YARN DYEING — the legacy printout's second Yarn Requirement
                 block, in the SAME table as the purchase rows because that is
                 what it is: the grey yarn above, and which colours of it the
@@ -1254,12 +1319,20 @@ function RequirementReportView({
 
       <div>
         <SectionHeader>Process Stage Ledger</SectionHeader>
-        {data.stageBreakdown.map((g, gi) => {
+        {/* NO FABRIC PURCHASE SECTIONS HERE (user 2026-09-26, screenshot 3114:
+            "DYED FABRIC PURCHASE — this is duplicated"). A bought cloth is
+            already the Fabric Purchase Requirement block above, line for line;
+            the ledger is for the processes the cloth goes THROUGH. Left out
+            of the print only — the Budget and Fabric T&A still read the
+            section off the report's data. */}
+        {data.stageBreakdown.filter((sec) => !sec.isClothPurchase).map((g, gi) => {
           /* THE SECTION WEARS ITS STAGE (2026-09-20) — tag, tint and rule. */
           const tone = sectionStyle(g.stages, g.isPrint);
           /* ONE BAND PER ASSORT COLOURWAY, alternating. */
           const runOf: number[] = [];
-          g.lines.forEach((l, i) => runOf.push(i === 0 ? 0 : runOf[i - 1] + (g.lines[i - 1].combo !== l.combo ? 1 : 0)));
+          /* A perComponent section bands by the component's colour (2026-09-26). */
+          const bandOf = (l: (typeof g.lines)[number]) => (g.perComponent ? (l.band ?? null) : l.combo);
+          g.lines.forEach((l, i) => runOf.push(i === 0 ? 0 : runOf[i - 1] + (bandOf(g.lines[i - 1]) !== bandOf(l) ? 1 : 0)));
           return (
             <div key={g.processId}>
               <div
@@ -1291,6 +1364,9 @@ function RequirementReportView({
                     <Th rowSpan={2}>Component</Th>
                     <Th rowSpan={2} right>Dia/Size</Th>
                     <Th colSpan={2} center>Planned</Th>
+                    {/* DYEING / DYED FABRIC PURCHASE only (client spec
+                        2026-09-26) — each component's grams per garment. */}
+                    {g.perComponent && <Th rowSpan={2} right>Piece Wt (g)</Th>}
                     <Th rowSpan={2} right>Loss %</Th>
                     <Th colSpan={2} center>To Ordered</Th>
                   </tr>
@@ -1308,8 +1384,8 @@ function RequirementReportView({
                       drawn where the colour changes. One colour, one flat
                       list, no band: nothing to total under. */}
                   {g.lines.map((l, i) => {
-                    const colourChanges = i === g.lines.length - 1 || g.lines[i + 1].combo !== l.combo;
-                    const subtotal = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === l.combo) : undefined;
+                    const colourChanges = i === g.lines.length - 1 || bandOf(g.lines[i + 1]) !== bandOf(l);
+                    const subtotal = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === bandOf(l)) : undefined;
                     return (
                       <Fragment key={i}>
                         <tr style={{ background: runOf[i] % 2 === 1 ? COLOURWAY_BAND : "#ffffff" }}>
@@ -1324,6 +1400,9 @@ function RequirementReportView({
                           <Td mono>{l.dia != null && String(l.dia).trim() ? String(l.dia) : "—"}</Td>
                           <Td right mono>{l.plannedNos != null ? fmtNumber(l.plannedNos) : "—"}</Td>
                           <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                          {g.perComponent && (
+                            <Td right mono>{l.pieceWtG != null ? fmtNumber(l.pieceWtG) : "—"}</Td>
+                          )}
                           <Td right mono>{l.lossPct.toFixed(2)}%</Td>
                           <Td right mono>{l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : "—"}</Td>
                           <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
@@ -1332,7 +1411,7 @@ function RequirementReportView({
                           <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
                             <Td colSpan={5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
                             <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
-                            <Td colSpan={2}>{""}</Td>
+                            <Td colSpan={g.perComponent ? 3 : 2}>{""}</Td>
                             <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
                           </tr>
                         )}
@@ -1342,6 +1421,7 @@ function RequirementReportView({
                   <tr className="font-semibold" style={{ background: tone.tint, color: tone.ink }}>
                     <Td colSpan={5}>Grand Total</Td>
                     <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
+                    {g.perComponent && <Td>{""}</Td>}
                     {/* 0606 — "Avg" only when a colour-wise step put different
                         losses in this section; same figure as the PDF. */}
                     <Td right mono>{avgLoss(g.lines, g.plannedTotal, g.toOrderedTotal)}</Td>
@@ -1448,8 +1528,10 @@ function FabricAllocationSection({ allocation }: { allocation: YarnFabricRequire
  */
 function PrintRequirementView({
   data,
+  thumbnail,
 }: {
   data: YarnFabricRequirementReport | { refused: string } | null;
+  thumbnail: ReportStyleImage | null;
 }) {
   if (!data) return null;
   if (isReportRefusal(data)) {
@@ -1459,10 +1541,10 @@ function PrintRequirementView({
   return (
     <div>
       {p.groups.length > 0 && (
-        <ExportBar pdf={(output) => exportPrintRequirementPdf(data, output)} />
+        <ExportBar pdf={(output) => exportPrintRequirementPdf(data, output, thumbnail?.url ?? null)} />
       )}
       <Letterhead title="Printing Requirement" header={data.header} stageStripe />
-      <YarnReportFactsRow header={data.header} />
+      <YarnReportFactsRow header={data.header} thumbnail={thumbnail} />
       <QuantityBand header={data.header} />
       <div className="mt-3">
         <SectionHeader tone={STAGE_STYLES.print}>Fabric Sent for Printing</SectionHeader>

@@ -16,6 +16,7 @@ import { colorLossesForStorage } from "./color-loss";
 import { yarnStageProblems } from "./yarn-stage-routes";
 import {
   conversionDetailsOf,
+  conversionStepLossesOf,
   conversionLinksOf,
   conversionStepProblems,
   linkedLooseFabricIds,
@@ -1158,6 +1159,8 @@ function normalizeYarns(
   const conversionPlan = planConversions({
     links,
     details,
+    // The yarn CONVERSION step's own loss (2026-09-26).
+    stepLosses: conversionStepLossesOf(data.yarns, isUnravelling),
     isUnravelling,
     fabrics,
     compositions,
@@ -1275,8 +1278,9 @@ function normalizeYarns(
             loss_for_id: st.loss_for_id ?? null,
             combo: null,
             description: st.description ?? null,
-            /* The unravelling loss is on the loose fabric's route. */
-            loss_pct: null,
+            /* THE UNRAVELLING LOSS IS THE STEP'S OWN (2026-09-26) — CONVERSION
+               left the loose fabric's route. */
+            loss_pct: st.loss_pct ?? null,
             ...colorLossesForStorage(false, {}),
             source_loose_fabric_id: st.source_loose_fabric_id ?? null,
             conversion_details: st.conversion_details ?? [],
