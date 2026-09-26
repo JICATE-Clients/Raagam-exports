@@ -42,6 +42,9 @@ import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { validateFormat, type FormatKind } from "@/lib/validation/formats";
 import { cn } from "@/lib/utils";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
+import type { ActiveEntityKey } from "@/lib/masters/active-registry";
 
 /* ------------------------------------------------------------------ types */
 
@@ -154,6 +157,23 @@ export type SimpleMasterDescriptor<Row> = {
   searchText: (r: Row) => string;
   /** Row → status; required unless status is "none". */
   statusOf?: (r: Row) => "active" | "inactive" | "draft";
+  /**
+   * BLOCK / UNBLOCK FROM THE LISTING, NOT THE FORM — the 08-17 client rule
+   * ("move this in ACTION only, no more in the creating screen"), opted into
+   * per descriptor by naming the master's key in `lib/masters/active-registry.ts`.
+   *
+   * With it set, the table's Status cell is a live SWITCH (`StatusToggle`, the
+   * control Country / Customer draw) and the mobile card's footer carries
+   * Block / Unblock — both through `useBlockAction` — and the add/edit surfaces stop
+   * offering Status: the inline row and the mobile edit card show the row's
+   * pill read-only, and the sheet drops its Inactive switch. `editing.status`
+   * still round-trips through `toPayload`, so saving an edit of a blocked row
+   * does not quietly switch it back on.
+   *
+   * Only for `status: "active"`. A draft-capable master's Draft is how the
+   * record is SAVED (its footer button), not a block — it keeps the switch.
+   */
+  blockEntity?: ActiveEntityKey;
   /** Row primary key; defaults to `r.id`. Override for masters keyed on code. */
   getId?: (r: Row) => string;
   /** Extra facet filters beyond Status (rendered in the FilterBar). */
@@ -266,6 +286,17 @@ export function SimpleMasterScreen<Row>({
 
   const getId = d.getId ?? ((r: Row) => (r as { id: string }).id);
   const hasStatus = d.status !== "none";
+  /* Called unconditionally (hooks by position); inert unless the descriptor
+     names an entity. See `blockEntity`. */
+  const { blockItem, setStatus, isPending: statusPending } = useBlockAction(d.blockEntity ?? "");
+  const blockInRow = !!d.blockEntity && d.status === "active";
+  const blockItems = (r: Row) =>
+    blockInRow
+      ? blockItem({ ...(r as object), id: getId(r) } as { id: string } & Deactivatable, {
+          label: rowTitle(r),
+          canBlock: perms.canDelete,
+        })
+      : [];
   /**
    * Sheet mode suppresses BOTH inline editors — the desktop add/edit row and
    * the mobile edit card — because `editing` is the single piece of state all
@@ -734,6 +765,15 @@ export function SimpleMasterScreen<Row>({
 
   function statusEditCell(dense = true) {
     if (!editing) return null;
+    // Blocked from the ⋮ menu instead (`blockEntity`): the form shows the
+    // record's status and does not offer to change it.
+    if (blockInRow) {
+      return editing.status === "inactive" ? (
+        <StatusPill tone="danger">Inactive</StatusPill>
+      ) : (
+        <StatusPill tone="success">Active</StatusPill>
+      );
+    }
     // Inactive is an edit-time state — new records are always created Active.
     // Draft-capable masters keep the full select on add (Draft is a valid start).
     if (editing.id === null && d.status === "active") {
@@ -980,7 +1020,28 @@ export function SimpleMasterScreen<Row>({
                         {c.cell(r)}
                       </td>
                     ))}
-                    {hasStatus && <td className="px-3 py-2 align-middle">{statusPill(r)}</td>}
+                    {hasStatus && (
+                      <td className="px-3 py-2 align-middle">
+                        {blockInRow ? (
+                          /* A SWITCH, not a pill (client 2026-09-26) — the
+                             `blockEntity` masters are switched on and off
+                             right here in the list. Gated on delete, as
+                             `setMasterActive` gates it server-side. */
+                          <StatusToggle
+                            row={r as Deactivatable}
+                            label={rowTitle(r)}
+                            disabled={!perms.canDelete || statusPending || !!editing}
+                            onChange={(active) =>
+                              setStatus({ ...(r as object), id: getId(r) } as { id: string } & Deactivatable, active, {
+                                label: rowTitle(r),
+                              })
+                            }
+                          />
+                        ) : (
+                          statusPill(r)
+                        )}
+                      </td>
+                    )}
                     <td className="px-3 py-2 align-middle">
                       <RowActions
                         label={rowTitle(r)}
@@ -1075,6 +1136,20 @@ export function SimpleMasterScreen<Row>({
                   </Button>
                   {/* Text, not the desktop bin icon: same reason MobileCardList
                       uses text here — a 32px icon is not a touch target. */}
+                  {/* Block / Unblock — the phone's way to the ⋮ item, since the
+                      form no longer carries the switch (`blockEntity`). */}
+                  {blockItems(r).map((it) => (
+                    <Button
+                      key={it.label}
+                      variant="ghost"
+                      size="sm"
+                      disabled={it.disabled}
+                      onClick={it.onClick}
+                      className={cn(it.danger && "text-danger")}
+                    >
+                      {it.label}
+                    </Button>
+                  ))}
                   {perms.canDelete && (
                     <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />
                   )}
@@ -1211,7 +1286,7 @@ export function SimpleMasterScreen<Row>({
               (client 2026-09-05), where the legacy ERP has always had it and
               where two other masters in this sub-module already put it.
             */}
-            {hasStatus && (
+            {hasStatus && !blockInRow && (
               <Field label="Status" size="lg">
                 <div className="flex h-8 items-center">
                   <Toggle

@@ -14,6 +14,8 @@ import { Sheet } from "@/components/ui/sheet";
 import { Toggle } from "@/components/ui/toggle";
 import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { usePagination } from "@/lib/use-pagination";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -130,6 +132,11 @@ export function CategoryMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("category");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -492,11 +499,19 @@ export function CategoryMasterScreen({
       ),
     },
     {
-      header: "Inactive",
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
+      header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>
-          {r.inactive ? "Inactive" : "Active"}
-        </StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.name}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -908,19 +923,7 @@ export function CategoryMasterScreen({
                 it, here or on a child grid, is putting this picker back and
                 nothing else. Levies are still pickable where they're actually
                 decided: VAT / Duty / TDS on the Vendor master. */}
-            {/* Inside the card, on its own row — it sat loose below the cards,
-                belonging to neither. Edit-only: a category being created is not
-                one being switched off. */}
-            {editId && (
-              <FieldRow>
-                <Toggle
-                  id="cat-inactive"
-                  label="Inactive"
-                  checked={form.inactive}
-                  onChange={(inactive) => setForm((f) => ({ ...f, inactive }))}
-                />
-              </FieldRow>
-            )}
+            {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
           </DetailSection>
         </div>
       </Sheet>

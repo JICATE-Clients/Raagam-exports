@@ -11,9 +11,10 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { Sheet } from "@/components/ui/sheet";
-import { Toggle } from "@/components/ui/toggle";
 import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { fmtNumber } from "@/lib/format";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
@@ -127,6 +128,11 @@ export function CompositionMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("composition");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -383,11 +389,19 @@ export function CompositionMasterScreen({
       ),
     },
     {
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
       header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>
-          {r.inactive ? "Inactive" : "Active"}
-        </StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.name}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -600,30 +614,20 @@ export function CompositionMasterScreen({
               />
             </Field>
             </FieldRow>
-            {/* Inside the card, on its own row — it sat loose between the card
-                and the grid, belonging to neither. Own row because a switch has
-                no label band to align with the fields above. */}
-            {editId && (
-              <FieldRow>
-                <Toggle
-                  id="cmp-inactive"
-                  label="Inactive"
-                  checked={form.inactive}
-                  onChange={(inactive) => setForm((f) => ({ ...f, inactive }))}
-                />
-              </FieldRow>
-            )}
+            {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
           </DetailSection>
 
-          {/* `inlineCards`, not `forceCards` — LAYOUT.md §6 picks the mode by
-              FIELDS PER ROW, and a mixing line has two. `forceCards` is the 6-8
-              band, so it drew each line as a stacked box: "#1", then the yarn on
-              its own line, then the % on another, ~120px of chrome for two
-              controls. This is the same grid Material ▸ Mixing renders, with the
-              same 5rem % column — the two screens edit the same idea and should
-              not look like different products. `renderMobileRow` goes with it:
-              `inlineCards` ignores it by contract, and a second copy of the
-              cells was only ever there to keep the card mode in step.
+          {/* A REAL TABLE (client 2026-09-26: "mixing ku table illama irukku,
+              yarn mixing kku table venum"). `inlineCards` drew a header band
+              and aligned columns but NO gridlines, so it read as loose fields
+              under grey labels — the same complaint Color/Print Details and
+              Process ▸ Sub Categories answered with `tableAlways`. It is
+              needed because FORM_W (416px) sits below ChildGrid's `@lg`
+              (512px) table breakpoint, so the plain responsive mode would fall
+              back to stacked cards. Safe because the table fits a phone:
+                `#` 2.5 + yarn 12.5 + mixing 5 + ✕ 3 = 23rem (368px) < FORM_W.
+              Every column declares a width, so the table hugs (`table-fixed`).
+              Change a MIX_W width and re-check that sum.
               Capped to FORM_W (rule 4), so it ends where Details ends. */}
           <div className={FORM_W}>
           <ChildGrid<LineRow>
@@ -635,7 +639,7 @@ export function CompositionMasterScreen({
               </span>
             }
             pageSize={10}
-            inlineCards
+            tableAlways
             rows={lines}
             onAdd={addLine}
             onRemove={(l) => removeLine(l.key)}

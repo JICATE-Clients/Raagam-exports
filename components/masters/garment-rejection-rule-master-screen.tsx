@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
-import { Toggle } from "@/components/ui/toggle";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -15,6 +14,8 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createGarmentRejectionRule,
@@ -145,6 +146,11 @@ export function GarmentRejectionRuleMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("garment_rejection_rule");
   const [isPending, startTransition] = useTransition();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -322,9 +328,19 @@ export function GarmentRejectionRuleMasterScreen({
       cell: (r) => <span className="tabular-nums text-sm">{r.lines.length}</span>,
     },
     {
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
       header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
+        <StatusToggle
+          row={r}
+          label={`Rule #${r.entry_no}`}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: `Rule #${r.entry_no}` })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -461,15 +477,7 @@ export function GarmentRejectionRuleMasterScreen({
               />
             </Field>
           </FieldRow>
-          {/* Its own row: a switch has no label band, so inside the `items-end`
-              row above it would sit level with the boxes' bottoms and float.
-              `Toggle`, not a tick box — still a real checkbox underneath, so
-              Tab / Enter / Space reach it. */}
-          {editId && (
-            <FieldRow>
-              <Toggle id="grr-inactive" label="Inactive" checked={inactive} onChange={setBlocked} />
-            </FieldRow>
-          )}
+          {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
 
           {/*
             A real `ChildGrid` rather than the hand-rolled card stack this was.
