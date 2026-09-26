@@ -7837,23 +7837,37 @@ export function FabricBomScreen({
    *
    * THE COLOUR NAME ONLY — "BLUE", not "Color 1 — BLUE (20%)" (user 2026-09-26,
    * screenshot 3104: "just show the color name, no need that color1 and
-   * percentage mixing, remove it"). Where colourways put different colours at
-   * one position they are joined, "BLUE / GREEN"; a position with no colour
-   * typed on Combinations yet falls back to its own name so the row is never
-   * blank. The VALUE stays the position, which is what `planConversions` keys a
-   * Details row by.
+   * percentage mixing, remove it").
    */
   const stripeColoursOf = (yarnId: string) => {
+    /* ONE OPTION PER COLOUR (user 2026-09-26: "one by one one color") — when
+       Color 1 is WHITE on one colourway and RED on another, WHITE and RED are
+       two rows, not "WHITE / RED". The VALUE is the colour, which is what
+       `planConversions` matches a row by first; a stripe with no colour typed
+       yet stands in as its position ("Color 1"). Stripe order, then the order
+       the colourways name them. */
     const byPos = new Map<string, string[]>();
     for (const sh of yarnShades) {
       if (sh.yarn_id !== yarnId || !sh.position) continue;
       const held = byPos.get(sh.position) ?? [];
       byPos.set(sh.position, held);
-      if (sh.colour && !held.includes(sh.colour)) held.push(sh.colour);
+      const name = sh.colour?.trim() || sh.position;
+      if (!held.includes(name)) held.push(name);
     }
-    return [...byPos.entries()]
-      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-      .map(([position, colours]) => ({ value: position, label: colours.length ? colours.join(" / ") : position }));
+    const out: { value: string; label: string; positions: string[] }[] = [];
+    for (const [position, names] of [...byPos.entries()].sort(([x], [y]) =>
+      x.localeCompare(y, undefined, { numeric: true }),
+    )) {
+      for (const n of names) {
+        const held = out.find((o) => o.value.toUpperCase() === n.toUpperCase());
+        if (held) {
+          if (!held.positions.includes(position)) held.positions.push(position);
+        } else {
+          out.push({ value: n, label: n, positions: [position] });
+        }
+      }
+    }
+    return out;
   };
   /** The yarns a loose fabric is unravelled into — for its Fabric Process row. */
   const yarnsConvertedFrom = (fabricId: string) =>

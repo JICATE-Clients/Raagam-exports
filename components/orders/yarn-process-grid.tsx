@@ -182,7 +182,7 @@ export function YarnProcessGrid({
    * Empty = the yarn has no stripes declared, and the list falls back to the
    * colourways as before.
    */
-  stripeColours?: readonly { value: string; label: string }[];
+  stripeColours?: readonly { value: string; label: string; positions?: readonly string[] }[];
   /** The yarn's name, for the Details' one-line note when it has no stripes. */
   yarnName?: string;
   /** Called when a source is picked, so the screen can inject the loose
@@ -625,8 +625,27 @@ export function YarnProcessGrid({
       !!(d.source_loose_fabric_id || String(d.loss_pct ?? "").trim() || String(d.gsm ?? "").trim() || String(d.dia ?? "").trim());
     // A row with no colour picked yet is one the operator just added ("+ Add
     // colour") — kept, or the button would appear to do nothing.
+    /* A ROW SAVED PER STRIPE ("Color 1", while rows were one per stripe)
+       OPENS AS ONE ROW PER COLOUR AT THAT STRIPE, each keeping the row's loose
+       fabric, loss, GSM and Dia (user 2026-09-26: "one by one one color").
+       Its colours not already listed on their own row are the ones added. */
+    const coloursAt = (position: string) =>
+      stripeColours.filter((x) => (x.positions ?? []).some((p) => sameCombo(p, position))).map((x) => x.value);
+    const expanded: ConversionDetailDraft[] = [];
+    for (const d of stored) {
+      const at = stripeColours.length > 0 && !isStripe(d.combo) ? coloursAt(d.combo) : [];
+      if (at.length === 0) {
+        expanded.push(d);
+        continue;
+      }
+      for (const colour of at) {
+        if (!stored.some((x) => sameCombo(x.combo, colour)) && !expanded.some((x) => sameCombo(x.combo, colour))) {
+          expanded.push({ ...d, combo: colour });
+        }
+      }
+    }
     const live =
-      stripeColours.length > 0 ? stored.filter((d) => !d.combo.trim() || isStripe(d.combo) || typed(d)) : stored;
+      stripeColours.length > 0 ? expanded.filter((d) => !d.combo.trim() || isStripe(d.combo) || typed(d)) : expanded;
     const drafts = live.length > 0 ? live : detailColours.map(blankDetail);
     return drafts.map((d, i) => ({ key: `d:${i}`, draft: inherit(d) }));
   };

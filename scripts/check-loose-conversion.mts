@@ -380,5 +380,55 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
   check("9e no stripes passed: one part per colourway, as before", noStripes.looseDemand.map((d) => [d.fabric_id, d.gross]), [[LOOSE, 102.041]]);
 }
 
+// ---------------------------------------------------------------------------
+// 10. ONE ROW PER COLOUR (2026-09-26, "one by one one color"). Color 1 is
+//     WHITE on the NAVY colourway and RED on the RED one: two rows, each its
+//     own loose fabric — never one "WHITE / RED" row for both.
+// ---------------------------------------------------------------------------
+{
+  const LOOSE_W = "fab-loose-white";
+  const comps10 = new Map(compositions).set(LOOSE_W, comp(LOOSE_W, "LOOSE WHITE", Y));
+  const routes10 = new Map(routes).set(LOOSE_W, routes.get(LOOSE)!);
+  const fab10: FabricGross[] = [...fabrics, { fabric_id: COLLAR, combo: "RED", gross: 50, uom_id: KG }];
+  const stripe = (combo: string, colour: string) => ({
+    fabric_id: COLLAR,
+    yarn_id: Y,
+    combo,
+    share: 1,
+    loss_pct: 0,
+    position: "Color 1",
+    colour,
+  });
+  const row = (combo: string, loose: string | null) => ({ combo, loss_pct: null, source_loose_fabric_id: loose, gsm: null, dia: null });
+  const p10 = planConversions({
+    links: new Map([[Y, LOOSE]]),
+    details: new Map([[Y, [row("WHITE", LOOSE_W)]]]),
+    fabrics: fab10,
+    compositions: comps10,
+    routesByFabric: routes10,
+    decimals: 3,
+    isUnravelling,
+    shades: [stripe("NAVY", "WHITE"), stripe("RED", "RED")],
+  });
+  const onFabric = (fid: string) => p10.looseDemand.filter((d) => d.fabric_id === fid).map((d) => d.combo);
+  check("10a WHITE (NAVY colourway's Color 1) goes to its own loose fabric", onFabric(LOOSE_W), ["NAVY"]);
+  check("10b RED (the other colourway's Color 1) is not dragged along with it", onFabric(LOOSE), ["RED"]);
+  const byPosition = planConversions({
+    links: new Map([[Y, LOOSE]]),
+    details: new Map([[Y, [row("Color 1", LOOSE_W)]]]),
+    fabrics: fab10,
+    compositions: comps10,
+    routesByFabric: routes10,
+    decimals: 3,
+    isUnravelling,
+    shades: [stripe("NAVY", "WHITE"), stripe("RED", "RED")],
+  });
+  check(
+    "10c a row saved by stripe position still covers every colour at it",
+    byPosition.looseDemand.filter((d) => d.fabric_id === LOOSE_W).map((d) => d.combo).sort(),
+    ["NAVY", "RED"],
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
