@@ -15,6 +15,8 @@ import { FabricRequirementSheetDocument } from "@/components/orders/fabric-requi
 import { FabricRequirementToolbar } from "@/components/orders/fabric-requirement-toolbar";
 import { fmtDateTime } from "@/lib/format";
 import { Card, CardBody } from "@/components/ui/card";
+import { getReportStyleImages } from "@/lib/orders/gos/style-images";
+import { pickReportThumbnail } from "@/lib/orders/gos/report-thumbnail";
 import { OrderDocumentTabs } from "@/components/orders/order-document-tabs";
 
 /**
@@ -61,7 +63,18 @@ export default async function FabricRequirementPage({
   const data = vf.state === "frozen" && !proposed ? vf.payload : await getFabricRequirementSheet(orderId);
   /* THE CAD STAMP IS LIVE (0628) — read now, never frozen with the sheet, so an
      approval recorded after the freeze lifts it. */
-  const cadPending = isFabricSheetRefusal(data) ? false : await cadPendingForFabricBom(data.bom.id);
+  /* THE HEADER THUMBNAIL (2026-09-26) — the ticked style picture, loaded
+     BESIDE the sheet on every render and never frozen with it (a signed URL
+     lives an hour). A failure is no picture, never a broken page. */
+  const [cadPending, images] = await Promise.all([
+    isFabricSheetRefusal(data) ? false : cadPendingForFabricBom(data.bom.id),
+    isFabricSheetRefusal(data) ? null : getReportStyleImages(orderId).catch(() => null),
+  ]);
+  /* A sheet about ONE style takes that style's picture (`pickReportThumbnail`). */
+  const styleRefs = isFabricSheetRefusal(data)
+    ? []
+    : [...new Set(Object.values(data.names.entries).map((e) => e.styleRefNo?.trim()).filter(Boolean))];
+  const thumbnail = pickReportThumbnail(images, styleRefs.length === 1 ? styleRefs[0] : null);
 
   return (
     <div className="space-y-4">
@@ -91,6 +104,7 @@ export default async function FabricRequirementPage({
               orderNo: data.order.orderNo,
               computedAt: data.bom.computedAt ? fmtDateTime(data.bom.computedAt) : null,
               cadPending,
+              thumbUrl: thumbnail?.url ?? null,
             }}
           />
         )}
@@ -136,7 +150,7 @@ export default async function FabricRequirementPage({
           </CardBody>
         </Card>
       ) : (
-        <FabricRequirementSheetDocument data={data} cadPending={cadPending} />
+        <FabricRequirementSheetDocument data={data} cadPending={cadPending} thumbnail={thumbnail} />
       )}
     </div>
   );

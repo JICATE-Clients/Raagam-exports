@@ -904,7 +904,7 @@ export async function getFabricProcessLookupRows(): Promise<FabricProcessLookups
 export async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
   const s = await createClient();
   const [{ data, error }, roles, fabricStages, yarnStages] = await Promise.all([
-    s.from("processes").select("id, name, inactive, for_yarn, is_unravelling").order("name"),
+    s.from("processes").select("id, name, inactive, for_yarn, is_unravelling, is_cloth_purchase").order("name"),
     /* THE STAGE CLASSIFICATION (2026-09-21) — the same rows the fabric loader
        reads, mapped onto yarn-stage ids by code (`yarnStageTwins`). */
     s.from("process_fabric_stages").select("process_id, stage_id, is_base"),
@@ -939,10 +939,18 @@ export async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
     inactive: boolean | null;
     for_yarn: boolean | null;
     is_unravelling: boolean | null;
+    is_cloth_purchase: boolean | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
-    name: p.name,
+    /* EVERY YARN PURCHASE READS "YARN PURCHASE" (user 2026-09-26, screenshot
+       3111: "the process listing again dyed yarn purchase, just yarn
+       purchase"). Under DYED it is 0648's DYED YARN PURCHASE — its own
+       process only because a process opens one stage (0611) and a name is
+       unique in the master — but the operator's word is the stage's: YARN
+       PURCHASE under GREIGE buys grey yarn, under DYED buys it dyed. Only the
+       label here; the master keeps its name and every rule reads the flags. */
+    name: p.for_yarn && p.is_cloth_purchase ? "YARN PURCHASE" : p.name,
     inactive: p.inactive ?? false,
     for_yarn: p.for_yarn ?? false,
     /* 0633 — a CONVERSION step asks for a Source Loose Fabric. */

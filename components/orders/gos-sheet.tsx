@@ -3,9 +3,11 @@ import { isRefusal, type GosPanel, type GosSheet, type GosStyle } from "@/lib/or
 import type { ReportStyleImage, ReportStyleImages } from "@/lib/orders/gos/style-images";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import { CONSTRUCTION_ONLY, DASH, gosHeaderColumns, gosStyleFacts, txt } from "@/lib/orders/gos/format";
+import { pickReportThumbnail, withoutThumbnail } from "@/lib/orders/gos/report-thumbnail";
 import { DocumentPrintStyles } from "./document-print-styles";
 import { GosStyleImages } from "./gos-style-images";
 import { GosToolbar } from "./gos-toolbar";
+import { ReportThumbnail } from "./report-thumbnail";
 
 /**
  * THE GARMENT ORDER SHEET, as it prints.
@@ -71,7 +73,12 @@ export function GosSheetDocument({
      (filed against the order, or under a reference this sheet does not print)
      goes under the header instead of being dropped: a ticked picture that
      silently never prints is the tick lying to the operator. */
-  const imageGroups = "failed" in styleImages ? [] : styleImages;
+  /* THE HEADER THUMBNAIL (2026-09-26) — the first ticked picture, beside the
+     order facts. It is taken OUT of the blocks below so it does not print
+     twice; the export picks the same one (`pickReportThumbnail`). */
+  const thumb = pickReportThumbnail(styleImages, sheet.styles.length === 1 ? sheet.styles[0].styleRef : null);
+  const rest = withoutThumbnail(styleImages, thumb);
+  const imageGroups = "failed" in rest ? [] : rest;
   const styleRefs = new Set(sheet.styles.map((st) => st.styleRef?.trim()).filter(Boolean));
   const imagesOf = (ref: string | null | undefined) =>
     imageGroups.find((g) => g.styleRef != null && g.styleRef === ref?.trim())?.images ?? [];
@@ -134,14 +141,18 @@ export function GosSheetDocument({
         </header>
 
         {/* ---- the boxed header: four columns, each read down ---- */}
-        <section className="gos-keep grid grid-cols-1 gap-x-6 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px] sm:grid-cols-2 lg:grid-cols-4">
-          {gosHeaderColumns(sheet).map((col, ci) => (
-            <div key={ci} className="space-y-1">
-              {col.map(([label, value]) => (
-                <Fact key={label} label={label} value={value} mono={label === "S No" || label.startsWith("Order No")} />
-              ))}
-            </div>
-          ))}
+        <section className="gos-keep flex items-start gap-3 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
+          {/* No ticked picture → no left column at all, not an empty box. */}
+          {thumb && <ReportThumbnail image={thumb} />}
+          <div className="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
+            {gosHeaderColumns(sheet).map((col, ci) => (
+              <div key={ci} className="space-y-1">
+                {col.map(([label, value]) => (
+                  <Fact key={label} label={label} value={value} mono={label === "S No" || label.startsWith("Order No")} />
+                ))}
+              </div>
+            ))}
+          </div>
         </section>
 
         {"failed" in styleImages && (

@@ -14,12 +14,15 @@
 
 import {
   conversionLinksOf,
+  conversionStepLossesOf,
   conversionStepProblems,
   planConversions,
   withoutConversionSteps,
   yarnPurchaseWithConversion,
 } from "../lib/orders/fabric-bom/loose-conversion";
-import { isRefusal, yarnPurchase, type FabricComposition, type FabricGross, type RouteStage } from "../lib/orders/fabric-bom/yarn-process";
+import { isRefusal, yarnPurchase, type FabricComposition, type FabricGross, type RouteStage,
+  stripeWiseOwnSteps,
+} from "../lib/orders/fabric-bom/yarn-process";
 import { processesForFabric, type FabricProcessOption } from "../lib/orders/fabric-bom/processes";
 
 let failed = 0;
@@ -195,9 +198,11 @@ check(
   ["30S: a yarn"],
 );
 check(
-  "6d a linked loose fabric may not lose its CONVERSION step (the spec's delete guard)",
+  // 2026-09-26: CONVERSION left the fabric route — a loose fabric's route is
+  // KNITTING -> DYEING and needs no CONVERSION step.
+  "6d a loose fabric's route no longer needs a CONVERSION step",
   rules([{ process_id: "CONV", source_loose_fabric_id: LOOSE }], [{ item_id: LOOSE, process_id: "KNIT" }]),
-  ["LOOSE is the"],
+  [],
 );
 check(
   "6e CONVERSION on an ordinary cloth's route is refused",
@@ -222,13 +227,13 @@ const opt = (id: string, extra: Partial<FabricProcessOption> = {}): FabricProces
 });
 const opts = [opt("DYE", { is_dyeing: true }), opt("CONV", { is_unravelling: true })];
 check("7a withheld by default", processesForFabric(opts).map((p) => p.id), ["DYE"]);
-check("7b offered on a loose fabric's route", processesForFabric(opts, { looseFabricRoute: true }).map((p) => p.id), ["DYE", "CONV"]);
+check("7b never offered, even on a loose fabric's route (2026-09-26)", processesForFabric(opts, { looseFabricRoute: true }).map((p) => p.id), ["DYE"]);
 check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)", processesForFabric(opts, { currentValue: "CONV" }).map((p) => p.id), ["DYE", "CONV"]);
 {
   /* LIVE 2026-09-26: the master's CONVERSION had For Fabric unticked, the
      injected route lost its third step and every Save refused. */
   const noTick = [opt("DYE", { is_dyeing: true }), opt("CONV", { is_unravelling: true, for_fabric: false })];
-  check("7d a CONVERSION not ticked For Fabric is still offered on a loose fabric's route", processesForFabric(noTick, { looseFabricRoute: true }).map((p) => p.id), ["DYE", "CONV"]);
+  check("7d ...ticked For Fabric or not", processesForFabric(noTick, { looseFabricRoute: true }).map((p) => p.id), ["DYE"]);
   check("7e ...and still withheld everywhere else", processesForFabric(noTick).map((p) => p.id), ["DYE"]);
 }
 
@@ -294,16 +299,18 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
   const bad = planConversions({ links, details: new Map([[Y, [detail("NAVY", 100, null)]]]), fabrics, compositions, routesByFabric: routes, decimals: 3, isUnravelling }).converted.get(Y);
   check("8f a Loss % of 100 refuses rather than dividing by zero", !!bad && isRefusal(bad), true);
   check(
-    "8g the Details' fabrics count as linked (their route must keep CONVERSION)",
+    // A route SAVED with its CONVERSION step on a Details fabric is neither
+    // required (2026-09-26) nor refused as misplaced — it is still linked.
+    "8g the Details' fabrics count as linked (an old CONVERSION step there passes)",
     conversionStepProblems({
       yarns: [{ name: "30S", stages: [{ process_id: "CONV", source_loose_fabric_id: null, conversion_details: [{ source_loose_fabric_id: LOOSE2 }] }] }],
       links: new Map([[Y, null]]),
       details: new Map([[Y, [detail("NAVY", null, LOOSE2)]]]),
-      routeSteps: [],
+      routeSteps: [{ item_id: LOOSE2, process_id: "CONV" }],
       isUnravelling,
       fabricName: (id) => id,
-    }).some((m) => m.startsWith(LOOSE2)),
-    true,
+    }),
+    [],
   );
   check(
     "8h a step whose only fabric is in the Details is not \"missing its source\"",
@@ -428,6 +435,81 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
     byPosition.looseDemand.filter((d) => d.fabric_id === LOOSE_W).map((d) => d.combo).sort(),
     ["NAVY", "RED"],
   );
+}
+
+// ---------------------------------------------------------------------------
+// 11. CONVERSION IS A YARN STEP (2026-09-26): the unravelling loss is the yarn
+//     CONVERSION step's own Loss %, the loose fabric's route is KNIT -> DYE.
+// ---------------------------------------------------------------------------
+{
+  const routesNew = new Map(routes).set(LOOSE, [step("KNIT", 1, { is_knitting: true }), step("DYE", 5, { is_dyeing: true })]);
+  const base11 = { links: new Map([[Y, LOOSE]]), fabrics, compositions, decimals: 3, isUnravelling };
+  const g = (pl: ReturnType<typeof planConversions>) => pl.looseDemand.reduce((x, d) => x + (d.gross ?? 0), 0);
+  check(
+    "11a the yarn step's loss grosses the loose fabric when the route has no CONVERSION",
+    near(g(planConversions({ ...base11, routesByFabric: routesNew, stepLosses: new Map([[Y, 2]]) })), 102.041 / 0.98),
+    true,
+  );
+  check(
+    "11b an old route that keeps CONVERSION is not grossed twice (divided back out)",
+    near(g(planConversions({ ...base11, routesByFabric: routes, stepLosses: new Map([[Y, 2]]) })), 102.041),
+    true,
+  );
+  check(
+    "11c no loss on the yarn: an old route's CONVERSION answers, as before",
+    near(g(planConversions({ ...base11, routesByFabric: routes })), 102.041),
+    true,
+  );
+  const row = (combo: string, loss: number | null) => ({ combo, loss_pct: loss, source_loose_fabric_id: null, gsm: null, dia: null });
+  check(
+    "11d a colour's Details loss wins over the step's",
+    near(
+      g(planConversions({ ...base11, routesByFabric: routesNew, stepLosses: new Map([[Y, 2]]), details: new Map([[Y, [row("NAVY", 10)]]]) })),
+      102.041 / 0.9,
+    ),
+    true,
+  );
+  check(
+    "11e the step's loss is read off the form's text and the stored number alike",
+    [...conversionStepLossesOf([{ item_id: Y, stages: [{ process_id: "CONV", loss_pct: "2.5" }] }], isUnravelling)],
+    [[Y, 2.5]],
+  );
+  check(
+    "11f a blank step loss is left out (the old route answers)",
+    conversionStepLossesOf([{ item_id: Y, stages: [{ process_id: "CONV", loss_pct: "" }] }], isUnravelling).size,
+    0,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 12. COLOR-WISE YARN LOSS BY STRIPE COLOUR (2026-09-26). BLUE is 25 % of the
+//     yarn at 10 % loss, GREEN 75 % at 0 %: the step's uplift for the slice is
+//     0.25/0.90 + 0.75 = 1.027778, i.e. one equivalent loss of 2.7027 %.
+// ---------------------------------------------------------------------------
+{
+  const stripe = (colour: string, share: number) => ({
+    fabric_id: COLLAR,
+    yarn_id: Y,
+    combo: "NAVY",
+    share,
+    loss_pct: 0,
+    position: colour === "BLUE" ? "Color 1" : "Color 2",
+    colour,
+  });
+  const shades12 = [stripe("BLUE", 0.25), stripe("GREEN", 0.75)];
+  const step12 = { loss_pct: 3, color_losses: { BLUE: 10, GREEN: 0 } };
+  const [out] = stripeWiseOwnSteps([step12], shades12, COLLAR, Y, "NAVY");
+  check("12a each stripe colour takes its own loss, weighted by its share", near(out.loss_pct ?? -1, (1 - 1 / (0.25 / 0.9 + 0.75)) * 100), true);
+  check("12b the map is consumed, so comboUplift reads the one loss", out.color_losses, null);
+  const [missing] = stripeWiseOwnSteps([{ loss_pct: 3, color_losses: { BLUE: 10 } }], shades12, COLLAR, Y, "NAVY");
+  check(
+    "12c a stripe colour missing from the map takes the step's own Loss %",
+    near(missing.loss_pct ?? -1, (1 - 1 / (0.25 / 0.9 + 0.75 / 0.97)) * 100),
+    true,
+  );
+  const byCombo = { loss_pct: 3, color_losses: { NAVY: 7 } };
+  check("12d a map keyed by colourway is left for lossForCombo", stripeWiseOwnSteps([byCombo], shades12, COLLAR, Y, "NAVY")[0], byCombo);
+  check("12e a slice with no stripes is left unchanged", stripeWiseOwnSteps([step12], [], COLLAR, Y, "NAVY")[0], step12);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -799,7 +799,9 @@ export async function pullCostLines(
              FK column is NAMED — a bare `config_lookups(name)` is a 300 that
              would empty this whole select (AGENTS.md). */
           "stage:config_lookups!stage_id(name, code), " +
-          "yarn:order_fabric_bom_yarns(item_id, " +
+          /* `bom_id` (2026-09-26) — which BOM a CONVERSION step belongs to, to
+             ask whether that BOM's loose fabric route still carries one. */
+          "yarn:order_fabric_bom_yarns(item_id, bom_id, " +
           "bom:order_fabric_boms(garment_order_id, is_draft))",
       ),
     s
@@ -1006,11 +1008,32 @@ export async function pullCostLines(
     stage: { name: string | null; code: string | null } | null;
     yarn: {
       item_id: string | null;
+      bom_id?: string | null;
       bom: { garment_order_id: string; is_draft: boolean } | null;
     } | null;
   };
 
-  for (const r of (yarnStageRes.data ?? []) as unknown as YarnStageRow[]) {
+  const yarnStages = (yarnStageRes.data ?? []) as unknown as YarnStageRow[];
+  /* WHICH BOMs STILL COST THE UNRAVELLING ON A FABRIC ROUTE (2026-09-26).
+     CONVERSION left the Fabric Process tab — a new BOM's loose fabric route is
+     KNITTING -> DYEING and the unravelling is the yarn's CONVERSION step alone,
+     so that step is charged below. A BOM saved before the move still carries a
+     CONVERSION step on the loose fabric's route, costed by the `fabric_process`
+     pull; there the yarn's step stays out, or the unravelling is charged twice.
+     Asked only when a CONVERSION step exists — one round trip, not one per BOM. */
+  const convSteps = yarnStages.filter((r) => r.process?.is_unravelling && r.process_id && r.yarn?.bom_id);
+  const routeCostsUnravelling = new Set<string>();
+  if (convSteps.length > 0) {
+    const { data: routeConv, error: routeConvErr } = await s
+      .from("order_fabric_bom_processes")
+      .select("bom_id")
+      .in("bom_id", [...new Set(convSteps.map((r) => r.yarn!.bom_id as string))])
+      .in("process_id", [...new Set(convSteps.map((r) => r.process_id as string))]);
+    if (routeConvErr) throw new Error(`Could not read the loose fabric routes: ${routeConvErr.message}`);
+    for (const x of (routeConv ?? []) as { bom_id: string }[]) routeCostsUnravelling.add(x.bom_id);
+  }
+
+  for (const r of yarnStages) {
     const bom = r.yarn?.bom;
     if (!bom || bom.is_draft || !wanted.has(bom.garment_order_id)) continue;
     /* NO PROCESS, NO LINE — the client's "if a yarn has no process assigned, any
@@ -1026,13 +1049,11 @@ export async function pullCostLines(
        Purchase Rates holds raw material; Process Rates holds job work only.
        Read off the master's flag (0612), never the name. */
     if (r.process.is_cloth_purchase) continue;
-    /* A YARN'S CONVERSION STEP IS NOT CHARGED HERE (0633). It only names the
-       loose fabric the yarn is unravelled from; the unravelling is the
-       CONVERSION step of that loose fabric's ROUTE, which the Fabric BOM's
-       stage ledger prints and the `fabric_process` pull below costs — with
-       the fabric's KNITTING and DYEING beside it. Pulling the yarn's step too
-       would charge the same unravelling twice. */
-    if (r.process.is_unravelling) continue;
+    /* A YARN'S CONVERSION STEP IS THE UNRAVELLING CHARGE (2026-09-26) — unless
+       its BOM still costs it on the loose fabric's route (a BOM saved before
+       CONVERSION left Fabric Process; see `routeCostsUnravelling`). Charging
+       both would charge the same unravelling twice (0633's original rule). */
+    if (r.process.is_unravelling && r.yarn?.bom_id && routeCostsUnravelling.has(r.yarn.bom_id)) continue;
     /* THE DOUBLE-COUNT RULE (client 2026-09-19): a hand-typed step in a
        coloured stage (DYED) on a yarn whose dyeing is already charged per
        shade above is the same dyeing — not pulled a second time. */

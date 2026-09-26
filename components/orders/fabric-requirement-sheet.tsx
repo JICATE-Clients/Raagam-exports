@@ -1,5 +1,7 @@
 import { DocumentPrintStyles } from "./document-print-styles";
 import { CadPendingBadge } from "@/components/orders/cad/cad-pending-badge";
+import { ReportThumbnail } from "@/components/orders/report-thumbnail";
+import type { ReportStyleImage } from "@/lib/orders/gos/style-images";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import {
   fabricConsumptionLabel,
@@ -40,10 +42,14 @@ import type { FabricRequirementSheetData } from "@/lib/orders/fabric-requirement
 export function FabricRequirementSheetDocument({
   data,
   cadPending = false,
+  thumbnail = null,
 }: {
   data: FabricRequirementSheetData;
   /** The order's CAD is not yet approved (0628) — stamp the sheet. Read live by the page. */
   cadPending?: boolean;
+  /** The style picture at the facts' top-left (2026-09-26) — loaded by the page
+   *  BESIDE the (possibly frozen) sheet, never inside it. Null → no column. */
+  thumbnail?: ReportStyleImage | null;
 }) {
   const rows = fabricRequirementSheetRows(data.rows, data.names);
   const yarns = yarnSheetRows(data.yarns, data.names);
@@ -83,14 +89,22 @@ export function FabricRequirementSheetDocument({
           </div>
         )}
 
-        <dl className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] border-b border-border">
-          <Fact label="Customer" value={data.order.customer} />
-          <Fact label="SC No" value={data.order.scNo} mono />
-          <Fact label="Order No" value={data.order.orderNo} mono />
-          <Fact label="Order Dt" value={fmtDate(data.order.orderDate)} mono />
-          <Fact label="Delivery Dt" value={fmtDate(data.order.deliveryDate)} mono />
-          <Fact label="BOM Dt" value={fmtDate(data.bom.bomDate)} mono />
-        </dl>
+        {/* No picture → no left column at all; the facts take the full width. */}
+        <div className="flex items-start gap-3 border-b border-border">
+          {thumbnail && (
+            <div className="py-2 pl-5">
+              <ReportThumbnail image={thumbnail} />
+            </div>
+          )}
+          <dl className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
+            <Fact label="Customer" value={data.order.customer} />
+            <Fact label="SC No" value={data.order.scNo} mono />
+            <Fact label="Order No" value={data.order.orderNo} mono />
+            <Fact label="Order Dt" value={fmtDate(data.order.orderDate)} mono />
+            <Fact label="Delivery Dt" value={fmtDate(data.order.deliveryDate)} mono />
+            <Fact label="BOM Dt" value={fmtDate(data.bom.bomDate)} mono />
+          </dl>
+        </div>
 
         {/* THE DERIVATION, STATED ONCE — and here it says the OPPOSITE of the
             accessories sheet, deliberately. Fabric carries the full target with

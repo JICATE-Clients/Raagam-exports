@@ -1082,6 +1082,62 @@ export function shadeDyeFactor(
   return factor;
 }
 
+/**
+ * A YARN STEP'S COLOUR-WISE LOSS, KEYED BY STRIPE COLOUR (client spec
+ * 2026-09-26, "Color-Wise Process Grid ... list individual Yarn Colors / Stripe
+ * Colors"). On Yarn Process the Color-Wise popup lists the yarn's own stripe
+ * colours (BLUE, GREEN — Yarn Dyed Details' Combinations), not the garment
+ * colourways, because a yarn is dyed per yarn colour.
+ *
+ * One slice (fabric, colourway) of this yarn is split across its stripes by
+ * share, and each stripe goes through its OWN colour's loss, so the step's
+ * uplift for the slice is `Σ share_i / (1 − L_i)`, handed back as the one
+ * equivalent `loss_pct` `comboUplift` multiplies by. A colour missing from the
+ * map takes the colourway's figure (a map saved per colourway), then the
+ * step's own Loss %.
+ *
+ * A step keyed only by colourways — every map saved before this — has no key
+ * that names a stripe colour, and is returned unchanged for `lossForCombo`.
+ * So is every step on a slice with no stripes.
+ */
+export function stripeWiseOwnSteps<
+  S extends { loss_pct: number | null; color_losses?: Readonly<Record<string, number>> | null },
+>(
+  steps: readonly S[],
+  shades: readonly YarnShade[],
+  fabricId: string,
+  yarnId: string,
+  combo: string,
+  ydPart: string | null = null,
+): S[] {
+  const part = ydPartKey(ydPart);
+  const stripes = shades.filter(
+    (h) =>
+      h.fabric_id === fabricId &&
+      h.yarn_id === yarnId &&
+      comboKey(h.combo) === comboKey(combo) &&
+      ydPartKey(h.yd_part) === part &&
+      !!h.colour,
+  );
+  if (stripes.length === 0) return [...steps];
+  const total = stripes.reduce((sum, h) => sum + h.share, 0);
+  if (total <= 0) return [...steps];
+  return steps.map((st) => {
+    const map = st.color_losses;
+    if (!map || Object.keys(map).length === 0) return st;
+    const byKey = new Map(Object.entries(map).map(([k, v]) => [comboKey(k), v] as const));
+    if (!stripes.some((h) => byKey.has(comboKey(h.colour)))) return st;
+    let uplift = 0;
+    for (const h of stripes) {
+      const L = byKey.get(comboKey(h.colour)) ?? byKey.get(comboKey(combo)) ?? st.loss_pct ?? 0;
+      // Out of range: hand it on as the step's loss so `comboUplift` refuses it.
+      if (!Number.isFinite(L) || L < 0 || L >= 100) return { ...st, loss_pct: L, color_losses: null };
+      uplift += h.share / total / (1 - L / 100);
+    }
+    return { ...st, loss_pct: (1 - 1 / uplift) * 100, color_losses: null };
+  });
+}
+
 export function yarnPurchase(
   yarnId: string,
   fabrics: readonly FabricGross[],
@@ -1220,7 +1276,14 @@ export function yarnPurchase(
        carries its `process_qty` to the Budget's Yarn Processes tab, where the
        dyeing charge per kg is typed. With no shade loss the typed step counts
        exactly as before. */
-    const ownSteps = dye > 1 ? yarnOwnStages.filter((st) => !st.dyed) : yarnOwnStages;
+    const ownSteps = stripeWiseOwnSteps(
+      dye > 1 ? yarnOwnStages.filter((st) => !st.dyed) : yarnOwnStages,
+      shades,
+      f.fabric_id,
+      yarnId,
+      combo,
+      f.yd_part ?? null,
+    );
     const factor = comboUplift([...route, ...ownSteps], combo);
     if (isRefusal(factor)) return factor;
 

@@ -50,6 +50,35 @@ import {
   type ConversionLine,
 } from "@/lib/uom/convert";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
+import { naturalSizeOrder } from "@/lib/masters/size-order";
+
+/*
+ * SIZE-WISE ROWS IN SIZE ORDER (2026-09-26 audit: they came out in database
+ * order, XL above S). ONLY THE FINISHED ROWS ARE RE-ORDERED — never the input
+ * to `apportion`, whose rounding decides which size takes a leftover unit:
+ * sorting its input could move that unit and change a stored quantity.
+ */
+const sizeNameOf = (id: string, names: Readonly<Record<string, string>> | null | undefined) => names?.[id] ?? id;
+
+/** Sort `rows[from..]` in place by size — one slice's block, others untouched. */
+function sortBlockBySize(
+  rows: { size_id?: string | null }[],
+  from: number,
+  names: Readonly<Record<string, string>> | null | undefined,
+): void {
+  const block = rows
+    .splice(from)
+    .sort((a, b) => naturalSizeOrder(sizeNameOf(a.size_id ?? "", names), sizeNameOf(b.size_id ?? "", names)));
+  rows.push(...block);
+}
+
+/** `[sizeId, value]` entries in size order. */
+function sortEntriesBySize<V>(
+  entries: [string, V][],
+  names: Readonly<Record<string, string>> | null | undefined,
+): [string, V][] {
+  return entries.sort((a, b) => naturalSizeOrder(sizeNameOf(a[0], names), sizeNameOf(b[0], names)));
+}
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -1112,6 +1141,7 @@ function expandBySize(
       sizes.map(([, q]) => q),
     );
 
+    const blockStart = rowsOut.length;
     sizes.forEach(([sizeId], j) => {
       if (wantCombo !== null) {
         // A COLOUR ROW KEEPS ITS COLOUR, so the label reads "WHITE · S" exactly
@@ -1131,11 +1161,12 @@ function expandBySize(
         bySizeAcross.set(sizeId, (bySizeAcross.get(sizeId) ?? 0) + shares[j]);
       }
     });
+    sortBlockBySize(rowsOut, blockStart, order.sizeNames);
   }
 
   if (wantCombo !== null) return rowsOut;
 
-  return [...bySizeAcross.entries()].map(([sizeId, qty]) => ({
+  return sortEntriesBySize([...bySizeAcross.entries()], order.sizeNames).map(([sizeId, qty]) => ({
     key: `${sl.key}${SEP}${sizeId}`,
     label: order.sizeNames?.[sizeId] ?? sizeId,
     qty,
@@ -1339,6 +1370,7 @@ function primarySlices(
       t.qty,
       sizes.map(([, q]) => q),
     );
+    const blockStart = matrix.length;
     sizes.forEach(([sizeId], i) => {
       const name = order.sizeNames?.[sizeId] ?? sizeId;
       matrix.push({
@@ -1350,6 +1382,7 @@ function primarySlices(
         size_id: sizeId,
       });
     });
+    sortBlockBySize(matrix, blockStart, order.sizeNames);
   }
 
   if (basis === "combination") return matrix;
@@ -1373,7 +1406,7 @@ function primarySlices(
   }
 
   const onlyStyle = multiStyle ? null : (targets[0]?.style || null);
-  return [...bySizeAcrossCombos.entries()].map(([sizeId, v]) => ({
+  return sortEntriesBySize([...bySizeAcrossCombos.entries()], order.sizeNames).map(([sizeId, v]) => ({
     key: `${SEP}${sizeId}`,
     label: v.label,
     qty: v.qty,

@@ -15,6 +15,7 @@ import {
 } from "./yarn-process";
 import {
   conversionDetailsOf,
+  conversionStepLossesOf,
   conversionLinksOf,
   linkedLooseFabricIds,
   planConversions,
@@ -1349,6 +1350,16 @@ export type StageBreakdownLine = {
    *  `PrintRequirementRow` in ./print-route.ts. */
   cutPieces?: number | null;
   pieceWt?: number | null;
+  /** GRAMS PER GARMENT for this line's panel set (2026-09-26) — set on the
+   *  DYEING / DYED FABRIC PURCHASE lines only (`perComponent`), where the
+   *  client's section prints "Piece Wt (gram)". The Manual entry's own grams,
+   *  never split further: a set weighed together is one line. */
+  pieceWtG?: number | null;
+  /** WHAT A `perComponent` SECTION GROUPS BY (user 2026-09-26: "DYEING section
+   *  needed list with component colour … now listing as combo, it's wrong") —
+   *  the component's OWN colour (Components ▸ Required Color), not the assort
+   *  colourway. Unset on every other section, which still bands by `combo`. */
+  band?: string | null;
 };
 
 /**
@@ -1437,6 +1448,10 @@ export type StageBreakdownGroup = {
    *  Process Rates section as well … double-counting"). Printed here still —
    *  its loss is the purchase loss, and the buyer reads it off this ledger. */
   isClothPurchase?: boolean;
+  /** DYEING / DYED FABRIC PURCHASE (client spec 2026-09-26): each COMPONENT
+   *  (panel set) is its own line with its Piece Wt (g), under its colour —
+   *  not one line per fabric. The renderers add the Piece Wt (g) column. */
+  perComponent?: boolean;
   /** THE STAGES THIS PROCESS'S STEPS RUN IN (2026-09-20) — for the report's
    *  stage colours (`sectionStyle` in ./report-colours.ts). Usually one;
    *  COMPACTING after dyeing and after printing is two. Empty when no step
@@ -1498,6 +1513,26 @@ export type ClothPurchaseLine = {
   uomCode: string | null;
 };
 
+/**
+ * ONE LINE OF THE CONVERSION BLOCK (client spec 2026-09-26: "Conversion must
+ * be positioned directly below the Yarn Purchase Requirement section").
+ * CONVERSION is a yarn process — dyed loose fabric unravelled into dyed yarn —
+ * so it is printed with the yarns, not as a fabric stage. One line per
+ * (yarn, loose fabric, yarn colour), straight off `planConversions`' parts:
+ * `plannedWt` is the converted yarn that colour needs, `toOrderedWt` the loose
+ * fabric unravelled for it, `lossPct` the unravelling loss between them.
+ */
+export type ConversionReportLine = {
+  yarnName: string;
+  looseFabricName: string;
+  /** The yarn colour (Color 1's BLUE); the stripe position when none is typed; else the colourway. */
+  colour: string | null;
+  plannedWt: number;
+  lossPct: number | null;
+  toOrderedWt: number;
+  uomCode: string | null;
+};
+
 export type YarnFabricRequirementReport = {
   header: BomDocHeader;
   yarns: YarnRequirementLine[];
@@ -1512,6 +1547,9 @@ export type YarnFabricRequirementReport = {
   /** Plan and To Ordered summed across `yarnDyeing`, on the same "one unit or
    *  nothing" rule as `yarnGrandTotal`. */
   yarnDyeingTotal: { plannedWt: number; toOrderedWt: number; uomCode: string | null } | null;
+  /** THE CONVERSION BLOCK (2026-09-26) — printed directly under Yarn Purchase.
+   *  Empty when no yarn is converted. See `ConversionReportLine`. */
+  conversion: ConversionReportLine[];
   /** THE FABRIC PURCHASE REQUIREMENT (0564) — see `ClothPurchaseLine`. Empty
    *  on an all-Rule-1 document, which is every BOM in this database before
    *  today; a renderer draws no section rather than an empty one, the same
@@ -1594,7 +1632,12 @@ export async function yarnFabricRequirementReport(
          and the stripes it replaces do not. */
       .select(
         "item_id, purchase_qty, uom_id, refusal_reason, " +
-          "stages:order_fabric_bom_yarn_stages(loss_pct, process_id, source_loose_fabric_id, conversion_details)",
+          "stages:order_fabric_bom_yarn_stages(loss_pct, process_id, source_loose_fabric_id, conversion_details, " +
+          /* 0648 — a PURCHASE step in a coloured stage = yarn bought already
+             dyed (DYED YARN PURCHASE): its stripes are not a dye-house lot.
+             `stage_id` and `loss_for_id` both point at config_lookups, so the
+             FK column is named (AGENTS.md, "A SECOND FK"). */
+          "stage:config_lookups!stage_id(name, code), process:processes!process_id(is_cloth_purchase))",
       )
       .eq("bom_id", bomId),
     s.from("processes").select("id").eq("is_unravelling", true),
@@ -1617,9 +1660,32 @@ export async function yarnFabricRequirementReport(
           process_id: string | null;
           source_loose_fabric_id: string | null;
           conversion_details: ConversionDetail[] | null;
+          stage: { name: string | null; code: string | null } | { name: string | null; code: string | null }[] | null;
+          process: { is_cloth_purchase: boolean | null } | { is_cloth_purchase: boolean | null }[] | null;
         }[]
       | null;
   }[];
+  /* YARN BOUGHT ALREADY DYED (0648, client costing rule 2026-09-26: "the
+     purchase rate covers both the yarn and the dyeing"). A yarn whose steps
+     include a PURCHASE step (`is_cloth_purchase`) in a COLOURED stage
+     (`stageRank` ≥ 1 — the Budget's own test for "coloured") is not sent to a
+     dye house, so its stripes leave the YARN DYEING block below — which is
+     also what keeps the Budget's per-shade dyeing lines, read off that block,
+     at zero for it. It stays in the yarn drawer: it is still BOUGHT. */
+  const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+  const boughtDyedYarns = new Set(
+    rows
+      .filter((r) =>
+        (r.stages ?? []).some((st) => {
+          const stage = one(st.stage);
+          return (
+            !!one(st.process)?.is_cloth_purchase &&
+            (stageRank({ id: "", code: stage?.code ?? null, name: stage?.name ?? "" }) ?? 0) >= 1
+          );
+        }),
+      )
+      .map((r) => r.item_id),
+  );
   /* LOOSE FABRIC CONVERSION (0633) — the links, off the STORED steps and the
      master's flag, exactly as `normalizeYarns` read them at Save. */
   const unravelling = new Set(((unravelRes.data ?? []) as { id: string }[]).map((r) => r.id));
@@ -1633,6 +1699,11 @@ export async function yarnFabricRequirementReport(
     (id) => unravelling.has(id),
   );
   const looseFabricIds = linkedLooseFabricIds(conversionLinks, conversionDetails);
+  /* 2026-09-26 — the yarn CONVERSION step's own loss, as Save read it. */
+  const conversionStepLossesOfStored = conversionStepLossesOf(
+    rows.map((r) => ({ item_id: r.item_id, stages: r.stages ?? [] })),
+    (id) => unravelling.has(id),
+  );
 
   /* THE YARN'S OWN TREATMENTS, COMPOUNDED — `/(1-L)` per stage, sequentially,
      which is `comboUplift`'s form and `yarnPurchase`'s own reading of the same
@@ -1871,6 +1942,10 @@ export async function yarnFabricRequirementReport(
     panels: string[];
     /** YD PART (0596) — "" for the cloth's only part. */
     part: string;
+    /** THE COLOUR THIS SLICE IS DYED TO, when nothing on the Components tab
+     *  says it (2026-09-26) — a LOOSE FABRIC's, which is the yarn colour its
+     *  unravelled yarn becomes (the CONVERSION block's colour). */
+    colour?: string | null;
   };
 
   const netByFabricComboPanels = new Map<string, Map<string, Map<string, NetSlice>>>();
@@ -2116,6 +2191,7 @@ export async function yarnFabricRequirementReport(
   const convertedFeeds = new Map<string, Set<string>>();
   /** Printed under the ledger with the other unresolved slices, below. */
   const conversionRefusals: string[] = [];
+  const conversionLines: ConversionReportLine[] = [];
   if (conversionLinks.size) {
     const typeById = new Map<string, string | null>(
       (
@@ -2148,6 +2224,8 @@ export async function yarnFabricRequirementReport(
     const plan = planConversions({
       links: conversionLinks,
       details: conversionDetails,
+      // The yarn CONVERSION step's own loss (2026-09-26) — what the Save applied.
+      stepLosses: conversionStepLossesOfStored,
       isUnravelling: (id) => unravelling.has(id),
       fabrics: [...buckets.values()],
       compositions: compositionByFabric,
@@ -2170,24 +2248,60 @@ export async function yarnFabricRequirementReport(
         continue;
       }
       convertedFeeds.set(yarnId, new Set(c.fabricIds));
+      /* THE CONVERSION BLOCK — each colour's part, summed per (loose fabric,
+         colour) across the colourways that share it. */
+      const byColour = new Map<string, ConversionReportLine>();
+      for (const part of c.parts) {
+        const colour = part.colour ?? part.position ?? (part.combo || null);
+        const key = `${part.looseFabricId}|${(colour ?? "").toUpperCase()}|${part.lossPct ?? ""}`;
+        const held = byColour.get(key) ?? {
+          yarnName: itemNames.get(yarnId) ?? "(yarn not found)",
+          looseFabricName: itemNames.get(part.looseFabricId) ?? "(loose fabric not found)",
+          colour,
+          plannedWt: 0,
+          lossPct: part.lossPct,
+          toOrderedWt: 0,
+          uomCode: c.uom_id ? (uomCodes.get(c.uom_id) ?? null) : null,
+        };
+        held.plannedWt += part.delivered;
+        held.toOrderedWt += part.toLoose;
+        byColour.set(key, held);
+      }
+      for (const line of byColour.values()) {
+        conversionLines.push({
+          ...line,
+          plannedWt: Number(line.plannedWt.toFixed(3)),
+          toOrderedWt: Number(line.toOrderedWt.toFixed(3)),
+        });
+      }
     }
-    for (const d of plan.looseDemand) {
-      if (d.gross == null) continue;
-      const byCombo = netByFabricComboPanels.get(d.fabric_id) ?? new Map<string, Map<string, NetSlice>>();
-      const byPanels = byCombo.get(d.combo ?? "") ?? new Map<string, NetSlice>();
-      const held = byPanels.get("|") ?? {
-        net: 0,
-        nos: 0,
-        garments: new Map<string, number>(),
-        consWt: 0,
-        dias: new Set<string>(),
-        panels: [],
-        part: "",
-      };
-      held.net += d.gross;
-      byPanels.set("|", held);
-      byCombo.set(d.combo ?? "", byPanels);
-      netByFabricComboPanels.set(d.fabric_id, byCombo);
+    /* THE LOOSE FABRICS' WEIGHT, PER COLOUR (2026-09-26) — the plan's parts
+       sum to its `looseDemand`, and carry the colour each part is dyed to, so
+       a DYEING section can say BLUE / GREEN where the loose fabric has no
+       component to take a colour from. Kept apart by colour through the
+       ledger, one slice each. */
+    for (const conv of plan.converted.values()) {
+      if ("refused" in conv) continue;
+      for (const part of conv.parts) {
+        const colour = part.colour ?? part.position ?? null;
+        const byCombo = netByFabricComboPanels.get(part.looseFabricId) ?? new Map<string, Map<string, NetSlice>>();
+        const byPanels = byCombo.get(part.combo ?? "") ?? new Map<string, NetSlice>();
+        const slot = `|colour:${(colour ?? "").toUpperCase()}`;
+        const held = byPanels.get(slot) ?? {
+          net: 0,
+          nos: 0,
+          garments: new Map<string, number>(),
+          consWt: 0,
+          dias: new Set<string>(),
+          panels: [],
+          part: "",
+          colour,
+        };
+        held.net += part.toLoose;
+        byPanels.set(slot, held);
+        byCombo.set(part.combo ?? "", byPanels);
+        netByFabricComboPanels.set(part.looseFabricId, byCombo);
+      }
     }
   }
 
@@ -2233,6 +2347,22 @@ export async function yarnFabricRequirementReport(
     const set = lineColour.get(key) ?? new Set<string>();
     set.add(l.color_name);
     lineColour.set(key, set);
+  }
+
+  /* EACH COMPONENT'S OWN COLOUR, per (fabric, combo, component) — Components ▸
+     Required Color, for the DYEING / DYED sections' Color (2026-09-26). */
+  const componentColour = new Map<string, Set<string>>();
+  for (const l of (lineRes.data ?? []) as unknown as {
+    item_id: string | null;
+    combo: string | null;
+    color_name: string | null;
+    component_id: string | null;
+  }[]) {
+    if (!l.item_id || !l.color_name || !l.component_id) continue;
+    const key = `${l.item_id}::${l.combo ?? ""}::${l.component_id}`;
+    const set = componentColour.get(key) ?? new Set<string>();
+    set.add(l.color_name);
+    componentColour.set(key, set);
   }
 
   /* THE YARN-DYED COMBINATION, per (fabric, combo) — its floor name and the
@@ -2410,6 +2540,10 @@ export async function yarnFabricRequirementReport(
   const byProcess = new Map<string, StageBreakdownGroup>();
   /** Which fabric stages each section's steps sit in — for the Greige merge. */
   const stagesByProcess = new Map<string, Set<string>>();
+  /** The fabric stages by id — which tells a DYED section apart (2026-09-26). */
+  const stageRowById = new Map(
+    ((stageRes.data ?? []) as { id: string; code: string | null; name: string }[]).map((st) => [st.id, st] as const),
+  );
   const byYarnFabricWt = new Map<string, Map<string, YarnFabricContribution[]>>(); // yarnId -> fabricId -> contributions
   /** One cloth's contribution to one stripe of one yarn, before the slices of
    *  one dye lot are summed — see the grouping note below the loop. */
@@ -2456,9 +2590,20 @@ export async function yarnFabricRequirementReport(
           panels: Set<string>;
           /** YD PART (0596) — kept apart through the collapse, see NetSlice. */
           part: string;
+          /** EACH PANEL SET'S OWN FIGURES (2026-09-26) — what the DYEING / DYED
+           *  FABRIC PURCHASE sections print one line each for. */
+          sets: {
+            panels: string[];
+            net: number;
+            nos: number;
+            garments: Map<string, number>;
+            consWt: number;
+            dias: Set<string>;
+            colour?: string | null;
+          }[];
         }
       >();
-      for (const { net, nos, garments, consWt, dias, panels, part } of byPanels.values()) {
+      for (const { net, nos, garments, consWt, dias, panels, part, colour } of byPanels.values()) {
         const forColour = route.filter((st) => stageCoversCombo(st.combo, combo));
         const branch = resolveRouteComponents(forColour, panels);
         if (isReportRefusal(branch)) {
@@ -2481,7 +2626,9 @@ export async function yarnFabricRequirementReport(
           printed,
           panels: new Set<string>(),
           part,
+          sets: [],
         };
+        held.sets.push({ panels: [...panels], net, nos, garments, consWt, dias, colour });
         held.net += net;
         held.nos += nos;
         mergeGarmentCounts(held.garments, garments);
@@ -2509,7 +2656,7 @@ export async function yarnFabricRequirementReport(
       const gsm = resolveGsm(fabricId, combo);
       const nosUomCode = countUnitOf(fabricId);
 
-      for (const { net, nos, garments, consWt, dias, branch, printed, panels, part } of byBranch.values()) {
+      for (const { net, nos, garments, consWt, dias, branch, printed, panels, part, sets } of byBranch.values()) {
         const ydCombo = ydComboFor(part);
         const fabricColour = fabricColourFor(part);
         const mixingText = mixingTextFor(fabricId, combo, part);
@@ -2563,6 +2710,53 @@ export async function yarnFabricRequirementReport(
                one sub-category for both. Keyed by `processId` either way — the
                Budget's pull reads that identity. */
             group.processName = baseName;
+          }
+          /* DYEING / DYED FABRIC PURCHASE PRINT PER COMPONENT (client spec
+             2026-09-26): a dyeing process, or a cloth purchase in a coloured
+             stage. Each panel set is its own line with its gram piece weight,
+             on the SAME ladder factors as the branch — the sets partition it,
+             so the lines still sum to the branch's weight. */
+          const stageRow = step.stage_id ? stageRowById.get(step.stage_id) : undefined;
+          const dyedSection = (kind?.is_dyeing ?? false) || (isClothPurchase && !!stageRow && stageRank(stageRow) === 1);
+          if (dyedSection) {
+            group.perComponent = true;
+            for (const set of sets) {
+              const setPcs = garmentTotal(set.garments);
+              /* THE COMPONENT'S OWN COLOUR — every colour its panels are
+                 required in, joined when a set spans two; the cloth's colour
+                 when the Components tab names none. */
+              const colours = [
+                ...new Set(set.panels.flatMap((id) => [...(componentColour.get(`${fabricId}::${combo}::${id}`) ?? [])])),
+              ];
+              const setColour = colours.length ? colours.join(" / ") : (set.colour ?? fabricColour);
+              group.lines.push({
+                itemId: fabricId,
+                fabricName,
+                combo: combo || null,
+                component:
+                  set.panels.map((id) => componentNames.get(id) ?? "(component not found)").join(" + ") || component,
+                lossPct: step.loss_pct,
+                plannedWt: Number((set.net * step.factorBefore).toFixed(6)),
+                toOrderedWt: Number((set.net * step.factorAfter).toFixed(6)),
+                dia: set.dias.size === 1 ? [...set.dias][0] : null,
+                fabricColour: setColour,
+                band: setColour,
+                ydComboName: ydCombo?.ydComboName ?? null,
+                mixingText,
+                formLabel,
+                gsm,
+                plannedNos: nosUomCode ? Number((set.nos * step.factorBefore).toFixed(3)) : null,
+                toOrderedNos: nosUomCode ? Number((set.nos * step.factorAfter).toFixed(3)) : null,
+                nosUomCode,
+                printName: null,
+                cutPieces: null,
+                pieceWt: null,
+                pieceWtG: setPcs > 0 ? Number(((set.consWt / setPcs) * 1000).toFixed(2)) : null,
+              });
+            }
+            group.plannedTotal += Number((net * step.factorBefore).toFixed(6));
+            group.toOrderedTotal += Number((net * step.factorAfter).toFixed(6));
+            continue;
           }
           const plannedWt = Number((net * step.factorBefore).toFixed(6));
           const toOrderedWt = Number((net * step.factorAfter).toFixed(6));
@@ -2678,6 +2872,8 @@ export async function yarnFabricRequirementReport(
                fabric's bath (its DYEING section), never as yarn: a dye-house
                lot here would charge the same colour twice. */
             if (convertedFeeds.get(m.yarn_item_id)?.has(fabricId)) return;
+            /* 0648 — bought already dyed: no dye-house lot, no dyeing charge. */
+            if (boughtDyedYarns.has(m.yarn_item_id)) return;
             dyeingSlices.push({
               yarnItemId: m.yarn_item_id,
               yarnName: m.yarn_name,
@@ -2769,16 +2965,20 @@ export async function yarnFabricRequirementReport(
     group.toOrderedTotal = Number(group.toOrderedTotal.toFixed(6));
     /* THE ASSORT COLOUR SUBTOTALS — lines sorted so each colour's run is
        contiguous, one total per run. A no-colour line sorts first. */
+    /* A perComponent SECTION GROUPS BY THE COMPONENT'S COLOUR (2026-09-26),
+       every other by the assort colourway; `StageColourSubtotal.combo` then
+       holds that band, which is what the renderers compare against. */
+    const bandOf = (l: StageBreakdownLine) => (group.perComponent ? (l.band ?? null) : l.combo);
     group.lines.sort(
       (a, b) =>
-        text(a.combo).localeCompare(text(b.combo)) ||
+        text(bandOf(a)).localeCompare(text(bandOf(b))) ||
         text(a.component).localeCompare(text(b.component)) ||
         a.fabricName.localeCompare(b.fabricName),
     );
     const byColour = new Map<string, StageColourSubtotal>();
     for (const l of group.lines) {
-      const key = text(l.combo);
-      const held = byColour.get(key) ?? { combo: l.combo, plannedTotal: 0, toOrderedTotal: 0 };
+      const key = text(bandOf(l));
+      const held = byColour.get(key) ?? { combo: bandOf(l), plannedTotal: 0, toOrderedTotal: 0 };
       held.plannedTotal += l.plannedWt;
       held.toOrderedTotal += l.toOrderedWt;
       byColour.set(key, held);
@@ -2910,6 +3110,7 @@ export async function yarnFabricRequirementReport(
     yarnGrandTotal,
     yarnDyeing,
     yarnDyeingTotal,
+    conversion: conversionLines,
     clothPurchase,
     clothPurchaseTotal,
     stageBreakdown,

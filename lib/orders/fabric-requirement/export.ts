@@ -23,6 +23,7 @@
  * the paper, the screen and the purchase order cannot disagree. See `sheet.ts`.
  */
 import { drawCadPendingStamp } from "@/lib/orders/cad-lifecycle/stamp";
+import { fitLogo, loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
@@ -46,6 +47,10 @@ export type FabricSheetMeta = {
   computedAt: string | null;
   /** The order's CAD is not yet approved (0628) — stamp every page. */
   cadPending?: boolean;
+  /** The header thumbnail (2026-09-26) — the style picture ticked "Print on
+   *  reports", signed at render and never frozen (`pickReportThumbnail`).
+   *  Absent / null / unloadable → no picture, the layout as before. */
+  thumbUrl?: string | null;
 };
 
 /** A filesystem-safe stem: `FabricRequirement_HO-RE-2627-0001`. */
@@ -103,7 +108,7 @@ function matrix(rows: readonly FabricSheetRow[]): { body: string[][]; bandAt: nu
   return { body, bandAt };
 }
 
-export function exportFabricRequirementPdf(
+export async function exportFabricRequirementPdf(
   rows: readonly FabricSheetRow[],
   yarns: readonly FabricSheetRow[],
   meta: FabricSheetMeta,
@@ -112,7 +117,8 @@ export function exportFabricRequirementPdf(
    *  all-Rule-1 document, which is every BOM before 2026-09-16) prints the
    *  file it always did. */
   cloth: readonly ClothPurchaseLine[] = [],
-): void {
+): Promise<void> {
+  const thumb = await loadLetterheadImage(meta.thumbUrl ?? null);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
@@ -137,13 +143,29 @@ export function exportFabricRequirementPdf(
   if (meta.docNo) doc.text(meta.docNo, RIGHT, 58, { align: "right" });
 
   y += 18;
+  /* THE HEADER THUMBNAIL (2026-09-26) at the facts' top-left, fitted into an
+     86 pt square; the facts move right by its width and the table starts below
+     whichever is taller. Drawn only when the picture loaded. */
+  const THUMB = 86;
+  let fx = M;
+  let tableTop = y + 10;
+  if (thumb) {
+    const top = y - 9;
+    const { w, h } = fitLogo(thumb, THUMB - 4, THUMB - 4);
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.4);
+    doc.rect(M, top, THUMB, THUMB);
+    doc.addImage(thumb.dataUrl, "PNG", M + (THUMB - w) / 2, top + (THUMB - h) / 2, w, h);
+    fx = M + THUMB + 8;
+    tableTop = Math.max(tableTop, top + THUMB + 8);
+  }
   doc.setFontSize(9);
   const facts = [
     meta.customer ? `Customer: ${meta.customer}` : null,
     meta.scNo ? `SC No: ${meta.scNo}` : null,
     meta.orderNo ? `Order No: ${meta.orderNo}` : null,
   ].filter(Boolean) as string[];
-  if (facts.length) doc.text(facts.join("    "), M, y);
+  if (facts.length) doc.text(facts.join("    "), fx, y);
 
   const { body, bandAt } = matrix(rows);
   const bands = new Set(bandAt);
@@ -151,7 +173,7 @@ export function exportFabricRequirementPdf(
   autoTable(doc, {
     head: [COLUMNS],
     body,
-    startY: y + 10,
+    startY: tableTop,
     margin: { left: M, right: M },
     styles: { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 },
     /* MONO, NOT BRANDED — the same call `lib/orders/requirement/export.ts`

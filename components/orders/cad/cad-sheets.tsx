@@ -58,9 +58,7 @@ import {
 } from "@/lib/orders/cad-lifecycle/actions";
 import {
   allocationProblemAt,
-  CAD_STATE_META,
   CAD_TYPES,
-  cadStateOf,
   cadTypeLabel,
   decisionProblemAt,
   dispatchProblemAt,
@@ -142,9 +140,9 @@ function Subject({ row, extra, hide }: { row: CadStyleRow; extra?: React.ReactNo
         <span className="font-medium">{row.style_ref_no}</span>
         {row.style_description ? <span className="text-muted-foreground"> · {row.style_description}</span> : null}
       </Fact>
-      <Fact label="Layout Type">
-        {row.layout_type ? layoutLabel(row.layout_type) : <span className="text-muted-foreground">Not declared on the order</span>}
-      </Fact>
+      {/* NO LAYOUT TYPE (spec 2026-09-26, "CAD Queue View cleanups"): the
+          Style no longer declares one (removed from Order Entry the same day),
+          so the line could only ever say "Not declared". */}
       {extra}
     </Facts>
   );
@@ -719,18 +717,12 @@ export function HistorySheet({
   onClose: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const state = cadStateOf(row.versions);
   const versions = [...row.versions].sort((a, b) => b.version_no - a.version_no);
   return (
     <Sheet open onClose={onClose} title={`CAD history — ${row.style_ref_no}`} size="md" alignToPane origin={origin}>
-      <Subject
-        row={row}
-        extra={
-          <Fact label="Status">
-            <StatusPill tone={CAD_STATE_META[state].tone}>{CAD_STATE_META[state].label}</StatusPill>
-          </Fact>
-        }
-      />
+      {/* NO STATUS LINE (spec 2026-09-26): each version card below carries its
+          own status pill, and the list row already shows the Pattern Status. */}
+      <Subject row={row} />
       {versions.length === 0 ? (
         <p className="text-sm text-muted-foreground">No CAD has been allocated for this style yet.</p>
       ) : (
@@ -765,13 +757,15 @@ function VersionCard({ v, onError }: { v: CadVersion; onError: (e: string | null
   return (
     <li className="rounded-md border border-border px-3 py-2">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold">V{v.version_no}</span>
+        {/* "v1", the house label (spec 2026-09-26). */}
+        <span className="text-sm font-semibold">v{v.version_no}</span>
         <StatusPill tone={tone}>{word}</StatusPill>
       </div>
       <Facts>
-        <Fact label="Pattern Maker">
-          {v.pattern_maker_name ?? "—"} · {cadTypeLabel(v.cad_type)}
-        </Fact>
+        {/* No CAD Type suffix ("Initial Fit Pattern") — removed from the View
+            (spec 2026-09-26); the type is still stored and still on the
+            Assign form. */}
+        <Fact label="Pattern Maker">{v.pattern_maker_name ?? "—"}</Fact>
         <Fact label="Assigned">
           {fmtDate(v.allocation_date)} · target {fmtDate(v.target_date)}
         </Fact>

@@ -177,6 +177,25 @@ function stem(prefix: string, header: BomDocHeader): string {
   return `${prefix}_${key}`;
 }
 
+/**
+ * THE HEADER THUMBNAIL (2026-09-26) — the style picture the screen shows at the
+ * facts' top-left (`pickReportThumbnail`, loaded beside the report and never
+ * frozen with it), fitted proportionally into an 86 pt (~1.2 in) square with a
+ * thin frame. Returns the width the facts must move right by — 0 when there is
+ * no picture, so a report without one is laid out exactly as before.
+ */
+const THUMB = 86;
+const THUMB_GAP = 8;
+function drawThumbnail(doc: jsPDF, thumb: LetterheadImage | null, x: number, y: number): number {
+  if (!thumb) return 0;
+  const { w, h } = fitLogo(thumb, THUMB - 4, THUMB - 4);
+  doc.setDrawColor(200);
+  doc.setLineWidth(0.4);
+  doc.rect(x, y, THUMB, THUMB);
+  doc.addImage(thumb.dataUrl, "PNG", x + (THUMB - w) / 2, y + (THUMB - h) / 2, w, h);
+  return THUMB + THUMB_GAP;
+}
+
 /** The Entry Register's facts line — Customer / RE No / Order No / Style Ref
  *  No / Delivery Date; the quantity line under it (`drawLetterhead`,
  *  `excessAsPct`) carries Order Qty / Excess % / Rejection Allowance /
@@ -225,6 +244,8 @@ function drawLetterhead(
   /** The Entry Register states the order's Excess % where the requirement
    *  reports print the Excess Qty (client 2026-09-23). */
   excessAsPct = false,
+  /** The style picture at the facts' top-left (2026-09-26) — `drawThumbnail`. */
+  thumb: LetterheadImage | null = null,
 ): number {
   const M = 36;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
@@ -288,9 +309,19 @@ function drawLetterhead(
   doc.line(M, y, RIGHT, y);
   doc.setLineWidth(0.4);
 
+  /* The picture sits under the rule at the left; the two fact lines move
+     right by its width and WRAP inside what is left rather than running off
+     the page. The block ends below whichever is taller. */
+  const thumbTop = y + 6;
+  const fx = M + drawThumbnail(doc, thumb, M, thumbTop);
+  const thumbBottom = fx > M ? thumbTop + THUMB : 0;
+
   y += 14;
   doc.setFontSize(9);
-  if (facts.length) doc.text(facts.join("    "), M, y);
+  if (facts.length) {
+    const lines = doc.splitTextToSize(facts.join("    "), RIGHT - fx) as string[];
+    lines.forEach((line, i) => doc.text(line, fx, i === 0 ? y : (y += 11)));
+  }
 
   if (!isReportRefusal(header.qty)) {
     y += 12;
@@ -299,17 +330,17 @@ function drawLetterhead(
     const excess = excessAsPct
       ? `Excess % ${header.excessPct != null ? `${fmtNumber(header.excessPct)}%` : "—"}`
       : `Excess Qty ${fmtNumber(header.qty.excessQty)}`;
-    doc.text(
+    const lines = doc.splitTextToSize(
       `Order Qty ${fmtNumber(header.qty.orderQty)}    ${excess}` +
         `    Rejection Allowance ${fmtNumber(header.qty.rejectionQty)}    Approval Allowance ${fmtNumber(header.qty.approvalQty)}` +
         `    Cut Qty ${fmtNumber(header.qty.cutQty)}`,
-      M,
-      y,
-    );
+      RIGHT - fx,
+    ) as string[];
+    lines.forEach((line, i) => doc.text(line, fx, i === 0 ? y : (y += 10)));
     doc.setTextColor(0);
   }
 
-  return y + 10;
+  return Math.max(y + 10, thumbBottom + 8);
 }
 
 /**
@@ -459,12 +490,17 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
   return { body, totalAt };
 }
 
-export async function exportEntryRegisterPdf(data: EntryRegister, output: PdfOutput = "download"): Promise<void> {
+export async function exportEntryRegisterPdf(
+  data: EntryRegister,
+  output: PdfOutput = "download",
+  /** The header thumbnail's URL (2026-09-26) — null draws none. */
+  thumbUrl: string | null = null,
+): Promise<void> {
   const tab = openPrintTab(output);
-  const logo = await loadLetterheadImage(data.header.company.logo);
+  const [logo, thumb] = await Promise.all([loadLetterheadImage(data.header.company.logo), loadLetterheadImage(thumbUrl)]);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
-  const y = drawLetterhead(doc, data.header, "Fabric BOM Entry Register", undefined, logo, false, true);
+  const y = drawLetterhead(doc, data.header, "Fabric BOM Entry Register", undefined, logo, false, true, thumb);
 
   const { body, totalAt } = registerBody(data);
   const bold = new Set(totalAt);
@@ -551,6 +587,9 @@ export function drawLegacyRequirementHeader(
   h: BomDocHeader,
   title: string,
   logo: LetterheadImage | null,
+  /** The style picture at the facts' top-left (2026-09-26) — `drawThumbnail`.
+   *  The Accessories Requirement passes none and is laid out as before. */
+  thumb: LetterheadImage | null = null,
 ): { y: number; printedY: number } {
   const M = 28;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
@@ -613,6 +652,11 @@ export function drawLegacyRequirementHeader(
 
   let y = printedY + 8;
 
+  /* THE THUMBNAIL at the grids' top-left; both fact grids start right of it,
+     and the block ends below whichever is taller. */
+  const fx = M + drawThumbnail(doc, thumb, M, y);
+  const thumbBottom = fx > M ? y + THUMB : 0;
+
   // -- the order facts, as a grid --------------------------------------------
   const fact = (label: string, value: string | null | undefined) => ({
     content: `${label} ${value ?? ""}`.trim(),
@@ -631,7 +675,7 @@ export function drawLegacyRequirementHeader(
       ],
     ],
     startY: y,
-    margin: { left: M, right: M, top: CONTINUED_TOP },
+    margin: { left: fx, right: M, top: CONTINUED_TOP },
     styles: { ...monoStyles(), fontSize: 7 },
     theme: "grid",
   });
@@ -683,7 +727,7 @@ export function drawLegacyRequirementHeader(
       ],
     ],
     startY: y + 4,
-    margin: { left: M, right: M, top: CONTINUED_TOP },
+    margin: { left: fx, right: M, top: CONTINUED_TOP },
     styles: { ...monoStyles(), fontSize: 7 },
     headStyles: { ...monoHead(), fontSize: 6.5 },
     theme: "grid",
@@ -704,7 +748,7 @@ export function drawLegacyRequirementHeader(
       }
     },
   });
-  y = finalY(doc, y);
+  y = Math.max(finalY(doc, y), thumbBottom);
 
   return { y, printedY };
 }
@@ -739,15 +783,20 @@ export function drawLegacyRequirementHeader(
  *  5. No `Prepared By / Checked By / Approved By`. A document that is signed
  *     needs somewhere to sign it.
  */
-export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport, output: PdfOutput = "download"): Promise<void> {
+export async function exportYarnRequirementPdf(
+  data: YarnFabricRequirementReport,
+  output: PdfOutput = "download",
+  /** The header thumbnail's URL (2026-09-26) — null draws none. */
+  thumbUrl: string | null = null,
+): Promise<void> {
   const tab = openPrintTab(output);
-  const logo = await loadLetterheadImage(data.header.company.logo);
+  const [logo, thumb] = await Promise.all([loadLetterheadImage(data.header.company.logo), loadLetterheadImage(thumbUrl)]);
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const M = 28;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   const h = data.header;
 
-  const { y: headerEndY, printedY } = drawLegacyRequirementHeader(doc, h, "Yarn and Fabric Requirement", logo);
+  const { y: headerEndY, printedY } = drawLegacyRequirementHeader(doc, h, "Yarn and Fabric Requirement", logo, thumb);
   let y = headerEndY;
 
   /* THE KEY — what the stage colours below mean, once, under the order
@@ -840,6 +889,22 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       data.yarnGrandTotal ? fmtNumber(data.yarnGrandTotal.qty) : "",
     ]);
   }
+  /* CONVERSION — DIRECTLY UNDER YARN PURCHASE (client spec 2026-09-26), the
+     same rows the screen draws: the converted yarn a colour needs, the
+     unravelling loss, the loose fabric unravelled for it. `?? []` — a frozen
+     V_final copy predates the field. */
+  (data.conversion ?? []).forEach((l, i) => {
+    yarnRowTone.set(yarnBody.length, STAGE_STYLES.dyed);
+    yarnBody.push([
+      i === 0 ? "CONVERSION" : "",
+      "DYED",
+      `${l.yarnName}\nfrom ${l.looseFabricName}`,
+      l.colour ?? "",
+      fmtNumber(l.plannedWt),
+      l.lossPct != null ? l.lossPct.toFixed(2) : "",
+      fmtNumber(l.toOrderedWt),
+    ]);
+  });
   data.yarnDyeing.forEach((l, i) => {
     yarnRowTone.set(yarnBody.length, STAGE_STYLES.dyed);
     yarnBody.push([
@@ -945,7 +1010,9 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
   y = finalY(doc, y);
 
   // -- one block per process -------------------------------------------------
-  for (const g of data.stageBreakdown) {
+  /* NO FABRIC PURCHASE SECTIONS (user 2026-09-26) — a bought cloth is the
+     Fabric Purchase Requirement block already; the screen leaves them out too. */
+  for (const g of data.stageBreakdown.filter((sec) => !sec.isClothPurchase)) {
     /* THE SECTION WEARS ITS STAGE (2026-09-20) — Greige slate, Dyed blue,
        Wash teal, Print green; a process run in two stages names both. */
     const style = sectionStyle(g.stages, g.isPrint);
@@ -959,6 +1026,13 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
        too. A cloth bought by weight leaves the cell BLANK, which is the true
        statement "not counted in pieces", and the Wt beside it is the answer. */
 
+    /* DYEING / DYED FABRIC PURCHASE (client spec 2026-09-26): a Component
+       column and a Piece Wt (g) column, one line per component. Other
+       sections keep their columns. `pc` adds both cells to every row kind. */
+    const pc = !!g.perComponent;
+    /* A perComponent section bands and subtotals by the component's colour
+       (2026-09-26); every other by the assort colourway. */
+    const bandOf = (l: (typeof g.lines)[number]) => (pc ? (l.band ?? null) : l.combo);
     const body: Cell[][] = [];
     const boldRows = new Set<number>();
     /* ONE BAND PER ASSORT COLOURWAY (alternating) and a swatch of the cloth's
@@ -966,14 +1040,16 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
     const rowLook = new Map<number, { band: boolean; swatch: string | null }>();
     let colourRun = 0;
     g.lines.forEach((l, i) => {
-      if (i > 0 && g.lines[i - 1].combo !== l.combo) colourRun++;
+      if (i > 0 && bandOf(g.lines[i - 1]) !== bandOf(l)) colourRun++;
       rowLook.set(body.length, { band: colourRun % 2 === 1, swatch: swatchFor(l.fabricColour) });
       body.push([
         l.fabricColour ?? "",
         detailsCell(l),
+        ...(pc ? [l.component ?? ""] : []),
         l.dia ?? "",
         ...([l.plannedNos != null ? fmtNumber(l.plannedNos) : ""]),
         fmtNumber(l.plannedWt),
+        ...(pc ? [l.pieceWtG != null ? fmtNumber(l.pieceWtG) : ""] : []),
         l.lossPct ? `${l.lossPct.toFixed(2)}%` : "",
         ...([l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : ""]),
         fmtNumber(l.toOrderedWt),
@@ -982,16 +1058,18 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
          run when the section holds more than one. The Colour COLUMN beside
          them is a different fact (the cloth's own colour / its YD Combo
          Name), which is why both are on the page. */
-      const colourChanges = i === g.lines.length - 1 || g.lines[i + 1].combo !== l.combo;
-      const sub = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === l.combo) : undefined;
+      const colourChanges = i === g.lines.length - 1 || bandOf(g.lines[i + 1]) !== bandOf(l);
+      const sub = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === bandOf(l)) : undefined;
       if (sub) {
         boldRows.add(body.length);
         body.push([
           "",
           `${sub.combo || "No colour"} — subtotal`,
+          ...(pc ? [""] : []),
           "",
           ...([""]),
           fmtNumber(sub.plannedTotal),
+          ...(pc ? [""] : []),
           "",
           ...([""]),
           fmtNumber(sub.toOrderedTotal),
@@ -1002,9 +1080,11 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
     body.push([
       "",
       "Grand Total :",
+      ...(pc ? [""] : []),
       "",
       ...([""]),
       fmtNumber(g.plannedTotal),
+      ...(pc ? [""] : []),
       /* 0606 — a colour-wise step puts different losses in one section. */
       avgLossText(g.lines, g.plannedTotal, g.toOrderedTotal),
       ...([""]),
@@ -1018,8 +1098,10 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       [
         { content: "Color", rowSpan: 2 },
         { content: "Details", rowSpan: 2 },
+        ...(pc ? [{ content: "Component", rowSpan: 2 }] : []),
         { content: "Dia/Size", rowSpan: 2 },
         { content: "Planned", colSpan: 2, styles: { halign: "center" } },
+        ...(pc ? [{ content: "Piece Wt (g)", rowSpan: 2, styles: { halign: "right" as const } }] : []),
         { content: "Loss %", rowSpan: 2, styles: { halign: "right" } },
         { content: "To Ordered", colSpan: 2, styles: { halign: "center" } },
       ],
@@ -1039,19 +1121,28 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       styles: { ...monoStyles(), fontSize: 7 },
       headStyles: { ...monoHead(), fontSize: 6.5, fillColor: rgb(style.tint), textColor: rgb(style.ink) },
       theme: "grid",
-      columnStyles: {
-        0: { cellWidth: 72 },
-        1: { cellWidth: 178 },
-        /* LEFT AND WIDER SINCE 0566 — a dia is text now ("23 CM", "25 BOX",
-           "36 x 44"), and right-aligning a label ragged-lefts a column of
-           mixed-length words. 40pt fitted "64" and clips a unit. */
-        2: { halign: "left", cellWidth: 56 },
-        3: { halign: "right" },
-        4: { halign: "right" },
-        5: { halign: "right", cellWidth: 34 },
-        6: { halign: "right" },
-        7: { halign: "right" },
-      },
+      /* ONE LIST, INDEXED ONCE — the per-component section inserts two
+         columns, so the widths are laid out in order rather than by fixed
+         index. Portrait A4 at M 28 is 539pt wide: the per-component section's
+         text columns are 64 + 110 + 64 + 48, Piece Wt 38 and Loss 34 (358),
+         leaving ~45pt for each of the four figures ("1,234.567" at 7pt). */
+      columnStyles: Object.fromEntries(
+        [
+          { cellWidth: pc ? 64 : 72 },
+          { cellWidth: pc ? 110 : 178 },
+          ...(pc ? [{ cellWidth: 64 }] : []),
+          /* LEFT AND WIDER SINCE 0566 — a dia is text now ("23 CM", "25 BOX",
+             "36 x 44"), and right-aligning a label ragged-lefts a column of
+             mixed-length words. 40pt fitted "64" and clips a unit. */
+          { halign: "left" as const, cellWidth: pc ? 48 : 56 },
+          { halign: "right" as const },
+          { halign: "right" as const },
+          ...(pc ? [{ halign: "right" as const, cellWidth: 38 }] : []),
+          { halign: "right" as const, cellWidth: 34 },
+          { halign: "right" as const },
+          { halign: "right" as const },
+        ].map((st, i) => [i, st]),
+      ),
       didParseCell: (d) => {
         if (d.section !== "body") return;
         if (boldRows.has(d.row.index)) d.cell.styles.fontStyle = "bold";
@@ -1310,12 +1401,17 @@ function printRow(r: YarnFabricRequirementReport["printing"]["groups"][number]["
  * unprinted group never reaches a print section, so there is nothing here to
  * filter out.
  */
-export async function exportPrintRequirementPdf(data: YarnFabricRequirementReport, output: PdfOutput = "download"): Promise<void> {
+export async function exportPrintRequirementPdf(
+  data: YarnFabricRequirementReport,
+  output: PdfOutput = "download",
+  /** The header thumbnail's URL (2026-09-26) — null draws none. */
+  thumbUrl: string | null = null,
+): Promise<void> {
   const tab = openPrintTab(output);
-  const logo = await loadLetterheadImage(data.header.company.logo);
+  const [logo, thumb] = await Promise.all([loadLetterheadImage(data.header.company.logo), loadLetterheadImage(thumbUrl)]);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
-  const top = drawLetterhead(doc, data.header, "Printing Requirement", yarnReportFacts(data.header), logo, true);
+  const top = drawLetterhead(doc, data.header, "Printing Requirement", yarnReportFacts(data.header), logo, true, false, thumb);
   const y = drawSectionHeading(
     doc,
     M,

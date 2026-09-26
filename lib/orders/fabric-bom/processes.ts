@@ -439,7 +439,6 @@ export function processesForFabric(
   const printDeclared = opts.printDeclared ?? true;
   const fabricIsYarnDyed = opts.fabricIsYarnDyed ?? false;
   const routeStartAllowed = opts.routeStartAllowed ?? true;
-  const looseFabricRoute = opts.looseFabricRoute ?? false;
   const flagged = narrowToStage(
     options.filter(
       (p) =>
@@ -448,11 +447,18 @@ export function processesForFabric(
            without it, so the master's KIND flag (`is_unravelling`) is enough there.
            Found live with the process renamed CONVERSION and For Fabric unticked —
            the injected route silently lost its third step and every Save refused. */
-        (p.for_fabric || (looseFabricRoute && !!p.is_unravelling)) &&
+        /* CONVERSION IS NEVER OFFERED ON A FABRIC ROUTE (client spec
+           2026-09-26, "Exclude CONVERSION Process from Fabric Process Tab"): it
+           unravels loose fabric into yarn, so it is a Yarn Process step only.
+           A route SAVED with it keeps it — the held value survives below, the
+           "Disabled rows" rule — and its loss still counts where the yarn
+           states none (`planConversions`). `looseFabricRoute` is kept for
+           callers and no longer widens the list. */
+        p.for_fabric &&
+        !p.is_unravelling &&
         (printDeclared || !p.is_print) &&
         (!fabricIsYarnDyed || !p.is_dyeing) &&
-        (routeStartAllowed || !isRouteStart(p)) &&
-        (looseFabricRoute || !p.is_unravelling),
+        (routeStartAllowed || !isRouteStart(p)),
     ),
     { stageId: opts.stageId, isFirstOfStage: opts.isFirstOfStage },
   );

@@ -1,4 +1,5 @@
 import "server-only";
+import { sortBySize } from "@/lib/masters/size-order";
 import { createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
 import { getCurrentLocationId } from "@/lib/auth/location";
@@ -179,6 +180,7 @@ export async function getIwoMaterialBomFormData(): Promise<IwoMaterialBomFormDat
     })),
     vendors: vendors.map((v) => ({ id: v.id, code: v.code ?? null, name: v.name, inactive: !!v.inactive })),
     colors: (colorRes.data ?? []) as unknown as ConfigLookup[],
-    sizes: (sizeRes.data ?? []) as unknown as ConfigLookup[],
+    // Size order, not alphabetical (2026-09-26 audit) — `sortBySize`, the app's one rule.
+    sizes: sortBySize((sizeRes.data ?? []) as unknown as ConfigLookup[], (z) => z.name),
   };
 }

@@ -52,7 +52,7 @@ export function FabricRequirementToolbar({
         <Printer className="h-4 w-4" />
         Print
       </Button>
-      <Button size="md" onClick={() => exportFabricRequirementPdf(rows, yarns, meta, cloth)}>
+      <Button size="md" onClick={() => void exportFabricRequirementPdf(rows, yarns, meta, cloth)}>
         <Download className="h-4 w-4" />
         Download PDF
       </Button>

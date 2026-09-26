@@ -222,16 +222,16 @@ function gatedForStage(
   const printDeclared = gates.printDeclared ?? true;
   const fabricIsYarnDyed = gates.fabricIsYarnDyed ?? false;
   const routeStartAllowed = gates.routeStartAllowed ?? true;
-  const looseFabricRoute = gates.looseFabricRoute ?? false;
   return options.filter(
     (p) =>
-      /* Mirrors `processesForFabric`: on a loose fabric's route the
-         unravelling KIND flag stands in for the "Fabric" tick. */
-      (p.for_fabric || (looseFabricRoute && !!p.is_unravelling)) &&
+      /* Mirrors `processesForFabric`: CONVERSION is never offered on a fabric
+         route (2026-09-26, a yarn step only); `looseFabricRoute` no longer
+         widens the list. */
+      p.for_fabric &&
+      !p.is_unravelling &&
       (printDeclared || !p.is_print) &&
       (!fabricIsYarnDyed || !p.is_dyeing) &&
-      (routeStartAllowed || !isRouteStart(p)) &&
-      (looseFabricRoute || !p.is_unravelling),
+      (routeStartAllowed || !isRouteStart(p)),
   );
 }
 

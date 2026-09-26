@@ -1,5 +1,6 @@
 "use client";
 
+import { sortBySize } from "@/lib/masters/size-order";
 import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -1758,7 +1759,9 @@ export function MbaMasterScreen({
       seen.add(id);
       out.push({ id, name: orderProd?.sizeNames?.[id] ?? id });
     }
-    return out;
+    /* IN SIZE ORDER (2026-09-26 audit) — the assort rows arrive in database
+       order, so "the order the order states them" above was never true. */
+    return sortBySize(out, (z) => z.name);
   }, [orderProd]);
 
   const orderColourOptions = (styleRef: string, held: string | null) => {

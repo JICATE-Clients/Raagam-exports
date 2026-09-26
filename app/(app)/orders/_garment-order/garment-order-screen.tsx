@@ -10500,8 +10500,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         */}
       {/**
         * THE MILESTONE MONITOR (2026-09-23, T&A UX spec): Date and RE No as
-        * before, plus the three facts the whole ladder is read against —
-        * Buyer, Delivery Date and SHIP DATE, the earliest Earlier Shipment Dt
+        * before, plus the facts the whole ladder is read against — Delivery
+        * Date and SHIP DATE (Buyer dropped 2026-09-26, client), the earliest Earlier Shipment Dt
         * across Quantities (`taShipDate`, the same rule `resolveAnchor` in
         * order-ladder.ts applies). All `readOnly`, so each sets its own
         * `tabIndex={-1}` and no key lands on one — the landing goes straight
@@ -10526,17 +10526,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             readOnly
             value={savedOrderNo ?? previewNo ?? ""}
             className="h-7 w-32 px-2 text-xs"
-          />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Buyer</span>
-          <Input
-            id="ta-buyer"
-            readOnly
-            value={taBuyerName}
-            title={taBuyerName || undefined}
-            // truncate-reveal: exempt -- read-only header box; the full name is its native `title`
-            className="h-7 w-40 text-ellipsis px-2 text-xs"
           />
         </div>
         <div className="flex items-center gap-1.5">
@@ -10605,8 +10594,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
   /** `taTrimGrnFor`, only when it was read for THIS order. */
   const taTrimGrn = editId && taTrimGrnFor?.id === editId ? taTrimGrnFor.grn : null;
-  /** The header's Buyer — the order's Customer, read through the id. */
-  const taBuyerName = data.customers.find((c) => c.id === form.customer_id)?.name ?? "";
   /** SHIP DATE — the earliest Earlier Shipment Dt across Quantities, the rule
    *  `resolveAnchor` (order-ladder.ts) applies. Shown even when the ladder
    *  refuses, because the date itself is still a fact of the order. */

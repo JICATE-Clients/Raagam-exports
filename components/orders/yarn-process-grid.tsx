@@ -311,15 +311,17 @@ export function YarnProcessGrid({
                 if (picked?.is_unravelling) {
                   /* A CONVERSION STEP (0633): the Stage defaults to the one
                      it opens (DYED — off the master's classification, never a
-                     code string), and it carries no loss, colour or For of its
-                     own — the unravelling loss is a step of the loose fabric's
-                     route, applied there once. */
+                     code string), and it carries no colour or For of its own.
+                     ITS LOSS IS ITS OWN NOW (2026-09-26): CONVERSION left the
+                     loose fabric's route, so the unravelling loss is typed
+                     here, opening at the spec's 2.00 % — a colour's Details
+                     Loss % overrides it for that colour. */
                   patch(r.key, {
                     process_id: id,
                     stage_id: r.stage_id ?? picked.stage_roles?.find((x) => x.is_base)?.stage_id ?? null,
                     loss_for_id: null,
                     combo: "",
-                    loss_pct: "",
+                    loss_pct: r.loss_pct.trim() || "2",
                     color_wise_loss: false,
                     color_losses: {},
                   });
@@ -426,7 +428,7 @@ export function YarnProcessGrid({
                 loss_for_id: next,
                 combo: "",
                 color_wise_loss: wise,
-                color_losses: wise ? colorLossSeed(combos, r.color_losses, r.loss_pct) : {},
+                color_losses: wise ? colorLossSeed(lossColours, r.color_losses, r.loss_pct) : {},
               });
               return;
             }
@@ -537,30 +539,37 @@ export function YarnProcessGrid({
          left, so the table is narrower than before. */
       width: colourLoss ? "7rem" : "4.5rem",
       cell: (r) =>
-        /* A CONVERSION STEP HAS NO LOSS HERE (0633) — it is the CONVERSION
-           step of the loose fabric's route, typed on Fabric Process, so the
-           yarn is never grossed by it twice. Said, not left blank. */
+        /* A CONVERSION STEP'S LOSS IS THE UNRAVELLING LOSS (2026-09-26) — one
+           plain box, never Color-Wise: a colour's own figure is its Details
+           row's Loss %. It no longer lives on the loose fabric's route. */
         isConversion(r) ? (
-          /* One dash, where every other row's figure sits; the reason on hover
-             (screenshot 3092: a wrapped two-line note misaligned the row). */
-          <span
-            className="block text-right text-sm text-muted-foreground"
-            title="Loss is taken on the loose fabric's route (Fabric Process), never here"
-          >
-            —
-          </span>
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            aria-label="Unravelling loss %"
+            value={r.loss_pct}
+            disabled={readOnly}
+            onChange={(e) => patch(r.key, { loss_pct: e.target.value })}
+          />
         ) : /* For = COLOR WISE → each colour's loss in the list; PROCESS WISE → the
            one box. `isColorWiseFor` is the rule both process grids read. */
         colourLoss && isColorWiseFor(r.loss_for_id, lossFor) ? (
           <ColorLossControl
             driven
-            colours={combos}
+            /* THE YARN'S STRIPE COLOURS (client spec 2026-09-26) — a yarn is
+               dyed per yarn colour, so its Color-Wise popup lists BLUE, GREEN
+               off Yarn Dyed Details, one editable row each (`pickRows`), like
+               the Conversion Details. A yarn with no stripes lists its
+               colourways, as before. `yarnPurchase` applies each colour's
+               loss to that colour's share (`stripeWiseOwnSteps`). */
+            colours={lossColours}
+            pickRows
             baseLoss={r.loss_pct}
             wise
             losses={r.color_losses ?? {}}
             stageLabel={(r.process_id ? processes.find((p) => p.id === r.process_id)?.name : null) || "this step"}
             readOnly={readOnly}
-            unavailable={combos.length === 0 ? "No colourway uses this yarn yet." : null}
+            unavailable={lossColours.length === 0 ? "No colourway uses this yarn yet." : null}
             onChange={(next) => patch(r.key, next)}
           />
         ) : (
@@ -597,6 +606,8 @@ export function YarnProcessGrid({
       ? stripeColours
       : (combos.length > 0 ? combos : [...orderCombos]).map((c) => ({ value: c, label: c }));
   const detailColours = detailChoices.map((c) => c.value);
+  /** The Color-Wise popup's colours — the yarn's stripe colours, else its colourways (2026-09-26). */
+  const lossColours = stripeColours.length > 0 ? stripeColours.map((c) => c.value) : [...combos];
 
   /**
    * THE ROWS AS SHOWN. What the step holds once anything is typed; before
@@ -663,7 +674,7 @@ export function YarnProcessGrid({
   const setDetail = (r: YarnStageRow, at: number, next: Partial<ConversionDetailDraft>) =>
     writeDetails(r, (rows) => rows.map((d, k) => (k === at ? { ...d, ...next } : d)));
 
-  // 13 + 6 + 16 + 6 + 7 = 48rem = 768px + 88px ChildGrid chrome = 856px, under
+  // 13 + 6 + 16 + 7 = 42rem = 672px + 88px ChildGrid chrome = 760px, under
   // the md sheet's ~1,100px content, which clears `5xl` (1,024px) — a table.
   const conversionDetailColumns = (r: YarnStageRow): ChildGridColumn<DetailGridRow>[] => [
     {
@@ -738,21 +749,10 @@ export function YarnProcessGrid({
         />
       ),
     },
-    {
-      header: "GSM",
-      width: "6rem",
-      align: "right",
-      cell: (g, i) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          aria-label={`GSM — ${g.draft.combo}`}
-          value={g.draft.gsm}
-          disabled={readOnly}
-          onChange={(e) => setDetail(r, i, { gsm: e.target.value })}
-        />
-      ),
-    },
+    /* NO GSM COLUMN (client spec 2026-09-26, "Remove GSM Field from Conversion
+       Details Popup": the GSM is the fabric item's own). The stored `gsm` on a
+       saved row is left as it is — it was recorded, never multiplied, so
+       nothing reads it. */
     {
       header: "Dia",
       width: "7rem",
