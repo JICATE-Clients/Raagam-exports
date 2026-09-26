@@ -216,7 +216,16 @@ export async function getAmendmentStatusCounts(): Promise<Record<OrderQuickWord,
    * keeps being edited to stop, and it is only tolerable because the second way
    * is the first way's predecessor and disappears with it.
    */
-  console.error("[amendments] status count RPC unavailable, falling back:", error.message);
+  /* PGRST202 — "function not found": 0624 not applied yet. That is the one
+     EXPECTED failure, and a `console.warn` for it: Next's dev overlay raises
+     every server `console.error` as a red "Console Error" over the page, so
+     an anticipated, fully-handled state read as a crash (user 2026-09-24,
+     screenshot 142018). Anything else is a real fault and stays an error. */
+  if (error.code === "PGRST202") {
+    console.warn("[amendments] garment_order_status_counts() not deployed (apply 0624); counting the old way.");
+  } else {
+    console.error("[amendments] status count RPC unavailable, falling back:", error.message);
+  }
   const one = async (w: OrderQuickWord) => {
     const where = ORDER_QUICK_WHERE[w];
     let q = s

@@ -23036,7 +23036,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 the word. Eight pixels do not buy that back.
 
                 Keys are untouched — it is the same real `<input type="checkbox">`
-                underneath, so Tab, Enter and Space behave as they did. */}
+                underneath, so Tab moves on and Enter / Space flip it — the
+                contract's tick-box rule, reconfirmed by the client 2026-09-24
+                ("toggle on/off with Enter, move with Tab"). */}
             <Toggle
               id="hd-pack"
               label="Pack"

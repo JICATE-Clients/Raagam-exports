@@ -323,7 +323,13 @@ export function Combobox({
         data-1p-ignore=""
         data-lpignore="true"
         data-form-type="other"
-        disabled={disabled}
+        /* LOCKED IS READ-ONLY, NOT DISABLED (client 2026-09-24) — reachable by
+           Tab on a view-only record, never changeable; see the same note in
+           data-picker.tsx. `openList` still refuses while locked. */
+        disabled={ownDisabled}
+        aria-disabled={locked || undefined}
+        aria-readonly={locked || undefined}
+        readOnly={locked}
         value={shownValue}
         placeholder={selected ? selected.label : placeholder}
         onFocus={openOnFocus ? openList : undefined}
@@ -331,6 +337,7 @@ export function Combobox({
           if (!open) openList();
         }}
         onChange={(e) => {
+          if (locked) return;
           const q = e.target.value;
           setQuery(q);
           // The first CHOOSABLE match of the NEW query — not index 0, which may
@@ -362,6 +369,7 @@ export function Combobox({
           // which is what the control is for. `disabled:` still wins, below.
           "cursor-pointer",
           "disabled:cursor-not-allowed disabled:opacity-50",
+          locked && "cursor-not-allowed opacity-50",
           // Makes a clipped label end in "…" instead of stopping mid-word.
           // truncate-reveal: exempt -- the ellipsis half of the rule; the
           // reveal half is the <Tooltip> wrapping this input.
