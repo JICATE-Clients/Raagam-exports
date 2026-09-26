@@ -10,6 +10,8 @@ import { createdSection, withCreatedColumns } from "@/components/ui/created-colu
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { Toggle } from "@/components/ui/toggle";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createItemClass, updateItemClass, deleteItemClass } from "@/lib/masters/extras-actions";
@@ -32,6 +34,34 @@ import { fmtDateTime } from "@/lib/format";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
 const BLANK = { code: "", name: "", type_code: "", has_attribute: false, inactive: false };
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). The editor used to be a
+ * `DetailSection cols={2}` on a `size="lg"` sheet, so the one text box took
+ * half of an ~1180px pane — ~560px for a name whose longest real value is
+ * "PACKING ACCESSORIES" — and the Has Attribute tick floated across the gap.
+ *
+ * `party` (200px), not `name` (288): the name is free text, but the classes are
+ * a closed set of seven (`ITEM_CLASS_NAMES`) and the longest, 19 capitals, fits
+ * 200px. `term` (176) clips it. If an eighth, longer class is ever added it
+ * scrolls inside the box, as every free-text value does at every step.
+ */
+const FIELD_W = {
+  name: "party", // 200px
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * HOW WIDE THE FORM IS — the card AND the footer's button box, from ONE string
+ * (`country-master-screen.tsx`'s pattern). Derived from the wider of the two rows:
+ *
+ *   row 1 — name 200
+ *   row 2 — Has Attribute switch ~130 + gap 12 + Inactive switch ~100 = ~242
+ *   + 2 × 8 card padding (compact) + 2 × 1 border = ~260
+ *
+ * 20rem (320px) leaves slack for the non-compact `p-2.5` density and for the
+ * spell-suggest chips under the name, which wrap inside this cap.
+ */
+const FORM_W = "max-w-[20rem]";
 
 /**
  * Item Class master (doc/update.md #1-3) — the simple half of the Item Class /
@@ -310,22 +340,24 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
         onClose={() => setOpen(false)}
         title={editId ? "Edit Item Class" : "New Item Class"}
         footer={
-          <>
+          /* `mr-auto` inside the footer's `justify-end` row parks this box at the
+             left, so the buttons end where the card above them ends rather than
+             at the far edge of the pane. Same `FORM_W` as the card. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
-        <div className="space-y-4">
-          <DetailSection label="Details" cols={2}>
-            <div>
-              <Label htmlFor="ic-name">
-                Item Class Name <span className="text-danger">*</span>
-              </Label>
+        {/* `cols={1}`: the rows below are content-width `FieldRow`s, not a
+            twelfths track, and the section just stacks them. */}
+        <DetailSection label="Details" cols={1} className={FORM_W}>
+          <FieldRow>
+            <Field label="Item Class Name" w={FIELD_W.name} required htmlFor="ic-name">
               <Input
                 id="ic-name"
                 uppercase
@@ -334,7 +366,6 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 // ↓ into the suggestion strip, Enter applies, Esc dismisses.
                 onKeyDown={nameSuggest.onKeyDown}
                 required
-                className="text-base md:text-sm"
                 {...dupFieldProps(dupError, "ic-name")}
               />
               <DuplicateError error={dupError} id="ic-name" />
@@ -345,29 +376,29 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
-            </div>
-            <label className="flex h-9 cursor-pointer items-center gap-2 self-end">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.has_attribute}
-                onChange={(e) => setForm({ ...form, has_attribute: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Has Attribute</span>
-            </label>
-          </DetailSection>
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
+            </Field>
+          </FieldRow>
+          {/* The switches get their own row: `FIELD_ROW` is `items-end` and a
+              switch has no label band, so beside the name it would sit level
+              with the box's bottom and float. `Toggle` keeps a real checkbox
+              underneath, so Tab / Enter / Space still reach it. */}
+          <FieldRow>
+            <Toggle
+              id="ic-has-attr"
+              label="Has Attribute"
+              checked={form.has_attribute}
+              onChange={(has_attribute) => setForm((f) => ({ ...f, has_attribute }))}
+            />
+            {editId && (
+              <Toggle
+                id="ic-inactive"
+                label="Inactive"
                 checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+                onChange={(inactive) => setForm((f) => ({ ...f, inactive }))}
               />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
-        </div>
+            )}
+          </FieldRow>
+        </DetailSection>
       </Sheet>
 
       {/* read-only view — renders straight off the list row, nothing fetched */}

@@ -5,7 +5,8 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -58,6 +59,47 @@ const blankLine = (key: string): LineRow => ({
   // (a "+8 PIECES" tier is obviously off) rather than quietly.
   allowance_type: "percent",
 });
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). The header was three `size="sm"`
+ * fields on the twelfths track — ~280px each on a 1180px sheet, so a
+ * four-digit Entry No and a date got the width of a customer name.
+ *
+ *   header — entry 72 + effective 144 + rule 200, 2 × 12 gaps = 440
+ */
+const FIELD_W = {
+  entry: "num", //       72px — "(auto)" or a 1-4 digit number
+  effective: "code", // 144px — a native date control needs ~130px
+  rule: "party", //     200px — free text, a short rule name
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * The tier grid, from the same vocabulary (it was 8.5 / 7 / 7 / 12rem, hand-typed):
+ *
+ *   range 112 + from 112 + to 112 + allowance 176 = 512
+ *   + 72 `#` and ✕ chrome                        = 584
+ *
+ * Every column declares a width, so the grid hugs those 584px instead of
+ * sharing a 1180px sheet's slack among four short numbers. Well under the
+ * 1155px pane, so no `tableFrom` is needed: the default `@lg` (512px) switch
+ * already shows the table in every desktop sheet.
+ *
+ * The allowance cell is TWO controls: the number and its basis select
+ * (5.5rem). 176 − 88 − 4 gap leaves ~84px for the number, a 3-digit value.
+ */
+const TIER_W = {
+  range: FIELD_WIDTH_CSS.range, //         112px — Up to · Between · Above
+  from: FIELD_WIDTH_CSS.range, //          112px — a piece count, up to 5 digits
+  to: FIELD_WIDTH_CSS.range, //            112px
+  allowance: FIELD_WIDTH_CSS.term, //      176px — number + basis select
+};
+
+/**
+ * The footer's button box ends where the widest thing on the sheet ends — the
+ * tier grid, 584px plus its own frame. 38rem (608px) leaves the frame's slack.
+ * One string, so a column width change moves the buttons with it.
+ */
+const FORM_W = "max-w-[38rem]";
 
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 
@@ -360,7 +402,9 @@ export function GarmentRejectionRuleMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? `Edit Rejection Rule #${editEntryNo}` : "New Rejection Rule"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             under the grid's right edge instead of the far side of the sheet. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -371,7 +415,7 @@ export function GarmentRejectionRuleMasterScreen({
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         {/*
@@ -385,23 +429,21 @@ export function GarmentRejectionRuleMasterScreen({
           empty, while the tiers that actually need the room were the ones boxed
           into 560px and forced to stack Range above From/To/Allowance.
 
-          Stacked full width instead: the three header fields sit four-across at
-          the one standard ~280px, and the tiers become a real table whose columns
-          line up down the page. Same rule the Applicant / Bank / Courier screens
-          follow — "if a screen wants genuinely-flush fields on one row, stack its
-          sections full width rather than splitting the sheet".
+          Stacked, still one column — but each part now at CONTENT width
+          (erp-form-compact, 2026-09-26): the header fields shrink-wrapped by
+          FIELD_W, the tier grid hugging TIER_W. Full width had left a two-digit
+          From box ~250px wide and the right half of the sheet empty.
         */}
         <div className="space-y-4">
           {/* No bordered card: three fields identifying the record do not need
-              chrome around them, and the original didn't draw any either.
-              `FieldGrid` is `DetailSection`'s track without the frame. */}
-          <FieldGrid>
-            <Field label="Entry No" size="sm" htmlFor="grr-entry">
+              chrome around them, and the original didn't draw any either. */}
+          <FieldRow>
+            <Field label="Entry No" w={FIELD_W.entry} htmlFor="grr-entry">
               <Input id="grr-entry" value={editEntryNo ?? "(auto)"} disabled />
             </Field>
             {/* `.min(1)` in `garmentRejectionRuleInput`, and Rule two fields
                 below has always declared it — this one was simply missed. */}
-            <Field label="Effective From" size="sm" required htmlFor="grr-eff">
+            <Field label="Effective From" w={FIELD_W.effective} required htmlFor="grr-eff">
               <Input
                 id="grr-eff"
                 type="date"
@@ -409,7 +451,7 @@ export function GarmentRejectionRuleMasterScreen({
                 onChange={(e) => setEffectiveFrom(e.target.value)}
               />
             </Field>
-            <Field label="Rule" size="sm" required htmlFor="grr-rule">
+            <Field label="Rule" w={FIELD_W.rule} required htmlFor="grr-rule">
               <Input
                 uppercase
                 id="grr-rule"
@@ -418,24 +460,16 @@ export function GarmentRejectionRuleMasterScreen({
                 required
               />
             </Field>
-            {editId && (
-              // The `&nbsp;` label is a spacer, not decoration: `Field` renders
-              // its <Label> only when one is passed, so an unlabelled cell starts
-              // a label's height higher than the fields beside it. Same pattern
-              // as the Alternative-UOM box on the Material screen.
-              <Field label={<>&nbsp;</>} size="sm">
-                <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={inactive}
-                    onChange={(e) => setBlocked(e.target.checked)}
-                  />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
-              </Field>
-            )}
-          </FieldGrid>
+          </FieldRow>
+          {/* Its own row: a switch has no label band, so inside the `items-end`
+              row above it would sit level with the boxes' bottoms and float.
+              `Toggle`, not a tick box — still a real checkbox underneath, so
+              Tab / Enter / Space reach it. */}
+          {editId && (
+            <FieldRow>
+              <Toggle id="grr-inactive" label="Inactive" checked={inactive} onChange={setBlocked} />
+            </FieldRow>
+          )}
 
           {/*
             A real `ChildGrid` rather than the hand-rolled card stack this was.
@@ -464,7 +498,7 @@ export function GarmentRejectionRuleMasterScreen({
                 // derives it back from the bounds, so there is one home for the
                 // fact and no way for a caption to contradict it.
                 header: "Range",
-                width: "8.5rem",
+                width: TIER_W.range,
                 cell: (l) => (
                   <Select
                     aria-label="Range"
@@ -481,7 +515,7 @@ export function GarmentRejectionRuleMasterScreen({
               },
               {
                 header: "From",
-                width: "7rem",
+                width: TIER_W.from,
                 align: "right",
                 cell: (l) => {
                   const kind = rangeKindOf(asTier(l));
@@ -508,7 +542,7 @@ export function GarmentRejectionRuleMasterScreen({
               },
               {
                 header: "To",
-                width: "7rem",
+                width: TIER_W.to,
                 align: "right",
                 cell: (l) => {
                   const kind = rangeKindOf(asTier(l));
@@ -550,7 +584,7 @@ export function GarmentRejectionRuleMasterScreen({
                  * reader gets a name for both halves rather than a blank header.
                  */
                 header: "Rejection Allowance",
-                width: "12rem",
+                width: TIER_W.allowance,
                 align: "right",
                 cell: (l) => (
                   <div className="flex items-center gap-1">
