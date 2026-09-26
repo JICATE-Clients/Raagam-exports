@@ -634,7 +634,7 @@ export function YarnProcessGrid({
   const conversionDetailColumns = (r: YarnStageRow): ChildGridColumn<DetailGridRow>[] => [
     {
       header: "Description",
-      // 13rem: a stripe reads "Color 1 — GREEN / WHITE (62.5%)" (2026-09-26).
+      // 13rem: a stripe may read "GREEN / WHITE" when colourways differ (2026-09-26).
       width: "13rem",
       cell: (g, i) => {
         /* THE ORDER'S COLOURS, less those another row already names — one row

@@ -7833,27 +7833,27 @@ export function FabricBomScreen({
   /**
    * A YARN'S STRIPE COLOURS for the conversion Details' Description (user
    * 2026-09-26: "need to list that Color 1, Color 2 etc colour"). One option
-   * per stripe POSITION this yarn feeds on Yarn Dyed Details, labelled with the
-   * yarn colours the colourways put there and the position's share of the
-   * yarn — "Color 1 — GREEN / WHITE (62.5%)". The share shows only when every
-   * cloth agrees on it. The VALUE is the position, which is what
-   * `planConversions` keys a Details row by.
+   * per stripe POSITION this yarn feeds on Yarn Dyed Details.
+   *
+   * THE COLOUR NAME ONLY — "BLUE", not "Color 1 — BLUE (20%)" (user 2026-09-26,
+   * screenshot 3104: "just show the color name, no need that color1 and
+   * percentage mixing, remove it"). Where colourways put different colours at
+   * one position they are joined, "BLUE / GREEN"; a position with no colour
+   * typed on Combinations yet falls back to its own name so the row is never
+   * blank. The VALUE stays the position, which is what `planConversions` keys a
+   * Details row by.
    */
   const stripeColoursOf = (yarnId: string) => {
-    const byPos = new Map<string, { colours: string[]; shares: Set<string> }>();
+    const byPos = new Map<string, string[]>();
     for (const sh of yarnShades) {
       if (sh.yarn_id !== yarnId || !sh.position) continue;
-      const held = byPos.get(sh.position) ?? { colours: [], shares: new Set<string>() };
+      const held = byPos.get(sh.position) ?? [];
       byPos.set(sh.position, held);
-      if (sh.colour && !held.colours.includes(sh.colour)) held.colours.push(sh.colour);
-      held.shares.add((sh.share * 100).toFixed(2));
+      if (sh.colour && !held.includes(sh.colour)) held.push(sh.colour);
     }
     return [...byPos.entries()]
       .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-      .map(([position, { colours, shares }]) => {
-        const pct = shares.size === 1 ? ` (${fmtNumber(Number([...shares][0]))}%)` : "";
-        return { value: position, label: `${position}${colours.length ? ` — ${colours.join(" / ")}` : ""}${pct}` };
-      });
+      .map(([position, colours]) => ({ value: position, label: colours.length ? colours.join(" / ") : position }));
   };
   /** The yarns a loose fabric is unravelled into — for its Fabric Process row. */
   const yarnsConvertedFrom = (fabricId: string) =>
