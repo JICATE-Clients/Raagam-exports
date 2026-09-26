@@ -7,7 +7,8 @@ import { ChevronDown, Info, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Field, type FieldSize } from "@/components/ui/field";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -81,6 +82,66 @@ type ConvRow = { key: string; alt_qty: string; alt_uom_id: string; base_qty: str
 type UsingItemRow = { key: string; used_item_id: string; description: string; shade: string; uom_id: string };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). Every section sits in ONE column of
+ * the two-column body (~566px inside a card at the Sheet's 1180px cap), and
+ * each row is sized to stay on one line there:
+ *
+ *   Fabric ▸ Classification   structure 176 + type 176 + fabric type 176
+ *                             + 2 × 12 gaps = 552
+ *   Yarn ▸ Classification     yarn type 112 + count 112 + category 176
+ *                             + purity 112 + 3 × 12 = 548   (one row, user 2026-08-05)
+ *   General ▸ Classification  category 176 + sub category 112 + item type 88
+ *                             + item name 144 + 3 × 12 = 556   ← widest
+ *   Units of Measure slots    4 × 112 + 3 × 12 = 484
+ *
+ * Melange's Shade and Yarn's Nature are conditional and wrap onto a second
+ * line, as they did on the twelfths track.
+ */
+const FIELD_W = {
+  structure: "term", //     176px — picker naming a category: "1X1 FANCY RIB"
+  fabric_structure: "term", // 176px — Circular Knit · Flat Knit · Woven
+  fabric_type: "term", //   176px — Solid · Yarn Dyed · Melange
+  shade: "code", //         144px — a shade word or code
+  using: "term", //         176px — Single Yarn · Multiple Yarn
+  yarn_type: "range", //    112px — one word: Grey, Twisted, Doubling
+  count: "range", //        112px — "40'S", "20'S/2"
+  category: "term", //      176px — picker naming a category
+  purity: "range", //       112px — one word: Combed, Carded
+  nature: "hug", //          88px — Natural · Manmade · Mixed, read-only
+  uom: "range", //          112px — a unit code: KGS, NOS, MTR
+  alt_uom: "term", //       176px — the "Alternative UOM" switch and its words
+} satisfies Record<string, FieldWidth>;
+
+/** The generic classes' (General / SEW / PACK / CAP / Garments) Classification
+ *  fields — one map, so a width is adjusted here and never at a call site.
+ *  Form GEN is the row that sets the budget above; form A is Category + Type
+ *  (332px) and form C is Category alone. */
+const DETAIL_FIELD_W = {
+  category_id: "term", //     176px — picker, holds the longest value of the row
+  sub_category_id: "range", // 112px — second level under the category, General only
+  item_type_name: "hug", //    88px — General only: BRUSH, PEN, CABLE
+  item_base_name: "code", //  144px — General only: the specific item, NYLON 4 INCH
+  material_type: "code", //   144px — Purchased / Converted / Production
+  specifications: "name", //  288px — free-text description
+  short_spec: "term", //      176px
+  count_id: "range", //       112px — as Yarn's Count
+  purity_id: "range", //      112px — as Yarn's Purity
+  shade: "code", //           144px
+} satisfies Record<DetailFieldKey, FieldWidth>;
+
+/**
+ * The editor body AND the footer's button box, from ONE string:
+ *
+ *   556 widest row + 2 × 10 card padding (non-compact `p-2.5`) + 2 × 1 border
+ *   = 578 per column;  2 × 578 + 12 SectionGrid gap = 1168 → 73rem
+ *
+ * Only 12px under the Sheet's own 1180px cap — two columns that each hold a
+ * 556px row need nearly all of it. Its job is the second reader: Save ends
+ * where the right-hand column ends.
+ */
+const FORM_W = "max-w-[73rem]";
 
 const BLANK = {
   code: "",
@@ -1154,46 +1215,9 @@ export function MaterialMasterScreen({
   }, [formKey, units]);
   const baseUomLimit = classBaseUomId ? new Set([classBaseUomId]) : uomLimit;
 
-  /**
-   * How wide each Classification field should be, on the 12-column track.
-   *
-   * Sized to the data, not to the grid: Count is "40'S", Purity is a word —
-   * neither needs the half-row they used to get (client 2026-07-24 #3).
-   * Description is the only genuinely long free text. Adjust here, not at the
-   * call sites — this map is the single source of truth for the generic classes
-   * (General / SEW / PACK / CAP / Garments).
-   *
-   * A ROW MUST NOT EXCEED 12. A General material shows Category, Sub Category,
-   * Item Type and Item Name; at 4+4+3+3 = 14 they overflowed the track and the
-   * last field wrapped onto a row of its own, with the empty rest of that row
-   * under it (client 2026-07-28). Sizing each to what it actually holds lands on
-   * exactly 12:
-   *   form GEN — Category 4 + Sub Category 3 + Item Type 2 + Item Name 3 = 12
-   * That leaves 5 to split between the two General fields, and Item Name
-   * ("NYLON 4 INCH") is the longer of the pair, so it takes 3 and Item Type
-   * ("BRUSH", "PEN") takes 2. Widen one of these and something else has to give.
-   *
-   * The other two forms now sit UNDER 12 and that is fine — the failure mode was
-   * overflow, never a short row. Since "User defined" was dropped
-   * (client 2026-07-30) form A is Category 4 + Type 3 = 7 (sub-category filters
-   * out for every class in A) and form C is Category 4 alone.
-   */
-  const DETAIL_FIELD_SIZE: Record<DetailFieldKey, FieldSize> = {
-    category_id: "md", // 4 — picker, holds the longest value of the four
-    sub_category_id: "sm", // 3 — second level under the category, General only
-    item_type_name: "xs", // 2 — General only: BRUSH, PEN, CABLE
-    item_base_name: "sm", // 3 — General only: the specific item, NYLON 4 INCH
-    material_type: "sm", // 3 — Purchased / Converted / Production
-    specifications: "lg", // free-text description
-    short_spec: "md",
-    count_id: "sm", // "40'S", "20'S/2"
-    purity_id: "sm", // one word — Combed, Carded
-    shade: "sm",
-  };
-
   function detailField(key: DetailFieldKey): ReactNode {
     return (
-      <Field key={key} size={DETAIL_FIELD_SIZE[key]}>
+      <Field key={key} w={DETAIL_FIELD_W[key]}>
         {detailControl(key)}
       </Field>
     );
@@ -1704,16 +1728,15 @@ export function MaterialMasterScreen({
     return (
       <>
         {/* Organized fabric layout (doc/ui/New Material Fabric - Organized
-            Layout.html): Classification on the 12-col track, each field sized to
-            its data, with the long hints tucked into ⓘ tooltips; Mixing nests
-            INSIDE Composition (it IS the composition), never in the right
-            column. The section sits in the LEFT column of the two-column split,
-            exactly as the mockup draws it; its three fields are `md`, so all
-            three share ONE row (client 2026-08-04, asked three times). See the
-            note on the sizes below — the mockup's own Units of Measure does the
-            same thing at the same column width. */}
-        <DetailSection label="Classification" cols={12}>
-            <Field size="md">
+            Layout.html): Classification as one content-width row, with the
+            long hints tucked into ⓘ tooltips; Mixing nests INSIDE Composition
+            (it IS the composition), never in the right column. The section sits
+            in the LEFT column of the two-column split, exactly as the mockup
+            draws it, and its three fields share ONE row (client 2026-08-04,
+            asked three times) — 552px, see FIELD_W. */}
+        <DetailSection label="Classification" cols={1}>
+          <FieldRow>
+            <Field w={FIELD_W.structure}>
               <CategoryPicker
                 label="Structure"
                 // `DataPicker` would otherwise draw "— Select Structure —"
@@ -1746,33 +1769,12 @@ export function MaterialMasterScreen({
                 fabricStructures={fabricStructures}
               />
             </Field>
-            {/* `md` — THREE FIELDS ON ONE ROW (client 2026-08-04, asked three
-                times). Do not "restore" this to `lg`; read why first, because it
-                has already been reverted once on a premise that does not hold.
-
-                MEASURED, not estimated. The 12-col track in this ~584px column,
-                after `DetailSection`'s `p-2` and its `gap-x-3` gutters, is
-                ~36.3px per unit:
-
-                  lg  6 units → 278px → 2 per row   (the ~280px reference)
-                  md  4 units → 181px → 3 per row   ← here
-                  sm  3 units → 133px → 4 per row
-
-                The failure everyone remembers — Type and Fabric Type starved,
-                neither placeholder fitting — was `sm` at 133px. `md` is 36%
-                wider, which is why it is not the same change.
-
-                AND THE MOCKUP ALLOWS IT. The revert cited
-                `doc/ui/New Material Fabric - Organized Layout.html` as mandating
-                two per row. It draws Classification as a `.grid2`, true — but in
-                the RIGHT column, at the same ~583px, it lays Units of Measure out
-                as `repeat(3,1fr)`: three fields at ~175px. Three-across in a
-                half-width column is the mockup's own idiom, and `md` at 181px is
-                wider than the row it signed off.
-
-                `md` is marked retired in LAYOUT.md §3 (one width, ~280px, client
-                2026-07-29). This is the one named exception, recorded there. */}
-            <Field size="md">
+            {/* THREE FIELDS ON ONE ROW (client 2026-08-04, asked three times),
+                each at `term` (176px). Do not widen one to a name's width: the
+                failure everyone remembers — Type and Fabric Type starved, neither
+                placeholder fitting — was 133px, and the signed-off mockup lays
+                three ~175px fields across this same half-width column. */}
+            <Field w={FIELD_W.fabric_structure}>
               {/* Fabric "Type" — Circular Knit/Flat Knit/Woven. Derived from the
                   picked Structure/category (which already carries its structure,
                   set in the Category child) and shown read-only — no separate
@@ -1807,8 +1809,8 @@ export function MaterialMasterScreen({
                 />
               </div>
             </Field>
-            {/* `md`, the third of the row — see the note above Type. */}
-            <Field size="md">
+            {/* The third of the row — see the note above Type. */}
+            <Field w={FIELD_W.fabric_type}>
               {/* Fixed 3-value classification (Solid/Yarn Dyed/Melange) — plain
                   dropdown, no Add/Modify/Delete (client 2026-07-23, Screenshot
                   2070): users must pick, never grow this list.
@@ -1849,7 +1851,7 @@ export function MaterialMasterScreen({
             </Field>
             {/* Melange fabric carries its shade (client 2026-07-23) */}
             {fabricTypeLabel.get(form.fabric_type_id)?.toLowerCase() === "melange" && (
-              <Field label="Shade" size="sm" htmlFor="mt-fabric-shade">
+              <Field label="Shade" w={FIELD_W.shade} htmlFor="mt-fabric-shade">
                 <Input
                   uppercase
                   id="mt-fabric-shade"
@@ -1858,8 +1860,9 @@ export function MaterialMasterScreen({
                 />
               </Field>
             )}
+          </FieldRow>
         </DetailSection>
-        <DetailSection label="Composition" cols={12} action={fabricMixHeader}>
+        <DetailSection label="Composition" cols={1} action={fabricMixHeader}>
             {/* Using comes FIRST, and Direct Purchase is off the Tab path while it is
                 unticked (client 2026-08-01). Ticking it wipes the mixing rows, and Enter
                 TICKS a checkbox rather than moving past it — so on the default typing
@@ -1867,8 +1870,8 @@ export function MaterialMasterScreen({
                 typed composition. Reach it with ↓ / → or the mouse. Once ticked it
                 rejoins the path, because it is then the only way back. */}
             {/* ONE CELL, the two stacked (client 2026-08-05): Direct Purchase
-                sits UNDER Using rather than beside it, so the pair occupies half
-                the row and the mixing grid takes the other half.
+                sits UNDER Using rather than beside it, so the pair takes the
+                left of the row and the mixing grid the rest.
 
                 Nested `Field`s on purpose. The inner spans are inert — their
                 parent is `space-y-2`, not a grid — but each inner `Field` keeps
@@ -1878,9 +1881,12 @@ export function MaterialMasterScreen({
                 under the OUTER cell's scope instead. `size="full"` reads as
                 "fill the cell", which is what a block child does anyway.
 
-                DOM order is untouched — Using, checkbox, grid — so the Tab path
-                and the `data-focus-optional` rule above still hold. */}
-            <Field size="md" className="space-y-2">
+                DOM order is untouched — Using, switch, grid — so the Tab path
+                and the off-path rule above still hold. `align="start"`: the
+                grid's `flushRows` lines its rows up with Using's control from
+                the TOP, and bottom-aligning would slide the pair down. */}
+          <FieldRow align="start">
+            <Field w={FIELD_W.using} className="space-y-2">
               {!form.direct_purchase && (
                 // The 6px under the label is what makes this field and the grid
                 // beside it read as one row (client 2026-08-05, screenshot
@@ -1901,21 +1907,19 @@ export function MaterialMasterScreen({
                   </Select>
                 </Field>
               )}
-              <Field size="full">
-                <label className="flex h-9 cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    data-focus-optional={form.direct_purchase ? undefined : ""}
-                    checked={form.direct_purchase}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      set({ direct_purchase: checked });
-                      if (checked) setMixings([]);
-                    }}
-                  />
-                  <span className="text-sm text-foreground">Direct Purchase</span>
-                </label>
+              {/* `offTabPath` stamps `data-focus-optional` on the cell, and
+                  `isOffTabPath` reads it by `closest()` — the same marker the
+                  raw tick box carried, now reaching the switch's own input. */}
+              <Field size="full" offTabPath={!form.direct_purchase}>
+                <Toggle
+                  id="mt-direct-purchase"
+                  label="Direct Purchase"
+                  checked={form.direct_purchase}
+                  onChange={(checked) => {
+                    set({ direct_purchase: checked });
+                    if (checked) setMixings([]);
+                  }}
+                />
               </Field>
             </Field>
             {/* THE MIXING GRID SHARES THE ROW with the pair beside it (client
@@ -1923,36 +1927,16 @@ export function MaterialMasterScreen({
                 used to take a full row of its own beneath them, leaving most of
                 theirs empty.
 
-                4 + 8 = 12: the stacked Using/Direct Purchase cell at `md`
-                (181px, the same width as Classification's fields directly
-                above, so the two rows share a left edge), and this at `xl`
-                (374px).
-
-                THE 8 IS WHY `xl` EXISTS. It was 6/6 for an hour and the client
-                read the grid as squeezed (2026-08-05): at 278px the Yarn picker
-                inside it sits at ~150px. `Field`'s map went 6 → 12 with nothing
-                between, so there was no way to give a table more than half a row
-                without taking the whole one — the gap `xl` fills. At 374px the
-                picker lands at ~250px, and wider still on a Yarn Dyed or Single
-                Yarn fabric where `hidePct` drops the % column.
-
-                Going the other way is what does not work: at Classification's
-                `md` the picker would collapse to ~55px, narrower than
-                "40'S COMBED COTTON".
-
-                `Field` with no label rather than a hand-written `col-span-6`:
-                it is the documented shape for "an unlabelled cell that still
-                participates in the span grid", it keeps a `col-span-*` off the
-                screen (LAYOUT.md §1), and it brings `min-w-0` — without which a
-                grid child refuses to shrink below its content width and the
-                table would push out of its half. Same half of the fix as Type
-                beside Fabric Type above.
-
-                The `h-px` divider went with it: it separated the grid from the
-                fields ABOVE it, and side by side there is nothing above to
-                separate — a rule across half a column just reads as a stray
-                line. `FIELD_TRACK`'s `gap-x-3` is the separation now. */}
-            {fabricAttributesVisible && <Field size="xl">{mixingGrid("fabric")}</Field>}
+                A grid, not a field: it takes the REST of the row, never a step.
+                Basis 18rem (the `name` step) because the client read it as
+                squeezed at 278px (2026-08-05) — below that the Yarn picker
+                inside collapses under "40'S COMBED COTTON" — so a column too
+                narrow for 176 + 12 + 288 wraps the grid under Using instead of
+                crushing it. At the full column it gets ~364px, as before.
+                `min-w-0` lets the table shrink inside its box rather than push
+                out of the card. */}
+            {fabricAttributesVisible && <div className="min-w-0 flex-[1_1_18rem]">{mixingGrid("fabric")}</div>}
+          </FieldRow>
         </DetailSection>
       </>
     );
@@ -1971,26 +1955,27 @@ export function MaterialMasterScreen({
     return (
       <>
         {/* ONE section, and the four class fields are ONE ROW: Yarn Type ·
-            Count · Category · Purity, `sm` (span 3) each = 12 (user
-            2026-08-05). Yarn Type had a section of its own above this one; the
-            header bought nothing — "Yarn Type" and "Classification" are the
-            same subject — and it cost the row its fourth field.
+            Count · Category · Purity (user 2026-08-05) — 548px, see FIELD_W.
+            Yarn Type had a section of its own above this one; the header
+            bought nothing — "Yarn Type" and "Classification" are the same
+            subject — and it cost the row its fourth field.
 
-            Order here IS the layout. The grid auto-places, so the two
+            Order here IS the layout. The row wraps in DOM order, so the two
             conditionals sit AFTER Purity deliberately: written where they
             belong semantically (Shade beside Yarn Type, Nature beside the
             Category it derives from) either one appearing would push Purity
-            onto row 2 and break the four up. They wrap below instead, which is
-            the trade the user took when the row was chosen.
+            onto line 2 and break the four up. They wrap below instead, which
+            is the trade the user took when the row was chosen.
 
-            ~132px per field, not the ~280px reference of LAYOUT.md §3 — that
-            is what four across a `SectionColumn` costs, and it was chosen with
-            the arithmetic in hand. The alternative is stacking this section
-            full width, which is the thing the client reverted on 2026-08-04;
-            see the note above `SectionGrid` at the render root. Category is the
-            one long value, so it leans on `<Truncated>` inside the picker. */}
-        <DetailSection label="Classification" cols={12}>
-            <Field size="sm">
+            Three one-word values at `range` and the Category at `term` is
+            what four across a `SectionColumn` costs. The alternative is
+            stacking this section full width, which is the thing the client
+            reverted on 2026-08-04; see the note above `SectionGrid` at the
+            render root. Category is the one long value, so it leans on
+            `<Truncated>` inside the picker. */}
+        <DetailSection label="Classification" cols={1}>
+          <FieldRow>
+            <Field w={FIELD_W.yarn_type}>
               <LookupDialogPicker
                 kind="yarn_type"
                 label="Yarn Type"
@@ -2003,7 +1988,7 @@ export function MaterialMasterScreen({
                 canDelete={perms.canDelete}
               />
             </Field>
-            <Field size="sm">
+            <Field w={FIELD_W.count}>
               {/* Was a plain dropdown with no Add/Modify/Delete (client
                   2026-07-23 #4, "counts are a fixed list that never grows
                   here") — REVERSED by the client on 2026-07-31: an operator hit
@@ -2022,7 +2007,7 @@ export function MaterialMasterScreen({
                 canDelete={perms.canDelete}
               />
             </Field>
-            <Field size="sm">
+            <Field w={FIELD_W.category}>
               <CategoryPicker
                 label="Category"
                 required={req("category_id")}
@@ -2038,7 +2023,7 @@ export function MaterialMasterScreen({
                 fabricStructures={fabricStructures}
               />
             </Field>
-            <Field size="sm">
+            <Field w={FIELD_W.purity}>
               <LookupDialogPicker
                 kind="yarn_purity"
                 label="Purity"
@@ -2050,11 +2035,11 @@ export function MaterialMasterScreen({
                 canDelete={perms.canDelete}
               />
             </Field>
-            {/* Row 2 — both conditional, both placed last on purpose (see the
+            {/* Line 2 — both conditional, both placed last on purpose (see the
                 section note). Melange yarn carries its shade (client
                 2026-07-23); Nature is read-only, derived from the Category. */}
             {ytName === "melange" && (
-              <Field label="Shade" size="sm" htmlFor="mt-yarn-shade">
+              <Field label="Shade" w={FIELD_W.shade} htmlFor="mt-yarn-shade">
                 <Input
                   uppercase
                   id="mt-yarn-shade"
@@ -2064,10 +2049,11 @@ export function MaterialMasterScreen({
               </Field>
             )}
             {nature && (
-              <Field label="Nature" size="xs">
+              <Field label="Nature" w={FIELD_W.nature}>
                 <div className="flex h-9 items-center truncate rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
               </Field>
             )}
+          </FieldRow>
         </DetailSection>
         {/* Mixing grid renders full-width below the two-column body — see
             yarnMixingVisible at the render root (Screenshot 2079). */}
@@ -2254,7 +2240,9 @@ export function MaterialMasterScreen({
         fullScreen
         title={editId ? `Edit Material — ${editName}` : "New Material"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the form's right-hand column ends. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -2281,10 +2269,10 @@ export function MaterialMasterScreen({
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
-        <div className="space-y-4">
+        <div className={cn("space-y-4", FORM_W)}>
           {/* Identity row — Item Class | Name | HSN, per the planned layout
               (doc/ui/New Material - Planned Layout.html, 2026-07-23). The Name
               moved up from the foot of Details; its auto-generation for
@@ -2397,11 +2385,11 @@ export function MaterialMasterScreen({
 
               EVERY class uses this split, Fabric and Yarn included. Neither
               buys its one-row Classification by claiming the whole row — they
-              buy it with the span. Fabric fits three fields (Structure, Type,
-              Fabric Type) at `md`; Yarn fits four (Yarn Type, Count, Category,
-              Purity) at `sm`, which is why Yarn no longer has a "Yarn Type"
-              section of its own. Measured widths in `fabricDetails`, the trade
-              in `yarnDetails`. Stacking was tried for part of 2026-08-04 and
+              buy it with content widths. Fabric fits three fields (Structure,
+              Type, Fabric Type); Yarn fits four (Yarn Type, Count, Category,
+              Purity), which is why Yarn no longer has a "Yarn Type" section of
+              its own. The arithmetic is in FIELD_W, the trade in
+              `yarnDetails`. Stacking was tried for part of 2026-08-04 and
               the client reverted it the same day. */}
           <SectionGrid>
             <SectionColumn>
@@ -2415,16 +2403,14 @@ export function MaterialMasterScreen({
                 // Sub Category is in form A's field list but only belongs on
                 // screen for a General category that defines one, so it is
                 // filtered here rather than splitting the registry in two.
-                <DetailSection label="Classification" cols={12}>
-                  {formDef?.fields
-                    .filter((k) => k !== "sub_category_id" || subCategoryVisible)
-                    .map((k) => detailField(k))}
+                <DetailSection label="Classification" cols={1}>
+                  <FieldRow>
+                    {formDef?.fields
+                      .filter((k) => k !== "sub_category_id" || subCategoryVisible)
+                      .map((k) => detailField(k))}
+                  </FieldRow>
                 </DetailSection>
               )}
-              {/* 12-col track: a numeric answer is a 2-4 character box, an
-                  option list needs room for its longest option. Sizing each to
-                  its data fits 3-4 attributes per row instead of 2 wide,
-                  half-empty ones (client 2026-07-24 #3). */}
               {attributeSetMissing && (
                 <div className="rounded-lg border border-dashed border-border bg-surface-muted/50 px-4 py-6 text-center text-sm text-muted-foreground">
                   No Material Attributes configured for this category yet. Set them up under
@@ -2546,22 +2532,16 @@ export function MaterialMasterScreen({
                   option list, not their existence — four dropdowns over the whole
                   UOM master, asked before the one row that gives them meaning.
                   Restored below the conversion and filtered to `uomLimit`. */}
-              <DetailSection label="Units of Measure" cols={12}>
+              <DetailSection label="Units of Measure" cols={1}>
                 {/* Row 1: Base + the toggle, side by side (client 2026-07-28).
                     ~90% of materials are consumed and purchased in the same unit
                     (a label is Numbers everywhere), so everything the toggle
                     reveals stays out of the way until the material says it needs
                     it. Thread (metres → cones) and buttons (numbers → gross) are
                     the cases that tick it.
-                    2 + 4 = 6 of 12, so neither cell is cramped — and Base at `xs`
-                    sits in track 1, directly above Stock at `xs` in track 1 of
-                    the slot row below, so the two rows align by construction
-                    rather than by luck.
-
-                    On a `singleUomClass` Base is the ONLY thing in this section,
-                    so it takes the standard `sm` width instead: `xs` exists to
-                    line up with a slot row those classes no longer have, and a
-                    lone 2-of-12 box is just a stranded tiny field. */}
+                    Base is a unit code at `range`, the same step as Stock below
+                    it, and both start their rows — so the two align by
+                    construction rather than by luck. */}
                 {/* ONE Base field for every class, editable everywhere (client
                     2026-08-04). Fabric had a read-only `bg-surface-muted` box
                     here for three days, because 2026-08-01 made its unit derived
@@ -2570,6 +2550,7 @@ export function MaterialMasterScreen({
                     structure now PREFILLS this (see the effect above) and the
                     operator has the last word. The ⓘ stays: a field that fills
                     itself still has to say who filled it. */}
+                <FieldRow>
                 <Field
                   label={
                     formKey === "FABRIC" ? (
@@ -2593,30 +2574,28 @@ export function MaterialMasterScreen({
                     )
                   }
                   required={req("base_uom_id")}
-                  size={singleUomClass ? "sm" : "xs"}
+                  w={FIELD_W.uom}
                 >
                   {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), baseUomLimit)}
                 </Field>
-                {/* The `&nbsp;` is a spacer, not decoration: `Field` renders its
-                    <Label> only when `label != null`, so an unlabelled cell
-                    starts a label's height higher than the labelled Base beside
-                    it. `h-9 @2xl/editor:h-8` tracks the Combobox's own height —
-                    hard-coding h-9 left the checkbox 4px taller than the select
+                {/* No label: the row bottom-aligns, so the switch sits on
+                    Base's control line without a spacer caption.
+                    `@2xl/editor:min-h-8` tracks the Combobox's own height —
+                    `Toggle`'s `min-h-9` alone stands 4px taller than the select
                     on the wide editor surface.
                     Not offered on Yarn or Fabric — `singleUomClass` covers both. */}
                 {!singleUomClass && (
-                  <Field label={<>&nbsp;</>} size="md">
-                    <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.has_alternate_uom}
-                        onChange={(e) => toggleAltUom(e.target.checked)}
-                      />
-                      <span className="text-sm text-foreground">Alternative UOM</span>
-                    </label>
+                  <Field w={FIELD_W.alt_uom}>
+                    <Toggle
+                      id="mt-alt-uom"
+                      label="Alternative UOM"
+                      checked={form.has_alternate_uom}
+                      onChange={toggleAltUom}
+                      className="@2xl/editor:min-h-8"
+                    />
                   </Field>
                 )}
+                </FieldRow>
                 {/* THE UNIT ON SCREEN DISAGREES WITH THE ONE THE STORED
                     QUANTITIES WERE ENTERED IN. Say so — a number does not change
                     meaning quietly just because the label above it did.
@@ -2626,19 +2605,18 @@ export function MaterialMasterScreen({
                     re-picked structure, or the operator changing Base by hand,
                     which is newly possible on fabric. */}
                 {fabricUomChanged && (
-                  <Field size="full">
-                    <p className="text-xs text-warning">
-                      Base UOM changes from {unitCode(fabricUomChanged)} to {unitCode(form.base_uom_id)} on save.
-                      Quantities already recorded against this material were entered in {unitCode(fabricUomChanged)}.
-                    </p>
-                  </Field>
+                  <p className="text-xs text-warning">
+                    Base UOM changes from {unitCode(fabricUomChanged)} to {unitCode(form.base_uom_id)} on save.
+                    Quantities already recorded against this material were entered in {unitCode(fabricUomChanged)}.
+                  </p>
                 )}
                 {/* Conversions as one inline row per record — the legacy wide
                     table doesn't fit a half-width column, and the previous
                     2-col card wrapped four controls onto two lines. Quantities
                     are numeric so they get a fixed narrow track; the UOM pickers
-                    share the remaining space. Spans the whole 12-col track: it
-                    is a table, not a field.
+                    share the remaining space. Spans the whole column: it is a
+                    table, not a field, and the column is already capped by
+                    FORM_W.
 
                     Never on a `singleUomClass`. Fabric used to reach this grid
                     with its units fixed and only the quantities editable (a
@@ -2648,7 +2626,7 @@ export function MaterialMasterScreen({
                     The row itself is still DERIVED and still saved — see the
                     fabric effect above — it just cannot be edited from here. */}
                 {form.has_alternate_uom && !singleUomClass && (
-                  <Field size="full">
+                  <div>
                     <ChildGrid<ConvRow>
                       lockExisting
                       label="Alternate ↔ Base Conversions"
@@ -2687,16 +2665,16 @@ export function MaterialMasterScreen({
                         },
                       ]}
                     />
-                  </Field>
+                  </div>
                 )}
-                {/* The four downstream slots, one row of `xs` (2 of 12 each = 8).
+                {/* The four downstream slots, one row at `range` (484px).
                     They appear only with Alternative UOM on: with it off they are
                     all the base unit by definition, and the server writes them
                     that way (material-actions.ts `uomSlots`).
                     "Uom" is dropped from every label — the section is already
-                    titled Units of Measure, and "Planning Uom" wraps in a ~85px
-                    track while "Planning" does not. Base is NOT here; it sits up
-                    on row 1 beside the toggle, in this same track 1.
+                    titled Units of Measure, and "Planning Uom" would wrap where
+                    "Planning" does not. Base is NOT here; it sits up on row 1
+                    beside the toggle, directly above Stock.
 
                     Never on a `singleUomClass`: all four are the base unit, and
                     for fabric the server writes them that way regardless
@@ -2705,27 +2683,27 @@ export function MaterialMasterScreen({
                     controls. */}
                 {form.has_alternate_uom && !singleUomClass && (
                   <>
-                    <Field label="Stock" size="xs">
-                      {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }), uomLimit)}
-                    </Field>
-                    <Field label="Billing" size="xs">
-                      {uomSelect(form.billing_uom_id, (v) => set({ billing_uom_id: v }), uomLimit)}
-                    </Field>
-                    <Field label="Planning" size="xs">
-                      {uomSelect(form.planning_uom_id, (v) => set({ planning_uom_id: v }), uomLimit)}
-                    </Field>
-                    <Field label="Purchase" size="xs">
-                      {uomSelect(form.purchase_uom_id, (v) => set({ purchase_uom_id: v }), uomLimit)}
-                    </Field>
+                    <FieldRow>
+                      <Field label="Stock" w={FIELD_W.uom}>
+                        {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }), uomLimit)}
+                      </Field>
+                      <Field label="Billing" w={FIELD_W.uom}>
+                        {uomSelect(form.billing_uom_id, (v) => set({ billing_uom_id: v }), uomLimit)}
+                      </Field>
+                      <Field label="Planning" w={FIELD_W.uom}>
+                        {uomSelect(form.planning_uom_id, (v) => set({ planning_uom_id: v }), uomLimit)}
+                      </Field>
+                      <Field label="Purchase" w={FIELD_W.uom}>
+                        {uomSelect(form.purchase_uom_id, (v) => set({ purchase_uom_id: v }), uomLimit)}
+                      </Field>
+                    </FieldRow>
                     {/* Says which question to answer first, rather than leaving
                         the dropdowns on the full UOM master with no explanation
                         of why they narrow later. */}
                     {convUnitIds.size === 0 && (
-                      <Field size="full">
-                        <p className="text-xs text-muted-foreground">
-                          Fill a conversion row above — Base and these four then offer only the units it names.
-                        </p>
-                      </Field>
+                      <p className="text-xs text-muted-foreground">
+                        Fill a conversion row above — Base and these four then offer only the units it names.
+                      </p>
                     )}
                   </>
                 )}
@@ -2736,10 +2714,14 @@ export function MaterialMasterScreen({
                   columns remain, so any existing values are left untouched. */}
 
               {editId && (
-                <label className="flex cursor-pointer items-center gap-2 border-t border-border pt-3">
-                  <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
+                <div className="border-t border-border pt-3">
+                  <Toggle
+                    id="mt-inactive"
+                    label="Inactive"
+                    checked={form.inactive}
+                    onChange={(inactive) => set({ inactive })}
+                  />
+                </div>
               )}
             </SectionColumn>
           </SectionGrid>

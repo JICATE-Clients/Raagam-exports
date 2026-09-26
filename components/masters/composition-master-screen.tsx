@@ -11,6 +11,8 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { Sheet } from "@/components/ui/sheet";
+import { Toggle } from "@/components/ui/toggle";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import { usePagination } from "@/lib/use-pagination";
@@ -43,6 +45,27 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExpo
 type LineRow = { key: string; category_id: string; description: string; mixing_pct: string };
 
 const BLANK = { item_class_id: "", short_name: "", name: "", inactive: false };
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). Details was `cols={2}` on a
+ * full-screen sheet, so a one-value Item Class got half the pane.
+ *
+ *   Details — item class 176 + name 288, 1 × 12 gap = 476
+ */
+const FIELD_W = {
+  item_class: "term", // 176px — picker trigger + its manage icon; only FABRIC
+  name: "name", //       288px — the composed mixing; scrolls past ~30 capitals
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * The Details card, the Mixing grid (rule 4: a sub-grid is as wide as the
+ * FORM) AND the footer's buttons, from ONE string:
+ *
+ *   476 row + 2 × 8 card padding (compact) + 2 × 1 border = 494
+ *
+ * 32rem (512px) leaves room for the non-compact `p-2.5` density (+4px).
+ */
+const FORM_W = "max-w-[32rem]";
 
 /**
  * Master-detail CRUD for the legacy "Composition" master: a header (Item Class
@@ -472,14 +495,16 @@ export function CompositionMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Composition" : "New Composition"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the card and the grid end. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !form.item_class_id || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         {/* ONE COLUMN, TOP TO BOTTOM (client 2026-08-04).
@@ -497,11 +522,17 @@ export function CompositionMasterScreen({
             anyone opened the screen. Read top to bottom now: who this is, then
             what it is made of. */}
         <div className="space-y-4">
-          <DetailSection label="Details" cols={2}>
+          {/* `cols={1}`: the row inside is a content-width `FieldRow`, not a
+              twelfths track. `align="start"` because Name renders its
+              duplicate error below the control. */}
+          <DetailSection label="Details" cols={1} className={FORM_W}>
+            <FieldRow align="start">
             {/* Item Class — same LookupDialogPicker every master uses (search +
                 inline Add/Modify/Delete). Composition only ever applies to
                 Fabric, so `itemClasses` from page.tsx is already filtered to
-                that single row — the dialog just naturally lists only Fabric. */}
+                that single row — the dialog just naturally lists only Fabric.
+                The picker renders its own label; the Field only sizes it. */}
+            <Field w={FIELD_W.item_class}>
             <LookupDialogPicker
               kind="item_class"
               label="Item Class"
@@ -514,11 +545,9 @@ export function CompositionMasterScreen({
               canDelete={perms.canDelete}
               isSuperAdmin={perms.isSuperAdmin}
             />
+            </Field>
 
-            <div>
-              <Label htmlFor="cmp-name">
-                Name <span className="text-danger">*</span>
-              </Label>
+            <Field label="Name" w={FIELD_W.name} required htmlFor="cmp-name">
               <Input
                 id="cmp-name"
                 uppercase
@@ -546,19 +575,17 @@ export function CompositionMasterScreen({
                 duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
-            </div>
+            </Field>
+            </FieldRow>
           </DetailSection>
 
           {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
+            <Toggle
+              id="cmp-inactive"
+              label="Inactive"
+              checked={form.inactive}
+              onChange={(inactive) => setForm({ ...form, inactive })}
+            />
           )}
 
           {/* `inlineCards`, not `forceCards` — LAYOUT.md §6 picks the mode by
@@ -569,7 +596,9 @@ export function CompositionMasterScreen({
               same 5rem % column — the two screens edit the same idea and should
               not look like different products. `renderMobileRow` goes with it:
               `inlineCards` ignores it by contract, and a second copy of the
-              cells was only ever there to keep the card mode in step. */}
+              cells was only ever there to keep the card mode in step.
+              Capped to FORM_W (rule 4), so it ends where Details ends. */}
+          <div className={FORM_W}>
           <ChildGrid<LineRow>
             lockExisting
             label="Mixing"
@@ -604,6 +633,7 @@ export function CompositionMasterScreen({
               },
             ]}
           />
+          </div>
         </div>
       </Sheet>
     </div>
