@@ -11,6 +11,8 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { Toggle } from "@/components/ui/toggle";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
@@ -60,6 +62,31 @@ const BLANK = {
   inactive: false,
   has_sub_categories: false,
 };
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). Both sections were `cols={2}` on a
+ * full-screen sheet, so a three-value Category Type got half the pane.
+ *
+ *   Classification — item class 200 + fabric structure 176, 1 × 12 gap = 388
+ *                    (Yarn shows Category Type 144 instead: 356)
+ *   Details        — name 288
+ */
+const FIELD_W = {
+  item_class: "party", //       200px — "PACKING ACCESSORIES" is the longest class
+  made: "code", //              144px — NATURAL · MANMADE · MIXED
+  fabric_structure: "term", //  176px — picker trigger + its manage icon
+  name: "name", //              288px — free text
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * The cards (and so the Sub Categories grid inside Details) AND the footer's
+ * buttons, from ONE string. The widest row is Classification:
+ *
+ *   388 row + 2 × 8 card padding (compact) + 2 × 1 border = 406
+ *
+ * 26rem (416px) leaves room for the non-compact `p-2.5` density (+4px).
+ */
+const FORM_W = "max-w-[26rem]";
 
 /** A Sub Category row being edited. `id` is null for a row the user just added;
  *  carrying the real id back lets updateCategory reconcile instead of
@@ -617,7 +644,9 @@ export function CategoryMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Category" : "New Category"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the cards end. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             {/* Says WHY Save is off, and clicking it takes the operator there.
                 A greyed button with no reason is the thing that makes people
                 hunt the form for the field they missed — which is the actual
@@ -659,11 +688,14 @@ export function CategoryMasterScreen({
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Classification" cols={2}>
+          {/* `cols={1}` on both cards: the rows inside are content-width
+              `FieldRow`s, not a twelfths track. Widths from FIELD_W above. */}
+          <DetailSection label="Classification" cols={1} className={FORM_W}>
+            <FieldRow>
             {/* Item Class stays a plain <Select>, unlike every other stored
                 list on this form: the FORM ITSELF branches on the chosen class.
                 `showFabricStructure` / `showSubCategories` / the Category Type
@@ -672,10 +704,7 @@ export function CategoryMasterScreen({
                 Item Classes are maintained on their own master, where the
                 questions each class asks are decided. Same reasoning as the
                 Materials form's own Item Class field. */}
-            <div>
-              <Label htmlFor="cat-item-class">
-                Item Class <span className="text-danger">*</span>
-              </Label>
+            <Field label="Item Class" w={FIELD_W.item_class} required htmlFor="cat-item-class">
               <Select
                 id="cat-item-class"
                 // Always on screen, always mandatory — `categoryInput.item_class_id`
@@ -695,7 +724,7 @@ export function CategoryMasterScreen({
                     </option>
                   ))}
               </Select>
-            </div>
+            </Field>
 
             {/* "User Defined" (Yes/No) used to sit here for Sewing/Packing/
                 Garments. The client's answer to "what does it do?" was to remove
@@ -707,10 +736,7 @@ export function CategoryMasterScreen({
             {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only;
                 Fabric classifies via Fabric Structure below instead. */}
             {showCategoryType && (
-              <div>
-                <Label htmlFor="cat-made">
-                  Category Type <span className="text-danger">*</span>
-                </Label>
+              <Field label="Category Type" w={FIELD_W.made} required htmlFor="cat-made">
                 <Select
                   id="cat-made"
                   // Bare, and that is the point: this control only EXISTS inside
@@ -731,7 +757,7 @@ export function CategoryMasterScreen({
                     </option>
                   ))}
                 </Select>
-              </div>
+              </Field>
             )}
             {/* Fabric Structure is a stored list, so it is a picker rather than a
                 <Select> — but it is SELECT-ONLY, exactly as Category Type above
@@ -744,7 +770,9 @@ export function CategoryMasterScreen({
             {showFabricStructure && (
               // id is the focus target for "jump to the first missing field" —
               // LookupDialogPicker takes no id of its own, so the wrapper carries
-              // it and `focusFirstField` finds the trigger inside.
+              // it and `focusFirstField` finds the trigger inside. The picker
+              // renders its own label; the Field only sizes it.
+              <Field w={FIELD_W.fabric_structure}>
               <div id="cat-fabric-structure">
                 <LookupDialogPicker
                   kind="fabric_structure"
@@ -758,7 +786,9 @@ export function CategoryMasterScreen({
                   canDelete={perms.canDelete}
                 />
               </div>
+              </Field>
             )}
+            </FieldRow>
             {/* "Has Sub Categories" and its Sub Categories grid used to sit HERE.
                 That was the bug (client 2026-08-01): they appeared the moment
                 General was picked — above a Name field the operator had not
@@ -768,11 +798,11 @@ export function CategoryMasterScreen({
                 move it back. */}
           </DetailSection>
 
-          <DetailSection label="Details" cols={2}>
-            <div>
-              <Label htmlFor="cat-name">
-                Name <span className="text-danger">*</span>
-              </Label>
+          <DetailSection label="Details" cols={1} className={FORM_W}>
+            {/* `align="start"`: the duplicate error and the chips render below
+                the control. */}
+            <FieldRow align="start">
+            <Field label="Name" w={FIELD_W.name} required htmlFor="cat-name">
               <Input
                 id="cat-name"
                 uppercase
@@ -796,7 +826,8 @@ export function CategoryMasterScreen({
                 duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
-            </div>
+            </Field>
+            </FieldRow>
             {/* General stores buy by category-then-type — ELECTRICAL ▸ LIGHTS /
                 FANS / SWITCHES — so annual spend can be read both per type and
                 as a category total (0349). Off by default: a category with no
@@ -813,20 +844,21 @@ export function CategoryMasterScreen({
                 and the typed rows stay in state, so clearing the Name and
                 retyping it brings them back untouched. Discarding them here
                 would make a stray Ctrl+A in the Name field destroy work, and a
-                nameless category cannot be saved anyway (Save is gated on it). */}
+                nameless category cannot be saved anyway (Save is gated on it).
+                `Toggle`, not a tick box — still a real checkbox underneath. */}
             {showSubCategories && nameEntered && (
-              <label className="flex h-9 cursor-pointer items-center gap-2 sm:col-span-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
+              <FieldRow>
+                <Toggle
+                  id="cat-has-subs"
+                  label="Has Sub Categories"
                   checked={form.has_sub_categories}
-                  onChange={(e) => toggleSubCategories(e.target.checked)}
+                  onChange={toggleSubCategories}
                 />
-                <span className="text-sm text-foreground">Has Sub Categories</span>
-              </label>
+              </FieldRow>
             )}
+            {/* Capped by the card's FORM_W (rule 4): as wide as the form. */}
             {showSubCategories && nameEntered && form.has_sub_categories && (
-              <div className="sm:col-span-2">
+              <div>
                 <ChildGrid<SubRow>
                   lockExisting
                   label="Sub Categories"
@@ -868,15 +900,12 @@ export function CategoryMasterScreen({
           </DetailSection>
 
           {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
+            <Toggle
+              id="cat-inactive"
+              label="Inactive"
+              checked={form.inactive}
+              onChange={(inactive) => setForm({ ...form, inactive })}
+            />
           )}
         </div>
       </Sheet>

@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/field";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
+import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
@@ -28,7 +29,6 @@ import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import { CategoryPicker, AttributePicker } from "@/components/masters/lookup-picker";
 import { ChildGrid, gridKeyNav } from "@/components/masters/child-grid";
-import { IdentityRow } from "@/components/masters/section-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -66,6 +66,30 @@ type LineRow = {
    */
   options_edited: boolean;
 };
+
+/**
+ * WIDTHS, NOT FRACTIONS (erp-form-compact). The identity row was an
+ * `IdentityRow` on `1fr 1.4fr` tracks, so a two-value Item Class stretched to
+ * ~480px of a full-screen sheet.
+ *
+ *   Identity — item class 200 + category 200, 1 × 12 gap = 412
+ */
+const FIELD_W = {
+  item_class: "party", // 200px — "PACKING ACCESSORIES" is the longest class
+  category: "party", //   200px — picker trigger + its manage icon
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * The Attributes panel AND the footer's buttons, from ONE string. The widest
+ * row is an attribute line (`ROW_TRACKS` below): 47.5rem of fixed tracks (760)
+ * + Attribute at `term` (176) + 10 × 8 gaps (80) = 1016, + 2 × 8 card padding
+ * (compact) + 2 × 1 border = 1034.
+ *
+ * 66rem (1056px) leaves room for the non-compact density and the grid's own
+ * row inset, and still clears the 1155px laptop pane. Capped, the Attribute
+ * column stops sprawling across a wide monitor (rule 4).
+ */
+const FORM_W = "max-w-[66rem]";
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
 
@@ -815,7 +839,9 @@ export function MaterialAttributeMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Material Attribute" : "New Material Attribute"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the Attributes panel ends. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -846,7 +872,7 @@ export function MaterialAttributeMasterScreen({
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         <div className="space-y-3">
@@ -855,30 +881,24 @@ export function MaterialAttributeMasterScreen({
               the attribute lines on the right — but the header holds exactly
               two fields, so the left half was empty for the entire height of
               the attributes panel while the panel itself was squeezed into
-              ~570px and every line wrapped. Stacking gives the lines the full
-              1180px, which is what lets the picker and the three flags share
-              one row instead of three. */}
+              ~570px and every line wrapped. Stacking gives the lines the
+              width they need (up to FORM_W), which is what lets the picker and
+              the three flags share one row instead of three. */}
           {/* The record's IDENTITY, not a section: `(item_class_id,
               category_id)` is the unique key behind
-              `uq_material_attributes_class_category`, which is exactly what
-              `IdentityRow` is for — a full-width band with no border and no
-              caption, because the thing that identifies a record needs none.
-              (It replaced a `DetailSection label="Header"`, whose caption named
-              nothing and whose chrome cost a row of vertical space.) Same
-              treatment as the Material editor's own identity row.
+              `uq_material_attributes_class_category` — a band with no border
+              and no caption, because the thing that identifies a record needs
+              none. (It replaced a `DetailSection label="Header"`, whose caption
+              named nothing and whose chrome cost a row of vertical space.)
 
-              Category takes the wider track: it is free text and holds the
-              longer value, while Item Class is a two-value enum that must not
-              sprawl to match it.
-
-              The children are `Field`s with NO `size`. Span classes only
-              resolve inside `@container/section` and there is none here, so
-              they fall through to the full width of their track — the
-              documented fallback (field.tsx), and what lets the tracks below
-              own the widths. */}
-          <IdentityRow tracks="minmax(0,1fr) minmax(0,1.4fr)">
+              A content-width `FieldRow` (widths from FIELD_W above), no longer
+              an `IdentityRow` whose fractional tracks stretched both fields
+              across the pane. `align="start"` because both fields render a hint
+              below the control. */}
+          <FieldRow align="start">
             <Field
               label="Item Class"
+              w={FIELD_W.item_class}
               required
               htmlFor="ma-item-class"
               hint="Sewing and Packing only"
@@ -928,6 +948,7 @@ export function MaterialAttributeMasterScreen({
                 note above says it lost. */}
             <Field
               label="Category"
+              w={FIELD_W.category}
               required
               htmlFor="ma-category"
               hint={
@@ -958,13 +979,13 @@ export function MaterialAttributeMasterScreen({
                 fabricStructures={fabricStructures}
               />
             </Field>
-          </IdentityRow>
+          </FieldRow>
 
           {/* Attribute lines — meaningless until an Item Class scopes the
               pickable values, so keep the placeholder gate here */}
           <div className="space-y-4">
           {!itemClassId ? (
-            <div className="rounded-lg border border-dashed border-border bg-surface-muted/50 px-4 py-12 text-center text-sm text-muted-foreground">
+            <div className={cn("rounded-lg border border-dashed border-border bg-surface-muted/50 px-4 py-12 text-center text-sm text-muted-foreground", FORM_W)}>
               Select an Item Class above to add its attribute lines.
             </div>
           ) : (
@@ -1085,13 +1106,11 @@ export function MaterialAttributeMasterScreen({
               />
             );
             const flagCell = (l: LineRow, field: "value_in_steps" | "mandatory" | "inactive") => (
-              // Centred in its column and `min-h-9` so the box sits on the same
-              // 36px control line as the inputs either side of it.
-              <div className="flex min-h-9 items-center justify-center">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  // BLOCKED IS OFF THE TYPING PATH. `inactive` is the column shown
+              // Centred in its column and `min-h-9` so the switch sits on the
+              // same 36px control line as the inputs either side of it.
+              <div
+                className="flex min-h-9 items-center justify-center"
+                // BLOCKED IS OFF THE TYPING PATH. `inactive` is the column shown
                   // as **Blocked** (see `HEADINGS` and the `aria-label` below) —
                   // switching one attribute line off, an escape hatch the operator
                   // reaches for deliberately, not a value they enter on the way
@@ -1103,20 +1122,27 @@ export function MaterialAttributeMasterScreen({
                   // checkbox on purpose, and dropping one out of the arrow axis
                   // made a tick-box cell a dead end (client 2026-07-28).
                   //
-                  // Marked only while UNTICKED, the same way Fabric's Direct
-                  // Purchase is: once a line IS blocked, the box that unblocks it is
-                  // back on the Tab path exactly when the operator wants it. Value
-                  // In Steps and Mandatory are ordinary per-line values and stay.
-                  data-focus-optional={field === "inactive" && !l[field] ? "" : undefined}
+                // Marked only while UNTICKED, the same way Fabric's Direct
+                // Purchase is: once a line IS blocked, the box that unblocks it is
+                // back on the Tab path exactly when the operator wants it. Value
+                // In Steps and Mandatory are ordinary per-line values and stay.
+                //
+                // On the CELL, not the input: `Toggle` spreads no DOM attributes,
+                // and `isOffTabPath` reads `closest`, so the wrapper declares it.
+                data-focus-optional={field === "inactive" && !l[field] ? "" : undefined}
+              >
+                {/* `Toggle`, not a tick box — still a real checkbox underneath,
+                    so the row's arrow axis still counts it. */}
+                <Toggle
                   checked={l[field]}
                   // Toggling Value In Steps regenerates the value list; the other
                   // two flags don't touch it.
-                  onChange={(e) =>
+                  onChange={(next) =>
                     field === "value_in_steps"
-                      ? patchLine(l.key, { value_in_steps: e.target.checked })
-                      : setLineAt(l.key, { [field]: e.target.checked })
+                      ? patchLine(l.key, { value_in_steps: next })
+                      : setLineAt(l.key, { [field]: next })
                   }
-                  aria-label={
+                  ariaLabel={
                     field === "value_in_steps"
                       ? "Value in steps"
                       : field === "mandatory"
@@ -1370,7 +1396,7 @@ export function MaterialAttributeMasterScreen({
               // and one title rather than a card inside a card. The header strip
               // sits between them — the columns belong to the rows, not to the
               // section, and this is the only place both can see the same track.
-              <DetailSection label="Attributes">
+              <DetailSection label="Attributes" className={FORM_W}>
                 {headerStrip}
                 <ChildGrid<LineRow>
                   lockExisting
