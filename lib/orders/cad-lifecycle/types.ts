@@ -73,7 +73,9 @@ export const cutTypeLabel = (t: string | null | undefined) => CUT_TYPES.find((c)
 
 export const CUT_METHODS = [
   { value: "direct_shape", label: "Direct Shape" },
-  { value: "fit_form", label: "Fit Form Cutting" },
+  // "Bit Form Cutting" is the pattern room's word (user 2026-09-26); the
+  // stored value stays `fit_form`, so no saved cut changes.
+  { value: "fit_form", label: "Bit Form Cutting" },
 ] as const;
 export type CutMethod = (typeof CUT_METHODS)[number]["value"];
 export const cutMethodLabel = (m: string | null | undefined) =>
@@ -81,7 +83,7 @@ export const cutMethodLabel = (m: string | null | undefined) =>
 
 /**
  * THE CUT METHOD DECIDES THE ROLL FORM (client spec 2026-09-25, Task 1):
- * Direct Shape is cut from an Open Width roll, Fit Form Cutting from a
+ * Direct Shape is cut from an Open Width roll, Bit Form Cutting from a
  * Tubular one. A part with no method whose STRUCTURE is a rib (1X1 LYCRA RIB)
  * is Tubular too — rib is knitted and cut in the tube, and no component carries
  * a rib flag of its own, so the structure's name is the only place that says so.
@@ -166,7 +168,13 @@ export type PatternLine = {
   size_name: string | null;
   /** COLOUR and SIZE, all of them (0644). */
   colours: string[];
-  sizes: { size_id: string; size_name: string | null }[];
+  /** Each size's own figures when `size_wise` (0647); null on a line that
+   *  answers every size at once. */
+  sizes: { size_id: string; size_name: string | null; table_dia: number | null; avg_pcs_weight_g: number | null }[];
+  /** SIZE WISE (0647), Manual's toggle: false = the line's `table_dia` /
+   *  `avg_pcs_weight_g` answer every size of the style; true = each `sizes`
+   *  row carries its own. */
+  size_wise: boolean;
   table_dia: number | null;
   width_form: LayoutType | null;
   avg_pcs_weight_g: number | null;
@@ -547,10 +555,19 @@ export const patternSheetInput = z.object({
           .array(z.string().trim())
           .default([])
           .transform((xs) => [...new Set(xs.filter(Boolean).map((x) => x.toUpperCase()))]),
-        size_ids: z
-          .array(z.string().uuid())
+        /* SIZE WISE (0647): off, `table_dia` / `avg_pcs_weight_g` below answer
+           every size and `sizes` is empty; on, each size carries its own and a
+           size with neither figure is dropped (nothing was measured there). */
+        size_wise: z.boolean().default(false),
+        sizes: z
+          .array(z.object({ size_id: z.string().uuid(), table_dia: numOrNull, avg_pcs_weight_g: numOrNull }))
           .default([])
-          .transform((xs) => [...new Set(xs)]),
+          .transform((xs) => {
+            const seen = new Set<string>();
+            return xs.filter(
+              (z) => (z.table_dia != null || z.avg_pcs_weight_g != null) && !seen.has(z.size_id) && !!seen.add(z.size_id),
+            );
+          }),
         table_dia: numOrNull,
         width_form: z.enum(["open_width", "tubular"]).nullish().transform((v) => v ?? null),
         avg_pcs_weight_g: numOrNull,
@@ -587,10 +604,14 @@ export function mergePatternLines<T extends PatternSheetLine>(lines: readonly T[
       l.gsm,
       // SETS since 0644: WHITE+NAVY is the same answer as NAVY+WHITE.
       [...l.colours].sort().join(","),
-      [...l.size_ids].sort().join(","),
-      l.table_dia,
       l.width_form,
-      l.avg_pcs_weight_g,
+      // SIZE WISE (0647): the line's own figures when off, each size's when on.
+      l.size_wise
+        ? [...l.sizes]
+            .sort((a, b) => a.size_id.localeCompare(b.size_id))
+            .map((z) => `${z.size_id}=${z.table_dia ?? ""}/${z.avg_pcs_weight_g ?? ""}`)
+            .join(",")
+        : `all=${l.table_dia ?? ""}/${l.avg_pcs_weight_g ?? ""}`,
     ]
       .map((v) => (v == null ? "" : String(v)))
       .join("");
