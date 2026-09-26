@@ -7,13 +7,13 @@ import { normName } from "@/lib/masters/name-dictionary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
-import { Toggle } from "@/components/ui/toggle";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
@@ -86,6 +86,11 @@ const FORM_W = "max-w-[33rem]";
 export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perms: Perms }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
+  /** Block / Unblock in the listing's ⋮ menu (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("size_group");
   const [isPending, start] = useTransition();
 
   const [open, setOpen] = useState(false);
@@ -320,7 +325,13 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
         columns={columns}
         addLabel="+ Add Size Group"
         onAdd={openAdd}
-        actions={{ onEdit: openEdit, onDelete: remove }}
+        actions={{
+          onEdit: openEdit,
+          onDelete: remove,
+          // The shell draws the Status column as a SWITCH when this is declared
+          // (client 2026-09-26) — same as Country / Customer.
+          onStatusChange: (r, active) => setStatus(r, active, { label: r.size_group_name }),
+        }}
         rowLabel={(r) => r.size_group_name ?? "size group"}
         mobile={{
           title: (r) => r.size_group_name ?? "—",
@@ -331,7 +342,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
               .join(" · "),
         }}
         empty="No size groups yet. Use “+ Add Size Group” to create the first."
-        isPending={isPending}
+        isPending={isPending || statusPending}
       />
 
       <Sheet
@@ -379,21 +390,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
               />
             </Field>
           </FieldRow>
-          {/* Inactive is edit-only: a group being created is not one being
-              switched off. Its own row, and a `Toggle` rather than a tick box
-              labelled "Yes" — the switch already says yes or no, so it is
-              labelled with the THING. Still a real checkbox underneath, so
-              Tab / Enter / Space reach it. */}
-          {editId && (
-            <FieldRow>
-              <Toggle
-                id="sg-inactive"
-                label="Inactive"
-                checked={form.inactive}
-                onChange={(inactive) => setForm((f) => ({ ...f, inactive }))}
-              />
-            </FieldRow>
-          )}
+          {/* No Inactive switch — Block / Unblock is the listing's ⋮ menu now (`useBlockAction` above, client 2026-09-26). */}
         </DetailSection>
 
         {/* Capped to the form (rule 4): a one-column grid of "S" / "XL" does not

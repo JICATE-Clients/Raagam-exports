@@ -19,6 +19,10 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
   entityLabel: "Count",
   ioEntityKey: "counts",
   status: "active",
+  // Block / Unblock from the listing's ⋮ menu, not the form (client
+  // 2026-09-26, the 08-17 rule for the Materials module) — see
+  // `blockEntity` in simple-master-screen.tsx.
+  blockEntity: "count",
   fields: [
     {
       key: "name",

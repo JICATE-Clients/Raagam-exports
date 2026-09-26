@@ -17,6 +17,8 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { cn } from "@/lib/utils";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
@@ -227,6 +229,11 @@ export function MaterialMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("material");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   // Read-only view (client 2026-07-28 #9): opening the editor was the only way
@@ -2105,8 +2112,20 @@ export function MaterialMasterScreen({
     },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
       header: "Status",
-      cell: (r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>,
+      className: "w-32",
+      cell: (r) => (
+        <StatusToggle
+          row={r}
+          label={r.name}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
+      ),
     },
     rowActionsColumn((r) => (
       <RowActions
@@ -2744,16 +2763,7 @@ export function MaterialMasterScreen({
                   0279) — no longer edited or written from this screen. The DB
                   columns remain, so any existing values are left untouched. */}
 
-              {editId && (
-                <div className="border-t border-border pt-3">
-                  <Toggle
-                    id="mt-inactive"
-                    label="Inactive"
-                    checked={form.inactive}
-                    onChange={(inactive) => set({ inactive })}
-                  />
-                </div>
-              )}
+              {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
             </SectionColumn>
           </SectionGrid>
             </>

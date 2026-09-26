@@ -33,6 +33,10 @@ export function BinMasterScreen({
       entityLabel: "Bin",
       ioEntityKey: "bins",
       status: "active",
+      // Block / Unblock from the listing's ⋮ menu, not the form (client
+      // 2026-09-26, the 08-17 rule for the Materials module) — see
+      // `blockEntity` in simple-master-screen.tsx.
+      blockEntity: "bin",
       /* COMPACT (erp-form-compact): each inline edit box takes a width from the
          shared vocabulary instead of filling its table column — Location and
          Description used to stretch across whatever the full-width table left

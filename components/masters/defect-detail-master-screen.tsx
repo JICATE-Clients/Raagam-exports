@@ -10,9 +10,10 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
-import { Toggle } from "@/components/ui/toggle";
 import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -100,6 +101,11 @@ export function DefectDetailMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("defect_detail");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -259,11 +265,19 @@ export function DefectDetailMasterScreen({
       cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{r.defect_type ?? "—"}</span>,
     },
     {
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
       header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.is_active ? "success" : "danger"}>
-          {r.is_active ? "Active" : "Inactive"}
-        </StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.name}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -514,20 +528,7 @@ export function DefectDetailMasterScreen({
                 />
               </Field>
             </FieldRow>
-            {/* Its own row: a switch has no label band, so inside the
-                `items-end` row above it would sit level with the boxes' bottoms
-                and float. `Toggle`, not a tick box — still a real checkbox
-                underneath, so Tab / Enter / Space reach it. */}
-            {editId && (
-              <FieldRow>
-                <Toggle
-                  id="dd-inactive"
-                  label="Inactive"
-                  checked={!form.is_active}
-                  onChange={(inactive) => set({ is_active: !inactive })}
-                />
-              </FieldRow>
-            )}
+            {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
           </DetailSection>
         </div>
       </Sheet>

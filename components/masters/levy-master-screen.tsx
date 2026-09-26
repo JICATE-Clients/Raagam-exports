@@ -15,9 +15,10 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
-import { Toggle } from "@/components/ui/toggle";
 import { Field, FieldRow, FIELD_WIDTH, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -174,6 +175,11 @@ export function LevyMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("levy");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -378,9 +384,19 @@ export function LevyMasterScreen({
       cell: (r) => <span className="text-sm">{r.calc_exempt === "calculated" ? "Calculated" : "Exempted"}</span>,
     },
     {
-      header: "Inactive",
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
+      header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "neutral" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
+        <StatusToggle
+          row={r}
+          label={String(r.entry_no)}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: String(r.entry_no) })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -850,10 +866,7 @@ export function LevyMasterScreen({
               className="text-base md:text-sm"
             />
           </DetailSection>
-
-          {editId && (
-            <Toggle id="lv-inactive" label="Inactive" checked={form.inactive} onChange={(v) => set({ inactive: v })} />
-          )}
+          {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
         </div>
       </Sheet>
     </div>

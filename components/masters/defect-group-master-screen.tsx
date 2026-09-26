@@ -19,6 +19,10 @@ const descriptor: SimpleMasterDescriptor<Row> = {
   entityLabel: "Defect Group",
   ioEntityKey: "defect-groups",
   status: "active",
+  // Block / Unblock from the listing's ⋮ menu, not the form (client
+  // 2026-09-26, the 08-17 rule for the Materials module) — see
+  // `blockEntity` in simple-master-screen.tsx.
+  blockEntity: "defect_group",
   // Code is auto-generated from the name on create (client 2026-07-23: don't
   // ask users for codes) — backend-only, never shown or edited.
   fields: [
