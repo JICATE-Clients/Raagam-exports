@@ -39,7 +39,12 @@ export function DataTableFrame({
   cards,
   emptyRow,
   emptyCard,
+  density,
 }: {
+  /** "compact" for a `dense` / `compact` table — stamped on the `<table>` as
+   *  `data-density`, which `RowActions` reads (`in-data-[density=compact]:`)
+   *  to shrink its icon buttons. See `COMPACT_ICON` in row-actions.tsx. */
+  density?: "compact";
   paginate: boolean;
   wrapperClassName: string;
   tableClassName: string;
@@ -61,7 +66,7 @@ export function DataTableFrame({
   return (
     <>
       <div className={wrapperClassName}>
-        <table className={tableClassName}>
+        <table className={tableClassName} data-density={density}>
           {head}
           <tbody>{rows.length === 0 ? emptyRow : visibleRows}</tbody>
         </table>

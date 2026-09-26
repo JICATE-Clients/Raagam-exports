@@ -228,12 +228,16 @@ export function StockUnitMasterScreen({
     });
   }
 
+  /* NO `text-sm` ON THE CELLS: the table is `compact` (text-xs) below and the
+     cells inherit it — the same rule `createdColumns` states for its own two.
+     A hard-coded `text-sm` here would leave Name and Decimals at 14px beside
+     12px Created columns. */
   const columns: Column<StockUnit>[] = [
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    { header: "Name", cell: (r) => <span className="whitespace-nowrap">{r.name}</span> },
     {
       header: "Decimals",
       align: "right",
-      cell: (r) => <span className="tabular-nums text-sm">{r.decimal_places}</span>,
+      cell: (r) => <span className="whitespace-nowrap tabular-nums">{r.decimal_places}</span>,
     },
     {
       /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
@@ -311,10 +315,33 @@ export function StockUnitMasterScreen({
         </div>
       </div>
 
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
-        paginate={false} getKey={(r) => r.id} empty="No stock units yet." />
+      {/* desktop table — AS WIDE AS ITS COLUMNS (client 2026-09-26: "reduce
+          its overall width … instead of stretching full-width"). `md:w-fit`
+          lets the table hug Name · Decimals · Status · Created · actions rather
+          than sharing a 1440px pane's slack among them, so the columns sit
+          together; `max-w-full` keeps the table's own sideways scroll if a long
+          name ever outgrows the pane. Left-aligned, not `mx-auto`: every list
+          in the app starts at the pane's left edge under its search bar, and a
+          centred one would be the only table that does not. Same treatment as
+          Defect Detail's list. */}
+      <div className="hidden md:block md:w-fit md:max-w-full">
+        {/* `compact` — the primitive's high-density list (client 2026-09-26:
+            "ultra-compact … reducing excessive vertical row spacing"): body
+            text-xs on the `px-3 py-2` rhythm, a small uppercase header on a
+            slate band, hairline row rules. A PROP, never a `[&_td]:py-…`
+            override here — the per-screen patch AGENTS.md's header-row
+            section names as the bug. */}
+        <DataTable
+          compact
+          /* Vertical rules between the columns (client 2026-09-26: "vertical
+             line pottu") — a ruled grid rather than rows alone. */
+          gridLines
+          columns={withCreatedColumns(columns, pg.paged)}
+          rows={pg.paged}
+          paginate={false}
+          getKey={(r) => r.id}
+          empty="No stock units yet."
+        />
       </div>
 
       {/* mobile cards */}
