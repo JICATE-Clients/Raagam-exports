@@ -10,6 +10,7 @@ import { fabricBomYarnInput } from "./yarn-process";
 /* WHERE A FABRIC COMES FROM (0564) — a type only; the rule itself is
    client-safe and lives in `./fabric-source.ts`. */
 import type { FabricSource } from "./fabric-source";
+import type { ConversionDetail } from "./loose-conversion";
 
 // ============================================================================
 // Orders ▸ Fabric BOM (0426). Step 3 of the client's order flow: which fabric,
@@ -343,6 +344,8 @@ export interface FabricBomYarnStage {
    *  unravelled into this yarn; `process_qty` is then the dyed yarn it must
    *  deliver. NULL on every other step. */
   source_loose_fabric_id?: string | null;
+  /** 0645 — the CONVERSION step's per-colour Details. */
+  conversion_details?: ConversionDetail[] | null;
 }
 
 /** One stored requirement row. Written by the server, never by the form. */

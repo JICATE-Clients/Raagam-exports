@@ -41,7 +41,7 @@ import {
 import { useCadActions } from "./use-cad-actions";
 import { SectionBody } from "@/components/masters/master-full-screen";
 import { DetailSection } from "@/components/masters/detail-section";
-import { AllocationSheet, DecisionSheet, DispatchSheet } from "./cad-sheets";
+import { AllocationSheet, DecisionSheet } from "./cad-sheets";
 
 export function OrderCadTab({ orderId, canEdit }: { orderId: string | null; canEdit: boolean }) {
   const [data, setData] = useState<{
@@ -219,14 +219,11 @@ function InlineStep({
           {ps && <StatusPill tone={ps.tone}>{`Pattern: ${ps.label}`}</StatusPill>}
         </div>
         <AllocationSheet inline row={row} mode="edit" employees={employees} onClose={onDone} />
-        {/* READY → THE MERCHANDISER SENDS (user 2026-09-25, screenshot 3082).
-            The CAD Queue no longer offers Send; the Pattern Master's Ready
-            notifies whoever assigned it, and the Send form appears here. */}
-        {v.pattern_status === "ready" && (
-          <div className="pt-4">
-            <DispatchSheet inline row={row} onClose={onDone} />
-          </div>
-        )}
+        {/* NO SEND CAD FORM HERE (user 2026-09-25, screenshot 3084: "Send CAD
+            … no need, remove it from here"). It appeared under the assignment
+            once the pattern was Ready (screenshot 3082). The Fabric BOM gate
+            reads Pattern Ready since 0641, so nothing on this screen waits on
+            a send. */}
       </div>
     );
   }

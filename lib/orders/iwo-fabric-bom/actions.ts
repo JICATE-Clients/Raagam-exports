@@ -43,12 +43,15 @@ import {
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import {
+  conversionDetailsOf,
   conversionLinksOf,
   conversionStepProblems,
   linkedLooseFabricIds,
   planConversions,
   withoutConversionSteps,
   yarnPurchaseWithConversion,
+  type ConversionDetail,
+  type ConversionDetails,
   type ConversionLinks,
   type ConvertedYarn,
 } from "@/lib/orders/fabric-bom/loose-conversion";
@@ -298,7 +301,8 @@ async function yarnDyedOf(
 async function fabricIdsOf(s: Db, bomId: string, p: IwoFabricBomParsed): Promise<Set<string>> {
   /* PLUS THE LINKED LOOSE FABRICS (0636) — on no line, but their route is
      real; unlinked, it drops out of this set and its route with it. */
-  const loose = linkedLooseFabricIds(await conversionLinksOfSave(s, bomId, p));
+  const conv = await conversionLinksOfSave(s, bomId, p);
+  const loose = linkedLooseFabricIds(conv.links, conv.details);
   if (p.lines) return new Set([...keptIwoFabricLines(p.lines).map((l) => l.item_id), ...loose]);
   const { data } = await s.from("iwo_fabric_bom_lines").select("item_id").eq("bom_id", bomId);
   return new Set([...((data ?? []) as { item_id: string }[]).map((r) => r.item_id), ...loose]);
@@ -319,22 +323,32 @@ async function unravellingIdsOf(s: Db): Promise<Set<string>> {
 /** This save's conversion links — the payload's yarn steps when it carries
  *  yarns, else the stored ones (a save that sent only the route must not
  *  drop a linked loose fabric's route). */
-async function conversionLinksOfSave(s: Db, bomId: string | null, p: IwoFabricBomParsed): Promise<ConversionLinks> {
+async function conversionLinksOfSave(
+  s: Db,
+  bomId: string | null,
+  p: IwoFabricBomParsed,
+): Promise<{ links: ConversionLinks; details: ConversionDetails }> {
   const unravelling = await unravellingIdsOf(s);
   const isUnravelling = (id: string) => unravelling.has(id);
-  if (p.yarns) return conversionLinksOf(p.yarns, isUnravelling);
-  if (!bomId) return new Map();
+  if (p.yarns) {
+    return { links: conversionLinksOf(p.yarns, isUnravelling), details: conversionDetailsOf(p.yarns, isUnravelling) };
+  }
+  if (!bomId) return { links: new Map(), details: new Map() };
   const { data, error } = await s
     .from("iwo_fabric_bom_yarns")
-    .select("item_id, stages:iwo_fabric_bom_yarn_stages(process_id, source_loose_fabric_id)")
+    .select("item_id, stages:iwo_fabric_bom_yarn_stages(process_id, source_loose_fabric_id, conversion_details)")
     .eq("bom_id", bomId);
   if (error) throw new Error(`Could not read the stored yarn steps: ${error.message}`);
-  return conversionLinksOf(
-    ((data ?? []) as { item_id: string; stages: { process_id: string | null; source_loose_fabric_id: string | null }[] | null }[]).map(
-      (y) => ({ item_id: y.item_id, stages: y.stages ?? [] }),
-    ),
-    isUnravelling,
-  );
+  const yarns = (
+    (data ?? []) as {
+      item_id: string;
+      stages:
+        | { process_id: string | null; source_loose_fabric_id: string | null; conversion_details: ConversionDetail[] | null }[]
+        | null;
+    }[]
+  ).map((y) => ({ item_id: y.item_id, stages: y.stages ?? [] }));
+  /* 0645 — the per-colour Details' fabrics are linked too. */
+  return { links: conversionLinksOf(yarns, isUnravelling), details: conversionDetailsOf(yarns, isUnravelling) };
 }
 
 /**
@@ -357,7 +371,10 @@ async function conversionProblem(
   const isUnravelling = (id: string) => unravelling.has(id);
   for (const y of p.yarns ?? []) {
     for (const st of y.stages) {
-      if (!st.process_id || !isUnravelling(st.process_id)) st.source_loose_fabric_id = null;
+      if (!st.process_id || !isUnravelling(st.process_id)) {
+        st.source_loose_fabric_id = null;
+        st.conversion_details = [];
+      }
     }
   }
   const yarns = p.yarns ?? [];
@@ -378,8 +395,9 @@ async function conversionProblem(
     steps = (data ?? []) as { item_id: string; process_id: string | null }[];
   }
   let links: ConversionLinks;
+  let details: ConversionDetails;
   try {
-    links = await conversionLinksOfSave(s, bomId, p);
+    ({ links, details } = await conversionLinksOfSave(s, bomId, p));
   } catch (e) {
     return e instanceof Error ? e.message : "Could not read the yarn steps";
   }
@@ -393,6 +411,7 @@ async function conversionProblem(
     conversionStepProblems({
       yarns: yarns.map((y) => ({ name: nameOf.get(y.item_id) || "This yarn", stages: y.stages })),
       links,
+      details,
       routeSteps: steps,
       isUnravelling,
       fabricName: (id) => nameOf.get(id) || "This fabric",
@@ -468,6 +487,7 @@ async function writeYarns(
             loss_pct: null,
             ...colorLossesForStorage(false, {}),
             source_loose_fabric_id: st.source_loose_fabric_id ?? null,
+            conversion_details: st.conversion_details ?? [],
             ...(figure
               ? { process_qty: figure.qty, uom_id: figure.uom_id, refusal_reason: null }
               : { process_qty: null, uom_id: null, refusal_reason: why }),
@@ -476,6 +496,7 @@ async function writeYarns(
         const problem = refused ? weight.refused : st.process_id ? stageProblem(st.combo ?? null, byCombo) : null;
         return {
           source_loose_fabric_id: null,
+          conversion_details: [],
           sno: i + 1,
           stage_id: st.stage_id ?? null,
           process_id: st.process_id ?? null,
@@ -578,7 +599,8 @@ async function writeYarns(
     }
     const isUnravelling = (id: string) => unravelling.has(id);
     const links = conversionLinksOf(p.yarns, isUnravelling);
-    const fabricIds = [...new Set([...lines.map((l) => l.item_id), ...linkedLooseFabricIds(links)])];
+    const details = conversionDetailsOf(p.yarns, isUnravelling);
+    const fabricIds = [...new Set([...lines.map((l) => l.item_id), ...linkedLooseFabricIds(links, details)])];
     const { compositions } = await getBomYarnComposition(fabricIds);
     const compById = new Map<string, FabricComposition>(compositions.map((c) => [c.fabric_id, c]));
     const nameOf = (id: string) => compById.get(id)?.fabric_name || "this fabric";
@@ -630,6 +652,8 @@ async function writeYarns(
        the same `planConversions` on the same inputs. */
     const plan = planConversions({
       links,
+      details,
+      isUnravelling,
       fabrics: gross,
       compositions: compById,
       routesByFabric: routes,
@@ -816,7 +840,8 @@ async function routeProblem(s: Db, bomId: string | null, p: IwoFabricBomParsed):
   if (typeof typeById === "string") return typeById;
   let looseIds: Set<string>;
   try {
-    looseIds = new Set(linkedLooseFabricIds(await conversionLinksOfSave(s, bomId, p)));
+    const conv = await conversionLinksOfSave(s, bomId, p);
+    looseIds = new Set(linkedLooseFabricIds(conv.links, conv.details));
   } catch (e) {
     return e instanceof Error ? e.message : "Could not read the conversion process";
   }

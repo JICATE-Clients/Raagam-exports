@@ -207,6 +207,8 @@ import {
 import {
   comboKey,
   compositionsBuyingYarn,
+  conversionDetailsFromDraft,
+  conversionDetailsToDraft,
   deriveYarnRows,
   yarnRowAnswered,
   type FabricComposition,
@@ -217,6 +219,7 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import {
+  conversionDetailsOf,
   conversionLinksOf,
   conversionStepProblems,
   linkedLooseFabricIds,
@@ -2591,6 +2594,8 @@ export function FabricBomScreen({
               color_losses: colorLossesToDraft(st.color_losses),
               /* 0633 — LOOSE FABRIC CONVERSION's source. */
               source_loose_fabric_id: st.source_loose_fabric_id ?? null,
+              /* 0645 — its per-colour Details. */
+              conversion_details: conversionDetailsToDraft(st.conversion_details),
             })),
           },
         ]),
@@ -7212,6 +7217,10 @@ export function FabricBomScreen({
       Object.entries(yarnAnswers).map(([item_id, a]) => ({ item_id, stages: a.stages })),
       isUnravelling,
     ),
+    conversionDetailsOf(
+      Object.entries(yarnAnswers).map(([item_id, a]) => ({ item_id, stages: a.stages })),
+      isUnravelling,
+    ),
   )
     .sort()
     .join(",");
@@ -7663,9 +7672,13 @@ export function FabricBomScreen({
    * Plain consts, not memos: a pass over this document's own rows.
    */
   const conversionLinks = conversionLinksOf(yarnRows, isUnravelling);
-  const looseFabricIds = new Set(linkedLooseFabricIds(conversionLinks));
+  /* 0645 — each colour's own loose fabric and loss (the [Click] Details). */
+  const conversionDetails = conversionDetailsOf(yarnRows, isUnravelling);
+  const looseFabricIds = new Set(linkedLooseFabricIds(conversionLinks, conversionDetails));
   const conversionPlan = planConversions({
     links: conversionLinks,
+    details: conversionDetails,
+    isUnravelling,
     fabrics: fabricGross,
     compositions: compositionById,
     routesByFabric,
@@ -7675,7 +7688,13 @@ export function FabricBomScreen({
   });
   /** The yarns a loose fabric is unravelled into — for its Fabric Process row. */
   const yarnsConvertedFrom = (fabricId: string) =>
-    yarnRows.filter((y) => conversionLinks.get(y.item_id) === fabricId).map((y) => y.name);
+    yarnRows
+      .filter(
+        (y) =>
+          conversionLinks.get(y.item_id) === fabricId ||
+          (conversionDetails.get(y.item_id) ?? []).some((d) => d.source_loose_fabric_id === fabricId),
+      )
+      .map((y) => y.name);
   /** A loose fabric must be GREIGE cloth — a yarn-dyed one cannot be dyed
    *  with the body. Held value kept, the "Disabled rows" rule. */
   const looseFabricOptions = fabrics.filter((f) => !isYarnDyed(f.fabric_type));
@@ -7691,7 +7710,9 @@ export function FabricBomScreen({
    */
   const injectLooseRoute = (fabricId: string) => {
     if (procs.some((p) => p.item_id === fabricId)) return;
-    const live = data.processes.filter((p) => p.for_fabric && !p.inactive);
+    /* The unravelling step joins by its KIND flag, "Fabric" tick or not —
+       see `processesForFabric`. */
+    const live = data.processes.filter((p) => (p.for_fabric || !!p.is_unravelling) && !p.inactive);
     const steps = [
       { p: live.find((x) => x.is_knitting), loss: "" },
       { p: live.find((x) => x.is_dyeing), loss: "" },
@@ -7875,6 +7896,7 @@ export function FabricBomScreen({
     ...conversionStepProblems({
       yarns: yarnRows.map((y) => ({ name: y.name, stages: y.stages })),
       links: conversionLinks,
+      details: conversionDetails,
       routeSteps: procs,
       isUnravelling,
       fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
@@ -8547,6 +8569,8 @@ export function FabricBomScreen({
              may name, and the route injected when one is picked. */
           looseFabrics={looseFabricOptions}
           onLooseFabricPicked={injectLooseRoute}
+          /* 0645 — the Details' rows when this yarn feeds no yarn-dyed colour. */
+          orderCombos={comboOptions}
           /* THE SCREEN'S OWN GENERATOR, so a process added to a reopened BOM
              cannot collide with the keys `openExisting` has already issued. */
           newKey={newKey}
@@ -10733,6 +10757,9 @@ export function FabricBomScreen({
           /* 0633 — the conversion link; the server nulls it on any step the
              master does not flag as unravelling. */
           source_loose_fabric_id: st.source_loose_fabric_id ?? null,
+          /* 0645 — its per-colour Details; the server empties them on any
+             other step, as it does the source. */
+          conversion_details: conversionDetailsFromDraft(st.conversion_details),
         })),
       })),
     };

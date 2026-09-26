@@ -142,6 +142,7 @@ import { isRefusal, type Refusal } from "./requirement";
 import { ydPartKey } from "./component-map";
 import { colorLossesInput, type ColorLossDraft } from "./color-loss";
 import { narrowYarnToStage, type YarnStageRole } from "./yarn-stage-routes";
+import type { ConversionDetail } from "./loose-conversion";
 import {
   clothPurchaseLabel,
   routeForSource,
@@ -301,7 +302,52 @@ export type YarnStageRow = {
    *  loose fabric this yarn is unravelled from. Optional so IWO's rows and
    *  every older caller stay well-formed. */
   source_loose_fabric_id?: string | null;
+  /** 0645 — the CONVERSION step's per-colour Details (legacy's [Click]):
+   *  Loss %, Loose Fabric, GSM, Dia per colourway. Text for the number cells,
+   *  like `loss_pct`. Empty on every other step. */
+  conversion_details?: ConversionDetailDraft[];
 };
+
+/** One colourway row of a CONVERSION step's Details, as the form holds it. */
+export type ConversionDetailDraft = {
+  combo: string;
+  loss_pct: string;
+  source_loose_fabric_id: string | null;
+  gsm: string;
+  dia: string;
+};
+
+/** The form's Details → the stored shape (numbers once, blanks to null). */
+export function conversionDetailsFromDraft(rows: readonly ConversionDetailDraft[] | undefined): ConversionDetail[] {
+  const num = (v: string) => {
+    const t = v.trim();
+    if (!t) return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  };
+  /* A ROW NAMING NO COLOUR IS NOT SAVED — the "+ Add colour" row left
+     untouched (AGENTS.md: the seeded row is saved unless the save drops it).
+     Only the colour is tested: it is the row's identity, and a Loss % or a
+     fabric with no colour applies to nothing. */
+  return (rows ?? []).filter((r) => r.combo.trim()).map((r) => ({
+    combo: r.combo.trim().toUpperCase(),
+    loss_pct: num(r.loss_pct),
+    source_loose_fabric_id: r.source_loose_fabric_id || null,
+    gsm: num(r.gsm),
+    dia: r.dia.trim() ? r.dia.trim().toUpperCase() : null,
+  }));
+}
+
+/** The stored Details → the form's draft. */
+export function conversionDetailsToDraft(rows: readonly ConversionDetail[] | null | undefined): ConversionDetailDraft[] {
+  return (rows ?? []).map((r) => ({
+    combo: r.combo,
+    loss_pct: r.loss_pct == null ? "" : String(r.loss_pct),
+    source_loose_fabric_id: r.source_loose_fabric_id ?? null,
+    gsm: r.gsm == null ? "" : String(r.gsm),
+    dia: r.dia ?? "",
+  }));
+}
 
 /**
  * One row of the tab: a yarn, and the treatments under it.
@@ -339,6 +385,7 @@ export const blankYarnStage = (key: string): YarnStageRow => ({
   color_wise_loss: false,
   color_losses: {},
   source_loose_fabric_id: null,
+  conversion_details: [],
 });
 
 /**
@@ -1513,6 +1560,25 @@ export const fabricBomYarnStageInput = z.object({
      the action nulls it on any other (the master's flag decides, never this
      payload). */
   source_loose_fabric_id: z.string().uuid().nullable().default(null),
+  /* 0645 — the CONVERSION step's per-colour Details. The action empties it on
+     any other step, as it does `source_loose_fabric_id`. */
+  conversion_details: z
+    .array(
+      z.object({
+        combo: z.string().trim(),
+        loss_pct: z.number().min(0).lt(100).nullable().default(null),
+        source_loose_fabric_id: z.string().uuid().nullable().default(null),
+        gsm: z.number().positive().nullable().default(null),
+        dia: z
+          .string()
+          .trim()
+          .toUpperCase()
+          .nullable()
+          .default(null)
+          .transform((v) => (v ? v : null)),
+      }),
+    )
+    .default([]),
 });
 
 /**

@@ -74,16 +74,18 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
     alerts: true,
     href: "/orders/garment-orders",
   },
-  /* PATTERN SENT / PATTERN APPROVAL (0628, doc/order/cad.md §4.3). Stamped by
-     the CAD lifecycle's own writes (`cad_work_flow_sync`) with the EVENT's
-     date — the last style's dispatch date, the last style's approval date —
-     not the day someone happened to record it. */
+  /* PATTERN SENT / PATTERN APPROVAL (0628; re-pointed by 0642, user
+     2026-09-25: no Send CAD step — assigning the pattern maker IS the send,
+     the Pattern Master's Ready IS the receive). Stamped by
+     `cad_work_flow_sync`, run by a trigger on order_cad_allocations, with the
+     EVENT's date — the last allocation date, the last Ready date — not the
+     day someone happened to record it. */
   {
     code: "PATTERN_SENT",
     sn: 2,
     label: "Pattern Sent",
     days: 2,
-    doneWhen: "CAD dispatched to the buyer for every style",
+    doneWhen: "Pattern maker assigned for every style",
     ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "CAD TECHNICIAN"],
     ownerTagsLabel: "CAD / Sampling / Pattern Maker",
     alerts: true,
@@ -94,7 +96,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
     sn: 3,
     label: "Pattern Approval",
     days: 2,
-    doneWhen: "Buyer approved the CAD for every style",
+    doneWhen: "Pattern Ready for every style",
     ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "CAD TECHNICIAN", "MERCHANDISER", "MERCHANDISING"],
     ownerTagsLabel: "CAD / Sampling / Merchandiser",
     alerts: true,

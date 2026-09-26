@@ -2,8 +2,10 @@ import type { jsPDF } from "jspdf";
 
 /**
  * THE "CAD PENDING" STAMP on a Fabric BOM report (doc/order/cad.md §4.3
- * rationale, 0628): a report generated while any style's CAD is not yet
- * approved says so, and says its consumption figures are estimates.
+ * rationale, 0628): a report generated while any style's pattern is not yet
+ * Ready says so, and says its consumption figures are estimates. (It waited
+ * for the buyer's approval until 2026-09-25; there is no Send CAD step now —
+ * `cadOrderPending` in guard.ts.)
  *
  * A BORDERED RED BADGE, NOT A DIAGONAL WATERMARK — the spec says "watermark",
  * and the house rule overrides the word for the reason the Garment Order
@@ -16,7 +18,7 @@ import type { jsPDF } from "jspdf";
  * `drawCadPendingStamp` on EVERY page of a PDF — so the two never disagree.
  */
 export const CAD_PENDING_TITLE = "CAD PENDING";
-export const CAD_PENDING_NOTE = "Consumption figures are estimates until every style's CAD is approved.";
+export const CAD_PENDING_NOTE = "Consumption figures are estimates until every style's pattern is Ready.";
 
 /**
  * Draw the stamp on the CURRENT page, top centre, as ONE LINE in the empty band

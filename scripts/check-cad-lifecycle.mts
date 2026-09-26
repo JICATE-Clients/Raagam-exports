@@ -31,6 +31,8 @@ import {
   cadStateOf,
   cadStoragePath,
   cutKey,
+  layoutForPart,
+  mergePatternLines,
   decisionProblem,
   dispatchProblem,
   isCadFile,
@@ -274,6 +276,40 @@ const rpcCad = sql632.match(/if v_ext <> 'pdf' then v_cad/) !== null;
 check("SQL counts every non-PDF pattern file as the real CAD file (TS: CAD_FILE_EXTENSIONS)", [rpcCad, [...CAD_FILE_EXTENSIONS]], [true, PATTERN_FILE_EXTENSIONS.filter((e) => e !== "pdf")]);
 const desigCheck = sql632.match(/v_desig not in \(([^)]*)\)/)?.[1] ?? "";
 check("SQL Pattern Maker designations = TS", [...desigCheck.matchAll(/'([A-Z ]+)'/g)].map((m) => m[1]), [...PATTERN_MAKER_DESIGNATIONS]);
+
+// --- Cut Method → roll form (Task 1) and merged Pattern Sheet lines (0643) -----
+check("Direct Shape is Open Width", layoutForPart("direct_shape", "SINGLE JERSEY"), "open_width");
+check("Fit Form Cutting is Tubular", layoutForPart("fit_form", null), "tubular");
+check("no method, a rib structure: Tubular", layoutForPart(null, "1X1 LYCRA RIB"), "tubular");
+check("the method wins over the structure", layoutForPart("direct_shape", "1X1 LYCRA RIB"), "open_width");
+check("RIBBON is not a rib", layoutForPart(null, "RIBBON TAPE"), null);
+check("nothing to go on: null, never a guess", layoutForPart(null, "SINGLE JERSEY"), null);
+{
+  const U = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+  const line = (parts: string[], over: Record<string, unknown> = {}) => ({
+    parts: parts.map((c) => ({ coordinate_id: null, component_id: c })),
+    fabric_category_id: U(9),
+    gsm: 180,
+    colours: ["WHITE"],
+    size_ids: [U(8)],
+    table_dia: 64,
+    width_form: "open_width" as const,
+    avg_pcs_weight_g: 150,
+    remark: null as string | null,
+    ...over,
+  });
+  const m = mergePatternLines([line([U(1)], { remark: "A" }), line([U(2)], { remark: "B" }), line([U(3)]), line([U(1)], { gsm: 220 })]);
+  check("three lines differing only in the part merge into one", m.length, 2);
+  check("parts are unioned in order", m[0].parts.map((p) => p.component_id), [U(1), U(2), U(3)]);
+  check("remarks are kept, joined", m[0].remark, "A · B");
+  check("a different GSM stays its own line", m[1].gsm, 220);
+  check("a different weight never merges", mergePatternLines([line([U(1)]), line([U(2)], { avg_pcs_weight_g: 25 })]).length, 2);
+  check("a different size never merges", mergePatternLines([line([U(1)]), line([U(2)], { size_ids: [U(7)] })]).length, 2);
+  check("colours compare as a set", mergePatternLines([line([U(1)], { colours: ["WHITE", "NAVY"] }), line([U(2)], { colours: ["NAVY", "WHITE"] })]).length, 1);
+  check("sizes compare as a set", mergePatternLines([line([U(1)], { size_ids: [U(7), U(8)] }), line([U(2)], { size_ids: [U(8), U(7)] })]).length, 1);
+  check("a different colour set never merges", mergePatternLines([line([U(1)], { colours: ["RED"] }), line([U(2)])]).length, 2);
+  check("a part is never listed twice", mergePatternLines([line([U(1)]), line([U(1)])])[0].parts.length, 1);
+}
 
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed.`);

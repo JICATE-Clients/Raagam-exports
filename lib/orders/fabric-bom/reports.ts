@@ -13,7 +13,13 @@ import {
   type FabricGross,
   type RouteStage,
 } from "./yarn-process";
-import { conversionLinksOf, linkedLooseFabricIds, planConversions } from "./loose-conversion";
+import {
+  conversionDetailsOf,
+  conversionLinksOf,
+  linkedLooseFabricIds,
+  planConversions,
+  type ConversionDetail,
+} from "./loose-conversion";
 import { isYarnDyedFabricType } from "@/lib/masters/fabric-name";
 import {
   asFabricSource,
@@ -1581,7 +1587,7 @@ export async function yarnFabricRequirementReport(
          and the stripes it replaces do not. */
       .select(
         "item_id, purchase_qty, uom_id, refusal_reason, " +
-          "stages:order_fabric_bom_yarn_stages(loss_pct, process_id, source_loose_fabric_id)",
+          "stages:order_fabric_bom_yarn_stages(loss_pct, process_id, source_loose_fabric_id, conversion_details)",
       )
       .eq("bom_id", bomId),
     s.from("processes").select("id").eq("is_unravelling", true),
@@ -1598,7 +1604,14 @@ export async function yarnFabricRequirementReport(
     purchase_qty: number | null;
     uom_id: string | null;
     refusal_reason: string | null;
-    stages: { loss_pct: number | string | null; process_id: string | null; source_loose_fabric_id: string | null }[] | null;
+    stages:
+      | {
+          loss_pct: number | string | null;
+          process_id: string | null;
+          source_loose_fabric_id: string | null;
+          conversion_details: ConversionDetail[] | null;
+        }[]
+      | null;
   }[];
   /* LOOSE FABRIC CONVERSION (0633) — the links, off the STORED steps and the
      master's flag, exactly as `normalizeYarns` read them at Save. */
@@ -1607,7 +1620,12 @@ export async function yarnFabricRequirementReport(
     rows.map((r) => ({ item_id: r.item_id, stages: r.stages ?? [] })),
     (id) => unravelling.has(id),
   );
-  const looseFabricIds = linkedLooseFabricIds(conversionLinks);
+  /* 0645 — each colour's own loose fabric and loss, as Save read them. */
+  const conversionDetails = conversionDetailsOf(
+    rows.map((r) => ({ item_id: r.item_id, stages: r.stages ?? [] })),
+    (id) => unravelling.has(id),
+  );
+  const looseFabricIds = linkedLooseFabricIds(conversionLinks, conversionDetails);
 
   /* THE YARN'S OWN TREATMENTS, COMPOUNDED — `/(1-L)` per stage, sequentially,
      which is `comboUplift`'s form and `yarnPurchase`'s own reading of the same
@@ -2122,6 +2140,8 @@ export async function yarnFabricRequirementReport(
     }
     const plan = planConversions({
       links: conversionLinks,
+      details: conversionDetails,
+      isUnravelling: (id) => unravelling.has(id),
       fabrics: [...buckets.values()],
       compositions: compositionByFabric,
       routesByFabric: routeByFabric,

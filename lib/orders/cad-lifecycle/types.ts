@@ -80,6 +80,33 @@ export const cutMethodLabel = (m: string | null | undefined) =>
   CUT_METHODS.find((c) => c.value === m)?.label ?? "—";
 
 /**
+ * THE CUT METHOD DECIDES THE ROLL FORM (client spec 2026-09-25, Task 1):
+ * Direct Shape is cut from an Open Width roll, Fit Form Cutting from a
+ * Tubular one. A part with no method whose STRUCTURE is a rib (1X1 LYCRA RIB)
+ * is Tubular too — rib is knitted and cut in the tube, and no component carries
+ * a rib flag of its own, so the structure's name is the only place that says so.
+ *
+ * NULL MEANS "NOTHING TO GO ON" — the caller leaves the field as it is, never
+ * clears it (the `solePanel` rule: auto-fill must not turn into data loss).
+ */
+export function layoutForPart(
+  method: CutMethod | null | undefined,
+  structure: string | null | undefined,
+): LayoutType | null {
+  if (method === "direct_shape") return "open_width";
+  if (method === "fit_form") return "tubular";
+  if (structure && /\bRIB\b/i.test(structure)) return "tubular";
+  return null;
+}
+
+/** A part's saved cut — by (coordinate, component), or a pre-0637 entry that carries no coordinate. */
+export const cutFor = (
+  cuts: readonly ComponentCut[],
+  c: { coordinate_id?: string | null; component_id: string },
+): ComponentCut | undefined =>
+  cuts.find((x) => cutKey(x) === cutKey(c)) ?? cuts.find((x) => !x.coordinate_id && x.component_id === c.component_id);
+
+/**
  * One style component's cut method. Names are SNAPSHOTTED: a sent version is
  * history. Keyed by (coordinate, component) since 0637 — a TOP and a BOTTOM
  * each have a FRONT BODY. Entries saved under 0632 carry no coordinate.
@@ -109,22 +136,37 @@ export type PatternStatus = (typeof PATTERN_STATUSES)[number]["value"];
 export const patternStatusMeta = (s: string | null | undefined) =>
   PATTERN_STATUSES.find((p) => p.value === s) ?? PATTERN_STATUSES[0];
 
+/** One part of a Pattern Sheet line (0643) — a (coordinate, component) pair. */
+export type PatternPart = {
+  coordinate_id: string | null;
+  coordinate_name?: string | null;
+  component_id: string;
+  component_name?: string;
+};
+
 /**
  * One line of the Pattern Maker's sheet (0640) — FABRIC · GSM · TYPE of PARTS ·
  * COLOUR · SIZE · TABLE DIA · TUBULAR & OPEN WIDTH · AVG CAD PCS WEIGHT · REMARK.
  * Names ride along for display; the ids are what is stored.
  */
 export type PatternLine = {
+  /** The first part — 0640's own columns, kept as `parts[0]`. */
   coordinate_id: string | null;
   coordinate_name: string | null;
   component_id: string;
   component_name: string;
+  /** TYPE of PARTS, all of them (0643): several panels on one fabric line. */
+  parts: PatternPart[];
   fabric_category_id: string | null;
   fabric_name: string | null;
   gsm: number | null;
+  /** The first colour / size — 0640's own columns, kept as `colours[0]` / `sizes[0]`. */
   colour: string | null;
   size_id: string | null;
   size_name: string | null;
+  /** COLOUR and SIZE, all of them (0644). */
+  colours: string[];
+  sizes: { size_id: string; size_name: string | null }[];
   table_dia: number | null;
   width_form: LayoutType | null;
   avg_pcs_weight_g: number | null;
@@ -496,12 +538,19 @@ export const patternSheetInput = z.object({
   lines: z
     .array(
       z.object({
-        coordinate_id: uuidOrNull,
-        component_id: z.string().uuid({ message: "Choose the Type of Part on every line" }),
+        parts: z
+          .array(z.object({ coordinate_id: uuidOrNull, component_id: z.string().uuid() }))
+          .min(1, { message: "Choose the Type of Parts on every line" }),
         fabric_category_id: uuidOrNull,
         gsm: numOrNull,
-        colour: z.string().trim().nullish().transform((v) => (v ? v.toUpperCase() : null)),
-        size_id: uuidOrNull,
+        colours: z
+          .array(z.string().trim())
+          .default([])
+          .transform((xs) => [...new Set(xs.filter(Boolean).map((x) => x.toUpperCase()))]),
+        size_ids: z
+          .array(z.string().uuid())
+          .default([])
+          .transform((xs) => [...new Set(xs)]),
         table_dia: numOrNull,
         width_form: z.enum(["open_width", "tubular"]).nullish().transform((v) => v ?? null),
         avg_pcs_weight_g: numOrNull,
@@ -511,6 +560,58 @@ export const patternSheetInput = z.object({
     .default([]),
 });
 export type PatternSheetInput = z.input<typeof patternSheetInput>;
+type PatternSheetLine = z.output<typeof patternSheetInput>["lines"][number];
+
+/**
+ * LINES THAT DIFFER ONLY IN THEIR PARTS ARE ONE LINE (client spec 2026-09-25,
+ * Task 2: "auto-merge … if they share the same Fabric Item, GSM, Colour and
+ * Finish Diameter"; screenshot 3085, rows 1–3).
+ *
+ * THE KEY IS EVERY MEASURED VALUE, NOT ONLY THE SPEC'S FOUR. Size, the roll
+ * form and the piece weight are in it too: a line is a statement that these
+ * parts share ALL of what the pattern room measured, and merging an XS line
+ * into an M line, or a 150 g panel into a 25 g one, would record a measurement
+ * nobody took. The weight is an AVERAGE per piece ("Avg CAD Pcs Wt"), so equal
+ * weights merge without changing what the figure means.
+ *
+ * Parts are unioned in first-seen order, a part never twice; distinct remarks
+ * are joined with " · " so none is lost. The first line's position is kept.
+ * Called by the save action (so every writer gets it) and by the form — on
+ * open, so saved lines show as they will be stored, and on Save, to say how
+ * many merged. Generic so the form's own line shape passes through whole.
+ */
+export function mergePatternLines<T extends PatternSheetLine>(lines: readonly T[]): T[] {
+  const keyOf = (l: T) =>
+    [
+      l.fabric_category_id,
+      l.gsm,
+      // SETS since 0644: WHITE+NAVY is the same answer as NAVY+WHITE.
+      [...l.colours].sort().join(","),
+      [...l.size_ids].sort().join(","),
+      l.table_dia,
+      l.width_form,
+      l.avg_pcs_weight_g,
+    ]
+      .map((v) => (v == null ? "" : String(v)))
+      .join("");
+  const out: T[] = [];
+  const byKey = new Map<string, T>();
+  for (const l of lines) {
+    const k = keyOf(l);
+    const held = byKey.get(k);
+    if (!held) {
+      const copy = { ...l, parts: [...l.parts] };
+      byKey.set(k, copy);
+      out.push(copy);
+      continue;
+    }
+    for (const p of l.parts) if (!held.parts.some((x) => cutKey(x) === cutKey(p))) held.parts.push(p);
+    if (l.remark && !(held.remark ?? "").split(" · ").includes(l.remark)) {
+      held.remark = held.remark ? `${held.remark} · ${l.remark}` : l.remark;
+    }
+  }
+  return out;
+}
 
 /** The Pattern Master's step (0638): status + the Order Sheet grid's methods and notes. */
 export const patternWorkInput = z.object({
