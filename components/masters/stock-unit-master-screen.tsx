@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -52,6 +54,24 @@ type Form = {
   is_garment: boolean;
   inactive: boolean;
 };
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). This was `cols={2}` — half the sheet
+ * each for a unit name and a 0-6 digit.
+ *
+ *   name 176 + decimals 88 + 1 × 12 gap = 276
+ */
+const FIELD_W = {
+  name: "term", //    176px — KILOGRAM, SQUARE METRE; "Unit of Measurement" fits
+  decimals: "hug", //  88px — one digit; the two-word LABEL sets the width
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * The card AND the footer's buttons, from ONE string:
+ *   276 row + 2 × 8 card padding + 2 × 1 border = 294 → 19rem (304px), room
+ *   for the non-compact `p-2.5` density.
+ */
+const FORM_W = "max-w-[19rem]";
 
 const BLANK: Form = {
   code: "",
@@ -329,7 +349,9 @@ export function StockUnitMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Stock Unit" : "New Stock Unit"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the Details card ends. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -340,7 +362,7 @@ export function StockUnitMasterScreen({
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         <div className="space-y-4">
@@ -348,16 +370,16 @@ export function StockUnitMasterScreen({
               legacy). Hidden legacy columns — description, decimal_places_allowed,
               applicable-for flags, item-class scoping — keep their DB defaults and
               round-trip untouched on edit via the seeded form state. */}
-          <DetailSection label="Details" cols={2}>
-            <div>
-              <Label htmlFor="su-name">
-                Unit of Measurement <span className="text-danger">*</span>
-              </Label>
+          <DetailSection label="Details" cols={1} className={FORM_W}>
+            {/* `start`: Name renders its duplicate error and suggestion chips
+                BELOW the control, and both labels fit on one line. */}
+            <FieldRow align="start">
+            <Field label="Unit of Measurement" required w={FIELD_W.name} htmlFor="su-name">
               <Input
                 id="su-name"
                 uppercase
-                // `stockUnitInput.name` is `capsName()` (`.min(1)`). The `*` above
-                // was drawn by hand and nothing backed it — the operator saw a
+                // `stockUnitInput.name` is `capsName()` (`.min(1)`). The `*` used
+                // to be drawn by hand and nothing backed it — the operator saw a
                 // mandatory marker and Tab walked straight past the blank field.
                 required
                 value={form.name}
@@ -376,9 +398,8 @@ export function StockUnitMasterScreen({
                 duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
-            </div>
-            <div>
-              <Label htmlFor="su-dp">Decimal Places</Label>
+            </Field>
+            <Field label="Decimal Places" w={FIELD_W.decimals} htmlFor="su-dp">
               <Input
                 id="su-dp"
                 type="number"
@@ -388,20 +409,20 @@ export function StockUnitMasterScreen({
                 onChange={(e) => set({ decimal_places: e.target.value })}
                 className="text-base md:text-sm"
               />
-            </div>
+            </Field>
+            </FieldRow>
+            {/* Edit-only, and a switch rather than a tick box. */}
+            {editId && (
+              <FieldRow>
+                <Toggle
+                  id="su-inactive"
+                  label="Inactive"
+                  checked={form.inactive}
+                  onChange={(inactive) => set({ inactive })}
+                />
+              </FieldRow>
+            )}
           </DetailSection>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
         </div>
       </Sheet>
     </div>

@@ -6,6 +6,7 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { FIELD_WIDTH } from "@/components/ui/field";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -17,7 +18,18 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
   entityLabel: "Gauge",
   ioEntityKey: "gauges",
   status: "active",
-  fields: [{ key: "name", label: "Name", required: true }],
+  fields: [
+    {
+      key: "name",
+      label: "Name",
+      required: true,
+      // COMPACT (erp-form-compact): the inline edit box used to fill the Name
+      // column — most of a full-width table — for a value like "12 GG" or
+      // "7G". A gauge is a short code, so `range` (112px), read from the
+      // shared vocabulary rather than hand-typed.
+      widthClass: FIELD_WIDTH.range,
+    },
+  ],
   fromRow: (r) => ({ name: r.name }),
   searchText: (r) => [r.code, r.name].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),

@@ -25,7 +25,8 @@ import { PROCESS_NAMES } from "@/lib/masters/name-vocabularies";
 import { BILLING_ON, type BillingOn, type Process, type ProcessInput } from "@/lib/masters/process-types";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
-import { Field } from "@/components/ui/field";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -76,6 +77,28 @@ const FOR_FLAGS: { key: keyof typeof BLANK; label: string }[] = [
   { key: "for_garments", label: "Garments" },
   { key: "for_components", label: "Components" },
 ];
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). Details was a 12-track at `full` +
+ * `lg` + `lg`, so an HSN code got ~280px and the name a whole section.
+ *
+ *   Details  name 288 + billing 176 + hsn 112, 2 × 12 gaps = 600
+ */
+const FIELD_W = {
+  name: "name", //     288px — free text
+  billing: "term", //  176px — "Outward Qty/Wt"
+  hsn: "range", //     112px — an HSN code
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * The cards, the grids' row AND the footer's buttons, from ONE string. The
+ * widest row is the two child grids side by side (their bases, below):
+ *
+ *   Sub Categories 21rem + gap-4 1rem + Fabric Stages 23rem = 45rem (720px)
+ *
+ * Details is 600 + 2 × 8 padding + 2 × 1 border = 618 (622 non-compact), inside it.
+ */
+const FORM_W = "max-w-[45rem]";
 
 /**
  * Master-detail CRUD for the legacy "Process" master: a header (name, billing
@@ -541,7 +564,9 @@ export function ProcessMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Process" : "New Process"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the cards and grids end. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -552,128 +577,83 @@ export function ProcessMasterScreen({
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
-        {/* SECTIONS, NOT A HAND-ROLLED SPLIT.
-            This was `grid grid-cols-1 lg:grid-cols-2` with every section stacked
-            in the LEFT half and the right half holding only the Sub Categories
-            grid — which renders solely when the box is ticked, so the usual state
-            was a form squeezed into half the sheet with 750px of nothing beside
-            it (client 2026-08-04).
-
-            `lg:` was the other half of the bug: a VIEWPORT breakpoint deciding
-            the layout of a body whose width comes from the surface. `SectionGrid`
-            is a container query (`@4xl/sections`), so the same sections fall back
-            to one column inside a nested picker at the same viewport width — the
-            landmine doc/ui/LAYOUT.md §2 names. Sections here are peers, so they
-            auto-place rather than being pinned into columns. */}
-        <SectionGrid>
-          {/* ## THE ROW WAS RE-SETTLED WHEN TWO OF ITS FOUR FIELDS LEFT (2026-09-16)
-
-              It used to be `span={2}` — the identity block spanning the sheet, so
-              its fields sat on the ~1150px track where `sm` (3 of 12) IS the
-              ~280px reference, four flush across (LAYOUT.md §3). Short
-              Description and Sl No then went (doc/order/fabriprocess.md §4) and
-              `sm + sm` left two thirds of a full-width row empty — and
-              underfilling is the defect that SHIPS, because leftover columns
-              read as page padding rather than as a layout bug.
-
-              Two answers were available and only one obeys both rules. Promoting
-              the survivors to `lg + lg` sums to 12 and makes an HSN code ~560px
-              wide, which is stretching an innocent field — the thing LAYOUT.md
-              §3 tells you not to do when a group cannot tile. Dropping `span={2}`
-              instead changes the TRACK, not the fields: the section becomes one
-              ~565px column of the `SectionGrid` (still above `@lg/section`'s
-              32rem, so the 12-track stays on), and there `lg` (6 of 12) IS the
-              ~280px reference. 6 + 6 = 12, flush, at the one width every field on
-              this form already takes.
-
-              The section also stopped being wide enough to justify spanning: with
-              two fields in it there is no four-across row left to protect, and
-              "For" now sits BESIDE Details instead of below it.
-
-              THAT MOVE HAS A SECOND HALF — see `Structure` below. Taking a span
-              off one section re-deals every section after it, and the four here
-              only tile 2 × 2 once Structure gives up its span too. Changing one
-              and not the other trades a half-empty field row for a half-empty
-              section row, which is the same defect one scale up. */}
-          <DetailSection label="Details" cols={12}>
-            {/* `full`: Process carries the duplicate error AND the spell-suggest
-                strip beneath it, and a field that grows a second line must not
-                share a row — every grid row is as tall as its tallest item. */}
-            <Field label="Process" required size="full" htmlFor="pr-name">
-              <Input
-                id="pr-name"
-                uppercase
-                value={form.name}
-                onChange={(e) => set({ name: e.target.value })}
-                required
-                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
-                onKeyDown={nameSuggest.onKeyDown}
-                {...dupFieldProps(dupError, "pr-name")}
-              />
-              <DuplicateError error={dupError} id="pr-name" />
-              <SpellSuggestHint
-                suggestions={nameSuggest.suggestions}
-                existing={nameSuggest.existing}
-                activeIndex={nameSuggest.activeIndex}
-                duplicate={!!dupError}
-                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
-              />
-            </Field>
-            {/* 6 + 6 = 12, one flush row — see the section's own note above for
-                why the arithmetic changed and why it is the TRACK that moved
-                rather than the fields. Before Short Description and Sl No left it
-                read 3 + 3 + 3 + 3 = 12 on the full-sheet track; before THAT it
-                was a full-width Process, a half-width Short Description and a
-                hand-rolled `grid-cols-3` — three different widths down one short
-                form, which is the ragged whitespace §3 exists to stop. */}
-            <Field label="Billing On" size="lg" htmlFor="pr-billing">
-              <Select
-                id="pr-billing"
-                value={form.billing_on}
-                onChange={(e) => set({ billing_on: e.target.value as "" | BillingOn })}
-              >
-                <option value=""></option>
-                {BILLING_ON.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="HSN Code" size="lg" htmlFor="pr-hsn">
-              <Input
-                uppercase
-                id="pr-hsn"
-                value={form.hsn_code}
-                onChange={(e) => set({ hsn_code: e.target.value })}
-              />
-            </Field>
-          </DetailSection>
-
-          {/* `cols={2}` is the section's OWN two-up mode, so the five flags pair
-              themselves — the hand-rolled `grid grid-cols-2` this replaces was
-              one of the four this file was flagged for. */}
-          <DetailSection label="For" cols={2}>
-            {FOR_FLAGS.map((f) => (
-              <label key={f.key} className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form[f.key] as boolean}
-                  onChange={(e) => toggleFor(f.key, e.target.checked)}
+        {/* STACKED AT CONTENT WIDTH (erp-form-compact). This was a `SectionGrid`
+            tiling four sections 2 × 2 on twelfths; now each section is one
+            shrink-wrapped `FieldRow` capped to FORM_W, so the cards, the grids
+            below and the Save buttons all end on one edge. */}
+        <div className="space-y-3">
+          {/* Removed from this row over time: Short Description and Sl No
+              (doc/order/fabriprocess.md §4, 2026-09-16). `align="start"`:
+              Process renders its duplicate error and spell-suggest strip BELOW
+              the control, and bottom alignment would lift its box out of the row. */}
+          <DetailSection label="Details" cols={1} className={FORM_W}>
+            <FieldRow align="start">
+              <Field label="Process" required w={FIELD_W.name} htmlFor="pr-name">
+                <Input
+                  id="pr-name"
+                  uppercase
+                  value={form.name}
+                  onChange={(e) => set({ name: e.target.value })}
+                  required
+                  // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                  onKeyDown={nameSuggest.onKeyDown}
+                  {...dupFieldProps(dupError, "pr-name")}
                 />
-                <span className="text-sm text-foreground">{f.label}</span>
-              </label>
-            ))}
+                <DuplicateError error={dupError} id="pr-name" />
+                <SpellSuggestHint
+                  suggestions={nameSuggest.suggestions}
+                  existing={nameSuggest.existing}
+                  activeIndex={nameSuggest.activeIndex}
+                  duplicate={!!dupError}
+                  onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+                />
+              </Field>
+              <Field label="Billing On" w={FIELD_W.billing} htmlFor="pr-billing">
+                <Select
+                  id="pr-billing"
+                  value={form.billing_on}
+                  onChange={(e) => set({ billing_on: e.target.value as "" | BillingOn })}
+                >
+                  <option value=""></option>
+                  {BILLING_ON.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="HSN Code" w={FIELD_W.hsn} htmlFor="pr-hsn">
+                <Input
+                  uppercase
+                  id="pr-hsn"
+                  value={form.hsn_code}
+                  onChange={(e) => set({ hsn_code: e.target.value })}
+                />
+              </Field>
+            </FieldRow>
           </DetailSection>
 
-          {/* Stacked, not paired: these read as sentences, and two of them side
-              by side would wrap where "For"'s single words do not. (It said
-              "these three" while there were five, then six, and now two — the
-              count was never the argument, the sentence length is.)
+          {/* The five flags pack left to right as switches — one word each, so
+              the row is ~510px and never needs pairing into columns. */}
+          <DetailSection label="For" cols={1} className={FORM_W}>
+            <FieldRow>
+              {FOR_FLAGS.map((f) => (
+                <Toggle
+                  key={f.key}
+                  id={`pr-${f.key}`}
+                  label={f.label}
+                  checked={form[f.key] as boolean}
+                  onChange={(v) => toggleFor(f.key, v)}
+                />
+              ))}
+            </FieldRow>
+          </DetailSection>
+
+          {/* These read as sentences, so they are allowed to wrap onto their
+              own lines where "For"'s single words do not.
 
               FOUR FLAGS LEFT THIS SECTION ON 2026-09-18 (client: "unnecessary
               backend flags"). Requires Designwise Delivery had no reader and
@@ -683,70 +663,49 @@ export function ProcessMasterScreen({
               to tick. Do not re-add them here without the client asking — and
               do not "derive them from Fabric Stages" either; `Process` in
               process-types.ts records why that under-buys. */}
-          <DetailSection label="Planning">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
+          <DetailSection label="Planning" cols={1} className={FORM_W}>
+            <FieldRow>
+              <Toggle
+                id="pr-no-planning"
+                label="Doesn't require planning for Receipt / Delivery"
                 checked={form.no_planning}
-                onChange={(e) => set({ no_planning: e.target.checked })}
+                onChange={(v) => set({ no_planning: v })}
               />
-              <span className="text-sm text-foreground">Doesn&apos;t require planning for Receipt / Delivery</span>
-            </label>
-            {/* The one flag the client KEPT (2026-09-18), for the 10–20% of
-                processes run as a conversion job. Labelled in their words —
-                "Use Conversion Process" — rather than the old "Is …", which
-                read like the kind flags that left beside it. */}
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
+              {/* The one flag the client KEPT (2026-09-18), for the 10–20% of
+                  processes run as a conversion job. Labelled in their words —
+                  "Use Conversion Process" — rather than the old "Is …", which
+                  read like the kind flags that left beside it. */}
+              <Toggle
+                id="pr-conversion"
+                label="Use Conversion Process"
                 checked={form.is_conversion}
-                onChange={(e) => set({ is_conversion: e.target.checked })}
+                onChange={(v) => set({ is_conversion: v })}
               />
-              <span className="text-sm text-foreground">Use Conversion Process</span>
-            </label>
+            </FieldRow>
           </DetailSection>
 
           {/* In a section of its own rather than floating loose under the last
-              one, where it read as a stray control belonging to nothing.
-
-              IT USED TO CARRY `span={2}`, "because the grid it gates is full
-              width below", and that argument died with Details' own span
-              (2026-09-16). The four sections auto-place into a two-column grid,
-              so with Details at one column the spans read Details · For ·
-              Planning · Structure(2) — and a `col-span-2` item cannot start in
-              the second column, so Structure dropped to a row of its own and
-              left a HOLE beside Planning. Under-filling is the defect that
-              ships, at the section scale exactly as at the field scale. At
-              `span={1}` the four tile 2 × 2 with nothing left over, and the
-              section holds two checkboxes that never needed the width. The
-              grids it gates are rendered BELOW this `SectionGrid`, in a row of
-              their own (compact tables side by side since 2026-09-18), so
-              this section's span never decided their width. */}
-          <DetailSection label="Structure" cols={2}>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
+              one, where it read as a stray control belonging to nothing. The
+              grids it gates render BELOW, in a row of their own. */}
+          <DetailSection label="Structure" cols={1} className={FORM_W}>
+            <FieldRow>
+              <Toggle
+                id="pr-has-subs"
+                label="Has Sub Categories"
                 checked={form.has_sub_categories}
-                onChange={(e) => toggleHasSubs(e.target.checked)}
+                onChange={toggleHasSubs}
               />
-              <span className="text-sm text-foreground">Has Sub Categories</span>
-            </label>
-            {editId && (
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
+              {editId && (
+                <Toggle
+                  id="pr-inactive"
+                  label="Inactive"
                   checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
+                  onChange={(v) => set({ inactive: v })}
                 />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
-            )}
+              )}
+            </FieldRow>
           </DetailSection>
-        </SectionGrid>
+        </div>
 
         {/* ## TWO COMPACT TABLES, SIDE BY SIDE (client 2026-09-18, option B)
 
@@ -787,9 +746,12 @@ export function ProcessMasterScreen({
             other at the left, as in the mockup. Grow 1 would stretch each pane
             to half the sheet and push Fabric Stages out to the middle, with the
             tables' hug leaving empty space inside each pane. `flex-wrap` still
-            drops Fabric Stages under Sub Categories on a narrow pane. */}
+            drops Fabric Stages under Sub Categories on a narrow pane.
+
+            CAPPED TO FORM_W (rule 4), which is this row's own 45rem — so the
+            pair still sits side by side and ends where the cards end. */}
         {(form.has_sub_categories || form.for_fabric) && (
-          <SectionGrid wrap>
+          <SectionGrid wrap className={FORM_W}>
             {form.has_sub_categories && (
               <div className="min-w-0 flex-[0_1_21rem]">
                 <ChildGrid<SubRow>
@@ -947,25 +909,25 @@ export function ProcessMasterScreen({
                   /* LEVEL WITH THE PICKER, NOT AT THE CELL'S TOP. Every
                      `ChildGrid` cell is `align-top`, deliberately (its own note:
                      centring made mixed-height rows look like a staircase). So
-                     a 16px checkbox starts where a 32px (`h-8`) control starts,
-                     and sits visibly high beside the Stage picker (same
+                     the switch would start where a 32px (`h-8`) control starts,
+                     and sit visibly high beside the Stage picker (same
                      screenshot). `h-8 items-center` puts it on the control's
                      centre line, the same thing the grid's own ✕ cell does
-                     (`flex h-8 items-center justify-center`). */
+                     (`flex h-8 items-center justify-center`); `min-h-0` drops
+                     the Toggle's own 36px field-row floor so it fits that box. */
                   <div className="flex h-8 items-center justify-center">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
+                    <Toggle
+                      className="min-h-0"
                       checked={s.is_base}
                       /* ONE BASE PER PROCESS (client 2026-09-21, and 0611's
                          index): ticking here unticks every other row, so the
                          grid cannot show a state Save would refuse. */
-                      onChange={(e) =>
+                      onChange={(checked) =>
                         setStageRows((ss) =>
-                          ss.map((o) => (o.key === s.key ? { ...o, is_base: e.target.checked } : e.target.checked ? { ...o, is_base: false } : o)),
+                          ss.map((o) => (o.key === s.key ? { ...o, is_base: checked } : checked ? { ...o, is_base: false } : o)),
                         )
                       }
-                      aria-label="Base process for this stage"
+                      ariaLabel="Base process for this stage"
                     />
                   </div>
                 ),
