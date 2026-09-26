@@ -7,6 +7,7 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createBin, updateBin, deleteBin } from "@/lib/masters/bin-actions";
 import type { Bin } from "@/lib/masters/bin-types";
+import { FIELD_WIDTH } from "@/components/ui/field";
 
 type LocationOption = { id: string; code: string | null; name: string | null };
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
@@ -32,15 +33,31 @@ export function BinMasterScreen({
       entityLabel: "Bin",
       ioEntityKey: "bins",
       status: "active",
+      /* COMPACT (erp-form-compact): each inline edit box takes a width from the
+         shared vocabulary instead of filling its table column — Location and
+         Description used to stretch across whatever the full-width table left
+         them, and Bin Code carried a hand-typed `w-32`.
+           code 144 · location 176 · description 288 */
       fields: [
-        { key: "bin_code", label: "Bin Code", required: true, mono: true, widthClass: "w-32" },
+        {
+          key: "bin_code",
+          label: "Bin Code",
+          required: true,
+          mono: true,
+          widthClass: FIELD_WIDTH.code, // 144px — a short rack/bin code
+        },
         {
           key: "location_id",
           label: "Location",
           kind: "select",
           options: locations.map((l) => ({ value: l.id, label: l.name ?? l.code ?? "—" })),
+          widthClass: FIELD_WIDTH.term, // 176px — a store / godown name
         },
-        { key: "description", label: "Description" },
+        {
+          key: "description",
+          label: "Description",
+          widthClass: FIELD_WIDTH.name, // 288px — free text, the widest step
+        },
       ],
       fromRow: (r) => ({
         bin_code: r.bin_code ?? "",
