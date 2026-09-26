@@ -612,7 +612,22 @@ export function YarnProcessGrid({
     const stored = r.conversion_details ?? [];
     const inherit = (d: ConversionDetailDraft): ConversionDetailDraft =>
       d.source_loose_fabric_id || !r.source_loose_fabric_id ? d : { ...d, source_loose_fabric_id: r.source_loose_fabric_id };
-    const drafts = stored.length > 0 ? stored : detailColours.map(blankDetail);
+    /* A STALE COLOURWAY ROW GIVES WAY TO THE STRIPES (user 2026-09-26: "need to
+       show the component colour, not combo name again"). Rows stored while the
+       list still offered colourways (WHITE, RED — before Yarn Dyed Details had
+       colours) kept those names forever, because stored rows are shown as they
+       are. Once this yarn has stripe colours, a row naming something that is
+       NOT a stripe and holding nothing typed is dropped; if nothing is left,
+       the stripes seed the rows. A colourway row with a loss or fabric typed
+       stays — it is still honoured for that colourway (`planConversions`). */
+    const isStripe = (c: string) => stripeColours.some((x) => sameCombo(x.value, c));
+    const typed = (d: ConversionDetailDraft) =>
+      !!(d.source_loose_fabric_id || String(d.loss_pct ?? "").trim() || String(d.gsm ?? "").trim() || String(d.dia ?? "").trim());
+    // A row with no colour picked yet is one the operator just added ("+ Add
+    // colour") — kept, or the button would appear to do nothing.
+    const live =
+      stripeColours.length > 0 ? stored.filter((d) => !d.combo.trim() || isStripe(d.combo) || typed(d)) : stored;
+    const drafts = live.length > 0 ? live : detailColours.map(blankDetail);
     return drafts.map((d, i) => ({ key: `d:${i}`, draft: inherit(d) }));
   };
   /**

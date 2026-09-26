@@ -273,19 +273,23 @@ export function AllocationSheet({
           "remaining page layout look instead of the form look"). The same
           DetailSections every Order Entry section is built from, so the tab
           reads as a section of the order, full width, rows ragged-right. */}
-      <DetailSection label="CAD Allocation">
+      {/* CAPPED, NOT FULL WIDTH (user 2026-09-26, screenshot 3105: "compact the
+          field size" — raagam-screen-layout's cap rule). Tab: term 176 + range
+          112 + code 144 + name 288 + 3 gaps 36 = 756 + ~22 padding = 778 ≤ 49rem.
+          Sheet adds CAD Type (term 176 + gap 12) = 966 ≤ 61rem. */}
+      <DetailSection label="CAD Allocation" className={inline ? "max-w-[49rem]" : "max-w-[61rem]"}>
         {rework && (
           <p className="rounded-md border border-warning bg-warning-soft px-3 py-2 text-sm text-warning">
             <span className="font-semibold">Buyer asked for (V{latest?.version_no}):</span> {rework}
           </p>
         )}
-        {/* name 288 + term 176 + code 144 × 2 + name 288 + 4 gaps 48 = 1,088 —
-            one row on the page (~1,500 pane); the md sheet wraps Remarks under. */}
+        {/* Pattern Maker is a person's name — term 176, not name 288 (2026-09-26).
+            Allocation Date is read-only dd/mm/yyyy — range 112. */}
         <FieldRow align="start">
           <Field
             label="Pattern Maker"
             required
-            w="name"
+            w="term"
             hint={makers.hint ?? undefined}
             error={errorFor(problem, "maker")}
           >
@@ -311,7 +315,7 @@ export function AllocationSheet({
               </Select>
             </Field>
           )}
-          <Field label="Allocation Date" w="code" htmlFor="cad-alloc-date">
+          <Field label="Allocation Date" w="range" htmlFor="cad-alloc-date">
             <Input id="cad-alloc-date" readOnly value={fmtDate(allocationDate)} />
           </Field>
           <Field

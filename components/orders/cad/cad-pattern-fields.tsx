@@ -85,10 +85,14 @@ export function PatternDetailsFields({
   const set = (patch: Partial<PatternDetailsValue>) => onChange({ ...value, ...patch });
   return (
     <>
-      <DetailSection label="Pattern Details">
-        {/* code 144 × 3 + term 176 + 3 gaps 36 = 644. */}
+      {/* CAPPED (user 2026-09-26, screenshot 3105: "compact the field size").
+          Bit Wash is Yes / No — hug 88. The shrinkage boxes stay code 144 for
+          their labels ("Length Shrinkage %" would wrap narrower and drop its box
+          below the row). hug 88 + code 144 × 2 + term 176 + 3 gaps 36 = 588
+          + ~22 padding = 610 ≤ 39rem. */}
+      <DetailSection label="Pattern Details" className="max-w-[39rem]">
         <FieldRow align="start">
-          <Field label="Bit Wash" w="code" htmlFor="cad-fit-wash">
+          <Field label="Bit Wash" w="hug" htmlFor="cad-fit-wash">
             <Select
               id="cad-fit-wash"
               value={value.fit_wash ? "yes" : "no"}
@@ -230,17 +234,25 @@ export function OrderSheetSection({
 
   const gridRows = rows.map((c) => ({ ...c, key: cutKey(c) }));
   type GridRow = (typeof gridRows)[number];
-  // code 144 + term 176 × 3 + hug 88 + name 288 = 1,048 + 72 chrome = 1,120
-  // ≤ 1,155 (check:grid-budget). Four facts from the order, two fields.
+  /** The rail's rows — one per coordinate, its components in the style's order. */
+  type CoordRow = { key: string; name: string; rows: GridRow[] };
+  const coordRows: CoordRow[] = [];
+  for (const r of gridRows) {
+    const k = r.coordinate_id ?? "";
+    const held = coordRows.find((g) => g.key === `co:${k}`);
+    if (held) held.rows.push(r);
+    else coordRows.push({ key: `co:${k}`, name: r.coordinate_name ?? "—", rows: [r] });
+  }
+  // COMPACTED (user 2026-09-26, screenshot 3105): each column sized to its
+  // value — Component and Structure code 144 (long names truncate and reveal
+  // on hover), GSM num 72, Cut Method term 176 ("Bit Form Cutting" + clear +
+  // chevron), Notes name 288. NO COORDINATE COLUMN: the side rail names the
+  // coordinate (screenshot 3106). 144 × 2 + 72 + 176 + 288 = 824 + 72 chrome
+  // = 896 ≤ 1,155 (check:grid-budget). Three facts from the order, two fields.
   const orderSheetColumns: ChildGridColumn<GridRow>[] = [
     {
-      header: "Coordinate",
-      width: FIELD_WIDTH_CSS.code,
-      cell: (c) => <Truncated className="text-sm">{c.coordinate_name ?? "—"}</Truncated>,
-    },
-    {
       header: "Component",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.code,
       cell: (c) => (
         <span className="min-w-0 leading-tight">
           <Truncated className="text-sm">{c.name}</Truncated>
@@ -250,12 +262,12 @@ export function OrderSheetSection({
     },
     {
       header: "Structure",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.code,
       cell: (c) => <Truncated className="text-sm">{c.structure ?? "—"}</Truncated>,
     },
     {
       header: "GSM",
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.num,
       align: "right",
       cell: (c) => <span className="text-sm tabular-nums">{c.gsm ?? "—"}</span>,
     },
@@ -295,39 +307,84 @@ export function OrderSheetSection({
     <DetailSection
       label="Order Sheet"
       frameless
-      action={
-        sizes.length > 0 ? (
-          <span className="text-xs text-muted-foreground">
-            Sizes <span className="font-medium text-foreground">{sizes.join(" · ")}</span>
-          </span>
-        ) : undefined
-      }
     >
+      {/* SIZES UNDER THE LABEL, LEFT-ALIGNED (user 2026-09-26: "need better
+          place to view, now look unaligned"). It sat in the header's right-hand
+          slot — the pane's far edge — while the grid below stopped ~900px in,
+          so it floated beside nothing. Here it starts on the rail's own left
+          edge. */}
+      {sizes.length > 0 && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <span className="mr-1.5 font-semibold uppercase tracking-wide">Sizes</span>
+          <span className="font-medium text-foreground">{sizes.join(" · ")}</span>
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           This style has no components yet — add them on Order Info ▸ Style Components.
         </p>
       ) : (
-        /* default-row: exempt -- rows are DERIVED from the style's components;
-           it cannot grow, so no seed, no + Add, no ✕ (advised-lines precedent). */
-        <ChildGrid<GridRow>
-          columns={orderSheetColumns}
-          rows={gridRows}
-          tableFrom="5xl"
+        /* THE COORDINATES IN A SIDE RAIL, EACH ONE'S COMPONENTS AS A TABLE
+           (user 2026-09-26, screenshot 3106: "use our side rail and with table
+           concept, like we use in every listing"). Manual's shape —
+           `masterDetail` on the outer grid, a plain table inside the open row —
+           so PIECES / TOP / BOTTOM read as a list and the parts under one read
+           as a table, instead of a Coordinate cell repeated on every line.
+           default-row: exempt -- both levels are DERIVED from the style's
+           components; nothing here can grow, so no seed, no + Add, no ✕. */
+        <ChildGrid<CoordRow>
+          columns={[]}
+          rows={coordRows}
+          forceCards
           flatRows
+          fill
+          foldRows
+          masterDetail
+          railAlways
+          railWidthPx={180}
+          defaultOpenKey={coordRows[0]?.key ?? null}
+          renderListItem={(g) => (
+            <div className="flex min-h-7 items-center">
+              <span className="min-w-0 flex-1">
+                <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
+                  {g.name}
+                </Truncated>
+                <span className="block text-[10px] leading-tight text-muted-foreground">
+                  {g.rows.length} {g.rows.length === 1 ? "part" : "parts"}
+                </span>
+              </span>
+            </div>
+          )}
+          renderFoldedRow={(g) => <span className="text-sm font-medium">{g.name}</span>}
           hideAdd
           hideRemove
           keepOne={false}
           onAdd={() => false}
           onRemove={() => {}}
-          renderMobileRow={(row, i) => (
-            <FieldRow align="start" gap="tight">
-              {orderSheetColumns.map((c, ci) => (
-                <Field key={ci} label={c.header} w={fieldWidthStep(c.width) ?? "hug"}>
-                  {c.cell(row, i)}
-                </Field>
-              ))}
-            </FieldRow>
+          renderMobileRow={(g) => (
+            /* NO `tableFrom`, Manual's sizes-grid call: inside the rail's detail
+               pane a 5xl (1,024px) threshold is never reached on a laptop, so
+               the table would fall to cards. The primitive's default (@lg,
+               512px) keeps it a table; its columns sum to 896px. */
+            <ChildGrid<GridRow>
+              /* grid-caption: exempt -- the rail item names this table. */
+              columns={orderSheetColumns}
+              rows={g.rows}
+              hideAdd
+              hideRemove
+              keepOne={false}
+              onAdd={() => false}
+              onRemove={() => {}}
+              renderMobileRow={(row, i) => (
+                <FieldRow align="start" gap="tight">
+                  {orderSheetColumns.map((c, ci) => (
+                    <Field key={ci} label={c.header} w={fieldWidthStep(c.width) ?? "hug"}>
+                      {c.cell(row, i)}
+                    </Field>
+                  ))}
+                </FieldRow>
+              )}
+            />
           )}
         />
       )}
