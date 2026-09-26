@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { findSubmodule } from "@/lib/masters/submodules";
 import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
@@ -15,17 +15,15 @@ export default async function SubmodulePage({
   // Materials has its own richer route at /masters/materials.
   if (!sub || sub.slug === "materials") notFound();
 
-  // REDIRECT TO THE FIRST CHILD (operator, 2026-09-15) — same fix as
-  // `ModuleHub`/`GroupHub`/`/masters`: the card grid `HubPage` renders below
-  // is hidden, and the sidebar already lists every child as a row. Every
-  // child here always resolves to a real href, `todo` included (see the
-  // comment on `href` below), so the first one is always reachable.
-  const firstChild = sub.children[0];
-  if (firstChild) {
-    redirect(
-      firstChild.type === "link" ? firstChild.href : `/masters/${sub.slug}/${firstChild.slug}`,
-    );
-  }
+  // NO REDIRECT — THE SUB-MODULE LISTS ITS SCREENS (user 2026-09-26: "if I
+  // click the Associates sub module it directly went to the Allowance child,
+  // but need to list the Associate child page … for full master module").
+  // The 2026-09-15 redirect to the first child reasoned that the card grid was
+  // hidden and the sidebar listed every child — neither is true here: `HubPage`
+  // shows cards unless told not to (`hideCards`), and the Master Data sidebar
+  // stops at the sub-module name (AGENTS.md "The sidebar lists SUB-MODULES"),
+  // so the redirect left this page's children reachable only by landing on
+  // the first one. Materials (`/masters/materials`) never redirected.
 
   const cards: HubCardSpec[] = sub.children.map((c) => ({
     key: c.slug,

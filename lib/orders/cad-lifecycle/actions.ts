@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
-import { cadFabricBomProblem } from "./guard";
 import {
   allocationInput,
   CAD_BUCKET,
@@ -340,15 +339,6 @@ export async function discardCadUploads(paths: string[]): Promise<Result> {
   const gone = safe.filter((p) => !keep.has(p));
   if (gone.length > 0) await s.storage.from(CAD_BUCKET).remove(gone);
   return { ok: true };
-}
-
-// ---------------------------------------------------------------------------
-// The Fabric BOM editor asks this when a NEW BOM is opened for an order, so the
-// refusal is on screen before anything is typed (the trigger still decides).
-// ---------------------------------------------------------------------------
-export async function checkCadForFabricBom(garmentOrderId: string): Promise<string | null> {
-  if (!(await can("orders", "view"))) return null;
-  return cadFabricBomProblem(garmentOrderId);
 }
 
 // ---------------------------------------------------------------------------
