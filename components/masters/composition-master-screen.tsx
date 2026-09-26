@@ -12,7 +12,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { Sheet } from "@/components/ui/sheet";
 import { Toggle } from "@/components/ui/toggle";
-import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import { usePagination } from "@/lib/use-pagination";
@@ -50,22 +50,43 @@ const BLANK = { item_class_id: "", short_name: "", name: "", inactive: false };
  * WIDTHS, NOT TWELFTHS (erp-form-compact). Details was `cols={2}` on a
  * full-screen sheet, so a one-value Item Class got half the pane.
  *
- *   Details — item class 176 + name 288, 1 × 12 gap = 476
+ *   Details — item class 176 + name 200, 1 × 12 gap = 388
+ *
+ * NAME IS `party`, NOT `name` (client 2026-09-26: Name "compact tight"). It
+ * was 288px. The composed mixing ("COTTON 95% ELASTANE 5%") fits 200px; a
+ * longer blend scrolls inside the box, and `title` on the input shows the
+ * whole name on hover. Do not widen it back without the client asking.
  */
 const FIELD_W = {
   item_class: "term", // 176px — picker trigger + its manage icon; only FABRIC
-  name: "name", //       288px — the composed mixing; scrolls past ~30 capitals
+  name: "party", //      200px — the composed mixing; see above
 } satisfies Record<string, FieldWidth>;
 
 /**
  * The Details card, the Mixing grid (rule 4: a sub-grid is as wide as the
  * FORM) AND the footer's buttons, from ONE string:
  *
- *   476 row + 2 × 8 card padding (compact) + 2 × 1 border = 494
+ *   388 row + 2 × 8 card padding (compact) + 2 × 1 border = 406
  *
- * 32rem (512px) leaves room for the non-compact `p-2.5` density (+4px).
+ * 26rem (416px) leaves room for the non-compact `p-2.5` density (+4px). The
+ * Mixing grid (~352px, MIX_W) sits inside it.
  */
-const FORM_W = "max-w-[32rem]";
+const FORM_W = "max-w-[26rem]";
+
+/**
+ * The Mixing grid's columns. Yarn had no width, so it took whatever the 32rem
+ * cap left after the % column — ~350px for "COMBED COTTON". With a width on
+ * EVERY column the grid hugs its content (`hugsContent`) instead of filling:
+ *
+ *   `#` + yarn 200 + mixing 80 + ✕ ≈ 352px, inside FORM_W.
+ *
+ * Mixing % stays 5rem to match Material ▸ Mixing, the same idea on another
+ * screen — the two should not look like different products.
+ */
+const MIX_W = {
+  yarn: FIELD_WIDTH_CSS.party, // 200px — a yarn category: "POLYESTER VISCOSE"
+  mixing: "5rem", //               80px — as Material ▸ Mixing
+};
 
 /**
  * Master-detail CRUD for the legacy "Composition" master: a header (Item Class
@@ -552,6 +573,8 @@ export function CompositionMasterScreen({
                 id="cmp-name"
                 uppercase
                 value={form.name}
+                // The whole blend on hover — a long mixing outruns the 200px box.
+                title={form.name || undefined}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
                 // A composed Name is never a tab stop — the operator reaches it
@@ -577,16 +600,20 @@ export function CompositionMasterScreen({
               />
             </Field>
             </FieldRow>
+            {/* Inside the card, on its own row — it sat loose between the card
+                and the grid, belonging to neither. Own row because a switch has
+                no label band to align with the fields above. */}
+            {editId && (
+              <FieldRow>
+                <Toggle
+                  id="cmp-inactive"
+                  label="Inactive"
+                  checked={form.inactive}
+                  onChange={(inactive) => setForm((f) => ({ ...f, inactive }))}
+                />
+              </FieldRow>
+            )}
           </DetailSection>
-
-          {editId && (
-            <Toggle
-              id="cmp-inactive"
-              label="Inactive"
-              checked={form.inactive}
-              onChange={(inactive) => setForm({ ...form, inactive })}
-            />
-          )}
 
           {/* `inlineCards`, not `forceCards` — LAYOUT.md §6 picks the mode by
               FIELDS PER ROW, and a mixing line has two. `forceCards` is the 6-8
@@ -614,11 +641,11 @@ export function CompositionMasterScreen({
             onRemove={(l) => removeLine(l.key)}
             addLabel="+ Add line"
             columns={[
-              { header: "Yarn", cell: (l) => fibreCell(l) },
+              { header: "Yarn", width: MIX_W.yarn, cell: (l) => fibreCell(l) },
               {
                 header: "Mixing %",
                 align: "center",
-                width: "5rem",
+                width: MIX_W.mixing,
                 cell: (l) => (
                   <Input
                     type="number"
