@@ -1839,11 +1839,6 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
   "Style Category": "code",
   "Article No.": "code",
   "Order Unit": "num",
-  /* LAYOUT TYPE (0628) — "Open Width" is the longest value, ~75px at text-sm,
-     so `range` (112). The line's declared floors go 988 -> 1,112 with the gap,
-     inside the operator's 1,229px pane; Description still grows into the rest
-     and is the cell that wraps first, as the note below intends. */
-  "Layout Type": "range",
   "PO Qty": "range",
   /* `Process` AND `Sizes` ARE NOT ON THIS ROW. Both live on the composition
      line below it — Sizes beside Coordinate, and the Process [Click] button as
@@ -7771,34 +7766,11 @@ export function GarmentOrderScreen({
         </Select>
       ),
     },
-    {
-      header: "Layout Type",
-      /* THE STYLE'S FABRIC LAYOUT (0628, doc/order/cad.md §7; user 2026-09-24:
-         "Bring it back on the style"). A CAD whose marker is laid out the other
-         way cannot be approved on Orders ▸ CAD ▸ CAD Lifecycle, so this is the
-         declaration that check compares against.
-
-         NOT the per-COMPONENT Layout Type the client removed on 2026-09-05
-         (0527 → 0533); that one sat on Components and gated a picker. This is
-         one answer per style, and it gates nothing on this screen.
-
-         OPTIONAL, with the blank option first: an undeclared layout is "nothing
-         to compare against" for the CAD check, not an error, and a hold on it
-         would cage every line typed before the CAD room is involved. */
-      cell: (r) => (
-        <Select
-          value={r.layout_type ?? ""}
-          onChange={(e) => updateStyle(r.key, { layout_type: e.target.value || null })}
-        >
-          <option value=""></option>
-          {LAYOUT_TYPES.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
+    /* LAYOUT TYPE IS NOT ON THIS ROW (client 2026-09-26: "inside the style
+       tab inside the layout type field remove it"). The column is kept —
+       `layout_type` still loads and saves unchanged — and an undeclared layout
+       is "nothing to compare against" for the CAD approval's check, so a new
+       style simply skips it. */
     {
       header: "PO Qty",
       align: "right",

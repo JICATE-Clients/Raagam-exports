@@ -12,6 +12,7 @@ import {
   dispatchInput,
   istLocalToIso,
   patternWorkInput,
+  mergePatternLines,
   patternSheetInput,
   type PatternSheetInput,
   type PatternWorkInput,
@@ -190,8 +191,12 @@ export async function savePatternSheet(allocationId: string, data: PatternSheetI
   if (!(await can("orders", "edit"))) return fail("You do not have permission to update the pattern sheet.");
   const p = patternSheetInput.safeParse(data);
   if (!p.success) return fail(zodMessage(p.error));
-  const typed = p.data.lines.filter(
-    (l) => l.colour || l.size_id || l.table_dia != null || l.width_form || l.avg_pcs_weight_g != null || l.remark,
+  // Lines that differ only in their parts become one line (0643, Task 2) —
+  // here, so a stale form or a replayed request is merged the same way.
+  const typed = mergePatternLines(
+    p.data.lines.filter(
+      (l) => l.colours.length || l.size_ids.length || l.table_dia != null || l.width_form || l.avg_pcs_weight_g != null || l.remark,
+    ),
   );
   const s = await createClient();
   const wasReady = await isReady(s, allocationId);

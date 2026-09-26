@@ -15,6 +15,7 @@ import { yarnShadesFrom } from "./yarn-dyed";
 import { colorLossesForStorage } from "./color-loss";
 import { yarnStageProblems } from "./yarn-stage-routes";
 import {
+  conversionDetailsOf,
   conversionLinksOf,
   conversionStepProblems,
   linkedLooseFabricIds,
@@ -959,7 +960,8 @@ async function unravellingProcessIds(
 
 /** The loose fabrics this payload's yarns are converted from (0633). */
 function looseFabricIdsOf(data: FabricBomInput, unravelling: ReadonlySet<string>): string[] {
-  return linkedLooseFabricIds(conversionLinksOf(data.yarns, (id) => unravelling.has(id)));
+  const isU = (id: string) => unravelling.has(id);
+  return linkedLooseFabricIds(conversionLinksOf(data.yarns, isU), conversionDetailsOf(data.yarns, isU));
 }
 
 /**
@@ -1169,11 +1171,13 @@ function normalizeYarns(
   const out: NormalizedYarn[] = [];
   const isUnravelling = (id: string) => unravelling.has(id);
   const links = conversionLinksOf(data.yarns, isUnravelling);
+  /* 0645 — the per-colour Details: a colour's own loose fabric and loss. */
+  const details = conversionDetailsOf(data.yarns, isUnravelling);
   const routesByFabric = routesByFabricOf(
     data,
     /* THE LOOSE FABRICS' ROUTES TOO (0633) — each is grossed by its own
        KNITTING -> DYEING -> CONVERSION ladder like any cloth. */
-    new Set([...fabrics.map((f) => f.fabric_id), ...linkedLooseFabricIds(links)]),
+    new Set([...fabrics.map((f) => f.fabric_id), ...linkedLooseFabricIds(links, details)]),
     processKinds,
   );
   const sourceByFabric = sourceByFabricOf(data);
@@ -1184,6 +1188,8 @@ function normalizeYarns(
   const firstUom = fabrics.find((f) => f.uom_id)?.uom_id ?? null;
   const conversionPlan = planConversions({
     links,
+    details,
+    isUnravelling,
     fabrics,
     compositions,
     routesByFabric,
@@ -1302,6 +1308,7 @@ function normalizeYarns(
             loss_pct: null,
             ...colorLossesForStorage(false, {}),
             source_loose_fabric_id: st.source_loose_fabric_id ?? null,
+            conversion_details: st.conversion_details ?? [],
             ...(figure
               ? { process_qty: figure.qty, uom_id: figure.uom_id, refusal_reason: null }
               : { process_qty: null, uom_id: null, refusal_reason: why }),
@@ -1314,6 +1321,7 @@ function normalizeYarns(
             : null;
         return {
           source_loose_fabric_id: null,
+          conversion_details: [],
           sno: i + 1,
           stage_id: st.stage_id ?? null,
           process_id: st.process_id ?? null,
@@ -2318,10 +2326,14 @@ async function conversionProblem(
   const isUnravelling = (id: string) => unravelling.has(id);
   for (const y of data.yarns) {
     for (const st of y.stages) {
-      if (!st.process_id || !isUnravelling(st.process_id)) st.source_loose_fabric_id = null;
+      if (!st.process_id || !isUnravelling(st.process_id)) {
+        st.source_loose_fabric_id = null;
+        st.conversion_details = [];
+      }
     }
   }
   const links = conversionLinksOf(data.yarns, isUnravelling);
+  const details = conversionDetailsOf(data.yarns, isUnravelling);
   const routeSteps = data.processes.filter((p) => !!p.process_id);
   if (links.size === 0 && !routeSteps.some((p) => isUnravelling(p.process_id as string))) return null;
 
@@ -2332,6 +2344,7 @@ async function conversionProblem(
   const problems = conversionStepProblems({
     yarns: data.yarns.map((y) => ({ name: nameOf.get(y.item_id) || "This yarn", stages: y.stages })),
     links,
+    details,
     routeSteps,
     isUnravelling,
     fabricName: (id) => nameOf.get(id) || "This fabric",
@@ -2871,6 +2884,8 @@ function fabricInputFromStored(doc: StoredFabricBomDoc): FabricBomInput {
         /* 0633 — the conversion link, or a recalculation would read a
            converted yarn as bought. */
         source_loose_fabric_id: (st.source_loose_fabric_id as string | null) ?? null,
+        /* 0645 — the per-colour Details, or a recalculation would drop them. */
+        conversion_details: (st.conversion_details as FabricBomInput["yarns"][number]["stages"][number]["conversion_details"] | null) ?? [],
       })),
     })),
     manualEntries: bySno(doc.manualEntries).map((e) => ({

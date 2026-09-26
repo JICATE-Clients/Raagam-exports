@@ -443,7 +443,12 @@ export function processesForFabric(
   const flagged = narrowToStage(
     options.filter(
       (p) =>
-        p.for_fabric &&
+        /* A LOOSE FABRIC'S CONVERSION STEP NEEDS NO "Fabric" TICK (2026-09-26): the
+           spec requires it on that route and `conversionStepProblems` refuses the Save
+           without it, so the master's KIND flag (`is_unravelling`) is enough there.
+           Found live with the process renamed CONVERSION and For Fabric unticked —
+           the injected route silently lost its third step and every Save refused. */
+        (p.for_fabric || (looseFabricRoute && !!p.is_unravelling)) &&
         (printDeclared || !p.is_print) &&
         (!fabricIsYarnDyed || !p.is_dyeing) &&
         (routeStartAllowed || !isRouteStart(p)) &&

@@ -120,6 +120,8 @@ import { loadBomYarnComposition } from "@/lib/orders/fabric-bom/actions";
 import {
   comboKey,
   comboUplift,
+  conversionDetailsFromDraft,
+  conversionDetailsToDraft,
   deriveYarnRows,
   isRefusal,
   yarnRowAnswered,
@@ -128,6 +130,7 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import {
+  conversionDetailsOf,
   conversionLinksOf,
   conversionStepProblems,
   linkedLooseFabricIds,
@@ -749,6 +752,8 @@ export function IwoFabricBomScreen({
               color_losses: colorLossesToDraft(st.color_losses),
               /* 0636 — LOOSE FABRIC CONVERSION's source. */
               source_loose_fabric_id: st.source_loose_fabric_id ?? null,
+              /* 0645 — its per-colour Details. */
+              conversion_details: conversionDetailsToDraft(st.conversion_details),
             })),
           },
         ]),
@@ -800,6 +805,10 @@ export function IwoFabricBomScreen({
     !!data.yarnProcesses.find((p) => p.id === processId)?.is_unravelling;
   const answerLooseIds = linkedLooseFabricIds(
     conversionLinksOf(
+      Object.entries(yarnAnswers).map(([item_id, a]) => ({ item_id, stages: a.stages })),
+      isUnravelling,
+    ),
+    conversionDetailsOf(
       Object.entries(yarnAnswers).map(([item_id, a]) => ({ item_id, stages: a.stages })),
       isUnravelling,
     ),
@@ -920,9 +929,13 @@ export function IwoFabricBomScreen({
      buckets and the derived rows the payload sends; `writeYarns` runs the
      same `planConversions`. A For = Yarn BOM has no cloth, so no plan. */
   const conversionLinks = yarnMode ? new Map<string, string | null>() : conversionLinksOf(yarnRows, isUnravelling);
-  const looseFabricIds = new Set(linkedLooseFabricIds(conversionLinks));
+  /* 0645 — each colour's own loose fabric and loss (the [Click] Details). */
+  const conversionDetails = yarnMode ? new Map() : conversionDetailsOf(yarnRows, isUnravelling);
+  const looseFabricIds = new Set(linkedLooseFabricIds(conversionLinks, conversionDetails));
   const conversionPlan = planConversions({
     links: conversionLinks,
+    details: conversionDetails,
+    isUnravelling,
     fabrics: fabricGross,
     compositions: compositionById,
     routesByFabric,
@@ -935,7 +948,9 @@ export function IwoFabricBomScreen({
    *  → [DYED] CONVERSION, once, by the master's kind flags and base stages. */
   const injectLooseRoute = (fabricId: string) => {
     if (procs.some((p) => p.item_id === fabricId)) return;
-    const live = data.processes.filter((p) => p.for_fabric && !p.inactive);
+    /* The unravelling step joins by its KIND flag, "Fabric" tick or not —
+       see `processesForFabric`. */
+    const live = data.processes.filter((p) => (p.for_fabric || !!p.is_unravelling) && !p.inactive);
     const steps = [
       { p: live.find((x) => x.is_knitting), loss: "" },
       { p: live.find((x) => x.is_dyeing), loss: "" },
@@ -1164,6 +1179,7 @@ export function IwoFabricBomScreen({
       : conversionStepProblems({
           yarns: yarnRows.map((y) => ({ name: y.name, stages: y.stages })),
           links: conversionLinks,
+          details: conversionDetails,
           routeSteps: procs,
           isUnravelling,
           fabricName: (itemId) => fabricById.get(itemId)?.name ?? "This fabric",
@@ -1374,6 +1390,8 @@ export function IwoFabricBomScreen({
           /* 0636 — the conversion link; the action nulls it on any step the
              master does not flag as unravelling. */
           source_loose_fabric_id: st.source_loose_fabric_id ?? null,
+          /* 0645 — its per-colour Details. */
+          conversion_details: conversionDetailsFromDraft(st.conversion_details),
         })),
       })),
     };

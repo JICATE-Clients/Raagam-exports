@@ -64,7 +64,13 @@ const VERSION_SELECT =
   "lines:order_cad_pattern_lines(sno, coordinate_id, component_id, fabric_category_id, gsm, colour, size_id, " +
   "table_dia, width_form, avg_pcs_weight_g, remark, coordinate:items!coordinate_id(name), " +
   "component:components!component_id(short_name), fabric:categories!fabric_category_id(name), " +
-  "size:config_lookups!size_id(name)), " +
+  "size:config_lookups!size_id(name), " +
+  // 0643 — the line's parts. One FK each to items / components (catalog, 2026-09-25).
+  "parts:order_cad_pattern_line_parts(sno, coordinate_id, component_id, " +
+  "coordinate:items!coordinate_id(name), component:components!component_id(short_name)), " +
+  // 0644 — the line's colours and sizes. One FK each (catalog, 2026-09-25).
+  "colours:order_cad_pattern_line_colours(sno, colour), " +
+  "sizes:order_cad_pattern_line_sizes(sno, size_id, size:config_lookups!size_id(name))), " +
   "pattern_maker:employees!pattern_maker_id(name), " +
   "dispatch:order_cad_dispatches(id, dispatch_date, courier_tracking_no, email_sent_at, layout_type, " +
   "expected_approval_date, remarks, " +
@@ -145,6 +151,17 @@ type VersionLite = {
         component: One<{ short_name: string | null }>;
         fabric: One<{ name: string | null }>;
         size: One<{ name: string | null }>;
+        parts:
+          | {
+              sno: number;
+              coordinate_id: string | null;
+              component_id: string;
+              coordinate: One<{ name: string | null }>;
+              component: One<{ short_name: string | null }>;
+            }[]
+          | null;
+        colours: { sno: number; colour: string }[] | null;
+        sizes: { sno: number; size_id: string; size: One<{ name: string | null }> }[] | null;
       }[]
     | null;
   is_submitted: boolean;
@@ -202,6 +219,26 @@ function toVersion(v: VersionLite): CadVersion {
         coordinate_name: one(l.coordinate)?.name ?? null,
         component_id: l.component_id,
         component_name: one(l.component)?.short_name ?? "",
+        // 0643. A line read before its parts existed (none today — 0643
+        // backfilled every one) still answers with its own first part.
+        parts:
+          l.parts && l.parts.length > 0
+            ? [...l.parts]
+                .sort((a, b) => a.sno - b.sno)
+                .map((p) => ({
+                  coordinate_id: p.coordinate_id,
+                  coordinate_name: one(p.coordinate)?.name ?? null,
+                  component_id: p.component_id,
+                  component_name: one(p.component)?.short_name ?? "",
+                }))
+            : [
+                {
+                  coordinate_id: l.coordinate_id,
+                  coordinate_name: one(l.coordinate)?.name ?? null,
+                  component_id: l.component_id,
+                  component_name: one(l.component)?.short_name ?? "",
+                },
+              ],
         fabric_category_id: l.fabric_category_id,
         fabric_name: one(l.fabric)?.name ?? null,
         // numeric columns arrive as strings from PostgREST.
@@ -209,6 +246,22 @@ function toVersion(v: VersionLite): CadVersion {
         colour: l.colour,
         size_id: l.size_id,
         size_name: one(l.size)?.name ?? null,
+        // 0644, with the line's own first value as the fallback (backfilled, so
+        // only a line written between 0643 and 0644 could need it).
+        colours:
+          l.colours && l.colours.length > 0
+            ? [...l.colours].sort((a, b) => a.sno - b.sno).map((c) => c.colour)
+            : l.colour
+              ? [l.colour]
+              : [],
+        sizes:
+          l.sizes && l.sizes.length > 0
+            ? [...l.sizes]
+                .sort((a, b) => a.sno - b.sno)
+                .map((z) => ({ size_id: z.size_id, size_name: one(z.size)?.name ?? null }))
+            : l.size_id
+              ? [{ size_id: l.size_id, size_name: one(l.size)?.name ?? null }]
+              : [],
         table_dia: l.table_dia == null ? null : Number(l.table_dia),
         width_form: l.width_form,
         avg_pcs_weight_g: l.avg_pcs_weight_g == null ? null : Number(l.avg_pcs_weight_g),

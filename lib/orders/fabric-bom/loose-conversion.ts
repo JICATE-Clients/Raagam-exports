@@ -45,12 +45,28 @@
  * applied on the yarn side (`withoutConversionSteps`), because the loose
  * fabric's route carries the same step with the same loss, and applying both
  * would divide by (1 - L) twice.
+ *
+ * ## PER-COLOUR DETAILS (0645) — legacy's [Click] ▸ Details
+ *
+ * The step may carry one row per colourway (`conversion_details`): Loss %,
+ * Loose Fabric, GSM, Dia (user 2026-09-25, legacy screenshots 3093–3096). A
+ * colour's LOOSE FABRIC replaces the step's for that colour's demand; its
+ * LOSS % REPLACES the loose fabric route's CONVERSION (unravelling) loss for
+ * that colour — never adds to it. The injected route opens that step at the
+ * spec's 2.00 %, so an added figure would divide by (1 − L) twice for the one
+ * physical loss (caught 2026-09-26 against the spec's Step 2). Blank = the
+ * route's loss stands; 0 = no unravelling loss for that colour. Needs the
+ * master's flag (`isUnravelling`) to find that step on the route. GSM and Dia
+ * are recorded, never multiplied. A colour with no row, or a row naming no
+ * fabric, uses the step's own fabric.
  */
 
 import { isRefusal, type Refusal } from "./requirement";
 import { sourceBuysYarn, type FabricSource } from "./fabric-source";
 import {
   comboUplift,
+  conversionDetailsFromDraft,
+  type ConversionDetailDraft,
   yarnPurchase,
   type FabricComposition,
   type FabricGross,
@@ -87,10 +103,63 @@ export function conversionLinksOf(
   return out;
 }
 
+/** One colourway of a CONVERSION step's Details (0645). */
+export type ConversionDetail = {
+  combo: string;
+  loss_pct: number | null;
+  source_loose_fabric_id: string | null;
+  gsm: number | null;
+  dia: string | null;
+};
+
+/** yarn → its CONVERSION step's per-colour details. Absent = none typed. */
+export type ConversionDetails = ReadonlyMap<string, readonly ConversionDetail[]>;
+
+/**
+ * The per-colour details off the yarn steps — the twin of `conversionLinksOf`.
+ * Takes the STORED rows (numbers) or the FORM's (text), and answers numbers
+ * either way, so the screen's preview and the save read one shape.
+ */
+export function conversionDetailsOf(
+  yarns: readonly {
+    item_id: string;
+    stages: readonly {
+      process_id?: string | null;
+      conversion_details?: readonly (ConversionDetail | ConversionDetailDraft)[] | null;
+    }[];
+  }[],
+  isUnravelling: (processId: string) => boolean,
+): Map<string, readonly ConversionDetail[]> {
+  const out = new Map<string, readonly ConversionDetail[]>();
+  for (const y of yarns) {
+    const step = y.stages.find((st) => !!st.process_id && isUnravelling(st.process_id));
+    const rows = step?.conversion_details ?? [];
+    if (rows.length === 0) continue;
+    out.set(
+      y.item_id,
+      rows.flatMap((r) =>
+        typeof r.loss_pct === "string" || typeof r.gsm === "string"
+          ? conversionDetailsFromDraft([r as ConversionDetailDraft]) // [] for a colourless row
+          : [r as ConversionDetail],
+      ),
+    );
+  }
+  return out;
+}
+
+/** A colourway's name as the details compare it — trimmed, upper-cased. */
+const comboKey = (c: string | null | undefined) => (c ?? "").trim().toUpperCase();
+
 /** The loose fabrics a document's yarns name — each needs a route and a
- *  composition, so both sides fold these into their fabric sets. */
-export function linkedLooseFabricIds(links: ConversionLinks): string[] {
-  return [...new Set([...links.values()].filter((id): id is string => !!id))];
+ *  composition, so both sides fold these into their fabric sets. Includes the
+ *  per-colour Details' fabrics (0645) when they are passed. */
+export function linkedLooseFabricIds(links: ConversionLinks, details?: ConversionDetails): string[] {
+  const ids = [...links.values()].filter((id): id is string => !!id);
+  for (const [yarnId, rows] of details ?? []) {
+    if (!links.has(yarnId)) continue;
+    for (const r of rows) if (r.source_loose_fabric_id) ids.push(r.source_loose_fabric_id);
+  }
+  return [...new Set(ids)];
 }
 
 /** Steps as `yarnPurchase` reads them, less the CONVERSION step — see the
@@ -125,6 +194,9 @@ export type ConversionPlan = {
 
 export type ConversionInput = {
   links: ConversionLinks;
+  /** Per-colour Details (0645) — optional; without them every colour uses the
+   *  step's loose fabric and no extra loss, exactly as before. */
+  details?: ConversionDetails;
   /** The BOM's own cloth slices — never including the loose fabrics. */
   fabrics: readonly FabricGross[];
   /** Must include the loose fabrics' compositions. */
@@ -135,6 +207,10 @@ export type ConversionInput = {
   sourceByFabric?: ReadonlyMap<string, FabricSource>;
   /** For the refusal sentences; falls back to a generic noun. */
   nameOf?: (itemId: string) => string | null | undefined;
+  /** The master's CONVERSION flag — which route step a colour's Details Loss %
+   *  REPLACES (0645). Without it a Details loss cannot replace anything, so it
+   *  is ignored rather than added on top. */
+  isUnravelling?: (processId: string) => boolean;
 };
 
 export function planConversions(input: ConversionInput): ConversionPlan {
@@ -144,7 +220,12 @@ export function planConversions(input: ConversionInput): ConversionPlan {
   const cutFabricIds = new Set(input.fabrics.map((f) => f.fabric_id));
   const nameOf = (id: string, fallback: string) => input.nameOf?.(id) || fallback;
 
-  for (const [yarnId, looseId] of input.links) {
+  for (const [yarnId, stepLooseId] of input.links) {
+    const rows = input.details?.get(yarnId) ?? [];
+    const detailFor = (combo: string | null | undefined) => rows.find((r) => comboKey(r.combo) === comboKey(combo));
+    /* The step's own fabric, or — when only the Details name one — the first
+       colour's, so a step answered wholly in the popup still converts. */
+    const looseId = stepLooseId ?? rows.find((r) => r.source_loose_fabric_id)?.source_loose_fabric_id ?? null;
     if (!looseId) {
       converted.set(yarnId, {
         refused: "Pick the Source Loose Fabric on this yarn's CONVERSION step",
@@ -222,21 +303,48 @@ export function planConversions(input: ConversionInput): ConversionPlan {
       continue;
     }
 
-    const route = input.routesByFabric.get(looseId) ?? [];
     let looseKnitQty: number | null = 0;
+    let badLoss: string | null = null;
     for (const c of target.byCombo) {
+      /* THIS COLOUR'S LOOSE FABRIC AND LOSS (0645), else the step's. */
+      const d = detailFor(c.combo);
+      const cLoose = d?.source_loose_fabric_id || looseId;
+      const route = input.routesByFabric.get(cLoose) ?? [];
+      /* A TYPED LOSS REPLACES THE ROUTE'S UNRAVELLING LOSS FOR THIS COLOUR.
+         The demand is handed on already grossed by the colour's own loss and
+         DIVIDED by the route's unravelling uplift, which the route multiplies
+         back in downstream (`yarnPurchaseWithConversion`, `beforeKnitting`
+         below) — so the one physical loss is applied once, at the colour's
+         figure. */
+      let gross = c.gross;
+      const L = d?.loss_pct;
+      if (L != null && input.isUnravelling) {
+        if (L < 0 || L >= 100) {
+          badLoss = c.combo || "every colourway";
+          break;
+        }
+        const isU = input.isUnravelling;
+        const routeU = comboUplift(route.filter((st) => !!st.process_id && isU(st.process_id)), c.combo);
+        gross = c.gross / (1 - L / 100) / (isRefusal(routeU) ? 1 : routeU);
+      }
       const beforeKnitting = comboUplift(route.filter((st) => !st.is_knitting), c.combo);
       if (isRefusal(beforeKnitting) || looseKnitQty == null) {
         looseKnitQty = null;
       } else {
-        looseKnitQty += c.gross * beforeKnitting;
+        looseKnitQty += gross * beforeKnitting;
       }
       looseDemand.push({
-        fabric_id: looseId,
+        fabric_id: cLoose,
         combo: c.combo || null,
-        gross: c.gross,
+        gross,
         uom_id: target.uom_id,
       });
+    }
+    if (badLoss) {
+      converted.set(yarnId, {
+        refused: `Conversion Details: the Loss % for ${badLoss} must be at least 0 and below 100`,
+      });
+      continue;
     }
 
     converted.set(yarnId, {
@@ -332,9 +440,15 @@ export function yarnPurchaseWithConversion(
 export function conversionStepProblems(args: {
   yarns: readonly {
     name: string;
-    stages: readonly { process_id?: string | null; source_loose_fabric_id?: string | null }[];
+    stages: readonly {
+      process_id?: string | null;
+      source_loose_fabric_id?: string | null;
+      conversion_details?: readonly { source_loose_fabric_id?: string | null }[] | null;
+    }[];
   }[];
   links: ConversionLinks;
+  /** Per-colour Details (0645) — their fabrics count as linked too. */
+  details?: ConversionDetails;
   routeSteps: readonly { item_id: string; process_id?: string | null }[];
   isUnravelling: (processId: string) => boolean;
   fabricName: (itemId: string) => string;
@@ -344,13 +458,17 @@ export function conversionStepProblems(args: {
     const steps = y.stages.filter((st) => !!st.process_id && args.isUnravelling(st.process_id));
     if (steps.length > 1) {
       out.push(`${y.name}: a yarn is converted from one loose fabric — keep one CONVERSION step.`);
-    } else if (steps.length === 1 && !steps[0].source_loose_fabric_id) {
+    } else if (
+      steps.length === 1 &&
+      !steps[0].source_loose_fabric_id &&
+      !steps[0].conversion_details?.some((d) => d.source_loose_fabric_id)
+    ) {
       /* The picker's `required` star and cursor hold, stated as a Save rule —
          "one declaration, four enforcers" (AGENTS.md, Mandatory fields). */
       out.push(`${y.name}: pick the Source Loose Fabric on its CONVERSION step.`);
     }
   }
-  const linked = new Set(linkedLooseFabricIds(args.links));
+  const linked = new Set(linkedLooseFabricIds(args.links, args.details));
   for (const id of linked) {
     const kept = args.routeSteps.some(
       (p) => p.item_id === id && !!p.process_id && args.isUnravelling(p.process_id),

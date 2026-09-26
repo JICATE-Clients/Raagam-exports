@@ -6,6 +6,7 @@ import { capsName, capsTextNullable } from "@/lib/validation/formats";
 import { fabricBomProcessInput } from "@/lib/orders/fabric-bom/processes";
 import { fabricBomYarnInput } from "@/lib/orders/fabric-bom/yarn-process";
 import type { IwoColourBy } from "./yarn";
+import type { ConversionDetail } from "@/lib/orders/fabric-bom/loose-conversion";
 
 /**
  * IWO Fabric BOM — the order Fabric BOM, duplicated for an Internal Work Order
@@ -146,6 +147,8 @@ export interface IwoFabricBomYarnStageRow {
   refusal_reason: string | null;
   /** 0636 — on a CONVERSION step, the loose fabric unravelled into this yarn. */
   source_loose_fabric_id?: string | null;
+  /** 0645 — the CONVERSION step's per-colour Details. */
+  conversion_details?: ConversionDetail[] | null;
 }
 
 /** One shade of a DYED Yarn IWO line (0592). `purchase_qty` is the server's,

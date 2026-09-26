@@ -225,7 +225,9 @@ function gatedForStage(
   const looseFabricRoute = gates.looseFabricRoute ?? false;
   return options.filter(
     (p) =>
-      p.for_fabric &&
+      /* Mirrors `processesForFabric`: on a loose fabric's route the
+         unravelling KIND flag stands in for the "Fabric" tick. */
+      (p.for_fabric || (looseFabricRoute && !!p.is_unravelling)) &&
       (printDeclared || !p.is_print) &&
       (!fabricIsYarnDyed || !p.is_dyeing) &&
       (routeStartAllowed || !isRouteStart(p)) &&

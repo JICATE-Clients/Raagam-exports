@@ -50,7 +50,13 @@
  * persists them, and the purchase weight above re-computes as they are typed.
  */
 
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Sheet } from "@/components/ui/sheet";
+import { Truncated } from "@/components/ui/truncated";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
+import { DetailSection } from "@/components/masters/detail-section";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -69,6 +75,7 @@ import {
   blankYarnStage,
   processesForYarn,
   yarnStageStarted,
+  type ConversionDetailDraft,
   type YarnProcessOption,
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
@@ -100,6 +107,7 @@ export function YarnProcessGrid({
   colourLoss = false,
   looseFabrics = [],
   onLooseFabricPicked,
+  orderCombos = [],
 }: {
   /** THIS yarn's steps only — they live on the yarn row, so there is nothing to
    *  filter and no way for one to be orphaned. */
@@ -159,6 +167,10 @@ export function YarnProcessGrid({
    * conversion (IWO), where the step is simply never offered a source.
    */
   looseFabrics?: PickerItem[];
+  /** The ORDER's colourways — the Conversion Details' rows when this yarn
+   *  feeds no yarn-dyed colour yet (legacy lists the order's colours, RED ·
+   *  GREEN, screenshot 3096; user 2026-09-26: the fields must not be missing). */
+  orderCombos?: readonly string[];
   /** Called when a source is picked, so the screen can inject the loose
    *  fabric's KNITTING -> DYEING -> CONVERSION route on Fabric Process. */
   onLooseFabricPicked?: (fabricId: string) => void;
@@ -172,6 +184,11 @@ export function YarnProcessGrid({
   const patch = (key: string, next: Partial<YarnStageRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
   /** Is this step a LOOSE FABRIC CONVERSION (0633)? Off the master's flag. */
+  /* THE CONVERSION STEP'S [Click] POPUP — which row it is open for, and the
+     button it grows out of. A view, never data: the loose fabric it picks is
+     written to the row itself. */
+  const [looseFor, setLooseFor] = useState<{ key: string; origin: DOMRect } | null>(null);
+
   const isConversion = (r: YarnStageRow) =>
     !!r.process_id && !!processes.find((p) => p.id === r.process_id)?.is_unravelling;
 
@@ -294,7 +311,7 @@ export function YarnProcessGrid({
                   });
                   return;
                 }
-                patch(r.key, { process_id: id, source_loose_fabric_id: null });
+                patch(r.key, { process_id: id, source_loose_fabric_id: null, conversion_details: [] });
               }}
               disabled={readOnly}
               required={yarnStageStarted(r)}
@@ -316,34 +333,11 @@ export function YarnProcessGrid({
                 {yarnBasesForStage(yarnOpts, r.stage_id).map((b) => b.name).join(" or ")}.
               </p>
             )}
-            {/* SOURCE LOOSE FABRIC (0633) — rendered only on a CONVERSION
-                step, the spec's "dynamically renders a dropdown selector".
-                Mandatory: a conversion that names no loose fabric cannot say
-                where its greige yarn goes, and `conversionStepProblems`
-                refuses the Save in the same words on both sides. Picking one
-                injects the loose fabric's route on Fabric Process. */}
-            {isConversion(r) && (
-              <div className="mt-1">
-                <p className="px-1 text-[11px] text-muted-foreground">Source loose fabric</p>
-                <RecordPicker
-                  label=""
-                  compact
-                  items={looseFabrics}
-                  value={r.source_loose_fabric_id ?? null}
-                  onChange={(id) => {
-                    patch(r.key, { source_loose_fabric_id: id });
-                    if (id) onLooseFabricPicked?.(id);
-                  }}
-                  disabled={readOnly}
-                  required
-                  emptyHint="No greige fabric on the material master — create the loose fabric on Master Data ▸ Materials"
-                />
-              </div>
-            )}
           </div>
         );
       },
     },
+
     {
       /**
        * HOW THE LOSS % BESIDE IT IS MEASURED — PROCESS WISE or COLOR WISE.
@@ -369,7 +363,35 @@ export function YarnProcessGrid({
       width: "8rem",
       cell: (r) =>
         isConversion(r) ? (
-          <span className="text-sm text-muted-foreground">—</span>
+          /* A CONVERSION STEP'S [Click] (user 2026-09-25, legacy screenshots
+             3093 · 3094: the legacy row carries a "Click" that opens its
+             Details). Opens the Source Loose Fabric popup; the button reads the
+             fabric once one is picked, and wears the required ring until then.
+             `data-row-open` puts it on the Tab / arrow path (child-grid.tsx). */
+          (() => {
+            const perColour = (r.conversion_details ?? []).filter((d) => d.source_loose_fabric_id).length;
+            const name =
+              looseFabrics.find((f) => f.id === r.source_loose_fabric_id)?.name ??
+              (perColour > 0 ? `${perColour} colour${perColour === 1 ? "" : "s"} set` : null);
+            return (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-row-open
+                aria-expanded={looseFor?.key === r.key}
+                aria-label={name ? `Loose fabric: ${name}` : "Choose the source loose fabric"}
+                className={
+                  name
+                    ? "h-8 w-full justify-start px-2"
+                    : "h-8 w-full justify-start px-2 ring-2 ring-danger"
+                }
+                onClick={(e) => setLooseFor({ key: r.key, origin: e.currentTarget.getBoundingClientRect() })}
+              >
+                <Truncated className="text-sm">{name ?? "Click"}</Truncated>
+              </Button>
+            );
+          })()
         ) : (
         <LookupDialogPicker
           kind="process_loss_for"
@@ -505,8 +527,13 @@ export function YarnProcessGrid({
            step of the loose fabric's route, typed on Fabric Process, so the
            yarn is never grossed by it twice. Said, not left blank. */
         isConversion(r) ? (
-          <span className="block text-right text-[11px] leading-tight text-muted-foreground">
-            on loose fabric route
+          /* One dash, where every other row's figure sits; the reason on hover
+             (screenshot 3092: a wrapped two-line note misaligned the row). */
+          <span
+            className="block text-right text-sm text-muted-foreground"
+            title="Loss is taken on the loose fabric's route (Fabric Process), never here"
+          >
+            —
           </span>
         ) : /* For = COLOR WISE → each colour's loss in the list; PROCESS WISE → the
            one box. `isColorWiseFor` is the rule both process grids read. */
@@ -534,7 +561,156 @@ export function YarnProcessGrid({
     },
   ];
 
+  const looseRow = looseFor ? rows.find((x) => x.key === looseFor.key) ?? null : null;
+
+  /** A colour's row of the Details grid — its draft, and whether the colour
+   *  is still one this yarn feeds (a held one stays, tagged: "Disabled rows"). */
+  type DetailGridRow = { key: string; draft: ConversionDetailDraft };
+  const blankDetail = (combo: string): ConversionDetailDraft => ({
+    combo,
+    loss_pct: "",
+    source_loose_fabric_id: null,
+    gsm: "",
+    dia: "",
+  });
+  const sameCombo = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
+  /** The colours a Details row may name — this yarn's own, else the order's. */
+  const detailColours = combos.length > 0 ? combos : [...orderCombos];
+
+  /**
+   * THE ROWS AS SHOWN. What the step holds once anything is typed; before
+   * that, one row per colour, pre-filled — legacy opens with its colours
+   * listed (screenshot 3096). Rows are the operator's to change since
+   * 2026-09-26 ("make it user updating type"): pick a colour, add, remove.
+   *
+   * A STEP SAVED BEFORE THE PER-COLOUR GRID holds its loose fabric on the step
+   * (0633), not on a row — shown in every row that names none, so the fabric
+   * never looks missing, and it IS the one the engine uses for that colour.
+   */
+  const detailRowsOf = (r: YarnStageRow): DetailGridRow[] => {
+    const stored = r.conversion_details ?? [];
+    const inherit = (d: ConversionDetailDraft): ConversionDetailDraft =>
+      d.source_loose_fabric_id || !r.source_loose_fabric_id ? d : { ...d, source_loose_fabric_id: r.source_loose_fabric_id };
+    const drafts = stored.length > 0 ? stored : detailColours.map(blankDetail);
+    return drafts.map((d, i) => ({ key: `d:${i}`, draft: inherit(d) }));
+  };
+  /**
+   * A change to the rows. The rows AS SHOWN are written back — each colour's
+   * fabric on its own row — and the step's own fabric is cleared, so from the
+   * first edit on the grid is the only place a loose fabric lives and what a
+   * row shows is exactly what it holds (clearing a row really clears it).
+   */
+  const writeDetails = (r: YarnStageRow, edit: (rows: ConversionDetailDraft[]) => ConversionDetailDraft[]) =>
+    patch(r.key, {
+      source_loose_fabric_id: null,
+      conversion_details: edit(detailRowsOf(r).map((g) => g.draft)),
+    });
+  const setDetail = (r: YarnStageRow, at: number, next: Partial<ConversionDetailDraft>) =>
+    writeDetails(r, (rows) => rows.map((d, k) => (k === at ? { ...d, ...next } : d)));
+
+  // 9 + 6 + 16 + 6 + 7 = 44rem = 704px + 88px ChildGrid chrome = 792px, under
+  // the md sheet's ~1,100px content, which clears `5xl` (1,024px) — a table.
+  const conversionDetailColumns = (r: YarnStageRow): ChildGridColumn<DetailGridRow>[] => [
+    {
+      header: "Description",
+      width: "9rem",
+      cell: (g, i) => {
+        /* THE ORDER'S COLOURS, less those another row already names — one row
+           per colour. The row's own value always stays listed (a colour since
+           dropped from the order included: the "Disabled rows" rule). */
+        const taken = detailRowsOf(r)
+          .filter((_, k) => k !== i)
+          .map((x) => x.draft.combo);
+        const options = [...new Set([...detailColours, ...(g.draft.combo ? [g.draft.combo] : [])])].filter(
+          (c) => sameCombo(c, g.draft.combo) || !taken.some((t) => sameCombo(t, c)),
+        );
+        return (
+          <Select
+            compact
+            className="h-8"
+            aria-label="Description (colour)"
+            value={g.draft.combo}
+            disabled={readOnly}
+            onChange={(e) => setDetail(r, i, { combo: e.target.value })}
+          >
+            <option value="" />
+            {options.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+        );
+      },
+    },
+    {
+      header: "Loss %",
+      width: "6rem",
+      align: "right",
+      cell: (g, i) => (
+        <Input
+          className="h-8 text-right"
+          inputMode="decimal"
+          aria-label={`Loss % — ${g.draft.combo}`}
+          value={g.draft.loss_pct}
+          disabled={readOnly}
+          onChange={(e) => setDetail(r, i, { loss_pct: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Loose Fabric",
+      width: "16rem",
+      cell: (g, i) => (
+        <RecordPicker
+          label=""
+          compact
+          items={looseFabrics}
+          value={g.draft.source_loose_fabric_id}
+          onChange={(id) => {
+            setDetail(r, i, { source_loose_fabric_id: id });
+            if (id) onLooseFabricPicked?.(id);
+          }}
+          disabled={readOnly}
+          /* Mandatory until SOME colour names one — the step's Save rule
+             (`conversionStepProblems`) in the grid. */
+          required={!detailRowsOf(r).some((x) => x.draft.source_loose_fabric_id)}
+          emptyHint="No greige fabric on the material master — create the loose fabric on Master Data ▸ Materials"
+        />
+      ),
+    },
+    {
+      header: "GSM",
+      width: "6rem",
+      align: "right",
+      cell: (g, i) => (
+        <Input
+          className="h-8 text-right"
+          inputMode="decimal"
+          aria-label={`GSM — ${g.draft.combo}`}
+          value={g.draft.gsm}
+          disabled={readOnly}
+          onChange={(e) => setDetail(r, i, { gsm: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Dia",
+      width: "7rem",
+      cell: (g, i) => (
+        <Input
+          className="h-8"
+          aria-label={`Dia — ${g.draft.combo}`}
+          value={g.draft.dia}
+          disabled={readOnly}
+          onChange={(e) => setDetail(r, i, { dia: e.target.value })}
+        />
+      ),
+    },
+  ];
+
   return (
+    <>
     <ChildGrid<YarnStageRow>
       columns={columns}
       rows={rows}
@@ -592,5 +768,60 @@ export function YarnProcessGrid({
          moved with the button, not just the button. */
       addLabel="+ Add process"
     />
+    {/* THE CONVERSION DETAILS POPUP — legacy's [Click] ▸ Details (user
+        2026-09-25, screenshots 3093–3096): one row per colour, Loss % · Loose
+        Fabric · GSM · Dia (0645). A `[Click]`-opened sub-detail with no Save of
+        its own, so AGENTS.md "A sub-detail Sheet's size" — and `md`, not `sm`,
+        because it carries a `ChildGrid`, which drops to header-less cards
+        inside `sm`. Centred on the pane, grown out of the button,
+        `SubSheetFooter`. */}
+    {looseRow && (
+      <Sheet
+        open
+        onClose={() => setLooseFor(null)}
+        size="md"
+        alignToPane
+        origin={looseFor?.origin}
+        zIndexBase={120}
+        title="Conversion — Details"
+        footer={<SubSheetFooter onDone={() => setLooseFor(null)} parent="fabric BOM" />}
+      >
+        {/* NO "Loose fabric for every colour" (user 2026-09-26: "this is extra
+            field, remove it") — legacy picks the loose fabric per colour, in the
+            grid below, and nowhere else. */}
+        {/* NO EXPLANATORY TEXT (user 2026-09-26: "delete the message") — the
+            grid is the answer; the rule it follows is in `planConversions`. */}
+        {(
+          <DetailSection label="Description Details" frameless>
+            {/* Opens with a row per colour (`detailRowsOf`), never empty — the
+                "open with a row" rule met by the colours themselves. */}
+            <ChildGrid<DetailGridRow>
+              columns={conversionDetailColumns(looseRow)}
+              rows={detailRowsOf(looseRow)}
+              tableFrom="5xl"
+              flatRows
+              hideAdd={readOnly}
+              hideRemove={readOnly}
+              addLabel="+ Add colour"
+              onAdd={() => writeDetails(looseRow, (rows) => [...rows, blankDetail("")])}
+              onRemove={(g) => {
+                const at = detailRowsOf(looseRow).findIndex((x) => x.key === g.key);
+                writeDetails(looseRow, (rows) => rows.filter((_, k) => k !== at));
+              }}
+              renderMobileRow={(row, i) => (
+                <FieldGrid>
+                  {conversionDetailColumns(looseRow).map((c, ci) => (
+                    <Field key={ci} label={c.header} size="sm">
+                      {c.cell(row, i)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+              )}
+            />
+          </DetailSection>
+        )}
+      </Sheet>
+    )}
+    </>
   );
 }
