@@ -47,7 +47,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   <Topbar previewableRoles={previewableRoles} />
                   <RolePreviewBanner />
                   <WorkspaceTabsBar />
-                  {/* `pb-20` below md is clearance for MobileNav's floating bar;
+                  {/* Below md the bottom padding clears MobileNav's docked tab bar —
+                  56px plus the iOS home-indicator inset, plus the usual 16px;
                   `md:pb-6` is ordinary page padding, and a page-mounted
                   MasterFullScreen's footer deliberately sits ON that 24px
                   rather than cancelling it.
@@ -79,7 +80,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   (client 2026-09-17, screenshot 2909). `w-full` gives every
                   page root back the width a block had; `max-w-*` still caps
                   it and `mx-auto` still centres what is left over. */}
-                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-20 *:w-full md:pb-6">
+                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] *:w-full md:pb-6">
                     {children}
                   </main>
                   <MobileNav stores={stores} />

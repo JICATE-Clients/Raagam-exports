@@ -21,6 +21,8 @@
  * Runs under `tsx` because the module imports a `@/lib/...` alias at runtime.
  */
 import {
+  accessoryQty,
+  accessoryRows,
   consumptionLabel,
   itemLabel,
   requirementRows,
@@ -250,6 +252,80 @@ check("the summary counts what the band claims", requirementSummary(doc), {
   items: 3,
   split: 1,
 });
+
+// ---------------------------------------------------------------------------
+// 5. The RP printout's grid (client 2026-09-24, "Accessories Requirement.pdf")
+// ---------------------------------------------------------------------------
+
+const PNAMES: SheetNames = {
+  ...NAMES,
+  items: {
+    ...NAMES.items,
+    "i-pin": { name: "PIN / TAG PIN", category: "PIN" },
+  },
+  colours: { "c-red": "RED", "c-blue": "BLUE" },
+  lines: {
+    "l-1": { supplyType: "Local", specification: null },
+    "l-2": { supplyType: "Local", specification: "SATIN FINISH" },
+    "l-3": { supplyType: null, specification: null },
+  },
+};
+const grid = accessoryRows(
+  [
+    // Entered THREAD first, then LABEL, then PIN — the BOM's order, not the alphabet's.
+    row({ item_id: "i-thread", sno: 1, item_line_id: "l-1", required_qty: 315, consumption_uom_id: "u-cone", per_pieces: 10 }),
+    row({ item_id: "i-main", sno: 2, item_line_id: "l-2", required_qty: 3141 }),
+    row({ item_id: "i-wash", sno: 3, item_line_id: "l-1", required_qty: 3141 }),
+    row({ item_id: "i-pin", sno: 4, item_line_id: "l-3", required_qty: 100, item_color_id: "c-red" }),
+    row({ item_id: "i-pin", sno: 5, item_line_id: "l-3", required_qty: 50, item_color_id: "c-blue" }),
+    // The same pin, same colour, a second style's line — summed, as bought.
+    row({ item_id: "i-pin", sno: 6, item_line_id: "l-3", required_qty: 25, item_color_id: "c-red" }),
+  ],
+  PNAMES,
+);
+check(
+  "categories print in the BOM's own order",
+  grid.filter((r) => r.category).map((r) => r.category),
+  ["SEWING THREAD", "LABEL", "PIN"],
+);
+check(
+  "a category is written once, spanning its items",
+  grid.map((r) => [r.category, r.span]),
+  [["SEWING THREAD", 1], ["LABEL", 2], [null, 0], ["PIN", 2], [null, 0]],
+);
+check(
+  "the item prints its FULL name, category word included",
+  grid[1].item,
+  "LABEL / MAIN & SIZE / PRINTED / SATIN / CUT & SEAL",
+);
+check("Specification is the line's supply type, as the printout", grid[0].spec, "Type:Local");
+check("...followed by the line's own specification text", grid[1].spec, "Type:Local SATIN FINISH");
+check("a line with no supply type prints nothing, not 'Type:'", grid[3].spec, null);
+check(
+  "each colour is its own row, and one colour across two lines is summed",
+  grid.filter((r) => r.item.startsWith("PIN")).map((r) => [r.colour, r.qty]),
+  [["RED", 125], ["BLUE", 50]],
+);
+check("the consumption column carries through", grid[0].consumption, "1 CONE / 10 PCS");
+
+const gridRefused = accessoryRows(
+  [
+    row({ item_id: "i-pin", sno: 1, required_qty: 100 }),
+    row({ item_id: "i-pin", sno: 2, required_qty: null, refusal_reason: "No Approval Qty" }),
+  ],
+  PNAMES,
+);
+check(
+  "a refused slice refuses the whole row — never a partial sum",
+  [gridRefused[0].qty, gridRefused[0].refusal],
+  [null, "No Approval Qty"],
+);
+check("a sheet frozen before item_line_id existed still builds", accessoryRows([row({})], NAMES)[0].spec, null);
+check("nothing in, nothing out (printout)", accessoryRows([], PNAMES), []);
+
+check("the printout's quantity has three decimals", accessoryQty(3141), "3,141.000");
+check("...a fraction rounds to three", accessoryQty(85.7142857), "85.714");
+check("no quantity is a dash (printout)", accessoryQty(null), "—");
 
 console.log(failed === 0 ? "\nOK — every requirement sheet vector holds." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

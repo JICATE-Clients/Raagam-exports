@@ -70,10 +70,22 @@ const statusOf = (o: BudgetableOrder): QueueStatus => o.in_budget?.status ?? "no
  * queue beside this one. It is also editable again here, so if it should read
  * as Draft ("back with the merchandiser", the reading `returned` gets on the
  * Order Revisions register) that is a separate decision, not this bug.
+ *
+ * A REVISION WITH THE MD IS PENDING (client 2026-09-24: "any revision
+ * submitted for MD approval must default to Pending"). A revised budget goes
+ * back to `submitted`, which read Updated here — so the one budget still
+ * waiting on a decision sat under the word for "done", out of sight of the
+ * list that opens on Pending. `in_revision` (an OPEN entry on Orders ▸ Order
+ * Revisions) is what tells it from a first submit, which stays Updated: the
+ * Revision register and Budget Approval already file the same budget under
+ * Pending, so this makes the three lists agree rather than adding a meaning.
  */
 const budgetWord = (o: BudgetableOrder): QuickWord => {
   const s = statusOf(o);
-  return s === "none" ? "pending" : s === "draft" ? "draft" : "updated";
+  if (s === "none") return "pending";
+  if (s === "draft") return "draft";
+  if (s === "submitted" && o.in_budget?.in_revision) return "pending";
+  return "updated";
 };
 const statusText = (s: QueueStatus) => (s === "none" ? "Not budgeted" : budgetStatusText(s));
 /** Not budgeted is the work waiting, so it takes the warning colour. An order
@@ -374,7 +386,11 @@ export function BudgetQueue({
           ) : o.sales_value == null ? (
             <span className="text-danger">{o.sales_refusal ?? "No sales value yet"}</span>
           ) : o.in_budget?.code ? (
-            <span className="text-muted-foreground">Budget {o.in_budget.code}</span>
+            <span className="text-muted-foreground">
+              Budget {o.in_budget.code}
+              {/* Why a submitted budget is under Pending — see `budgetWord`. */}
+              {o.in_budget.in_revision && o.in_budget.status === "submitted" ? " · revision with the MD" : ""}
+            </span>
           ) : null
         }
         tone={(o) => statusTone(statusOf(o))}

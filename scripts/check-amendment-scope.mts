@@ -52,6 +52,8 @@ import {
   openAreasOf,
   unionScope,
   ALWAYS_OPEN_WHILE_AMENDING,
+  ORDER_ENTRY_WHOLE,
+  FABRIC_BOM_PALETTE,
   scopeAllowsRewrite,
   scopeFromJson,
   scopeOpensColumn,
@@ -364,7 +366,10 @@ for (const type of Object.keys(sqlSeed)) {
   else fail(`scopeFromJson overlay wrong: ${JSON.stringify(read.garment_order_amendment_files)} / ${JSON.stringify(narrowed.garment_order_amendment_files)}`);
 
   // …and ONLY that table: nothing else of the order opens because of it.
-  if (!scopeAllowsRewrite(read, "garment_order_amendment_pack_types") && !scopeOpensColumn(read, "garment_order_amendments", "delivery_date")) {
+  // Probed with a scope that does NOT pick Order Entry — one that does now
+  // opens the whole order (0627, section 7 below), which is a different rule.
+  const budgetOnly = scopeFromJson({ order_budget_lines: { columns: null, insert: true, delete: true } });
+  if (!scopeAllowsRewrite(budgetOnly, "garment_order_amendment_pack_types") && !scopeOpensColumn(budgetOnly, "garment_order_amendments", "delivery_date")) {
     ok("the overlay opens the files table and nothing else");
   } else fail("the overlay opened more than the files table");
 
@@ -378,6 +383,72 @@ for (const type of Object.keys(sqlSeed)) {
   const seeded = AMENDMENT_ENTRY_TYPE_VALUES.filter((t) => "garment_order_amendment_files" in AMENDMENT_SCOPE_SEED[t]);
   if (seeded.length === 0) ok("no category's SEED names the files table — 0604's closed list still stands");
   else fail(`the seed names the files table for: ${seeded.join(", ")} — 0622 opens it at read time, not in the seed`);
+}
+
+// ---------------------------------------------------------------------------
+// 7. A PICKED MODULE OPENS WHOLE (0627) — the module widenings, both sides
+//
+// Any Order Entry kind reads the whole order document open; a picked Fabric
+// BOM reads the palette open; a module NOT picked is not widened.
+// ---------------------------------------------------------------------------
+
+{
+  const sql0627 = mig("0627_revision_module_opens_whole.sql");
+  const lit = (fn: string) => {
+    const m = sql0627.match(new RegExp(`function public\\.${fn}\\(\\)[\\s\\S]*?select\\s+'(\\{[\\s\\S]*?\\})'::jsonb`, "i"));
+    return m ? (JSON.parse(m[1]) as Record<string, ScopeEntry>) : null;
+  };
+  const norm = (o: Readonly<Record<string, ScopeEntry>>) =>
+    JSON.stringify(Object.keys(o).sort().map((t) => [t, o[t].columns, o[t].insert, o[t].delete]));
+  for (const [fn, ts, name] of [
+    ["order_amendment_order_entry_whole", ORDER_ENTRY_WHOLE, "ORDER_ENTRY_WHOLE"],
+    ["order_amendment_fabric_bom_palette", FABRIC_BOM_PALETTE, "FABRIC_BOM_PALETTE"],
+  ] as const) {
+    const sqlLit = lit(fn);
+    if (!sqlLit) fail(`0627: the ${fn}() literal was not found`);
+    else if (norm(sqlLit) === norm(ts)) ok(`${name} matches 0627's ${fn}() (${Object.keys(ts).length} tables)`);
+    else fail(`${name} ${norm(ts)} ≠ SQL ${norm(sqlLit)}`);
+  }
+  if (!/coalesce\(r\.scope, '\{\}'::jsonb\)\s*\|\|\s*case[\s\S]*?order_amendment_order_entry_whole\(\)[\s\S]*?order_amendment_fabric_bom_palette\(\)[\s\S]*?\|\|\s*public\.order_amendment_always_open\(\)/i.test(sql0627)) {
+    fail("0627: order_amendment_of no longer lays stored → Order Entry whole → palette → always-open, in that order");
+  }
+
+  // Every Order Entry table 0576 locks is in the whole-document literal.
+  const lockedOe = [...lockSql.matchAll(/\(\s*'(garment_order_amendment[a-z_]*)'\s*,\s*array\[/g)].map((m) => m[1]);
+  const missing = lockedOe.filter((t) => !(t in ORDER_ENTRY_WHOLE));
+  if (lockedOe.length === 0) fail("0576's attach list yielded no Order Entry tables");
+  else if (missing.length === 0) ok(`ORDER_ENTRY_WHOLE names all ${lockedOe.length} Order Entry tables 0576 locks`);
+  else fail(`ORDER_ENTRY_WHOLE is missing locked tables: ${missing.join(", ")}`);
+
+  let bad = 0;
+  for (const k of ORDER_CHANGE_KINDS) {
+    const read = scopeFromJson(unionScope([k]));
+    const areas = openAreasOf(read);
+    const lack = ["orderinfo", "ta", ...Object.keys(ORDER_SECTION_TABLES)].filter((a) => !areas.includes(a));
+    if (lack.length) {
+      fail(`${k} as read does not open the whole order: missing ${lack.join(", ")}`);
+      bad++;
+    }
+    if (areaOpen(read, "fabric_bom") || areaOpen(read, "material_bom") || areaOpen(read, "budget")) {
+      fail(`${k} as read opened an UNPICKED module`);
+      bad++;
+    }
+  }
+  for (const k of ["fabric_bom_revision", "material_bom_revision", "budget_revision"] as const) {
+    const read = scopeFromJson(unionScope([k]));
+    if (scopeAllowsRewrite(read, "garment_order_amendment_styles") || scopeOpensColumn(read, "garment_order_amendments", "delivery_date")) {
+      fail(`${k} alone widened to Order Entry`);
+      bad++;
+    }
+    const palette = scopeAllowsRewrite(read, "garment_order_amendment_dyeings") && scopeAllowsRewrite(read, "garment_order_amendment_prints");
+    if (palette !== (k === "fabric_bom_revision")) {
+      fail(`${k}: palette open = ${palette}, expected ${k === "fabric_bom_revision"}`);
+      bad++;
+    }
+  }
+  if (bad === 0) {
+    ok("every Order Entry kind reads the whole order open (T&A included) and no unpicked module; a BOM/budget-only entry does not touch Order Entry; only a picked Fabric BOM opens the palette");
+  }
 }
 
 if (failures > 0) {

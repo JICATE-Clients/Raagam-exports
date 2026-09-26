@@ -4,7 +4,7 @@ import {
   listFabricBomTasks,
   listFabricBoms,
 } from "@/lib/orders/fabric-bom/service";
-import { orderLockMessages } from "@/lib/orders/order-locks";
+import { orderLocks } from "@/lib/orders/order-locks";
 import { FabricBomScreen } from "./fabric-bom-screen";
 
 /**
@@ -20,7 +20,7 @@ import { FabricBomScreen } from "./fabric-bom-screen";
 export default async function FabricBomPage() {
   await requirePermission("orders", "view");
 
-  const [tasks, boms, data, canCreate, canEdit, canDelete, orderLocks] = await Promise.all([
+  const [tasks, boms, data, canCreate, canEdit, canDelete, locks] = await Promise.all([
     listFabricBomTasks(),
     listFabricBoms(),
     getFabricBomFormData(),
@@ -28,7 +28,7 @@ export default async function FabricBomPage() {
     can("orders", "edit"),
     can("orders", "delete"),
     // Orders locked by an approved budget (Phase 5) — the editor's banner.
-    orderLockMessages(undefined, "fabric_bom"),
+    orderLocks(undefined, "fabric_bom"),
   ]);
 
   // No wrapper here — the screen renders its own PageHeader, and the editor is
@@ -39,7 +39,8 @@ export default async function FabricBomPage() {
       boms={boms}
       data={data}
       perms={{ canCreate, canEdit, canDelete }}
-      orderLocks={orderLocks}
+      orderLocks={locks.messages}
+      raiseFor={locks.raiseFor}
     />
   );
 }

@@ -574,6 +574,7 @@ export function BomQueue({
   stat,
   onOpen,
   canDelete = false,
+  lockedRow,
   onDelete,
   onReports,
   quickStatus = false,
@@ -603,6 +604,13 @@ export function BomQueue({
    */
   onOpen: (t: BomTaskRow) => void;
   canDelete?: boolean;
+  /**
+   * The order is APPROVED (or amending outside this module): no bin on its
+   * card or row, and the Updated table shows the eye instead of the pencil
+   * (client 2026-09-24). Both screens pass `orderLocks[t.id]` — `t.id` IS the
+   * garment order id — the same map that makes their editor read-only.
+   */
+  lockedRow?: (t: BomTaskRow) => boolean;
   onDelete?: (t: BomTaskRow) => void;
   /** A document report reachable straight off the card, without opening the
    *  editor — opt-in (Material BOM's caller passes nothing and is unchanged).
@@ -835,6 +843,7 @@ export function BomQueue({
           onOpen={onOpen}
           canDelete={canDelete}
           canDeleteRow={(t) => !!t.bom_id}
+          lockedRow={lockedRow}
           onDelete={onDelete}
           /* The card's Reports button, as the row's ⋮ — the same gate. */
           menu={
@@ -903,7 +912,7 @@ export function BomQueue({
            "Pending" case, and it is the whole reason the queue lists ORDERS.
            Without it the button renders on every card and does nothing when
            pressed. */
-        canDeleteRow={(t) => !!t.bom_id}
+        canDeleteRow={(t) => !!t.bom_id && !lockedRow?.(t)}
         onDelete={onDelete}
         onReports={onReports}
         canReportsRow={(t) => !!t.bom_id}

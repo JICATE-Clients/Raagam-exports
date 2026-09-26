@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   useTransition,
-  type ReactNode,
 } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { usePathname, useRouter } from "next/navigation";
@@ -1794,11 +1793,28 @@ export default function PersonClient({
     values: form,
     fields: [
       {
-        section: "detail",
+        section: "detail-person",
         id: "st-name",
         label: "Name",
         required: true,
         empty: (f) => !String(f.name ?? "").trim(),
+      },
+      /**
+       * THE PHOTOGRAPH (client 2026-09-18: "photo should be mand").
+       *
+       * NO `id`, deliberately. Every other entry here names a DOM id so a
+       * blocked Save can land the cursor on the offending box — the photo has
+       * no box, and it lives in the profile column beside the rail rather than
+       * inside a section, so it is on screen whichever section is open. The
+       * toast names it and the star in that column is already visible; there is
+       * nothing to scroll to. `section: "detail"` only decides which rail row
+       * the reveal opens, and Detail is where the rest of the identity lives.
+       */
+      {
+        section: "detail-person",
+        label: "Photo",
+        required: true,
+        empty: (f) => !String(f.photo_url ?? "").trim(),
       },
     ],
   });
@@ -1819,39 +1835,6 @@ export default function PersonClient({
     );
   };
 
-  /**
-   * THE RAIL. Row order and labels come from `staff-sections.tsx`, which is also
-   * where the reasoning lives — including why "Staff" is a row of its own rather
-   * than a header band, and why Internal Verification and Increment are absent.
-   *
-   * SIX SECTIONS ARE EMPTY ON PURPOSE, for now. The client asked for the rail
-   * first and the fields after ("first build the left side bar how i want, then
-   * we can work on inside"), and the client is naming each section's fields one
-   * at a time. Family Details, Work Experience, Reference and Nomination are
-   * each a LIST of rows against a staff member — child tables that do not
-   * exist in this database yet; Salary Registry and Bank Account are
-   * new to this screen entirely. Building the shell first is what
-   * makes that a separate, visible decision rather than a schema change smuggled
-   * in behind a layout change.
-   *
-   * `done` is the quiet "has data" dot. No `problems` badge: the operator's rule
-   * 2 drops it, and `footer.onBlockedSave` is what names a blocked Save instead.
-   */
-  /**
-   * A SUB-SECTION'S RAIL DOT: has anyone PUT something here?
-   *
-   * Not "does any field hold a value" — `employment_type` opens as "Permanent",
-   * `pay_frequency` as "Monthly" and `is_active` as true, so a plain
-   * truthiness test would light Employment and Status on a record nobody has
-   * touched, and a dot that is always on says nothing. Compared against
-   * `DEFAULTS` instead, which is the same judgement `MoneyField` already makes
-   * about a zero: a column default rendered as data reads as a figure somebody
-   * entered.
-   *
-   * `DEFAULTS` is the kind-aware object this screen already opens new records
-   * with, so a worker's extra Employment fields are covered without a second
-   * list.
-   */
   const touched = (keys: string[]) =>
     keys.some((k) => {
       const f = (form as Record<string, unknown>)[k];
@@ -1859,6 +1842,11 @@ export default function PersonClient({
       return f !== d && !(f === "" && d == null) && !(f == null && d === "");
     });
 
+  /**
+   * EVERY PANE IS STILL BUILT, whichever rail row now shows it. `PANES` is the
+   * old list of section keys; `personSections` returns the six rows that
+   * present them, and `MERGED` below says which goes where.
+   */
   const sections: FullScreenSection[] = railSections.map((s) => {
     // `sub` and `groupOnly` must both reach the shell. `groupOnly` was dropped
     // here once, so the shell never learned Salary Registry was a category and
@@ -1871,10 +1859,11 @@ export default function PersonClient({
       groupOnly: s.groupOnly,
     };
     switch (s.key) {
-      case "detail":
+      case "detail-person":
         return {
           ...base,
-          done: !!form.name.trim(),
+          done:
+            touched(["blocked", "guardian_name", "guardian_relation", "is_active", "mother_name", "name"]),
           content: (
             <div className="space-y-6">
               {/*
@@ -1965,6 +1954,7 @@ export default function PersonClient({
                 by hand against every group in this file.
               */}
               <FieldGrid>
+
                 {/* Row 1 — who this person is */}
                 <Field label="ID No" size="xs" htmlFor="st-code" skipTab>
                   {/*
@@ -2060,6 +2050,50 @@ export default function PersonClient({
                   />
                 </Field>
 
+
+                {/* NOT A ROW OF THEIR OWN (client 2026-09-22: "remove the
+                    record status"). They stay on the editor because nothing
+                    else can retire or bar a person — the list has no such
+                    action — so they close the identity pane instead. */}
+                {/* Reads INACTIVE like every other master in HR; the column
+                    is `is_active`, so the switch inverts it. */}
+                <Field label="Status" size="sm">
+                  <div className="flex h-8 items-center">
+                    <Toggle
+                      checked={!form.is_active}
+                      onChange={(v) => set({ is_active: !v })}
+                      label="Inactive"
+                    />
+                  </div>
+                </Field>
+
+                {/*
+                  A BAR ON A CURRENT EMPLOYEE, which is not the same question
+                  as Status. 0534 keeps them separate so that un-blocking
+                  someone is not indistinguishable from re-hiring them.
+                */}
+                <Field label="Blocked" size="sm">
+                  <div className="flex h-8 items-center">
+                    <Toggle
+                      checked={form.blocked}
+                      onChange={(v) => set({ blocked: v })}
+                      label="Blocked"
+                    />
+                  </div>
+                </Field>
+              </FieldGrid>
+            </div>
+          ),
+        };
+
+      case "detail-posting":
+        return {
+          ...base,
+          done:
+            touched(["category_id", "department_id", "designation_id", "division_id", "location_id"]),
+          content: (
+            <div className="space-y-6">
+              <FieldGrid>
                 {/*
                   FROM THE MASTER (0548). It was a free-text box until then —
                   the note here used to say so and defer the change, because
@@ -2076,15 +2110,6 @@ export default function PersonClient({
                   />
                 </Field>
 
-                <Field label="Category" size="sm" htmlFor="st-category">
-                  <MasterSelect
-                    id="st-category"
-                    options={categories}
-                    value={form.category_id}
-                    onChange={(v) => set({ category_id: v })}
-                  />
-                </Field>
-
                 {/* Row 3 — where they are posted */}
                 <Field label="Department" size="sm" htmlFor="st-department">
                   <MasterSelect
@@ -2092,6 +2117,23 @@ export default function PersonClient({
                     options={departments}
                     value={form.department_id}
                     onChange={(v) => set({ department_id: v })}
+                  />
+                </Field>
+
+                <Field label="Division" size="sm" htmlFor="st-division">
+                  <MasterSelect
+                    id="st-division"
+                    options={divisions}
+                    value={form.division_id}
+                    onChange={(v) => set({ division_id: v })}
+                  />
+                </Field>
+                <Field label="Category" size="sm" htmlFor="st-category">
+                  <MasterSelect
+                    id="st-category"
+                    options={categories}
+                    value={form.category_id}
+                    onChange={(v) => set({ category_id: v })}
                   />
                 </Field>
 
@@ -2123,42 +2165,21 @@ export default function PersonClient({
                   />
                 </Field>
 
-                <Field label="Division" size="sm" htmlFor="st-division">
-                  <MasterSelect
-                    id="st-division"
-                    options={divisions}
-                    value={form.division_id}
-                    onChange={(v) => set({ division_id: v })}
-                  />
-                </Field>
               </FieldGrid>
             </div>
           ),
         };
 
-      case "employment":
+
+      case "employment-engagement":
         return {
           ...base,
-          done: touched([
-            "biometric_id",
-            "card_no",
-            "contractor_id",
-            "ctc_per_shift",
-            "employment_type",
-            "hostel_category_id",
-            "hourly_wage",
-            "manager_id",
-            "pay_frequency",
-            "piece_rate",
-            "prod_dept_id",
-            "shift_wage_per_day",
-            "vehicle_no",
-            "week_off",
-            "worker_type",
-          ]),
+          done:
+            touched(["card_no", "employee_classification", "employment_type", "grade", "manager_id", "pay_frequency", "week_off"]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
+
                 <Field label="Type" size="sm" htmlFor="st-type">
                   <Select
                     id="st-type"
@@ -2176,15 +2197,6 @@ export default function PersonClient({
                       </option>
                     ))}
                   </Select>
-                </Field>
-
-                <Field label="Card No" size="sm" htmlFor="st-card">
-                  <Input
-                    id="st-card"
-                    uppercase
-                    value={form.card_no ?? ""}
-                    onChange={(e) => set({ card_no: e.target.value || null })}
-                  />
                 </Field>
 
                 <Field
@@ -2208,36 +2220,6 @@ export default function PersonClient({
                       </option>
                     ))}
                   </Select>
-                </Field>
-
-                <Field label="Week Off" size="sm" htmlFor="st-week-off">
-                  <Select
-                    id="st-week-off"
-                    value={form.week_off ?? ""}
-                    onChange={(e) =>
-                      set({
-                        week_off:
-                          (e.target.value as PersonInput["week_off"]) || null,
-                      })
-                    }
-                  >
-                    {/* Blank is a real answer: no fixed weekly off. */}
-                    <option value=""></option>
-                    {WEEK_DAYS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-
-                <Field label="Hostel Category" size="sm" htmlFor="st-hostel">
-                  <MasterSelect
-                    id="st-hostel"
-                    options={hostelCategories}
-                    value={form.hostel_category_id}
-                    onChange={(v) => set({ hostel_category_id: v })}
-                  />
                 </Field>
 
                 <Field label="Manager" size="sm" htmlFor="st-manager">
@@ -2265,122 +2247,193 @@ export default function PersonClient({
                   </Select>
                 </Field>
 
-                {/*
-                  THE FOUR BOXES LEGACY ADDS FOR A WORKER, and nothing else
-                  on this screen differs (client 2026-09-09). They sit in
-                  Employment because that is what they describe: how this
-                  person is engaged and paid.
-                */}
-                {isWorker && (
-                  <>
-                    {/* Legacy's "Type" — the wage BASIS, which is what
-                        `computeActualWage` branches on (lib/hr/calc.ts). Not
-                        the same question as Employment Type above, which is
-                        Permanent / Temporary / Contract. */}
-                    <Field label="Rate Type" size="sm" htmlFor="wk-type">
-                      <Select
-                        id="wk-type"
-                        value={(form as WorkerInput).worker_type}
-                        onChange={(e) =>
-                          set({
-                            worker_type: e.target
-                              .value as WorkerInput["worker_type"],
-                          } as Partial<PersonInput>)
-                        }
-                      >
-                        {WORKER_TYPES.map((t) => (
-                          <option key={t} value={t}>
-                            {WORKER_TYPE_LABELS[t]}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
+                <Field label="Week Off" size="sm" htmlFor="st-week-off">
+                  <Select
+                    id="st-week-off"
+                    value={form.week_off ?? ""}
+                    onChange={(e) =>
+                      set({
+                        week_off:
+                          (e.target.value as PersonInput["week_off"]) || null,
+                      })
+                    }
+                  >
+                    {/* Blank is a real answer: no fixed weekly off. */}
+                    <option value=""></option>
+                    {WEEK_DAYS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
 
-                    <Field
-                      label="Under Contractor"
-                      size="sm"
-                      htmlFor="wk-contractor"
-                    >
-                      <MasterSelect
-                        id="wk-contractor"
-                        options={contractors}
-                        value={(form as WorkerInput).contractor_id}
-                        onChange={(v) =>
-                          set({ contractor_id: v } as Partial<PersonInput>)
-                        }
-                      />
-                    </Field>
 
-                    {/* The production department the worker is ON, which is a
-                        different question from the Department they belong to
-                        — 0553 keeps them as two columns for that reason. */}
-                    <Field label="Prod. Dept" size="sm" htmlFor="wk-prod-dept">
-                      <MasterSelect
-                        id="wk-prod-dept"
-                        options={departments}
-                        value={(form as WorkerInput).prod_dept_id}
-                        onChange={(v) =>
-                          set({ prod_dept_id: v } as Partial<PersonInput>)
-                        }
-                      />
-                    </Field>
+                <Field label="Card No" size="sm" htmlFor="st-card">
+                  <Input
+                    id="st-card"
+                    uppercase
+                    value={form.card_no ?? ""}
+                    onChange={(e) => set({ card_no: e.target.value || null })}
+                  />
+                </Field>
 
-                    <MoneyField
-                      size="sm"
-                      id="wk-ctc"
-                      label="CTC / Shift"
-                      value={(form as WorkerInput).ctc_per_shift}
-                      onChange={(v) =>
-                        set({ ctc_per_shift: v } as Partial<PersonInput>)
-                      }
-                    />
 
-                    {/* The wage basis itself. Legacy puts these on its own
-                        rate panel; here they follow Rate Type, which is what
-                        decides which of the three is read. */}
-                    <MoneyField
-                      id="wk-shift-wage"
-                      label="Shift Wage / Day"
-                      value={(form as WorkerInput).shift_wage_per_day}
-                      onChange={(v) =>
-                        set({ shift_wage_per_day: v } as Partial<PersonInput>)
-                      }
-                    />
-                    <MoneyField
-                      id="wk-hourly"
-                      label="Hourly Wage"
-                      value={(form as WorkerInput).hourly_wage}
-                      onChange={(v) =>
-                        set({ hourly_wage: v } as Partial<PersonInput>)
-                      }
-                    />
-                    <MoneyField
-                      id="wk-piece"
-                      label="Piece Rate"
-                      value={(form as WorkerInput).piece_rate}
-                      onChange={(v) =>
-                        set({ piece_rate: v } as Partial<PersonInput>)
-                      }
-                    />
+                <TextField
+                  label="Grade"
+                  size="xs"
+                  value={form.grade}
+                  onChange={(v) => set({ grade: v })}
+                  id="od-grade"
+                />
+                <TextField
+                  label="Classification"
+                  value={form.employee_classification}
+                  onChange={(v) => set({ employee_classification: v })}
+                  id="od-class"
+                  size="md"
+                />
+              </FieldGrid>
+            </div>
+          ),
+        };
 
-                    <Field
-                      label="Biometric ID"
-                      size="sm"
-                      htmlFor="wk-biometric"
-                    >
-                      <Input
-                        id="wk-biometric"
-                        uppercase
-                        value={(form as WorkerInput).biometric_id ?? ""}
-                        onChange={(e) =>
-                          set({
-                            biometric_id: e.target.value || null,
-                          } as Partial<PersonInput>)
-                        }
-                      />
-                    </Field>
-                  </>
-                )}
+      case "employment-worker-terms-and-wages":
+        return {
+          ...base,
+          done:
+            touched(["biometric_id", "contractor_id", "ctc_per_shift", "hourly_wage", "piece_rate", "prod_dept_id", "shift_wage_per_day", "worker_type"]),
+          content: (
+            <div className="space-y-6">
+              <FieldGrid>
+                {/* Legacy's "Type" — the wage BASIS, which is what
+                    `computeActualWage` branches on (lib/hr/calc.ts). Not
+                    the same question as Employment Type above, which is
+                    Permanent / Temporary / Contract. */}
+                <Field label="Rate Type" size="sm" htmlFor="wk-type">
+                  <Select
+                    id="wk-type"
+                    value={(form as WorkerInput).worker_type}
+                    onChange={(e) =>
+                      set({
+                        worker_type: e.target
+                          .value as WorkerInput["worker_type"],
+                      } as Partial<PersonInput>)
+                    }
+                  >
+                    {WORKER_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {WORKER_TYPE_LABELS[t]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field
+                  label="Under Contractor"
+                  size="sm"
+                  htmlFor="wk-contractor"
+                >
+                  <MasterSelect
+                    id="wk-contractor"
+                    options={contractors}
+                    value={(form as WorkerInput).contractor_id}
+                    onChange={(v) =>
+                      set({ contractor_id: v } as Partial<PersonInput>)
+                    }
+                  />
+                </Field>
+
+                {/* The production department the worker is ON, which is a
+                    different question from the Department they belong to
+                    — 0553 keeps them as two columns for that reason. */}
+                <Field label="Prod. Dept" size="sm" htmlFor="wk-prod-dept">
+                  <MasterSelect
+                    id="wk-prod-dept"
+                    options={departments}
+                    value={(form as WorkerInput).prod_dept_id}
+                    onChange={(v) =>
+                      set({ prod_dept_id: v } as Partial<PersonInput>)
+                    }
+                  />
+                </Field>
+
+                <MoneyField
+                  size="sm"
+                  id="wk-ctc"
+                  label="CTC / Shift"
+                  value={(form as WorkerInput).ctc_per_shift}
+                  onChange={(v) =>
+                    set({ ctc_per_shift: v } as Partial<PersonInput>)
+                  }
+                />
+
+                {/* The wage basis itself. Legacy puts these on its own
+                    rate panel; here they follow Rate Type, which is what
+                    decides which of the three is read. */}
+                <MoneyField
+                  id="wk-shift-wage"
+                  label="Shift Wage / Day"
+                  value={(form as WorkerInput).shift_wage_per_day}
+                  onChange={(v) =>
+                    set({ shift_wage_per_day: v } as Partial<PersonInput>)
+                  }
+                />
+                <MoneyField
+                  id="wk-hourly"
+                  label="Hourly Wage"
+                  value={(form as WorkerInput).hourly_wage}
+                  onChange={(v) =>
+                    set({ hourly_wage: v } as Partial<PersonInput>)
+                  }
+                />
+                <MoneyField
+                  id="wk-piece"
+                  label="Piece Rate"
+                  value={(form as WorkerInput).piece_rate}
+                  onChange={(v) =>
+                    set({ piece_rate: v } as Partial<PersonInput>)
+                  }
+                />
+
+                <Field
+                  label="Biometric ID"
+                  size="sm"
+                  htmlFor="wk-biometric"
+                >
+                  <Input
+                    id="wk-biometric"
+                    uppercase
+                    value={(form as WorkerInput).biometric_id ?? ""}
+                    onChange={(e) =>
+                      set({
+                        biometric_id: e.target.value || null,
+                      } as Partial<PersonInput>)
+                    }
+                  />
+                </Field>
+            
+              </FieldGrid>
+            </div>
+          ),
+        };
+
+      case "employment-card-and-facilities":
+        return {
+          ...base,
+          done:
+            touched(["bus_no", "hostel_category_id", "vehicle_no"]),
+          content: (
+            <div className="space-y-6">
+              <FieldGrid>
+                <Field label="Hostel Category" size="sm" htmlFor="st-hostel">
+                  <MasterSelect
+                    id="st-hostel"
+                    options={hostelCategories}
+                    value={form.hostel_category_id}
+                    onChange={(v) => set({ hostel_category_id: v })}
+                  />
+                </Field>
 
                 <Field label="Vehicle No" size="sm" htmlFor="st-vehicle">
                   <Input
@@ -2392,90 +2445,27 @@ export default function PersonClient({
                     }
                   />
                 </Field>
+                  <TextField
+                    label="Bus No"
+                    value={form.bus_no}
+                    onChange={(v) => set({ bus_no: v })}
+                    id="bg-bus"
+                  />
               </FieldGrid>
             </div>
           ),
         };
 
-      case "dates":
+
+
+      case "employment-service-dates":
         return {
           ...base,
-          done: touched([
-            "date_of_birth",
-            "date_of_confirmation",
-            "date_of_leaving",
-            "date_of_probation",
-            "joined_date",
-            "place_of_birth",
-            "stated_age",
-          ]),
+          done:
+            touched(["date_of_confirmation", "date_of_leaving", "date_of_probation", "joined_date"]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
-                <DateField
-                  id="st-dob"
-                  label="Date of Birth"
-                  value={form.date_of_birth}
-                  onChange={(v) => set({ date_of_birth: v })}
-                />
-
-                {/*
-                  TYPED UNLESS THERE IS A DATE OF BIRTH — then the arithmetic
-                  wins and the box goes read-only.
-
-                  It was read-only always, which was wrong for the case the
-                  legacy box exists for: an operator entering an older
-                  worker's record often has "about 45" and no date at all, and
-                  had nowhere to put it (client 2026-09-09). `stated_age`
-                  (0537) is where that goes; it is never read when
-                  `date_of_birth` is present.
-
-                  Same rule as Work Experience's Duration, and `skipTab` only
-                  applies while it is derived — a field the operator must be
-                  able to type in cannot be off the typing path.
-                */}
-                <Field
-                  label="Age"
-                  size="xs"
-                  htmlFor="st-age"
-                  skipTab={!!form.date_of_birth}
-                  hint={form.date_of_birth ? "From date of birth" : undefined}
-                >
-                  {form.date_of_birth ? (
-                    <Input
-                      id="st-age"
-                      readOnly
-                      value={ageFrom(form.date_of_birth) ?? "—"}
-                    />
-                  ) : (
-                    <Input
-                      id="st-age"
-                      type="number"
-                      min={0}
-                      max={120}
-                      value={form.stated_age ?? ""}
-                      onChange={(e) =>
-                        set({
-                          stated_age:
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value),
-                        })
-                      }
-                    />
-                  )}
-                </Field>
-
-                <Field label="Place of Birth" size="md" htmlFor="st-pob">
-                  <Input
-                    id="st-pob"
-                    uppercase
-                    value={form.place_of_birth ?? ""}
-                    onChange={(e) =>
-                      set({ place_of_birth: e.target.value || null })
-                    }
-                  />
-                </Field>
                 {/* DOJ is `joined_date` — 0534 deliberately did NOT add a
                     second column meaning the same thing. */}
                 <DateField
@@ -2507,20 +2497,15 @@ export default function PersonClient({
           ),
         };
 
-      case "statutory":
+      case "statutory-tax":
         return {
           ...base,
-          done: touched([
-            "disability_pct",
-            "disability_type",
-            "international_worker",
-            "migrant_worker",
-            "pan_no",
-            "tds_applicable",
-          ]),
+          done:
+            touched(["pan_no", "tds_applicable"]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
+
                 {/*
                   ESI AND PF ARE NOT HERE ANY MORE. They were two booleans on
                   this tab; legacy puts them on NOMINATION as a three-state
@@ -2560,6 +2545,19 @@ export default function PersonClient({
                   </div>
                 </Field>
 
+              </FieldGrid>
+            </div>
+          ),
+        };
+
+      case "statutory-worker-category":
+        return {
+          ...base,
+          done:
+            touched(["disability_pct", "disability_type", "international_worker", "migrant_worker"]),
+          content: (
+            <div className="space-y-6">
+              <FieldGrid>
                 <Field label="Migrant Worker" size="sm">
                   <div className="flex h-8 items-center">
                     <Toggle
@@ -2622,44 +2620,6 @@ export default function PersonClient({
                   value={form.disability_pct}
                   onChange={(v) => set({ disability_pct: v })}
                 />
-              </FieldGrid>
-            </div>
-          ),
-        };
-
-      case "status":
-        return {
-          ...base,
-          done: touched(["blocked", "is_active"]),
-          content: (
-            <div className="space-y-6">
-              <FieldGrid>
-                {/* Reads INACTIVE like every other master in HR; the column
-                    is `is_active`, so the switch inverts it. */}
-                <Field label="Status" size="sm">
-                  <div className="flex h-8 items-center">
-                    <Toggle
-                      checked={!form.is_active}
-                      onChange={(v) => set({ is_active: !v })}
-                      label="Inactive"
-                    />
-                  </div>
-                </Field>
-
-                {/*
-                  A BAR ON A CURRENT EMPLOYEE, which is not the same question
-                  as Status. 0534 keeps them separate so that un-blocking
-                  someone is not indistinguishable from re-hiring them.
-                */}
-                <Field label="Blocked" size="sm">
-                  <div className="flex h-8 items-center">
-                    <Toggle
-                      checked={form.blocked}
-                      onChange={(v) => set({ blocked: v })}
-                      label="Blocked"
-                    />
-                  </div>
-                </Field>
               </FieldGrid>
             </div>
           ),
@@ -2746,12 +2706,6 @@ export default function PersonClient({
             </div>
           ),
         };
-
-      case "general":
-        /* A CATEGORY ROW: everything it used to hold is now a child of its
-           own below, so it owns no pane. `goToSection` resolves it to the
-           first child, which is why `content` is never rendered. */
-        return { ...base, content: null };
 
       case "addresses":
         return {
@@ -2954,65 +2908,79 @@ export default function PersonClient({
           ),
         };
 
-      case "personal":
+      case "personal-basics":
         return {
           ...base,
-          done: !!form.email || !!form.qualification || !!form.gender,
+          done:
+            touched(["date_of_birth", "email", "gender", "marital_status", "mother_tongue", "nationality", "place_of_birth", "religion", "stated_age"]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
-                {/*
-                  `type="email"` — which also opts the field OUT of CAPITALS
-                  by construction (`Input` exempts by type), because a mailbox
-                  name and a URL path can both be case-sensitive. Same
-                  carve-out AGENTS.md ▸ CAPITALS makes.
-                */}
-                <Field label="E-Mail" size="md" htmlFor="st-email">
-                  <Input
-                    id="st-email"
-                    type="email"
-                    value={form.email ?? ""}
-                    onChange={(e) => set({ email: e.target.value || null })}
-                  />
-                </Field>
 
-                <Field label="Qualification" size="sm" htmlFor="st-qual">
+
+                <DateField
+                  id="st-dob"
+                  label="Date of Birth"
+                  value={form.date_of_birth}
+                  onChange={(v) => set({ date_of_birth: v })}
+                />
+                {/*
+                  TYPED UNLESS THERE IS A DATE OF BIRTH — then the arithmetic
+                  wins and the box goes read-only.
+
+                  It was read-only always, which was wrong for the case the
+                  legacy box exists for: an operator entering an older
+                  worker's record often has "about 45" and no date at all, and
+                  had nowhere to put it (client 2026-09-09). `stated_age`
+                  (0537) is where that goes; it is never read when
+                  `date_of_birth` is present.
+
+                  Same rule as Work Experience's Duration, and `skipTab` only
+                  applies while it is derived — a field the operator must be
+                  able to type in cannot be off the typing path.
+                */}
+                <Field
+                  label="Age"
+                  size="xs"
+                  htmlFor="st-age"
+                  skipTab={!!form.date_of_birth}
+                  hint={form.date_of_birth ? "From date of birth" : undefined}
+                >
+                  {form.date_of_birth ? (
+                    <Input
+                      id="st-age"
+                      readOnly
+                      value={ageFrom(form.date_of_birth) ?? "—"}
+                    />
+                  ) : (
+                    <Input
+                      id="st-age"
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={form.stated_age ?? ""}
+                      onChange={(e) =>
+                        set({
+                          stated_age:
+                            e.target.value === ""
+                              ? null
+                              : Number(e.target.value),
+                        })
+                      }
+                    />
+                  )}
+                </Field>
+                <Field label="Place of Birth" size="md" htmlFor="st-pob">
                   <Input
-                    id="st-qual"
+                    id="st-pob"
                     uppercase
-                    value={form.qualification ?? ""}
+                    value={form.place_of_birth ?? ""}
                     onChange={(e) =>
-                      set({ qualification: e.target.value || null })
+                      set({ place_of_birth: e.target.value || null })
                     }
                   />
                 </Field>
-
-                {/*
-                  A LIST, NOT A TEXT BOX. "O+", "O positive" and "o +ve" are
-                  one fact typed three ways, and a statutory form needs one of
-                  them — 0535 constrains the column to the same eight.
-                */}
-                <Field label="Blood Group" size="xs" htmlFor="st-blood">
-                  <Select
-                    id="st-blood"
-                    value={form.blood_group ?? ""}
-                    onChange={(e) =>
-                      set({
-                        blood_group:
-                          (e.target.value as PersonInput["blood_group"]) ||
-                          null,
-                      })
-                    }
-                  >
-                    <option value=""></option>
-                    {BLOOD_GROUPS.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-
+              
                 {/*
                   GENDER, not "Sex" (client 2026-09-09). The column followed
                   the label in 0550 rather than staying behind: the list's
@@ -3080,6 +3048,89 @@ export default function PersonClient({
                   />
                 </Field>
 
+
+                <TextField
+                  label="Mother Tongue / Languages"
+                  value={form.mother_tongue}
+                  onChange={(v) => set({ mother_tongue: v })}
+                  id="od-tongue"
+                  size="sm"
+                />
+
+                {/*
+                  `type="email"` — which also opts the field OUT of CAPITALS
+                  by construction (`Input` exempts by type), because a mailbox
+                  name and a URL path can both be case-sensitive. Same
+                  carve-out AGENTS.md ▸ CAPITALS makes.
+                */}
+                <Field label="E-Mail" size="md" htmlFor="st-email">
+                  <Input
+                    id="st-email"
+                    type="email"
+                    value={form.email ?? ""}
+                    onChange={(e) => set({ email: e.target.value || null })}
+                  />
+                </Field>
+
+              </FieldGrid>
+            </div>
+          ),
+        };
+
+      case "personal-physical":
+        return {
+          ...base,
+          done:
+            touched(["blood_group", "eye_sight", "height_cm", "identification_mark_1", "identification_mark_2", "weight_kg"]),
+          content: (
+            <div className="space-y-6">
+              <FieldGrid>
+                {/*
+                  A LIST, NOT A TEXT BOX. "O+", "O positive" and "o +ve" are
+                  one fact typed three ways, and a statutory form needs one of
+                  them — 0535 constrains the column to the same eight.
+                */}
+                <Field label="Blood Group" size="xs" htmlFor="st-blood">
+                  <Select
+                    id="st-blood"
+                    value={form.blood_group ?? ""}
+                    onChange={(e) =>
+                      set({
+                        blood_group:
+                          (e.target.value as PersonInput["blood_group"]) ||
+                          null,
+                      })
+                    }
+                  >
+                    <option value=""></option>
+                    {BLOOD_GROUPS.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                {/* Height and weight are stored ONCE (0556) — legacy prints
+                    the same pair on two of these popups. */}
+                <DecimalField
+                  label="Height (cm)"
+                  value={form.height_cm}
+                  onChange={(v) => set({ height_cm: v })}
+                  id="od-height"
+                />
+                <DecimalField
+                  label="Weight (kg)"
+                  value={form.weight_kg}
+                  onChange={(v) => set({ weight_kg: v })}
+                  id="od-weight"
+                />
+                <TextField
+                  label="Eye Sight"
+                  value={form.eye_sight}
+                  onChange={(v) => set({ eye_sight: v })}
+                  id="od-eyesight"
+                />
                 <Field
                   label="Identification Mark 1"
                   size="sm"
@@ -3114,13 +3165,77 @@ export default function PersonClient({
           ),
         };
 
-      case "identifiers":
+      case "personal-medical":
         return {
           ...base,
-          done: !!form.aadhaar_no || !!form.driving_licence_no,
+          done:
+            touched(["handicap_details", "major_operation", "operation_details", "physique_illness", "willing_donate_blood"]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
+                <TextField
+                  label="Handicap Details"
+                  value={form.handicap_details}
+                  onChange={(v) => set({ handicap_details: v })}
+                  id="od-handicap"
+                  size="md"
+                />
+                <Field label="Major Operation" size="sm">
+                  <Toggle
+                    checked={form.major_operation}
+                    onChange={(v) => set({ major_operation: v })}
+                    ariaLabel="Major Operation"
+                  />
+                </Field>
+                <TextField
+                  label="Operation Details"
+                  value={form.operation_details}
+                  onChange={(v) => set({ operation_details: v })}
+                  id="od-operation"
+                  size="md"
+                />
+                <Field label="Willing To Donate Blood" size="sm">
+                  <Toggle
+                    checked={form.willing_donate_blood}
+                    onChange={(v) => set({ willing_donate_blood: v })}
+                    ariaLabel="Willing To Donate Blood"
+                  />
+                </Field>
+                <TextField
+                  label="Physique / Illness"
+                  value={form.physique_illness}
+                  onChange={(v) => set({ physique_illness: v })}
+                  id="bg-physique"
+                  size="md"
+                />
+              </FieldGrid>
+            </div>
+          ),
+        };
+
+      case "documents-document-numbers":
+        return {
+          ...base,
+          done:
+            touched(["aadhaar_no", "driving_licence_no", "driving_licence_valid_upto", "election_card_no", "insurance_policy_no", "passbook_no", "passport_no", "passport_valid_upto", "ration_card_no", "uan_no"]),
+          content: (
+            <div className="space-y-6">
+              <FieldGrid>
+                {/*
+                  Twelve digits. The Zod schema strips spaces and checks the
+                  shape; the column carries the same regex (0535). The
+                  Verhoeff CHECKSUM is deliberately not enforced — see the
+                  note there.
+                */}
+                <Field label="Aadhaar" size="sm" htmlFor="st-aadhaar">
+                  <Input
+                    id="st-aadhaar"
+                    inputMode="numeric"
+                    maxLength={12}
+                    value={form.aadhaar_no ?? ""}
+                    onChange={(e) => set({ aadhaar_no: e.target.value || null })}
+                  />
+                </Field>
                 <Field label="Driving Lic. No" size="sm" htmlFor="st-dl">
                   <Input
                     id="st-dl"
@@ -3131,31 +3246,193 @@ export default function PersonClient({
                     }
                   />
                 </Field>
-
                 <DateField
                   id="st-dl-valid"
                   label="Valid Upto"
                   value={form.driving_licence_valid_upto}
                   onChange={(v) => set({ driving_licence_valid_upto: v })}
                 />
+                <TextField
+                  label="Passport No"
+                  value={form.passport_no}
+                  onChange={(v) => set({ passport_no: v })}
+                  id="en-passport"
+                />
+                <DateField
+                  label="Valid Upto"
+                  value={form.passport_valid_upto}
+                  onChange={(v) => set({ passport_valid_upto: v })}
+                  id="en-passport-upto"
+                />
+                <TextField
+                  label="Election Card No"
+                  value={form.election_card_no}
+                  onChange={(v) => set({ election_card_no: v })}
+                  id="en-election"
+                />
+                <TextField
+                  label="Ration Card No"
+                  value={form.ration_card_no}
+                  onChange={(v) => set({ ration_card_no: v })}
+                  id="en-ration"
+                />
+                <TextField
+                  label="Passbook No"
+                  value={form.passbook_no}
+                  onChange={(v) => set({ passbook_no: v })}
+                  id="en-passbook"
+                />
+                <TextField
+                  label="Insurance Policy No"
+                  value={form.insurance_policy_no}
+                  onChange={(v) => set({ insurance_policy_no: v })}
+                  id="en-ins"
+                />
+                {/* The Universal Account Number — the PF identity that follows
+                    a person between employers, so it belongs with the
+                    documents they bring rather than in PF Details, which is
+                    about THIS job. */}
+                <TextField
+                  label="UAN No."
+                  value={form.uan_no}
+                  onChange={(v) => set({ uan_no: v })}
+                  id="en-uan"
+                />
+              </FieldGrid>
+            </div>
+          ),
+        };
 
-                {/*
-                  Twelve digits. The Zod schema strips spaces and checks the
-                  shape; the column carries the same regex (0535). The Verhoeff
-                  CHECKSUM is deliberately not enforced — see the note there.
-                */}
-                <Field label="Aadhaar" size="sm" htmlFor="st-aadhaar">
-                  <Input
-                    id="st-aadhaar"
-                    inputMode="numeric"
-                    maxLength={12}
-                    value={form.aadhaar_no ?? ""}
-                    onChange={(e) =>
-                      set({ aadhaar_no: e.target.value || null })
-                    }
+      case "documents-copies-collected":
+        return {
+          ...base,
+          done:
+            touched(["id_submitted_aadhaar", "id_submitted_dl", "id_submitted_mark_sheet", "id_submitted_others", "id_submitted_pan", "id_submitted_passport", "id_submitted_ration", "id_submitted_specify", "id_submitted_tc", "id_submitted_vote_id"]),
+          content: (
+            <div className="space-y-6">
+              {/* WHAT WAS ACTUALLY COLLECTED, beside the numbers rather than on
+                  a pane of its own. A tick here and the number above are two
+                  halves of one question and were three rail rows apart. */}
+              <FieldGrid>
+                <Field label="DL" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_dl}
+                    onChange={(v) => set({ id_submitted_dl: v })}
+                    ariaLabel="DL"
                   />
                 </Field>
+                <Field label="Vote ID" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_vote_id}
+                    onChange={(v) => set({ id_submitted_vote_id: v })}
+                    ariaLabel="Vote ID"
+                  />
+                </Field>
+                <Field label="Ration Card" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_ration}
+                    onChange={(v) => set({ id_submitted_ration: v })}
+                    ariaLabel="Ration Card"
+                  />
+                </Field>
+                <Field label="Passport" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_passport}
+                    onChange={(v) => set({ id_submitted_passport: v })}
+                    ariaLabel="Passport"
+                  />
+                </Field>
+                <Field label="TC" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_tc}
+                    onChange={(v) => set({ id_submitted_tc: v })}
+                    ariaLabel="TC"
+                  />
+                </Field>
+                <Field label="Mark Sheet" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_mark_sheet}
+                    onChange={(v) => set({ id_submitted_mark_sheet: v })}
+                    ariaLabel="Mark Sheet"
+                  />
+                </Field>
+                <Field label="Aadhaar" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_aadhaar}
+                    onChange={(v) => set({ id_submitted_aadhaar: v })}
+                    ariaLabel="Aadhaar"
+                  />
+                </Field>
+                <Field label="PAN Card" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_pan}
+                    onChange={(v) => set({ id_submitted_pan: v })}
+                    ariaLabel="PAN Card"
+                  />
+                </Field>
+                <Field label="Others" size="sm">
+                  <Toggle
+                    checked={form.id_submitted_others}
+                    onChange={(v) => set({ id_submitted_others: v })}
+                    ariaLabel="Others"
+                  />
+                </Field>
+                <TextField
+                  label="Others Specify"
+                  value={form.id_submitted_specify}
+                  onChange={(v) => set({ id_submitted_specify: v })}
+                  id="od-specify"
+                  size="md"
+                />
+              </FieldGrid>
+            </div>
+          ),
+        };
 
+      case "documents-licences-held":
+        return {
+          ...base,
+          done:
+            touched(["four_wheeler_licence", "has_passport", "two_wheeler_licence"]),
+          content: (
+            <div className="space-y-6">
+              {/* HELD, not handed in — a licence the person owns rather than a
+                  copy in the file, which is why it is its own question. */}
+              <FieldGrid>
+                <Field label="Passport Held" size="sm">
+                  <Toggle
+                    checked={form.has_passport}
+                    onChange={(v) => set({ has_passport: v })}
+                    ariaLabel="Passport Held"
+                  />
+                </Field>
+                <Field label="Two Wheeler Licence" size="sm">
+                  <Toggle
+                    checked={form.two_wheeler_licence}
+                    onChange={(v) => set({ two_wheeler_licence: v })}
+                    ariaLabel="Two Wheeler Licence"
+                  />
+                </Field>
+                <Field label="Four Wheeler Licence" size="sm">
+                  <Toggle
+                    checked={form.four_wheeler_licence}
+                    onChange={(v) => set({ four_wheeler_licence: v })}
+                    ariaLabel="Four Wheeler Licence"
+                  />
+                </Field>
+              </FieldGrid>
+            </div>
+          ),
+        };
+
+      case "documents-verification":
+        return {
+          ...base,
+          done:
+            touched(["general_flag", "police_station"]),
+          content: (
+            <div className="space-y-6">
+              <FieldGrid>
                 {/*
                   MOVED HERE FROM THE BANK TAB (client 2026-09-09). A police
                   station is where a person is verified from — it sits with
@@ -3192,185 +3469,132 @@ export default function PersonClient({
           ),
         };
 
-      case "enclosure":
-        return {
-          ...base,
-          done: touched([
-            "passbook_no",
-            "ration_card_no",
-            "insurance_policy_no",
-            "passport_no",
-            "election_card_no",
-            "uan_no",
-            "interview_date",
-          ]),
-          content: (
-            <div className="space-y-6">
-              <FieldGrid>
-                <TextField
-                  label="Passbook No"
-                  value={form.passbook_no}
-                  onChange={(v) => set({ passbook_no: v })}
-                  id="en-passbook"
-                />
-                <TextField
-                  label="Ration Card No"
-                  value={form.ration_card_no}
-                  onChange={(v) => set({ ration_card_no: v })}
-                  id="en-ration"
-                />
-                <TextField
-                  label="Insurance Policy No"
-                  value={form.insurance_policy_no}
-                  onChange={(v) => set({ insurance_policy_no: v })}
-                  id="en-ins"
-                />
-                <TextField
-                  label="Election Card No"
-                  value={form.election_card_no}
-                  onChange={(v) => set({ election_card_no: v })}
-                  id="en-election"
-                />
-                <TextField
-                  label="Passport No"
-                  value={form.passport_no}
-                  onChange={(v) => set({ passport_no: v })}
-                  id="en-passport"
-                />
-                <DateField
-                  label="Valid Upto"
-                  value={form.passport_valid_upto}
-                  onChange={(v) => set({ passport_valid_upto: v })}
-                  id="en-passport-upto"
-                />
-                {/* The Universal Account Number — the PF identity that follows a
-                    person between employers, so it belongs with the documents
-                    they bring rather than in PF Details, which is about THIS job. */}
-                <TextField
-                  label="UAN No."
-                  value={form.uan_no}
-                  onChange={(v) => set({ uan_no: v })}
-                  id="en-uan"
-                />
-                <DateField
-                  label="Interview Dt"
-                  value={form.interview_date}
-                  onChange={(v) => set({ interview_date: v })}
-                  id="en-interview"
-                />
-              </FieldGrid>
-            </div>
-          ),
-        };
-
-      case "education":
+      case "education-schooling":
         return {
           ...base,
           done:
-            childPayload.education.length > 0 ||
-            childPayload.technical.length > 0,
+            touched(["qualification"]),
           content: (
             <div className="space-y-6">
+                            {/* The one qualification field stands above the two grids: it is the summary of what they hold, and the grids are how they got it. It was on Personal, three rail rows from the rest of the schooling. */}
+              <FieldGrid>
+                <Field label="Qualification" size="sm" htmlFor="st-qual">
+                  <Input
+                    id="st-qual"
+                    uppercase
+                    value={form.qualification ?? ""}
+                    onChange={(e) =>
+                      set({ qualification: e.target.value || null })
+                    }
+                  />
+                </Field>
+
+              </FieldGrid>
               {/* TWO GRIDS ON ONE PANE, as legacy draws them: schooling above,
                   trade training below. Each names itself because the rail row
                   names the PAIR — the one place a group heading still earns
                   its place now that the pane carries the section name. */}
-              <div className="space-y-2">
-                <GroupHeading>Education Details</GroupHeading>
-                <ChildGrid<EducationRow>
-                  columns={educationColumns}
-                  forceCards
-                  flatRows
-                  renderMobileRow={(row, i) => (
-                    <div className="flex gap-3">
-                      {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
-                          2026-09-16: "the numbering looks odd ... it should show at
-                          the 1st line of the content"). It was `rowSummary`, which
-                          draws a band ABOVE the fields — a whole line spent on one
-                          digit. As a gutter it sits beside the first field instead,
-                          and the row's ✕ goes back to the corner where a grid with no
-                          band puts it.
-                          `h-9` matches the field row it aligns with, so the digit is
-                          centred on that line rather than floating above it. */}
-                      <span
-                        aria-hidden
-                        className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
-                      >
-                        {i + 1}
-                      </span>
-                      <FieldGrid className="min-w-0 flex-1">
-                        {educationColumns.map((c, ci) => (
-                          <Field
-                            key={ci}
-                            label={c.header}
-                            required={c.required}
-                            size="sm"
-                          >
-                            {c.cell(row, i)}
-                          </Field>
-                        ))}
-                      </FieldGrid>
-                    </div>
-                  )}
-                  rows={education}
-                  onAdd={() =>
-                    setEducation((xs) => [...xs, blankEducation(newKey())])
-                  }
-                  onRemove={(r) =>
-                    setEducation((xs) => xs.filter((x) => x.key !== r.key))
-                  }
-                  addLabel="+ Add education"
-                  seedRow
-                />
-              </div>
-              <div className="space-y-2">
-                <GroupHeading>Technical Details</GroupHeading>
-                <ChildGrid<TechnicalRow>
-                  columns={technicalColumns}
-                  forceCards
-                  flatRows
-                  renderMobileRow={(row, i) => (
-                    <div className="flex gap-3">
-                      {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
-                          2026-09-16: "the numbering looks odd ... it should show at
-                          the 1st line of the content"). It was `rowSummary`, which
-                          draws a band ABOVE the fields — a whole line spent on one
-                          digit. As a gutter it sits beside the first field instead,
-                          and the row's ✕ goes back to the corner where a grid with no
-                          band puts it.
-                          `h-9` matches the field row it aligns with, so the digit is
-                          centred on that line rather than floating above it. */}
-                      <span
-                        aria-hidden
-                        className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
-                      >
-                        {i + 1}
-                      </span>
-                      <FieldGrid className="min-w-0 flex-1">
-                        {technicalColumns.map((c, ci) => (
-                          <Field
-                            key={ci}
-                            label={c.header}
-                            required={c.required}
-                            size="sm"
-                          >
-                            {c.cell(row, i)}
-                          </Field>
-                        ))}
-                      </FieldGrid>
-                    </div>
-                  )}
-                  rows={technical}
-                  onAdd={() =>
-                    setTechnical((xs) => [...xs, blankTechnical(newKey())])
-                  }
-                  onRemove={(r) =>
-                    setTechnical((xs) => xs.filter((x) => x.key !== r.key))
-                  }
-                  addLabel="+ Add technical detail"
-                  seedRow
-                />
-              </div>
+              <ChildGrid<EducationRow>
+                columns={educationColumns}
+                forceCards
+                flatRows
+                renderMobileRow={(row, i) => (
+                  <div className="flex gap-3">
+                    {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                        2026-09-16: "the numbering looks odd ... it should show at
+                        the 1st line of the content"). It was `rowSummary`, which
+                        draws a band ABOVE the fields — a whole line spent on one
+                        digit. As a gutter it sits beside the first field instead,
+                        and the row's ✕ goes back to the corner where a grid with no
+                        band puts it.
+                        `h-9` matches the field row it aligns with, so the digit is
+                        centred on that line rather than floating above it. */}
+                    <span
+                      aria-hidden
+                      className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                    >
+                      {i + 1}
+                    </span>
+                    <FieldGrid className="min-w-0 flex-1">
+                      {educationColumns.map((c, ci) => (
+                        <Field
+                          key={ci}
+                          label={c.header}
+                          required={c.required}
+                          size="sm"
+                        >
+                          {c.cell(row, i)}
+                        </Field>
+                      ))}
+                    </FieldGrid>
+                  </div>
+                )}
+                rows={education}
+                onAdd={() =>
+                  setEducation((xs) => [...xs, blankEducation(newKey())])
+                }
+                onRemove={(r) =>
+                  setEducation((xs) => xs.filter((x) => x.key !== r.key))
+                }
+                addLabel="+ Add education"
+                seedRow
+              />
+            </div>
+          ),
+        };
+
+      case "education-technical-training":
+        return {
+          ...base,
+          done:
+            false,
+          content: (
+            <div className="space-y-6">
+              <ChildGrid<TechnicalRow>
+                columns={technicalColumns}
+                forceCards
+                flatRows
+                renderMobileRow={(row, i) => (
+                  <div className="flex gap-3">
+                    {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                        2026-09-16: "the numbering looks odd ... it should show at
+                        the 1st line of the content"). It was `rowSummary`, which
+                        draws a band ABOVE the fields — a whole line spent on one
+                        digit. As a gutter it sits beside the first field instead,
+                        and the row's ✕ goes back to the corner where a grid with no
+                        band puts it.
+                        `h-9` matches the field row it aligns with, so the digit is
+                        centred on that line rather than floating above it. */}
+                    <span
+                      aria-hidden
+                      className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                    >
+                      {i + 1}
+                    </span>
+                    <FieldGrid className="min-w-0 flex-1">
+                      {technicalColumns.map((c, ci) => (
+                        <Field
+                          key={ci}
+                          label={c.header}
+                          required={c.required}
+                          size="sm"
+                        >
+                          {c.cell(row, i)}
+                        </Field>
+                      ))}
+                    </FieldGrid>
+                  </div>
+                )}
+                rows={technical}
+                onAdd={() =>
+                  setTechnical((xs) => [...xs, blankTechnical(newKey())])
+                }
+                onRemove={(r) =>
+                  setTechnical((xs) => xs.filter((x) => x.key !== r.key))
+                }
+                addLabel="+ Add technical detail"
+                seedRow
+              />
             </div>
           ),
         };
@@ -3430,362 +3654,142 @@ export default function PersonClient({
           ),
         };
 
-      case "background":
+      case "background-how-they-joined":
         return {
           ...base,
-          done: touched([
-            "through_advertisement",
-            "through_voluntarily",
-            "through_knowledge",
-            "bus_no",
-            "physique_illness",
-            "occupation",
-            "no_of_children",
-            "dependants",
-            "earning_members",
-            "properties_owned",
-            "professional_membership",
-            "extra_curricular",
-            "achievement_details",
-            "disciplinary_actions",
-          ]),
+          done:
+            touched(["interview_date", "through_advertisement", "through_knowledge", "through_voluntarily"]),
           content: (
             <div className="space-y-6">
-              <div className="space-y-2">
-                <GroupHeading>How they reached us</GroupHeading>
-                <FieldGrid>
-                  <Field label="Through Our Advertisement" size="sm">
-                    <Toggle
-                      checked={form.through_advertisement}
-                      onChange={(v) => set({ through_advertisement: v })}
-                      ariaLabel="Through Our Advertisement"
-                    />
-                  </Field>
-                  <Field label="Through Voluntarily" size="sm">
-                    <Toggle
-                      checked={form.through_voluntarily}
-                      onChange={(v) => set({ through_voluntarily: v })}
-                      ariaLabel="Through Voluntarily"
-                    />
-                  </Field>
-                  <Field label="Through Knowledge" size="sm">
-                    <Toggle
-                      checked={form.through_knowledge}
-                      onChange={(v) => set({ through_knowledge: v })}
-                      ariaLabel="Through Knowledge"
-                    />
-                  </Field>
-                  <TextField
-                    label="Bus No"
-                    value={form.bus_no}
-                    onChange={(v) => set({ bus_no: v })}
-                    id="bg-bus"
+              <FieldGrid>
+                <Field label="Through Our Advertisement" size="sm">
+                  <Toggle
+                    checked={form.through_advertisement}
+                    onChange={(v) => set({ through_advertisement: v })}
+                    ariaLabel="Through Our Advertisement"
                   />
-                </FieldGrid>
-              </div>
-              <div className="space-y-2">
-                <GroupHeading>Household</GroupHeading>
-                <FieldGrid>
-                  <TextField
-                    label="Occupation"
-                    value={form.occupation}
-                    onChange={(v) => set({ occupation: v })}
-                    id="bg-occupation"
+                </Field>
+                <Field label="Through Voluntarily" size="sm">
+                  <Toggle
+                    checked={form.through_voluntarily}
+                    onChange={(v) => set({ through_voluntarily: v })}
+                    ariaLabel="Through Voluntarily"
                   />
-                  <CountField
-                    label="No Of Children"
-                    value={form.no_of_children}
-                    onChange={(v) => set({ no_of_children: v })}
-                    id="bg-children"
+                </Field>
+                <Field label="Through Knowledge" size="sm">
+                  <Toggle
+                    checked={form.through_knowledge}
+                    onChange={(v) => set({ through_knowledge: v })}
+                    ariaLabel="Through Knowledge"
                   />
-                  <CountField
-                    label="Dependants"
-                    value={form.dependants}
-                    onChange={(v) => set({ dependants: v })}
-                    id="bg-dependants"
-                  />
-                  <CountField
-                    label="Earning Members"
-                    value={form.earning_members}
-                    onChange={(v) => set({ earning_members: v })}
-                    id="bg-earning"
-                  />
-                  <TextField
-                    label="Physique / Illness"
-                    value={form.physique_illness}
-                    onChange={(v) => set({ physique_illness: v })}
-                    id="bg-physique"
-                    size="md"
-                  />
-                  <TextField
-                    label="Properties Owned"
-                    value={form.properties_owned}
-                    onChange={(v) => set({ properties_owned: v })}
-                    id="bg-properties"
-                    size="md"
-                  />
-                  <TextField
-                    label="Professional Membership"
-                    value={form.professional_membership}
-                    onChange={(v) => set({ professional_membership: v })}
-                    id="bg-membership"
-                    size="md"
-                  />
-                  <TextField
-                    label="Extra Curricular Activities"
-                    value={form.extra_curricular}
-                    onChange={(v) => set({ extra_curricular: v })}
-                    id="bg-extra"
-                    size="md"
-                  />
-                  <TextField
-                    label="Achievement Details"
-                    value={form.achievement_details}
-                    onChange={(v) => set({ achievement_details: v })}
-                    id="bg-achievement"
-                    size="md"
-                  />
-                  <TextField
-                    label="Disciplinary Actions"
-                    value={form.disciplinary_actions}
-                    onChange={(v) => set({ disciplinary_actions: v })}
-                    id="bg-disciplinary"
-                    size="md"
-                  />
-                </FieldGrid>
-              </div>
+                </Field>
+                <DateField
+                  label="Interview Dt"
+                  value={form.interview_date}
+                  onChange={(v) => set({ interview_date: v })}
+                  id="en-interview"
+                />
+              </FieldGrid>
             </div>
           ),
         };
 
-      case "other-details":
+      case "background-home-and-family":
         return {
           ...base,
-          done: touched([
-            "mother_tongue",
-            "height_cm",
-            "weight_kg",
-            "eye_sight",
-            "house_type",
-            "id_submitted_dl",
-            "id_submitted_vote_id",
-            "id_submitted_ration",
-            "id_submitted_passport",
-            "id_submitted_tc",
-            "id_submitted_mark_sheet",
-            "id_submitted_aadhaar",
-            "id_submitted_pan",
-            "id_submitted_others",
-            "id_submitted_specify",
-            "prior_experience",
-            "handicap_details",
-            "has_passport",
-            "two_wheeler_licence",
-            "four_wheeler_licence",
-            "major_operation",
-            "operation_details",
-            "only_earning_member",
-            "willing_donate_blood",
-            "grade",
-            "employee_classification",
-          ]),
+          done:
+            touched(["dependants", "earning_members", "house_type", "no_of_children", "occupation", "only_earning_member", "properties_owned"]),
           content: (
             <div className="space-y-6">
-              <div className="space-y-2">
-                <GroupHeading>Particulars</GroupHeading>
-                <FieldGrid>
-                  <TextField
-                    label="Mother Tongue / Languages"
-                    value={form.mother_tongue}
-                    onChange={(v) => set({ mother_tongue: v })}
-                    id="od-tongue"
-                    size="sm"
+              <FieldGrid>
+
+                <TextField
+                  label="Occupation"
+                  value={form.occupation}
+                  onChange={(v) => set({ occupation: v })}
+                  id="bg-occupation"
+                />
+                <TextField
+                  label="House"
+                  value={form.house_type}
+                  onChange={(v) => set({ house_type: v })}
+                  id="od-house"
+                />
+                <CountField
+                  label="No Of Children"
+                  value={form.no_of_children}
+                  onChange={(v) => set({ no_of_children: v })}
+                  id="bg-children"
+                />
+                <CountField
+                  label="Dependants"
+                  value={form.dependants}
+                  onChange={(v) => set({ dependants: v })}
+                  id="bg-dependants"
+                />
+                <CountField
+                  label="Earning Members"
+                  value={form.earning_members}
+                  onChange={(v) => set({ earning_members: v })}
+                  id="bg-earning"
+                />
+                <Field label="Only Earning Member" size="sm">
+                  <Toggle
+                    checked={form.only_earning_member}
+                    onChange={(v) => set({ only_earning_member: v })}
+                    ariaLabel="Only Earning Member"
                   />
-                  {/* Height and weight are stored ONCE (0556) — legacy prints
-                      the same pair on two of these popups. */}
-                  <DecimalField
-                    label="Height (cm)"
-                    value={form.height_cm}
-                    onChange={(v) => set({ height_cm: v })}
-                    id="od-height"
-                  />
-                  <DecimalField
-                    label="Weight (kg)"
-                    value={form.weight_kg}
-                    onChange={(v) => set({ weight_kg: v })}
-                    id="od-weight"
-                  />
-                  <TextField
-                    label="Eye Sight"
-                    value={form.eye_sight}
-                    onChange={(v) => set({ eye_sight: v })}
-                    id="od-eyesight"
-                  />
-                  <TextField
-                    label="House"
-                    value={form.house_type}
-                    onChange={(v) => set({ house_type: v })}
-                    id="od-house"
-                  />
-                  <TextField
-                    label="Experience"
-                    value={form.prior_experience}
-                    onChange={(v) => set({ prior_experience: v })}
-                    id="od-experience"
-                    size="md"
-                  />
-                  <TextField
-                    label="Handicap Details"
-                    value={form.handicap_details}
-                    onChange={(v) => set({ handicap_details: v })}
-                    id="od-handicap"
-                    size="md"
-                  />
-                </FieldGrid>
-              </div>
-              <div className="space-y-2">
-                <GroupHeading>ID Submitted</GroupHeading>
-                <FieldGrid>
-                  <Field label="DL" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_dl}
-                      onChange={(v) => set({ id_submitted_dl: v })}
-                      ariaLabel="DL"
-                    />
-                  </Field>
-                  <Field label="Vote ID" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_vote_id}
-                      onChange={(v) => set({ id_submitted_vote_id: v })}
-                      ariaLabel="Vote ID"
-                    />
-                  </Field>
-                  <Field label="Ration Card" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_ration}
-                      onChange={(v) => set({ id_submitted_ration: v })}
-                      ariaLabel="Ration Card"
-                    />
-                  </Field>
-                  <Field label="Passport" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_passport}
-                      onChange={(v) => set({ id_submitted_passport: v })}
-                      ariaLabel="Passport"
-                    />
-                  </Field>
-                  <Field label="TC" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_tc}
-                      onChange={(v) => set({ id_submitted_tc: v })}
-                      ariaLabel="TC"
-                    />
-                  </Field>
-                  <Field label="Mark Sheet" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_mark_sheet}
-                      onChange={(v) => set({ id_submitted_mark_sheet: v })}
-                      ariaLabel="Mark Sheet"
-                    />
-                  </Field>
-                  <Field label="Aadhaar" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_aadhaar}
-                      onChange={(v) => set({ id_submitted_aadhaar: v })}
-                      ariaLabel="Aadhaar"
-                    />
-                  </Field>
-                  <Field label="PAN Card" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_pan}
-                      onChange={(v) => set({ id_submitted_pan: v })}
-                      ariaLabel="PAN Card"
-                    />
-                  </Field>
-                  <Field label="Others" size="sm">
-                    <Toggle
-                      checked={form.id_submitted_others}
-                      onChange={(v) => set({ id_submitted_others: v })}
-                      ariaLabel="Others"
-                    />
-                  </Field>
-                  <TextField
-                    label="Others Specify"
-                    value={form.id_submitted_specify}
-                    onChange={(v) => set({ id_submitted_specify: v })}
-                    id="od-specify"
-                    size="md"
-                  />
-                </FieldGrid>
-              </div>
-              <div className="space-y-2">
-                <GroupHeading>Declarations</GroupHeading>
-                <FieldGrid>
-                  <Field label="Passport Held" size="sm">
-                    <Toggle
-                      checked={form.has_passport}
-                      onChange={(v) => set({ has_passport: v })}
-                      ariaLabel="Passport Held"
-                    />
-                  </Field>
-                  <Field label="Two Wheeler Licence" size="sm">
-                    <Toggle
-                      checked={form.two_wheeler_licence}
-                      onChange={(v) => set({ two_wheeler_licence: v })}
-                      ariaLabel="Two Wheeler Licence"
-                    />
-                  </Field>
-                  <Field label="Four Wheeler Licence" size="sm">
-                    <Toggle
-                      checked={form.four_wheeler_licence}
-                      onChange={(v) => set({ four_wheeler_licence: v })}
-                      ariaLabel="Four Wheeler Licence"
-                    />
-                  </Field>
-                  <Field label="Major Operation" size="sm">
-                    <Toggle
-                      checked={form.major_operation}
-                      onChange={(v) => set({ major_operation: v })}
-                      ariaLabel="Major Operation"
-                    />
-                  </Field>
-                  <TextField
-                    label="Operation Details"
-                    value={form.operation_details}
-                    onChange={(v) => set({ operation_details: v })}
-                    id="od-operation"
-                    size="md"
-                  />
-                  <Field label="Only Earning Member" size="sm">
-                    <Toggle
-                      checked={form.only_earning_member}
-                      onChange={(v) => set({ only_earning_member: v })}
-                      ariaLabel="Only Earning Member"
-                    />
-                  </Field>
-                  <Field label="Willing To Donate Blood" size="sm">
-                    <Toggle
-                      checked={form.willing_donate_blood}
-                      onChange={(v) => set({ willing_donate_blood: v })}
-                      ariaLabel="Willing To Donate Blood"
-                    />
-                  </Field>
-                  <TextField
-                    label="Grade"
-                    size="xs"
-                    value={form.grade}
-                    onChange={(v) => set({ grade: v })}
-                    id="od-grade"
-                  />
-                  <TextField
-                    label="Classification"
-                    value={form.employee_classification}
-                    onChange={(v) => set({ employee_classification: v })}
-                    id="od-class"
-                    size="md"
-                  />
-                </FieldGrid>
-              </div>
+                </Field>
+                <TextField
+                  label="Properties Owned"
+                  value={form.properties_owned}
+                  onChange={(v) => set({ properties_owned: v })}
+                  id="bg-properties"
+                  size="md"
+                />
+              </FieldGrid>
+            </div>
+          ),
+        };
+
+      case "background-conduct-and-achievements":
+        return {
+          ...base,
+          done:
+            touched(["achievement_details", "disciplinary_actions", "extra_curricular", "professional_membership"]),
+          content: (
+            <div className="space-y-6">
+              {/* Conduct and standing — what the company knows about them, not what their home looks like. These four sat under Household, where a disciplinary action read as a family detail. */}
+              <FieldGrid>
+                <TextField
+                  label="Professional Membership"
+                  value={form.professional_membership}
+                  onChange={(v) => set({ professional_membership: v })}
+                  id="bg-membership"
+                  size="md"
+                />
+                <TextField
+                  label="Extra Curricular Activities"
+                  value={form.extra_curricular}
+                  onChange={(v) => set({ extra_curricular: v })}
+                  id="bg-extra"
+                  size="md"
+                />
+                <TextField
+                  label="Achievement Details"
+                  value={form.achievement_details}
+                  onChange={(v) => set({ achievement_details: v })}
+                  id="bg-achievement"
+                  size="md"
+                />
+                <TextField
+                  label="Disciplinary Actions"
+                  value={form.disciplinary_actions}
+                  onChange={(v) => set({ disciplinary_actions: v })}
+                  id="bg-disciplinary"
+                  size="md"
+                />
+              </FieldGrid>
             </div>
           ),
         };
@@ -3870,71 +3874,85 @@ export default function PersonClient({
           content: childrenLoading ? (
             <LoadingRows />
           ) : (
-            /*
-                A ROW OF LABELLED FIELDS, NOT A TABLE LINE (client 2026-09-12:
-                "i want like this freely not in a in line box", pointing at the
-                Detail pane).
+            <div className="space-y-6">
+                            {/* YEARS SERVED BEFORE JOINING, above the companies that
+                  account for them. It was on Other Details, two rail rows
+                  from the grid it summarises. */}
+              <FieldGrid>
+                <TextField
+                  label="Experience"
+                  value={form.prior_experience}
+                  onChange={(v) => set({ prior_experience: v })}
+                  id="od-experience"
+                  size="md"
+                />
+              </FieldGrid>
+              {/*
+                  A ROW OF LABELLED FIELDS, NOT A TABLE LINE (client 2026-09-12:
+                  "i want like this freely not in a in line box", pointing at the
+                  Detail pane).
 
-                `forceCards` + `flatRows` is the pair `raagam-screen-layout`
-                rule 4 names, and they go together: `flatRows` is a cards-mode
-                MODIFIER, so on its own it is a silent no-op and the boxes stay.
-                Together they give ONE frame for the grid with a hairline
-                between records, rather than a bordered box per row — which the
-                client rejected separately on 2026-08-19.
+                  `forceCards` + `flatRows` is the pair `raagam-screen-layout`
+                  rule 4 names, and they go together: `flatRows` is a cards-mode
+                  MODIFIER, so on its own it is a silent no-op and the boxes stay.
+                  Together they give ONE frame for the grid with a hairline
+                  between records, rather than a bordered box per row — which the
+                  client rejected separately on 2026-08-19.
 
-                The labels and cells are READ OFF `columns`, never retyped
-                beside it, so a new column cannot leave the header and the card
-                disagreeing. `required` is forwarded for the reason AGENTS.md
-                spells out: in cards mode `ChildGrid` renders the row itself
-                instead of wrapping each cell in a `RequiredScope`, so a column
-                that declares `required` draws the star and loses the cursor
-                hold unless the control is told as well.
-              */
-            <ChildGrid<ExperienceRow>
-              columns={experienceColumns}
-              rows={experience}
-              forceCards
-              flatRows
-              renderMobileRow={(row, i) => (
-                <div className="flex gap-3">
-                  {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
-                      2026-09-16: "the numbering looks odd ... it should show at
-                      the 1st line of the content"). It was `rowSummary`, which
-                      draws a band ABOVE the fields — a whole line spent on one
-                      digit. As a gutter it sits beside the first field instead,
-                      and the row's ✕ goes back to the corner where a grid with no
-                      band puts it.
-                      `h-9` matches the field row it aligns with, so the digit is
-                      centred on that line rather than floating above it. */}
-                  <span
-                    aria-hidden
-                    className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
-                  >
-                    {i + 1}
-                  </span>
-                  <FieldGrid className="min-w-0 flex-1">
-                    {experienceColumns.map((c, ci) => (
-                      <Field
-                        key={ci}
-                        label={c.header}
-                        required={c.required}
-                        size="sm"
-                      >
-                        {c.cell(row, i)}
-                      </Field>
-                    ))}
-                  </FieldGrid>
-                </div>
-              )}
-              onAdd={() =>
-                setExperience((xs) => [...xs, blankExperience(newKey())])
-              }
-              onRemove={(r) =>
-                setExperience((xs) => xs.filter((x) => x.key !== r.key))
-              }
-              addLabel="+ Add experience"
-              seedRow
-            />
+                  The labels and cells are READ OFF `columns`, never retyped
+                  beside it, so a new column cannot leave the header and the card
+                  disagreeing. `required` is forwarded for the reason AGENTS.md
+                  spells out: in cards mode `ChildGrid` renders the row itself
+                  instead of wrapping each cell in a `RequiredScope`, so a column
+                  that declares `required` draws the star and loses the cursor
+                  hold unless the control is told as well.
+                */}
+              <ChildGrid<ExperienceRow>
+                columns={experienceColumns}
+                rows={experience}
+                forceCards
+                flatRows
+                renderMobileRow={(row, i) => (
+                  <div className="flex gap-3">
+                    {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                        2026-09-16: "the numbering looks odd ... it should show at
+                        the 1st line of the content"). It was `rowSummary`, which
+                        draws a band ABOVE the fields — a whole line spent on one
+                        digit. As a gutter it sits beside the first field instead,
+                        and the row's ✕ goes back to the corner where a grid with no
+                        band puts it.
+                        `h-9` matches the field row it aligns with, so the digit is
+                        centred on that line rather than floating above it. */}
+                    <span
+                      aria-hidden
+                      className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                    >
+                      {i + 1}
+                    </span>
+                    <FieldGrid className="min-w-0 flex-1">
+                      {experienceColumns.map((c, ci) => (
+                        <Field
+                          key={ci}
+                          label={c.header}
+                          required={c.required}
+                          size="sm"
+                        >
+                          {c.cell(row, i)}
+                        </Field>
+                      ))}
+                    </FieldGrid>
+                  </div>
+                )}
+                onAdd={() =>
+                  setExperience((xs) => [...xs, blankExperience(newKey())])
+                }
+                onRemove={(r) =>
+                  setExperience((xs) => xs.filter((x) => x.key !== r.key))
+                }
+                addLabel="+ Add experience"
+                seedRow
+              />
+            </div>
           ),
         };
 
@@ -4196,6 +4214,7 @@ export default function PersonClient({
     }
   });
 
+
   /**
    * THE LIST DIFFERS BY TWO COLUMNS, and only two.
    *
@@ -4372,6 +4391,10 @@ export default function PersonClient({
           <MasterFullScreen
             ref={shellRef}
             mount="page"
+            /* The rail is this person's file, not a generic list of sections
+               (client 2026-09-19). It follows the record's kind, so the Worker
+               screen does not call itself Staff. */
+            railHeading={`${copy.entity} Info`}
             // The rail truncates at this depth, so the pane names the section
             // in full (client 2026-09-11). See `paneHeading` for why it is
             // opt-in.
@@ -4410,6 +4433,7 @@ export default function PersonClient({
             code={editCode}
             name={form.name}
             isActive={form.is_active}
+            photoRequired
             photoUrl={form.photo_url ?? null}
             onPhotoChange={(url) => set({ photo_url: url })}
             photoFolder={isWorker ? "workers" : "staff"}
@@ -4476,38 +4500,6 @@ export default function PersonClient({
   );
 }
 
-/**
- * A GROUP HEADING INSIDE A SECTION — the legacy panels' captions, without the
- * panels. Legacy Detail draws bordered boxes around Pay(Statutory), Pay(Actual)
- * and the rest; the de-clutter rule removes a frame that only says "these
- * belong together", but here the caption is the ONLY thing distinguishing a
- * statutory gross from an actual one, so the words stay and the box goes. Same
- * call as PF/ESI Control, one level up.
- *
- * ## IT CARRIES THE WEIGHT THE BOX USED TO
- *
- * `13px / bold / foreground`, not the `text-xs font-semibold text-muted-*` a
- * caption normally takes (client 2026-09-09: "make it lil bit bigger and bold").
- * That default is right for a caption INSIDE a frame, where the border already
- * says where the group starts — `DetailSection` still uses it for exactly that.
- * With the frames gone, this line is the only boundary between one group and
- * the next, so it has to read as a heading rather than as a label.
- *
- * `text-foreground` matters as much as the weight: muted grey at the top of a
- * group of black labels reads as less important than its own contents.
- *
- * ONE COMPONENT, EVERY TAB. Detail, Salary Registry, Bank Account,
- * General, Reference and Nomination all render their groups through this, so
- * the headings cannot drift apart — which is what "keep this for all tabs
- * headings" asks for.
- */
-function GroupHeading({ children }: { children: ReactNode }) {
-  return (
-    <div className="text-[13px] font-bold uppercase tracking-wide text-foreground">
-      {children}
-    </div>
-  );
-}
 
 /**
  * A `<Select>` over a master, which keeps the row a record ALREADY HOLDS even

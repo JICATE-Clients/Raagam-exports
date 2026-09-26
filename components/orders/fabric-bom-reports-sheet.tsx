@@ -8,6 +8,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { CadPendingBadge } from "@/components/orders/cad/cad-pending-badge";
 import {
   loadFabricBomEntryRegister,
   loadYarnFabricRequirementReport,
@@ -138,6 +139,9 @@ export function FabricBomReportsSheet({
       ? requirement.data
       : null;
   const loading = open && !!bomId && registerData == null;
+  const liveRegister = register && bomId && register.forBom === bomId ? register.data : null;
+  const liveCadPending =
+    liveRegister && !("refused" in liveRegister) ? liveRegister.header.cadPending : undefined;
 
   return (
     <Sheet
@@ -168,7 +172,14 @@ export function FabricBomReportsSheet({
               key: r.key,
               label: r.label,
               content: (
-                <FabricBomReportView report={r.key} register={registerData} requirement={requirementData} />
+                <FabricBomReportView
+                  report={r.key}
+                  register={registerData}
+                  requirement={requirementData}
+                  /* A FROZEN copy takes the CAD flag from the LIVE register
+                     loaded beside it (0628) — the stamp follows today's CAD. */
+                  cadPending={frozen ? liveCadPending : undefined}
+                />
               ),
             }))}
           />
@@ -193,6 +204,20 @@ type FabricBomReportData = {
   requirement: YarnFabricRequirementReport | { refused: string } | null;
 };
 
+/**
+ * THE LIVE CAD FLAG OVER A (POSSIBLY FROZEN) REPORT (0628). A V_final copy
+ * carries the flag as it stood at the freeze; the host passes the CURRENT
+ * answer and it replaces the stored one, so an approval recorded after the
+ * freeze lifts the stamp. `undefined` = keep what the report carries.
+ */
+function withCadFlag<T extends { header: BomDocHeader } | { refused: string } | null>(
+  d: T,
+  cadPending: boolean | undefined,
+): T {
+  if (cadPending === undefined || !d || "refused" in d) return d;
+  return { ...d, header: { ...d.header, cadPending } };
+}
+
 const FABRIC_BOM_REPORT_VIEWS: Record<FabricBomReportKey, (d: FabricBomReportData) => React.ReactNode> = {
   "fabric-bom-register": (d) => <EntryRegisterView data={d.register} />,
   "yarn-fabric-requirement": (d) => <RequirementReportView data={d.requirement} />,
@@ -201,9 +226,21 @@ const FABRIC_BOM_REPORT_VIEWS: Record<FabricBomReportKey, (d: FabricBomReportDat
 
 export function FabricBomReportView({
   report,
+  cadPending,
   ...data
-}: FabricBomReportData & { report: FabricBomReportKey }) {
-  return <>{FABRIC_BOM_REPORT_VIEWS[report](data)}</>;
+}: FabricBomReportData & {
+  report: FabricBomReportKey;
+  /** The CURRENT CAD answer, laid over a frozen copy — see `withCadFlag`. */
+  cadPending?: boolean;
+}) {
+  return (
+    <>
+      {FABRIC_BOM_REPORT_VIEWS[report]({
+        register: withCadFlag(data.register, cadPending),
+        requirement: withCadFlag(data.requirement, cadPending),
+      })}
+    </>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +302,13 @@ function Letterhead({ title, header, stageStripe }: { title: string; header: Bom
           {header.bomCode && <div className="font-mono text-[12px] text-[#5b6472]">{header.bomCode}</div>}
         </div>
       </div>
+      {/* CAD PENDING (0628) — under the letterhead of every Fabric BOM report
+          while the order's CAD is unapproved; the PDF stamps every page. */}
+      {header.cadPending && (
+        <div className="border-b border-border px-5 py-2">
+          <CadPendingBadge />
+        </div>
+      )}
     </div>
   );
 }

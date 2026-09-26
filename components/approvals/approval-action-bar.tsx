@@ -58,11 +58,15 @@ export function ApprovalActionBar({
   run,
   verdict,
   subjectPath,
+  onDone,
 }: {
   run: ActionBarRun;
   verdict: CanActVerdict;
   /** The document's own route, so its page revalidates with the queue. */
   subjectPath?: string;
+  /** After a decision lands — e.g. close the sheet holding this bar, whose
+   *  run and verdict were read before the decision and are now stale. */
+  onDone?: () => void;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -114,10 +118,16 @@ export function ApprovalActionBar({
         );
         setPending(null);
         setComment("");
-        /* The page re-reads the run, the verdict and the subject's own status.
-           `revalidatePath` on the server invalidated them; this is what makes
-           the screen show the result rather than the state it was rendered in. */
-        router.refresh();
+        /* NO SECOND PAGE LOAD WHEN THE ACTION ALREADY SENT ONE (2026-09-24,
+           "approving takes 3 s"). `actOnRun` calls `revalidatePath` on
+           /approvals and on `subjectPath`, and a server action that revalidates
+           the CURRENT page returns its fresh render in the SAME response — so
+           a `router.refresh()` here fetched the whole page a second time
+           (~8 round trips, ~2 s) with the buttons still disabled. Every caller
+           passes its own page as `subjectPath`; only a caller that passes none
+           still needs the refresh. */
+        if (!subjectPath) router.refresh();
+        onDone?.();
       } else {
         toastError(res.error);
       }

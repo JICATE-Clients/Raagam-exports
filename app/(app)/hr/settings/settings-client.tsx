@@ -18,6 +18,7 @@ function toFormState(s: PayrollSettings): PayrollSettingsInput {
     esi_rate: s.esi_rate,
     pf_rate: s.pf_rate,
     currency: s.currency,
+    max_fine_pct: s.max_fine_pct ?? 25,
   };
 }
 
@@ -41,6 +42,7 @@ export default function SettingsClient({
           esi_rate: 0.0075,
           pf_rate: 0.12,
           currency: "INR",
+          max_fine_pct: 25,
         },
   );
 
@@ -170,6 +172,26 @@ export default function SettingsClient({
                 setForm({
                   ...form,
                   pf_rate: parseFloat(e.target.value) / 100 || 0,
+                })
+              }
+            />
+          </div>
+
+          {/* 0629 — the arithmetic check on fines (doc/order/punishment fine.md §6) */}
+          <div>
+            <Label htmlFor="ps-fine-cap">Max Fines (% of Gross)</Label>
+            <Input
+              id="ps-fine-cap"
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              value={form.max_fine_pct}
+              disabled={!canEdit}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  max_fine_pct: parseFloat(e.target.value) || 0,
                 })
               }
             />

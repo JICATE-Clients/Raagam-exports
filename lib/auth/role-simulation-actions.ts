@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "./server";
+import { forgetAppUser, requireUser } from "./server";
 import { setPreviewedRoleCookie, getRolesPreview } from "./role-simulation";
 import { createClient } from "@/lib/supabase/server";
 import { writeAudit } from "@/lib/audit";
@@ -39,6 +39,8 @@ export async function setRolePreview(roleIds: string[]): Promise<Result> {
   }
 
   await setPreviewedRoleCookie(validIds);
+  // This request memoised the user BEFORE the switch (lib/auth/server.ts).
+  await forgetAppUser();
 
   await writeAudit({
     action: validIds.length ? "role_preview.started" : "role_preview.exited",

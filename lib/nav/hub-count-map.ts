@@ -199,6 +199,7 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/hr/payroll": "payroll_runs",
   "/hr/advances": "hr_advances",
   "/hr/adjustments": "hr_adjustments",
+  "/hr/fines": "hr_staff_fine_deductions",
   "/hr/comp-events": "hr_comp_events",
   "/hr/statutory": "hr_statutory_docs",
   // A payslip is rendered from a payroll run; there is no payslips table, and

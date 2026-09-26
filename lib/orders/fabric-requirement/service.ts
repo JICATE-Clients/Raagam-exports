@@ -307,7 +307,7 @@ export async function getFabricRequirementSheet(
      actually about are already in hand. So a refusal degrades this section to
      empty rather than taking the page with it, and an all-Rule-1 document
      (every BOM before today) reaches that branch on purpose. */
-  const clothReport = await yarnFabricRequirementReport(bom.id);
+  const clothReport = await yarnFabricRequirementReport(bom.id, { allocation: false });
   const cloth = isReportRefusal(clothReport) ? [] : clothReport.clothPurchase;
   const clothTotal = isReportRefusal(clothReport) ? null : clothReport.clothPurchaseTotal;
 

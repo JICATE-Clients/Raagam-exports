@@ -54,8 +54,25 @@ export async function orderLockMessages(
   /** The document the caller edits; adds the amending orders it is closed on. */
   area?: AmendmentArea,
 ): Promise<Record<string, string>> {
-  if (orderIds && orderIds.length === 0) return {};
+  return (await orderLocks(orderIds, area)).messages;
+}
+
+/**
+ * `orderLockMessages`, plus WHICH ORDER A REVISION WOULD BE RAISED ON.
+ *
+ * `raiseFor` maps a locked document to the APPROVED document that locks it —
+ * itself, or its approved sibling (the lock is per RE No, above). It carries
+ * APPROVED locks only: an amending order already has its revision, so the
+ * banner's "+ Raise Revision" (user 2026-09-24) must not appear on the
+ * out-of-scope sentence, which sends the operator to + Add module instead.
+ */
+export async function orderLocks(
+  orderIds?: readonly string[],
+  area?: AmendmentArea,
+): Promise<{ messages: Record<string, string>; raiseFor: Record<string, string> }> {
+  if (orderIds && orderIds.length === 0) return { messages: {}, raiseFor: {} };
   const scoped = area ? await amendingClosedOn(area, orderIds) : {};
+  const none = { messages: scoped, raiseFor: {} };
   try {
     const s = await createClient();
     /* Every APPROVED document — not narrowed by `orderIds`, because the one
@@ -66,14 +83,14 @@ export async function orderLockMessages(
       .eq("re_status", "approved");
     if (error) {
       console.error("[order-locks] reading re_status:", error.message);
-      return {};
+      return { messages: {}, raiseFor: {} };
     }
     const rows = (orders ?? []) as unknown as {
       id: string;
       sales_order_id: string | null;
       sales_order: { order_number: string | null } | { order_number: string | null }[] | null;
     }[];
-    if (rows.length === 0) return {};
+    if (rows.length === 0) return { messages: {}, raiseFor: {} };
 
     /* WHICH budget — for the words only; the lock itself is `re_status`. */
     const { data: links, error: bErr } = await s
@@ -116,6 +133,7 @@ export async function orderLockMessages(
     const rowById = new Map(rows.map((r) => [r.id, r]));
     const wanted = orderIds ? new Set(orderIds) : null;
     const out: Record<string, string> = {};
+    const raiseFor: Record<string, string> = {};
     for (const [docId, lockerId] of lockerOf) {
       if (wanted && !wanted.has(docId)) continue;
       const r = rowById.get(lockerId);
@@ -127,11 +145,12 @@ export async function orderLockMessages(
         budgetCode: b?.code ?? null,
         approvedAt: b?.decided_at ?? null,
       });
+      raiseFor[docId] = lockerId;
     }
-    return { ...scoped, ...out };
+    return { messages: { ...scoped, ...out }, raiseFor };
   } catch (e) {
     console.error("[order-locks]", e instanceof Error ? e.message : e);
-    return scoped;
+    return none;
   }
 }
 

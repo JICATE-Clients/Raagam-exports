@@ -31,11 +31,19 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // IMPORTANT: getUser() revalidates the token with Supabase Auth. Do not put
-  // logic between createServerClient and this call.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // IMPORTANT: do not put logic between createServerClient and this call — it
+  // is also what refreshes an expired session and writes the new cookies.
+  //
+  // getClaims(), NOT getUser() (2026-09-24, "every click takes 3 s"). getUser()
+  // is a network round trip to Supabase Auth on EVERY request — every page,
+  // every server action — ~260 ms before any app code runs. This project signs
+  // with an asymmetric key (ES256, published at /auth/v1/.well-known/jwks.json),
+  // so getClaims() verifies the JWT's signature LOCALLY against the cached
+  // public key: same guarantee (a forged or expired token is refused), no trip.
+  // Should the project ever go back to a symmetric key, getClaims() falls back
+  // to asking the Auth server itself, so this stays correct either way.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims?.sub ? { id: data.claims.sub } : null;
 
   return { response, user };
 }

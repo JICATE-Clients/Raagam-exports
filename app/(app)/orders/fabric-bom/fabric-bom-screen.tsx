@@ -35,6 +35,9 @@
  * the scrollbar returns, on a screen nobody re-measures.
  */
 
+import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
+import { CadLifecycleLink } from "@/components/orders/cad/cad-lifecycle-link";
+import { checkCadForFabricBom } from "@/lib/orders/cad-lifecycle/actions";
 import {
   Fragment,
   useEffect,
@@ -205,7 +208,6 @@ import {
   comboKey,
   compositionsBuyingYarn,
   deriveYarnRows,
-  yarnPurchase,
   yarnRowAnswered,
   type FabricComposition,
   type FabricGross,
@@ -214,6 +216,14 @@ import {
   type YarnRow,
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
+import {
+  conversionLinksOf,
+  conversionStepProblems,
+  linkedLooseFabricIds,
+  planConversions,
+  withoutConversionSteps,
+  yarnPurchaseWithConversion,
+} from "@/lib/orders/fabric-bom/loose-conversion";
 import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
 import { FabricTaTab } from "@/components/orders/fabric-ta/fabric-ta-tab";
 import { yarnStageProblems } from "@/lib/orders/fabric-bom/yarn-stage-routes";
@@ -788,7 +798,9 @@ function PaletteTable<T extends { key: string }>({
   width: string;
 }) {
   return (
-    <div className={cn("min-w-0 flex-1", width)}>
+    /* `max-sm:max-w-none`: stacked on a phone (see the row of four), each
+       panel takes the line rather than its desktop cap. */
+    <div className={cn("min-w-0 flex-1", width, "max-sm:max-w-none")}>
       <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
@@ -1123,6 +1135,7 @@ export function FabricBomScreen({
   data,
   perms,
   orderLocks,
+  raiseFor = {},
   embed = null,
 }: {
   tasks: BomTaskRow[];
@@ -1134,6 +1147,12 @@ export function FabricBomScreen({
   /** Garment orders locked by an approved budget → the banner's sentence
    *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
   orderLocks: Record<string, string>;
+  /**
+   * Locked document -> the APPROVED order its "+ Raise Revision" links to
+   * (`orderLocks`, lib/orders/order-locks.ts). Approved locks only: an
+   * amending order already has its revision. Absent key = no link.
+   */
+  raiseFor?: Record<string, string>;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -2281,6 +2300,28 @@ export function FabricBomScreen({
   const seedRows =
     seedState && seedState.forOrder === form.garment_order_id ? seedState.rows : null;
 
+  /* THE CAD GATE, SAID BEFORE ANYTHING IS TYPED (doc/order/cad.md §7, 0628).
+     A NEW Fabric BOM cannot be created while any style's CAD is unapproved —
+     the table's trigger refuses the insert. Asked the moment an order is
+     picked for a new BOM, so the editor opens read-only with the reason and a
+     link, instead of accepting a whole BOM that Save then refuses. A saved BOM
+     (`editId`) is never asked: only creation is gated. Keyed on `forOrder`
+     like `seedState`, for its reason. */
+  const [cadBlock, setCadBlock] = useState<{ forOrder: string; message: string | null } | null>(null);
+  useEffect(() => {
+    const id = form.garment_order_id;
+    if (!id || editId) return;
+    let cancelled = false;
+    checkCadForFabricBom(id).then((message) => {
+      if (!cancelled) setCadBlock({ forOrder: id, message });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.garment_order_id, editId]);
+  const cadBlockMessage =
+    !editId && cadBlock && cadBlock.forOrder === form.garment_order_id ? cadBlock.message : null;
+
   const pickedOrder = useMemo(
     () => data.orders.find((o) => o.id === form.garment_order_id) ?? null,
     [data.orders, form.garment_order_id],
@@ -2548,6 +2589,8 @@ export function FabricBomScreen({
               /* 0606 — ASSORT COLOR-WISE LOSS. */
               color_wise_loss: !!st.color_wise_loss,
               color_losses: colorLossesToDraft(st.color_losses),
+              /* 0633 — LOOSE FABRIC CONVERSION's source. */
+              source_loose_fabric_id: st.source_loose_fabric_id ?? null,
             })),
           },
         ]),
@@ -6005,13 +6048,20 @@ export function FabricBomScreen({
                   are a SAFETY NET only: they engage below the tracks' summed
                   floors (788px), where shrinking further would clip values.
                   At any ordinary pane width no scrollbar is drawn. */}
+              {/* ON A PHONE THE BAR STACKS (2026-09-24, 390px): the 788px of
+                  track floors left a sideways scroller whose first heading was
+                  clipped ("SSORT COLOUR-ISE"). Below `sm` the header band hides,
+                  the body band is one column, and each cell prints its own
+                  heading from `data-label` above its control. CSS only — the
+                  controls are rendered ONCE, so focus order, ids and Ctrl+Del
+                  are exactly the desktop ones. Nothing at 640px+ moves. */}
               <div className="max-w-full overflow-x-auto">
-              <div className="w-full min-w-fit overflow-hidden rounded-lg border border-border-strong bg-surface">
+              <div className="w-full min-w-fit overflow-hidden rounded-lg border border-border-strong bg-surface max-sm:min-w-0">
                 {/* THE HEADER BAND. Plain text, not a second `<Field>` — a
                     label has nothing to hold a cursor or a value, so it needs
                     none of what `Field` provides beyond the words themselves. */}
                 <div
-                  className="grid bg-surface-muted"
+                  className="grid bg-surface-muted max-sm:hidden"
                   style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
                 >
                   {manualEntryColumns.map((c, ci) => (
@@ -6051,17 +6101,19 @@ export function FabricBomScreen({
                     room survives as `py-2`, which cannot desync anything
                     horizontal. */}
                 <div
-                  className="grid items-center border-t border-border-strong py-2"
+                  className="grid items-center border-t border-border-strong py-2 max-sm:grid-cols-1! max-sm:gap-y-2.5 max-sm:border-t-0 max-sm:px-1.5"
                   style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
                 >
                   {manualEntryColumns.map((c, ci) => (
                     <div
                       key={c.header + ci}
+                      data-label={c.cardLabel ?? c.header}
                       /* `min-w-0` lets the control shrink to its track instead
                          of pushing the track wider than its floor. */
                       className={cn(
                         "min-w-0 px-1.5",
-                        ci > 0 && "border-l border-border-strong",
+                        ci > 0 && "border-l border-border-strong max-sm:border-l-0",
+                        "max-sm:before:mb-1 max-sm:before:block max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:uppercase max-sm:before:tracking-wide max-sm:before:text-muted-foreground max-sm:before:content-[attr(data-label)]",
                       )}
                     >
                       <RequiredScope required={false} label={c.cardLabel ?? c.header}>
@@ -7147,12 +7199,33 @@ export function FabricBomScreen({
    * joined, so re-ordering the fabric lines — which changes nothing about which
    * yarns are involved — does not refetch either.
    */
+  /* LOOSE FABRIC CONVERSION (0633) — a CONVERSION step is the master's
+     `is_unravelling` flag, the same list the yarn grid's ▾ is drawn from. */
+  const isUnravelling = (processId: string) =>
+    !!data.yarnProcesses.find((p) => p.id === processId)?.is_unravelling;
+  /* THE LOOSE FABRICS THE ANSWERS NAME, as a string for the same reason as
+     below. Read off the ANSWERS rather than the derived rows because the rows
+     are derived FROM the compositions this key fetches — a loose fabric is on
+     no line, and its blend must be read or its greige yarn has no row. */
+  const answerLooseKey = linkedLooseFabricIds(
+    conversionLinksOf(
+      Object.entries(yarnAnswers).map(([item_id, a]) => ({ item_id, stages: a.stages })),
+      isUnravelling,
+    ),
+  )
+    .sort()
+    .join(",");
   const fabricIdKey = useMemo(
     () =>
-      [...new Set(lines.map((l) => l.item_id).filter((id): id is string => !!id))]
+      [
+        ...new Set([
+          ...lines.map((l) => l.item_id).filter((id): id is string => !!id),
+          ...(answerLooseKey ? answerLooseKey.split(",") : []),
+        ]),
+      ]
         .sort()
         .join(","),
-    [lines],
+    [lines, answerLooseKey],
   );
 
   /**
@@ -7572,12 +7645,75 @@ export function FabricBomScreen({
     );
   })();
 
+  /* WHERE EACH FABRIC COMES FROM, hoisted out of `weightFor` so the
+     conversion plan below reads the identical map. */
+  const sourceMap = new Map(
+    [...new Set([...procScopes.map((s) => s.item_id), ...routeSources.keys()])].map((id) => [
+      id,
+      sourceOf(id),
+    ]),
+  );
+  const fabricUom = data.uoms.find((u) => u.id === fabricGross.find((f) => f.uom_id)?.uom_id);
+
+  /**
+   * LOOSE FABRIC CONVERSION (0633) — which yarns are unravelled from which
+   * loose fabric, off the DERIVED rows (what the payload sends), planned once
+   * per render. `normalizeYarns` (actions.ts) calls the same `planConversions`
+   * on the same inputs, so the converted weight previewed is the one stored.
+   * Plain consts, not memos: a pass over this document's own rows.
+   */
+  const conversionLinks = conversionLinksOf(yarnRows, isUnravelling);
+  const looseFabricIds = new Set(linkedLooseFabricIds(conversionLinks));
+  const conversionPlan = planConversions({
+    links: conversionLinks,
+    fabrics: fabricGross,
+    compositions: compositionById,
+    routesByFabric,
+    decimals: fabricUom?.decimal_places_allowed ?? null,
+    sourceByFabric: sourceMap,
+    nameOf: (id) => fabricById.get(id),
+  });
+  /** The yarns a loose fabric is unravelled into — for its Fabric Process row. */
+  const yarnsConvertedFrom = (fabricId: string) =>
+    yarnRows.filter((y) => conversionLinks.get(y.item_id) === fabricId).map((y) => y.name);
+  /** A loose fabric must be GREIGE cloth — a yarn-dyed one cannot be dyed
+   *  with the body. Held value kept, the "Disabled rows" rule. */
+  const looseFabricOptions = fabrics.filter((f) => !isYarnDyed(f.fabric_type));
+
+  /**
+   * THE ROUTE THE SPEC INJECTS (0633 §3C) — picking a Source Loose Fabric gives
+   * it [GREIGE] KNITTING → [DYED] DYEING → [DYED] CONVERSION on Fabric Process,
+   * once: a loose fabric that already has a route keeps it untouched. Each
+   * process is found by the master's KIND FLAG and each stage by the process's
+   * own base classification (`stage_roles`), never by a name or a code string.
+   * Losses are left for the planner, except the unravelling step's 2.00 %
+   * (the spec's default).
+   */
+  const injectLooseRoute = (fabricId: string) => {
+    if (procs.some((p) => p.item_id === fabricId)) return;
+    const live = data.processes.filter((p) => p.for_fabric && !p.inactive);
+    const steps = [
+      { p: live.find((x) => x.is_knitting), loss: "" },
+      { p: live.find((x) => x.is_dyeing), loss: "" },
+      { p: live.find((x) => x.is_unravelling), loss: "2" },
+    ].filter((x): x is { p: (typeof live)[number]; loss: string } => !!x.p);
+    if (!steps.length) return;
+    mutProcs((xs) => [
+      ...xs,
+      ...steps.map(({ p, loss }) => ({
+        ...blankFabricProcess(newKey(), fabricId),
+        stage_id: p.stage_roles.find((r) => r.is_base)?.stage_id ?? null,
+        process_id: p.id,
+        loss_pct: loss,
+      })),
+    ]);
+  };
+
   const weightFor = (r: YarnRow) => {
-    const uom = data.uoms.find((u) => u.id === fabricGross.find((f) => f.uom_id)?.uom_id);
-    return yarnPurchase(
-      r.item_id,
-      fabricGross,
-      compositionById,
+    const uom = fabricUom;
+    return yarnPurchaseWithConversion(r.item_id, conversionPlan, {
+      fabrics: fabricGross,
+      compositions: compositionById,
       routesByFabric,
       /* `combo` SCOPES THE LOSS AGAIN (0504, restored 0529) — the same call the
          action's `normalizeYarns` makes, so the preview and the stored figure
@@ -7585,15 +7721,16 @@ export function FabricBomScreen({
          whatever its fabric(s) already contribute via `routesByFabric`. */
       /* `dyed` (2026-09-19) — a step in a coloured yarn stage is the hand-typed
          dyeing step; `yarnPurchase` leaves it out of the purchase weight when the
-         shades already carry a dye loss. `writeYarns` marks it the same way. */
-      r.stages.map((st) => ({
+         shades already carry a dye loss. `writeYarns` marks it the same way.
+         Less any CONVERSION step (0633) — its loss is the loose fabric's. */
+      ownStages: withoutConversionSteps(r.stages, isUnravelling).map((st) => ({
         combo: st.combo || null,
         loss_pct: numOrNull(st.loss_pct),
         dyed: !!st.stage_id && dyedYarnStageIds.has(st.stage_id),
         /* 0606 — same gate as `writeYarns`. */
         color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses),
       })),
-      uom?.decimal_places_allowed ?? null,
+      decimals: uom?.decimal_places_allowed ?? null,
       /* WHERE EACH FABRIC COMES FROM (0564) — BYTE-FOR-BYTE the expression the
          server's `sourceByFabricOf` uses, on purpose. This is one computation
          with two call sites, not two implementations that happen to agree: the
@@ -7606,16 +7743,11 @@ export function FabricBomScreen({
       /* 2026-09-19: READ OFF THE ROUTE (`sourceOf`) for every fabric the
          route or a stored scope names — the server's `sourceByFabricOf` now
          reads the same derivation, so preview and stored figure still match. */
-      new Map(
-        [...new Set([...procScopes.map((s) => s.item_id), ...routeSources.keys()])].map((id) => [
-          id,
-          sourceOf(id),
-        ]),
-      ),
+      sourceByFabric: sourceMap,
       /* PER-SHADE DYEING LOSS (0568) — see `yarnShades` above for why this is
          passed before the column that can set it exists. */
-      yarnShades,
-    );
+      shades: yarnShades,
+    });
   };
 
   // ---- validity ------------------------------------------------------------
@@ -7731,9 +7863,22 @@ export function FabricBomScreen({
         printDeclared: printedGroup(lines, itemId, combo, [componentId]),
         fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)),
         fabricIsPieceDyed: isPieceDyed(fabricTypeOf(itemId)),
+        /* 0633 — CONVERSION runs on a linked loose fabric's route only. */
+        looseFabricRoute: looseFabricIds.has(itemId),
       }),
       fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
     }),
+    /* LOOSE FABRIC CONVERSION (0633) — a CONVERSION step names its source, a
+       linked loose fabric keeps its CONVERSION step (the spec's "prevent
+       deleting a loose fabric line while linked"), and nothing else runs one.
+       `conversionProblem` (actions.ts) refuses the same sentences. */
+    ...conversionStepProblems({
+      yarns: yarnRows.map((y) => ({ name: y.name, stages: y.stages })),
+      links: conversionLinks,
+      routeSteps: procs,
+      isUnravelling,
+      fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
+    }).map((message) => ({ item_id: "", row_key: "", message })),
     /* CHECKPOINTS A + B (client 2026-09-19): a printed line whose route never
        prints, and a Printing step serving no printed line. The server's
        `printRouteProblem` runs the identical function on the payload. */
@@ -8363,6 +8508,29 @@ export function FabricBomScreen({
         {isRefusal(w) && (
           <p className="mb-1.5 text-xs text-danger">{w.refused}</p>
         )}
+        {/* WHAT THE CONVERSION COMES TO (0633) — the dyed yarn the unravelling
+            must deliver, and the greige loose fabric to knit for it. Only on a
+            converting yarn that computed; a refusal says why above. */}
+        {(() => {
+          const conv = conversionPlan.converted.get(r.item_id);
+          if (!conv || isRefusal(conv)) return null;
+          const unit = data.uoms.find((u) => u.id === conv.uom_id)?.code ?? "";
+          const feeds = conv.fabricIds.map((id) => fabricById.get(id) ?? "").filter(Boolean);
+          return (
+            <p className="mb-1.5 text-xs text-muted-foreground">
+              Unravelled from{" "}
+              <span className="font-medium text-foreground">
+                {fabricById.get(conv.loose_fabric_id) ?? "the loose fabric"}
+              </span>
+              : {fmtNumber(conv.qty)} {unit} dyed yarn
+              {feeds.length ? ` for ${feeds.join(", ")}` : ""}
+              {conv.looseKnitQty != null
+                ? ` · knit ${fmtNumber(conv.looseKnitQty)} ${unit} of loose fabric`
+                : ""}
+              . Its greige yarn is bought on that yarn&apos;s own row.
+            </p>
+          );
+        })()}
         <YarnProcessGrid
           rows={r.stages}
           onChange={(next) => setYarnStages(r.item_id, next)}
@@ -8375,6 +8543,10 @@ export function FabricBomScreen({
           combos={combos}
           /* 0606 — ASSORT COLOR-WISE LOSS; this BOM's yarn-stage table holds it. */
           colourLoss
+          /* 0633 — LOOSE FABRIC CONVERSION: greige cloths a CONVERSION step
+             may name, and the route injected when one is picked. */
+          looseFabrics={looseFabricOptions}
+          onLooseFabricPicked={injectLooseRoute}
           /* THE SCREEN'S OWN GENERATOR, so a process added to a reopened BOM
              cannot collide with the keys `openExisting` has already issued. */
           newKey={newKey}
@@ -8509,11 +8681,19 @@ export function FabricBomScreen({
               because a row that has simply lost its colourways looks like a row
               whose lines said nothing. The next save drops these route rows, and
               this is the operator's chance to see that coming. */}
-          {r.lines.length === 0 && (
-            <div className="text-xs text-warning">
-              no fabric line uses this any more — this route will be dropped on Save
-            </div>
-          )}
+          {r.lines.length === 0 &&
+            (looseFabricIds.has(r.item_id) ? (
+              /* A LOOSE FABRIC (0633) is on no line by design — knitted, dyed
+                 with the body and unravelled, never cut. Said so, instead of
+                 the "will be dropped" warning, which is not true of it. */
+              <div className="text-xs text-muted-foreground">
+                Loose fabric — unravelled into {yarnsConvertedFrom(r.item_id).join(", ") || "yarn"}
+              </div>
+            ) : (
+              <div className="text-xs text-warning">
+                no fabric line uses this any more — this route will be dropped on Save
+              </div>
+            ))}
         </div>
       ),
     },
@@ -9029,8 +9209,12 @@ export function FabricBomScreen({
               `flex-nowrap` HOLDS THE LINE, and the trade is that below ~900px
               of pane the four overflow rather than stacking. 210 + 210 + 210 +
               280 + 3 gaps = 946px, so that is outside this editor's normal
-              width. */}
-          <div className="flex w-full flex-row flex-nowrap items-start gap-3 [&_input]:text-xs [&_select]:text-xs">
+              width.
+
+              ON A PHONE THE FOUR STACK (2026-09-24, 390px): held on one line
+              they were ~85px each — a "#" column and a squashed box, nothing
+              typeable. `max-sm:` only, so the desktop line above is untouched. */}
+          <div className="flex w-full flex-row flex-nowrap items-start gap-3 max-sm:flex-col [&_input]:text-xs [&_select]:text-xs">
             <PaletteTable<PaletteRow>
               /* "Fabric Colour", NOT "Colour" (client 2026-09-09) — this panel
                  sits beside "Yarn Colour" and read as the unqualified default
@@ -10224,6 +10408,9 @@ export function FabricBomScreen({
                          was set to Yarn Dyed). */
                       fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
                       fabricIsPieceDyed={isPieceDyed(fabricTypeOf(r.item_id))}
+                      /* 0633 — only a linked loose fabric's route may run
+                         CONVERSION (unravelling). */
+                      looseFabricRoute={looseFabricIds.has(r.item_id)}
                       /* 0564 — NOT a narrowing. The grid greys a step this
                          source stops the engine charging for and says so;
                          nothing is withheld from the ▾, because a purchased
@@ -10543,6 +10730,9 @@ export function FabricBomScreen({
           /* 0606 — same gate as the fabric route's. */
           color_wise_loss: !!st.color_wise_loss && !st.combo,
           color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses) ?? {},
+          /* 0633 — the conversion link; the server nulls it on any step the
+             master does not flag as unravelling. */
+          source_loose_fabric_id: st.source_loose_fabric_id ?? null,
         })),
       })),
     };
@@ -10646,6 +10836,8 @@ export function FabricBomScreen({
              action the drawer also carried is the card's own button below. */
           onOpen={openTask}
           canDelete={perms.canDelete}
+          /* An approved order offers no bin, and its Updated row an eye (2026-09-24). */
+          lockedRow={(t) => !!orderLocks[t.id]}
           /* `bom_id` is non-null here by `canDeleteRow` — a Pending row has no
              document, and the card hides the ✕ on exactly those. */
           onDelete={(t) => remove(t.bom_id as string)}
@@ -10660,7 +10852,19 @@ export function FabricBomScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
-        locked={lockMessage ? { message: lockMessage } : false}
+        locked={
+          lockMessage
+            ? {
+                message: lockMessage,
+                action:
+                  form.garment_order_id && raiseFor[form.garment_order_id] ? (
+                    <RaiseRevisionLink orderId={raiseFor[form.garment_order_id]} />
+                  ) : undefined,
+              }
+            : cadBlockMessage
+              ? { message: cadBlockMessage, action: <CadLifecycleLink /> }
+              : false
+        }
         /* A compact 200px Sections rail whose labels still fit — "Fabric
            Allocation" clipped at 192px, and 240px read as too wide (operator,
            2026-09-17). See the prop. */

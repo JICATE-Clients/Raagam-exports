@@ -91,7 +91,7 @@ export async function getRunLines(runId: string): Promise<LineWithName[]> {
     .select(
       `id, payroll_run_id, worker_id, staff_id, worker_type,
        days_worked, ot_hours, ot_wage, actual_gross, esi, pf, actual_net,
-       pieces, extra_wage, total_net, details, created_at,
+       pieces, extra_wage, total_net, fine_deduction, fine_over_cap, fine_review, details, created_at,
        workers(name), staff(name)`,
     )
     .eq("payroll_run_id", runId)
@@ -312,7 +312,7 @@ export async function getLineForPayslip(
     .select(
       `id, payroll_run_id, worker_id, staff_id, worker_type,
        days_worked, ot_hours, ot_wage, actual_gross, esi, pf, actual_net,
-       pieces, extra_wage, total_net, details, created_at,
+       pieces, extra_wage, total_net, fine_deduction, fine_over_cap, fine_review, details, created_at,
        workers(name), staff(name)`,
     )
     .eq("payroll_run_id", runId)

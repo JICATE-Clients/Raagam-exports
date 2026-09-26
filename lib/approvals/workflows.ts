@@ -29,7 +29,8 @@ export type WorkflowKey =
   | "iwo_budget"
   | "order_amendment"
   | "purchase_indent"
-  | "purchase_order";
+  | "purchase_order"
+  | "hr_fine";
 
 export type WorkflowDecl = {
   key: WorkflowKey;
@@ -73,6 +74,16 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "purchase_orders",
     label: "Purchase Order",
     href: "/purchase/orders",
+  },
+  /* 0629 — a staff fine / salary deduction (doc/order/punishment fine.md). The
+     run is started INSIDE `hr_fine_submit` (SQL), in the same transaction as
+     the lock, so this entry is here for the builder dropdown, the inbox chip
+     and the row link — not for a `startApproval` call. */
+  hr_fine: {
+    key: "hr_fine",
+    subjectTable: "hr_staff_fine_deductions",
+    label: "Staff Fine",
+    href: "/hr/fines?open=:id",
   },
 };
 

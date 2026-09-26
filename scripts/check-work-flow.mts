@@ -54,9 +54,9 @@ check("2026-10-18 really is a Sunday", dayOfWeek("2026-10-18"), 0);
 // ---------------------------------------------------------------------------
 const day0 = "2026-10-12";
 check(
-  "QA-WP-01: received 12-10-2026 → targets 13, 14, 15, 15, 16, 16",
+  "QA-WP-01: received 12-10-2026 → targets 13, 14, 14, 14, 15, 15, 16, 16 (Pattern Sent / Approval at +2, 0628)",
   WORK_FLOW_MILESTONES.map((m) => workFlowTarget(day0, m.days)),
-  ["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-15", "2026-10-16", "2026-10-16"],
+  ["2026-10-13", "2026-10-14", "2026-10-14", "2026-10-14", "2026-10-15", "2026-10-15", "2026-10-16", "2026-10-16"],
 );
 check("a Saturday Day 0 + 1 skips Sunday → Monday", workFlowTarget("2026-10-17", 1), "2026-10-19");
 check("Thursday + 3 crosses Sunday → Tuesday, not Sunday", workFlowTarget("2026-10-15", 3), "2026-10-19");
@@ -113,7 +113,9 @@ check(
 // ---------------------------------------------------------------------------
 // 4. The SQL mirror — 0607's work_flow_milestone_defaults() must equal the list.
 // ---------------------------------------------------------------------------
-const sql = readFileSync(new URL("../supabase/migrations/0607_order_work_flow.sql", import.meta.url), "utf8");
+// 0628 re-declared the list (Pattern Sent / Pattern Approval); the LATEST
+// definition is the one the database runs, so that is the file parsed.
+const sql = readFileSync(new URL("../supabase/migrations/0628_cad_lifecycle.sql", import.meta.url), "utf8");
 const block = sql.match(/work_flow_milestone_defaults\(\)[\s\S]*?\$\$([\s\S]*?)\$\$/)?.[1] ?? "";
 const sqlRows = [...block.matchAll(/\('([A-Z_]+)',\s*(\d+),\s*(\d+)\)/g)].map((m) => ({
   code: m[1],

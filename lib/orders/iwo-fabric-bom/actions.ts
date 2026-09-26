@@ -37,11 +37,21 @@ import {
   isRefusal,
   stageProblem,
   stageProcessQty,
-  yarnPurchase,
   yarnStageStarted,
+  type Refusal,
   type FabricComposition,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
+import {
+  conversionLinksOf,
+  conversionStepProblems,
+  linkedLooseFabricIds,
+  planConversions,
+  withoutConversionSteps,
+  yarnPurchaseWithConversion,
+  type ConversionLinks,
+  type ConvertedYarn,
+} from "@/lib/orders/fabric-bom/loose-conversion";
 import { isPieceDyed, isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import { colorLossesForStorage } from "@/lib/orders/fabric-bom/color-loss";
 import { diaKnitProblem, type DiaDeclaration } from "@/lib/orders/fabric-bom/dia-knit";
@@ -141,7 +151,12 @@ async function writeChildren(
     // A route is kept only for a fabric still on a line, and only its steps
     // that name a process — the order action's `normalizeProcesses`, minus the
     // colourway/component axes an IWO does not have. `sno` runs per fabric.
-    const fabricIds = await fabricIdsOf(s, bomId, p);
+    let fabricIds: Set<string>;
+    try {
+      fabricIds = await fabricIdsOf(s, bomId, p);
+    } catch (e) {
+      return e instanceof Error ? e.message : "Could not read the conversion process";
+    }
     const { error: d } = await s.from("iwo_fabric_bom_processes").delete().eq("bom_id", bomId);
     if (d) return d.message;
     const nextSno = new Map<string, number>();
@@ -281,9 +296,108 @@ async function yarnDyedOf(
 /** The fabrics this BOM's lines name — the payload's when it carries lines,
  *  else the stored ones (a save that did not send lines left them standing). */
 async function fabricIdsOf(s: Db, bomId: string, p: IwoFabricBomParsed): Promise<Set<string>> {
-  if (p.lines) return new Set(keptIwoFabricLines(p.lines).map((l) => l.item_id));
+  /* PLUS THE LINKED LOOSE FABRICS (0636) — on no line, but their route is
+     real; unlinked, it drops out of this set and its route with it. */
+  const loose = linkedLooseFabricIds(await conversionLinksOfSave(s, bomId, p));
+  if (p.lines) return new Set([...keptIwoFabricLines(p.lines).map((l) => l.item_id), ...loose]);
   const { data } = await s.from("iwo_fabric_bom_lines").select("item_id").eq("bom_id", bomId);
-  return new Set(((data ?? []) as { item_id: string }[]).map((r) => r.item_id));
+  return new Set([...((data ?? []) as { item_id: string }[]).map((r) => r.item_id), ...loose]);
+}
+
+/**
+ * LOOSE FABRIC CONVERSION (0633 · 0636) — which processes UNRAVEL, off the
+ * master, never the payload. A failed read THROWS (the callers turn it into
+ * the save's error): an empty set would quietly turn every conversion back
+ * into a yarn purchase.
+ */
+async function unravellingIdsOf(s: Db): Promise<Set<string>> {
+  const { data, error } = await s.from("processes").select("id").eq("is_unravelling", true);
+  if (error) throw new Error(`Could not read the conversion process: ${error.message}`);
+  return new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
+}
+
+/** This save's conversion links — the payload's yarn steps when it carries
+ *  yarns, else the stored ones (a save that sent only the route must not
+ *  drop a linked loose fabric's route). */
+async function conversionLinksOfSave(s: Db, bomId: string | null, p: IwoFabricBomParsed): Promise<ConversionLinks> {
+  const unravelling = await unravellingIdsOf(s);
+  const isUnravelling = (id: string) => unravelling.has(id);
+  if (p.yarns) return conversionLinksOf(p.yarns, isUnravelling);
+  if (!bomId) return new Map();
+  const { data, error } = await s
+    .from("iwo_fabric_bom_yarns")
+    .select("item_id, stages:iwo_fabric_bom_yarn_stages(process_id, source_loose_fabric_id)")
+    .eq("bom_id", bomId);
+  if (error) throw new Error(`Could not read the stored yarn steps: ${error.message}`);
+  return conversionLinksOf(
+    ((data ?? []) as { item_id: string; stages: { process_id: string | null; source_loose_fabric_id: string | null }[] | null }[]).map(
+      (y) => ({ item_id: y.item_id, stages: y.stages ?? [] }),
+    ),
+    isUnravelling,
+  );
+}
+
+/**
+ * THE CONVERSION SAVE RULES (0636) — the order Fabric BOM's own function
+ * (`conversionStepProblems`), over this payload. A For = Yarn IWO has no
+ * cloth to knit a loose fabric into, so a conversion step there is refused.
+ */
+async function conversionProblem(
+  s: Db,
+  bomId: string | null,
+  p: IwoFabricBomParsed,
+  mode: "yarn" | "fabric",
+): Promise<string | null> {
+  let unravelling: Set<string>;
+  try {
+    unravelling = await unravellingIdsOf(s);
+  } catch (e) {
+    return e instanceof Error ? e.message : "Could not read the conversion process";
+  }
+  const isUnravelling = (id: string) => unravelling.has(id);
+  for (const y of p.yarns ?? []) {
+    for (const st of y.stages) {
+      if (!st.process_id || !isUnravelling(st.process_id)) st.source_loose_fabric_id = null;
+    }
+  }
+  const yarns = p.yarns ?? [];
+  const converts = yarns.some((y) => y.stages.some((st) => !!st.process_id && isUnravelling(st.process_id)));
+  if (mode === "yarn") {
+    return converts
+      ? "CONVERSION (unravelling) turns a loose FABRIC into yarn — use it on a For = Fabric work order's Fabric BOM."
+      : null;
+  }
+  const routeSteps = (p.processes ?? []).filter((r) => !!r.process_id);
+  if (!converts && !routeSteps.some((r) => isUnravelling(r.process_id as string))) return null;
+  /* A payload with yarns but no route cannot show the route kept its step, so
+     the stored route answers for it. */
+  let steps: { item_id: string; process_id?: string | null }[] = routeSteps;
+  if (!p.processes && bomId) {
+    const { data, error } = await s.from("iwo_fabric_bom_processes").select("item_id, process_id").eq("bom_id", bomId);
+    if (error) return `Could not read the stored route: ${error.message}`;
+    steps = (data ?? []) as { item_id: string; process_id: string | null }[];
+  }
+  let links: ConversionLinks;
+  try {
+    links = await conversionLinksOfSave(s, bomId, p);
+  } catch (e) {
+    return e instanceof Error ? e.message : "Could not read the yarn steps";
+  }
+  const ids = [...new Set([...yarns.map((y) => y.item_id), ...steps.map((r) => r.item_id)])];
+  const { data: named, error } = ids.length
+    ? await s.from("items").select("id, name").in("id", ids)
+    : { data: [], error: null };
+  if (error) return `Could not read the fabric and yarn names: ${error.message}`;
+  const nameOf = new Map(((named ?? []) as { id: string; name: string | null }[]).map((r) => [r.id, r.name ?? ""]));
+  return (
+    conversionStepProblems({
+      yarns: yarns.map((y) => ({ name: nameOf.get(y.item_id) || "This yarn", stages: y.stages })),
+      links,
+      routeSteps: steps,
+      isUnravelling,
+      fabricName: (id) => nameOf.get(id) || "This fabric",
+    })[0] ?? null
+  );
 }
 
 /**
@@ -320,6 +434,8 @@ async function writeYarns(
     weight: ReturnType<typeof iwoYarnModePurchase>,
     extra: Record<string, unknown>,
     shades: Record<string, unknown>[] = [],
+    /** 0636 — this yarn's CONVERSION answer, and which steps unravel. */
+    conversion?: { answer: ConvertedYarn | Refusal | undefined; isUnravelling: (id: string) => boolean },
   ): Built => {
     const refused = isRefusal(weight);
     const byCombo = refused ? [] : weight.byCombo;
@@ -335,8 +451,31 @@ async function writeYarns(
           : { purchase_qty: weight.qty, uom_id: weight.uom_id, refusal_reason: null }),
       },
       stages: kept.map((st, i) => {
+        /* A CONVERSION STEP (0636, the order's 0633 rule): it carries the dyed
+           yarn the unravelling must deliver and names its loose fabric; its
+           loss is the loose fabric's route step, so none is stored here. */
+        if (conversion && st.process_id && conversion.isUnravelling(st.process_id)) {
+          const a = conversion.answer;
+          const figure = a && !isRefusal(a) ? a : null;
+          const why = refused ? weight.refused : a && isRefusal(a) ? a.refused : null;
+          return {
+            sno: i + 1,
+            stage_id: st.stage_id ?? null,
+            process_id: st.process_id,
+            loss_for_id: st.loss_for_id ?? null,
+            combo: null,
+            description: st.description ?? null,
+            loss_pct: null,
+            ...colorLossesForStorage(false, {}),
+            source_loose_fabric_id: st.source_loose_fabric_id ?? null,
+            ...(figure
+              ? { process_qty: figure.qty, uom_id: figure.uom_id, refusal_reason: null }
+              : { process_qty: null, uom_id: null, refusal_reason: why }),
+          };
+        }
         const problem = refused ? weight.refused : st.process_id ? stageProblem(st.combo ?? null, byCombo) : null;
         return {
+          source_loose_fabric_id: null,
           sno: i + 1,
           stage_id: st.stage_id ?? null,
           process_id: st.process_id ?? null,
@@ -429,7 +568,17 @@ async function writeYarns(
       return "The yarn weights need the fabric lines and their routes in the same save — reopen the BOM and save again.";
     }
     const lines = keptIwoFabricLines(p.lines);
-    const fabricIds = [...new Set(lines.map((l) => l.item_id))];
+    /* LOOSE FABRIC CONVERSION (0636) — the loose fabrics' blend and route are
+       read like any cloth's; their demand is planned below. */
+    let unravelling: Set<string>;
+    try {
+      unravelling = await unravellingIdsOf(s);
+    } catch (e) {
+      return e instanceof Error ? e.message : "Could not read the conversion process";
+    }
+    const isUnravelling = (id: string) => unravelling.has(id);
+    const links = conversionLinksOf(p.yarns, isUnravelling);
+    const fabricIds = [...new Set([...lines.map((l) => l.item_id), ...linkedLooseFabricIds(links)])];
     const { compositions } = await getBomYarnComposition(fabricIds);
     const compById = new Map<string, FabricComposition>(compositions.map((c) => [c.fabric_id, c]));
     const nameOf = (id: string) => compById.get(id)?.fabric_name || "this fabric";
@@ -477,32 +626,47 @@ async function writeYarns(
         "the previously saved figures have been kept. Reopen the BOM, wait for Yarn Process to fill in, and save again."
       );
     }
+    /* THE ORDER'S OWN PLAN (0633), on this IWO's buckets — the preview calls
+       the same `planConversions` on the same inputs. */
+    const plan = planConversions({
+      links,
+      fabrics: gross,
+      compositions: compById,
+      routesByFabric: routes,
+      decimals: kg?.decimals ?? null,
+      nameOf: (id) => compById.get(id)?.fabric_name,
+    });
     const seen = new Set<string>();
     for (const y of sent) {
       if (seen.has(y.item_id)) continue;
       seen.add(y.item_id);
       const stages = startedStages(y);
-      const weight = yarnPurchase(
-        y.item_id,
-        gross,
-        compById,
-        routes,
-        stages.map((st) => ({
+      const weight = yarnPurchaseWithConversion(y.item_id, plan, {
+        fabrics: gross,
+        compositions: compById,
+        routesByFabric: routes,
+        /* Less any CONVERSION step — its loss is the loose fabric's. */
+        ownStages: withoutConversionSteps(stages, isUnravelling).map((st) => ({
           combo: st.combo ?? null,
           loss_pct: st.loss_pct ?? null,
           dyed: !!st.stage_id && dyedYarnStages.has(st.stage_id),
           /* 0613 — same gate the stored row goes through in `build`. */
           color_losses: colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses).color_losses,
         })),
-        kg?.decimals ?? null,
+        decimals: kg?.decimals ?? null,
         // Every IWO fabric is knitted from yarn (the order screen's Source
         // control is hidden, so its default is the only answer). The shades
         // are Details ▸ Yarn Dyed Details' — the same two arguments the
         // preview passes.
-        new Map(),
+        sourceByFabric: new Map(),
         shades,
+      });
+      out.push(
+        build(y, stages, weight, { planned_kgs: null, buy_stage_id: null }, [], {
+          answer: plan.converted.get(y.item_id),
+          isUnravelling,
+        }),
       );
-      out.push(build(y, stages, weight, { planned_kgs: null, buy_stage_id: null }));
     }
   }
 
@@ -650,6 +814,12 @@ async function routeProblem(s: Db, bomId: string | null, p: IwoFabricBomParsed):
   if (greige) return greige.message;
   const typeById = await fabricTypesOf(s, [...new Set(rows.map((r) => r.item_id))]);
   if (typeof typeById === "string") return typeById;
+  let looseIds: Set<string>;
+  try {
+    looseIds = new Set(linkedLooseFabricIds(await conversionLinksOfSave(s, bomId, p)));
+  } catch (e) {
+    return e instanceof Error ? e.message : "Could not read the conversion process";
+  }
   const problems = stageRouteProblems(
     rows.map((r, i) => ({
       key: String(i),
@@ -669,6 +839,8 @@ async function routeProblem(s: Db, bomId: string | null, p: IwoFabricBomParsed):
         printDeclared: true,
         fabricIsYarnDyed: isYarnDyed(typeById.get(itemId) ?? null),
         fabricIsPieceDyed: isPieceDyed(typeById.get(itemId) ?? null),
+        /* 0636 — CONVERSION runs on a linked loose fabric's route only. */
+        looseFabricRoute: looseIds.has(itemId),
       }),
     },
   );
@@ -839,6 +1011,8 @@ export async function saveIwoFabricBom(
   if (lineErr) return { ok: false, error: lineErr };
   const routeErr = await routeProblem(s, bomId, p);
   if (routeErr) return { ok: false, error: routeErr };
+  const conversionErr = await conversionProblem(s, bomId, p, mode);
+  if (conversionErr) return { ok: false, error: conversionErr };
   const header = { iwo_id: p.iwo_id, bom_date: p.bom_date, is_draft: p.is_draft, remark: p.remark || null };
 
   let id: string;

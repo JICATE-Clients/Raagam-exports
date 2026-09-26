@@ -225,7 +225,13 @@ export async function exportGosPdf(
           { content: `PO Qty ${fmtNumber(style.poQty)}`, colSpan: 2, styles: { fontStyle: "bold", halign: "right", fontSize: 9, fillColor: [246, 247, 249] } },
         ],
         gosStyleFacts(style).slice(0, 3).flat(),
-        [...gosStyleFacts(style).slice(3).flat(), "", ""],
+        /* Six facts since the CAD status joined (0628): two rows of three pairs.
+           A pending CAD prints its value red, as on screen (spec §6.2). */
+        gosStyleFacts(style)
+          .slice(3)
+          .flatMap(([k, v]): CellInput[] =>
+            k === "CAD" && style.cad?.pending ? [k, { content: v, styles: { textColor: [179, 38, 30], fontStyle: "bold" } }] : [k, v],
+          ),
         ...(style.coordinateWarning
           ? [[{ content: style.coordinateWarning, colSpan: 6, styles: { fontStyle: "bold", textColor: [179, 38, 30] } } as CellInput]]
           : []),

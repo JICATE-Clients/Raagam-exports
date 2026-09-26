@@ -95,6 +95,40 @@ export const AMENDMENT_MODULES: readonly {
   { key: "order_budget", label: "Order Budget", hint: "Overheads, Freight, Operational Rates", kind: "budget_revision" },
 ];
 
+/**
+ * WHAT CHANGES INSIDE EACH OTHER MODULE (client 2026-09-24, screenshot 3051:
+ * Order Entry listed its detail, the other three did not). The three words
+ * each module's hint already printed, now ticked the same way Order Entry's
+ * kinds are.
+ *
+ * A RECORD, NOT A LOCK. Since 0627 a picked module opens WHOLE, so these
+ * never narrow the scope — they say what the revision touches, for the
+ * register, the revision page and the MD's sheet. Which is also why they are
+ * not kinds: a kind carries seeded scope rows (0604), and these must not.
+ * Stored as `<module>.<detail>` in `order_budget_revisions.module_details`
+ * (0630).
+ */
+export type DetailModule = "material_bom" | "fabric_bom" | "order_budget";
+export const MODULE_DETAILS: Readonly<Record<DetailModule, readonly { value: string; label: string }[]>> = {
+  material_bom: [
+    { value: "material_bom.trims", label: "Trims" },
+    { value: "material_bom.accessories", label: "Accessories" },
+    { value: "material_bom.packaging", label: "Packaging Items" },
+  ],
+  fabric_bom: [
+    { value: "fabric_bom.yarn_structure", label: "Yarn Structure" },
+    { value: "fabric_bom.process_loss", label: "Process Loss" },
+    { value: "fabric_bom.fabric_allocation", label: "Fabric Allocations" },
+  ],
+  order_budget: [
+    { value: "order_budget.overheads", label: "Overheads" },
+    { value: "order_budget.freight", label: "Freight" },
+    { value: "order_budget.operational_rates", label: "Operational Rates" },
+  ],
+};
+export const MODULE_DETAIL_VALUES: readonly string[] = Object.values(MODULE_DETAILS).flatMap((d) => d.map((x) => x.value));
+const DETAIL_LABEL = new Map(Object.values(MODULE_DETAILS).flatMap((d) => d.map((x) => [x.value, x.label] as const)));
+
 /** The kinds a raise may name (the register offers these; `bom_revision` is legacy). */
 export const OFFERED_KINDS: readonly AmendmentEntryType[] = [
   ...ORDER_CHANGE_KINDS,
@@ -128,10 +162,18 @@ export function moduleLabel(m: AmendmentModule): string {
 }
 
 /** "Order Entry (Quantity Addition) + Fabric BOM" — the register's Change Type. */
-export function entryScopeLabel(types: readonly string[]): string {
+export function entryScopeLabel(types: readonly string[], details: readonly string[] = []): string {
   const kinds = types.filter((t) => (ORDER_CHANGE_KINDS as readonly string[]).includes(t) || LEGACY_ORDER_KINDS.has(t));
+  /* Each module's ticked detail in brackets, as Order Entry's kinds are — an
+     entry raised before 0630 has none and reads exactly as it did. */
+  const detailOf = (m: AmendmentModule) =>
+    details.filter((d) => d.startsWith(`${m}.`)).map((d) => DETAIL_LABEL.get(d) ?? d);
   return modulesOf(types)
-    .map((m) => (m === "order_entry" && kinds.length ? `Order Entry (${kinds.map(amendmentTypeLabel).join(", ")})` : moduleLabel(m)))
+    .map((m) => {
+      if (m === "order_entry") return kinds.length ? `Order Entry (${kinds.map(amendmentTypeLabel).join(", ")})` : moduleLabel(m);
+      const d = detailOf(m);
+      return d.length ? `${moduleLabel(m)} (${d.join(", ")})` : moduleLabel(m);
+    })
     .join(" + ") || amendmentTypesLabel(types);
 }
 
@@ -148,10 +190,28 @@ export function kindsMoveBoms(types: readonly string[]): boolean {
  * A raise's module/kind selection, validated the way the door explains it.
  * Null = fine.
  */
-export function moduleSelectionProblem(v: { modules: readonly AmendmentModule[]; orderKinds: readonly string[] }): string | null {
+export function moduleSelectionProblem(v: {
+  modules: readonly AmendmentModule[];
+  orderKinds: readonly string[];
+  /** The other modules' ticked detail (0630). Omitted = not checked (a caller
+   *  re-validating an entry raised before the detail existed). */
+  details?: readonly string[];
+}): string | null {
   if (v.modules.length === 0) return "Pick at least one module to revise";
   if (v.modules.includes("order_entry") && v.orderKinds.length === 0) {
     return "Say what changes on the order — PO Qty, Delivery Date, FOB Price or Color Combos";
+  }
+  return v.details ? moduleDetailProblem(v.modules, v.details) : null;
+}
+
+/** The same rule as Order Entry's kinds, for each other module: ticked means
+ *  say what inside it (0630). Pass only the modules THIS raise picks — one an
+ *  open entry already carries brought its detail with it. */
+export function moduleDetailProblem(modules: readonly AmendmentModule[], details: readonly string[]): string | null {
+  for (const m of Object.keys(MODULE_DETAILS) as DetailModule[]) {
+    if (modules.includes(m) && !details.some((d) => d.startsWith(`${m}.`))) {
+      return `Say what changes in the ${moduleLabel(m)} — ${MODULE_DETAILS[m].map((x) => x.label).join(", ")}`;
+    }
   }
   return null;
 }
@@ -399,8 +459,65 @@ export const ALWAYS_OPEN_WHILE_AMENDING: FrozenScope = {
   garment_order_amendment_files: whole(),
 };
 
+/**
+ * A PICKED MODULE OPENS WHOLE (0627, client 2026-09-24: "click back into any
+ * chosen module … to edit and re-save freely"). The MODULE is the lock
+ * boundary, not the kind: an entry whose stored scope names ANY Order Entry
+ * table reads the whole order document open — every header column, every
+ * child grid — and the kinds stay on the entry only as what the MD is told
+ * changed. Laid over the stored scope at READ time, like the files overlay
+ * above, so every open entry widens at once and the seed is untouched.
+ * `order_amendment_order_entry_whole()` is the SQL twin; check:amendment-scope
+ * holds the two literals together.
+ */
+export const ORDER_ENTRY_WHOLE: FrozenScope = {
+  garment_order_amendments: { columns: null, insert: false, delete: false },
+  ...all(
+    [
+      "garment_order_amendment_approval_qtys",
+      "garment_order_amendment_assort_line_sizes",
+      "garment_order_amendment_assort_lines",
+      "garment_order_amendment_charges",
+      "garment_order_amendment_combo_components",
+      "garment_order_amendment_combo_structures",
+      "garment_order_amendment_combos",
+      "garment_order_amendment_country_sizes",
+      "garment_order_amendment_dyeings",
+      "garment_order_amendment_files",
+      "garment_order_amendment_pack_components",
+      "garment_order_amendment_pack_type_lines",
+      "garment_order_amendment_pack_types",
+      "garment_order_amendment_price_details",
+      "garment_order_amendment_prints",
+      "garment_order_amendment_quantities",
+      "garment_order_amendment_structures",
+      "garment_order_amendment_style_components",
+      "garment_order_amendment_style_coordinates",
+      "garment_order_amendment_style_prices",
+      "garment_order_amendment_style_processes",
+      "garment_order_amendment_style_sizes",
+      "garment_order_amendment_styles",
+    ],
+    whole(),
+  ),
+};
+
+/** The order's colour / print tables, open whenever the Fabric BOM is picked —
+ *  its Colour/Print tab writes them (`writePalette`, 0627). SQL twin:
+ *  `order_amendment_fabric_bom_palette()`. */
+export const FABRIC_BOM_PALETTE: FrozenScope = {
+  garment_order_amendment_dyeings: whole(),
+  garment_order_amendment_prints: whole(),
+};
+
+/** Does this STORED scope pick Order Entry — any Order Entry table at all? */
+export function touchesOrderEntry(stored: FrozenScope): boolean {
+  return Object.keys(stored).some((t) => t.startsWith("garment_order_amendment"));
+}
+
 /** Read a stored `scope` jsonb back, tolerating whatever shape was written —
- *  with `ALWAYS_OPEN_WHILE_AMENDING` laid over it, as the trigger reads it. */
+ *  with the module widenings (0627) and `ALWAYS_OPEN_WHILE_AMENDING` laid over
+ *  it, in the order the trigger's `order_amendment_of` lays them. */
 export function scopeFromJson(json: unknown): FrozenScope {
   if (typeof json !== "object" || json === null || Array.isArray(json)) return { ...ALWAYS_OPEN_WHILE_AMENDING };
   const out: Record<string, ScopeEntry> = {};
@@ -414,8 +531,15 @@ export function scopeFromJson(json: unknown): FrozenScope {
     };
   }
   /* Laid OVER the stored scope (jsonb `||` in SQL: the right side wins), so a
-     stored entry naming the files table narrower cannot narrow it back. */
-  return { ...out, ...ALWAYS_OPEN_WHILE_AMENDING };
+     stored entry naming the files table narrower cannot narrow it back. The
+     module widenings are tested against the STORED scope, before the files
+     overlay, so the files table alone never counts as picking Order Entry. */
+  return {
+    ...out,
+    ...(touchesOrderEntry(out) ? ORDER_ENTRY_WHOLE : {}),
+    ...(out.order_fabric_boms && out.order_fabric_boms.columns === null ? FABRIC_BOM_PALETTE : {}),
+    ...ALWAYS_OPEN_WHILE_AMENDING,
+  };
 }
 
 /** Is the table in the scope at all (any column, any op)? */
@@ -609,7 +733,10 @@ export function openAreasOf(scope: FrozenScope): string[] {
   const out: string[] = [];
   const header = scope.garment_order_amendments;
   if (header) {
-    if (header.columns === null) out.push("orderinfo", ...new Set(Object.values(ORDER_HEADER_FIELD_AREAS)));
+    /* The WHOLE header open means the whole document is (0627), T&A included —
+       its tables are never locked (UNLOCKED_CHILD_TABLES), only its rail
+       section was, for want of anything that opened it. */
+    if (header.columns === null) out.push("orderinfo", "ta", ...new Set(Object.values(ORDER_HEADER_FIELD_AREAS)));
     else {
       for (const c of header.columns) {
         const a = ORDER_HEADER_FIELD_AREAS[c];

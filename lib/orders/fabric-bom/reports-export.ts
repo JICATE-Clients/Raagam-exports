@@ -25,6 +25,7 @@
  * `YarnFabricRequirementReport` the on-screen Sheet holds, so the file and the
  * screen can never disagree the way two implementations of one export would.
  */
+import { drawCadPendingStamp } from "@/lib/orders/cad-lifecycle/stamp";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -121,7 +122,7 @@ const SWATCH_PADDING = { top: 3, right: 3, bottom: 3, left: 12 };
 /** WHERE A CONTINUED TABLE RESUMES on a later page of the portrait
  *  requirement PDF — below the `Page : n/m` stamp at y = 62, which a table
  *  resuming at autoTable's default margin printed straight over. */
-const CONTINUED_TOP = 72;
+export const CONTINUED_TOP = 72;
 
 /**
  * KEEP A HEADING WITH ITS TABLE. With less than `need` points left above the
@@ -134,10 +135,10 @@ function roomFor(doc: jsPDF, y: number, need: number): number {
   return CONTINUED_TOP - 14;
 }
 
-function monoStyles() {
+export function monoStyles() {
   return { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 };
 }
-function monoHead() {
+export function monoHead() {
   return { fillColor: [235, 237, 240] as [number, number, number], textColor: 20, fontStyle: "bold" as const };
 }
 
@@ -151,7 +152,7 @@ export type PdfOutput = "download" | "print";
  * swallowed by the popup blocker. So the exporter opens an empty tab
  * synchronously and fills it at the end. Null for a download.
  */
-function openPrintTab(output: PdfOutput): Window | null {
+export function openPrintTab(output: PdfOutput): Window | null {
   return output === "print" && typeof window !== "undefined" ? window.open("", "_blank") : null;
 }
 
@@ -160,7 +161,7 @@ function openPrintTab(output: PdfOutput): Window | null {
  * dialog raised (`autoPrint`). A print whose tab was blocked falls back to the
  * download — the operator still gets the document, just not the dialog.
  */
-function finishPdf(doc: jsPDF, filename: string, output: PdfOutput, tab: Window | null): void {
+export function finishPdf(doc: jsPDF, filename: string, output: PdfOutput, tab: Window | null): void {
   if (output === "print" && tab && !tab.closed) {
     doc.autoPrint();
     tab.location.href = doc.output("bloburl").toString();
@@ -323,7 +324,7 @@ function drawLetterhead(
  * Yarn & Fabric Requirement sheet: this one says when the FIGURES were worked
  * out, which can be days before someone prints them.
  */
-function pageFooter(doc: jsPDF, header: BomDocHeader, opts?: { pageNumbers?: boolean }): void {
+export function pageFooter(doc: jsPDF, header: BomDocHeader, opts?: { pageNumbers?: boolean }): void {
   const M = 36;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   const pages = doc.getNumberOfPages();
@@ -339,6 +340,11 @@ function pageFooter(doc: jsPDF, header: BomDocHeader, opts?: { pageNumbers?: boo
     if (opts?.pageNumbers !== false) {
       doc.text(`Page ${p} / ${pages}`, RIGHT, doc.internal.pageSize.getHeight() - 20, { align: "right" });
     }
+    /* THE CAD STAMP (0628) on EVERY page — a loose sheet of a multi-page report
+       must carry it too. Gated on the header's own flag, so the Material BOM
+       export that shares this footer (lib/orders/requirement/export.ts) never
+       draws it. A bordered badge, not a watermark: see cad-lifecycle/stamp.ts. */
+    if (header.cadPending) drawCadPendingStamp(doc);
   }
 }
 
@@ -528,42 +534,27 @@ export async function exportEntryRegisterPdf(data: EntryRegister, output: PdfOut
 // ---------------------------------------------------------------------------
 
 /**
- * THE LEGACY PRINTOUT, COLUMN FOR COLUMN — "Yarndyed _Format.pdf", the RP
- * system's own export, supplied by the client 2026-09-15 and rebuilt here
- * 2026-09-16 against a side-by-side comparison of the two documents.
+ * THE LEGACY RP REQUIREMENT HEADER — centred company, unit and registered
+ * address, the centred title, "Report Printed Date & Time", the Customer /
+ * Delivery grid, and the RE No / Order No / Style Ref No / Style / Excess% /
+ * Unit row under a five-column Quantity block ending in Cut. Shared by the
+ * Yarn & Fabric Requirement and the Accessories Requirement (client
+ * 2026-09-24, "Accessories Requirement.pdf" — the same band as the RP
+ * printout), so the two documents cannot drift apart. Moved out of
+ * `exportYarnRequirementPdf` unchanged except for the title.
  *
- * PORTRAIT, not the landscape this file's other export uses. That is not a
- * style choice: the legacy sheet is a portrait A4 an operator prints and signs
- * at the bottom, and the same document in landscape leaves the process
- * sections stranded in a page of white — the client's own complaint about the
- * Components/Widths sheets earlier the same month ("this much huge … still
- * blank space", AGENTS.md "A sub-detail Sheet's size").
- *
- * FIVE THINGS THE FIRST VERSION MISSED, all of them structure rather than
- * arithmetic:
- *
- *  1. The order facts were ONE RUN-ON LINE. Legacy sets them as a bordered
- *     grid — Customer / Delivery over RE No / Order
- *     No / Style Ref No / Style / Excess% / Unit and a five-column Quantity
- *     block — and the grid is what makes five numbers beside each other
- *     readable as a breakdown rather than a sentence.
- *  2. There was NO YARN DYEING SECTION at all; the yarn table stopped at the
- *     grey purchase rows. See `YarnDyeingLine` in ./reports.ts.
- *  3. The process ledgers had no `Dia/Size` and no `Nos/Mtrs` — so a flat-knit
- *     collar, which is ordered by the PIECE, had nowhere to show its count.
- *  4. The `Details` cell named the cloth but not its composition, and the
- *     `[YD Combo Name]` the knitting floor works to was nowhere on the page.
- *  5. No `Prepared By / Checked By / Approved By`. A document that is signed
- *     needs somewhere to sign it.
+ * Returns where the next table starts, and the printed-at line's Y for
+ * `stampTopPageNumbers`.
  */
-export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport, output: PdfOutput = "download"): Promise<void> {
-  const tab = openPrintTab(output);
-  const logo = await loadLetterheadImage(data.header.company.logo);
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+export function drawLegacyRequirementHeader(
+  doc: jsPDF,
+  h: BomDocHeader,
+  title: string,
+  logo: LetterheadImage | null,
+): { y: number; printedY: number } {
   const M = 28;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   const MID = doc.internal.pageSize.getWidth() / 2;
-  const h = data.header;
 
   /* THE LEGACY LAYOUT KEEPS ITS CENTRED TITLE; the logo (2026-09-19) sits at
      the top LEFT, fitted to 96 x 32 pt, clear of the centred lines and above
@@ -609,7 +600,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   const titleY = Math.max(48, headY + 13);
-  doc.text("YARN AND FABRIC REQUIREMENT", MID, titleY, { align: "center" });
+  doc.text(title.toUpperCase(), MID, titleY, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
@@ -714,6 +705,50 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
     },
   });
   y = finalY(doc, y);
+
+  return { y, printedY };
+}
+
+
+/**
+ * THE LEGACY PRINTOUT, COLUMN FOR COLUMN — "Yarndyed _Format.pdf", the RP
+ * system's own export, supplied by the client 2026-09-15 and rebuilt here
+ * 2026-09-16 against a side-by-side comparison of the two documents.
+ *
+ * PORTRAIT, not the landscape this file's other export uses. That is not a
+ * style choice: the legacy sheet is a portrait A4 an operator prints and signs
+ * at the bottom, and the same document in landscape leaves the process
+ * sections stranded in a page of white — the client's own complaint about the
+ * Components/Widths sheets earlier the same month ("this much huge … still
+ * blank space", AGENTS.md "A sub-detail Sheet's size").
+ *
+ * FIVE THINGS THE FIRST VERSION MISSED, all of them structure rather than
+ * arithmetic:
+ *
+ *  1. The order facts were ONE RUN-ON LINE. Legacy sets them as a bordered
+ *     grid — Customer / Delivery over RE No / Order
+ *     No / Style Ref No / Style / Excess% / Unit and a five-column Quantity
+ *     block — and the grid is what makes five numbers beside each other
+ *     readable as a breakdown rather than a sentence.
+ *  2. There was NO YARN DYEING SECTION at all; the yarn table stopped at the
+ *     grey purchase rows. See `YarnDyeingLine` in ./reports.ts.
+ *  3. The process ledgers had no `Dia/Size` and no `Nos/Mtrs` — so a flat-knit
+ *     collar, which is ordered by the PIECE, had nowhere to show its count.
+ *  4. The `Details` cell named the cloth but not its composition, and the
+ *     `[YD Combo Name]` the knitting floor works to was nowhere on the page.
+ *  5. No `Prepared By / Checked By / Approved By`. A document that is signed
+ *     needs somewhere to sign it.
+ */
+export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport, output: PdfOutput = "download"): Promise<void> {
+  const tab = openPrintTab(output);
+  const logo = await loadLetterheadImage(data.header.company.logo);
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  const M = 28;
+  const RIGHT = doc.internal.pageSize.getWidth() - M;
+  const h = data.header;
+
+  const { y: headerEndY, printedY } = drawLegacyRequirementHeader(doc, h, "Yarn and Fabric Requirement", logo);
+  let y = headerEndY;
 
   /* THE KEY — what the stage colours below mean, once, under the order
      facts (2026-09-20). */
@@ -1152,7 +1187,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
 /* `firstPageY` keeps page 1's stamp level with its "Report Printed" line,
    which moves down when the unit and registered address print above it;
    later pages keep the fixed position they always had. */
-function stampTopPageNumbers(doc: jsPDF, firstPageY = 62): void {
+export function stampTopPageNumbers(doc: jsPDF, firstPageY = 62): void {
   const M = 28;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   const pages = doc.getNumberOfPages();
@@ -1203,7 +1238,7 @@ function detailsCell(l: StageBreakdownLine): string {
  * than flowed after the last table — a sign-off that lands halfway up a page
  * because the content was short reads as part of the content.
  */
-function signOffFooter(doc: jsPDF): void {
+export function signOffFooter(doc: jsPDF): void {
   const M = 28;
   const W = doc.internal.pageSize.getWidth();
   const bottom = doc.internal.pageSize.getHeight() - 34;
@@ -1221,7 +1256,7 @@ function signOffFooter(doc: jsPDF): void {
 }
 
 /** Where the table just drawn ended, or `fallback` when none was. */
-function finalY(doc: jsPDF, fallback: number): number {
+export function finalY(doc: jsPDF, fallback: number): number {
   const after = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
   return after?.finalY ?? fallback;
 }

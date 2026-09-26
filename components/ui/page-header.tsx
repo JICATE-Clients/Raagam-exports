@@ -78,8 +78,12 @@ export function PageHeader({
       {/* Back leads the row, then the screen's own actions. Rendered whenever
           EITHER exists — a listing that passes no `actions` (its toolbar lives
           in `MasterListShell` below the header) must still get its way out. */}
+      {/* WRAPS, AND NO LABEL BREAKS (2026-09-24, phone at 390px): the row was a
+          bare `flex`, so two buttons that did not fit SHRANK and each label broke
+          across two lines — "← Back to Order / Management" beside "Raise /
+          Revision". A button that does not fit now moves to the next line whole. */}
       {(backLink || actions) && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 [&_a]:whitespace-nowrap [&_button]:whitespace-nowrap">
           {backLink}
           {actions}
         </div>

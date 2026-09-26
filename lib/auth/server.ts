@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPreviewedRoleIds, getRolesPreview } from "./role-simulation";
@@ -24,11 +25,55 @@ import {
  * exists. See `lib/auth/role-simulation.ts` for why this is a cookie.
  */
 export const getAppUser = cache(async (): Promise<AppUser | null> => {
+  /* ONE LOAD PER REQUEST, IN AN ACTION TOO (2026-09-24, "every click takes
+     3 s"). React's `cache()` above only dedupes during a RENDER; inside a
+     server action it calls straight through, so every `can()` in an action
+     re-read the user — 2 round trips (~520 ms) each, and an action commonly
+     makes two or three. The request's own `headers()` object is one instance
+     for the whole request (Next caches it per request), so a WeakMap keyed on
+     it is a memo that lives exactly as long as the request and no longer:
+     nothing crosses to another request or another user. */
+  const key = await requestKey();
+  const hit = key ? perRequest.get(key) : undefined;
+  if (hit) return hit;
+  const load = loadAppUser();
+  if (key) perRequest.set(key, load);
+  return load;
+});
+
+const perRequest = new WeakMap<object, Promise<AppUser | null>>();
+
+async function requestKey(): Promise<object | null> {
+  try {
+    return (await headers()) as unknown as object;
+  } catch {
+    return null; // outside a request (a script, a cron with no request store)
+  }
+}
+
+/**
+ * Drop this request's remembered user — for an action that CHANGES who the
+ * user is mid-request (the unit switch, a role preview), so the page it
+ * re-renders before replying reads the new state, not the one memoised above.
+ */
+export async function forgetAppUser(): Promise<void> {
+  const key = await requestKey();
+  if (key) perRequest.delete(key);
+}
+
+async function loadAppUser(): Promise<AppUser | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  /* getClaims(), NOT getUser(): the JWT is verified LOCALLY against the
+     project's published ES256 key (see lib/supabase/middleware.ts) — the
+     same guarantee with no round trip to Supabase Auth. */
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims;
+  if (!claims?.sub) return null;
+  const user = {
+    id: claims.sub,
+    email: typeof claims.email === "string" ? claims.email : null,
+    phone: typeof claims.phone === "string" && claims.phone ? claims.phone : null,
+  };
 
   const [{ data: profile }, { data: perms }, { data: roles }, previewedRoleIds] =
     await Promise.all([
@@ -75,7 +120,7 @@ export const getAppUser = cache(async (): Promise<AppUser | null> => {
     roleNames: preview.names,
     permissions: preview.permissions,
   };
-});
+}
 
 /** Require an authenticated user or redirect to /login. */
 export async function requireUser(): Promise<AppUser> {

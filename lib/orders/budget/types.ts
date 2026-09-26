@@ -548,7 +548,14 @@ export type BudgetableOrder = {
   /** Which budget already covers it, if any. Advisory: two DRAFT budgets over
    *  one order is someone comparing two groupings, and only APPROVAL is refused
    *  (0428). */
-  in_budget: { id: string; code: string | null; status: BudgetStatus } | null;
+  in_budget: {
+    id: string;
+    code: string | null;
+    status: BudgetStatus;
+    /** An OPEN revision entry is on this budget (Orders ▸ Order Revisions) —
+     *  so a `submitted` budget is a revision with the MD, not a first submit. */
+    in_revision: boolean;
+  } | null;
   /**
    * THE PREREQUISITE GATE (user 2026-09-19): an order is budgeted only once
    * BOTH its Fabric BOM and its Material BOM are saved — `is_draft = false`, the

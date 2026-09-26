@@ -731,7 +731,8 @@ body {
 
 /*
  * Bug Reporter (JKKN Bug Boundary) floating button — on phones our MobileNav is
- * fixed at the bottom (~64px bar + a raised FAB). The SDK positions its trigger
+ * a tab bar docked at the bottom (56px + the iOS home-indicator inset; no FAB
+ * since 2026-09-24). The SDK positions its trigger
  * (`.bug-reporter-floating-btn` inside `.bug-reporter-sdk`) at bottom:1rem via a
  * mobile `!important` rule, which would sit on top of our nav. Lift it above the
  * nav on phones. The leading `html` raises specificity above the SDK's rule so
@@ -741,12 +742,18 @@ body {
   /* NB: both classes are on the SAME element, so this is a compound selector
    * (no space). The leading `html` lifts specificity to (0,2,1), beating the
    * SDK's own (0,2,0) `!important` rule and its inline bottom:1.5rem. */
+  /* BOTTOM-LEFT, NOT RIGHT (2026-09-24, 390px walk of Orders). Bottom-right
+   * sat on the editor footer's Close button and on the last list card's Edit
+   * and Status badge: every primary action in this app is right-aligned. The
+   * left edge holds labels and "All changes saved", which it can cover at
+   * little cost. (The black "N" there is Next's dev badge — dev only.) */
   html .bug-reporter-sdk.bug-reporter-floating-btn {
-    bottom: 5.25rem !important;
-    right: 1rem !important;
-    /* Shrink to sit comfortably above the (also-shrunk) create FAB. */
+    bottom: calc(4.25rem + env(safe-area-inset-bottom)) !important;
+    right: auto !important;
+    left: 1rem !important;
+    /* Kept small so it covers as little of the list above the bar as it can. */
     transform: scale(0.82) !important;
-    transform-origin: bottom right !important;
+    transform-origin: bottom left !important;
   }
 }
 
@@ -1318,6 +1325,31 @@ body {
 [data-field-style="lines"] [data-field]:has(> [data-field-label]) *:has(> [data-field-affordance]),
 [data-field-style="lines"] [data-field]:has(> [data-field-label]) [data-field-pair] {
   max-width: 100%;
+}
+
+/* BIGGER TYPE, THIS EDITOR ONLY (client 2026-09-18: "font size should be
+   big"). The app-wide answer already exists and is deliberately NOT what this
+   is: `lib/type-scale.ts` offers Standard and Compact, the top bar switches
+   between them, and Compact was made the default on 2026-09-16 at another
+   client's request. Changing that default would resize all 128 screens to
+   settle a complaint about one, so the step up lives on the surface that
+   asked for it — the same one attribute that already gives this editor its
+   underlines, so no call site changes and no other screen moves.
+
+   14px against Compact's 12px label / 13px value: a full step, still inside
+   the scale rather than an arbitrary size. The label column widens with it —
+   at 9.5rem the longer labels ("Correspondence Address") began wrapping to two
+   lines, which puts the colon above its own line. */
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) {
+  grid-template-columns: 10.5rem minmax(0, 1fr);
+}
+[data-field-style="lines"] [data-field-label],
+[data-field-style="lines"] input:not([type="checkbox"]):not([type="radio"]),
+[data-field-style="lines"] select,
+[data-field-style="lines"] textarea,
+[data-field-style="lines"] [data-field-trigger] {
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 /* TWO COLUMNS, ONE FIELD PER LINE (client 2026-09-16: "in every fields you

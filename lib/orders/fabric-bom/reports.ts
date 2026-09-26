@@ -1,4 +1,5 @@
 import "server-only";
+import { cadOrderPending } from "@/lib/orders/cad-lifecycle/guard";
 import { createClient } from "@/lib/supabase/server";
 import { getOrderProduction } from "@/lib/orders/bom-order-basis";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
@@ -8,8 +9,12 @@ import {
   comboUpliftBreakdown,
   resolveRouteComponents,
   stageCoversCombo,
+  type FabricComposition,
+  type FabricGross,
   type RouteStage,
 } from "./yarn-process";
+import { conversionLinksOf, linkedLooseFabricIds, planConversions } from "./loose-conversion";
+import { isYarnDyedFabricType } from "@/lib/masters/fabric-name";
 import {
   asFabricSource,
   clothPurchaseLabel,
@@ -175,6 +180,15 @@ export type QtyBreakdown = {
 
 export type BomDocHeader = {
   bomId: string;
+  /**
+   * THE ORDER'S CAD IS NOT YET APPROVED (doc/order/cad.md §4.3, 0628) — any
+   * current style's latest CAD version is not Approved. A Fabric BOM report
+   * printed in that state carries the "CAD PENDING — estimates" stamp
+   * (`lib/orders/cad-lifecycle/stamp.ts`). Read LIVE, and laid over a frozen
+   * V_final copy by its host, so an approval after the freeze lifts it.
+   * Fabric BOM documents only — the Material BOM's header leaves it unset.
+   */
+  cadPending?: boolean;
   /** The order this BOM is keyed to — carried through so a report can resolve
    *  order-level facts (e.g. a structure's GSM) without a second lookup of
    *  something `loadBomDocHeader` already read. */
@@ -221,17 +235,68 @@ export type BomDocHeader = {
   };
 };
 
+/**
+ * WHICH BOM A HEADER IS READ OFF. The header is an ORDER-level fact set — the
+ * customer, RE No, style, delivery and the Order / Excess / Approval /
+ * Rej.Allow / Cut quantity band — and only two reads ever touched the BOM: its
+ * own row (number, date, unit) and its lines' Style Ref No. So the Material
+ * BOM's Accessories Requirement (client 2026-09-24, the RP printout's header
+ * band) reads the same header through this one loader rather than a copy.
+ */
+type DocSource = {
+  what: string;
+  table: "order_fabric_boms" | "material_bom_amendments";
+  select: string;
+  dateCol: "bom_date" | "amend_date";
+  linesTable: "order_fabric_bom_lines" | "material_bom_amendment_items";
+  linesKey: "bom_id" | "amendment_id";
+};
+
+const FABRIC_BOM_DOC: DocSource = {
+  what: "Fabric BOM",
+  table: "order_fabric_boms",
+  select: "id, code, garment_order_id, bom_date, computed_at, is_draft, location_id",
+  dateCol: "bom_date",
+  linesTable: "order_fabric_bom_lines",
+  linesKey: "bom_id",
+};
+
+/* No `location_id` on a Material BOM — the unit falls back to its order's,
+   the second half of the rule below. */
+const MATERIAL_BOM_DOC: DocSource = {
+  what: "Material BOM",
+  table: "material_bom_amendments",
+  select: "id, code, garment_order_id, amend_date, computed_at, is_draft",
+  dateCol: "amend_date",
+  linesTable: "material_bom_amendment_items",
+  linesKey: "amendment_id",
+};
+
 async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRefusal> {
+  return loadDocHeader(FABRIC_BOM_DOC, bomId);
+}
+
+/** The same header, read off a Material BOM (the Accessories Requirement). */
+export async function loadMaterialBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRefusal> {
+  return loadDocHeader(MATERIAL_BOM_DOC, bomId);
+}
+
+async function loadDocHeader(src: DocSource, bomId: string): Promise<BomDocHeader | ReportRefusal> {
   const s = await createClient();
 
-  const { data: bomRow, error: bomErr } = await s
-    .from("order_fabric_boms")
-    .select("id, code, garment_order_id, bom_date, computed_at, is_draft, location_id")
-    .eq("id", bomId)
-    .maybeSingle();
+  const { data: bomData, error: bomErr } = await s.from(src.table).select(src.select).eq("id", bomId).maybeSingle();
 
-  if (bomErr) return { refused: `Could not read the Fabric BOM: ${bomErr.message}` };
-  if (!bomRow) return { refused: "This Fabric BOM no longer exists." };
+  if (bomErr) return { refused: `Could not read the ${src.what}: ${bomErr.message}` };
+  if (!bomData) return { refused: `This ${src.what} no longer exists.` };
+  const bomRow = bomData as unknown as {
+    id: string;
+    code: string | null;
+    garment_order_id: string;
+    bom_date?: string | null;
+    amend_date?: string | null;
+    computed_at: string | null;
+    location_id?: string | null;
+  };
 
   const { data: goRow, error: goErr } = await s
     .from("garment_order_amendments")
@@ -243,7 +308,7 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     .maybeSingle();
 
   if (goErr) return { refused: `Could not read the order: ${goErr.message}` };
-  if (!goRow) return { refused: "This Fabric BOM's order no longer exists." };
+  if (!goRow) return { refused: `This ${src.what}'s order no longer exists.` };
 
   const go = goRow as unknown as {
     id: string;
@@ -259,8 +324,7 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
      carry one — then its order's. A failed read REFUSES the report rather than
      printing no unit: an empty unit line on a document sent to a supplier reads
      as "this came from nowhere", and `data ?? null` would hide the failure. */
-  const locationId =
-    (bomRow as { location_id?: string | null }).location_id ?? go.sales_order?.location_id ?? null;
+  const locationId = bomRow.location_id ?? go.sales_order?.location_id ?? null;
   let unitName: string | null = null;
   if (locationId) {
     const { data: loc, error: locErr } = await s
@@ -279,10 +343,10 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
      line agrees — same abstain rule `fabricAllocationColumns`'s GSM lookup
      uses ("one distinct answer or nothing"), rather than picking the first
      line's style and mislabelling a multi-style document. */
-  const [order, coRes, styleRes, orderStyleRes] = await Promise.all([
+  const [order, coRes, styleRes, orderStyleRes, cadPending] = await Promise.all([
     getOrderProduction(go.id),
     s.from("company_profile").select("*").limit(1).maybeSingle(),
-    s.from("order_fabric_bom_lines").select("style_ref_no").eq("bom_id", bomId),
+    s.from(src.linesTable).select("style_ref_no").eq(src.linesKey, bomId),
     /* THE ORDER'S OWN STYLE ROWS, for the `Style` column beside `Style Ref No`
        (legacy printout). Read off the amendment rather than the BOM because
        the BOM's line only carries the REF; the name lives with the order. */
@@ -296,6 +360,9 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
          — checked below, which is what made it findable at all. */
       .select("style_ref_no, description, style:garment_styles!style_id(style_name)")
       .eq("amendment_id", go.id),
+    /* THE CAD STAMP'S FLAG (0628) — a Fabric BOM's own question; the Material
+       BOM shares this loader and never asks it. */
+    src.table === "order_fabric_boms" ? cadOrderPending(go.id) : Promise.resolve(undefined),
   ]);
   if (orderStyleRes.error) {
     return { refused: `Could not read the order's styles: ${orderStyleRes.error.message}` };
@@ -338,9 +405,10 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
 
   return {
     bomId: bomRow.id,
+    cadPending,
     garmentOrderId: bomRow.garment_order_id,
     bomCode: bomRow.code,
-    bomDate: bomRow.bom_date,
+    bomDate: bomRow[src.dateCol] ?? null,
     computedAt: bomRow.computed_at,
     scNo: go.sales_order?.order_number ?? null,
     customer: go.customer?.name ?? null,
@@ -1474,6 +1542,14 @@ export type YarnFabricRequirementReport = {
 
 export async function yarnFabricRequirementReport(
   bomId: string,
+  /**
+   * `allocation: false` — skip the Fabric Allocation section, and with it the
+   * whole Entry Register it is read off (~20 queries of its own). For a caller
+   * that reads the figures, not the printed page: the T&A tracker, the budget
+   * pull and the fabric requirement never touch `allocation` (2026-09-24,
+   * "T&A tab takes 2 seconds"). The section then says why it is absent.
+   */
+  opts: { allocation?: boolean } = {},
 ): Promise<YarnFabricRequirementReport | ReportRefusal> {
   /* THE REGISTER STARTS FIRST AND IS AWAITED LAST (2026-09-24, "T&A tab takes
      2 seconds" — the Fabric BOM T&A tab reads this report). It needs nothing
@@ -1481,7 +1557,10 @@ export async function yarnFabricRequirementReport(
      finished, adding its own chain of round trips to the end of this one. The
      `.catch` only marks the promise handled for the early refusals that never
      await it; the `await` at the bottom still sees any rejection. */
-  const registerP = fabricBomEntryRegister(bomId);
+  const registerP: ReturnType<typeof fabricBomEntryRegister> =
+    opts.allocation === false
+      ? Promise.resolve({ refused: "Fabric Allocation not loaded for this reader" })
+      : fabricBomEntryRegister(bomId);
   registerP.catch(() => {});
 
   const s = await createClient();
@@ -1493,24 +1572,42 @@ export async function yarnFabricRequirementReport(
      genuinely live-computed — it has never been persisted in ladder form (see
      `comboUpliftBreakdown`'s header), so there is nothing stored to read.
      Read beside the header, not after it: it keys on `bomId` alone. */
-  const [header, { data: yarnRows, error: yarnErr }] = await Promise.all([
+  const [header, { data: yarnRows, error: yarnErr }, unravelRes] = await Promise.all([
     loadBomDocHeader(bomId),
     s
       .from("order_fabric_bom_yarns")
-      .select("item_id, purchase_qty, uom_id, refusal_reason, stages:order_fabric_bom_yarn_stages(loss_pct)")
+      /* `process_id, source_loose_fabric_id` (0633) — which yarn is unravelled
+         from which loose fabric, so the loose fabric's own route prints below
+         and the stripes it replaces do not. */
+      .select(
+        "item_id, purchase_qty, uom_id, refusal_reason, " +
+          "stages:order_fabric_bom_yarn_stages(loss_pct, process_id, source_loose_fabric_id)",
+      )
       .eq("bom_id", bomId),
+    s.from("processes").select("id").eq("is_unravelling", true),
   ]);
   if (isReportRefusal(header)) return header;
 
   if (yarnErr) return { refused: `Could not read the yarn purchase rows: ${yarnErr.message}` };
+  /* READ, NOT COALESCED AWAY: an empty answer would print a converted yarn's
+     collar stripes as yarn to dye and drop the loose fabric's route. */
+  if (unravelRes.error) return { refused: `Could not read the conversion process: ${unravelRes.error.message}` };
 
   const rows = (yarnRows ?? []) as unknown as {
     item_id: string;
     purchase_qty: number | null;
     uom_id: string | null;
     refusal_reason: string | null;
-    stages: { loss_pct: number | string | null }[] | null;
+    stages: { loss_pct: number | string | null; process_id: string | null; source_loose_fabric_id: string | null }[] | null;
   }[];
+  /* LOOSE FABRIC CONVERSION (0633) — the links, off the STORED steps and the
+     master's flag, exactly as `normalizeYarns` read them at Save. */
+  const unravelling = new Set(((unravelRes.data ?? []) as { id: string }[]).map((r) => r.id));
+  const conversionLinks = conversionLinksOf(
+    rows.map((r) => ({ item_id: r.item_id, stages: r.stages ?? [] })),
+    (id) => unravelling.has(id),
+  );
+  const looseFabricIds = linkedLooseFabricIds(conversionLinks);
 
   /* THE YARN'S OWN TREATMENTS, COMPOUNDED — `/(1-L)` per stage, sequentially,
      which is `comboUplift`'s form and `yarnPurchase`'s own reading of the same
@@ -1794,15 +1891,35 @@ export async function yarnFabricRequirementReport(
     if (entry?.widthForm) widthFormByFabric.set(r.item_id, entry.widthForm);
   }
 
-  const fabricItemIds = [...netByFabricComboPanels.keys()];
-  const processesRes = fabricItemIds.length
-    ? await s
-        .from("order_fabric_bom_processes")
-        .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct, color_wise_loss, color_losses")
-        .eq("bom_id", bomId)
-        .in("item_id", fabricItemIds)
-        .order("sno", { ascending: true })
-    : { data: [] as unknown[], error: null };
+  /* PLUS THE LINKED LOOSE FABRICS (0633) — on no requirement row (a loose
+     fabric is unravelled, never cut), but their route and blend are read like
+     any cloth's so their ladder prints and their greige yarn is traced. */
+  const fabricItemIds = [...new Set([...netByFabricComboPanels.keys(), ...looseFabricIds])];
+  /* THE ROUTE AND THE MIXINGS IN ONE ROUND (2026-09-24, "T&A tab takes
+     2 seconds"): both key on `fabricItemIds` alone and neither reads the
+     other, but the mixings used to wait for the route to land first. The
+     fabric TYPES and the kilogram's precision (0633) join the same round,
+     and only when this document converts a yarn. */
+  const [processesRes, mixRes, fabricTypeRes, kgPrecisionRes] = await Promise.all([
+    fabricItemIds.length
+      ? s
+          .from("order_fabric_bom_processes")
+          .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct, color_wise_loss, color_losses")
+          .eq("bom_id", bomId)
+          .in("item_id", fabricItemIds)
+          .order("sno", { ascending: true })
+      : Promise.resolve({ data: [] as unknown[], error: null }),
+    fabricItemIds.length
+      ? s.from("material_mixings").select("item_id, component_item_id, blend_pct, shade").in("item_id", fabricItemIds)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
+    looseFabricIds.length && fabricItemIds.length
+      ? s.from("items").select("id, fabric_type:config_lookups!fabric_type_id(name)").in("id", fabricItemIds)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
+    looseFabricIds.length && reqUomIds.length === 1
+      ? s.from("uoms").select("decimal_places_allowed").eq("id", reqUomIds[0]).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (fabricTypeRes.error) return { refused: `Could not read the fabric types: ${fabricTypeRes.error.message}` };
   if ((processesRes as { error: { message: string } | null }).error) {
     return {
       refused: `Could not read the process ledger: ${(processesRes as { error: { message: string } }).error.message}`,
@@ -1852,16 +1969,14 @@ export async function yarnFabricRequirementReport(
      than through `getBomYarnComposition` (service.ts) so `shade` can ride
      along in the same query; that helper's own callers don't need it and
      widening its shape for one reader risks it drifting for the others. */
-  const mixRes = fabricItemIds.length
-    ? await s.from("material_mixings").select("item_id, component_item_id, blend_pct, shade").in("item_id", fabricItemIds)
-    : { data: [] as unknown[], error: null };
+  // `mixRes` was read beside the route above.
   const mixRows = (mixRes.data ?? []) as unknown as {
     item_id: string | null;
     component_item_id: string | null;
     blend_pct: number | null;
     shade: string | null;
   }[];
-  const compositionByFabric = new Map<string, { fabric_id: string; fabric_name: string; components: { yarn_id: string; blend_pct: number | null }[] }>();
+  const compositionByFabric = new Map<string, FabricComposition>();
   const shadesByYarn = new Map<string, Set<string>>();
   for (const m of mixRows) {
     if (!m.item_id || !m.component_item_id) continue;
@@ -1959,6 +2074,87 @@ export async function yarnFabricRequirementReport(
   }
   // Real fabric names into the compositions built above, now that they exist.
   for (const comp of compositionByFabric.values()) comp.fabric_name = itemNames.get(comp.fabric_id) ?? "(fabric not found)";
+
+  /* ---- LOOSE FABRIC CONVERSION (0633) ---------------------------------------
+     THE SAME `planConversions` THE SAVE RAN, on the same stored inputs — the
+     requirement bucketed per (entry, colourway) exactly as `fabricGrossOf`
+     buckets it, each cloth's route, blend and yarn-dyed type — so the loose
+     fabric's demand printed here is the demand its greige yarn was bought
+     against. Two effects, and only two:
+
+      - the loose fabric becomes one more cloth in the ledger below, so its
+        KNITTING, DYEING and CONVERSION sections print (and the Budget's
+        fabric-process lines, which are read off these sections, cost them);
+      - a converted yarn's yarn-dyed cloths leave the YARN DYEING block and the
+        yarn drawer for that yarn — their colour comes from the loose fabric's
+        dye bath, and their yarn is unravelled, not bought. */
+  const convertedFeeds = new Map<string, Set<string>>();
+  /** Printed under the ledger with the other unresolved slices, below. */
+  const conversionRefusals: string[] = [];
+  if (conversionLinks.size) {
+    const typeById = new Map<string, string | null>(
+      (
+        (fabricTypeRes.data ?? []) as {
+          id: string;
+          fabric_type: { name: string | null } | { name: string | null }[] | null;
+        }[]
+      ).map((r) => [r.id, (Array.isArray(r.fabric_type) ? r.fabric_type[0]?.name : r.fabric_type?.name) ?? null]),
+    );
+    for (const comp of compositionByFabric.values()) {
+      comp.yarn_dyed = isYarnDyedFabricType(typeById.get(comp.fabric_id) ?? null);
+    }
+    const buckets = new Map<string, FabricGross>();
+    for (const r of reqRows) {
+      if (!r.item_id || !r.entry_id) continue;
+      const bucket = `${r.entry_id}::${comboKey(r.combo)}`;
+      const held = buckets.get(bucket);
+      if (held && held.gross === null) continue; // a refusal poisons its bucket, as in `fabricGrossOf`
+      const panels = [...new Set(panelsByEntry.get(r.entry_id) ?? [])];
+      buckets.set(bucket, {
+        fabric_id: r.item_id,
+        yd_part: partByEntry.get(r.entry_id) || null,
+        combo: r.combo,
+        gross: r.required_qty == null ? null : (held?.gross ?? 0) + Number(r.required_qty),
+        uom_id: r.consumption_uom_id,
+        component_ids: panels,
+        printed: printedGroup(printLines, r.item_id, r.combo, panels),
+      });
+    }
+    const plan = planConversions({
+      links: conversionLinks,
+      fabrics: [...buckets.values()],
+      compositions: compositionByFabric,
+      routesByFabric: routeByFabric,
+      decimals: (kgPrecisionRes.data as { decimal_places_allowed: number | null } | null)?.decimal_places_allowed ?? null,
+      sourceByFabric,
+      nameOf: (id) => itemNames.get(id),
+    });
+    for (const [yarnId, c] of plan.converted) {
+      if ("refused" in c) {
+        conversionRefusals.push(`${itemNames.get(yarnId) ?? "A yarn"}: ${c.refused}`);
+        continue;
+      }
+      convertedFeeds.set(yarnId, new Set(c.fabricIds));
+    }
+    for (const d of plan.looseDemand) {
+      if (d.gross == null) continue;
+      const byCombo = netByFabricComboPanels.get(d.fabric_id) ?? new Map<string, Map<string, NetSlice>>();
+      const byPanels = byCombo.get(d.combo ?? "") ?? new Map<string, NetSlice>();
+      const held = byPanels.get("|") ?? {
+        net: 0,
+        nos: 0,
+        garments: new Map<string, number>(),
+        consWt: 0,
+        dias: new Set<string>(),
+        panels: [],
+        part: "",
+      };
+      held.net += d.gross;
+      byPanels.set("|", held);
+      byCombo.set(d.combo ?? "", byPanels);
+      netByFabricComboPanels.set(d.fabric_id, byCombo);
+    }
+  }
 
   /* THE CLOTHS' BUYING UNITS, resolved to codes. A second `uoms` read rather
      than widening the one above: that one is keyed on the requirement rows'
@@ -2138,7 +2334,7 @@ export async function yarnFabricRequirementReport(
 
   const componentNames = await routeComponentNames(s, routeRows.map((p) => p.component_id));
   if (isReportRefusal(componentNames)) return componentNames;
-  const stageLedgerRefusals: string[] = [];
+  const stageLedgerRefusals: string[] = [...conversionRefusals];
 
   /* A FAILED PROCESS SELECT IS SAID, NOT SWALLOWED.
      `processRes.data ?? []` above reads a failure as "this database has no
@@ -2407,6 +2603,9 @@ export async function yarnFabricRequirementReport(
           for (const comp of composition.components) {
             const declared = composition.components.filter((c) => c.yarn_id === comp.yarn_id);
             if (declared[0] !== comp) continue; // one contribution per yarn per (fabric, combo), not one per mixing row
+            /* 0633 — this cloth's share of a CONVERTED yarn is unravelled, not
+               bought; the loose fabric's own contribution stands for it. */
+            if (convertedFeeds.get(comp.yarn_id)?.has(fabricId)) continue;
             const everyPctKnown = declared.every((c) => c.blend_pct != null);
             const share = everyPctKnown
               ? declared.reduce((sum, c) => sum + (c.blend_pct ?? 0), 0) / 100
@@ -2440,6 +2639,10 @@ export async function yarnFabricRequirementReport(
           const yd = ydComboFor(part);
           mixing.forEach((m, i) => {
             if (m.mixing_pct == null || !m.yarn_item_id) return; // a share the panel refused: named there, not guessed here
+            /* 0633 — a stripe knitted from CONVERTED yarn is dyed in the loose
+               fabric's bath (its DYEING section), never as yarn: a dye-house
+               lot here would charge the same colour twice. */
+            if (convertedFeeds.get(m.yarn_item_id)?.has(fabricId)) return;
             dyeingSlices.push({
               yarnItemId: m.yarn_item_id,
               yarnName: m.yarn_name,

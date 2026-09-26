@@ -668,6 +668,8 @@ export type StyleLineLike = {
   style_ref_no?: string | null;
   style_category_id?: string | null;
   unit_kind?: string | null;
+  /** Layout Type (0628). A line begun only by picking it is a started line. */
+  layout_type?: string | null;
   description?: string | null;
   po_qty?: string | number | null;
   article_no?: string | null;
@@ -724,6 +726,7 @@ export function styleLineStarted(r: StyleLineLike): boolean {
     filled(r.style_ref_no) ||
     r.style_category_id ||
     filled(r.unit_kind) ||
+    filled(r.layout_type) ||
     filled(r.description) ||
     filled(r.po_qty) ||
     filled(r.article_no) ||

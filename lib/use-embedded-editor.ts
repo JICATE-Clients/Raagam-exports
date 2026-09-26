@@ -22,6 +22,12 @@ export type EmbedTarget = {
   id: string;
   /** Where Save / Cancel return to. */
   returnHref: string;
+  /**
+   * The rail section to open on — the revision's category, so a Price Change
+   * lands on Prices rather than Order Info (client 2026-09-24,
+   * `revisionLandingOf`). Only screens with a section rail read it.
+   */
+  section?: string | null;
 };
 
 export function useEmbeddedEditor(opts: {

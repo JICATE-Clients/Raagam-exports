@@ -332,6 +332,7 @@ export function MasterFullScreen({
   onEnterSection,
   railCollapsed = false,
   fitRail = false,
+  railHeading = "Sections",
   onExpandRail,
   initialSection,
   summary,
@@ -476,6 +477,17 @@ export function MasterFullScreen({
    */
   fitRail?: boolean;
   /**
+   * What the rail calls itself. Default "Sections".
+   *
+   * A generic word is right on a generic editor, and wrong on one the operator
+   * knows by the thing it holds — the HR record's rail is the staff member's
+   * own file, so it says so (client 2026-09-19: "there is name called sections
+   * right, make the name as staff info"). Kept as a PROP rather than a rename
+   * because this shell carries every master in the app; "Staff Info" over a
+   * Vendor's rail would be worse than the generic word it replaced.
+   */
+  railHeading?: string;
+  /**
    * Bring the rail back. Required in spirit by `railCollapsed`: without it the
    * fold is a one-way door, and the operator has no way to reach another section
    * except by leaving the record.
@@ -540,9 +552,12 @@ export function MasterFullScreen({
    *    the way out ("Reopen the budget (Amendment Protocol) to change it").
    *  - **Every field inside is read-only**, through `LockScope`: the primitives
    *    read it, so no editor has to thread `readOnly` through its cells.
-   *  - **Save REFUSES WITH THE MESSAGE and stays ENABLED** — the footer's own
-   *    rule (`onBlockedSave`): a disabled Save hands Enter and Ctrl+S to the
-   *    button before it, which is the 2026-07-25 bug. Clicked, it says why.
+   *  - **The footer is one Close, as for `viewOnly`** (user 2026-09-24: an
+   *    approved order showed a dimmed Save that could only ever refuse — "no
+   *    orphaned save buttons"). This REVERSES the earlier rule, under which
+   *    Save stayed enabled and toasted the reason: a Save that exists to say
+   *    no is a button the operator keeps trying. Ctrl+S still answers with the
+   *    message (`fireSave`), so the key is never silent.
    *
    * The DATABASE is the lock (0576's triggers); this is what makes the refusal a
    * sentence on screen before anything is typed rather than an error after.
@@ -554,8 +569,12 @@ export function MasterFullScreen({
    * areas only; a SECTION whose key is in the set is unlocked whole (its
    * content is wrapped for it), a header FIELD is wrapped by the screen. The
    * banner then reads the entry, not the refusal, and Save is live.
+   *
+   * **`action`** — the way out, drawn at the banner's right (an order's
+   * "+ Raise Revision", which LINKS to the register rather than raising here:
+   * the register stays the one door, user 2026-09-23 / 09-24).
    */
-  locked?: { message: ReactNode; open?: readonly string[] } | false;
+  locked?: { message: ReactNode; open?: readonly string[]; action?: ReactNode } | false;
   /**
    * OPENED TO READ, NOT TO CHANGE — the row's Eye (client 2026-09-19, Order
    * Entry: the Eye used to open a sheet of raw columns; "open the full order
@@ -699,7 +718,10 @@ export function MasterFullScreen({
    */
   const nextSectionKey =
     sections[sections.findIndex((s) => s.key === section) + 1]?.key ?? null;
-  const stepping = !viewOnly && !!footer.stepper && nextSectionKey !== null;
+  /* READ, NOT EDITED: the Eye, or a lock with nothing open (see `locked`).
+     Both get the one-Close footer and no step guards. */
+  const reading = viewOnly || (!!locked && !(locked.open && locked.open.length > 0));
+  const stepping = !reading && !!footer.stepper && nextSectionKey !== null;
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1082,7 +1104,7 @@ export function MasterFullScreen({
    * either — see `StepBlock`.
    */
   const stepBlockOf = (fromKey: string): StepBlock | null => {
-    if (viewOnly) return null; // a reader is never sealed out — see `viewOnly`
+    if (reading) return null; // a reader is never sealed out — see `viewOnly`
     const r = footer.stepGuard?.(fromKey);
     if (!r) return null;
     return typeof r === "string" ? { reason: r } : r;
@@ -1451,8 +1473,15 @@ export function MasterFullScreen({
             railCollapsed && "md:hidden",
           )}
         >
-          <span className="ty-sidebar-group hidden px-2 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground md:block">
-            Sections
+          {/* BIGGER AND BOLDER, and `ty-sidebar-group` had to GO for it to be
+              either (client 2026-09-19). That class is set by the compact type
+              scale as `html[data-type-scale="compact"] .ty-sidebar-group`,
+              which at (0,2,1) outranks any Tailwind utility beside it — so the
+              `text-[10.5px] font-bold` written here was never what rendered;
+              11px at weight 500 was. Dropping the class is what lets the
+              utilities win, rather than piling on an `!important`. */}
+          <span className="hidden px-2 pb-1.5 pt-1 text-sm font-bold uppercase tracking-wide text-foreground md:block">
+            {railHeading}
           </span>
           {railRows.map((s) => {
             const isActive = section === s.key;
@@ -1686,7 +1715,7 @@ export function MasterFullScreen({
                 className="mb-3 hidden items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground md:inline-flex"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
-                Sections
+                {railHeading}
               </button>
             )}
             {/* THE RAIL NAMES THE SECTION, SO THE SECTION DOES NOT NAME
@@ -1703,9 +1732,10 @@ export function MasterFullScreen({
             {locked && (
               <div
                 role="status"
-                className="mb-4 rounded-md border border-warning bg-warning-soft px-3 py-2 text-sm text-warning"
+                className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-warning bg-warning-soft px-3 py-2 text-sm text-warning"
               >
-                {locked.message}
+                <div className="min-w-0 flex-1">{locked.message}</div>
+                {locked.action}
               </div>
             )}
             {paneHeading && active && (
@@ -1885,7 +1915,7 @@ export function MasterFullScreen({
               outline: it is the surface's primary (and only) action, so it is
               also what Enter off the last field and `submitTargetOf` resolve
               to, and nothing else can be. */}
-          {viewOnly ? (
+          {reading ? (
             <Button size="sm" onClick={footer.onCancel}>
               Close
             </Button>

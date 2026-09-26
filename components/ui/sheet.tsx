@@ -75,7 +75,7 @@ let bodyLockRestore: { overflow: string; paddingRight: string } | null = null;
  * out against the viewport, not the body, so body padding cannot hold it — and
  * because the viewport is what got wider, a RIGHT-anchored fixed element moves
  * right by the same ~15px. In this app that is the toast stack
- * (`components/ui/toast.tsx`, `fixed bottom-4 right-4`) and the floating
+ * (`components/ui/toast.tsx`, `fixed … right-4`) and the floating
  * bug-reporter button, which is an external SDK and not ours to lay out. Fixing
  * those needs `scrollbar-gutter: stable` on `html` in `app/globals.css`, which
  * reserves the gutter permanently and makes the whole class of shift impossible

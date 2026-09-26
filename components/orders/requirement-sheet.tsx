@@ -1,177 +1,197 @@
 import { DocumentPrintStyles } from "./document-print-styles";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
-import {
-  requirementRows,
-  requirementSummary,
-  sheetQty,
-  type SheetRow,
-} from "@/lib/orders/requirement/sheet";
+import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
+import { ACCESSORY_COLUMNS, accessoryQty, accessoryRows } from "@/lib/orders/requirement/sheet";
 import type { RequirementSheetData } from "@/lib/orders/requirement/service";
 
 /**
- * The Accessories Requirement Sheet.
+ * THE ACCESSORIES REQUIREMENT, ON SCREEN, IN THE RP PRINTOUT'S LAYOUT (client
+ * 2026-09-24, "Accessories Requirement.pdf").
  *
- * Rebuilt from the printed original (Format.pdf, 22-08-2026): the same sections,
- * the same column names and the same figures, so a supplier who knows the legacy
- * sheet reads this one without being told. What is new is hierarchy — item
- * category as a grouping band rather than a repeated cell, size rows indented
- * under their parent with the total inverted, every figure in a mono face so the
- * columns align, and the quantity derivation stated once instead of implied by
- * four header numbers.
+ * The same document the PDF draws (`exportAccessoriesRequirementPdf`), so what
+ * the operator checks here is what the supplier is sent:
  *
- * ## THE MEDIUM DECIDES, NOT THE OPERATOR
+ *   - the centred company and title;
+ *   - Customer and the Delivery window;
+ *   - RE No · Order No · Style Ref No · Style · Excess% · Unit under a
+ *     Quantity block — Order · Excess · Approval · Rej.Allow · Cut. The header
+ *     is the Yarn & Fabric Requirement's own (`loadMaterialBomDocHeader`), so
+ *     the two documents never disagree about an order's quantities;
+ *   - TRIMS PURCHASE — Category · Item · Color · Specification · UOM · Item
+ *     Size · Qty · Consumption, the category written once over its items;
+ *   - Prepared By / Checked By / Approved By.
  *
- * This colour view IS the document — the app is digital-first and this is a tab
- * on the record, not a preview of a piece of paper. Print and PDF switch
- * themselves to the ink-safe layout (`.req-*` rules in `DocumentPrintStyles`,
- * and the jspdf routine draws its own mono table), so there is no toggle, no
- * setting, and nothing an operator can get wrong. A sheet handed to a supplier
- * on a mono laser must not depend on somebody having remembered.
+ * The printout's SQ No / SQ Description and its "SQ" column are the standing
+ * 2026-09-23 decision: gone, and the column reads Cut. "SC No" reads RE No.
  *
- * ## SERVER COMPONENT
- *
- * No state, no effects, no `"use client"`. The toolbar that owns the three
- * exports is a client island beside it — this is the document, and a document
- * that re-renders is a document that can differ from the one that was signed.
+ * A server component with nothing to hydrate; the three buttons above it are
+ * `RequirementToolbar`.
  */
 export function RequirementSheetDocument({ data }: { data: RequirementSheetData }) {
-  const rows = requirementRows(data.rows, data.names);
-  const summary = requirementSummary(rows);
+  const rows = accessoryRows(data.rows, data.names);
+  /* A sheet frozen as V_final before 2026-09-24 carries no header — it still
+     prints its body, and says why the band above is missing. */
+  const h = data.header && !isReportRefusal(data.header) ? data.header : null;
+  const q = h && !isReportRefusal(h.qty) ? h.qty : null;
+  const withPct = (qty: number, pct: number | null) => (pct == null ? fmtNumber(qty) : `${fmtNumber(qty)} (${pct.toFixed(2)}%)`);
 
   return (
     <>
       <DocumentPrintStyles scope="req" />
-      <article className="req-sheet mx-auto max-w-[1100px] overflow-hidden rounded-md border border-border bg-white text-[#16181d] shadow-sm">
-        {/* Identity band. The green stripe is the ONE place brand green is spent
-            on this document; everything else that carries colour is the primary
-            blue, so the sheet reads as one thing rather than a palette. */}
-        <div className="grid grid-cols-[6px_1fr]">
-          <div className="req-stripe bg-[#85c227]" />
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#16181d] px-5 py-4">
-            <div>
-              <div className="text-[21px] font-bold tracking-wide">
-                {data.company.name ?? "RAAGAM EXPORTS"}
-              </div>
-              <div className="max-w-[46ch] text-[11.5px] leading-relaxed text-[#5b6472]">
-                {data.company.address}
-                {data.company.gstin ? ` · GSTIN ${data.company.gstin}` : ""}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[15px] font-bold uppercase tracking-[.14em] text-[#037bb8]">
-                Accessories Requirement
-              </div>
-              <div className="font-mono text-[13px]">{data.bom.code ?? "—"}</div>
-              <div className="font-mono text-[11px] text-[#8b95a3]">
-                {data.bom.amendmentNo != null ? `Amendment ${data.bom.amendmentNo}` : ""}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <dl className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] border-b border-border">
-          <Fact label="Customer" value={data.order.customer} />
-          <Fact label="SC No" value={data.order.scNo} mono />
-          <Fact label="Order No" value={data.order.orderNo} mono />
-          <Fact label="Order Dt" value={fmtDate(data.order.orderDate)} mono />
-          <Fact label="Delivery Dt" value={fmtDate(data.order.deliveryDate)} mono />
-          <Fact label="BOM Dt" value={fmtDate(data.bom.amendDate)} mono />
-        </dl>
-
-        {/* THE DERIVATION, STATED ONCE. The legacy sheet printed four header
-            numbers and left the reader to work out which of them the trims were
-            actually bought against. This says it. */}
-        <div className="req-keep flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-[#f1f3f5] px-5 py-2.5 font-mono text-[12.5px]">
-          <span className="font-semibold text-[#037bb8]">
-            {data.bom.computedForQty != null ? fmtNumber(data.bom.computedForQty) : "—"}
-          </span>
-          <span className="text-[#8b95a3]">pcs planned</span>
-          {data.order.excessPct != null && (
-            <>
-              <span className="text-[#8b95a3]">· buyer excess</span>
-              <span>{data.order.excessPct}%</span>
-            </>
+      <article className="req-sheet mx-auto max-w-[1100px] overflow-hidden rounded-md border border-border bg-white px-6 py-5 text-[12px] text-[#16181d] shadow-sm">
+        {/* THE CENTRED LETTERHEAD — company, unit, title — as the printout. */}
+        <header className="text-center">
+          <div className="text-[16px] font-bold uppercase tracking-wide">{data.company.name ?? h?.company.name ?? "RAAGAM EXPORTS"}</div>
+          {h?.company.unit && <div className="text-[11px] font-semibold uppercase">{h.company.unit}</div>}
+          {(h?.company.address ?? data.company.address) && (
+            <div className="text-[11px] text-[#5b6472]">{h?.company.address ?? data.company.address}</div>
           )}
-          <span className="ml-auto font-sans text-[11.5px] text-[#5b6472]">
-            Rejection allowance is shown on the order and <b>not</b> bought — a garment cut and
-            scrapped has eaten its cloth, not its trims.
-          </span>
+          <div className="mt-1 text-[14px] font-bold uppercase tracking-wide">Accessories Requirement</div>
+        </header>
+
+        <div className="mt-2 flex flex-wrap justify-between gap-2 text-[10.5px] text-[#5b6472]">
+          {/* WHEN THE FIGURES WERE STORED, not when the page was opened — the
+              PDF prints its own print time; this page states the data's age. */}
+          <span>Requirement stored: {data.bom.computedAt ? fmtDateTime(data.bom.computedAt) : "—"}</span>
+          <span className="font-mono">{data.bom.code ?? ""}</span>
         </div>
 
-        <section>
-          <div className="flex items-baseline gap-3 border-b border-border bg-[#eaf7fd] px-5 py-2">
-            <h2 className="m-0 text-[12.5px] font-bold uppercase tracking-[.14em] text-[#037bb8]">
-              Trims Purchase
-            </h2>
-            <span className="ml-auto font-mono text-[11px] text-[#5b6472]">
-              {summary.items} item{summary.items === 1 ? "" : "s"} · {summary.categories} categor
-              {summary.categories === 1 ? "y" : "ies"}
-              {summary.split ? ` · ${summary.split} size-split` : ""}
-            </span>
-          </div>
-          <div className="req-scroll">
-            <table className="w-full border-collapse text-[13px]">
-              <thead>
-                <tr>
-                  <Th>Item</Th>
-                  <Th>Colour</Th>
-                  <Th>UOM</Th>
-                  <Th>Size</Th>
-                  <Th right>Qty</Th>
-                  <Th>Consumption</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <Row key={r.key} row={r} />
+        {!h && data.header && isReportRefusal(data.header) && (
+          <p className="mt-2 rounded-sm bg-[#fdf1f1] px-3 py-2 text-[12px] font-medium text-destructive">{data.header.refused}</p>
+        )}
+
+        {/* CUSTOMER · DELIVERY WINDOW */}
+        <table className="req-grid mt-1 w-full border-collapse">
+          <tbody>
+            <tr>
+              <Cell>
+                <b>Customer:</b> {h?.customer ?? data.order.customer ?? ""}
+              </Cell>
+              <Cell>
+                <b>Delivery window From</b> {fmtDate(h?.deliveryFromDate ?? data.order.deliveryDate)}{" "}
+                <b className="ml-3">To:</b> {fmtDate(h?.deliveryToDate ?? h?.deliveryFromDate ?? data.order.deliveryDate)}
+              </Cell>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* THE STYLE ROW UNDER THE QUANTITY BLOCK — Order + Excess + Approval
+            + Rej.Allow = Cut, read as a sum. */}
+        <table className="req-grid mt-1 w-full border-collapse">
+          <thead>
+            <tr>
+              <Head rowSpan={2}>RE No.</Head>
+              <Head rowSpan={2}>Order No.</Head>
+              <Head rowSpan={2}>Style Ref No</Head>
+              <Head rowSpan={2}>Style</Head>
+              <Head rowSpan={2}>Excess%</Head>
+              <Head rowSpan={2}>Unit</Head>
+              <Head colSpan={5} center>
+                Quantity
+              </Head>
+            </tr>
+            <tr>
+              <Head right>Order</Head>
+              <Head right>Excess</Head>
+              <Head right>Approval</Head>
+              <Head right>Rej.Allow</Head>
+              <Head right>Cut</Head>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <Cell mono>{h?.scNo ?? data.order.scNo ?? ""}</Cell>
+              <Cell mono>{h?.orderNo ?? data.order.orderNo ?? ""}</Cell>
+              <Cell mono>{h?.styleRefNo ?? ""}</Cell>
+              <Cell>{h?.styleName ?? ""}</Cell>
+              <Cell right>{h?.excessPct != null ? `${h.excessPct}` : ""}</Cell>
+              <Cell>{q ? "PCS" : ""}</Cell>
+              <Cell right>{q ? fmtNumber(q.orderQty) : ""}</Cell>
+              <Cell right>{q ? fmtNumber(q.excessQty) : ""}</Cell>
+              <Cell right>{q ? withPct(q.approvalQty, q.approvalPct) : ""}</Cell>
+              <Cell right>{q ? withPct(q.rejectionQty, q.rejectionPct) : ""}</Cell>
+              <Cell right bold>
+                {q ? fmtNumber(q.cutQty) : ""}
+              </Cell>
+            </tr>
+          </tbody>
+        </table>
+        {h && isReportRefusal(h.qty) && <p className="mt-1 text-[11.5px] font-medium text-destructive">{h.qty.refused}</p>}
+
+        {/* TRIMS PURCHASE */}
+        <h2 className="mb-1 mt-3 text-[12.5px] font-bold uppercase">Trims Purchase</h2>
+        <div className="req-scroll">
+          <table className="req-grid w-full border-collapse">
+            <thead>
+              <tr>
+                {ACCESSORY_COLUMNS.map((c) => (
+                  <Head key={c} right={c === "Qty"}>
+                    {c}
+                  </Head>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <div className="grid grid-cols-3 border-t-2 border-[#16181d]">
-          {["Prepared By", "Checked By", "Approved By"].map((s) => (
-            <div key={s} className="border-r border-border px-5 pb-3 pt-8 text-center last:border-r-0">
-              <span className="block border-t border-[#9aa4b2] pt-2 text-[11px] font-semibold uppercase tracking-[.1em] text-[#5b6472]">
-                {s}
-              </span>
-            </div>
-          ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <Cell colSpan={ACCESSORY_COLUMNS.length}>No trims on this Material BOM.</Cell>
+                </tr>
+              )}
+              {rows.map((r) => (
+                <tr key={r.key}>
+                  {r.category != null && (
+                    <Cell rowSpan={r.span} top>
+                      {r.category}
+                    </Cell>
+                  )}
+                  <Cell>{r.item}</Cell>
+                  <Cell>{r.colour ?? ""}</Cell>
+                  <Cell>{r.spec ?? ""}</Cell>
+                  <Cell>{r.uom}</Cell>
+                  <Cell>{r.size ?? ""}</Cell>
+                  {r.qty == null ? (
+                    <Cell danger>{r.refusal ?? "—"}</Cell>
+                  ) : (
+                    <Cell right mono>
+                      {accessoryQty(r.qty)}
+                    </Cell>
+                  )}
+                  <Cell>{r.consumption}</Cell>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
-        {/* WHEN THE FIGURES WERE STORED, not when the page was opened. A sheet
-            that dated itself "now" would look current while printing a
-            requirement computed against an order that has since moved. */}
-        <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 border-t border-border px-5 py-2 font-mono text-[10.5px] text-[#8b95a3]">
-          <span>
-            Requirement stored {data.bom.computedAt ? fmtDateTime(data.bom.computedAt) : "—"}
-          </span>
-          <span>Raagam Exports · Accessories Requirement</span>
+        <div className="mt-12 flex justify-between border-b border-[#16181d] pb-1 text-[11px] font-bold">
+          <span>Prepared By</span>
+          <span>Checked By</span>
+          <span>Approved By</span>
         </div>
       </article>
     </>
   );
 }
 
-function Fact({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
-  return (
-    <div className="border-b border-r border-border px-5 py-2 last:border-r-0">
-      <dt className="mb-px text-[10.5px] font-semibold uppercase tracking-[.1em] text-[#8b95a3]">
-        {label}
-      </dt>
-      <dd className={`m-0 font-medium ${mono ? "font-mono text-[13px]" : "text-[14px]"}`}>
-        {value || "—"}
-      </dd>
-    </div>
-  );
-}
-
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
+function Head({
+  children,
+  rowSpan,
+  colSpan,
+  right,
+  center,
+}: {
+  children: React.ReactNode;
+  rowSpan?: number;
+  colSpan?: number;
+  right?: boolean;
+  center?: boolean;
+}) {
   return (
     <th
-      className={`whitespace-nowrap border-b border-[#9aa4b2] bg-[#f1f3f5] px-2.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[.08em] text-[#5b6472] ${
-        right ? "text-right" : "text-left"
+      rowSpan={rowSpan}
+      colSpan={colSpan}
+      className={`border border-[#9aa4b2] bg-[#d9dcdf] px-2 py-1 text-[11px] font-bold ${
+        right ? "text-right" : center ? "text-center" : "text-left"
       }`}
     >
       {children}
@@ -179,109 +199,39 @@ function Th({ children, right }: { children: React.ReactNode; right?: boolean })
   );
 }
 
-/**
- * One row of the document, by kind.
- *
- * A REFUSAL PRINTS ITS SENTENCE IN THE QTY CELL, never a blank and never a zero.
- * This is the engine's standing rule and a document is the worst place to break
- * it: 0 on a printed requirement reads as "none needed", which is the one answer
- * a trim requirement never intends, and the sheet is what a purchase order is
- * written from.
- */
-function Row({ row }: { row: SheetRow }) {
-  if (row.kind === "category") {
-    return (
-      <tr>
-        <td
-          colSpan={6}
-          className="border-b border-[#9aa4b2] bg-white px-2.5 pb-1.5 pt-3 text-[11.5px] font-bold uppercase tracking-[.1em]"
-        >
-          {row.label}
-        </td>
-      </tr>
-    );
-  }
-
-  if (row.kind === "total") {
-    return (
-      <tr className="req-keep">
-        <td
-          colSpan={4}
-          className="border-b border-[#9aa4b2] bg-[#eef8de] px-2.5 py-1.5 font-semibold text-[#547b19]"
-        >
-          {row.label}
-        </td>
-        <td className="border-b border-[#9aa4b2] bg-[#eef8de] px-2.5 py-1.5 text-right font-mono font-semibold tabular-nums text-[#547b19]">
-          {sheetQty(row.qty, row.decimals)}
-        </td>
-        <td className="border-b border-[#9aa4b2] bg-[#eef8de]" />
-      </tr>
-    );
-  }
-
-  if (row.kind === "size") {
-    return (
-      <tr>
-        <td colSpan={3} className="border-b border-border px-2.5 py-1.5" />
-        <td className="border-b border-border px-2.5 py-1.5 text-[12.5px] text-[#5b6472]">
-          {row.size}
-        </td>
-        <Qty qty={row.qty} refusal={row.refusal} decimals={row.decimals} muted />
-        <td className="border-b border-border px-2.5 py-1.5 font-mono text-[12.5px] text-[#5b6472]">
-          {row.consumption}
-        </td>
-      </tr>
-    );
-  }
-
-  return (
-    <tr>
-      <td className="border-b border-border px-2.5 py-1.5 align-top">
-        <span className="font-medium">{row.head}</span>
-        {row.spec && <span className="block text-[12px] text-[#5b6472]">{row.spec}</span>}
-      </td>
-      <td className="border-b border-border px-2.5 py-1.5">{row.colour || "—"}</td>
-      <td className="border-b border-border px-2.5 py-1.5">{row.uom || "—"}</td>
-      <td className="border-b border-border px-2.5 py-1.5">—</td>
-      {row.split ? (
-        <td className="border-b border-border px-2.5 py-1.5 text-right text-[12px] text-[#8b95a3]">
-          per size
-        </td>
-      ) : (
-        <Qty qty={row.qty} refusal={row.refusal} decimals={row.decimals} />
-      )}
-      <td className="border-b border-border px-2.5 py-1.5 font-mono text-[12.5px]">
-        {row.consumption}
-      </td>
-    </tr>
-  );
-}
-
-function Qty({
-  qty,
-  refusal,
-  decimals,
-  muted,
+function Cell({
+  children,
+  rowSpan,
+  colSpan,
+  right,
+  mono,
+  bold,
+  top,
+  danger,
 }: {
-  qty: number | null;
-  refusal: string | null;
-  decimals: number | null;
-  muted?: boolean;
+  children: React.ReactNode;
+  rowSpan?: number;
+  colSpan?: number;
+  right?: boolean;
+  mono?: boolean;
+  bold?: boolean;
+  top?: boolean;
+  danger?: boolean;
 }) {
-  if (qty == null && refusal) {
-    return (
-      <td className="border-b border-border px-2.5 py-1.5 text-right text-[11.5px] text-[#b91c1c]">
-        {refusal}
-      </td>
-    );
-  }
   return (
     <td
-      className={`border-b border-border px-2.5 py-1.5 text-right font-mono tabular-nums ${
-        muted ? "text-[12.5px] text-[#5b6472]" : "font-medium"
-      }`}
+      rowSpan={rowSpan}
+      colSpan={colSpan}
+      className={[
+        "border border-[#9aa4b2] px-2 py-1 text-[11.5px]",
+        right ? "text-right" : "",
+        mono ? "font-mono tabular-nums" : "",
+        bold ? "font-bold" : "",
+        top ? "align-top" : "",
+        danger ? "text-[#b91c1c]" : "",
+      ].join(" ")}
     >
-      {sheetQty(qty, decimals)}
+      {children}
     </td>
   );
 }

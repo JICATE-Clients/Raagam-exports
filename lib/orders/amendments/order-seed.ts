@@ -674,6 +674,9 @@ export async function seedAmendmentFromOrder(
          inferred unit onto an invoice. The screen asks for it, and the
          coordinate derivation still answers where a line has coordinates. */
       unit_kind: null,
+      /* LAYOUT TYPE (0628) — NULL for `unit_kind`'s reason: a legacy order never
+         declared one, and an inferred layout would decide a CAD approval. */
+      layout_type: null,
       /* THE NAME AND THE ROW IT RESOLVES TO (0461). The text has always been
          seeded from the embed; the id is what a picker can resolve, and both
          come off the same master row here so they cannot disagree. */

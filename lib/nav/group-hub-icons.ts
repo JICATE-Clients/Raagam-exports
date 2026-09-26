@@ -20,6 +20,7 @@ import {
   UserCog,
   UserMinus,
   Wallet,
+  Gavel,
 } from "lucide-react";
 import type { HubMark } from "@/components/masters/hub-icons";
 
@@ -91,6 +92,7 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/hr/payslip": { icon: ReceiptText, tone: "info" },
   "/hr/advances": { icon: HandCoins, tone: "success" },
   "/hr/adjustments": { icon: SlidersHorizontal, tone: "warning" },
+  "/hr/fines": { icon: Gavel, tone: "danger" },
   "/hr/comp-events": { icon: Award, tone: "accent" },
 
   // Compliance & Setup

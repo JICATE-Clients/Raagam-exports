@@ -16,6 +16,7 @@ import {
   ClipboardList,
   FileText,
   PackageCheck,
+  PenTool,
   TrendingUp,
   UserCheck,
   type LucideIcon,
@@ -93,6 +94,17 @@ export const REPORTS: ReportDefinition[] = [
     label: "T&A Staff Performance",
     description: "On-time completion by staff, for the Monthly Review Meeting",
     icon: UserCheck,
+    module: "orders",
+  },
+  /* CAD COMPLETION (doc/order/cad.md §6.1, 0628) — the CAD department's
+     efficiency: versions per style and Final Approval Lead Time (approval date
+     − V1 allocation date). Read from the same `listCadStyles` the CAD Lifecycle
+     screen lists. */
+  {
+    slug: "cad-completion",
+    label: "CAD Completion",
+    description: "Versions per style and the lead time from first allocation to buyer approval",
+    icon: PenTool,
     module: "orders",
   },
 ];

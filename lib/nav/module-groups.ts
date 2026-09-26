@@ -532,22 +532,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // one order per budget and is superseded.
           { href: "/orders/budgets", label: "Budgeting", description: "Cost a group of orders from their BOMs — rates, expenses and the profit position" },
           { href: "/orders/budget-approval", label: "Approval", description: "Approve or reject a submitted order budget — the last gate before purchase may act on it" },
-          // TA FOLLOWUP AND TA WORKLIST MOVE IN HERE (operator request,
-          // 2026-09-12). They stood as two standalone `kind: "link"` rows
-          // alongside this group from 2026-09-09/10 — see the git history on
-          // this block for the reasoning that put them there, which is
-          // unchanged: both are daily-use T&A screens, not the six
-          // configuration screens still sitting behind the hidden "ta"
-          // group below. What changed is only WHERE that pair of rows lives
-          // — nested under Order Management's own sidebar row instead of
-          // floating beside it — so they become `GroupChild` entries with a
-          // `description` (a `ModuleLink` carries none) rather than
-          // `kind: "link"` objects. Routes are unchanged; `cardOnly` on the
-          // TA Worklist entry inside the hidden "ta" group (below) still
-          // points here, since the row it defers to has only moved, not
-          // disappeared.
-          { href: "/orders/ta-followup", label: "TA Followup", description: "Mark PP and other T&A approvals Sent / Approved / Rework, and chase what is overdue" },
-          { href: "/orders/ta-worklist", label: "TA Worklist", description: "Your department's activities due today, and what is running late" },
+          // (TA Followup and TA Worklist were children here from 2026-09-12
+          // until 2026-09-24 — they are now the "Time & Action" sub-module
+          // directly below.)
           /* ORDER AMENDMENTS MOVE IN HERE (user 2026-09-23, screenshot 3032:
              "the amendment doesn't have the module name, it's directly listing
              the child"). It stood as a standalone `kind: "link"` row between
@@ -558,6 +545,46 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
              would be one card on a hub in front of one screen (the register;
              Raise and the workspace are pages beneath it, not rows). */
           { href: "/orders/order-amendments", label: "Order Revisions", description: "Change an approved order — raise a revision, make the change, send it to the MD" },
+        ],
+      },
+      // TIME & ACTION — A SUB-MODULE ROW OF ITS OWN (user 2026-09-24: "move
+      // the t and a followup and t and a work list as separate Time and
+      // Action sub module inside these two child"). The pair were children
+      // of Order Management since 2026-09-12; they are the daily-use T&A
+      // screens, so they get the sidebar row. Routes are unchanged.
+      //
+      // Slug `time-action`, not `ta`: `ta` is the HIDDEN group further down
+      // holding the six T&A configuration screens, and it stays hidden — only
+      // these two were asked for. Its `cardOnly` TA Worklist card now defers
+      // to this row.
+      // CAD (doc/order/cad.md, 0628; user 2026-09-24: "New 'CAD' sidebar
+      // group"). The pattern room's two screens: the LIFECYCLE — allocate a
+      // style's CAD to a pattern maker, dispatch it to the buyer, record the
+      // decision, re-allocate on rework — and the MARKER SHEET the Fabric BOM
+      // seeds consumption from. Placed after Order Management because an
+      // order's Fabric BOM cannot be created until every style's CAD is
+      // approved (0628's guard). Slug `cad-room`, not `cad`: `/orders/cad` is
+      // the CAD Markers screen itself and keeps its URL.
+      {
+        kind: "group",
+        slug: "cad-room",
+        label: "CAD",
+        description: "Assign, send and approve each style's CAD",
+        children: [
+          { href: "/orders/cad-lifecycle", label: "CAD Queue", description: "Assign a style's CAD to a pattern maker, send it to the buyer, and record Approved or Rework" },
+          // CAD MARKERS LEFT THIS GROUP ON 2026-09-25 (user: remove the "CAD
+          // Maker child" from the CAD sub-module). Back to `retired` below, the
+          // same way it went on 09-03 — off the menu, URL and search intact.
+        ],
+      },
+      {
+        kind: "group",
+        slug: "time-action",
+        label: "Time & Action",
+        description: "Follow up T&A approvals and work your department's due activities",
+        children: [
+          { href: "/orders/ta-followup", label: "TA Followup", description: "Mark PP and other T&A approvals Sent / Approved / Rework, and chase what is overdue" },
+          { href: "/orders/ta-worklist", label: "TA Worklist", description: "Your department's activities due today, and what is running late" },
         ],
       },
       // ORDER AMENDMENTS — A SUB-MODULE ROW OF ITS OWN (doc/order/amedment.md
@@ -688,8 +715,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         note:
           "These screens are off the Orders menu by request — TA Activity, TA Department Assign, TA User Rights, TA Style, TA Plan and TA Completion. They all still work and still open from search — nothing has been deleted.",
         children: [
-          // NO LONGER FIRST-AND-LEADING — it has its own row now (see
-          // "TA WORKLIST JOINS IT" above, next to TA Followup). `cardOnly`
+          // NO LONGER FIRST-AND-LEADING — its row is under the "Time &
+          // Action" sub-module above (2026-09-24), next to TA Followup. `cardOnly`
           // is what keeps it out of `moduleLeafItems`' search listing a
           // second time under this group's label, matching the doc-comment
           // rule on that flag: a screen shown here only because this hub's
@@ -851,7 +878,13 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // Both `page.tsx` files render a PageHeader + DataTable and import no
           // HubCard, so assertion 8 is satisfied here exactly as it was there.
           { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
+          // Hidden again 2026-09-25 (user) — see the CAD group's note above.
           { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
+          /* CAD MARKERS LEFT THIS GROUP ON 2026-09-24 — it is a child of the CAD
+             sub-module again (above), beside the CAD Lifecycle the doc/order/cad.md
+             build added (user: "New 'CAD' sidebar group"). It was hidden here on
+             2026-09-03; the lifecycle gates the Fabric BOM on CAD approval, so the
+             sheet the BOM seeds from is back on the menu with it. */
           // AMENDMENTS JOINED ON 2026-09-04 (request: "remove the amendment
           // child from order module"), and it is the FIFTH kind of screen in
           // this group — not a superseded menu, not a live register, not a
@@ -1145,6 +1178,11 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/hr/payslip", label: "Payslips", description: "Generate and issue payslips" },
           { href: "/hr/advances", label: "Advances", description: "Advances and loans against pay" },
           { href: "/hr/adjustments", label: "Allowances & Deductions", description: "One-off and recurring pay adjustments" },
+          // 0629 — doc/order/punishment fine.md. Beside Allowances & Deductions
+          // because it is a deduction, but a separate screen: a fine is a
+          // DOCUMENT with a lock and an MD / HR Manager approval, which a
+          // recurring adjustment is not.
+          { href: "/hr/fines", label: "Fines & Deductions", description: "Staff fines — draft, confirm, MD / HR Manager approval, then payroll" },
           { href: "/hr/comp-events", label: "Bonus & Increments", description: "Bonus, increment and compensation events" },
         ],
       },

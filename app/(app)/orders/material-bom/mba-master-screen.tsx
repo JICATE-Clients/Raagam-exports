@@ -1,5 +1,6 @@
 "use client";
 
+import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -181,6 +182,12 @@ interface Props {
   /** Garment orders locked by an approved budget → the banner's sentence
    *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
   orderLocks: Record<string, string>;
+  /**
+   * Locked document -> the APPROVED order its "+ Raise Revision" links to
+   * (`orderLocks`, lib/orders/order-locks.ts). Approved locks only: an
+   * amending order already has its revision. Absent key = no link.
+   */
+  raiseFor?: Record<string, string>;
 }
 
 /**
@@ -1327,6 +1334,7 @@ export function MbaMasterScreen({
   perms,
   masterPerms,
   orderLocks,
+  raiseFor = {},
   embed = null,
 }: Props) {
   const router = useRouter();
@@ -7054,6 +7062,8 @@ export function MbaMasterScreen({
           quickDraft
           onOpen={openTask}
           canDelete={perms.canDelete}
+          /* An approved order offers no bin, and its Updated row an eye (2026-09-24). */
+          lockedRow={(t) => !!orderLocks[t.id]}
           onDelete={del}
           /* A Pending row has no `bom_id` and `BomQueue` never renders the
              button on one (`canReportsRow`). Opens straight off the queue. */
@@ -7069,7 +7079,17 @@ export function MbaMasterScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
-        locked={lockMessage ? { message: lockMessage } : false}
+        locked={
+          lockMessage
+            ? {
+                message: lockMessage,
+                action:
+                  form.garment_order_id && raiseFor[form.garment_order_id] ? (
+                    <RaiseRevisionLink orderId={raiseFor[form.garment_order_id]} />
+                  ) : undefined,
+              }
+            : false
+        }
         /* The bar shows on Requirement and nowhere else (client 2026-08-28).
            These three sections ARE a sequence — what the BOM is, what happens to
            it, then what the order therefore needs — and Requirement is the

@@ -104,6 +104,8 @@ type HeaderForm = {
   color_spec_applicable: boolean;
   tcs_applicable: boolean;
   gst_no: string;
+  /** CAD Review Days (0628) — a number box's text; "" = not set. */
+  cad_review_days: string;
 };
 /**
  * Only one master publishes customers — Applicant ▸ Also Customer (0371) — but
@@ -164,6 +166,7 @@ const BLANK: HeaderForm = {
   color_spec_applicable: false,
   tcs_applicable: false,
   gst_no: "",
+  cad_review_days: "",
 };
 
 /**
@@ -1091,6 +1094,7 @@ export function CustomerMasterScreen({
       color_spec_applicable: r.color_spec_applicable,
       tcs_applicable: r.tcs_applicable,
       gst_no: r.gst_no ?? "",
+      cad_review_days: r.cad_review_days == null ? "" : String(r.cad_review_days),
     });
     const contactsIn = (r.contacts ?? []).map((c) => ({
       key: newKey(),
@@ -1210,6 +1214,9 @@ export function CustomerMasterScreen({
         color_spec_applicable: form.color_spec_applicable,
         tcs_applicable: form.tcs_applicable,
         gst_no: form.gst_no.trim() || null,
+        // "" is not set; anything typed is sent as typed and the schema says
+        // what is wrong with it (a decimal, a negative, over 365).
+        cad_review_days: form.cad_review_days.trim() === "" ? null : Number(form.cad_review_days),
         is_draft: asDraft,
         contacts: contacts.map((c, i) => ({
           sno: i + 1,
@@ -1310,7 +1317,7 @@ export function CustomerMasterScreen({
       form.color_spec_applicable ||
       form.tcs_applicable
     ) || markings.some((m) => m.marking.trim());
-  const hasApprovals = Object.keys(approvalDays).length > 0;
+  const hasApprovals = Object.keys(approvalDays).length > 0 || form.cad_review_days.trim() !== "";
   const done: Record<SectionKey, boolean> = {
     identity: hasIdentity,
     address: hasAddress,
@@ -1485,6 +1492,7 @@ export function CustomerMasterScreen({
           ["Commercial Invoice Format", nameOf(r.commercial_invoice_format_id)],
           ["Color Spec Applicable", r.color_spec_applicable ? "Yes" : "No"],
           ["TCS", r.tcs_applicable ? "Yes" : "No"],
+          ["CAD Review Days", r.cad_review_days == null ? null : String(r.cad_review_days)],
           // The number itself, not the GstinInsight strip: that strip is an
           // input-time aid (decode, entity suggestion) and none of it is a fact
           // about the record.
@@ -2036,6 +2044,29 @@ export function CustomerMasterScreen({
             done: done.approvals,
             content: (
                   <SectionBody title="Approvals">
+                    {/* CAD REVIEW DAYS (0628, doc/order/cad.md §3.3) — the
+                        buyer's turnaround on a CAD pattern, the same kind of
+                        fact as the per-approval Days below, so it sits with
+                        them. A CAD dispatch's Expected Approval Date is its
+                        Dispatch Date + this. `num` (72px): 0–365. */}
+                    <FieldRow className="mb-3">
+                      <Field
+                        label="CAD Review Days"
+                        w="num"
+                        htmlFor="cu-cad-review-days"
+                        hint="Days the buyer takes to review a CAD pattern — Expected Approval = Dispatch + this"
+                      >
+                        <Input
+                          id="cu-cad-review-days"
+                          type="number"
+                          min="0"
+                          max="365"
+                          step="1"
+                          value={form.cad_review_days}
+                          onChange={(e) => set({ cad_review_days: e.target.value })}
+                        />
+                      </Field>
+                    </FieldRow>
                     {/* `hideAdd` + `hideRemove` (doc/approval.md §3, and the
                         HR sweep's "no hand-rolled boxes" — client 2026-09-07:
                         "did you see" the primitives replacing bordered panels
