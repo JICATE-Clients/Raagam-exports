@@ -101,7 +101,10 @@ export function StatusToggle({
         // every listing that shows a status.
         className="min-h-0"
       />
-      <span className={active ? "text-sm text-foreground" : "text-sm text-muted-foreground"}>
+      {/* NO TEXT SIZE — the word takes the TABLE's (client 2026-09-26): 14px in
+          a default list, 12px in a `compact` / `dense` one. A fixed `text-sm`
+          here left "Active" larger than every other cell of a compact row. */}
+      <span className={active ? "text-foreground" : "text-muted-foreground"}>
         {active ? "Active" : "Inactive"}
       </span>
       {draft && <StatusPill tone="warning">Draft</StatusPill>}

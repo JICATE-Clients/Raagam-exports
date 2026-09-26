@@ -38,6 +38,7 @@ export function DataTable<T>({
   spanRow,
   dense = false,
   compact = false,
+  gridLines = false,
   paginate = true,
 }: {
   columns: Column<T>[];
@@ -107,6 +108,17 @@ export function DataTable<T>({
    */
   compact?: boolean;
   /**
+   * VERTICAL RULES BETWEEN THE COLUMNS (client 2026-09-26, Stock Units: "table
+   * aa pottu kudu vertical line pottu" — draw it as a TABLE, with vertical
+   * lines). A 1px rule on the right of every header and cell but the last, so
+   * the grid closes against the frame's own border instead of doubling it.
+   * The same colour as the row rules of whichever density is on, so the two
+   * directions read as one grid. Opt-in; every other listing keeps its open,
+   * row-rules-only look. A PROP, not a `[&_td]:border-r` at the call site — the
+   * per-screen patch this file's `dense` note already refuses.
+   */
+  gridLines?: boolean;
+  /**
    * `false` for a table that is PART OF A DOCUMENT rather than a listing of
    * them: a PO's lines, a GRN's lines, the T&A milestone grid, a report's
    * print area. Those are read whole — a 15-line GRN shown as 10 + Next is a
@@ -123,6 +135,14 @@ export function DataTable<T>({
      different rhythm from the rows beneath it. */
   const pad = dense ? "px-2 py-1" : "px-3 py-2";
   const tight = compact && !dense;
+  /* The column rule for `gridLines`, on th AND td so the lines run unbroken
+     from the header band to the last row. */
+  const vRule = gridLines
+    ? cn(
+        "border-r last:border-r-0",
+        tight ? "border-slate-200 dark:border-border" : "border-border",
+      )
+    : undefined;
   const selected = selectedKeys ?? new Set<string>();
   const allSelected = rows.length > 0 && rows.every((r, i) => selected.has(getKey(r, i)));
 
@@ -169,6 +189,7 @@ export function DataTable<T>({
               // case and spacing, not just weight" — the same reasoning
               // that keeps this bold at 12px rather than clotting).
               pad,
+              vRule,
               tight
                 ? "text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
                 : "text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
@@ -243,6 +264,7 @@ export function DataTable<T>({
             key={ci}
             className={cn(
               pad,
+              vRule,
               "align-middle",
               align[c.align ?? "left"],
               c.className,
@@ -375,6 +397,7 @@ export function DataTable<T>({
       cards={cards}
       emptyRow={emptyRow}
       emptyCard={emptyCard}
+      density={dense || tight ? "compact" : undefined}
     />
   );
 }
