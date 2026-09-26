@@ -104,14 +104,29 @@ export function Toggle({
         className,
       )}
     >
+      {/* LOCKED IS READ-ONLY, NOT DISABLED (client 2026-09-24, Order Info on an
+         approved order: Tab off Excess % "goes back to the top"). A locked
+         text box has always been `readOnly` and stayed on the Tab path; this
+         control was `disabled`, which takes it OFF the path — so on a view-only
+         record the cursor skipped every picker and switch, and with nothing
+         after Excess % it wrapped to the top of the section. Reachable, never
+         changeable: the value cannot move, the cursor can. An explicit
+         `disabled` from the call site still disables outright. */}
       <input
         id={id}
         type="checkbox"
         className="peer sr-only"
         aria-label={ariaLabel}
         checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
+        disabled={ownDisabled}
+        aria-disabled={locked || undefined}
+        aria-readonly={locked || undefined}
+        // Space, a click and Enter's `.click()` all arrive here; cancelling the
+        // click is what keeps the box unticked, and onChange never fires.
+        onClick={locked ? (e) => e.preventDefault() : undefined}
+        onChange={(e) => {
+          if (!locked) onChange(e.target.checked);
+        }}
       />
       <span
         aria-hidden
@@ -135,10 +150,14 @@ export function Toggle({
           // The focus ring lands on the TRACK because the input itself is
           // `sr-only` and has no box to draw one on. `focus-visible`, not
           // `focus`, so a mouse click does not leave a ring behind.
-          "peer-focus-visible:ring-2 peer-focus-visible:ring-offset-1",
-          tone === "success"
-            ? "peer-focus-visible:ring-success/40"
-            : "peer-focus-visible:ring-primary/40",
+          //
+          // FULL STRENGTH, THE SAME `--ring` A FIELD WEARS (client 2026-09-24,
+          // Order Info: "Excess → Tab should move to Pack"). It already did —
+          // the cursor landed, and nobody could see it: every text field gets a
+          // 2px blue ring plus a halo (globals.css, "Focus"), while this was a
+          // 40% tint on a 20px pill, so tabbing off Excess % read as the cursor
+          // vanishing. The label text lights up below for the same reason.
+          "peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2",
           // VARIANT ORDER MATTERS: `peer-checked:[&>span]:…` compiles to
           // `.peer:checked ~ .track > span`, which is the knob. Written the other
           // way round the peer relationship is resolved against the KNOB's own
@@ -148,7 +167,11 @@ export function Toggle({
       >
         <span className="absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-surface shadow-sm transition-transform" />
       </span>
-      {label && <span className="text-foreground">{label}</span>}
+      {label && (
+        <span className="text-foreground peer-focus-visible:text-primary peer-focus-visible:underline peer-focus-visible:underline-offset-4">
+          {label}
+        </span>
+      )}
     </label>
   );
 }
