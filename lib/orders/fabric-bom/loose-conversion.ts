@@ -60,6 +60,13 @@
  * are recorded, never multiplied. A colour with no row, or a row naming no
  * fabric, uses the step's own fabric.
  *
+ * ONE ROW PER COLOUR, NOT PER STRIPE (user 2026-09-26, later: "one by one
+ * one color"). When two colourways put different colours at one stripe —
+ * Color 1 is WHITE on one and RED on the other — each is its own row, because
+ * each is its own dye lot. A part is matched to a row by its COLOUR first, then
+ * by its stripe position (a row saved while rows were per stripe), then by its
+ * colourway (a row saved before either).
+ *
  * ## THE ROWS ARE THE YARN'S STRIPE COLOURS (user 2026-09-26)
  *
  * A loose fabric is dyed to a YARN colour — the one Yarn Dyed Details puts at
@@ -325,7 +332,8 @@ export function planConversions(input: ConversionInput): ConversionPlan {
        The per-cloth figures are used only as PROPORTIONS of the colourway's
        own total — never summed into a new total — so rounding per cloth can
        never make the split disagree with `target`. */
-    const weightBy = new Map<string, Map<string, number>>(); // combo -> position ("" = none) -> weight
+    // combo -> "position\u0001colour" ("" = no stripes) -> weight
+    const weightBy = new Map<string, Map<string, number>>();
     for (const f of feeds) {
       const one = yarnPurchase(yarnId, [f], input.compositions, input.routesByFabric, [], input.decimals, sources, []);
       if (isRefusal(one)) continue;
@@ -347,30 +355,39 @@ export function planConversions(input: ConversionInput): ConversionPlan {
           continue;
         }
         for (const sh of stripes) {
-          const k = sh.position ?? "";
+          const k = `${sh.position ?? ""}\u0001${sh.colour ?? ""}`;
           held.set(k, (held.get(k) ?? 0) + (c.gross * sh.share) / total);
         }
       }
     }
-    const demandParts: { combo: string; gross: number; position: string | null }[] = [];
+    const demandParts: { combo: string; gross: number; position: string | null; colour: string | null }[] = [];
     for (const c of target.byCombo) {
       const split = weightBy.get(comboKey(c.combo));
       const sum = split ? [...split.values()].reduce((x, y) => x + y, 0) : 0;
       if (!split || sum <= 0 || (split.size === 1 && split.has(""))) {
-        demandParts.push({ combo: c.combo, gross: c.gross, position: null });
+        demandParts.push({ combo: c.combo, gross: c.gross, position: null, colour: null });
         continue;
       }
-      for (const [position, w] of split) {
-        demandParts.push({ combo: c.combo, gross: (c.gross * w) / sum, position: position || null });
+      for (const [k, w] of split) {
+        const [position, colour] = k.split("\u0001");
+        demandParts.push({
+          combo: c.combo,
+          gross: (c.gross * w) / sum,
+          position: position || null,
+          colour: colour || null,
+        });
       }
     }
 
     let looseKnitQty: number | null = 0;
     let badLoss: string | null = null;
     for (const c of demandParts) {
-      /* THIS STRIPE COLOUR'S LOOSE FABRIC AND LOSS, else the colourway's
-         (a row saved before 2026-09-26), else the step's. */
-      const d = (c.position ? detailFor(c.position) : undefined) ?? detailFor(c.combo);
+      /* THIS COLOUR'S LOOSE FABRIC AND LOSS — by colour, else by stripe
+         position, else by colourway (rows saved earlier), else the step's. */
+      const d =
+        (c.colour ? detailFor(c.colour) : undefined) ??
+        (c.position ? detailFor(c.position) : undefined) ??
+        detailFor(c.combo);
       const cLoose = d?.source_loose_fabric_id || looseId;
       const route = input.routesByFabric.get(cLoose) ?? [];
       /* A TYPED LOSS REPLACES THE ROUTE'S UNRAVELLING LOSS FOR THIS COLOUR.
@@ -383,7 +400,7 @@ export function planConversions(input: ConversionInput): ConversionPlan {
       const L = d?.loss_pct;
       if (L != null && input.isUnravelling) {
         if (L < 0 || L >= 100) {
-          badLoss = c.position || c.combo || "every colourway";
+          badLoss = c.colour || c.position || c.combo || "every colourway";
           break;
         }
         const isU = input.isUnravelling;
