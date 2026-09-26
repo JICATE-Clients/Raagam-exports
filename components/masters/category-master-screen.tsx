@@ -12,7 +12,7 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { Toggle } from "@/components/ui/toggle";
-import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
@@ -67,26 +67,36 @@ const BLANK = {
  * WIDTHS, NOT TWELFTHS (erp-form-compact). Both sections were `cols={2}` on a
  * full-screen sheet, so a three-value Category Type got half the pane.
  *
- *   Classification — item class 200 + fabric structure 176, 1 × 12 gap = 388
- *                    (Yarn shows Category Type 144 instead: 356)
- *   Details        — name 288
+ *   Details row — item class 200 + name 200 + fabric structure 176,
+ *                 2 × 12 gaps = 600 (Yarn shows Category Type 144: 568)
+ *   Sub Categories grid — its one column 200
+ *
+ * NAME IS `party` (200px), NOT `name` (288) — the width the client asked for on
+ * Material's and Composition's Name the same day ("compact tight"). A category
+ * name is a trade word or two: COTTON SLUB, PACKING ACCESSORIES. A longer one
+ * scrolls inside the box, and `title` shows it whole on hover.
  */
 const FIELD_W = {
   item_class: "party", //       200px — "PACKING ACCESSORIES" is the longest class
   made: "code", //              144px — NATURAL · MANMADE · MIXED
   fabric_structure: "term", //  176px — picker trigger + its manage icon
-  name: "name", //              288px — free text
+  name: "party", //             200px — see above
 } satisfies Record<string, FieldWidth>;
 
+/** Sub Categories' one column — the same kind of name as the parent's, so the
+ *  same step. Declared, so the grid hugs it instead of filling the card. */
+const SUB_NAME_W = FIELD_WIDTH_CSS.party;
+
 /**
- * The cards (and so the Sub Categories grid inside Details) AND the footer's
- * buttons, from ONE string. The widest row is Classification:
+ * The card (and so the Sub Categories grid inside it) AND the footer's
+ * buttons, from ONE string. The widest row is Item Class · Name · Fabric
+ * Structure:
  *
- *   388 row + 2 × 8 card padding (compact) + 2 × 1 border = 406
+ *   600 row + 2 × 8 card padding (compact) + 2 × 1 border = 618
  *
- * 26rem (416px) leaves room for the non-compact `p-2.5` density (+4px).
+ * 39.5rem (632px) leaves room for the non-compact `p-2.5` density (+4px).
  */
-const FORM_W = "max-w-[26rem]";
+const FORM_W = "max-w-[39.5rem]";
 
 /** A Sub Category row being edited. `id` is null for a row the user just added;
  *  carrying the real id back lets updateCategory reconcile instead of
@@ -692,10 +702,16 @@ export function CategoryMasterScreen({
         }
       >
         <div className="space-y-4">
-          {/* `cols={1}` on both cards: the rows inside are content-width
-              `FieldRow`s, not a twelfths track. Widths from FIELD_W above. */}
-          <DetailSection label="Classification" cols={1} className={FORM_W}>
-            <FieldRow>
+          {/* ONE CARD, ITEM CLASS AND NAME ON ONE ROW (client 2026-09-26: "item
+              class and item name one line and one row"). This was two cards —
+              Classification (Item Class · Category Type / Fabric Structure)
+              above Details (Name) — so the two fields that identify a category
+              sat on different rows. `cols={1}`: the row is a content-width
+              `FieldRow`. `align="start"`: Name renders its duplicate error and
+              the suggestion chips BELOW its control, and bottom alignment would
+              lift the fields beside it when they appear. */}
+          <DetailSection label="Details" cols={1} className={FORM_W}>
+            <FieldRow align="start">
             {/* Item Class stays a plain <Select>, unlike every other stored
                 list on this form: the FORM ITSELF branches on the chosen class.
                 `showFabricStructure` / `showSubCategories` / the Category Type
@@ -724,6 +740,34 @@ export function CategoryMasterScreen({
                     </option>
                   ))}
               </Select>
+            </Field>
+
+            <Field label="Name" w={FIELD_W.name} required htmlFor="cat-name">
+              <Input
+                id="cat-name"
+                uppercase
+                // The whole name on hover — a long one outruns the 200px box.
+                title={form.name || undefined}
+                // The identity — a nameless category is unusable in every picker
+                // that offers it.
+                required
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "cat-name")}
+                // ↓ into the suggestion chips, Enter applies, Esc dismisses —
+                // the strip is a list on this field, so it answers the same keys
+                // any other list does. No-ops while nothing is showing.
+                onKeyDown={nameSuggest.onKeyDown}
+              />
+              <DuplicateError error={dupError} id="cat-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
+                activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+              />
             </Field>
 
             {/* "User Defined" (Yes/No) used to sit here for Sewing/Packing/
@@ -789,45 +833,11 @@ export function CategoryMasterScreen({
               </Field>
             )}
             </FieldRow>
-            {/* "Has Sub Categories" and its Sub Categories grid used to sit HERE.
-                That was the bug (client 2026-08-01): they appeared the moment
-                General was picked — above a Name field the operator had not
-                reached yet, in an earlier section. They now live under the Name
-                in Details. Left as a signpost rather than silence, because the
-                option reads like Classification and the obvious instinct is to
-                move it back. */}
-          </DetailSection>
-
-          <DetailSection label="Details" cols={1} className={FORM_W}>
-            {/* `align="start"`: the duplicate error and the chips render below
-                the control. */}
-            <FieldRow align="start">
-            <Field label="Name" w={FIELD_W.name} required htmlFor="cat-name">
-              <Input
-                id="cat-name"
-                uppercase
-                // The identity — a nameless category is unusable in every picker
-                // that offers it.
-                required
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="text-base md:text-sm"
-                {...dupFieldProps(dupError, "cat-name")}
-                // ↓ into the suggestion chips, Enter applies, Esc dismisses —
-                // the strip is a list on this field, so it answers the same keys
-                // any other list does. No-ops while nothing is showing.
-                onKeyDown={nameSuggest.onKeyDown}
-              />
-              <DuplicateError error={dupError} id="cat-name" />
-              <SpellSuggestHint
-                suggestions={nameSuggest.suggestions}
-                existing={nameSuggest.existing}
-                activeIndex={nameSuggest.activeIndex}
-                duplicate={!!dupError}
-                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
-              />
-            </Field>
-            </FieldRow>
+            {/* "Has Sub Categories" and its Sub Categories grid sit below this
+                row, under the Name (client 2026-08-01) — the question "does
+                ELECTRICAL have types?" cannot be asked before there is an
+                ELECTRICAL. They follow the Name in DOM order, so Tab reaches
+                them after it. */}
             {/* General stores buy by category-then-type — ELECTRICAL ▸ LIGHTS /
                 FANS / SWITCHES — so annual spend can be read both per type and
                 as a category total (0349). Off by default: a category with no
@@ -871,6 +881,7 @@ export function CategoryMasterScreen({
                   columns={[
                     {
                       header: "Name",
+                      width: SUB_NAME_W,
                       cell: (r) => (
                         <Input
                           value={r.name}
@@ -897,16 +908,20 @@ export function CategoryMasterScreen({
                 it, here or on a child grid, is putting this picker back and
                 nothing else. Levies are still pickable where they're actually
                 decided: VAT / Duty / TDS on the Vendor master. */}
+            {/* Inside the card, on its own row — it sat loose below the cards,
+                belonging to neither. Edit-only: a category being created is not
+                one being switched off. */}
+            {editId && (
+              <FieldRow>
+                <Toggle
+                  id="cat-inactive"
+                  label="Inactive"
+                  checked={form.inactive}
+                  onChange={(inactive) => setForm((f) => ({ ...f, inactive }))}
+                />
+              </FieldRow>
+            )}
           </DetailSection>
-
-          {editId && (
-            <Toggle
-              id="cat-inactive"
-              label="Inactive"
-              checked={form.inactive}
-              onChange={(inactive) => setForm({ ...form, inactive })}
-            />
-          )}
         </div>
       </Sheet>
     </div>

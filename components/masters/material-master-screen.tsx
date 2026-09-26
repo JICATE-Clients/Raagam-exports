@@ -7,7 +7,7 @@ import { ChevronDown, Info, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH, type FieldWidth } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { Select } from "@/components/ui/select";
@@ -32,7 +32,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { DetailSection } from "@/components/masters/detail-section";
-import { SectionGrid, SectionColumn, IdentityRow } from "@/components/masters/section-grid";
+import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -142,6 +142,26 @@ const DETAIL_FIELD_W = {
  * where the right-hand column ends.
  */
 const FORM_W = "max-w-[73rem]";
+
+/**
+ * The identity row above the body — Item Class · Name · HSN Code, all three at
+ * a vocabulary step (client 2026-09-26: Name "compact tight" too).
+ *
+ *   item class 200 + name 288 + hsn 144 + 2 × 12 gaps = 656
+ *
+ * NAME WAS BRIEFLY THE ROW'S REMAINDER (≥ 288px) and the client narrowed it the
+ * same day. The cost is known and accepted: a composed name runs to ~67
+ * characters — `SOLID SINGLE JERSEY (24'S COMBED COTTON 95%, 20'S ELASTANE 5%)
+ * 100%` (fabric-name.ts), ~600px — so it scrolls inside 288px, and for the
+ * attribute-driven classes and General the box is read-only. `title` on the
+ * input is what keeps the whole name readable on hover. Do not widen it back
+ * without the client asking.
+ */
+const IDENTITY_W = {
+  item_class: "party", // 200px — "PACKING ACCESSORIES", the longest of seven
+  name: "name", //       288px — free text; long composed names scroll, see above
+  hsn: "code", //        144px — 8 digits + the picker's own manage icon
+} satisfies Record<string, FieldWidth>;
 
 const BLANK = {
   code: "",
@@ -2280,8 +2300,11 @@ export function MaterialMasterScreen({
           {/* Item Class is a picked name, Name is the long free text, HSN is 8
               digits — the tracks are weighted to match, so HSN stops occupying
               a quarter of the row (client 2026-07-24 #3). */}
-          <IdentityRow tracks="minmax(0,0.8fr) minmax(0,2fr) 10rem">
-            <div>
+          {/* CONTENT WIDTHS, NOT FRACTIONS (erp-form-compact). This was an
+              `IdentityRow` on `0.8fr 2fr 10rem` tracks, so across the 73rem form
+              Item Class — seven known values, "PACKING ACCESSORIES" the longest —
+              took ~280px. All three now take a step each (IDENTITY_W). */}
+          <FieldRow align="start">
               {/* Also deliberately left a plain dropdown by the 2026-07-31
                   picker sweep: `itemClassForm(selectedClassCode)` (:233-234)
                   selects this whole form from the class's CODE, so a class
@@ -2290,10 +2313,13 @@ export function MaterialMasterScreen({
                   its form are decided together. */}
               {/* A `Field` rather than a bare Label + Select so the `*` and the
                   mandatory-field cursor hold come from ONE declaration. Its
-                  column spans only resolve inside `@container/section`, and this
-                  sits in `@container/identity`, so the IdentityRow tracks above
-                  still decide the width. */}
-              <Field label="Item Class" required={req("item_class_id")} htmlFor="mt-item-class">
+                  width is `w=`, a step, not a share of the row. */}
+              <Field
+                label="Item Class"
+                w={IDENTITY_W.item_class}
+                required={req("item_class_id")}
+                htmlFor="mt-item-class"
+              >
               <Select
                 id="mt-item-class"
                 value={form.item_class_id}
@@ -2310,8 +2336,8 @@ export function MaterialMasterScreen({
                   ))}
               </Select>
               </Field>
-            </div>
-            <div>
+            {/* `name` (288px) — see IDENTITY_W. */}
+            <div className={FIELD_WIDTH[IDENTITY_W.name]}>
               <Label htmlFor="mt-name">
                 Name <span className="text-danger">*</span>
               </Label>
@@ -2319,6 +2345,8 @@ export function MaterialMasterScreen({
                 id="mt-name"
                 uppercase
                 value={form.name}
+                // The whole name on hover — a composed name outruns the 288px box.
+                title={form.name || undefined}
                 onChange={(e) => set({ name: e.target.value })}
                 // A composed Name is never a tab stop — the operator reaches it
                 // by CLICK when they want to override one, which is the rare
@@ -2358,17 +2386,20 @@ export function MaterialMasterScreen({
                 onApply={(v) => set({ name: v })}
               />
             </div>
-            <LookupDialogPicker
-              kind="hsn_code"
-              label="HSN Code"
-              options={hsnCodes}
-              value={form.hsn_id}
-              onChange={(v) => set({ hsn_id: v })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-            />
-          </IdentityRow>
+            {/* The picker renders its own label; the Field only sizes it. */}
+            <Field w={IDENTITY_W.hsn}>
+              <LookupDialogPicker
+                kind="hsn_code"
+                label="HSN Code"
+                options={hsnCodes}
+                value={form.hsn_id}
+                onChange={(v) => set({ hsn_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+              />
+            </Field>
+          </FieldRow>
 
           {/* Everything below the identity row waits for an Item Class — an
               empty details column beside a full UOM card reads as a broken
