@@ -4,11 +4,11 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { ProcessPicker } from "@/components/masters/process-picker";
@@ -38,6 +38,30 @@ import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin?: boolean; canExport?: boolean };
 type LineRow = { key: string; description: string };
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact):
+ *
+ *   entry 72 + date 144 + type 112 + process 200 + item class 200
+ *   + 4 × 12 gaps = 776
+ */
+const FIELD_W = {
+  entry: "num", //         72px — "(auto)" or a 1-4 digit number
+  date: "code", //        144px — a native date control needs ~130px
+  type: "range", //       112px — Purchase · Process
+  process: "party", //    200px — picker trigger; a process name
+  item_class: "party", // 200px — "PACKING ACCESSORIES" is the longest class
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * The header card, the Description grid AND the footer's buttons, from ONE string:
+ *
+ *   776 row + 2 × 8 card padding (compact) + 2 × 1 border = 794
+ *
+ * 51rem (816px) leaves room for the non-compact `p-2.5` density (+4px), so the
+ * row does not fold at one density and not the other.
+ */
+const FORM_W = "max-w-[51rem]";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const blankForm = () => ({ entry_date: todayISO(), type: "" as "" | OutDocTermType, process_id: "", item_class_id: "" });
@@ -351,89 +375,87 @@ export function OutDocumentTermMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? `Edit Out Document Term #${editEntryNo}` : "New Out Document Term"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the header card and the grid end. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !form.entry_date} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
-        {/* Two-column body — header fields LEFT, Description grid RIGHT. */}
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-          <div className="space-y-4">
-          <DetailSection label="Header" cols={2}>
-            <div>
-              <Label htmlFor="odt-entry">Entry No</Label>
-              <Input
-                id="odt-entry"
-                value={editEntryNo ?? "(auto)"}
-                disabled
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="odt-date">
-                Date <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="odt-date"
-                type="date"
-                // `.min(1)` in `outDocumentTermInput`.
-                required
-                value={form.entry_date}
-                onChange={(e) => set({ entry_date: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="odt-type">Type</Label>
-              <Select
-                id="odt-type"
-                value={form.type}
-                onChange={(e) => set({ type: e.target.value as "" | OutDocTermType })}
-                className="text-base md:text-sm"
-              >
-                <option value=""></option>
-                {OUT_DOC_TERM_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
+        {/* STACKED AT CONTENT WIDTH (erp-form-compact). This was two columns —
+            the header fields in the left half at `cols={2}` (~270px each, so
+            Entry No and a Purchase/Process select got a name's width) and the
+            Description grid in the right half. Now the header is one
+            shrink-wrapped row and the grid sits under it, capped to the same
+            FORM_W, so both end on one edge and the Save buttons end there too. */}
+        <div className="space-y-4">
+          <DetailSection label="Header" cols={1} className={FORM_W}>
+            <FieldRow>
+              <Field label="Entry No" w={FIELD_W.entry} htmlFor="odt-entry">
+                <Input id="odt-entry" value={editEntryNo ?? "(auto)"} disabled />
+              </Field>
+              {/* `.min(1)` in `outDocumentTermInput`. */}
+              <Field label="Date" w={FIELD_W.date} required htmlFor="odt-date">
+                <Input
+                  id="odt-date"
+                  type="date"
+                  required
+                  value={form.entry_date}
+                  onChange={(e) => set({ entry_date: e.target.value })}
+                />
+              </Field>
+              <Field label="Type" w={FIELD_W.type} htmlFor="odt-type">
+                <Select
+                  id="odt-type"
+                  value={form.type}
+                  onChange={(e) => set({ type: e.target.value as "" | OutDocTermType })}
+                >
+                  <option value=""></option>
+                  {OUT_DOC_TERM_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
               {/* Select-only: a Process carries a billing basis, an HSN code and
-                  five item-class flags, so it is created on its own master. */}
-              <ProcessPicker
-                label="Process"
-                processes={processes}
-                value={form.process_id}
-                onChange={(v) => set({ process_id: v })}
-              />
-            </div>
-            <div>
+                  five item-class flags, so it is created on its own master.
+                  The picker renders its own label; the Field only sizes it. */}
+              <Field w={FIELD_W.process}>
+                <ProcessPicker
+                  label="Process"
+                  processes={processes}
+                  value={form.process_id}
+                  onChange={(v) => set({ process_id: v })}
+                />
+              </Field>
               {/* The picker owns the label, the "— Select —" row and the
                   inactive-value rule, so none of that is repeated here. */}
-              <LookupDialogPicker
-                kind="item_class"
-                label="Item Class"
-                options={itemClasses}
-                value={form.item_class_id || null}
-                onChange={(v) => set({ item_class_id: v })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-                isSuperAdmin={perms.isSuperAdmin}
-              />
-            </div>
+              <Field w={FIELD_W.item_class}>
+                <LookupDialogPicker
+                  kind="item_class"
+                  label="Item Class"
+                  options={itemClasses}
+                  value={form.item_class_id || null}
+                  onChange={(v) => set({ item_class_id: v })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                  isSuperAdmin={perms.isSuperAdmin}
+                />
+              </Field>
+            </FieldRow>
           </DetailSection>
-          </div>
 
-          <div className="space-y-4">
-          {/* Description grid */}
+          {/* Description grid — capped to the header's width (rule 4: a
+              sub-grid is as wide as the FORM, not the screen). A term line is a
+              sentence, so it takes the whole of that width rather than a step. */}
+          <div className={FORM_W}>
           <ChildGrid<LineRow>
             lockExisting
             label="Description"
@@ -448,7 +470,7 @@ export function OutDocumentTermMasterScreen({
               {
                 header: "Description",
                 cell: (l) => (
-                  <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, e.target.value)} className="text-base md:text-sm" />
+                  <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, e.target.value)} />
                 ),
               },
             ]}
