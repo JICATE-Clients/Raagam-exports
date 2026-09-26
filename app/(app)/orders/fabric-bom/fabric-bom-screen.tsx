@@ -86,6 +86,8 @@ import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Truncated } from "@/components/ui/truncated";
 import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
+import { loadPatternForFabricBom } from "@/lib/orders/cad-lifecycle/actions";
+import { planPatternFill, type PatternFillEntry, type PatternFillLine } from "@/lib/orders/fabric-bom/pattern-fill";
 import { cn } from "@/lib/utils";
 import { today as calendarToday } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -4891,6 +4893,152 @@ export function FabricBomScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries]);
 
+  /*
+   * THE PATTERN SHEET, CARRIED INTO MANUAL (user 2026-09-26; spec "Pattern
+   * Sheet -> Fabric BOM Manual Tab"). The matching is `planPatternFill`
+   * (pattern-fill.ts); this is the screen's half — fetch, turn a pattern line
+   * into an entry patch, and the two ways it lands:
+   *
+   *   ON OPEN   entries Manual already lists, while no gram weight is typed on
+   *             them. Idempotent: a filled entry is remembered by key and never
+   *             re-filled, so the merchandiser's edits after it stand.
+   *   RE-SYNC   the button on a style — every matched entry takes the sheet's
+   *             latest figures, and a line with no entry becomes a new one.
+   *
+   * Keyed on `forOrder` like `seedState`, for its reason.
+   */
+  const [patternState, setPatternState] = useState<{
+    forOrder: string;
+    lines: PatternFillLine[];
+  } | null>(null);
+  useEffect(() => {
+    const id = form.garment_order_id;
+    if (!id) return;
+    let cancelled = false;
+    loadPatternForFabricBom(id).then((res) => {
+      if (cancelled || !res.ok) return;
+      setPatternState({ forOrder: id, lines: res.lines });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.garment_order_id]);
+  const patternLines =
+    patternState && patternState.forOrder === form.garment_order_id ? patternState.lines : null;
+
+  /** `entriesForStyle`'s rule: a blank style on a single-style order is that style. */
+  const patternSameStyle = (entryStyle: string, lineStyle: string) => {
+    const own = entryStyle.trim().toUpperCase();
+    const k = lineStyle.trim().toUpperCase();
+    return own === k || (!own && k !== "" && k === soleStyleRef);
+  };
+  const patternEntryShape = (e: ManualEntryRow): PatternFillEntry => ({
+    key: e.key,
+    style_ref_no: e.style_ref_no,
+    structure_id: e.structure_id,
+    width_form: e.width_form,
+    panels: e.panels,
+    hasWeights: e.sizes.some((z) => z.grams.trim() !== ""),
+  });
+
+  /** What one pattern line writes onto an entry — the user's fields, nothing else. */
+  const patternPatch = (e: ManualEntryRow, line: PatternFillLine): Partial<ManualEntryRow> => {
+    const txt = (n: number | null) => (n == null ? "" : String(n));
+    const held = new Map(e.sizes.map((z) => [z.size_id ?? "", z]));
+    const sizeRow = (size_id: string, dia: number | null, grams: number | null): ManualSizeRow => ({
+      ...(held.get(size_id) ?? blankManualSize(newKey(), size_id)),
+      dia: txt(dia),
+      grams: txt(grams),
+    });
+    const sizes = line.size_wise
+      ? line.sizes.map((z) => sizeRow(z.size_id, z.table_dia, z.avg_pcs_weight_g))
+      : // ONE ANSWER, EVERY SIZE — what Manual itself writes with Size Wise off.
+        orderSizesFor(line.style_ref_no || e.style_ref_no).map((z) =>
+          sizeRow(z.size_id, line.table_dia, line.avg_pcs_weight_g),
+        );
+    return {
+      ...(line.parts.length > 0 ? { panels: line.parts } : {}),
+      ...(line.width_form ? { width_form: line.width_form } : {}),
+      assort_color_wise: line.colours.length > 0,
+      combos: line.colours,
+      size_wise: line.size_wise,
+      calc_mode: "direct",
+      ...(sizes.length > 0 ? { sizes } : {}),
+    };
+  };
+
+  /** A pattern line with no entry to fill: a new entry, its cloth named only when exactly one fits. */
+  const patternEntry = (line: PatternFillLine): ManualEntryRow => {
+    const cloths = [
+      ...new Set(
+        lines
+          .filter(
+            (l) =>
+              !!l.item_id &&
+              l.structure_id === line.fabric_category_id &&
+              (!l.style_ref_no.trim() || patternSameStyle(l.style_ref_no, line.style_ref_no)),
+          )
+          .map((l) => l.item_id as string),
+      ),
+    ];
+    const base: ManualEntryRow = {
+      ...blankManualEntry(newKey(), line.style_ref_no),
+      item_id: cloths.length === 1 ? cloths[0] : null,
+      structure_id: line.fabric_category_id,
+    };
+    return { ...base, ...patternPatch(base, line) };
+  };
+
+  const patternFilled = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!patternLines || patternLines.length === 0) return;
+    const shapes = entries.filter((e) => !patternFilled.current.has(e.key)).map(patternEntryShape);
+    const plan = planPatternFill(patternLines, shapes, "fill", patternSameStyle);
+    if (plan.fills.length === 0) return;
+    const byKey = new Map(plan.fills.map((f) => [f.entryKey, f.line]));
+    for (const k of byKey.keys()) patternFilled.current.add(k);
+    /* NOT `mutEntries`: like the auto-listing above, this is the screen
+       arriving at its opening state, not the merchandiser typing — it does not
+       mark the BOM dirty, and it is re-derived on the next open. */
+    setEntries((xs) => xs.map((e) => (byKey.has(e.key) ? { ...e, ...patternPatch(e, byKey.get(e.key)!) } : e)));
+    // Reads `lines`, `soleStyleRef` and the size helpers at call time; the
+    // entries and the fetched sheet are what this effect is about.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patternLines, entries]);
+
+  /** Does the Pattern Sheet have lines for this style? */
+  const patternHasStyle = (styleRef: string) =>
+    (patternLines ?? []).some(
+      (l) => patternSameStyle(styleRef, l.style_ref_no) || patternSameStyle(l.style_ref_no, styleRef),
+    );
+
+  /** "Re-sync from Pattern Sheet" — one style, the sheet's latest figures over its entries. */
+  function resyncFromPattern(styleRef: string) {
+    const own = (patternLines ?? []).filter(
+      (l) => patternSameStyle(styleRef, l.style_ref_no) || patternSameStyle(l.style_ref_no, styleRef),
+    );
+    const plan = planPatternFill(own, entriesForStyle(styleRef).map(patternEntryShape), "resync", patternSameStyle);
+    if (plan.fills.length === 0 && plan.additions.length === 0) {
+      toastError("The Pattern Sheet has no measurements for this style yet.");
+      return;
+    }
+    const byKey = new Map(plan.fills.map((f) => [f.entryKey, f.line]));
+    for (const k of byKey.keys()) patternFilled.current.add(k);
+    const added = plan.additions.map(patternEntry);
+    for (const e of added) patternFilled.current.add(e.key);
+    mutEntries((xs) => {
+      const filled = xs.map((e) => (byKey.has(e.key) ? { ...e, ...patternPatch(e, byKey.get(e.key)!) } : e));
+      /* An untouched blank scaffold is replaced, not stacked beside. */
+      const kept =
+        added.length > 0 ? filled.filter((e) => e.item_id || e.structure_id || e.panels.length > 0) : filled;
+      return [...kept, ...added];
+    });
+    success(
+      `Filled from the Pattern Sheet — ${plan.fills.length} fabric${plan.fills.length === 1 ? "" : "s"} updated` +
+        (added.length > 0 ? `, ${added.length} added` : ""),
+    );
+  }
+
   /** Legacy's first "Type" column — the knit family, off the order's declared
    *  dias. Prefers what the entry's own sizes say (`diaTypeOf`) and falls back
    *  to the order's declaration; abstains where either disagrees, because
@@ -5657,6 +5805,18 @@ export function FabricBomScreen({
              only field left on either band. */
           omit={["ref", "article"]}
         />
+        {/* RE-SYNC FROM PATTERN SHEET (user 2026-09-26) — only where the
+            order's Pattern Sheet has lines for this style. Replaces the matched
+            fabrics' Type of Parts, Colour, Roll form, Size Wise, Dia and grams
+            with the sheet's latest; nothing else on the entry is touched. */}
+        {patternHasStyle(styleRow.style_ref_no) && (
+          <div className="flex justify-end">
+            {/* toolbar-size: exempt -- a pane action inside the Manual tab, not a list header row. */}
+            <Button type="button" variant="outline" size="sm" onClick={() => resyncFromPattern(styleRow.style_ref_no)}>
+              Re-sync from Pattern Sheet
+            </Button>
+          </div>
+        )}
 
         {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE, THE COMPONENTS TAB'S OWN
             SHAPE (client 2026-09-03: "now we need to apply this rail ui
@@ -7627,6 +7787,7 @@ export function FabricBomScreen({
             colors: c.colors.map((x, i) => ({
               sno: i + 1,
               dyeing_loss_pct: x.dyeing_loss_pct,
+              yarn_color: x.yarn_color,
             })),
           })),
         undefined,
@@ -7666,7 +7827,34 @@ export function FabricBomScreen({
     decimals: fabricUom?.decimal_places_allowed ?? null,
     sourceByFabric: sourceMap,
     nameOf: (id) => fabricById.get(id),
+    // The stripes split each colourway across Color 1, Color 2… (2026-09-26).
+    shades: yarnShades,
   });
+  /**
+   * A YARN'S STRIPE COLOURS for the conversion Details' Description (user
+   * 2026-09-26: "need to list that Color 1, Color 2 etc colour"). One option
+   * per stripe POSITION this yarn feeds on Yarn Dyed Details, labelled with the
+   * yarn colours the colourways put there and the position's share of the
+   * yarn — "Color 1 — GREEN / WHITE (62.5%)". The share shows only when every
+   * cloth agrees on it. The VALUE is the position, which is what
+   * `planConversions` keys a Details row by.
+   */
+  const stripeColoursOf = (yarnId: string) => {
+    const byPos = new Map<string, { colours: string[]; shares: Set<string> }>();
+    for (const sh of yarnShades) {
+      if (sh.yarn_id !== yarnId || !sh.position) continue;
+      const held = byPos.get(sh.position) ?? { colours: [], shares: new Set<string>() };
+      byPos.set(sh.position, held);
+      if (sh.colour && !held.colours.includes(sh.colour)) held.colours.push(sh.colour);
+      held.shares.add((sh.share * 100).toFixed(2));
+    }
+    return [...byPos.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+      .map(([position, { colours, shares }]) => {
+        const pct = shares.size === 1 ? ` (${fmtNumber(Number([...shares][0]))}%)` : "";
+        return { value: position, label: `${position}${colours.length ? ` — ${colours.join(" / ")}` : ""}${pct}` };
+      });
+  };
   /** The yarns a loose fabric is unravelled into — for its Fabric Process row. */
   const yarnsConvertedFrom = (fabricId: string) =>
     yarnRows
@@ -8544,6 +8732,11 @@ export function FabricBomScreen({
              behind both `For` columns; see the prop. */
           lossFor={data.processLookups.lossFor}
           combos={combos}
+          /* THE CONVERSION DETAILS LIST THIS YARN'S STRIPE COLOURS (user
+             2026-09-26) — Color 1, Color 2… off Yarn Dyed Details, with the
+             yarn colour each colourway puts there. */
+          stripeColours={stripeColoursOf(r.item_id)}
+          yarnName={r.name}
           /* 0606 — ASSORT COLOR-WISE LOSS; this BOM's yarn-stage table holds it. */
           colourLoss
           /* 0633 — LOOSE FABRIC CONVERSION: greige cloths a CONVERSION step

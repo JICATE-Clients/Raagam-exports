@@ -11,7 +11,7 @@ import { isPieceDyed, isYarnDyed, missingFabricLineFields } from "./fabric-line-
    async Server Functions — so this file cannot be the home of a predicate two
    readers share. See its own header for the drift that made it one function. */
 import { colouredStageIds, processRowInScope, stageRouteProblems } from "./processes";
-import { yarnShadesFrom } from "./yarn-dyed";
+import { yarnShadesOfRows } from "./yarn-dyed";
 import { colorLossesForStorage } from "./color-loss";
 import { yarnStageProblems } from "./yarn-stage-routes";
 import {
@@ -38,7 +38,6 @@ import {
 } from "./service";
 import type { OrderFabricSeedRow, OrderPalette } from "./types";
 import type { StyleComponentDecl } from "./component-map";
-import { ydPartKey } from "./component-map";
 import { ydPartProblems } from "./yd-part";
 /* NO `fabricBasisOf` / `FabricBasis` ANY MORE (0494). They resolved a LINE's
    Split cell, and `requirementRows` now hardcodes `colour_size` — an entry
@@ -1105,43 +1104,14 @@ function yarnShadesOf(
   data: FabricBomInput,
   compositions: ReadonlyMap<string, FabricComposition>,
 ): YarnShade[] {
-  /* ONE SET OF SHADES PER (FABRIC, YD PART) since 0596 — a Top knitted 80/20
-     and a Bottom knitted 70/30 from one cloth must not pool their stripes. The
-     screen's `yarnShades` groups the same way. */
-  const groups = new Map<string, { fabricId: string; part: string }>();
-  for (const r of data.yd_repeats ?? []) {
-    if (!r.item_id) continue;
-    const part = ydPartKey(r.yd_part);
-    groups.set(`${r.item_id}|${part}`, { fabricId: r.item_id, part });
-  }
-  return [...groups.values()].flatMap(({ fabricId, part }) =>
-    yarnShadesFrom(
-      fabricId,
-      (data.yd_repeats ?? [])
-        .filter((r) => r.item_id === fabricId && ydPartKey(r.yd_part) === part)
-        .map((r) => ({
-          key: `${fabricId}:${r.sno}`,
-          sno: r.sno,
-          yarn_item_id: r.yarn_item_id ?? null,
-          dye_type: r.dye_type === "grey" ? ("grey" as const) : ("dyed" as const),
-          color_name: r.color_name ?? "",
-          uom_id: r.uom_id ?? null,
-          value: r.value ?? null,
-          twisted_yarn: r.twisted_yarn ?? "",
-        })),
-      compositions.get(fabricId) ?? null,
-      (data.yd_combinations ?? [])
-        .filter((c) => c.item_id === fabricId && ydPartKey(c.yd_part) === part)
-        .map((c) => ({
-          combo: c.combo ?? null,
-          colors: (c.colors ?? []).map((x) => ({
-            sno: x.sno,
-            dyeing_loss_pct: x.dyeing_loss_pct ?? 0,
-          })),
-        })),
-      undefined,
-      part || null,
-    ),
+  /* ONE SET OF SHADES PER (FABRIC, YD PART) since 0596 — built by the shared
+     `yarnShadesOfRows`, which the Yarn & Fabric Requirement report calls too,
+     so its conversion split is the saved one. The screen's `yarnShades`
+     groups the same way. */
+  return yarnShadesOfRows(
+    (data.yd_repeats ?? []).map((r) => ({ ...r, item_id: r.item_id ?? null })),
+    (data.yd_combinations ?? []).map((c) => ({ ...c, item_id: c.item_id ?? null })),
+    compositions,
   );
 }
 
@@ -1194,6 +1164,8 @@ function normalizeYarns(
     routesByFabric,
     decimals: firstUom ? (uomDecimals.get(firstUom) ?? null) : null,
     sourceByFabric,
+    // The stripes split each colourway across Color 1, Color 2… (2026-09-26).
+    shades,
   });
   /* NO ROW FOR A YARN NOBODY BUYS (2026-09-19, Rule 2). A yarn every cloth of
      which is bought as rolls has nothing to purchase; storing it with a null

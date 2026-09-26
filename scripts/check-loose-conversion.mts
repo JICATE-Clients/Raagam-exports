@@ -319,5 +319,66 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
   );
 }
 
+// ---------------------------------------------------------------------------
+// 9. THE DETAILS ARE THE YARN'S STRIPE COLOURS (2026-09-26). The collar's
+//    NAVY colourway is 60 % Color 1 (GREEN) and 40 % Color 2 (WHITE) of this
+//    yarn; each stripe takes its own row's loose fabric.
+// ---------------------------------------------------------------------------
+{
+  const LOOSE_G = "fab-loose-green";
+  const comps9 = new Map(compositions).set(LOOSE_G, comp(LOOSE_G, "LOOSE GREEN", Y));
+  const routes9 = new Map(routes).set(LOOSE_G, routes.get(LOOSE)!);
+  const stripe = (position: string, share: number, colour: string) => ({
+    fabric_id: COLLAR,
+    yarn_id: Y,
+    combo: "NAVY",
+    share,
+    loss_pct: 0,
+    position,
+    colour,
+  });
+  const shades = [stripe("Color 1", 0.6, "GREEN"), stripe("Color 2", 0.4, "WHITE")];
+  const row = (combo: string, loose: string | null) => ({ combo, loss_pct: null, source_loose_fabric_id: loose, gsm: null, dia: null });
+  const p9 = planConversions({
+    links: new Map([[Y, LOOSE]]),
+    details: new Map([[Y, [row("Color 1", LOOSE_G)]]]),
+    fabrics,
+    compositions: comps9,
+    routesByFabric: routes9,
+    decimals: 3,
+    isUnravelling,
+    shades,
+  });
+  const byFabric = (fid: string) => p9.looseDemand.filter((d) => d.fabric_id === fid).reduce((x, d) => x + (d.gross ?? 0), 0);
+  check("9a Color 1 (60 %) goes to its own loose fabric", near(byFabric(LOOSE_G), 102.041 * 0.6), true);
+  check("9b Color 2 (no row) keeps the step's loose fabric", near(byFabric(LOOSE), 102.041 * 0.4), true);
+  check("9c the split never changes the converted total", near(byFabric(LOOSE_G) + byFabric(LOOSE), 102.041), true);
+  const legacy = planConversions({
+    links: new Map([[Y, LOOSE]]),
+    details: new Map([[Y, [row("NAVY", LOOSE_G)]]]),
+    fabrics,
+    compositions: comps9,
+    routesByFabric: routes9,
+    decimals: 3,
+    isUnravelling,
+    shades,
+  });
+  check(
+    "9d a row saved by colourway still answers for it",
+    near(legacy.looseDemand.filter((d) => d.fabric_id === LOOSE_G).reduce((x, d) => x + (d.gross ?? 0), 0), 102.041),
+    true,
+  );
+  const noStripes = planConversions({
+    links: new Map([[Y, LOOSE]]),
+    details: new Map([[Y, [row("Color 1", LOOSE_G)]]]),
+    fabrics,
+    compositions: comps9,
+    routesByFabric: routes9,
+    decimals: 3,
+    isUnravelling,
+  });
+  check("9e no stripes passed: one part per colourway, as before", noStripes.looseDemand.map((d) => [d.fabric_id, d.gross]), [[LOOSE, 102.041]]);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

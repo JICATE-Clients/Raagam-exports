@@ -32,7 +32,14 @@ import { letterheadLogoOf, registeredAddressOf } from "./letterhead";
 import { fabricAllocationOf, type FabricAllocation } from "./fabric-allocation-report";
 import { consolidateContributions, mergeGreigeClothLines, mergeGreigeLines } from "./stage-ledger";
 import { layoutTypeLabel, ydPartKey } from "./component-map";
-import { mixingDetailRows, type MixingDetailRow, type YdRepeatRow } from "./yarn-dyed";
+import {
+  mixingDetailRows,
+  yarnShadesOfRows,
+  type MixingDetailRow,
+  type StoredYdCombination,
+  type StoredYdRepeat,
+  type YdRepeatRow,
+} from "./yarn-dyed";
 import { isReportRefusal, type ReportRefusal } from "./report-refusal";
 /* THE PRINTING REQUIREMENT (client 2026-09-19) — which groups print, and the
    pure grouping the Printing tab renders. */
@@ -2148,6 +2155,14 @@ export async function yarnFabricRequirementReport(
       decimals: (kgPrecisionRes.data as { decimal_places_allowed: number | null } | null)?.decimal_places_allowed ?? null,
       sourceByFabric,
       nameOf: (id) => itemNames.get(id),
+      /* THE STRIPES (2026-09-26) — the save's own builder over the rows this
+         report already read, so a colour's loose fabric splits here exactly as
+         it did when the BOM was saved. */
+      shades: yarnShadesOfRows(
+        (ydRepeatRes.data ?? []) as unknown as StoredYdRepeat[],
+        (ydComboRes.data ?? []) as unknown as StoredYdCombination[],
+        compositionByFabric,
+      ),
     });
     for (const [yarnId, c] of plan.converted) {
       if ("refused" in c) {

@@ -62,7 +62,7 @@ const VERSION_SELECT =
   "pattern_date, is_submitted, created_at, created_by, " +
   // 0640 — the Pattern Maker's sheet. Every FK on the table is single (catalog, 2026-09-25).
   "lines:order_cad_pattern_lines(sno, coordinate_id, component_id, fabric_category_id, gsm, colour, size_id, " +
-  "table_dia, width_form, avg_pcs_weight_g, remark, coordinate:items!coordinate_id(name), " +
+  "table_dia, width_form, avg_pcs_weight_g, remark, size_wise, coordinate:items!coordinate_id(name), " +
   "component:components!component_id(short_name), fabric:categories!fabric_category_id(name), " +
   "size:config_lookups!size_id(name), " +
   // 0643 — the line's parts. One FK each to items / components (catalog, 2026-09-25).
@@ -70,7 +70,7 @@ const VERSION_SELECT =
   "coordinate:items!coordinate_id(name), component:components!component_id(short_name)), " +
   // 0644 — the line's colours and sizes. One FK each (catalog, 2026-09-25).
   "colours:order_cad_pattern_line_colours(sno, colour), " +
-  "sizes:order_cad_pattern_line_sizes(sno, size_id, size:config_lookups!size_id(name))), " +
+  "sizes:order_cad_pattern_line_sizes(sno, size_id, table_dia, avg_pcs_weight_g, size:config_lookups!size_id(name))), " +
   "pattern_maker:employees!pattern_maker_id(name), " +
   "dispatch:order_cad_dispatches(id, dispatch_date, courier_tracking_no, email_sent_at, layout_type, " +
   "expected_approval_date, remarks, " +
@@ -147,6 +147,7 @@ type VersionLite = {
         width_form: LayoutType | null;
         avg_pcs_weight_g: number | string | null;
         remark: string | null;
+        size_wise: boolean | null;
         coordinate: One<{ name: string | null }>;
         component: One<{ short_name: string | null }>;
         fabric: One<{ name: string | null }>;
@@ -161,7 +162,15 @@ type VersionLite = {
             }[]
           | null;
         colours: { sno: number; colour: string }[] | null;
-        sizes: { sno: number; size_id: string; size: One<{ name: string | null }> }[] | null;
+        sizes:
+          | {
+              sno: number;
+              size_id: string;
+              table_dia: number | string | null;
+              avg_pcs_weight_g: number | string | null;
+              size: One<{ name: string | null }>;
+            }[]
+          | null;
       }[]
     | null;
   is_submitted: boolean;
@@ -258,10 +267,16 @@ function toVersion(v: VersionLite): CadVersion {
           l.sizes && l.sizes.length > 0
             ? [...l.sizes]
                 .sort((a, b) => a.sno - b.sno)
-                .map((z) => ({ size_id: z.size_id, size_name: one(z.size)?.name ?? null }))
+                .map((z) => ({
+                  size_id: z.size_id,
+                  size_name: one(z.size)?.name ?? null,
+                  table_dia: z.table_dia == null ? null : Number(z.table_dia),
+                  avg_pcs_weight_g: z.avg_pcs_weight_g == null ? null : Number(z.avg_pcs_weight_g),
+                }))
             : l.size_id
-              ? [{ size_id: l.size_id, size_name: one(l.size)?.name ?? null }]
+              ? [{ size_id: l.size_id, size_name: one(l.size)?.name ?? null, table_dia: null, avg_pcs_weight_g: null }]
               : [],
+        size_wise: l.size_wise ?? false,
         table_dia: l.table_dia == null ? null : Number(l.table_dia),
         width_form: l.width_form,
         avg_pcs_weight_g: l.avg_pcs_weight_g == null ? null : Number(l.avg_pcs_weight_g),

@@ -59,9 +59,21 @@
  * master's flag (`isUnravelling`) to find that step on the route. GSM and Dia
  * are recorded, never multiplied. A colour with no row, or a row naming no
  * fabric, uses the step's own fabric.
+ *
+ * ## THE ROWS ARE THE YARN'S STRIPE COLOURS (user 2026-09-26)
+ *
+ * A loose fabric is dyed to a YARN colour — the one Yarn Dyed Details puts at
+ * a stripe position (Color 1, Color 2…) — not to the garment colourway. So a
+ * Details row names a POSITION, and with `shades` passed each colourway's
+ * converted weight is split across the positions this yarn feeds, by the
+ * position's share of the yarn (`YarnShade.share`), each part taking its own
+ * row's loose fabric and loss. A row still naming a garment colourway (saved
+ * before this change) keeps answering for that colourway; a cloth with no
+ * stripes declared takes the colourway's row, as before.
  */
 
 import { isRefusal, type Refusal } from "./requirement";
+import { ydPartKey } from "./component-map";
 import { sourceBuysYarn, type FabricSource } from "./fabric-source";
 import {
   comboUplift,
@@ -207,6 +219,10 @@ export type ConversionInput = {
   sourceByFabric?: ReadonlyMap<string, FabricSource>;
   /** For the refusal sentences; falls back to a generic noun. */
   nameOf?: (itemId: string) => string | null | undefined;
+  /** The yarn-dyed stripes (`yarnShadesFrom`) — what splits a colourway's
+   *  converted weight across Color 1, Color 2… Without them every colourway
+   *  is one part, keyed by its own name (the pre-2026-09-26 behaviour). */
+  shades?: readonly YarnShade[];
   /** The master's CONVERSION flag — which route step a colour's Details Loss %
    *  REPLACES (0645). Without it a Details loss cannot replace anything, so it
    *  is ignored rather than added on top. */
@@ -303,11 +319,58 @@ export function planConversions(input: ConversionInput): ConversionPlan {
       continue;
     }
 
+    /* EACH COLOURWAY'S WEIGHT, SPLIT ACROSS THE STRIPE COLOURS IT FEEDS.
+       Per cloth, because each cloth has its own stripes and shares; a cloth
+       with no stripes for this yarn stays one part, keyed by the colourway.
+       The per-cloth figures are used only as PROPORTIONS of the colourway's
+       own total — never summed into a new total — so rounding per cloth can
+       never make the split disagree with `target`. */
+    const weightBy = new Map<string, Map<string, number>>(); // combo -> position ("" = none) -> weight
+    for (const f of feeds) {
+      const one = yarnPurchase(yarnId, [f], input.compositions, input.routesByFabric, [], input.decimals, sources, []);
+      if (isRefusal(one)) continue;
+      for (const c of one.byCombo) {
+        const ck = comboKey(c.combo);
+        const held = weightBy.get(ck) ?? new Map<string, number>();
+        weightBy.set(ck, held);
+        const stripes = (input.shades ?? []).filter(
+          (sh) =>
+            sh.yarn_id === yarnId &&
+            sh.fabric_id === f.fabric_id &&
+            comboKey(sh.combo) === ck &&
+            ydPartKey(sh.yd_part) === ydPartKey(f.yd_part) &&
+            !!sh.position,
+        );
+        const total = stripes.reduce((sum, sh) => sum + sh.share, 0);
+        if (stripes.length === 0 || total <= 0) {
+          held.set("", (held.get("") ?? 0) + c.gross);
+          continue;
+        }
+        for (const sh of stripes) {
+          const k = sh.position ?? "";
+          held.set(k, (held.get(k) ?? 0) + (c.gross * sh.share) / total);
+        }
+      }
+    }
+    const demandParts: { combo: string; gross: number; position: string | null }[] = [];
+    for (const c of target.byCombo) {
+      const split = weightBy.get(comboKey(c.combo));
+      const sum = split ? [...split.values()].reduce((x, y) => x + y, 0) : 0;
+      if (!split || sum <= 0 || (split.size === 1 && split.has(""))) {
+        demandParts.push({ combo: c.combo, gross: c.gross, position: null });
+        continue;
+      }
+      for (const [position, w] of split) {
+        demandParts.push({ combo: c.combo, gross: (c.gross * w) / sum, position: position || null });
+      }
+    }
+
     let looseKnitQty: number | null = 0;
     let badLoss: string | null = null;
-    for (const c of target.byCombo) {
-      /* THIS COLOUR'S LOOSE FABRIC AND LOSS (0645), else the step's. */
-      const d = detailFor(c.combo);
+    for (const c of demandParts) {
+      /* THIS STRIPE COLOUR'S LOOSE FABRIC AND LOSS, else the colourway's
+         (a row saved before 2026-09-26), else the step's. */
+      const d = (c.position ? detailFor(c.position) : undefined) ?? detailFor(c.combo);
       const cLoose = d?.source_loose_fabric_id || looseId;
       const route = input.routesByFabric.get(cLoose) ?? [];
       /* A TYPED LOSS REPLACES THE ROUTE'S UNRAVELLING LOSS FOR THIS COLOUR.
@@ -320,7 +383,7 @@ export function planConversions(input: ConversionInput): ConversionPlan {
       const L = d?.loss_pct;
       if (L != null && input.isUnravelling) {
         if (L < 0 || L >= 100) {
-          badLoss = c.combo || "every colourway";
+          badLoss = c.position || c.combo || "every colourway";
           break;
         }
         const isU = input.isUnravelling;

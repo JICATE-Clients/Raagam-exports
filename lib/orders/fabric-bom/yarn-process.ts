@@ -1007,6 +1007,12 @@ export type YarnShade = {
   /** 0..1 of the YARN. */
   share: number;
   loss_pct: number;
+  /** The stripe POSITION — "Color 1", "Color 2"… (Yarn Dyed Details). Read by
+   *  the conversion Details (user 2026-09-26), which are keyed by it. */
+  position?: string | null;
+  /** The yarn colour this colourway puts at that position (Combinations'
+   *  Color 1 / Color 2 cell) — a label only, never a key. */
+  colour?: string | null;
 };
 
 /**

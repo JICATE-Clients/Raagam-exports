@@ -23,6 +23,7 @@ import {
 } from "./types";
 import { getCadLifecycleFormData, listCadStyles } from "./service";
 import { notifyPatternReady } from "./notify";
+import type { PatternFillLine } from "@/lib/orders/fabric-bom/pattern-fill";
 
 /**
  * Orders ▸ CAD ▸ CAD Lifecycle — the writes (0628).
@@ -194,9 +195,19 @@ export async function savePatternSheet(allocationId: string, data: PatternSheetI
   // here, so a stale form or a replayed request is merged the same way.
   const typed = mergePatternLines(
     p.data.lines.filter(
-      (l) => l.colours.length || l.size_ids.length || l.table_dia != null || l.width_form || l.avg_pcs_weight_g != null || l.remark,
+      (l) => l.colours.length || l.sizes.length || l.table_dia != null || l.width_form || l.avg_pcs_weight_g != null || l.remark,
     ),
   );
+  // SIZE WISE OFF (0647): the line's own figures answer every size, so no
+  // per-size rows are stored; ON: the line's own pair is not a second answer.
+  for (const l of typed) {
+    if (l.size_wise) {
+      l.table_dia = null;
+      l.avg_pcs_weight_g = null;
+    } else {
+      l.sizes = [];
+    }
+  }
   const s = await createClient();
   const wasReady = await isReady(s, allocationId);
   const { error } = await s.rpc("cad_save_pattern_sheet", {
@@ -364,5 +375,50 @@ export async function getOrderCad(garmentOrderId: string): Promise<OrderCadData>
     return { ok: true, rows, employees: form.employees, canEdit };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not read the CAD for this order." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fabric BOM ▸ Manual reads the Pattern Sheet through this (user 2026-09-26):
+// each style's newest version that HAS a sheet, flattened to what the Manual
+// tab takes (`lib/orders/fabric-bom/pattern-fill.ts`). Read-only.
+// ---------------------------------------------------------------------------
+export type PatternForFabricBom =
+  | { ok: true; lines: PatternFillLine[]; styles: { style_ref_no: string; pattern_status: string }[] }
+  | { ok: false; error: string };
+
+export async function loadPatternForFabricBom(garmentOrderId: string): Promise<PatternForFabricBom> {
+  try {
+    const [canView, rows] = await Promise.all([can("orders", "view"), listCadStyles([garmentOrderId])]);
+    if (!canView) return { ok: false, error: "Forbidden" };
+    const lines: PatternFillLine[] = [];
+    const styles: { style_ref_no: string; pattern_status: string }[] = [];
+    for (const r of rows) {
+      // The newest version with a sheet: a rework's fresh version starts
+      // empty, and until it is filled the last measured pattern still stands.
+      const withSheet = [...r.versions]
+        .filter((v) => v.pattern_lines.length > 0)
+        .sort((a, b) => b.version_no - a.version_no)[0];
+      if (!withSheet) continue;
+      styles.push({ style_ref_no: r.style_ref_no, pattern_status: withSheet.pattern_status });
+      for (const l of withSheet.pattern_lines) {
+        lines.push({
+          style_ref_no: r.style_ref_no,
+          fabric_category_id: l.fabric_category_id,
+          width_form: l.width_form,
+          parts: l.parts.map((p) => ({ coordinate_id: p.coordinate_id, component_id: p.component_id })),
+          colours: l.colours,
+          size_wise: l.size_wise,
+          table_dia: l.table_dia,
+          avg_pcs_weight_g: l.avg_pcs_weight_g,
+          sizes: l.size_wise
+            ? l.sizes.map((z) => ({ size_id: z.size_id, table_dia: z.table_dia, avg_pcs_weight_g: z.avg_pcs_weight_g }))
+            : [],
+        });
+      }
+    }
+    return { ok: true, lines, styles };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not read the Pattern Sheet for this order." };
   }
 }

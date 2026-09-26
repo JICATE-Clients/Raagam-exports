@@ -108,6 +108,8 @@ export function YarnProcessGrid({
   looseFabrics = [],
   onLooseFabricPicked,
   orderCombos = [],
+  stripeColours: stripeColoursProp,
+  yarnName,
 }: {
   /** THIS yarn's steps only — they live on the yarn row, so there is nothing to
    *  filter and no way for one to be orphaned. */
@@ -171,6 +173,18 @@ export function YarnProcessGrid({
    *  feeds no yarn-dyed colour yet (legacy lists the order's colours, RED ·
    *  GREEN, screenshot 3096; user 2026-09-26: the fields must not be missing). */
   orderCombos?: readonly string[];
+  /**
+   * THIS YARN'S STRIPE COLOURS — Yarn Dyed Details' Color 1, Color 2… with the
+   * yarn colour each colourway puts there and the position's share of the yarn
+   * (user 2026-09-26: the Details' Description lists these, not the garment
+   * colourways). `value` is the position ("Color 1"), which is what the
+   * conversion engine keys a Details row by; `label` is what the list shows.
+   * Empty = the yarn has no stripes declared, and the list falls back to the
+   * colourways as before.
+   */
+  stripeColours?: readonly { value: string; label: string }[];
+  /** The yarn's name, for the Details' one-line note when it has no stripes. */
+  yarnName?: string;
   /** Called when a source is picked, so the screen can inject the loose
    *  fabric's KNITTING -> DYEING -> CONVERSION route on Fabric Process. */
   onLooseFabricPicked?: (fabricId: string) => void;
@@ -575,7 +589,14 @@ export function YarnProcessGrid({
   });
   const sameCombo = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
   /** The colours a Details row may name — this yarn's own, else the order's. */
-  const detailColours = combos.length > 0 ? combos : [...orderCombos];
+  /* THE STRIPE COLOURS FIRST (2026-09-26); a yarn with none declared on Yarn
+     Dyed Details lists its colourways, else the order's, as before. */
+  const stripeColours = stripeColoursProp ?? [];
+  const detailChoices: readonly { value: string; label: string }[] =
+    stripeColours.length > 0
+      ? stripeColours
+      : (combos.length > 0 ? combos : [...orderCombos]).map((c) => ({ value: c, label: c }));
+  const detailColours = detailChoices.map((c) => c.value);
 
   /**
    * THE ROWS AS SHOWN. What the step holds once anything is typed; before
@@ -608,12 +629,13 @@ export function YarnProcessGrid({
   const setDetail = (r: YarnStageRow, at: number, next: Partial<ConversionDetailDraft>) =>
     writeDetails(r, (rows) => rows.map((d, k) => (k === at ? { ...d, ...next } : d)));
 
-  // 9 + 6 + 16 + 6 + 7 = 44rem = 704px + 88px ChildGrid chrome = 792px, under
+  // 13 + 6 + 16 + 6 + 7 = 48rem = 768px + 88px ChildGrid chrome = 856px, under
   // the md sheet's ~1,100px content, which clears `5xl` (1,024px) — a table.
   const conversionDetailColumns = (r: YarnStageRow): ChildGridColumn<DetailGridRow>[] => [
     {
       header: "Description",
-      width: "9rem",
+      // 13rem: a stripe reads "Color 1 — GREEN / WHITE (62.5%)" (2026-09-26).
+      width: "13rem",
       cell: (g, i) => {
         /* THE ORDER'S COLOURS, less those another row already names — one row
            per colour. The row's own value always stays listed (a colour since
@@ -624,6 +646,9 @@ export function YarnProcessGrid({
         const options = [...new Set([...detailColours, ...(g.draft.combo ? [g.draft.combo] : [])])].filter(
           (c) => sameCombo(c, g.draft.combo) || !taken.some((t) => sameCombo(t, c)),
         );
+        /* The stripe's label — "Color 1 — GREEN / WHITE (62.5%)"; a held value
+           no longer listed shows as itself. */
+        const labelOf = (c: string) => detailChoices.find((x) => sameCombo(x.value, c))?.label ?? c;
         return (
           <Select
             compact
@@ -636,7 +661,7 @@ export function YarnProcessGrid({
             <option value="" />
             {options.map((c) => (
               <option key={c} value={c}>
-                {c}
+                {labelOf(c)}
               </option>
             ))}
           </Select>
@@ -790,7 +815,17 @@ export function YarnProcessGrid({
             field, remove it") — legacy picks the loose fabric per colour, in the
             grid below, and nowhere else. */}
         {/* NO EXPLANATORY TEXT (user 2026-09-26: "delete the message") — the
-            grid is the answer; the rule it follows is in `planConversions`. */}
+            grid is the answer; the rule it follows is in `planConversions`.
+            ONE EXCEPTION, asked for later the same day ("add"): a yarn with no
+            stripe colours on Yarn Dyed Details lists the colourways instead,
+            and without a word that fallback read as the old behaviour. Shown
+            only then; a yarn with Color 1 / Color 2 shows nothing. */}
+        {/* Only where the caller lists stripes at all (Fabric BOM); IWO passes none. */}
+        {stripeColoursProp !== undefined && stripeColours.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            {yarnName || "This yarn"} has no Yarn Dyed stripes — listing the colourways.
+          </p>
+        )}
         {(
           <DetailSection label="Description Details" frameless>
             {/* Opens with a row per colour (`detailRowsOf`), never empty — the

@@ -55,6 +55,7 @@
  * panel a dye house acts on.
  */
 
+import { ydPartKey } from "./component-map";
 import { yarnShareOf, type FabricComposition, type Refusal, type YarnShade } from "./yarn-process";
 
 const isRefusal = (v: unknown): v is Refusal =>
@@ -246,7 +247,7 @@ export type YdCombinationLike = {
   combo: string | null;
   /** The colours this combination puts at each stripe POSITION, in `sno`
    *  order, each carrying its own dye-house loss. */
-  colors: readonly { sno: number; dyeing_loss_pct: number | null }[];
+  colors: readonly { sno: number; dyeing_loss_pct: number | null; yarn_color?: string | null }[];
 };
 
 /**
@@ -324,8 +325,81 @@ export function yarnShadesFrom(
            default). Skipping the row instead would short its yarn's shares and
            refuse the whole cloth over a blank percentage. */
         loss_pct: Number(byPosition[i]?.dyeing_loss_pct ?? 0),
+        /* THE STRIPE'S NAME AND THIS COLOURWAY'S COLOUR FOR IT (2026-09-26) —
+           what the conversion Details list and are keyed by. */
+        position: m.color_name,
+        colour: byPosition[i]?.yarn_color?.trim() || null,
       });
     });
   }
   return out;
+}
+
+/** A stored yarn-dyed repeat, as the save payload and the report both read it. */
+export type StoredYdRepeat = {
+  item_id: string | null;
+  yd_part?: string | null;
+  sno: number;
+  yarn_item_id?: string | null;
+  dye_type?: string | null;
+  color_name?: string | null;
+  uom_id?: string | null;
+  value?: number | string | null;
+  twisted_yarn?: string | null;
+};
+/** A stored yarn-dyed combination with its per-position colours. */
+export type StoredYdCombination = {
+  item_id: string | null;
+  yd_part?: string | null;
+  combo?: string | null;
+  colors?: readonly { sno: number; yarn_color?: string | null; dyeing_loss_pct?: number | string | null }[] | null;
+};
+
+/**
+ * EVERY CLOTH'S SHADES FROM STORED ROWS — one set per (fabric, YD part), since
+ * 0596. The save (`normalizeYarns`) and the Yarn & Fabric Requirement report
+ * both build them here, so the report's conversion split is the saved one.
+ */
+export function yarnShadesOfRows(
+  repeats: readonly StoredYdRepeat[],
+  combinations: readonly StoredYdCombination[],
+  compositions: ReadonlyMap<string, FabricComposition>,
+): YarnShade[] {
+  const groups = new Map<string, { fabricId: string; part: string }>();
+  for (const r of repeats) {
+    if (!r.item_id) continue;
+    const part = ydPartKey(r.yd_part);
+    groups.set(`${r.item_id}|${part}`, { fabricId: r.item_id, part });
+  }
+  const num = (v: number | string | null | undefined) => (v == null || v === "" ? null : Number(v));
+  return [...groups.values()].flatMap(({ fabricId, part }) =>
+    yarnShadesFrom(
+      fabricId,
+      repeats
+        .filter((r) => r.item_id === fabricId && ydPartKey(r.yd_part) === part)
+        .map((r) => ({
+          key: `${fabricId}:${r.sno}`,
+          sno: r.sno,
+          yarn_item_id: r.yarn_item_id ?? null,
+          dye_type: r.dye_type === "grey" ? ("grey" as const) : ("dyed" as const),
+          color_name: r.color_name ?? "",
+          uom_id: r.uom_id ?? null,
+          value: num(r.value),
+          twisted_yarn: r.twisted_yarn ?? "",
+        })),
+      compositions.get(fabricId) ?? null,
+      combinations
+        .filter((c) => c.item_id === fabricId && ydPartKey(c.yd_part) === part)
+        .map((c) => ({
+          combo: c.combo ?? null,
+          colors: (c.colors ?? []).map((x) => ({
+            sno: x.sno,
+            dyeing_loss_pct: num(x.dyeing_loss_pct) ?? 0,
+            yarn_color: x.yarn_color ?? null,
+          })),
+        })),
+      undefined,
+      part || null,
+    ),
+  );
 }

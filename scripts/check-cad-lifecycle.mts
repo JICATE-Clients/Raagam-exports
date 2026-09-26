@@ -46,6 +46,7 @@ import {
   type CadDecision,
   type CadDispatch,
 } from "../lib/orders/cad-lifecycle/types";
+import { planPatternFill, type PatternFillEntry, type PatternFillLine } from "../lib/orders/fabric-bom/pattern-fill";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -279,7 +280,7 @@ check("SQL Pattern Maker designations = TS", [...desigCheck.matchAll(/'([A-Z ]+)
 
 // --- Cut Method → roll form (Task 1) and merged Pattern Sheet lines (0643) -----
 check("Direct Shape is Open Width", layoutForPart("direct_shape", "SINGLE JERSEY"), "open_width");
-check("Fit Form Cutting is Tubular", layoutForPart("fit_form", null), "tubular");
+check("Bit Form Cutting is Tubular", layoutForPart("fit_form", null), "tubular");
 check("no method, a rib structure: Tubular", layoutForPart(null, "1X1 LYCRA RIB"), "tubular");
 check("the method wins over the structure", layoutForPart("direct_shape", "1X1 LYCRA RIB"), "open_width");
 check("RIBBON is not a rib", layoutForPart(null, "RIBBON TAPE"), null);
@@ -291,7 +292,8 @@ check("nothing to go on: null, never a guess", layoutForPart(null, "SINGLE JERSE
     fabric_category_id: U(9),
     gsm: 180,
     colours: ["WHITE"],
-    size_ids: [U(8)],
+    size_wise: false,
+    sizes: [] as { size_id: string; table_dia: number | null; avg_pcs_weight_g: number | null }[],
     table_dia: 64,
     width_form: "open_width" as const,
     avg_pcs_weight_g: 150,
@@ -304,11 +306,55 @@ check("nothing to go on: null, never a guess", layoutForPart(null, "SINGLE JERSE
   check("remarks are kept, joined", m[0].remark, "A · B");
   check("a different GSM stays its own line", m[1].gsm, 220);
   check("a different weight never merges", mergePatternLines([line([U(1)]), line([U(2)], { avg_pcs_weight_g: 25 })]).length, 2);
-  check("a different size never merges", mergePatternLines([line([U(1)]), line([U(2)], { size_ids: [U(7)] })]).length, 2);
+  // SIZE WISE (0647): a size's own figures are part of what was measured.
+  const sz = (id: string, g: number) => ({ size_id: id, table_dia: 64, avg_pcs_weight_g: g });
+  check("size-wise vs one answer never merges", mergePatternLines([line([U(1)]), line([U(2)], { size_wise: true, sizes: [sz(U(8), 150)] })]).length, 2);
+  check("a different size weight never merges", mergePatternLines([line([U(1)], { size_wise: true, sizes: [sz(U(8), 150)] }), line([U(2)], { size_wise: true, sizes: [sz(U(8), 160)] })]).length, 2);
   check("colours compare as a set", mergePatternLines([line([U(1)], { colours: ["WHITE", "NAVY"] }), line([U(2)], { colours: ["NAVY", "WHITE"] })]).length, 1);
-  check("sizes compare as a set", mergePatternLines([line([U(1)], { size_ids: [U(7), U(8)] }), line([U(2)], { size_ids: [U(8), U(7)] })]).length, 1);
+  check("sizes compare as a set", mergePatternLines([line([U(1)], { size_wise: true, sizes: [sz(U(7), 150), sz(U(8), 180)] }), line([U(2)], { size_wise: true, sizes: [sz(U(8), 180), sz(U(7), 150)] })]).length, 1);
   check("a different colour set never merges", mergePatternLines([line([U(1)], { colours: ["RED"] }), line([U(2)])]).length, 2);
   check("a part is never listed twice", mergePatternLines([line([U(1)]), line([U(1)])])[0].parts.length, 1);
+}
+
+// PATTERN SHEET -> FABRIC BOM MANUAL (pattern-fill.ts, 2026-09-26).
+{
+  const U = (n: number) => `00000000-0000-4000-8000-00000000001${n}`;
+  const pl = (over: Partial<PatternFillLine> = {}): PatternFillLine => ({
+    style_ref_no: "H1",
+    fabric_category_id: U(1),
+    width_form: "open_width",
+    parts: [{ coordinate_id: null, component_id: U(5) }],
+    colours: [],
+    size_wise: false,
+    table_dia: 60,
+    avg_pcs_weight_g: 180,
+    sizes: [],
+    ...over,
+  });
+  const en = (key: string, over: Partial<PatternFillEntry> = {}): PatternFillEntry => ({
+    key,
+    style_ref_no: "H1",
+    structure_id: U(1),
+    width_form: "",
+    panels: [],
+    hasWeights: false,
+    ...over,
+  });
+  check("fill: a matching empty entry is filled", planPatternFill([pl()], [en("a")], "fill").fills.map((f) => f.entryKey), ["a"]);
+  check("fill: an entry with weights is kept", planPatternFill([pl()], [en("a", { hasWeights: true })], "fill").kept, 1);
+  check("fill: never adds", planPatternFill([pl()], [], "fill").additions.length, 0);
+  check("resync: overwrites weights", planPatternFill([pl()], [en("a", { hasWeights: true })], "resync").fills.length, 1);
+  check("resync: no entry -> added", planPatternFill([pl()], [], "resync").additions.length, 1);
+  check("another structure never matches", planPatternFill([pl()], [en("a", { structure_id: U(2) })], "resync").additions.length, 1);
+  check("another roll form never matches", planPatternFill([pl()], [en("a", { width_form: "tubular" })], "resync").additions.length, 1);
+  check("another style never matches", planPatternFill([pl()], [en("a", { style_ref_no: "H2" })], "resync").additions.length, 1);
+  check(
+    "the entry sharing the most panels wins",
+    planPatternFill([pl()], [en("a"), en("b", { panels: [{ coordinate_id: null, component_id: U(5) }] })], "fill").fills[0].entryKey,
+    "b",
+  );
+  check("one entry takes one line", planPatternFill([pl(), pl({ colours: ["RED"] })], [en("a")], "resync").additions.length, 1);
+  check("a line with no figures carries nothing", planPatternFill([pl({ table_dia: null, avg_pcs_weight_g: null })], [en("a")], "resync").fills.length, 0);
 }
 
 if (failed > 0) {
