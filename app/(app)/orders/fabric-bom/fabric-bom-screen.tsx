@@ -36,8 +36,6 @@
  */
 
 import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
-import { CadLifecycleLink } from "@/components/orders/cad/cad-lifecycle-link";
-import { checkCadForFabricBom } from "@/lib/orders/cad-lifecycle/actions";
 import {
   Fragment,
   useEffect,
@@ -2303,27 +2301,10 @@ export function FabricBomScreen({
   const seedRows =
     seedState && seedState.forOrder === form.garment_order_id ? seedState.rows : null;
 
-  /* THE CAD GATE, SAID BEFORE ANYTHING IS TYPED (doc/order/cad.md §7, 0628).
-     A NEW Fabric BOM cannot be created while any style's CAD is unapproved —
-     the table's trigger refuses the insert. Asked the moment an order is
-     picked for a new BOM, so the editor opens read-only with the reason and a
-     link, instead of accepting a whole BOM that Save then refuses. A saved BOM
-     (`editId`) is never asked: only creation is gated. Keyed on `forOrder`
-     like `seedState`, for its reason. */
-  const [cadBlock, setCadBlock] = useState<{ forOrder: string; message: string | null } | null>(null);
-  useEffect(() => {
-    const id = form.garment_order_id;
-    if (!id || editId) return;
-    let cancelled = false;
-    checkCadForFabricBom(id).then((message) => {
-      if (!cancelled) setCadBlock({ forOrder: id, message });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [form.garment_order_id, editId]);
-  const cadBlockMessage =
-    !editId && cadBlock && cadBlock.forOrder === form.garment_order_id ? cadBlock.message : null;
+  /* NO CAD / PATTERN GATE ON CREATING A FABRIC BOM (0646, user 2026-09-26:
+     "remove the condition, no need it now"). 0628/0641 opened a new BOM
+     read-only until every style's pattern was Ready; the trigger is dropped
+     and so is the early check that mirrored it. */
 
   const pickedOrder = useMemo(
     () => data.orders.find((o) => o.id === form.garment_order_id) ?? null,
@@ -10888,9 +10869,7 @@ export function FabricBomScreen({
                     <RaiseRevisionLink orderId={raiseFor[form.garment_order_id]} />
                   ) : undefined,
               }
-            : cadBlockMessage
-              ? { message: cadBlockMessage, action: <CadLifecycleLink /> }
-              : false
+            : false
         }
         /* A compact 200px Sections rail whose labels still fit — "Fabric
            Allocation" clipped at 192px, and 240px read as too wide (operator,
