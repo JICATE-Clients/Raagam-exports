@@ -6,6 +6,7 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { FIELD_WIDTH } from "@/components/ui/field";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -17,7 +18,16 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
   entityLabel: "Yarn Purity",
   ioEntityKey: "yarn-purities",
   status: "active",
-  fields: [{ key: "name", label: "Name", required: true }],
+  fields: [
+    {
+      key: "name",
+      label: "Name",
+      required: true,
+      // COMPACT (erp-form-compact): a purity is a short label ("100% COTTON",
+      // "65/35 PC"), so `term` (176px) rather than the whole Name column.
+      widthClass: FIELD_WIDTH.term,
+    },
+  ],
   fromRow: (r) => ({ name: r.name }),
   searchText: (r) => [r.code, r.name].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),

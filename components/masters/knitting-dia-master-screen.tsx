@@ -6,6 +6,7 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { FIELD_WIDTH } from "@/components/ui/field";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -18,8 +19,11 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
   ioEntityKey: "knitting-dias",
   status: "active",
   fields: [
-    { key: "dia", label: "Dia", required: true, mono: true, widthClass: "w-32" },
-    { key: "description", label: "Description", defaultsTo: "dia" },
+    // COMPACT (erp-form-compact) — widths from the shared vocabulary, not
+    // hand-typed: a dia ("30", "34 OPEN") is a short code; the description is
+    // free text.
+    { key: "dia", label: "Dia", required: true, mono: true, widthClass: FIELD_WIDTH.range }, // 112px
+    { key: "description", label: "Description", defaultsTo: "dia", widthClass: FIELD_WIDTH.name }, // 288px
   ],
   // name falls back to code when there's no distinct description
   fromRow: (r) => ({ dia: r.code ?? "", description: r.name === r.code ? "" : r.name }),

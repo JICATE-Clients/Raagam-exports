@@ -18,6 +18,7 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { ChildGrid } from "@/components/masters/child-grid";
+import { FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { saveAttributeValues } from "@/lib/masters/extras-actions";
 import { type Attribute } from "@/lib/masters/extras-types";
 import { dupFieldProps } from "@/lib/masters/use-duplicate-check";
@@ -34,6 +35,21 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuper
    plus an insert, and a deleted value nulls `material_attribute_lines.attribute_id`
    on every Material Attribute line pointing at it. See that action's header. */
 type ValueRow = { key: string; id: string | null; value: string };
+
+/**
+ * COMPACT (erp-form-compact). The grid's one column is a short value ("180",
+ * "ROUND NECK"), so `term` (176px) — and a grid whose every column declares a
+ * width hugs its table instead of spreading "180" across the sheet.
+ */
+const VALUE_W = FIELD_WIDTH_CSS.term;
+
+/**
+ * The footer's buttons end where the grid ends:
+ *   `#` 40 + value 176 + ✕ 32 = 248 → 15.5rem.
+ * Only the footer takes it — capping the grid's own container
+ * below 512px would flip ChildGrid to stacked cards.
+ */
+const FORM_W = "max-w-[15.5rem]";
 
 /**
  * Attribute master (doc/update.md #2-3) — the second half of the Item Class /
@@ -293,7 +309,9 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
         onClose={() => setOpen(false)}
         title={editRow ? `Attributes — ${editRow.name}` : "Attributes"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the grid ends. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               {editRow?.has_attribute ? "Cancel" : "Close"}
             </Button>
@@ -302,18 +320,18 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 {isPending ? "Saving…" : "Save"}
               </Button>
             )}
-          </>
+          </div>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+        <div>
           {editRow && !editRow.has_attribute ? (
-            <div className="rounded-lg border border-border bg-surface-muted px-3 py-4 text-sm text-muted-foreground sm:col-span-2">
+            <div className="rounded-lg border border-border bg-surface-muted px-3 py-4 text-sm text-muted-foreground">
               Attributes are not enabled for{" "}
               <span className="font-medium text-foreground">{editRow.name}</span>. Turn on “Has
               Attribute” for this class on the Item Class screen to add values.
             </div>
           ) : (
-            <div className="space-y-3 sm:col-span-2">
+            <div className="space-y-3">
               <ChildGrid<ValueRow>
                 lockExisting
                 key={editRow?.id ?? "new"}
@@ -326,6 +344,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 columns={[
                   {
                     header: "Value",
+                    width: VALUE_W,
                     // `.min(1)` in the schema. `ChildGridColumn.required` draws
                     // the header `*` and wraps the cell in `RequiredScope` — but
                     // ONLY on this columns path; `renderMobileRow` below never
