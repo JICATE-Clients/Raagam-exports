@@ -31,6 +31,7 @@ import {
   createdMeta,
   createdSection,
   hasCreatedInfo,
+  hugCreated,
   withCreatedColumns,
 } from "@/components/ui/created-columns";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
@@ -180,6 +181,15 @@ export type MasterListShellProps<Row> = {
     onView?: (r: Row) => void;
   };
   isPending?: boolean;
+  /**
+   * THE TABLE IS AS WIDE AS ITS COLUMNS, not the pane (erp-table-fit skill,
+   * client 2026-09-28). The desktop frame becomes `w-fit max-w-full` and the
+   * Created pair is hugged; the screen hugs its own short columns with `HUG`.
+   * OPT-IN, deliberately: ~40 masters render through this shell, and the user
+   * chose to fit them one at a time (starting with Size Groups) rather than
+   * change them all at once.
+   */
+  fit?: boolean;
   /** Rare per-screen extra toolbar buttons (rendered next to Add). */
   toolbarExtra?: ReactNode;
   /**
@@ -247,6 +257,7 @@ export function MasterListShell<Row>({
   empty = "No records yet.",
   mobile,
   isPending = false,
+  fit = false,
   toolbarExtra,
   bulkEntityKey,
   bulkLabel,
@@ -331,8 +342,9 @@ export function MasterListShell<Row>({
     const base = statusColumn
       ? [...columns.filter((c) => !/^\s*status\s*$/i.test(c.header ?? "")), statusColumn]
       : columns;
-    return withCreatedColumns(base, rows);
-  }, [columns, rows, statusColumn]);
+    const withCreated = withCreatedColumns(base, rows);
+    return fit ? hugCreated(withCreated) : withCreated;
+  }, [columns, rows, statusColumn, fit]);
 
   // The Created line is APPENDED to the mobile card, not substituted for the
   // screen's own meta — the card has room for both, and dropping the screen's
@@ -592,7 +604,7 @@ export function MasterListShell<Row>({
       </div>
 
       {/* Dimmed while the deferred filter catches up — see useMasterFilter. */}
-      <div className={cn("hidden space-y-3 transition-opacity md:block", isStale && "opacity-60")}>
+      <div className={cn("hidden space-y-3 transition-opacity md:block", fit && "w-fit max-w-full", isStale && "opacity-60")}>
         {bulkEntityKey && sel.selectedIds.length > 0 && (
           <BulkActionsBar
             entityKey={bulkEntityKey}

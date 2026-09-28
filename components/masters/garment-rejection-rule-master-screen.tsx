@@ -26,7 +26,7 @@ import type {
   GarmentRejectionRule,
   GarmentRejectionRuleInput,
 } from "@/lib/masters/garment-rejection-rule-types";
-import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import {
   RANGE_KINDS,
   REJECTION_ALLOWANCE_TYPES,
@@ -316,15 +316,17 @@ export function GarmentRejectionRuleMasterScreen({
   }
 
   const columns: Column<GarmentRejectionRule>[] = [
-    { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
+    { header: "Entry", className: HUG, cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
     { header: "Rule", cell: (r) => <span className="text-sm">{r.rule ?? "—"}</span> },
     {
       header: "Effective From",
+      className: HUG,
       cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
     },
     {
       header: "Tiers",
       align: "right",
+      className: HUG,
       cell: (r) => <span className="tabular-nums text-sm">{r.lines.length}</span>,
     },
     {
@@ -374,9 +376,13 @@ export function GarmentRejectionRuleMasterScreen({
         )}
       </div>
 
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No rejection rules yet." />
+      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
+          erp-table-fit skill, client 2026-09-28). The short columns carry
+          `HUG`; Rule, the record's own text, stays unsized so it wraps.
+          `max-w-full` keeps a long list inside the pane, where the
+          primitive's own `overflow-x-auto` takes over. */}
+      <div className="hidden w-fit max-w-full md:block">
+        <DataTable columns={hugCreated(withCreatedColumns(columns, filtered))} rows={filtered} getKey={(r) => r.id} empty="No rejection rules yet." />
       </div>
 
       {/* mobile cards */}
