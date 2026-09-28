@@ -37,6 +37,7 @@ import {
 } from "@/components/masters/master-full-screen";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { HUG } from "@/components/ui/created-columns";
 /* THE QUEUE, WHOLE — the filter bar, the counted Status facet, the summary
    sentence and the six-across cards, shared with Fabric BOM rather than
    drawn a second time there. See the header comment on that file. */
@@ -5965,6 +5966,7 @@ export function MbaMasterScreen({
     },
     {
       header: "Item Color",
+      className: HUG,
       cell: (r) => <span className="text-sm">{r.colour}</span>,
     },
     {
@@ -5973,6 +5975,7 @@ export function MbaMasterScreen({
          carried as Production and Required. */
       header: "Calculated Qty",
       align: "right",
+      className: HUG,
       cell: (r) => (
         <span className="tabular-nums text-xs text-muted-foreground">
           {r.production != null ? fmtQty(r.production, r.decimals) : "—"}
@@ -5980,6 +5983,8 @@ export function MbaMasterScreen({
       ),
     },
     {
+      /* NOT hugged (erp-table-fit): a refusal prints a SENTENCE here, and
+         `nowrap` would stretch the table to its length. Left unsized, it wraps. */
       header: "Required Qty",
       align: "right",
       // A REFUSAL PRINTS ITS SENTENCE. Not a dash, and never 0: 0 reads as "none
@@ -5992,8 +5997,8 @@ export function MbaMasterScreen({
           <span className="text-xs text-muted-foreground">{r.refusal ?? "—"}</span>
         ),
     },
-    { header: "Uom", cell: (r) => <span className="text-xs">{r.uom}</span> },
-    { header: "Purchase Uom", cell: (r) => <span className="text-xs">{r.purchaseUom}</span> },
+    { header: "Uom", className: HUG, cell: (r) => <span className="text-xs">{r.uom}</span> },
+    { header: "Purchase Uom", className: HUG, cell: (r) => <span className="text-xs">{r.purchaseUom}</span> },
     {
       /**
        * PURCHASE STAGE — "Greige", SHOWN AND UNCHANGEABLE (0476, client
@@ -6047,6 +6052,7 @@ export function MbaMasterScreen({
        * substitution happens, and it is visible there.
        */
       header: "Stage",
+      className: HUG,
       cell: (r) => <span className="text-xs">{r.stage.trim() || "—"}</span>,
     },
   ];
@@ -6991,12 +6997,18 @@ export function MbaMasterScreen({
           ) : loadingOrder ? (
             <p className="text-xs text-muted-foreground">Reading the order…</p>
           ) : (
-            <DataTable
-              columns={reqColumns}
-              rows={reqRows}
-              getKey={(r) => r.key}
-              empty="Add a material with a basis and a ratio to see what the order needs."
-            />
+            /* AS WIDE AS ITS COLUMNS (erp-table-fit, client 2026-09-28, screenshot
+               142335): the eight columns spread across the whole section with
+               a gap between each. `w-fit` sizes the table to them; `max-w-full`
+               keeps a long Item Name inside the section, where it wraps. */
+            <div className="w-fit max-w-full">
+              <DataTable
+                columns={reqColumns}
+                rows={reqRows}
+                getKey={(r) => r.key}
+                empty="Add a material with a basis and a ratio to see what the order needs."
+              />
+            </div>
           )}
         </SectionBody>
       ),
@@ -7063,6 +7075,8 @@ export function MbaMasterScreen({
           stat={styleStat}
           quickStatus
           quickDraft
+          /* The Updated table fits its columns (erp-table-fit, 2026-09-28). */
+          fitUpdated
           onOpen={openTask}
           canDelete={perms.canDelete}
           /* An approved order offers no bin, and its Updated row an eye (2026-09-24). */

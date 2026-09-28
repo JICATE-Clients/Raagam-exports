@@ -579,6 +579,7 @@ export function BomQueue({
   onReports,
   quickStatus = false,
   quickDraft = false,
+  fitUpdated = false,
   isPending = false,
 }: {
   tasks: BomTaskRow[];
@@ -622,6 +623,9 @@ export function BomQueue({
   quickStatus?: boolean;
   /** Adds the Draft word to the Pending / Updated box (Material BOM). */
   quickDraft?: boolean;
+  /** The Updated table sized to its columns (`OrderQueueTable`'s `fit`) —
+   *  opt-in, Material BOM only (client 2026-09-28). */
+  fitUpdated?: boolean;
   isPending?: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -803,6 +807,7 @@ export function BomQueue({
           same search and facets, same click — only the drawing changes. */}
       {quickStatus && quickFilter === "updated" ? (
         <OrderQueueTable<BomTaskRow>
+          fit={fitUpdated}
           rows={filtered}
           heading={(t) => ({ reNo: t.sc_no ?? t.order_code, customer: t.customer_name, poNo: t.po_no })}
           /* THIS QUEUE'S OWN CARD, AS COLUMNS — the BOM's number, then the three
