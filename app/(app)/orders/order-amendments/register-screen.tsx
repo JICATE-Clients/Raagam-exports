@@ -72,7 +72,7 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
 import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { fmtDate } from "@/lib/format";
@@ -429,9 +429,10 @@ export function AmendmentRegisterScreen({
 
   /* Cells only ever see an ENTRY line: order lines are rendered by `spanRow`
      on both layouts, so `entryCol` narrows the union once here rather than in
-     every cell. Widths are declared so the code columns cannot wrap (that was
-     five wrapping columns in screenshot 3024); Change Type is the one column
-     left to take the remaining width, through `Truncated`. */
+     every cell. The code columns cannot wrap (that was five wrapping columns
+     in screenshot 3024) — they are `HUG` now (erp-table-fit, client
+     2026-09-28), as wide as their widest cell, where they used to be fixed
+     rem widths. Change Type is the one column left to vary; its chips wrap. */
   const entryCol = (
     header: string,
     cell: (r: AmendmentRegisterRow & { sno: number }) => ReactNode,
@@ -450,7 +451,7 @@ export function AmendmentRegisterScreen({
        the entry moved onto Revision, the column that now identifies the row. */
     entryCol("S.No", (r) => <span className="tabular-nums">{r.sno}</span>, {
       align: "right",
-      className: "w-[4rem] whitespace-nowrap",
+      className: HUG,
     }),
     entryCol(
       "Revision",
@@ -463,9 +464,9 @@ export function AmendmentRegisterScreen({
           Rev #{r.amend_no}
         </button>
       ),
-      { className: "w-[6rem] whitespace-nowrap" },
+      { className: HUG },
     ),
-    entryCol("Origin", (r) => originLabel(r.origin), { className: "w-[7.5rem] whitespace-nowrap" }),
+    entryCol("Origin", (r) => originLabel(r.origin), { className: HUG }),
     /* ONE CHIP PER MODULE (user 2026-09-24, screenshot 3049: the whole
        "Order Entry (Combo / Color Change, Quantity Addition) + Material BOM +
        Fabric BOM" sentence on one line pushed the table into a sideways
@@ -499,7 +500,7 @@ export function AmendmentRegisterScreen({
     ),
     entryCol("Margin Delta", (r) => <MarginDeltaCell margin={r.margin} />, {
       align: "right",
-      className: "w-[7rem] whitespace-nowrap",
+      className: HUG,
     }),
     entryCol(
       "Status",
@@ -510,7 +511,7 @@ export function AmendmentRegisterScreen({
           <StatusPill tone={entryStatusTone(r.status)}>{entryStatusLabel(r.status)}</StatusPill>
         </span>
       ),
-      { className: "w-[9rem] whitespace-nowrap" },
+      { className: HUG },
     ),
     rowActionsColumn((l) => {
       if (l.kind !== "entry") return null;
@@ -623,8 +624,11 @@ export function AmendmentRegisterScreen({
       />
 
       {/* dup-check: exempt -- a dated amendment entry; a second entry on the same RE is how a revision is raised */}
+      {/* AS WIDE AS ITS COLUMNS, not the pane (erp-table-fit skill, client
+          2026-09-28). */}
+      <div className="w-fit max-w-full">
       <DataTable
-        columns={withCreatedColumns(columns, lines)}
+        columns={hugCreated(withCreatedColumns(columns, lines))}
         rows={lines}
         getKey={(l) => l.id}
         spanRow={orderLine}
@@ -638,6 +642,7 @@ export function AmendmentRegisterScreen({
               : "No revision has been raised yet, and no order is approved to revise. An order can be revised once a budget that names it is approved (Orders ▸ Order Management ▸ Approval)."
         }
       />
+      </div>
 
       {/* THE ORDER PICKER MODAL (spec §1) — a sub-detail with no Save of its
           own, so `size="sm"` + `alignToPane` + `origin` (AGENTS.md). Its one

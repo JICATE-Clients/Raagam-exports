@@ -11081,6 +11081,9 @@ export function FabricBomScreen({
              Material"). One component, so the two queues cannot drift. */
           quickStatus
           quickDraft
+          /* The Updated table fits its columns (erp-table-fit, 2026-09-28) —
+             the same switch Material BOM's queue passes. */
+          fitUpdated
           /* A TAP OPENS THE EDITOR, and nothing sits between (client
              2026-09-21, screenshots 162502 / 162621: "intha mari visible aaga
              vendam, direct aa intha page visible aana pothum"). A right-edge
