@@ -26,6 +26,7 @@ import {
   createdMeta,
   createdSection,
   hasCreatedInfo,
+  HUG,
 } from "@/components/ui/created-columns";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions } from "@/components/ui/row-actions";
@@ -928,9 +929,16 @@ export function SimpleMasterScreen<Row>({
       {/* ---------------- desktop table (own markup, DataTable classes) ---------------- */}
       {/* Dimmed while the deferred filter catches up, so the operator is never
           shown rows that don't match what they just typed without a cue. */}
+      {/* `w-fit max-w-full`: THE TABLE IS AS WIDE AS ITS COLUMNS, not the pane
+          (erp-table-fit skill; user 2026-09-28, made the engine default for all
+          20 masters on it, starting from Counts). The short columns — the
+          descriptor's extras, the Created pair, Status — carry `HUG`; the
+          descriptor's own FIELDS (Name, free text) stay unsized so a long
+          value wraps. `max-w-full` keeps a wide list inside the pane, where
+          `overflow-x-auto` scrolls it. */}
       <div
         className={cn(
-          "hidden overflow-x-auto rounded-lg border border-border bg-surface transition-opacity md:block",
+          "hidden w-fit max-w-full overflow-x-auto rounded-lg border border-border bg-surface transition-opacity md:block",
           isStale && "opacity-60",
         )}
       >
@@ -949,12 +957,12 @@ export function SimpleMasterScreen<Row>({
                 </th>
               ))}
               {extraColumns.map((c) => (
-                <th key={c.header} className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
+                <th key={c.header} className={cn(HUG, "px-3 py-2 text-left text-xs font-bold text-muted-foreground")}>
                   {c.header}
                 </th>
               ))}
               {hasStatus && (
-                <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">Status</th>
+                <th className={cn(HUG, "px-3 py-2 text-left text-xs font-bold text-muted-foreground")}>Status</th>
               )}
               <th className={cn(ROW_ACTIONS_WIDTH, "px-3 py-2")} />
             </tr>
@@ -969,7 +977,7 @@ export function SimpleMasterScreen<Row>({
                   </td>
                 ))}
                 {extraColumns.map((c) => (
-                  <td key={c.header} className="px-3 py-1.5 align-middle text-sm text-muted-foreground">
+                  <td key={c.header} className="whitespace-nowrap px-3 py-1.5 align-middle text-sm text-muted-foreground">
                     —
                   </td>
                 ))}
@@ -998,7 +1006,7 @@ export function SimpleMasterScreen<Row>({
                         </td>
                       ))}
                       {extraColumns.map((c) => (
-                        <td key={c.header} className="px-3 py-1.5 align-middle text-sm text-muted-foreground">
+                        <td key={c.header} className="whitespace-nowrap px-3 py-1.5 align-middle text-sm text-muted-foreground">
                           {c.cell(r)}
                         </td>
                       ))}
@@ -1016,7 +1024,7 @@ export function SimpleMasterScreen<Row>({
                       </td>
                     ))}
                     {extraColumns.map((c) => (
-                      <td key={c.header} className="px-3 py-2 align-middle text-sm text-muted-foreground">
+                      <td key={c.header} className="whitespace-nowrap px-3 py-2 align-middle text-sm text-muted-foreground">
                         {c.cell(r)}
                       </td>
                     ))}

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { createdSection, withCreatedColumns } from "@/components/ui/created-columns";
+import { createdSection, HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -76,27 +76,6 @@ const FORM_W = "max-w-[20rem]";
  * view fetches nothing.
  * The Inactive toggle appears only when editing (blocking after create, #8).
  */
-/**
- * COLUMNS FIT THEIR CONTENT (client 2026-09-28: "too much excessive blank space
- * between the columns"). `DataTable` is a `w-full` auto-layout table, so with
- * values this short ("Yes", "3", a date) the browser handed the spare width out
- * to EVERY column and each one opened a gap. `w-px` + `nowrap` shrinks a column
- * to its widest cell. Name carries no width: the table's `w-fit` wrapper below
- * sizes the whole table to its columns, so there is no spare width left for it
- * to absorb. Status and the row actions keep the fixed widths they already have.
- */
-const HUG = "w-px whitespace-nowrap";
-
-/** The Created Date / User pair comes from `withCreatedColumns`, so it is hugged
- *  here rather than in the shared helper, which every other listing reads. */
-function hugCreated<T>(cols: Column<T>[]): Column<T>[] {
-  return cols.map((c) =>
-    c.header === "Created Date" || c.header === "Created User"
-      ? { ...c, className: [c.className, HUG].filter(Boolean).join(" ") }
-      : c,
-  );
-}
-
 export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();

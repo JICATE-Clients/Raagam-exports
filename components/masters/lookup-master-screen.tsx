@@ -21,7 +21,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { lookupLabel, type ConfigLookup, type LookupKind } from "@/lib/masters/extras-types";
-import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -155,12 +155,15 @@ export function LookupMasterScreen({
     // every other kind is the bare name (lookupLabel). The editor below still
     // loads and saves the raw `name`.
     { header: "Name", cell: (r) => <span className="text-sm">{lookupLabel(kind, r)}</span> },
+    /* Name and Notes stay unsized (erp-table-fit): Notes is free text, and
+       `nowrap` would make the table as wide as its longest note. */
     {
       header: "Notes",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.notes ?? "—"}</span>,
     },
     {
       header: "Status",
+      className: HUG,
       cell: (r) => (
         <StatusPill tone={r.is_active ? "success" : "neutral"}>
           {r.is_active ? "Active" : "Inactive"}
@@ -198,10 +201,13 @@ export function LookupMasterScreen({
         )}
       </div>
 
-      {/* desktop table */}
-      <div className="hidden md:block">
+      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
+          erp-table-fit skill, client 2026-09-28). The short columns carry
+          `HUG`; `max-w-full` keeps a long list inside the pane, where the
+          primitive's own `overflow-x-auto` takes over. */}
+      <div className="hidden w-fit max-w-full md:block">
         <DataTable
-          columns={withCreatedColumns(columns, filtered)}
+          columns={hugCreated(withCreatedColumns(columns, filtered))}
           rows={filtered}
           getKey={(r) => r.id}
           empty={`No ${singular.toLowerCase()} records yet.`}

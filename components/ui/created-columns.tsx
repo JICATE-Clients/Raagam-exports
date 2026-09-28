@@ -178,3 +178,26 @@ export function createdSection(
     },
   ];
 }
+
+/**
+ * A LISTING COLUMN THAT FITS ITS CONTENT (client 2026-09-28: "too much excessive
+ * blank space between the columns"). `DataTable` is a `w-full` auto-layout
+ * table, so with short values ("Yes", "3", a date) the browser hands the spare
+ * width to EVERY column. `w-px` + `nowrap` shrinks a column to its widest cell.
+ * Half of the `erp-table-fit` skill; the other half is a `w-fit max-w-full`
+ * wrapper round the table, without which the spare width all lands beside Name.
+ */
+export const HUG = "w-px whitespace-nowrap";
+
+/**
+ * `withCreatedColumns`' pair, hugged. OPT-IN and applied to its RESULT, so the
+ * ~150 listings that call `withCreatedColumns` alone are unchanged. Matches by
+ * header text, which this file owns.
+ */
+export function hugCreated<Row>(cols: Column<Row>[]): Column<Row>[] {
+  return cols.map((c) =>
+    c.header === "Created Date" || c.header === "Created User"
+      ? { ...c, className: [c.className, HUG].filter(Boolean).join(" ") }
+      : c,
+  );
+}

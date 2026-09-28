@@ -23,7 +23,7 @@ import { saveAttributeValues } from "@/lib/masters/extras-actions";
 import { type Attribute } from "@/lib/masters/extras-types";
 import { dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
-import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 // An attribute value is just a NAME now — its numeric/option behaviour and value
@@ -165,17 +165,20 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
     { header: "Item Class", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
     {
       header: "Has Attribute",
+      className: HUG,
       cell: (r) => <span className="text-sm text-muted-foreground">{r.has_attribute ? "Yes" : "No"}</span>,
     },
     {
       header: "Attributes",
       align: "right",
+      className: HUG,
       cell: (r) => (
         <span className="tabular-nums text-sm text-muted-foreground">{r.values.length || "—"}</span>
       ),
     },
     {
       header: "Status",
+      className: HUG,
       cell: (r) => (
         <StatusPill tone={r.is_active ? "success" : "danger"}>
           {r.is_active ? "Active" : "Inactive"}
@@ -256,9 +259,12 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
         </div>
       </div>
 
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
+      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
+          erp-table-fit skill, client 2026-09-28). The short columns carry
+          `HUG`; `max-w-full` keeps a long list inside the pane, where the
+          primitive's own `overflow-x-auto` takes over. */}
+      <div className="hidden w-fit max-w-full md:block">
+        <DataTable columns={hugCreated(withCreatedColumns(columns, pg.paged))} rows={pg.paged}
         paginate={false} getKey={(r) => r.id} empty="No item classes yet." />
       </div>
 
