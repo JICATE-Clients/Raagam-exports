@@ -114,17 +114,23 @@ export function ViewPairs({ pairs }: { pairs: readonly ViewPair[] }) {
   const shown = pairs.filter(([, v]) => !isEmpty(v));
   if (shown.length === 0) return null;
   return (
-    <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-3 text-sm">
+    /* The label column is as wide as the LONGEST label in this card, capped at
+       12rem — not a fixed 9rem. A fixed track left ~110px of blank space after
+       "Name" / "For Yarn" before the value (client 2026-09-28); `fit-content`
+       sizes to the words actually there, and a label past the cap still
+       truncates through `Truncated`. */
+    <dl className="grid grid-cols-[fit-content(12rem)_minmax(0,1fr)] gap-x-6 text-sm">
       {shown.map(([k, v], i) => {
         const last = i === shown.length - 1;
         // Only a plain string value is ever a candidate — a caller-supplied
         // pill (`value` is a `ReactNode`) passes through untouched, so this
         // never double-badges a status a screen already styled itself.
         const tone = typeof v === "string" ? BOOLEAN_TONE[v] : undefined;
-        // NUMERIC ALIGNS RIGHT, THE SAME RULE `data-table.tsx` STATES FOR A
-        // TABLE COLUMN ("Numerics should use align:right + tabular-nums"):
-        // a figure reads as a figure when it lines up with the ones above and
-        // below it, not when it starts flush against a text label like prose.
+        // A NUMBER GETS tabular-nums BUT NOT text-right. Right-aligning it
+        // (the `data-table.tsx` column rule) threw it to the far edge of a
+        // half-screen card, a card-width away from its label — the blank space
+        // the client reported on 2026-09-28. A pair is not a table column: the
+        // value belongs beside its label.
         const numeric = typeof v === "string" && NUMERIC_VALUE.test(v);
         return (
           <div key={k} className="contents">
@@ -146,7 +152,7 @@ export function ViewPairs({ pairs }: { pairs: readonly ViewPair[] }) {
               className={cn(
                 "min-w-0 break-words py-1.5 text-foreground",
                 tone ? "py-1" : "font-medium",
-                numeric && "text-right font-mono tabular-nums",
+                numeric && "font-mono tabular-nums",
                 !last && "border-b border-border/60",
               )}
             >
@@ -223,16 +229,20 @@ export function RecordViewSheet({
             <p className="text-sm text-muted-foreground">This record has no details filled in yet.</p>
           </div>
         ) : (
-          /* Two columns on a wide editor, one below it. Sections flow down the
-             pair rather than being split evenly, so a long section does not drag
-             a short one down with it. */
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          /* Cards SHRINK-WRAP their content and wrap side by side. They used to
+             be two equal half-screen columns, so a short value ("BIO WASH")
+             sat at the left of a ~550px card with the rest of the row blank
+             (client 2026-09-28). `min-w` keeps a one-pair card from collapsing
+             to a sliver; the 36rem cap makes a long value wrap instead of
+             stretching its card across the sheet; below `sm` every card is
+             full width, as before. */
+          <div className="flex flex-wrap items-start gap-4">
             {shown.map((s, i) => {
               const accent = SECTION_ACCENTS[i % SECTION_ACCENTS.length];
               return (
                 <div
                   key={s.label}
-                  className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm"
+                  className="w-full max-w-full overflow-hidden rounded-xl border border-border bg-surface shadow-sm sm:w-fit sm:min-w-[18rem] sm:max-w-[36rem]"
                 >
                   {/* The accent bar is the thing that makes sections tell apart
                       at a glance without reading a word — a colour a reader can
