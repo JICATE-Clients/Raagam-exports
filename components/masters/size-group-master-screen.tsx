@@ -60,28 +60,35 @@ const FIELD_W = {
   name: "party", // 200px — a group label, ~15 capitals ("MENS TOP S-XXL")
 } satisfies Record<string, FieldWidth>;
 
-/** One size per row: S, XL, 3-4Y — a short word, so `code` (144px). */
-const SIZE_W = FIELD_WIDTH_CSS.code;
+/**
+ * One size per row: S, XL, 3-4Y — at most ~4 capitals, so `hug` (88px), the
+ * vocabulary's floor. It was `code` (144px), which left each box two-thirds
+ * empty and the card wide around it (client 2026-09-28: "size input boxes are
+ * taking up too much width").
+ */
+const SIZE_W = FIELD_WIDTH_CSS.hug;
 
 /**
  * NAME AND SIZES ON ONE LINE (client 2026-09-26: "i want same line name and
- * size filed"). The two cards sit side by side, each at ONE width:
+ * size filed"). The two cards sit side by side, EACH AT ITS OWN WIDTH — they
+ * were one shared 16rem, which was the Name card's width forced onto a card
+ * holding an 88px box (client 2026-09-28):
  *
- *   Details — name 200 + 2 × 8 card padding + 2 × 1 border = 218
- *   Sizes   — `#` + size 144 + ✕ ≈ 216, same card chrome   ≈ 234
+ *   Details — name 200 + 2 × 10 card padding + 2 × 1 border         = 222 → 16rem
+ *   Sizes   — row: # 16 + 8 + size 88 + 8 + ✕ 32 + 2 × 6 + 2 × 1   = 166
+ *             + the same card chrome (20 + 2)                        = 188 → 12rem
  *
- * 16rem (256px) holds the wider of the two, with room for the non-compact
- * `p-2.5` density. Equal widths, so the pair reads as one form rather than a
- * big card and a small one. `max-w-full` lets a phone take the whole width,
- * where the flex row wraps the Sizes card under the Details card.
+ * `max-w-full` lets a phone take the whole width, where the flex row wraps the
+ * Sizes card under the Details card.
  */
-const CARD_W = "w-[16rem] max-w-full";
+const DETAILS_W = "w-[16rem] max-w-full";
+const SIZES_W = "w-[12rem] max-w-full";
 
 /**
- * THE FOOTER'S BUTTONS END WHERE THE PAIR ENDS: two cards + the 12px gap
- * between them = 256 + 12 + 256 = 524 → 33rem (528px).
+ * THE FOOTER'S BUTTONS END WHERE THE PAIR ENDS: the two cards + the 12px gap
+ * between them = 256 + 12 + 192 = 460 → 29rem (464px).
  */
-const FORM_W = "max-w-[33rem]";
+const FORM_W = "max-w-[29rem]";
 
 export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perms: Perms }) {
   const router = useRouter();
@@ -365,7 +372,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
         {/* Side by side, top-aligned: the Sizes card grows downward as rows are
             added, and the Details card stays put beside its first row. */}
         <div className="flex flex-wrap items-start gap-3">
-        <DetailSection label="Details" cols={1} className={CARD_W}>
+        <DetailSection label="Details" cols={1} className={DETAILS_W}>
           <FieldRow>
             {/* No code field — codes are derived from the name and hidden from
                 the UI (client 2026-07-23). */}
@@ -395,7 +402,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
 
         {/* Capped to the form (rule 4): a one-column grid of "S" / "XL" does not
             get the sheet's width. The column's own `width` is SIZE_W. */}
-        <DetailSection label="Sizes" className={CARD_W}>
+        <DetailSection label="Sizes" className={SIZES_W}>
           {/* `frameless` — the section already draws the border and names it.
               Row ORDER is the size order, so no sort column: the operator reads
               S · M · L down the grid and that is what a style gets filled with. */}

@@ -76,6 +76,27 @@ const FORM_W = "max-w-[20rem]";
  * view fetches nothing.
  * The Inactive toggle appears only when editing (blocking after create, #8).
  */
+/**
+ * COLUMNS FIT THEIR CONTENT (client 2026-09-28: "too much excessive blank space
+ * between the columns"). `DataTable` is a `w-full` auto-layout table, so with
+ * values this short ("Yes", "3", a date) the browser handed the spare width out
+ * to EVERY column and each one opened a gap. `w-px` + `nowrap` shrinks a column
+ * to its widest cell. Name carries no width: the table's `w-fit` wrapper below
+ * sizes the whole table to its columns, so there is no spare width left for it
+ * to absorb. Status and the row actions keep the fixed widths they already have.
+ */
+const HUG = "w-px whitespace-nowrap";
+
+/** The Created Date / User pair comes from `withCreatedColumns`, so it is hugged
+ *  here rather than in the shared helper, which every other listing reads. */
+function hugCreated<T>(cols: Column<T>[]): Column<T>[] {
+  return cols.map((c) =>
+    c.header === "Created Date" || c.header === "Created User"
+      ? { ...c, className: [c.className, HUG].filter(Boolean).join(" ") }
+      : c,
+  );
+}
+
 export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();
@@ -200,6 +221,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
     { header: "Name", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
     {
       header: "Has Attribute",
+      className: HUG,
       cell: (r) => (
         <span className="text-sm text-muted-foreground">{r.has_attribute ? "Yes" : "No"}</span>
       ),
@@ -207,6 +229,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
     {
       header: "Attributes",
       align: "right",
+      className: HUG,
       cell: (r) => (
         <span className="tabular-nums text-sm text-muted-foreground">
           {(r.values ?? []).length || "—"}
@@ -308,9 +331,14 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
         </div>
       </div>
 
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
+      {/* desktop table — `w-fit`: THE TABLE IS AS WIDE AS ITS COLUMNS (client
+          2026-09-28: "name kku pakkathala irukka extra space aa remove pannu").
+          Hugging every column but Name only moved the spare width to after the
+          name; the table is `w-full` inside the primitive, so the frame around
+          it is what has to shrink. `max-w-full` keeps a long list inside the
+          pane, where the primitive's own `overflow-x-auto` takes over. */}
+      <div className="hidden w-fit max-w-full md:block">
+        <DataTable columns={hugCreated(withCreatedColumns(columns, rows))} rows={pg.paged}
         paginate={false} getKey={(r) => r.id} empty="No item classes yet." />
       </div>
 
