@@ -410,13 +410,22 @@ const LINE: GridEnterProbe = { stacked: false, fieldAfter: false, hasAdd: false 
 /** A row that is a CARD — a panel of fields on its own track. */
 const CARD: GridEnterProbe = { stacked: true, fieldAfter: false, hasAdd: false };
 
-console.log("\n  a row that is a LINE keeps the Excel key, whatever else is true");
+// A LINE NOW WALKS ALONG ITSELF TOO (client 2026-09-29, Customer ▸ Contacts:
+// Enter in Department must land on Contact Name, the cell beside it). These
+// four vectors used to assert "row" — the Excel key — and are REVERSED on
+// purpose: a table row answers Enter exactly as a card row does. Verified by
+// being made to FAIL first against the old `if (!p.stacked) return "row"`.
+console.log("\n  a row that is a LINE walks along itself, like a card");
+grid("line, fields left: advance one field", enterInGrid({ ...LINE, fieldAfter: true }), "advance");
+grid("line, fields left, Add there: still advance", enterInGrid({ ...LINE, fieldAfter: true, hasAdd: true }), "advance");
+grid("line, last field, Add: land on '+ Add'", enterInGrid({ ...LINE, fieldAfter: false, hasAdd: true }), "add");
+grid("line, last field, no Add: advance out", enterInGrid({ ...LINE, fieldAfter: false, hasAdd: false }), "advance");
 for (const fieldAfter of [true, false]) {
   for (const hasAdd of [true, false]) {
     grid(
-      `line: fieldAfter=${fieldAfter} hasAdd=${hasAdd} — down a row`,
-      enterInGrid({ ...LINE, fieldAfter, hasAdd }),
-      "row",
+      `line: fieldAfter=${fieldAfter} hasAdd=${hasAdd} — never "row"`,
+      enterInGrid({ ...LINE, fieldAfter, hasAdd }) === "row" ? "row" : "not-row",
+      "not-row",
     );
   }
 }
