@@ -5,15 +5,30 @@
  * island. It is handed the SAME `CuttingChart` the on-screen view renders, so
  * the page, the paper and the spreadsheet cannot disagree.
  *
- * The Material BOM Requirement exporter's frame (green rule, blue title, mono
- * table) so the order's documents print as one family; the body is the legacy
- * RP Cutting Chart's — sizes across, Order / Approval / Rej.Allow / Total per
- * colour, and the three signatures at the foot.
+ * The order documents' frame (green rule, logo, blue title) so they print as
+ * one family; the body is the legacy RP Cutting Chart's — sizes across, Order /
+ * Approval / Rej.Allow / Total per colour, and the three signatures at the foot.
+ *
+ * THE TABLE WEARS THE YARN & FABRIC REQUIREMENT'S LOOK (user 2026-09-29) — the
+ * shared `report-pdf-kit`: a filled bar in the CUTTING tone with the Cut Qty at
+ * its right, a tinted head, striped rows, style bands and Total rows tinted in
+ * the tone, and a swatch beside each colour. Pale tints under dark ink, so a
+ * mono printout still reads.
  */
 import { jsPDF } from "jspdf";
 import autoTable, { type RowInput } from "jspdf-autotable";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { fitLogo, loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
+import { swatchFor } from "@/lib/orders/fabric-bom/report-colours";
+import {
+  STAGE_STYLES,
+  SWATCH_PADDING,
+  drawSectionHeading,
+  drawSwatch,
+  paintRow,
+  rgb,
+  toneHead,
+} from "@/lib/orders/report-pdf-kit";
 import { cuttingCell, cuttingRows, sumOf, type CuttingChart, type CuttingFigures } from "./types";
 
 export type PdfOutput = "download" | "print";
@@ -148,30 +163,75 @@ export async function exportCuttingChartPdf(c: CuttingChart, output: PdfOutput =
     },
   });
 
+  const tone = STAGE_STYLES.cutting;
   const nCols = c.sizes.length + 3;
   const body: RowInput[] = [];
+  /* Row index -> how it is drawn: a style / RE Total band, a Total row, or a
+     colour's first row (its swatch). */
+  const bands = new Set<number>();
+  const totals = new Set<number>();
+  const swatchAt = new Map<number, string>();
+  const pushFigures = (first: string, f: CuttingFigures) => {
+    const hex = first ? swatchFor(first) : null;
+    if (hex) swatchAt.set(body.length, hex);
+    for (const row of figureRows(c, first, f)) {
+      if (row[1] === "Total") totals.add(body.length);
+      body.push(row);
+    }
+  };
+  const band = (content: string) => {
+    bands.add(body.length);
+    body.push([{ content, colSpan: nCols }]);
+  };
   for (const s of c.styles) {
-    body.push([{ content: styleLine(c, s), colSpan: nCols, styles: { fontStyle: "bold", fillColor: [246, 247, 249] } }]);
-    for (const col of s.colours) body.push(...figureRows(c, col.combo, col.figures));
+    band(styleLine(c, s));
+    for (const col of s.colours) pushFigures(col.combo, col.figures);
   }
-  body.push([{ content: "RE Total", colSpan: nCols, styles: { fontStyle: "bold", fillColor: [246, 247, 249] } }]);
-  body.push(...figureRows(c, "", c.total));
+  band("RE Total");
+  pushFigures("", c.total);
 
   const numeric: Record<number, { halign: "right" }> = {};
   for (let i = 2; i < nCols; i++) numeric[i] = { halign: "right" };
   const lastY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
+  /* THE SECTION BAR — the chart's headline figure, the RE's Cut Qty, at its
+     right (the RE Total block's own Total, so bar and table agree). */
+  const startY = drawSectionHeading(
+    doc,
+    M,
+    lastY + 22,
+    W - 2 * M,
+    tone,
+    "CUTTING CHART",
+    `Cut Qty ${cuttingCell(sumOf(c.total.total))}`,
+  );
+
   autoTable(doc, {
     head: [["Color", "", ...c.sizes.map((z) => z.label), "Total"]],
     body,
-    startY: lastY + 8,
+    startY,
     margin: { left: M, right: M },
+    theme: "grid",
     styles: { fontSize: 8, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 },
-    headStyles: { fillColor: [235, 237, 240], textColor: 20, fontStyle: "bold" },
+    headStyles: { ...toneHead(tone), fontSize: 8 },
     columnStyles: { ...numeric, [nCols - 1]: { halign: "right", fontStyle: "bold" } },
     didParseCell: (d) => {
-      // The Total row of every block reads bold, as the legacy prints it.
-      if (d.section === "body" && Array.isArray(d.row.raw) && d.row.raw[1] === "Total") d.cell.styles.fontStyle = "bold";
+      // The Total row of every block reads bold and tinted, as the legacy's bold.
+      paintRow(d, { tone, totals });
+      // Size and Total headings sit over their right-aligned figures.
+      if (d.section === "head" && d.column.index >= 2) d.cell.styles.halign = "right";
+      if (d.section !== "body") return;
+      if (bands.has(d.row.index)) {
+        d.cell.styles.fillColor = rgb(tone.tint);
+        d.cell.styles.textColor = rgb(tone.ink);
+        d.cell.styles.fontStyle = "bold";
+      }
+      if (d.column.index === 0 && swatchAt.has(d.row.index)) d.cell.styles.cellPadding = SWATCH_PADDING;
+    },
+    didDrawCell: (d) => {
+      if (d.section !== "body" || d.column.index !== 0) return;
+      const hex = swatchAt.get(d.row.index);
+      if (hex) drawSwatch(doc, d.cell, hex);
     },
   });
 

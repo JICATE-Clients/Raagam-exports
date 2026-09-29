@@ -14,6 +14,16 @@ import {
   type PdfOutput,
 } from "@/lib/orders/fabric-bom/reports-export";
 import { loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
+import { swatchFor } from "@/lib/orders/fabric-bom/report-colours";
+import {
+  BRAND,
+  SWATCH_PADDING,
+  drawSectionHeading,
+  drawSwatch,
+  paintRow,
+  rgb,
+  toneHead,
+} from "@/lib/orders/report-pdf-kit";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import { ACCESSORY_COLUMNS, accessoryQty, accessoryRows, type AccessoryRow } from "./sheet";
 import type { RequirementSheetData } from "./service";
@@ -34,8 +44,14 @@ import type { RequirementSheetData } from "./service";
  * reads Cut (client 2026-09-23 — "SQ" was read as Sample Quantity), and "SC No"
  * reads RE No (the app's name for it since 0431).
  *
- * MONO, NOT BRANDED — a supplier prints this on a mono laser; the grey head is
- * the one fill (`monoHead`, the same as every other requirement document).
+ * THE YARN & FABRIC LOOK, STILL PRINT-SAFE (user 2026-09-29: the other
+ * reports "need to look like yarn fabric requirement"). This used to say
+ * "MONO, NOT BRANDED" — a supplier prints it on a mono laser, and a saturated
+ * head band turns to mud there. The look it now wears is not that: every fill
+ * is a PALE tint under near-black ink (`report-pdf-kit.ts`), so the sections
+ * still separate in greyscale. TRIMS PURCHASE is a filled `BRAND` bar with
+ * its item count, the head in the same tint, rows striped, each category's
+ * group cell tinted, and a swatch beside a colour the palette knows.
  */
 
 function stem(data: RequirementSheetData): string {
@@ -96,19 +112,26 @@ export async function exportAccessoriesRequirementPdf(
   }
 
   // -- TRIMS PURCHASE ---------------------------------------------------------
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.text("TRIMS PURCHASE", M, y + 14);
-  doc.setFont("helvetica", "normal");
-
   const rows = accessoryRows(data.rows, data.names);
+  const startY = drawSectionHeading(
+    doc,
+    M,
+    y + 16,
+    doc.internal.pageSize.getWidth() - 2 * M,
+    BRAND,
+    "TRIMS PURCHASE",
+    rows.length ? `${rows.length} item${rows.length === 1 ? "" : "s"}` : undefined,
+  );
+  /* Which body rows open a category — their first cell is the rowSpan group
+     cell, tinted as the group's own heading. */
+  const opensGroup = new Set(rows.flatMap((r, i) => (r.category != null ? [i] : [])));
   autoTable(doc, {
     head: [[...ACCESSORY_COLUMNS]],
     body: rows.map(cells),
-    startY: y + 18,
+    startY,
     margin: { left: M, right: M, top: CONTINUED_TOP },
     styles: { ...monoStyles(), fontSize: 7, valign: "top" },
-    headStyles: { ...monoHead(), fontSize: 7 },
+    headStyles: { ...monoHead(), ...toneHead(BRAND), fontSize: 7 },
     theme: "grid",
     columnStyles: {
       0: { cellWidth: 72 },
@@ -119,19 +142,34 @@ export async function exportAccessoriesRequirementPdf(
       5: { cellWidth: 44 },
       6: { cellWidth: 52, halign: "right" },
     },
-    /* A refused quantity is a sentence, set in red where the figure would be. */
     didParseCell: (d) => {
+      paintRow(d, { tone: BRAND });
+      /* Qty's heading over its right-aligned figures, as the screen sets it. */
+      if (d.section === "head" && d.column.index === 6) d.cell.styles.halign = "right";
       if (d.section !== "body") return;
+      /* THE CATEGORY'S GROUP CELL — tinted in the tone, over its whole span. */
+      if (d.column.index === 0 && opensGroup.has(d.row.index)) {
+        d.cell.styles.fillColor = rgb(BRAND.tint);
+        d.cell.styles.textColor = rgb(BRAND.ink);
+        d.cell.styles.fontStyle = "bold";
+      }
+      if (d.column.index === 2 && swatchFor(String(d.cell.raw ?? ""))) d.cell.styles.cellPadding = SWATCH_PADDING;
+      /* A refused quantity is a sentence, set in red where the figure would be. */
       const raw = String(d.cell.raw ?? "");
       if (d.column.index === 6 && raw && !/^[\d,.—]+$/.test(raw)) {
         d.cell.styles.textColor = [150, 30, 30];
         d.cell.styles.halign = "left";
       }
     },
+    didDrawCell: (d) => {
+      if (d.section !== "body" || d.column.index !== 2) return;
+      const hex = swatchFor(String(d.cell.raw ?? ""));
+      if (hex) drawSwatch(doc, d.cell, hex);
+    },
   });
   if (rows.length === 0) {
     doc.setFontSize(7.5);
-    doc.text("No trims on this Material BOM.", M, finalY(doc, y + 18) + 12);
+    doc.text("No trims on this Material BOM.", M, finalY(doc, startY) + 12);
   }
 
   signOffFooter(doc);

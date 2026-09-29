@@ -3,6 +3,19 @@ import { CadPendingBadge } from "@/components/orders/cad/cad-pending-badge";
 import { ReportThumbnail } from "@/components/orders/report-thumbnail";
 import type { ReportStyleImage } from "@/lib/orders/gos/style-images";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
+/* THE YARN & FABRIC REQUIREMENT'S LOOK (2026-09-29) — the shared screen kit,
+   the twin of the `report-pdf-kit.ts` the PDF draws with. */
+import {
+  BRAND,
+  SectionBar,
+  STAGE_STYLES,
+  Swatch,
+  Th,
+  stripeRow,
+  totalRowStyle,
+  type StageStyle,
+} from "@/components/orders/report-kit";
+import type { ClothPurchaseLine } from "@/lib/orders/fabric-bom/reports";
 import {
   fabricConsumptionLabel,
   fabricRequirementSheetRows,
@@ -28,10 +41,14 @@ import type { FabricRequirementSheetData } from "@/lib/orders/fabric-requirement
  * ## THE MEDIUM DECIDES, NOT THE OPERATOR
  *
  * This colour view IS the document — the app is digital-first and this is a
- * route on the record, not a preview of a piece of paper. Print and PDF switch
- * themselves to the ink-safe layout (`.fab-*` rules from `DocumentPrintStyles`,
- * and the jspdf routine draws its own mono table), so there is no toggle, no
- * setting, and nothing an operator can get wrong.
+ * route on the record, not a preview of a piece of paper. Since 2026-09-29 it
+ * wears the Yarn & Fabric Requirement's look (user: "another reports also need
+ * to look like yarn fabric requirement"): filled section bars in their tone,
+ * striped rows, tinted totals — and the PDF draws the SAME look with
+ * `report-pdf-kit.ts`, so screen, print and PDF are one document. Print keeps
+ * the colour (`DocumentPrintStyles` sets `print-color-adjust: exact`): every
+ * fill is a pale tint under near-black ink, safe on a mono laser, so there is
+ * still no ink-safe toggle and nothing an operator can get wrong.
  *
  * ## SERVER COMPONENT
  *
@@ -131,23 +148,28 @@ export function FabricRequirementSheetDocument({
         </div>
 
         <section>
-          <div className="flex items-baseline gap-3 border-b border-border bg-[#eaf7fd] px-5 py-2">
-            <h2 className="m-0 text-[12.5px] font-bold uppercase tracking-[.14em] text-[#037bb8]">
-              Fabric Purchase
-            </h2>
-            <span className="ml-auto font-mono text-[11px] text-[#5b6472]">
-              {summary.entries} entr{summary.entries === 1 ? "y" : "ies"} · {summary.styles} style
-              {summary.styles === 1 ? "" : "s"} · {summary.slices} slice
-              {summary.slices === 1 ? "" : "s"}
-              {/* THE REFUSAL COUNT IS IN THE BAND, not only in the rows. This is
-                  where a reader decides whether to trust the page, and three
-                  unplannable slices further down are three they would otherwise
-                  have to scroll to find. */}
-              {summary.refused ? (
-                <span className="font-semibold text-[#b91c1c]"> · {summary.refused} unplanned</span>
-              ) : null}
-            </span>
-          </div>
+          {/* THE FABRIC TABLE'S BAR — the app's blue: a fabric sheet spans every
+              stage its cloths pass through, so no one stage owns it. The PDF
+              draws the same bar with the same count. */}
+          <SectionBar
+            tone={BRAND}
+            first
+            title="Fabric Purchase"
+            right={
+              <>
+                {summary.entries} entr{summary.entries === 1 ? "y" : "ies"} · {summary.styles} style
+                {summary.styles === 1 ? "" : "s"} · {summary.slices} slice
+                {summary.slices === 1 ? "" : "s"}
+                {/* THE REFUSAL COUNT IS IN THE BAND, not only in the rows. This is
+                    where a reader decides whether to trust the page, and three
+                    unplannable slices further down are three they would otherwise
+                    have to scroll to find. */}
+                {summary.refused ? (
+                  <span className="font-semibold text-[#b91c1c]"> · {summary.refused} unplanned</span>
+                ) : null}
+              </>
+            }
+          />
           <div className="fab-scroll">
             <table className="w-full border-collapse text-[13px]">
               <thead>
@@ -161,8 +183,8 @@ export function FabricRequirementSheetDocument({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <Row key={r.key} row={r} partial={r.kind === "total" && totalIsPartial(rows, r.key)} />
+                {rows.map((r, i) => (
+                  <Row key={r.key} row={r} stripe={i % 2 === 1} partial={r.kind === "total" && totalIsPartial(rows, r.key)} />
                 ))}
               </tbody>
             </table>
@@ -177,14 +199,11 @@ export function FabricRequirementSheetDocument({
             absent split is chased. */}
         {yarns.length > 0 && (
           <section>
-            <div className="flex items-baseline gap-3 border-b border-t border-border bg-[#eaf7fd] px-5 py-2">
-              <h2 className="m-0 text-[12.5px] font-bold uppercase tracking-[.14em] text-[#037bb8]">
-                Yarn Purchase
-              </h2>
-              <span className="ml-auto font-mono text-[11px] text-[#5b6472]">
-                {yarns.length} yarn{yarns.length === 1 ? "" : "s"}
-              </span>
-            </div>
+            <SectionBar
+              tone={STAGE_STYLES.yarn}
+              title="Yarn Purchase"
+              right={`${yarns.length} yarn${yarns.length === 1 ? "" : "s"}`}
+            />
             <div className="fab-scroll">
               <table className="w-full border-collapse text-[13px]">
                 <thead>
@@ -195,9 +214,9 @@ export function FabricRequirementSheetDocument({
                   </tr>
                 </thead>
                 <tbody>
-                  {yarns.map((y) =>
+                  {yarns.map((y, i) =>
                     y.kind !== "yarn" ? null : (
-                      <tr key={y.key}>
+                      <tr key={y.key} style={stripeRow(i)}>
                         <td className="border-b border-border px-2.5 py-1.5 font-medium">{y.yarn}</td>
                         <td className="border-b border-border px-2.5 py-1.5">{y.uom || "—"}</td>
                         <Qty qty={y.qty} refusal={y.refusal} decimals={y.decimals} />
@@ -220,14 +239,13 @@ export function FabricRequirementSheetDocument({
             purchase that does not exist. */}
         {data.cloth.length > 0 && (
           <section>
-            <div className="flex items-baseline gap-3 border-b border-t border-border bg-[#eaf7fd] px-5 py-2">
-              <h2 className="m-0 text-[12.5px] font-bold uppercase tracking-[.14em] text-[#037bb8]">
-                Fabric Purchase
-              </h2>
-              <span className="ml-auto font-mono text-[11px] text-[#5b6472]">
-                {data.cloth.length} line{data.cloth.length === 1 ? "" : "s"}
-              </span>
-            </div>
+            {/* Greige or dyed rolls — the bar wears the stage they are bought in
+                (Dyed only when every line is), each Buying cell its own. */}
+            <SectionBar
+              tone={clothTone(data.cloth)}
+              title="Fabric Purchase"
+              right={`${data.cloth.length} line${data.cloth.length === 1 ? "" : "s"}`}
+            />
             <div className="fab-scroll">
               <table className="w-full border-collapse text-[13px]">
                 <thead>
@@ -242,15 +260,23 @@ export function FabricRequirementSheetDocument({
                 </thead>
                 <tbody>
                   {data.cloth.map((l, i) => (
-                    <tr key={`${l.fabricId}-${l.combo ?? ""}-${i}`}>
+                    <tr key={`${l.fabricId}-${l.combo ?? ""}-${i}`} style={stripeRow(i)}>
                       <td className="border-b border-border px-2.5 py-1.5 font-medium">
                         {l.fabricName}
                         {l.component && (
                           <span className="ml-1 text-[11px] text-[#5b6472]">· {l.component}</span>
                         )}
                       </td>
-                      <td className="border-b border-border px-2.5 py-1.5">{l.label}</td>
-                      <td className="border-b border-border px-2.5 py-1.5">{l.combo ?? "—"}</td>
+                      <td
+                        className="border-b border-border px-2.5 py-1.5 font-semibold"
+                        style={{ background: lineTone(l).tint, color: lineTone(l).ink }}
+                      >
+                        {l.label}
+                      </td>
+                      <td className="border-b border-border px-2.5 py-1.5">
+                        <Swatch name={l.combo} />
+                        {l.combo ?? "—"}
+                      </td>
                       <td className="border-b border-border px-2.5 py-1.5">{l.uomCode || "—"}</td>
                       <td className="border-b border-border px-2.5 py-1.5 text-right font-mono">
                         {fmtNumber(l.netWt)}
@@ -265,7 +291,7 @@ export function FabricRequirementSheetDocument({
                       honest answer there rather than a sum of kilograms and
                       metres. */}
                   {data.clothTotal && (
-                    <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+                    <tr className="font-semibold" style={totalRowStyle(clothTone(data.cloth))}>
                       <td className="border-b border-border px-2.5 py-1.5" colSpan={4}>
                         Total Fabric Purchase Requirement
                         {data.clothTotal.uomCode ? ` (${data.clothTotal.uomCode})` : ""}
@@ -319,16 +345,14 @@ function Fact({ label, value, mono }: { label: string; value: string | null; mon
   );
 }
 
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
-  return (
-    <th
-      className={`whitespace-nowrap border-b border-[#9aa4b2] bg-[#f1f3f5] px-2.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[.08em] text-[#5b6472] ${
-        right ? "text-right" : "text-left"
-      }`}
-    >
-      {children}
-    </th>
-  );
+/** A bought roll's stage — greige unless it is bought dyed. */
+function lineTone(l: ClothPurchaseLine): StageStyle {
+  return l.source === "dyed_purchase" ? STAGE_STYLES.dyed : STAGE_STYLES.greige;
+}
+
+/** The Fabric Purchase section's tone — Dyed only when every line is. */
+function clothTone(cloth: readonly ClothPurchaseLine[]): StageStyle {
+  return cloth.length > 0 && cloth.every((l) => l.source === "dyed_purchase") ? STAGE_STYLES.dyed : STAGE_STYLES.greige;
 }
 
 /**
@@ -340,13 +364,15 @@ function Th({ children, right }: { children: React.ReactNode; right?: boolean })
  * largest line in the order is the most expensive possible silent answer, and
  * this sheet is what a fabric purchase order is written from.
  */
-function Row({ row, partial }: { row: FabricSheetRow; partial: boolean }) {
+function Row({ row, partial, stripe: striped }: { row: FabricSheetRow; partial: boolean; stripe: boolean }) {
   if (row.kind === "style") {
+    /* THE STYLE BAND in the section's tint — the PDF's style row, same colour. */
     return (
       <tr>
         <td
           colSpan={6}
-          className="border-b border-[#9aa4b2] bg-white px-2.5 pb-1.5 pt-3 text-[11.5px] font-bold uppercase tracking-[.1em]"
+          className="border-b border-[#9aa4b2] px-2.5 pb-1.5 pt-3 text-[11.5px] font-bold uppercase tracking-[.1em]"
+          style={totalRowStyle(BRAND)}
         >
           {row.label}
         </td>
@@ -373,13 +399,17 @@ function Row({ row, partial }: { row: FabricSheetRow; partial: boolean }) {
   }
 
   if (row.kind === "total") {
+    /* A TOTAL IN THE SECTION'S TINT (2026-09-29, the PDF's total row) — red
+       still, when part of it could not be planned: that is a warning, and a
+       warning does not take the section's colour. */
+    const look = partial ? "bg-[#fdeaea] text-[#b91c1c]" : "";
+    const toned = partial ? undefined : totalRowStyle(BRAND);
     return (
       <tr className="fab-keep">
         <td
           colSpan={4}
-          className={`border-b border-[#9aa4b2] px-2.5 py-1.5 font-semibold ${
-            partial ? "bg-[#fdeaea] text-[#b91c1c]" : "bg-[#eef8de] text-[#547b19]"
-          }`}
+          className={`border-b border-[#9aa4b2] px-2.5 py-1.5 font-semibold ${look}`}
+          style={toned}
         >
           {row.label}
           {/* A TOTAL OVER A REFUSED SLICE SAYS SO. Without this the figure looks
@@ -390,17 +420,12 @@ function Row({ row, partial }: { row: FabricSheetRow; partial: boolean }) {
             <span className="ml-2 font-normal">— part of this fabric could not be planned</span>
           )}
         </td>
-        <td
-          className={`border-b border-[#9aa4b2] px-2.5 py-1.5 ${
-            partial ? "bg-[#fdeaea] text-[#b91c1c]" : "bg-[#eef8de] text-[#547b19]"
-          }`}
-        >
+        <td className={`border-b border-[#9aa4b2] px-2.5 py-1.5 ${look}`} style={toned}>
           {row.uom || "—"}
         </td>
         <td
-          className={`border-b border-[#9aa4b2] px-2.5 py-1.5 text-right font-mono font-semibold tabular-nums ${
-            partial ? "bg-[#fdeaea] text-[#b91c1c]" : "bg-[#eef8de] text-[#547b19]"
-          }`}
+          className={`border-b border-[#9aa4b2] px-2.5 py-1.5 text-right font-mono font-semibold tabular-nums ${look}`}
+          style={toned}
         >
           {fabricSheetQty(row.qty, row.decimals)}
         </td>
@@ -410,9 +435,11 @@ function Row({ row, partial }: { row: FabricSheetRow; partial: boolean }) {
 
   if (row.kind === "slice") {
     return (
-      <tr>
+      <tr style={stripeRow(striped ? 1 : 0)}>
         <td className="border-b border-border px-2.5 py-1.5" />
         <td className="border-b border-border px-2.5 py-1.5 text-[12.5px] text-[#5b6472]">
+          {/* The colourway's swatch — "WHITE · M" reads its colour half. */}
+          <Swatch name={row.slice.split("·")[0]} />
           {row.slice}
         </td>
         <td className="border-b border-border px-2.5 py-1.5 text-right font-mono text-[12.5px] tabular-nums text-[#5b6472]">

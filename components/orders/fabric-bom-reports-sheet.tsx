@@ -44,8 +44,6 @@ import {
   STAGE_STRIPE,
   STAGE_STYLES,
   sectionStyle,
-  swatchFor,
-  type StageStyle,
 } from "@/lib/orders/fabric-bom/report-colours";
 import {
   ORDER_REPORTS,
@@ -59,6 +57,20 @@ import {
   sizeRunContinues,
   type PdfOutput,
 } from "@/lib/orders/fabric-bom/reports-export";
+/* THE SHARED REPORT LOOK (2026-09-29) — moved out of this file so every order
+   report draws with it; see ./report-kit.tsx. */
+import {
+  ReportTable,
+  SectionBar,
+  SectionHeader,
+  StageBadge,
+  stripeRow,
+  totalRowStyle,
+  StageKey,
+  Swatch,
+  Td,
+  Th,
+} from "@/components/orders/report-kit";
 
 /**
  * Orders ▸ Fabric BOM ▸ Reports — a `size="lg"` Sheet holding both per-BOM
@@ -445,156 +457,6 @@ function QuantityBand({
   );
 }
 
-function SectionHeader({ children, tone }: { children: React.ReactNode; tone?: StageStyle }) {
-  if (tone) {
-    /* A STAGE-TONED HEADING (2026-09-20) — the stage's tag and a rule in its
-       colour, the same heading the PDF draws. */
-    return (
-      <div
-        className="flex items-center gap-2 border-x border-t border-border bg-white px-4 py-1.5 text-[11.5px] font-bold uppercase tracking-[.1em] text-[#16181d]"
-        style={{ borderTop: `3px solid ${tone.rule}` }}
-      >
-        <StageTag tone={tone} />
-        {children}
-      </div>
-    );
-  }
-  return (
-    <div className="border-x border-t border-border bg-[#eaf7fd] px-4 py-1.5 text-[11.5px] font-bold uppercase tracking-[.1em] text-[#037bb8]">
-      {children}
-    </div>
-  );
-}
-
-/** A stage's tag — pale fill, strong border, dark ink (./report-colours.ts). */
-function StageTag({ tone }: { tone: StageStyle }) {
-  return (
-    <span
-      className="inline-block rounded-[3px] border px-1.5 py-px text-[10.5px] font-bold tracking-wide"
-      style={{ background: tone.tint, borderColor: tone.rule, color: tone.ink }}
-    >
-      {tone.label}
-    </span>
-  );
-}
-
-/** The garment colour beside its name — nothing for a name with no known
- *  colour, never a guessed one (`swatchFor`). */
-function Swatch({ name }: { name: string | null | undefined }) {
-  const hex = swatchFor(name);
-  if (!hex) return null;
-  return (
-    <span
-      aria-hidden
-      className="mr-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-[2px] border border-[#6b7480] align-[-1px]"
-      style={{ background: hex }}
-    />
-  );
-}
-
-/** What the stage colours mean — once, under the order facts. */
-function StageKey() {
-  const entries: [StageStyle, string][] = [
-    [STAGE_STYLES.yarn, "yarn to buy"],
-    [STAGE_STYLES.greige, "one lot per fabric"],
-    [STAGE_STYLES.dyed, "per colourway"],
-    [STAGE_STYLES.print, "printed colourways only"],
-    [STAGE_STYLES.cutting, "to the cutting table"],
-  ];
-  return (
-    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 border border-t-0 border-border bg-white px-5 py-2 text-[11.5px] text-[#5b6472]">
-      <span className="font-bold tracking-wide text-[#16181d]">KEY</span>
-      {entries.map(([tone, text]) => (
-        <span key={tone.label} className="flex items-center gap-1.5">
-          <StageTag tone={tone} />
-          {text}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/** The bordered table shell every section uses — one border language, so a
- *  table never reads as a different document from the letterhead above it.
- *  `fixed` opts a table into `table-fixed` + explicit `<colgroup>` widths
- *  (via `EntryRegisterGridCols` below) instead of the default auto-sized
- *  `min-w-max` — the Entry Register grid's own long Fabric description was
- *  otherwise stretching every numeric column, including every subtotal and
- *  the Grand Total row, off the right edge of the Sheet (client screenshot
- *  2847, 2026-09-11: "not that much a professional report look"). Every
- *  other table using this shell keeps its old auto-sized behaviour. */
-function ReportTable({ children, fixed }: { children: React.ReactNode; fixed?: boolean }) {
-  return (
-    <div className="overflow-x-auto border-x border-b border-border bg-white">
-      {/* NO SIDEWAYS SCROLLING (client 2026-09-20). The auto-sized tables used
-          to carry `min-w-max` — "as wide as every cell on one line" — so one
-          long fabric description pushed Loss % and To Ordered off the right
-          edge. Now they take the pane's width and TEXT WRAPS inside its cell;
-          figures never wrap (`Td` right/mono is `whitespace-nowrap`). The
-          `overflow-x-auto` above stays only as a fallback for a phone-width
-          window, where no table of these columns can fit. */}
-      <table className={`w-full border-collapse text-[12px] ${fixed ? "table-fixed" : ""}`}>
-        {children}
-      </table>
-    </div>
-  );
-}
-
-function Th({
-  children,
-  right,
-  center,
-  colSpan,
-  rowSpan,
-}: {
-  children: React.ReactNode;
-  right?: boolean;
-  /** A group heading over its sub-columns ("Planned" over Nos/Mtrs · Wt). */
-  center?: boolean;
-  colSpan?: number;
-  rowSpan?: number;
-}) {
-  return (
-    <th
-      colSpan={colSpan}
-      rowSpan={rowSpan}
-      className={`border-b border-border bg-[#f6f7f9] px-2 py-1 align-bottom font-semibold text-[#5b6472] ${center ? "text-center" : right ? "text-right" : "text-left"}`}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  right,
-  mono,
-  className = "",
-  colSpan,
-  wrap,
-}: {
-  children: React.ReactNode;
-  right?: boolean;
-  mono?: boolean;
-  className?: string;
-  colSpan?: number;
-  /** Let a right/mono cell wrap after all — for the one that can hold a
-   *  sentence (a refused yarn's reason) instead of a figure. */
-  wrap?: boolean;
-}) {
-  return (
-    <td
-      colSpan={colSpan}
-      /* A FIGURE NEVER WRAPS — right-aligned or mono cells are numbers, codes
-         and dates; only text (a fabric's description) breaks onto a second
-         line to keep the table inside the pane. */
-      className={`border-b border-border/60 px-2 py-1 ${right ? "text-right" : "text-left"} ${mono ? "font-mono" : ""} ${(right || mono) && !wrap ? "whitespace-nowrap" : ""} ${className}`}
-    >
-      {children}
-    </td>
-  );
-}
-
 /**
  * PRINT AND PDF, AND NO EXCEL (client spec 2026-09-19) — a requirement report
  * leaves the app only as the document as issued; a spreadsheet can be edited
@@ -742,6 +604,13 @@ function EntryRegisterView({
           this app's own PDF/CSV export already render (see
           `lib/orders/fabric-bom/reports-export.ts`'s `registerBody`); a
           nested accordion here would be a second layout for one document. */}
+      {/* THE YARN & FABRIC LOOK (user 2026-09-29) — the PDF's filled bar with
+          the register's gross total; rows banded per assort colour. */}
+      <SectionBar
+        first
+        title="Fabric Requirement — Colour · Component · Size"
+        right={`${fmtNumber(data.grandTotal.grossWt)} gross`}
+      />
       <ReportTable fixed>
         <EntryRegisterGridCols cols={viewMode === "detailed" ? ENTRY_GRID_DETAILED_COLS : ENTRY_GRID_SUMMARY_COLS} />
         <thead>
@@ -754,10 +623,10 @@ function EntryRegisterView({
           </tr>
         </thead>
         <tbody>
-          {data.groups.map((group) => (
-            <EntryColourRows key={group.combo ?? "unassigned"} group={group} viewMode={viewMode} />
+          {data.groups.map((group, gi) => (
+            <EntryColourRows key={group.combo ?? "unassigned"} group={group} viewMode={viewMode} band={gi % 2 === 1} />
           ))}
-          <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+          <tr className="font-semibold" style={totalRowStyle()}>
             <Td colSpan={3} className="truncate font-semibold">GRAND TOTAL</Td>
             <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
             <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.cutQty)}</Td>
@@ -772,7 +641,7 @@ function EntryRegisterView({
 
       <div className="mb-6" />
 
-      <SectionHeader>Process Sequence &amp; Stage Loss Ledger</SectionHeader>
+      <SectionBar first title="Process Sequence & Stage Loss Ledger" />
       <ReportTable>
         <thead>
           <tr>
@@ -790,12 +659,13 @@ function EntryRegisterView({
         </thead>
         <tbody>
           {data.stageLedger.map((r, i) => (
-            <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
+            <tr key={i} style={stripeRow(i)}>
               <Td>{r.className}</Td>
               <Td>{r.itemName}</Td>
               <Td>{r.combo ?? "—"}</Td>
               <Td>{r.componentName ?? "—"}</Td>
-              <Td>{r.stageName ?? "—"}</Td>
+              {/* The stage as the Yarn report's badge (GREIGE / DYED …). */}
+              <Td>{r.stageName ? <StageBadge state={r.stageName.toUpperCase()} /> : "—"}</Td>
               <Td>{r.processName ?? "—"}</Td>
               <Td right mono>{r.lossPct != null ? `${r.lossPct.toFixed(2)}%` : "—"}</Td>
             </tr>
@@ -827,18 +697,23 @@ const NUMERIC_ENTRY_COLS = new Set([
 function EntryColourRows({
   group,
   viewMode,
+  band,
 }: {
   group: EntryRegister["groups"][number];
   viewMode: "detailed" | "summary";
+  /** Every other assort colour sits on the colourway band (2026-09-29), the
+   *  PDF's own banding — one colour reads as one block. */
+  band: boolean;
 }) {
   const label = group.combo || "Unassigned";
+  const bg = { background: band ? COLOURWAY_BAND : "#ffffff" };
   return (
     <>
       {group.components.map((comp) =>
         viewMode === "detailed" ? (
-          <EntryComponentDetailedRows key={comp.key} colour={label} comp={comp} />
+          <EntryComponentDetailedRows key={comp.key} colour={label} comp={comp} rowStyle={bg} />
         ) : (
-          <EntryComponentSummaryRow key={comp.key} colour={label} comp={comp} />
+          <EntryComponentSummaryRow key={comp.key} colour={label} comp={comp} rowStyle={bg} />
         ),
       )}
       {/* THE COLOUR SUBTOTAL IS THE COARSER LEVEL, and has to read as one —
@@ -849,27 +724,42 @@ function EntryColourRows({
           sharing one flat tint, which is what "needs a professional look"
           was pointing at — a hierarchy that looks the same at every level
           reads as no hierarchy at all). */}
-      <tr className="border-y-2 border-[#c7cdd4] bg-[#e9ecef] font-semibold uppercase tracking-wide">
-        <Td colSpan={3} className="truncate font-semibold text-[#3a4250]">{label} — subtotal</Td>
+      {/* 2026-09-29: in the section's tone, as the PDF prints it; the
+          component subtotal above stays grey, so the two levels still differ. */}
+      <tr className="font-semibold uppercase tracking-wide" style={totalRowStyle()}>
+        <Td colSpan={3} className="truncate font-semibold">{label} — subtotal</Td>
         <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
-        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.cutQty)}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.cutQty)}</Td>
         <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
-        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.netReqWt)}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.netReqWt)}</Td>
         <Td>{""}</Td>
-        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.grossWt)}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.grossWt)}</Td>
         <Td>{""}</Td>
       </tr>
     </>
   );
 }
 
-function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: EntryRegisterComponentGroup }) {
+function EntryComponentDetailedRows({
+  colour,
+  comp,
+  rowStyle,
+}: {
+  colour: string;
+  comp: EntryRegisterComponentGroup;
+  rowStyle: React.CSSProperties;
+}) {
   const componentLabel = comp.componentNames.join(", ") || "—";
   return (
     <>
       {comp.sizes.map((s, i) => (
-        <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
-          <Td><Truncated text={colour} /></Td>
+        <tr key={i} style={rowStyle}>
+          <Td>
+            <span className="flex min-w-0 items-center">
+              <Swatch name={colour} />
+              <Truncated text={colour} />
+            </span>
+          </Td>
           <Td><Truncated text={componentLabel} /></Td>
           <Td><Truncated text={comp.fabricName} /></Td>
           <Td><ItemFormBadge form={comp.itemForm} /></Td>
@@ -914,14 +804,27 @@ function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: En
  *  % is not a second stored figure: every size within one component shares
  *  the same backward-markup ladder, so `comp.subtotal`'s own ratio already
  *  IS the component's compounded loss — never re-derived from one size row. */
-function EntryComponentSummaryRow({ colour, comp }: { colour: string; comp: EntryRegisterComponentGroup }) {
+function EntryComponentSummaryRow({
+  colour,
+  comp,
+  rowStyle,
+}: {
+  colour: string;
+  comp: EntryRegisterComponentGroup;
+  rowStyle: React.CSSProperties;
+}) {
   const pieceWts = comp.sizes.map((s) => s.pieceWt).filter((w): w is number => w != null);
   const avgPieceWt = pieceWts.length > 0 ? pieceWts.reduce((a, b) => a + b, 0) / pieceWts.length : null;
   const lossPct = comp.subtotal.netReqWt !== 0 ? (comp.subtotal.grossWt / comp.subtotal.netReqWt - 1) * 100 : null;
   const uomCode = comp.sizes.find((s) => s.uomCode)?.uomCode ?? null;
   return (
-    <tr className="odd:bg-white even:bg-[#fafbfc]">
-      <Td><Truncated text={colour} /></Td>
+    <tr style={rowStyle}>
+      <Td>
+        <span className="flex min-w-0 items-center">
+          <Swatch name={colour} />
+          <Truncated text={colour} />
+        </span>
+      </Td>
       <Td><Truncated text={comp.componentNames.join(", ") || "—"} /></Td>
       <Td><Truncated text={comp.fabricName} /></Td>
       <Td><ItemFormBadge form={comp.itemForm} /></Td>
@@ -1046,14 +949,6 @@ function LossChainInfo({ chain }: { chain: { processName: string; lossPct: numbe
 // Report 2 — Yarn & Fabric Requirement Report
 // ---------------------------------------------------------------------------
 
-const STAGE_BADGE_TONE: Record<string, string> = {
-  /* The report palette's Greige and Dyed (2026-09-20), so a badge and the
-     section it sits beside speak one colour. */
-  GREY: "bg-[#eceff3] text-[#37404a]",
-  RFD: "bg-[#fde8cc] text-[#8a5a15]",
-  DYED: "bg-[#e1eff9] text-[#024f78]",
-};
-
 /** GREY / RFD / DYED, coloured — so a warehouse or mill supervisor reads the
  *  state at a glance rather than parsing a word in a dense table. Falls back
  *  to a neutral tone for any other stage-state word rather than refusing to
@@ -1101,16 +996,6 @@ function DetailsCell({ line }: { line: StageBreakdownLine }) {
 function diaSizeText(l: StageBreakdownLine): string {
   const dia = l.dia != null && String(l.dia).trim() ? String(l.dia) : null;
   return [dia, l.sizeLabel].filter(Boolean).join(" / ") || "—";
-}
-
-function StageBadge({ state }: { state: string }) {
-  return (
-    <span
-      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE_TONE[state] ?? "bg-[#e4e6ea] text-[#4a5261]"}`}
-    >
-      {state}
-    </span>
-  );
 }
 
 function RequirementReportView({
@@ -1346,18 +1231,7 @@ function RequirementReportView({
           g.lines.forEach((l, i) => runOf.push(i === 0 ? 0 : runOf[i - 1] + (bandOf(g.lines[i - 1]) !== bandOf(l) ? 1 : 0)));
           return (
             <div key={g.processId}>
-              <div
-                className={`flex w-full items-center justify-between border-x border-border px-4 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide ${gi === 0 ? "" : "border-t"}`}
-                style={{ background: tone.tint, color: tone.ink, borderTop: `2px solid ${tone.rule}` }}
-              >
-                <span className="flex items-center gap-2">
-                  <StageTag tone={tone} />
-                  {g.processName}
-                </span>
-                <span className="font-mono text-[11px] normal-case tracking-normal">
-                  {fmtNumber(g.toOrderedTotal)}
-                </span>
-              </div>
+              <SectionBar tone={tone} title={g.processName} right={fmtNumber(g.toOrderedTotal)} first={gi === 0} />
               <ReportTable>
                 <thead>
                   {/* LEGACY'S OWN COLUMNS — `Color` leads (the CLOTH's

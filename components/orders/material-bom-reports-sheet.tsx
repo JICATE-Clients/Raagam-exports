@@ -20,6 +20,7 @@ import {
   isMaterialBomSheetReport,
   type MaterialBomReportKey,
 } from "@/lib/orders/order-reports";
+import { BRAND, ReportTable, SectionBar, Swatch, Td, Th, stripeRow } from "@/components/orders/report-kit";
 
 /**
  * Orders ▸ Material BOM ▸ Reports (client 2026-09-20: "there is no material bom
@@ -208,8 +209,18 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
           <Fact label="Date" value={fmtDate(h.bomDate)} mono />
         </div>
 
-        <div className="overflow-x-auto border-x border-b border-border bg-white">
-          <table className="w-full min-w-max border-collapse text-[12px]">
+        {/* THE YARN & FABRIC LOOK (user 2026-09-29) — the section wears a filled
+            BRAND bar (a trim is not a production stage, so no tag) with the
+            line count at the right, rows striped, the colour swatched. The
+            columns and their order are unchanged. No total: the lines are in
+            different units, and a sum of pieces and grams is no figure. */}
+        <div className="mt-3">
+          <SectionBar
+            tone={BRAND}
+            title="Material Requirement"
+            right={`${data.rows.length} line${data.rows.length === 1 ? "" : "s"}`}
+          />
+          <ReportTable>
             <thead>
               <tr>
                 <Th>Item Name</Th>
@@ -226,32 +237,35 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
               </tr>
             </thead>
             <tbody>
-              {data.rows.map((r) => (
-                <tr key={r.key} className="border-b border-border last:border-b-0">
-                  <td className="px-2 py-1">{r.material}</td>
-                  <td className="px-2 py-1">{r.colour}</td>
-                  <td className="px-2 py-1 text-right tabular-nums text-[#5b6472]">
+              {data.rows.map((r, i) => (
+                <tr key={r.key} style={stripeRow(i)}>
+                  <Td>{r.material}</Td>
+                  <Td>
+                    <Swatch name={r.colour} />
+                    {r.colour}
+                  </Td>
+                  <Td right mono className="text-[#5b6472]">
                     {r.calculated != null ? fmtQty(r.calculated, r.decimals) : "—"}
-                  </td>
-                  <td className="px-2 py-1 text-right tabular-nums font-semibold">
+                  </Td>
+                  <Td right mono wrap={r.required == null} className="font-semibold">
                     {/* A REFUSAL PRINTS ITS SENTENCE — never 0, which reads
                         as "none needed". */}
                     {r.required != null ? (
                       fmtQty(r.required, r.decimals)
                     ) : (
-                      <span className="font-normal text-muted-foreground">{r.refusal}</span>
+                      <span className="font-sans font-normal text-muted-foreground">{r.refusal}</span>
                     )}
-                  </td>
-                  <td className="px-2 py-1">{r.uom}</td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  </Td>
+                  <Td>{r.uom}</Td>
+                  <Td right mono>
                     {r.purchaseQty != null ? fmtQty(r.purchaseQty, r.purchaseDecimals) : "—"}
-                  </td>
-                  <td className="px-2 py-1">{r.purchaseUom}</td>
-                  <td className="px-2 py-1">{r.stage}</td>
+                  </Td>
+                  <Td>{r.purchaseUom}</Td>
+                  <Td>{r.stage}</Td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ReportTable>
         </div>
         {h.computedAt && (
           <div className="mt-1 text-right text-[11px] text-muted-foreground">
@@ -272,12 +286,3 @@ function Fact({ label, value, mono }: { label: string; value: string | null | un
   );
 }
 
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
-  return (
-    <th
-      className={`border-b border-border bg-[#f6f7f9] px-2 py-1 font-semibold text-[#5b6472] ${right ? "text-right" : "text-left"}`}
-    >
-      {children}
-    </th>
-  );
-}
