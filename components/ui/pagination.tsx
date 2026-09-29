@@ -47,7 +47,14 @@ export function PaginationBar({
             <Select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="h-7 w-auto py-0 text-xs"
+              // The width goes on the WRAPPER and the height/type on the INPUT
+              // (client 2026-09-29, screenshot 092821): `h-7 w-auto` through
+              // `className` sized only the desktop Combobox's wrapper, so its
+              // input kept `h-9` and the browser's default ~20ch width — a
+              // 250px box for a three-digit number. 4.5rem is the `num` step
+              // (FIELD_WIDTH_CSS): "100" plus the chevron.
+              className="w-[4.5rem]"
+              inputClassName="h-7 py-0 text-xs"
               aria-label="Rows per page"
             >
               {pageSizeOptions.map((size) => (

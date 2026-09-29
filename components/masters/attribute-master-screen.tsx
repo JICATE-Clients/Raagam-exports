@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition, type KeyboardEvent } from "react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,13 +18,12 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { ChildGrid } from "@/components/masters/child-grid";
-import { FIELD_WIDTH_CSS } from "@/components/ui/field";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { saveAttributeValues } from "@/lib/masters/extras-actions";
 import { type Attribute } from "@/lib/masters/extras-types";
 import { dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
-import { createdMeta, HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 // An attribute value is just a NAME now — its numeric/option behaviour and value
@@ -37,19 +37,21 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuper
 type ValueRow = { key: string; id: string | null; value: string };
 
 /**
- * COMPACT (erp-form-compact). The grid's one column is a short value ("180",
- * "ROUND NECK"), so `term` (176px) — and a grid whose every column declares a
- * width hugs its table instead of spreading "180" across the sheet.
+ * THE VALUES ARE CHIPS (client 2026-09-29, option B of the Attribute editor
+ * mock-ups: "B chips apply"). It was a one-column ChildGrid, ten boxes to a
+ * page — a class with fourteen values needed Prev / Next to be seen whole, and
+ * each value took a full row for a word like PLY. As chips every value is on
+ * screen at once, wrapping inside one box.
+ *
+ * One box, three gestures: type in the end box and press Enter to add; click a
+ * chip to rename it in place (Enter or leaving keeps it, Escape puts it back);
+ * ✕ removes. A value typed but not yet Entered is still saved by Save, so
+ * nothing half-typed is lost.
+ *
+ * 40rem (640px): seven or eight typical values to a line, and the footer's
+ * buttons end where the box ends.
  */
-const VALUE_W = FIELD_WIDTH_CSS.term;
-
-/**
- * The footer's buttons end where the grid ends:
- *   `#` 40 + value 176 + ✕ 32 = 248 → 15.5rem.
- * Only the footer takes it — capping the grid's own container
- * below 512px would flip ChildGrid to stacked cards.
- */
-const FORM_W = "max-w-[15.5rem]";
+const FORM_W = "max-w-[40rem]";
 
 /**
  * Attribute master (doc/update.md #2-3) — the second half of the Item Class /
@@ -62,8 +64,8 @@ const FORM_W = "max-w-[15.5rem]";
  * schema, but this screen never captures it: the class already exists, its name
  * is set on the Item Class screen, and the editor's own title reads it back
  * ("Attributes — {name}"). There is no field to declare `required` on and no
- * cursor to hold. The one field this screen DOES own — the value — declares it
- * on both render paths (the `columns` entry and `renderMobileRow`).
+ * cursor to hold. The value is not `required` either: the end box is blank by
+ * design between entries, and a blank one simply adds nothing.
  */
 export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perms: Perms }) {
   const router = useRouter();
@@ -72,6 +74,10 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
   const [open, setOpen] = useState(false);
   const [editRow, setEditRow] = useState<Attribute | null>(null);
   const [values, setValues] = useState<ValueRow[]>([]);
+  /** The end box — the value being typed, not yet a chip. */
+  const [draft, setDraft] = useState("");
+  /** The chip being renamed in place, and its text so far. */
+  const [renaming, setRenaming] = useState<{ key: string; value: string } | null>(null);
   const keySeq = useRef(0);
   const newKey = () => `v${keySeq.current++}`;
 
@@ -92,64 +98,91 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
   function openEdit(r: Attribute) {
     setEditRow(r);
     setValues(r.values.map((v) => ({ key: newKey(), id: v.id, value: v.value })));
+    setDraft("");
+    setRenaming(null);
     setOpen(true);
   }
-  function addValueRow() {
-    // ChildGrid (pageSize) handles jumping to the new last page on add.
-    setValues((vs) => [...vs, { key: newKey(), id: null, value: "" }]);
+
+  const norm = (v: string) => v.trim().toUpperCase();
+  /** Is `text` already a chip — other than the chip `exceptKey`? */
+  const taken = (text: string, exceptKey?: string) =>
+    !!norm(text) && values.some((v) => v.key !== exceptKey && norm(v.value) === norm(text));
+
+  /*
+   * dup-check: the duplicate here is a REPEATED VALUE IN THIS LIST, not a
+   * repeated record. There is no name field and nothing to ask the server —
+   * every candidate is already on screen as a chip — so it is answered in the
+   * same render as the keystroke, and the marker comes from `dupFieldProps`, so
+   * the cursor hold behaves as every other duplicate in the app. A chip that
+   * would repeat is never created, which is why Save only has to check the two
+   * boxes still being typed in.
+   *
+   * spell-suggest: exempt -- a class holds a handful of values and every one
+   * is on screen as a chip directly above the box being typed into; a strip of
+   * suggestion chips under a box of value chips would be two rows of look-alike
+   * pills.
+   */
+  const draftDup = taken(draft) ? `"${norm(draft)}" is already in this list. Use a different value.` : null;
+  const renameDup =
+    renaming && taken(renaming.value, renaming.key)
+      ? `"${norm(renaming.value)}" is already in this list. Use a different value.`
+      : null;
+
+  function addDraft() {
+    if (!norm(draft) || draftDup) return;
+    setValues((vs) => [...vs, { key: newKey(), id: null, value: norm(draft) }]);
+    setDraft("");
   }
-  function setValueAt(key: string, value: string) {
-    setValues((vs) => vs.map((v) => (v.key === key ? { ...v, value } : v)));
+  function commitRename() {
+    if (!renaming || renameDup) return;
+    // Blank keeps the old value — ✕ is how a chip is removed, never an empty box.
+    if (norm(renaming.value))
+      setValues((vs) => vs.map((v) => (v.key === renaming.key ? { ...v, value: norm(renaming.value) } : v)));
+    setRenaming(null);
   }
-  function removeValueRow(key: string) {
+  function removeValue(key: string) {
     setValues((vs) => vs.filter((v) => v.key !== key));
+    if (renaming?.key === key) setRenaming(null);
   }
 
-  /**
-   * dup-check: the duplicate here is a REPEATED GRID ROW, not a repeated record.
-   *
-   * `useDuplicateName` is the wrong shape for it — there is no name field on
-   * this form (the class is picked, never typed) and nothing to ask the server,
-   * because every candidate is already on screen. `saveAttributeValues` replaces
-   * the whole list wholesale, so two rows reading GSM would both insert and the
-   * Material screen would then show the same attribute twice with no way to tell
-   * which one an item answered.
-   *
-   * Keyed by the row's own key so the FIRST occurrence stays clean and only the
-   * repeat is marked — marking both would tell the operator to change a row that
-   * is correct. The marker still comes from `dupFieldProps`, so the keyboard hold
-   * behaves identically to every other duplicate in the app.
-   *
-   * spell-suggest: exempt -- the check above lives in a CHILD GRID cell, and the
-   * suggestion strip is a wrapping row of chips that would push the grid's rows
-   * out of alignment as the operator types. It is also the one place a near-miss
-   * costs nothing to spot: a class holds a handful of attributes and all of them
-   * are on screen at once, directly above the cell being typed into.
-   */
-  const dupKeys = useMemo(() => {
-    const seen = new Map<string, string>();
-    const dups = new Set<string>();
-    for (const v of values) {
-      const norm = v.value.trim().toUpperCase();
-      if (!norm) continue;
-      if (seen.has(norm)) dups.add(v.key);
-      else seen.set(norm, v.key);
+  function onDraftKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addDraft();
     }
-    return dups;
-  }, [values]);
-  const dupFor = (v: ValueRow) =>
-    dupKeys.has(v.key)
-      ? `"${v.value.trim().toUpperCase()}" is already in this list. Use a different value.`
-      : null;
+  }
+  function onRenameKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitRename();
+    } else if (e.key === "Escape") {
+      // One layer: put the chip back, keep the sheet open.
+      e.preventDefault();
+      e.stopPropagation();
+      setRenaming(null);
+    }
+  }
+
+  // Unsaved work: a chip added, renamed or removed, or a value still typed.
+  const dirty =
+    open &&
+    !!editRow &&
+    (!!norm(draft) ||
+      !!renaming ||
+      values.length !== editRow.values.length ||
+      values.some((v, i) => v.id !== editRow.values[i]?.id || v.value !== editRow.values[i]?.value));
+  useUnsavedGuard(dirty || isPending);
 
   function submit() {
     if (!editRow) return;
     startTransition(async () => {
       // Names only, stored in CAPS (masters convention) — input_type/options
       // default server-side (unused by the flow).
-      const payload = values
-        .filter((v) => v.value.trim())
-        .map((v) => ({ id: v.id, value: v.value.trim().toUpperCase() }));
+      // The end box's text counts as a value even if Enter was never pressed.
+      const all = norm(draft) && !draftDup ? [...values, { id: null, value: draft }] : values;
+      const payload = all
+        .filter((v) => norm(v.value))
+        .map((v) => ({ id: v.id, value: norm(v.value) }));
       const res = await saveAttributeValues(editRow.id, payload);
       if (res.ok) {
         success("Attributes saved.");
@@ -165,20 +198,17 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
     { header: "Item Class", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
     {
       header: "Has Attribute",
-      className: HUG,
       cell: (r) => <span className="text-sm text-muted-foreground">{r.has_attribute ? "Yes" : "No"}</span>,
     },
     {
       header: "Attributes",
       align: "right",
-      className: HUG,
       cell: (r) => (
         <span className="tabular-nums text-sm text-muted-foreground">{r.values.length || "—"}</span>
       ),
     },
     {
       header: "Status",
-      className: HUG,
       cell: (r) => (
         <StatusPill tone={r.is_active ? "success" : "danger"}>
           {r.is_active ? "Active" : "Inactive"}
@@ -259,12 +289,9 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
         </div>
       </div>
 
-      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
-          erp-table-fit skill, client 2026-09-28). The short columns carry
-          `HUG`; `max-w-full` keeps a long list inside the pane, where the
-          primitive's own `overflow-x-auto` takes over. */}
-      <div className="hidden w-fit max-w-full md:block">
-        <DataTable columns={hugCreated(withCreatedColumns(columns, pg.paged))} rows={pg.paged}
+      {/* desktop table */}
+      <div className="hidden md:block">
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
         paginate={false} getKey={(r) => r.id} empty="No item classes yet." />
       </div>
 
@@ -322,7 +349,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
               {editRow?.has_attribute ? "Cancel" : "Close"}
             </Button>
             {editRow?.has_attribute && (
-              <Button size="md" disabled={isPending || dupKeys.size > 0} onClick={submit}>
+              <Button size="md" disabled={isPending || !!draftDup || !!renameDup} onClick={submit}>
                 {isPending ? "Saving…" : "Save"}
               </Button>
             )}
@@ -337,58 +364,72 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
               Attribute” for this class on the Item Class screen to add values.
             </div>
           ) : (
-            <div className="space-y-3">
-              <ChildGrid<ValueRow>
-                lockExisting
-                key={editRow?.id ?? "new"}
-                label="Attributes"
-                rows={values}
-                pageSize={10}
-                onAdd={addValueRow}
-                onRemove={(v) => removeValueRow(v.key)}
-                addLabel="+ Add attribute"
-                columns={[
-                  {
-                    header: "Value",
-                    width: VALUE_W,
-                    // `.min(1)` in the schema. `ChildGridColumn.required` draws
-                    // the header `*` and wraps the cell in `RequiredScope` — but
-                    // ONLY on this columns path; `renderMobileRow` below never
-                    // sees it (child-grid.tsx says so where the prop is defined),
-                    // so that copy of the input declares `required` itself.
-                    required: true,
-                    cell: (v) => (
-                      <>
-                        <Input
-                          value={v.value}
-                          uppercase
-                          onChange={(e) => setValueAt(v.key, e.target.value)}
-                          placeholder="Attribute value"
-                          className="text-base md:text-sm"
-                          {...dupFieldProps(dupFor(v), `attr-val-${v.key}`)}
-                        />
-                        <DuplicateError error={dupFor(v)} id={`attr-val-${v.key}`} />
-                      </>
-                    ),
-                  },
-                ]}
-                renderMobileRow={(v) => (
-                  <>
-                    <Input
-                      value={v.value}
-                      uppercase
-                      // The card layout does not inherit `ChildGridColumn.required`
-                      // from the column above — it renders its own row.
-                      required
-                      onChange={(e) => setValueAt(v.key, e.target.value)}
-                      placeholder="Attribute value"
-                      className="text-base md:text-sm"
-                      {...dupFieldProps(dupFor(v), `attr-val-m-${v.key}`)}
-                    />
-                    <DuplicateError error={dupFor(v)} id={`attr-val-m-${v.key}`} />
-                  </>
+            <div className={`space-y-2 ${FORM_W}`}>
+              <div className="flex items-baseline gap-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Attributes</span>
+                <span className="text-xs text-muted-foreground">
+                  {values.length} value{values.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-start gap-2 rounded-lg border border-border bg-surface p-3">
+                {values.map((v) =>
+                  renaming?.key === v.key ? (
+                    <div key={v.key} className="w-44">
+                      <Input
+                        autoFocus
+                        uppercase
+                        aria-label={`Rename ${v.value}`}
+                        value={renaming.value}
+                        onChange={(e) => setRenaming({ key: v.key, value: e.target.value })}
+                        onKeyDown={onRenameKeyDown}
+                        onBlur={commitRename}
+                        className="h-8 rounded-full text-base md:text-sm"
+                        {...dupFieldProps(renameDup, `attr-ren-${v.key}`)}
+                      />
+                      <DuplicateError error={renameDup} id={`attr-ren-${v.key}`} />
+                    </div>
+                  ) : (
+                    <span
+                      key={v.key}
+                      className="inline-flex h-8 items-center gap-0.5 rounded-full border border-primary bg-primary-soft pl-3 pr-1 text-sm font-medium text-foreground"
+                    >
+                      <button
+                        type="button"
+                        title="Click to rename"
+                        className="cursor-text"
+                        onClick={() => setRenaming({ key: v.key, value: v.value })}
+                      >
+                        {v.value}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${v.value}`}
+                        className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger"
+                        onClick={() => removeValue(v.key)}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ),
                 )}
-              />
+                <div className="min-w-[11rem] flex-1">
+                  <Input
+                    id="attr-new"
+                    uppercase
+                    aria-label="New attribute"
+                    placeholder="Type and press Enter"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={onDraftKeyDown}
+                    className="h-8 rounded-full border-dashed text-base md:text-sm"
+                    {...dupFieldProps(draftDup, "attr-new")}
+                  />
+                  <DuplicateError error={draftDup} id="attr-new" />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Enter adds a value · click a chip to rename it · ✕ removes it
+              </p>
             </div>
           )}
         </div>

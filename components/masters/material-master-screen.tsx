@@ -12,7 +12,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -2104,14 +2104,10 @@ export function MaterialMasterScreen({
   const columns: Column<Material>[] = [
     {
       header: "Item Class",
-      // Item Class and Category are LABELS of other masters — hugged. Name, the
-      // material's own (often long, composed) name, stays unsized to wrap.
-      className: HUG,
       cell: (r) => <span className="text-sm text-muted-foreground">{r.item_class_id ? classLabel.get(r.item_class_id) ?? "—" : "—"}</span>,
     },
     {
       header: "Category Name",
-      className: HUG,
       cell: (r) => <span className="text-sm text-muted-foreground">{r.category_id ? catLabel.get(r.category_id) ?? "—" : "—"}</span>,
     },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
@@ -2242,12 +2238,9 @@ export function MaterialMasterScreen({
         </div>
       </div>
 
-      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
-          erp-table-fit skill, client 2026-09-28). The short columns carry
-          `HUG`; `max-w-full` keeps a long list inside the pane, where the
-          primitive's own `overflow-x-auto` takes over. */}
-      <div className="hidden w-fit max-w-full md:block">
-        <DataTable columns={hugCreated(withCreatedColumns(columns, rows))} rows={pg.paged}
+      {/* desktop table */}
+      <div className="hidden md:block">
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
         paginate={false} getKey={(r) => r.id} empty="No materials yet." />
       </div>
 

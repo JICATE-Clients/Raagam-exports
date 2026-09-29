@@ -4,7 +4,6 @@ import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +14,7 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
-import { Field, FieldRow, FIELD_WIDTH, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { useBlockAction } from "@/components/masters/use-block-action";
 import { StatusToggle } from "@/components/ui/status-toggle";
@@ -105,7 +104,8 @@ const FIELD_W = {
   category: "term", //    176px — picker trigger; a duty category
   slno: "hug", //          88px — a number under "Category Slno"
   calc: "code", //        144px — Calculated · Exempted
-  gst_total: "name", //   288px — its placeholder carries the worked split example
+  gst_total: "range", //  112px — "18"; the split it makes is in its tooltip
+  description: "name", // 288px — one line on the GST form
 } satisfies Record<string, FieldWidth>;
 
 /**
@@ -116,6 +116,28 @@ const FIELD_W = {
  * 38.5rem (616px) leaves room for the non-compact `p-2.5` density (+4px).
  */
 const FORM_W = "max-w-[38.5rem]";
+
+/**
+ * THE GST FORM IS TWO ROWS (client 2026-09-29: "gst modules la irukka fields
+ * lam orey 2 rows aa kondu vanthuru", screenshot 102036). It was four cards —
+ * Header, the auto-split box, one line per tax, Description — stacked down a
+ * 616px column with the right half of the sheet empty. Now one card:
+ *
+ *   row 1  entry 72 + type 176 + date 144 + effective 144 + GST total 112
+ *          + description 288, 5 × 12 gaps                             = 996
+ *   row 2  CGST 280 + SGST 280 + Cess 400, 2 × 12 gaps               = 984
+ *          (a rate line is pct 72 + ac head 200 + 8; Cess adds its 112 mode)
+ *
+ *   996 + 2 × 8 card padding + 2 × 1 border = 1014 → 64rem (1024px), inside
+ *   the 1155px minimum pane.
+ *
+ * Row 2 fits because a tax the Type does not use is NOT DRAWN rather than
+ * greyed: Intra State shows CGST + SGST, Inter State shows IGST, Exempted
+ * only Cess. `submit` already zeroes every inactive component, so hiding one
+ * cannot leave a stale value behind. VAT / CST and the annexure types (Duty,
+ * TDS, Excise) keep their own cards below — this is the GST layout only.
+ */
+const GST_FORM_W = "max-w-[64rem]";
 
 /** A rate line's hand-rolled tracks, from the vocabulary rather than `1fr`. */
 const RATE_TRACKS = `${FIELD_WIDTH_CSS[FIELD_W.pct]} ${FIELD_WIDTH_CSS[FIELD_W.ac_head]}`;
@@ -417,6 +439,7 @@ export function LevyMasterScreen({
   const isExciseDutyForm = isExciseDutyType(form.type);
   const isVatCstForm = isVatCstType(form.type);
   const isAnnexureForm = usesAnnexure(form.type);
+  const isGstForm = !isAnnexureForm && !isVatCstForm;
   const sheetTitle = isDutyForm
     ? "Duty Structure"
     : isTdsForm
@@ -426,6 +449,65 @@ export function LevyMasterScreen({
         : isVatCstForm
           ? `${form.type} Structure`
           : "GST Structure";
+
+  /** Entry No · Type · Date · Effective From — row 1 of every form. */
+  const headerFields = (
+    <>
+              {editEntryNo != null && (
+                <Field label="Entry No" w={FIELD_W.entry}>
+                  <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground @2xl/editor:h-8">
+                    {editEntryNo}
+                  </div>
+                </Field>
+              )}
+              {/* `<Field required>` draws the star from the same declaration the
+                  control's `required` holds with — the hand `*`s are gone. */}
+              <Field label="Type" w={FIELD_W.type} required htmlFor="lv-type">
+                {/* `levyInput.type` is a bare `z.enum` — mandatory. The hold itself
+                    is inert here because this Select has no blank option, so
+                    `holdEmpty` never sees an empty value; `required` is carried
+                    anyway so the `*` and the schema agree, and so it starts holding
+                    by itself the day someone adds a "— Select —" row. */}
+                <Select
+                  id="lv-type"
+                  required
+                  value={form.type}
+                  onChange={(e) => {
+                    set({ type: e.target.value as LevyType });
+                    setGstTotalPct("");
+                  }}
+                >
+                  {LEVY_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Date" w={FIELD_W.date} required htmlFor="lv-date">
+                <Input
+                  id="lv-date"
+                  type="date"
+                  // `.min(1)` in `levyInput` — see useRequiredHold.
+                  required
+                  value={form.levy_date}
+                  onChange={(e) => set({ levy_date: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </Field>
+              <Field label="Effective From" w={FIELD_W.date} required htmlFor="lv-eff">
+                <Input
+                  id="lv-eff"
+                  type="date"
+                  // `.min(1)` in `levyInput`.
+                  required
+                  value={form.effective_from}
+                  onChange={(e) => set({ effective_from: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </Field>
+    </>
+  );
 
   function acSelect(value: string, onChange: (v: string) => void, disabled: boolean): ReactNode {
     return (
@@ -448,7 +530,7 @@ export function LevyMasterScreen({
     enabled: boolean,
   ) {
     return (
-      <div className={enabled ? "" : "opacity-50"}>
+      <div className={enabled ? "shrink-0" : "shrink-0 opacity-50"}>
         <Label>{label}</Label>
         <div className="grid gap-2" style={{ gridTemplateColumns: RATE_TRACKS }}>
           <Input
@@ -466,6 +548,31 @@ export function LevyMasterScreen({
       </div>
     );
   }
+
+  /** Cess — on every GST type, with its own Percent / Flat basis. */
+  const cessRow = (
+    <div className="shrink-0">
+      <Label>Cess</Label>
+      <div className="grid gap-2" style={{ gridTemplateColumns: CESS_TRACKS }}>
+        <Select value={form.cess_mode} onChange={(e) => set({ cess_mode: e.target.value as CessMode })}>
+          {CESS_MODES.map((m) => (
+            <option key={m} value={m}>
+              {m === "percent" ? "Percent %" : "Flat"}
+            </option>
+          ))}
+        </Select>
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          value={form.cess_value}
+          onChange={(e) => set({ cess_value: e.target.value })}
+          className="text-base md:text-sm"
+        />
+        {acSelect(form.cess_ac_head, (v) => set({ cess_ac_head: v }), false)}
+      </div>
+    </div>
+  );
 
   /** Duty/TDS/Excise Duty all show 3 plain % fields under their own title —
    *  only the labels + bound values differ per type. */
@@ -641,7 +748,7 @@ export function LevyMasterScreen({
         footer={
           /* `mr-auto` parks this box at the footer's left, so the buttons end
              where the cards end. Same `FORM_W`. */
-          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
+          <div className={`mr-auto flex w-full ${isGstForm ? GST_FORM_W : FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -652,63 +759,57 @@ export function LevyMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Header" cols={1} className={FORM_W}>
-            <FieldRow>
-              {editEntryNo != null && (
-                <Field label="Entry No" w={FIELD_W.entry}>
-                  <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground @2xl/editor:h-8">
-                    {editEntryNo}
-                  </div>
+          {isGstForm ? (
+            <DetailSection label="GST Structure" cols={1} className={GST_FORM_W}>
+              <FieldRow>
+                {headerFields}
+                {(act.cgst || act.igst) && (
+                  <Field
+                    label="GST Total %"
+                    w={FIELD_W.gst_total}
+                    htmlFor="lv-gst-total"
+                  >
+                    <Input
+                      id="lv-gst-total"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      placeholder="18"
+                      title={
+                        act.igst
+                          ? "Fills IGST directly (inter-state — no split)."
+                          : "Splits evenly into CGST + SGST (intra-state). You can still override either."
+                      }
+                      value={gstTotalPct}
+                      onChange={(e) => applyGstTotal(e.target.value, form.type)}
+                      className="text-base md:text-sm"
+                    />
+                  </Field>
+                )}
+                <Field label="Description" w={FIELD_W.description} htmlFor="lv-desc">
+                  <Input
+                    id="lv-desc"
+                    value={form.description}
+                    onChange={(e) => set({ description: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
                 </Field>
-              )}
-              {/* `<Field required>` draws the star from the same declaration the
-                  control's `required` holds with — the hand `*`s are gone. */}
-              <Field label="Type" w={FIELD_W.type} required htmlFor="lv-type">
-                {/* `levyInput.type` is a bare `z.enum` — mandatory. The hold itself
-                    is inert here because this Select has no blank option, so
-                    `holdEmpty` never sees an empty value; `required` is carried
-                    anyway so the `*` and the schema agree, and so it starts holding
-                    by itself the day someone adds a "— Select —" row. */}
-                <Select
-                  id="lv-type"
-                  required
-                  value={form.type}
-                  onChange={(e) => {
-                    set({ type: e.target.value as LevyType });
-                    setGstTotalPct("");
-                  }}
-                >
-                  {LEVY_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Date" w={FIELD_W.date} required htmlFor="lv-date">
-                <Input
-                  id="lv-date"
-                  type="date"
-                  // `.min(1)` in `levyInput` — see useRequiredHold.
-                  required
-                  value={form.levy_date}
-                  onChange={(e) => set({ levy_date: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </Field>
-              <Field label="Effective From" w={FIELD_W.date} required htmlFor="lv-eff">
-                <Input
-                  id="lv-eff"
-                  type="date"
-                  // `.min(1)` in `levyInput`.
-                  required
-                  value={form.effective_from}
-                  onChange={(e) => set({ effective_from: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </Field>
-            </FieldRow>
-          </DetailSection>
+              </FieldRow>
+              <FieldRow className="mt-3">
+                {act.cgst && rateRow("CGST %", form.cgst_pct, (v) => set({ cgst_pct: v }), form.cgst_ac_head, (v) => set({ cgst_ac_head: v }), true)}
+                {act.sgst && rateRow("SGST %", form.sgst_pct, (v) => set({ sgst_pct: v }), form.sgst_ac_head, (v) => set({ sgst_ac_head: v }), true)}
+                {act.igst && rateRow("IGST %", form.igst_pct, (v) => set({ igst_pct: v }), form.igst_ac_head, (v) => set({ igst_ac_head: v }), true)}
+                {cessRow}
+              </FieldRow>
+            </DetailSection>
+          ) : (
+            <DetailSection label="Header" cols={1} className={FORM_W}>
+              <FieldRow>
+                {headerFields}
+              </FieldRow>
+            </DetailSection>
+          )}
 
           {isVatCstForm && (
             <DetailSection label={`${form.type} Rate`} className={FORM_W}>
@@ -716,63 +817,6 @@ export function LevyMasterScreen({
             </DetailSection>
           )}
 
-          {!isAnnexureForm && !isVatCstForm && (
-            <DetailSection label="Rates & account heads" className={FORM_W}>
-              {(act.cgst || act.igst) && (
-                <div className="w-fit rounded-lg border border-primary/30 bg-primary/5 p-2.5">
-                  <Label className="flex items-center gap-1">
-                    GST % (auto-split)
-                    <span
-                      title={
-                        act.igst
-                          ? "Fills IGST directly (inter-state — no split)."
-                          : "Splits evenly into CGST + SGST (intra-state). You can still override either below."
-                      }
-                      className="cursor-help text-muted-foreground"
-                    >
-                      <Info className="h-3.5 w-3.5" />
-                    </span>
-                  </Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    placeholder={act.igst ? "e.g. 18 → IGST 18%" : "e.g. 18 → CGST 9% + SGST 9%"}
-                    value={gstTotalPct}
-                    onChange={(e) => applyGstTotal(e.target.value, form.type)}
-                    className={`text-base md:text-sm ${FIELD_WIDTH[FIELD_W.gst_total]}`}
-                  />
-                </div>
-              )}
-              {rateRow("CGST %", form.cgst_pct, (v) => set({ cgst_pct: v }), form.cgst_ac_head, (v) => set({ cgst_ac_head: v }), act.cgst)}
-              {rateRow("SGST %", form.sgst_pct, (v) => set({ sgst_pct: v }), form.sgst_ac_head, (v) => set({ sgst_ac_head: v }), act.sgst)}
-              {rateRow("IGST %", form.igst_pct, (v) => set({ igst_pct: v }), form.igst_ac_head, (v) => set({ igst_ac_head: v }), act.igst)}
-
-              {/* Cess (always available for GST types) */}
-              <div>
-                <Label>Cess</Label>
-                <div className="grid gap-2" style={{ gridTemplateColumns: CESS_TRACKS }}>
-                  <Select value={form.cess_mode} onChange={(e) => set({ cess_mode: e.target.value as CessMode })}>
-                    {CESS_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m === "percent" ? "Percent %" : "Flat"}
-                      </option>
-                    ))}
-                  </Select>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.cess_value}
-                    onChange={(e) => set({ cess_value: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                  {acSelect(form.cess_ac_head, (v) => set({ cess_ac_head: v }), false)}
-                </div>
-              </div>
-            </DetailSection>
-          )}
 
           {isDutyForm &&
             rateFieldsBlock("Duty components", [
@@ -857,6 +901,7 @@ export function LevyMasterScreen({
           )}
 
           {/* A sentence, so it takes the whole of FORM_W rather than a step. */}
+          {!isGstForm && (
           <DetailSection label="Description" className={FORM_W}>
             <Textarea
               id="lv-desc"
@@ -866,6 +911,7 @@ export function LevyMasterScreen({
               className="text-base md:text-sm"
             />
           </DetailSection>
+          )}
           {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
         </div>
       </Sheet>

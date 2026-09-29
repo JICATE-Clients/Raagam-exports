@@ -32,7 +32,7 @@ import { ChildGrid, gridKeyNav } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { createdMeta, HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 
@@ -683,9 +683,6 @@ export function MaterialAttributeMasterScreen({
   const columns: Column<MaterialAttribute>[] = [
     {
       header: "Item Class",
-      // A class label ("PACKING ACCESSORIES") — hugged. Category, the record's
-      // own name, carries no width (erp-table-fit: never hug the name column).
-      className: HUG,
       cell: (r) => <span className="text-sm">{r.item_class_id ? classLabel.get(r.item_class_id) ?? "—" : "—"}</span>,
     },
     {
@@ -695,7 +692,6 @@ export function MaterialAttributeMasterScreen({
     {
       header: "Attributes",
       align: "right",
-      className: HUG,
       cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.lines.length}</span>,
     },
     rowActionsColumn((r) => (
@@ -793,12 +789,9 @@ export function MaterialAttributeMasterScreen({
         </div>
       </div>
 
-      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
-          erp-table-fit skill, client 2026-09-28). The short columns carry
-          `HUG`; `max-w-full` keeps a long list inside the pane, where the
-          primitive's own `overflow-x-auto` takes over. */}
-      <div className="hidden w-fit max-w-full md:block">
-        <DataTable columns={hugCreated(withCreatedColumns(columns, pg.paged))} rows={pg.paged}
+      {/* desktop table */}
+      <div className="hidden md:block">
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
         paginate={false} getKey={(r) => r.id} empty="No material attributes yet." />
       </div>
 

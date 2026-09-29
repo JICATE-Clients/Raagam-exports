@@ -570,7 +570,16 @@ export function AmendmentRegisterScreen({
     const h = l.head;
     const o = h.amendable;
     return (
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+      /* `w-0 min-w-full` — THE HEADING FILLS THE TABLE, IT DOES NOT SIZE IT
+         (erp-table-fit, client 2026-09-28). This line spans every column, and
+         under the register's `w-fit` a spanning cell's one-line width still
+         counts: RE No + customer + three facts + Revise came to more than the
+         columns beneath, so the table stayed wide and `justify-between` parked
+         Revise across a gap. `w-0` contributes nothing to the table's width,
+         `min-w-full` then stretches to the width the COLUMNS chose, and the
+         existing `flex-wrap` takes the facts to a second line when they do not
+         fit. */
+      <div className="flex w-0 min-w-full flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className="font-mono text-xs font-semibold text-foreground">{h.re_no ?? "—"}</span>
           <Truncated className="max-w-[18rem] text-sm font-medium">{h.customer_name ?? "—"}</Truncated>

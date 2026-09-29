@@ -350,11 +350,6 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
         }}
         empty="No size groups yet. Use “+ Add Size Group” to create the first."
         isPending={isPending || statusPending}
-        /* AS WIDE AS ITS COLUMNS (erp-table-fit, client 2026-09-28). Name and
-           Sizes both stay unsized: Name is the record's own name, and Sizes is
-           a " · " list whose length varies most, so both must be free to wrap.
-           The shell hugs the Created pair; Status is the shell's own column. */
-        fit
       />
 
       <Sheet

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { isRefusal, type Refusal } from "@/lib/orders/budget/totals";
 import type { BaselineRow } from "@/lib/orders/budget/amendment";
 import type { AmendmentEntryDetail } from "@/lib/orders/order-amendments/service";
+import { HUG as FIT } from "@/components/ui/created-columns";
 
 /**
  * THE REVISION'S THREE BUDGETS, SIDE BY SIDE — Original (V0), Last (approved
@@ -196,11 +197,17 @@ export function VarianceTable({ detail, onlyChanged = false }: { detail: Revisio
         ))}
       </ol>
 
+    {/* THE TABLE FILLS THE CARD, ITS COLUMNS SPREAD EVENLY (client 2026-09-29,
+        screenshot 161959 chosen over the card that hugs its columns: "space
+        vittu neat aa"). `w-full` spreads the spare width across the columns;
+        figures and Status stay `nowrap` so a lakh figure, "5,325 PCS" and
+        "ALERT — margin down" never break, and S.No alone hugs. `min-w-[50rem]`
+        + `overflow-x-auto` scroll a pane too narrow for the figures. */}
     <div className="hidden overflow-x-auto md:block">
       <table className="w-full min-w-[50rem] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-            <th className="w-12 py-2 pr-3 text-right font-semibold">S.No</th>
+            <th className={cn(FIT, "py-2 pr-3 text-right font-semibold")}>S.No</th>
             <th className="py-2 pr-3 font-semibold">Cost head</th>
             <th className="py-2 px-3 text-right font-semibold">Original Budget</th>
             <th className="py-2 px-3 text-right font-semibold">Last Budget</th>
@@ -217,13 +224,13 @@ export function VarianceTable({ detail, onlyChanged = false }: { detail: Revisio
               </tr>
             ) : (
               <tr key={r.label} className={cn("border-b border-border/60", r.strong && "font-medium")}>
-                <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">{++sno}</td>
+                <td className="whitespace-nowrap py-1.5 pr-3 text-right tabular-nums text-muted-foreground">{++sno}</td>
                 <td className="py-1.5 pr-3">{r.label}</td>
-                <td className="py-1.5 px-3 text-right tabular-nums">{figure(r.orig, r.kind)}</td>
-                <td className="py-1.5 px-3 text-right tabular-nums">{figure(r.was, r.kind)}</td>
-                <td className="py-1.5 px-3 text-right tabular-nums">{latest(r)}</td>
-                <td className="py-1.5 px-3 text-right tabular-nums">{diff(r)}</td>
-                <td className="py-1.5 pl-3"><Direction v={delta(r.was, r.now)} kind={r.dir} /></td>
+                <td className="whitespace-nowrap py-1.5 px-3 text-right tabular-nums">{figure(r.orig, r.kind)}</td>
+                <td className="whitespace-nowrap py-1.5 px-3 text-right tabular-nums">{figure(r.was, r.kind)}</td>
+                <td className="whitespace-nowrap py-1.5 px-3 text-right tabular-nums">{latest(r)}</td>
+                <td className="whitespace-nowrap py-1.5 px-3 text-right tabular-nums">{diff(r)}</td>
+                <td className="whitespace-nowrap py-1.5 pl-3"><Direction v={delta(r.was, r.now)} kind={r.dir} /></td>
               </tr>
             ),
           )}
