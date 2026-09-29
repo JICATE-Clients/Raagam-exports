@@ -130,6 +130,7 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import {
+  claimedColoursOf,
   conversionDetailsOf,
   conversionStepLossesOf,
   conversionLinksOf,
@@ -937,6 +938,8 @@ export function IwoFabricBomScreen({
     links: conversionLinks,
     details: conversionDetails,
     stepLosses: yarnMode ? new Map() : conversionStepLossesOf(yarnRows, isUnravelling),
+    // Colours the yarn's other steps take (2026-09-29) — `writeYarns` passes the same.
+    claimed: yarnMode ? new Map() : claimedColoursOf(yarnRows, isUnravelling),
     isUnravelling,
     fabrics: fabricGross,
     compositions: compositionById,

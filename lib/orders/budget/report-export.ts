@@ -9,11 +9,19 @@
  * Quantity table, one Group Head · Cost Head · Particulars · Qty · UOM · Rate ·
  * Value table with its CONTRIBUTION lines, the summary boxes and the
  * signatures — inside the order documents' letterhead (green rule, blue title).
+ *
+ * THE YARN & FABRIC REQUIREMENT'S LOOK (user 2026-09-29): each block under a
+ * filled BRAND bar (`drawSectionHeading`), tinted table heads, striped rows, the
+ * Group Head CONTRIBUTION lines tinted as totals — from `../report-pdf-kit.ts`,
+ * the one look every order report draws with. Pale tints under dark ink only,
+ * so the page still separates on a mono laser. The legacy's structure — rows,
+ * spans, boxes, signatures — is unchanged.
  */
 import { jsPDF } from "jspdf";
 import autoTable, { type CellInput, type RowInput } from "jspdf-autotable";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { fitLogo, loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
+import { BRAND, ROW_STRIPE, drawSectionHeading, paintRow, rgb, roomFor, toneHead } from "@/lib/orders/report-pdf-kit";
 import type { BudgetGroupHead, Fig, OrderBudgetReport } from "./report";
 import { contributionText, inr, isFigRefusal, plain2, qty3, qtyCell } from "./report-format";
 
@@ -90,13 +98,23 @@ function statementRows(groups: readonly BudgetGroupHead[]): RowInput[] {
         rows.push(row);
       });
       rows.push([
-        { content: contributionText(hd.label, hd), colSpan: 5, styles: { fontStyle: "bold", fontSize: 6.5 } },
-        { content: inr(hd.value), styles: { fontStyle: "bold", halign: "right", fontSize: 6.5 } },
+        /* A Cost Head's contribution — bold on the stripe, lighter than the
+           Group Head's tinted total below it (2026-09-29). */
+        { content: contributionText(hd.label, hd), colSpan: 5, styles: { fontStyle: "bold", fontSize: 6.5, fillColor: rgb(ROW_STRIPE) } },
+        { content: inr(hd.value), styles: { fontStyle: "bold", halign: "right", fontSize: 6.5, fillColor: rgb(ROW_STRIPE) } },
       ]);
     });
     rows.push([
-      { content: contributionText(g.label, g), colSpan: 6, styles: { fontStyle: "bold", fontSize: 8.5, fillColor: [246, 247, 249] } },
-      { content: inr(g.value), styles: { fontStyle: "bold", halign: "right", fontSize: 8.5, fillColor: [246, 247, 249] } },
+      /* A Group Head's contribution — the section's TOTAL row, in the tone. */
+      {
+        content: contributionText(g.label, g),
+        colSpan: 6,
+        styles: { fontStyle: "bold", fontSize: 8.5, fillColor: rgb(BRAND.tint), textColor: rgb(BRAND.ink) },
+      },
+      {
+        content: inr(g.value),
+        styles: { fontStyle: "bold", halign: "right", fontSize: 8.5, fillColor: rgb(BRAND.tint), textColor: rgb(BRAND.ink) },
+      },
     ]);
   }
   return rows;
@@ -181,7 +199,12 @@ export async function exportOrderBudgetPdf(
     margin: { left: M, right: M },
     theme: "grid" as const,
     styles: { fontSize: 7, cellPadding: 2.5, textColor: 20, lineColor: 170, lineWidth: 0.4 },
-    headStyles: { fillColor: [235, 237, 240] as [number, number, number], textColor: 20, fontStyle: "bold" as const },
+    headStyles: { ...toneHead(BRAND), fontSize: 7 },
+  };
+  /** A block's filled bar, kept on the page with its first rows. */
+  const bar = (at: number, title: string, right?: string, need = 70) => {
+    const top = roomFor(doc, at, need, 50);
+    return drawSectionHeading(doc, M, top + 14, W - 2 * M, BRAND, title, right);
   };
 
   // THE BOXED HEADER — four label/value column pairs, read down.
@@ -201,6 +224,13 @@ export async function exportOrderBudgetPdf(
       6: { fontStyle: "bold" },
       7: { halign: "right" },
     },
+    /* The labels on the tint, the values on white — the facts read as a key. */
+    didParseCell: (d) => {
+      if (d.section === "body" && d.column.index % 2 === 0) {
+        d.cell.styles.fillColor = rgb(BRAND.tint);
+        d.cell.styles.textColor = rgb(BRAND.ink);
+      }
+    },
   });
 
   // THE QUANTITY TABLE.
@@ -215,11 +245,15 @@ export async function exportOrderBudgetPdf(
         { content: "Unit", rowSpan: 2 },
         { content: "Quantity", colSpan: 5, styles: { halign: "center" } },
       ],
-      ["Order", "Excess", "Approval", "Rej.Allow", "Cut Qty"],
+      ["Order", "Excess", "Approval", "Rej.Allow", "Cut Qty"].map((t) => ({ content: t, styles: { halign: "right" as const } })),
     ],
     body: qtyRows(r),
-    startY: lastY() + 6,
+    startY: bar(lastY() + 2, "QUANTITY"),
     columnStyles: { 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" }, 9: { halign: "right", fontStyle: "bold" } },
+    didParseCell: (d) => {
+      paintRow(d, { tone: BRAND });
+      if (d.section === "body" && d.column.index === 9) d.cell.styles.textColor = rgb(BRAND.ink);
+    },
   });
 
   let y = lastY() + 8;
@@ -236,9 +270,17 @@ export async function exportOrderBudgetPdf(
   // THE STATEMENT.
   autoTable(doc, {
     ...grid,
-    head: [STATEMENT_HEAD],
+    // A figure column's head sits over its figures — right-aligned.
+    head: [STATEMENT_HEAD.map((t, i) => ({ content: t, styles: { halign: i === 3 || i >= 5 ? ("right" as const) : ("left" as const) } }))],
     body: statementRows([...r.groups, ...(r.income ? [r.income] : [])]),
-    startY: y,
+    /* No stripes here: the Group / Cost Head cells span their rows, and a stripe
+       under a spanning cell reads as a colour that belongs to one line only.
+       The contribution lines give the statement its rhythm instead. */
+    startY: bar(
+      y - 2,
+      "BUDGET STATEMENT",
+      isFigRefusal(r.summary.totalExpenses) ? undefined : `Total Expenses ${inr(r.summary.totalExpenses)}`,
+    ),
     columnStyles: {
       0: { cellWidth: 62 },
       1: { cellWidth: 78 },
@@ -254,18 +296,33 @@ export async function exportOrderBudgetPdf(
   autoTable(doc, {
     ...grid,
     body: [pairs.slice(0, 4).flat(), ["", "", ...pairs.slice(4).flat(), "", ""]],
-    startY: lastY() + 8,
+    startY: bar(lastY() + 2, "SUMMARY", undefined, 50),
     styles: { ...grid.styles, fontSize: 8, fontStyle: "bold" },
     columnStyles: { 1: { halign: "right" }, 3: { halign: "right" }, 5: { halign: "right" }, 7: { halign: "right" } },
+    /* The figures on the tint, in the tone's ink — the page's headline boxes. */
+    didParseCell: (d) => {
+      if (d.section === "body" && d.column.index % 2 === 1 && String(d.cell.raw ?? "") !== "") {
+        d.cell.styles.fillColor = rgb(BRAND.tint);
+        d.cell.styles.textColor = rgb(BRAND.ink);
+      }
+    },
   });
 
   if (showAmendment && r.amendment) {
     autoTable(doc, {
       ...grid,
-      head: [[`Amendment${r.amendment.entryNo ? ` ${r.amendment.entryNo}` : ""} — Figure`, "Approved", "Proposed", "Variance"]],
+      head: [["Figure", "Approved", "Proposed", "Variance"].map((t, i) => ({ content: t, styles: { halign: i ? ("right" as const) : ("left" as const) } }))],
       body: amendmentRows(r),
-      startY: lastY() + 10,
+      startY: bar(
+        lastY() + 4,
+        `AMENDMENT${r.amendment.entryNo ? ` ${r.amendment.entryNo}` : ""} — APPROVED VS PROPOSED`,
+      ),
       columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } },
+      // Margin % leads, bold — the one figure the MD reads first.
+      didParseCell: (d) => {
+        paintRow(d, { tone: BRAND });
+        if (d.section === "body" && d.row.index === 0) d.cell.styles.fontStyle = "bold";
+      },
     });
   }
 

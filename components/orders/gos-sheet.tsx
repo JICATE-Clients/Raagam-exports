@@ -8,6 +8,7 @@ import { DocumentPrintStyles } from "./document-print-styles";
 import { GosStyleImages } from "./gos-style-images";
 import { GosToolbar } from "./gos-toolbar";
 import { ReportThumbnail } from "./report-thumbnail";
+import { BRAND, SectionBar, Swatch, stripeRow, totalRowStyle } from "./report-kit";
 
 /**
  * THE GARMENT ORDER SHEET, as it prints.
@@ -24,6 +25,11 @@ import { ReportThumbnail } from "./report-thumbnail";
  * their Prepared / Checked / Approved foot. Nothing the sheet SAYS changed —
  * the RE Number is still the biggest thing on the page, and every rule below
  * still holds.
+ *
+ * THE YARN & FABRIC REQUIREMENT'S LOOK (user 2026-09-29) — sections are the
+ * report kit's filled `SectionBar`s, table heads and totals in its BRAND tint,
+ * rows striped, colourways with their swatch; the PDF draws the same
+ * (`lib/orders/gos/export.ts`).
  *
  * ## ONE RULE FOR AN ABSENT VALUE, EVERYWHERE ON THE PAGE
  *
@@ -181,7 +187,9 @@ export function GosSheetDocument({
          */}
         {multiDestination && (
           <Box>
-            <SectionTitle>Destinations</SectionTitle>
+            <SectionTitle right={fmtNumber(sheet.destinations.reduce((a, d) => a + (d.qty ?? 0), 0))}>
+              Destinations
+            </SectionTitle>
             <table className="text-[12px]">
               <thead>
                 <tr>
@@ -194,7 +202,7 @@ export function GosSheetDocument({
               </thead>
               <tbody>
                 {sheet.destinations.map((d, i) => (
-                  <tr key={i}>
+                  <tr key={i} style={stripeRow(i)}>
                     <td>{txt(d.label)}</td>
                     <td className="font-mono">{txt(d.poNo)}</td>
                     <td>{fmtDate(d.deliveryDate)}</td>
@@ -268,13 +276,15 @@ export function GosSheetDocument({
 
 // ---------------------------------------------------------------------------
 
-/** The print stylesheet's colours, re-pointed at the order documents' greys —
- *  an inline custom property beats the stylesheet's own `.gos-sheet` values. */
+/** The print stylesheet's colours, re-pointed at the order documents' palette —
+ *  an inline custom property beats the stylesheet's own `.gos-sheet` values.
+ *  `--gos-fill` (table heads, totals, coordinate banners) is the report kit's
+ *  BRAND tint since 2026-09-29, the Yarn & Fabric look. */
 const FAMILY_VARS = {
   "--gos-rule": "#e2e5ea",
   "--gos-rule-strong": "#16181d",
   "--gos-muted": "#5b6472",
-  "--gos-fill": "#f6f7f9",
+  "--gos-fill": BRAND.tint,
 } as React.CSSProperties;
 
 /** One boxed band of the document, stacked under the one above. */
@@ -302,13 +312,19 @@ function Fact({
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h3 className="mb-1.5 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#16181d]">{children}</h3>;
+/** A section's heading — the report kit's filled bar, flush over its table. */
+function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+  return <SectionBar title={children} right={right} />;
 }
 
-/** A table header cell — the stylesheet fills it grey, this sets the ink. */
+/** A table header cell — the stylesheet fills it with the BRAND tint, this
+ *  sets the ink to match. */
 function Th({ children, num }: { children: React.ReactNode; num?: boolean }) {
-  return <th className={`font-semibold text-[#5b6472] ${num ? "gos-num" : ""}`}>{children}</th>;
+  return (
+    <th className={`font-semibold ${num ? "gos-num" : ""}`} style={{ color: BRAND.ink }}>
+      {children}
+    </th>
+  );
 }
 
 function StyleBlock({
@@ -321,8 +337,12 @@ function StyleBlock({
   return (
     <section className="gos-style border border-t-0 border-border bg-white">
       {/* THE STYLE BANNER — its STL code and name, PO Qty on the right. */}
-      <div className="gos-keep flex flex-wrap items-baseline justify-between gap-4 border-b border-border bg-[#f6f7f9] px-5 py-2">
-        <p className="text-[13.5px] font-bold text-[#16181d]">
+      {/* The banner wears the BRAND tint and rule (2026-09-29), as a section bar does. */}
+      <div
+        className="gos-keep flex flex-wrap items-baseline justify-between gap-4 border-b border-border px-5 py-2"
+        style={{ background: BRAND.tint, color: BRAND.ink, borderTop: `2px solid ${BRAND.rule}` }}
+      >
+        <p className="text-[13.5px] font-bold">
           <span className="font-mono">{txt(style.styleCode ?? style.styleRef)}</span>
           {style.styleName ? ` · ${style.styleName}` : ""}
         </p>
@@ -364,7 +384,9 @@ function StyleBlock({
         )}
 
         <div className="gos-keep mt-3">
-          <SectionTitle>Size-wise and colour-wise break-up</SectionTitle>
+          <SectionTitle right={isRefusal(style.matrix) ? undefined : `${fmtNumber(style.matrix.total)} pcs`}>
+            Size-wise and colour-wise break-up
+          </SectionTitle>
           <Matrix style={style} />
         </div>
 
@@ -405,9 +427,10 @@ function Matrix({ style }: { style: GosStyle }) {
           </tr>
         </thead>
         <tbody>
-          {m.rows.map((r) => (
-            <tr key={r.combo}>
+          {m.rows.map((r, ri) => (
+            <tr key={r.combo} style={stripeRow(ri)}>
               <td className="font-medium">
+                <Swatch name={r.combo} />
                 {r.combo}
                 {/* Not declared on the Combos tab. Marked rather than dropped —
                     a colourway with quantities and no construction behind it is
@@ -424,7 +447,7 @@ function Matrix({ style }: { style: GosStyle }) {
           ))}
         </tbody>
         <tfoot>
-          <tr>
+          <tr className="font-semibold" style={totalRowStyle(BRAND)}>
             <td>Total</td>
             {m.columnTotals.map((t, i) => (
               <td key={m.columns[i].sizeId} className="gos-num">
@@ -479,12 +502,13 @@ function Components({ style }: { style: GosStyle }) {
               <td
                 colSpan={3 + style.colourways.length}
                 className="bg-[var(--gos-fill)] text-[11px] font-bold uppercase tracking-wide"
+                style={{ color: BRAND.ink }}
               >
                 {block.coordinate}
               </td>
             </tr>
             {block.panels.map((p, i) => (
-              <PanelRow key={i} panel={p} colourways={style.colourways} />
+              <PanelRow key={i} panel={p} colourways={style.colourways} stripe={i % 2 === 1} />
             ))}
           </tbody>
         ))}
@@ -496,12 +520,14 @@ function Components({ style }: { style: GosStyle }) {
 function PanelRow({
   panel,
   colourways,
+  stripe = false,
 }: {
   panel: GosPanel;
   colourways: readonly string[];
+  stripe?: boolean;
 }) {
   return (
-    <tr>
+    <tr style={stripeRow(stripe ? 1 : 0)}>
       <td className="font-medium">{txt(panel.component)}</td>
       <td>{txt(panel.structure)}</td>
       <td className="gos-num">
@@ -520,6 +546,7 @@ function PanelRow({
               DASH
             ) : (
               <>
+                <Swatch name={v.colour} />
                 {txt(v.colour)}
                 {/* "Fabric Print" is ONE field on the order (0410) and prints
                     under the colour, because a printed panel is that colour

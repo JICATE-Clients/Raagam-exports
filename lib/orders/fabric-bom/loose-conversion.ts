@@ -78,6 +78,26 @@
  * by its stripe position (a row saved while rows were per stripe), then by its
  * colourway (a row saved before either).
  *
+ * ## ONLY THE COLOURS IT NAMES ARE CONVERTED (user 2026-09-29)
+ *
+ * A yarn's colours are shared out between its processes — YELLOW converted
+ * from the loose fabric, WHITE bought dyed, RED and GREEN dyed at the dye
+ * house (live: HO/RE/26-27/0003, 30'S COMBED COTTON). The Details rows used to
+ * decide only each colour's loose fabric and loss, never WHETHER it converted,
+ * so every stripe went through the loose fabric: the report listed all four
+ * under CONVERSION and Loose Fabric DYEING, the loose fabric was bought for all
+ * four, and the other processes' colours bought no yarn at all. Now:
+ *
+ *   - Details rows naming colours  -> exactly those colours convert;
+ *   - no Details rows              -> every colour converts EXCEPT the ones
+ *                                     another step of the yarn names in its
+ *                                     Color-Wise list (`claimedColoursOf`);
+ *   - the rest stay the yarn's: `yarnPurchaseWithConversion` buys their share
+ *     of each yarn-dyed cloth, each stripe on its own dye loss.
+ *
+ * A colour matches a row by colour, then stripe position, then colourway — the
+ * rule the loss lookup below already used (`isConvertedPart`).
+ *
  * ## THE ROWS ARE THE YARN'S STRIPE COLOURS (user 2026-09-26)
  *
  * A loose fabric is dyed to a YARN colour — the one Yarn Dyed Details puts at
@@ -91,6 +111,7 @@
  */
 
 import { isRefusal, type Refusal } from "./requirement";
+import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import { ydPartKey } from "./component-map";
 import { sourceBuysYarn, type FabricSource } from "./fabric-source";
 import {
@@ -203,6 +224,71 @@ export function conversionStepLossesOf(
 /** A colourway's name as the details compare it — trimmed, upper-cased. */
 const comboKey = (c: string | null | undefined) => (c ?? "").trim().toUpperCase();
 
+/**
+ * yarn -> the colours its OTHER steps name in their Color-Wise lists (a DYED
+ * YARN PURCHASE's WHITE, a YARN DYEING's RED / GREEN) — what a CONVERSION step
+ * with no Details rows leaves alone (2026-09-29). Keys are `comboKey`s. Takes
+ * the stored rows or the form's (`color_losses` is an object on both).
+ */
+export function claimedColoursOf(
+  yarns: readonly {
+    item_id: string;
+    stages: readonly {
+      process_id?: string | null;
+      /** The Save's own gate (`colorLossesForStorage`): a step switched back
+       *  to Process Wise may still hold its old list, and claims nothing. */
+      color_wise_loss?: boolean | null;
+      color_losses?: Readonly<Record<string, unknown>> | null;
+    }[];
+  }[],
+  isUnravelling: (processId: string) => boolean,
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const y of yarns) {
+    const keys = new Set<string>();
+    for (const st of y.stages) {
+      if (!st.color_wise_loss) continue;
+      if (st.process_id && isUnravelling(st.process_id)) continue;
+      for (const k of Object.keys(st.color_losses ?? {})) if (k.trim()) keys.add(comboKey(k));
+    }
+    if (keys.size) out.set(y.item_id, keys);
+  }
+  return out;
+}
+
+/**
+ * IS THIS COLOUR PART CONVERTED? — the one rule `planConversions` and
+ * `yarnPurchaseWithConversion` both read, so the loose fabric and the yarn
+ * purchase can never both claim, or both drop, one colour. See the header,
+ * "ONLY THE COLOURS IT NAMES ARE CONVERTED".
+ */
+function isConvertedPart(
+  rows: readonly ConversionDetail[],
+  claimed: ReadonlySet<string> | undefined,
+  part: { colour?: string | null; position?: string | null; combo?: string | null },
+  /** Does any Details row name one of this yarn's COLOURWAYS (a row saved
+   *  before the rows became stripe colours)? */
+  rowsNameColourways: boolean,
+): boolean {
+  const key = (k: string | null | undefined) => (k && k.trim() ? comboKey(k) : null);
+  const stripeKeys = [key(part.colour), key(part.position)].filter((k): k is string => !!k);
+  const comboK = key(part.combo);
+  if (rows.length > 0) {
+    /* A PART WITH NO STRIPES (a cloth with none declared, or a caller that
+       passes no shades — IWO) cannot be named by a stripe-colour row, so such
+       rows never deselect it: it converts, as before. Only rows naming
+       colourways choose between colourways. */
+    if (stripeKeys.length === 0 && !rowsNameColourways) return true;
+    const keys = comboK ? [...stripeKeys, comboK] : stripeKeys;
+    return rows.some((r) => keys.includes(comboKey(r.combo)));
+  }
+  /* A CLAIM IS A STRIPE COLOUR where the part has stripes — WHITE the yarn
+     colour is not WHITE the garment colourway — and the colourway only where
+     it has none. */
+  const claimKeys = stripeKeys.length > 0 ? stripeKeys : comboK ? [comboK] : [];
+  return !claimKeys.some((k) => claimed?.has(k));
+}
+
 /** The loose fabrics a document's yarns name — each needs a route and a
  *  composition, so both sides fold these into their fabric sets. Includes the
  *  per-colour Details' fabrics (0645) when they are passed. */
@@ -231,8 +317,18 @@ export type ConvertedYarn = {
   qty: number;
   uom_id: string | null;
   byCombo: YarnComboWeight[];
-  /** Which yarn-dyed cloths it feeds — dropped from the yarn's purchase. */
+  /** Which yarn-dyed cloths it feeds — their CONVERTED colours leave the
+   *  yarn's purchase; the others stay (2026-09-29). */
   fabricIds: string[];
+  /** The step's Details rows and the colours other steps claim — what
+   *  `isConvertedPart` decides by, carried so the purchase side asks the same
+   *  question of the same answer. */
+  detailRows: readonly ConversionDetail[];
+  claimed: ReadonlySet<string> | undefined;
+  rowsNameColourways: boolean;
+  /** Every colour of the yarn converts (no colour left to another step) —
+   *  then its yarn-dyed cloths are wholly the loose fabric's, as before. */
+  allConverted: boolean;
   /** Greige loose fabric to KNIT — the target grossed by every step of the
    *  loose fabric's route except knitting. `null` when the route refuses. */
   looseKnitQty: number | null;
@@ -288,6 +384,9 @@ export type ConversionInput = {
    *  REPLACES (0645). Without it a Details loss cannot replace anything, so it
    *  is ignored rather than added on top. */
   isUnravelling?: (processId: string) => boolean;
+  /** yarn -> colours its other steps claim (`claimedColoursOf`) — left alone by
+   *  a CONVERSION step with no Details rows (2026-09-29). */
+  claimed?: ReadonlyMap<string, ReadonlySet<string>>;
 };
 
 export function planConversions(input: ConversionInput): ConversionPlan {
@@ -433,10 +532,16 @@ export function planConversions(input: ConversionInput): ConversionPlan {
       }
     }
 
+    /* ONLY THE COLOURS THIS STEP CONVERTS (2026-09-29) — the rest are the
+       yarn's own, bought or dyed by its other steps. */
+    const claimed = input.claimed?.get(yarnId);
+    const rowsNameColourways = rows.some((r) => target.byCombo.some((b) => comboKey(b.combo) === comboKey(r.combo)));
+    const convertedParts = demandParts.filter((c) => isConvertedPart(rows, claimed, c, rowsNameColourways));
+
     let looseKnitQty: number | null = 0;
     let badLoss: string | null = null;
     const parts: ConvertedYarn["parts"] = [];
-    for (const c of demandParts) {
+    for (const c of convertedParts) {
       /* THIS COLOUR'S LOOSE FABRIC AND LOSS — by colour, else by stripe
          position, else by colourway (rows saved earlier), else the step's. */
       const d =
@@ -491,12 +596,34 @@ export function planConversions(input: ConversionInput): ConversionPlan {
       continue;
     }
 
+    /* WHAT THE UNRAVELLING DELIVERS — the converted parts only. With every
+       colour converted this is `target` exactly (the parts partition it); with
+       some left to other steps it is their sum, rounded up once per lot as
+       `yarnPurchase` rounds. */
+    const allConverted = convertedParts.length === demandParts.length;
+    const dp = uomPrecision(input.decimals);
+    const byComboDelivered = new Map<string, { net: number; gross: number }>();
+    for (const p of parts) {
+      const k = comboKey(p.combo);
+      const held = byComboDelivered.get(k) ?? { net: 0, gross: 0 };
+      const whole = target.byCombo.find((b) => comboKey(b.combo) === k);
+      const frac = whole && whole.gross > 0 ? p.delivered / whole.gross : 0;
+      held.gross += p.delivered;
+      held.net += whole ? whole.net * frac : 0;
+      byComboDelivered.set(k, held);
+    }
     converted.set(yarnId, {
       loose_fabric_id: looseId,
-      qty: target.qty,
+      qty: allConverted ? target.qty : ceilToPrecision(parts.reduce((sum, p) => sum + p.delivered, 0), dp),
       uom_id: target.uom_id,
-      byCombo: target.byCombo,
+      byCombo: allConverted
+        ? target.byCombo
+        : [...byComboDelivered].map(([combo, w]) => ({ combo, net: w.net, gross: ceilToPrecision(w.gross, dp) })),
       fabricIds: [...new Set(feeds.map((f) => f.fabric_id))],
+      detailRows: rows,
+      claimed,
+      rowsNameColourways,
+      allConverted,
       looseKnitQty,
       parts,
     });
@@ -542,11 +669,47 @@ export function yarnPurchaseWithConversion(
   if (conv && isRefusal(conv)) return conv;
   const sources = base.sourceByFabric ?? new Map<string, FabricSource>();
 
+  /* THE YARN-DYED CLOTHS' UNCONVERTED COLOURS STAY THE YARN'S (2026-09-29).
+     Each slice of a cloth this yarn converts for keeps the share of its
+     stripes the conversion does NOT take — WHITE bought dyed, RED / GREEN dyed
+     — and those stripes, renormalised to that share, are the shades it is
+     grossed by, so each keeps its own dye loss. A slice with no stripes is
+     kept or dropped whole by its colourway. */
   const convertedFabrics = new Set(conv ? conv.fabricIds : []);
-  const fabrics = [
-    ...base.fabrics.filter((f) => !convertedFabrics.has(f.fabric_id)),
-    ...plan.looseDemand,
-  ];
+  const keptSlices: FabricGross[] = [];
+  let shades: readonly YarnShade[] = base.shades ?? [];
+  for (const f of base.fabrics) {
+    if (!conv || !convertedFabrics.has(f.fabric_id)) {
+      keptSlices.push(f);
+      continue;
+    }
+    const mine = (sh: YarnShade) =>
+      sh.yarn_id === yarnId &&
+      sh.fabric_id === f.fabric_id &&
+      comboKey(sh.combo) === comboKey(f.combo) &&
+      ydPartKey(sh.yd_part) === ydPartKey(f.yd_part);
+    const stripes = shades.filter(mine);
+    const total = stripes.reduce((sum, sh) => sum + sh.share, 0);
+    if (stripes.length === 0 || total <= 0) {
+      if (!isConvertedPart(conv.detailRows, conv.claimed, { combo: f.combo }, conv.rowsNameColourways)) {
+        keptSlices.push(f);
+      }
+      continue;
+    }
+    const kept = stripes.filter((sh) => !isConvertedPart(conv.detailRows, conv.claimed, sh, conv.rowsNameColourways));
+    const keptShare = kept.reduce((sum, sh) => sum + sh.share, 0);
+    if (keptShare <= 0) continue;
+    if (kept.length === stripes.length) {
+      keptSlices.push(f);
+      continue;
+    }
+    keptSlices.push({ ...f, gross: f.gross == null ? null : (f.gross * keptShare) / total });
+    shades = [
+      ...shades.filter((sh) => !mine(sh)),
+      ...kept.map((sh) => ({ ...sh, share: sh.share / keptShare })),
+    ];
+  }
+  const fabrics = [...keptSlices, ...plan.looseDemand];
 
   if (conv) {
     const stillBought = fabrics.some((f) => {
@@ -568,7 +731,7 @@ export function yarnPurchaseWithConversion(
     base.ownStages,
     base.decimals,
     sources,
-    base.shades ?? [],
+    shades,
   );
 }
 

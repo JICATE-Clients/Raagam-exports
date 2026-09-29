@@ -55,154 +55,33 @@ import { fitLogo, loadLetterheadImage, type LetterheadImage } from "./letterhead
    differentiation") — one palette shared with the on-screen report. */
 import {
   COLOURWAY_BAND,
-  STAGE_STRIPE,
   STAGE_STYLES,
   rgb,
   sectionStyle,
   swatchFor,
   type StageStyle,
 } from "./report-colours";
+import {
+  CONTINUED_TOP,
+  ROW_STRIPE,
+  STATE_BADGE,
+  SWATCH_PADDING,
+  drawGroupHeading,
+  drawSectionHeading,
+  drawStageStripe,
+  drawStageTag,
+  drawStateBadge,
+  drawSwatch,
+  paintRow,
+  roomFor,
+  toneHead,
+  BRAND,
+} from "@/lib/orders/report-pdf-kit";
 
-/** The four-stage stripe across the top of a requirement document — yarn,
- *  greige, dyed, print, left to right: the order the cloth moves in. */
-function drawStageStripe(doc: jsPDF, x: number, y: number, w: number, h: number): void {
-  const seg = w / STAGE_STRIPE.length;
-  STAGE_STRIPE.forEach((c, i) => {
-    doc.setFillColor(...rgb(c));
-    doc.rect(x + i * seg, y, seg, h, "F");
-  });
-}
-
-/** A stage tag — pale fill, strong border, dark ink. Returns its width. */
-function drawStageTag(doc: jsPDF, x: number, baselineY: number, st: StageStyle): number {
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(6.5);
-  const w = doc.getTextWidth(st.label) + 8;
-  doc.setFillColor(...rgb(st.tint));
-  doc.setDrawColor(...rgb(st.rule));
-  doc.setLineWidth(0.6);
-  doc.roundedRect(x, baselineY - 7, w, 9.5, 1.5, 1.5, "FD");
-  doc.setTextColor(...rgb(st.ink));
-  doc.text(st.label, x + 4, baselineY);
-  doc.setTextColor(0);
-  doc.setDrawColor(0);
-  doc.setLineWidth(0.4);
-  return w;
-}
-
-/**
- * A SECTION HEADING — THE SCREEN'S BAR (user 2026-09-29: "while downloading
- * also need to download like same format, now the downloading format looks
- * too normal"). A band in the stage's tint with the stage's rule across its
- * top, the tag and the title in the stage's ink, and — where the screen shows
- * one — the section's To Ordered total at the right. It was a white line with
- * a rule under it, which is what read as plain beside the screen.
- *
- * `y` is the title's baseline, as before; the band sits around it and the
- * table starts flush under the band. Returns the table's startY.
- */
-function drawSectionHeading(
-  doc: jsPDF,
-  x: number,
-  y: number,
-  width: number,
-  st: StageStyle,
-  title: string,
-  right?: string,
-): number {
-  const top = y - 10;
-  const bottom = y + 5;
-  doc.setFillColor(...rgb(st.tint));
-  doc.rect(x, top, width, bottom - top, "F");
-  doc.setFillColor(...rgb(st.rule));
-  doc.rect(x, top, width, 2, "F");
-  const tagW = drawStageTag(doc, x + 5, y, st);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.setTextColor(...rgb(st.ink));
-  doc.text(title, x + 5 + tagW + 5, y);
-  if (right) doc.text(right, x + width - 5, y, { align: "right" });
-  doc.setTextColor(0);
-  return bottom;
-}
-
-/** A plain heading over a run of sections — the screen's "Process Stage
- *  Ledger" band: pale blue, brand-blue capitals. Returns the next baseline. */
-function drawGroupHeading(doc: jsPDF, x: number, y: number, width: number, title: string): number {
-  doc.setFillColor(234, 247, 253);
-  doc.rect(x, y - 9, width, 13, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.setTextColor(3, 123, 184);
-  doc.text(title, x + 5, y);
-  doc.setTextColor(0);
-  return y + 4;
-}
-
-/**
- * THE STAGE-STATE BADGE — GREY / GREIGE / DYED / RFD in the Yarn table's state
- * column, the screen's `StageBadge`: the word on a rounded fill of its stage.
- * An unknown word keeps plain text rather than a guessed colour.
- */
-const STATE_BADGE: Record<string, { fill: string; ink: string }> = {
-  GREY: { fill: STAGE_STYLES.greige.tint, ink: STAGE_STYLES.greige.ink },
-  GREIGE: { fill: STAGE_STYLES.greige.tint, ink: STAGE_STYLES.greige.ink },
-  DYED: { fill: STAGE_STYLES.dyed.tint, ink: STAGE_STYLES.dyed.ink },
-  RFD: { fill: "#fde8cc", ink: "#8a5a15" },
-};
-function drawStateBadge(doc: jsPDF, cell: { x: number; y: number; height: number }, word: string): void {
-  const look = STATE_BADGE[word];
-  if (!look) return;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(6);
-  const w = doc.getTextWidth(word) + 7;
-  const h = 8.5;
-  const bx = cell.x + 3;
-  const by = cell.y + (cell.height - h) / 2;
-  doc.setFillColor(...rgb(look.fill));
-  doc.roundedRect(bx, by, w, h, 1.5, 1.5, "F");
-  doc.setTextColor(...rgb(look.ink));
-  doc.text(word, bx + 3.5, by + 6.1);
-  doc.setTextColor(0);
-}
-
-/** A colourway swatch at the left of a table cell (the cell's own left
- *  padding is widened in `didParseCell` to make room). */
-function drawSwatch(doc: jsPDF, cell: { x: number; y: number; height: number }, hex: string): void {
-  const size = 6;
-  doc.setFillColor(...rgb(hex));
-  doc.setDrawColor(110, 116, 128);
-  doc.setLineWidth(0.5);
-  /* ON THE FIRST TEXT LINE — a Details cell wraps to two lines, and a swatch
-     centred in it sat beside the second. */
-  doc.rect(cell.x + 3, cell.y + 3.5, size, size, "FD");
-  doc.setDrawColor(0);
-  doc.setLineWidth(0.4);
-}
-const SWATCH_PADDING = { top: 3, right: 3, bottom: 3, left: 12 };
-/** The Yarn table's alternate row — the screen's `even:` stripe, one step
- *  darker because the screen's `#fafbfc` vanishes on paper (see COLOURWAY_BAND). */
-const YARN_STRIPE = "#f4f6f9";
-
-/** WHERE A CONTINUED TABLE RESUMES on a later page of the portrait
- *  requirement PDF — below the `Page : n/m` stamp at y = 62, which a table
- *  resuming at autoTable's default margin printed straight over. */
-export const CONTINUED_TOP = 72;
-
-/**
- * KEEP A HEADING WITH ITS TABLE. With less than `need` points left above the
- * sign-off band, start a new page — a section heading alone at the foot of a
- * page, its rows overleaf, reads as a section with no rows.
- */
-function roomFor(doc: jsPDF, y: number, need: number): number {
-  if (y + need <= doc.internal.pageSize.getHeight() - 60) return y;
-  doc.addPage();
-  /* The heading's band starts 10pt above the baseline the caller draws at
-     (`y + 14`), so this puts the band's top at CONTINUED_TOP — clear of the
-     `Page : n/m` stamp, which the plain heading's thinner line used to fit
-     under with 14pt to spare (2026-09-29). */
-  return CONTINUED_TOP - 4;
-}
+/* THE LOOK LIVES IN ../report-pdf-kit.ts (2026-09-29) — moved out of this file
+   so every order report draws with it. Re-exported for the exporters that
+   already import it from here. */
+export { CONTINUED_TOP };
 
 export function monoStyles() {
   return { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 };
@@ -475,10 +354,22 @@ const REGISTER_COLUMNS = [
   "Unit",
 ];
 
-function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[] } {
+/** What each register row is, for its look (2026-09-29): a size row (banded
+ *  per assort colour, `run` counting the colours), or one of the three totals. */
+type RegisterRowKind =
+  | { kind: "size"; run: number; swatch: string | null }
+  | { kind: "component" }
+  | { kind: "colour" }
+  | { kind: "grand" };
+
+function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[]; kinds: RegisterRowKind[] } {
   const body: string[][] = [];
   const totalAt: number[] = [];
+  const kinds: RegisterRowKind[] = [];
+  let run = -1;
   for (const cg of data.groups) {
+    run++;
+    let firstOfColour = true;
     for (const comp of cg.components) {
       const componentLabel = comp.componentNames.join(", ");
       for (const sz of comp.sizes) {
@@ -499,8 +390,11 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
           fmtNumber(sz.grossWt),
           sz.uomCode ?? "",
         ]);
+        kinds.push({ kind: "size", run, swatch: firstOfColour ? swatchFor(cg.combo) : null });
+        firstOfColour = false;
       }
       totalAt.push(body.length);
+      kinds.push({ kind: "component" });
       body.push([
         "",
         `${componentLabel || comp.fabricName} — subtotal`,
@@ -520,6 +414,7 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
       ]);
     }
     totalAt.push(body.length);
+    kinds.push({ kind: "colour" });
     body.push([
       `${cg.combo || "(no colour)"} — subtotal`,
       "",
@@ -539,6 +434,7 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
     ]);
   }
   totalAt.push(body.length);
+  kinds.push({ kind: "grand" });
   body.push([
     "GRAND TOTAL",
     "",
@@ -556,7 +452,7 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
     fmtNumber(data.grandTotal.grossWt),
     "",
   ]);
-  return { body, totalAt };
+  return { body, totalAt, kinds };
 }
 
 export async function exportEntryRegisterPdf(
@@ -570,18 +466,34 @@ export async function exportEntryRegisterPdf(
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
   const y = drawLetterhead(doc, data.header, "Fabric BOM Entry Register", undefined, logo, false, true, thumb);
+  const RIGHT = doc.internal.pageSize.getWidth() - M;
 
-  const { body, totalAt } = registerBody(data);
-  const bold = new Set(totalAt);
+  /* THE YARN & FABRIC LOOK (user 2026-09-29) — a filled section bar with the
+     register's gross total, the head in its tint, one band per assort colour
+     with a swatch on its first row, and the three totals graded: a component
+     subtotal bold on grey, a colour subtotal and the grand total in the tone.
+     The green rule above stays: this is the one Fabric BOM document that is
+     not a requirement (2026-09-20). */
+  const tone = BRAND;
+  const { body, kinds } = registerBody(data);
+  const startY = drawSectionHeading(
+    doc,
+    M,
+    y + 14,
+    RIGHT - M,
+    tone,
+    "FABRIC REQUIREMENT — COLOUR · COMPONENT · SIZE",
+    `${fmtNumber(data.grandTotal.grossWt)} gross`,
+  );
 
   autoTable(doc, {
     head: [REGISTER_COLUMNS],
     body,
-    startY: y,
+    startY,
     margin: { left: M, right: M },
     styles: monoStyles(),
-    headStyles: monoHead(),
-    alternateRowStyles: { fillColor: [250, 250, 251] },
+    headStyles: toneHead(tone),
+    theme: "grid",
     columnStyles: {
       // GSM(4), Width(7), Cut Qty(8), Piece Wt(9), Wastage %(10),
       // Net Req Wt(11), Loss %(12), Total (Gross) Wt(13) — every numeric
@@ -598,19 +510,31 @@ export async function exportEntryRegisterPdf(
       13: { halign: "right" },
     },
     didParseCell: (d) => {
-      if (d.section === "body" && bold.has(d.row.index)) {
+      if (d.section !== "body") return;
+      const k = kinds[d.row.index];
+      if (!k) return;
+      if (k.kind === "size") {
+        d.cell.styles.fillColor = k.run % 2 === 1 ? rgb(COLOURWAY_BAND) : [255, 255, 255];
+        if (k.swatch && d.column.index === 0) d.cell.styles.cellPadding = SWATCH_PADDING;
+      } else if (k.kind === "component") {
         d.cell.styles.fontStyle = "bold";
-        d.cell.styles.fillColor = [255, 255, 255];
+        d.cell.styles.fillColor = [226, 231, 236];
+      } else {
+        d.cell.styles.fontStyle = "bold";
+        d.cell.styles.fillColor = rgb(tone.tint);
+        d.cell.styles.textColor = rgb(tone.ink);
       }
+    },
+    didDrawCell: (d) => {
+      if (d.section !== "body" || d.column.index !== 0) return;
+      const k = kinds[d.row.index];
+      if (k?.kind === "size" && k.swatch) drawSwatch(doc, d.cell, k.swatch);
     },
   });
 
   if (data.stageLedger.length) {
-    const after = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-    const startY = (after?.finalY ?? y) + 24;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text("PROCESS SEQUENCE & STAGE LOSS LEDGER", M, startY - 8);
+    let ly = roomFor(doc, finalY(doc, y), 90, 40);
+    ly = drawSectionHeading(doc, M, ly + 22, RIGHT - M, tone, "PROCESS SEQUENCE & STAGE LOSS LEDGER");
     autoTable(doc, {
       head: [["Class", "Item", "Colour", "Component", "Stage", "Process", "Loss %"]],
       body: data.stageLedger.map((r) => [
@@ -622,11 +546,22 @@ export async function exportEntryRegisterPdf(
         r.processName ?? "",
         r.lossPct != null ? `${r.lossPct.toFixed(2)}%` : "",
       ]),
-      startY,
+      startY: ly,
       margin: { left: M, right: M },
       styles: monoStyles(),
-      headStyles: monoHead(),
+      headStyles: toneHead(tone),
+      theme: "grid",
       columnStyles: { 6: { halign: "right" } },
+      didParseCell: (d) => {
+        paintRow(d, { tone });
+        // The stage as the Yarn report's badge (GREIGE / DYED); other words stay text.
+        if (d.section === "body" && d.column.index === 4 && STATE_BADGE[String(d.cell.raw ?? "")]) d.cell.text = [];
+      },
+      didDrawCell: (d) => {
+        if (d.section !== "body" || d.column.index !== 4) return;
+        const word = String(d.cell.raw ?? "");
+        if (STATE_BADGE[word]) drawStateBadge(doc, d.cell, word);
+      },
     });
   }
 
@@ -1067,7 +1002,7 @@ export async function exportYarnRequirementPdf(
       if (d.section !== "body") return;
       /* STRIPED ROWS, the screen's odd/even (2026-09-29) — under the totals
          and tones below, which paint over it. */
-      if (d.row.index % 2 === 1) d.cell.styles.fillColor = rgb(YARN_STRIPE);
+      if (d.row.index % 2 === 1) d.cell.styles.fillColor = rgb(ROW_STRIPE);
       if (boldYarnRows.has(d.row.index)) {
         d.cell.styles.fontStyle = "bold";
         d.cell.styles.fillColor = rgb(STAGE_STYLES.yarn.tint);

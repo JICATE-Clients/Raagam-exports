@@ -221,6 +221,7 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import {
+  claimedColoursOf,
   conversionDetailsOf,
   conversionStepLossesOf,
   conversionLinksOf,
@@ -7879,6 +7880,8 @@ export function FabricBomScreen({
     details: conversionDetails,
     // The yarn CONVERSION step's own loss (2026-09-26) — `normalizeYarns` passes the same.
     stepLosses: conversionStepLossesOf(yarnRows, isUnravelling),
+    // Colours the yarn's other steps take (2026-09-29) — the Save passes the same.
+    claimed: claimedColoursOf(yarnRows, isUnravelling),
     isUnravelling,
     fabrics: fabricGross,
     compositions: compositionById,

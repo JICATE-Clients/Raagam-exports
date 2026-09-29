@@ -9,11 +9,29 @@
  * green rule, logo, company + registered address, blue title — with the RE
  * Number printed large under the title: 500+ people track work by it, and a
  * sheet found face-down on a table has to be identifiable from arm's length.
+ *
+ * THE YARN & FABRIC REQUIREMENT'S LOOK (user 2026-09-29: "another reports also
+ * need to look like yarn fabric requirement") — the frame above is unchanged;
+ * the sections now draw with `../report-pdf-kit.ts`: filled BRAND bars with
+ * the section's headline figure, tinted table heads and totals, striped rows,
+ * swatches beside colourways. Pale tints under dark ink, so a mono print
+ * still reads.
  */
 import { jsPDF } from "jspdf";
 import autoTable, { type CellInput, type RowInput } from "jspdf-autotable";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { fitLogo, loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
+import { swatchFor } from "@/lib/orders/fabric-bom/report-colours";
+import {
+  BRAND,
+  SWATCH_PADDING,
+  drawSectionHeading,
+  drawSwatch,
+  paintRow,
+  rgb,
+  toneHead,
+  type StageStyle,
+} from "@/lib/orders/report-pdf-kit";
 import type { ReportStyleImages } from "./style-images";
 import { pickReportThumbnail, withoutThumbnail } from "./report-thumbnail";
 import { isRefusal, type GosSheet, type GosStyle } from "./types";
@@ -30,6 +48,10 @@ import {
 } from "./format";
 
 export type PdfOutput = "download" | "print";
+
+/** A section that is a WARNING (quantities no style took) — the screen's red
+ *  box, as a bar. */
+const DANGER: StageStyle = { label: "", tint: "#fdf3f2", rule: "#b3261e", ink: "#b3261e" };
 
 function stem(s: GosSheet): string {
   const key = (s.header.reNumber || "order").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -53,7 +75,7 @@ function componentBody(style: GosStyle): { head: string[]; body: RowInput[] } | 
   const cols = 3 + style.colourways.length;
   const body: RowInput[] = [];
   for (const block of style.coordinates) {
-    body.push([{ content: block.coordinate.toUpperCase(), colSpan: cols, styles: { fontStyle: "bold", fillColor: [246, 247, 249] } }]);
+    body.push([{ content: block.coordinate.toUpperCase(), colSpan: cols, styles: { fontStyle: "bold", fillColor: rgb(BRAND.tint), textColor: rgb(BRAND.ink) } }]);
     for (const p of block.panels) {
       const row: CellInput[] = [txt(p.component), txt(p.structure), gosGsmText(p), ...p.colours.map(gosColourText)];
       body.push(row);
@@ -126,20 +148,25 @@ export async function exportGosPdf(
     margin: { left: M, right: M },
     theme: "grid" as const,
     styles: { fontSize: 7.5, cellPadding: 2.5, textColor: 20, lineColor: 190, lineWidth: 0.4 },
-    headStyles: { fillColor: [235, 237, 240] as [number, number, number], textColor: 20, fontStyle: "bold" as const },
-    footStyles: { fillColor: [246, 247, 249] as [number, number, number], textColor: 20, fontStyle: "bold" as const },
+    /* The Yarn & Fabric look (2026-09-29): the head and the total row in the
+       section's tint, body rows striped (`striped` below). */
+    headStyles: { ...toneHead(BRAND), fontSize: 7.5 },
+    footStyles: { fillColor: rgb(BRAND.tint), textColor: rgb(BRAND.ink), fontStyle: "bold" as const },
   };
-  const heading = (t: string, gap = 12) => {
-    let y = lastY() + gap;
+  /** Stripe a table's body rows. */
+  const striped = () => ({
+    didParseCell: (d: Parameters<typeof paintRow>[0]) => paintRow(d, { tone: BRAND }),
+  });
+  /** A FILLED SECTION BAR (the kit's), kept on the page with room for its
+   *  table; `right` is the section's headline figure. Returns the table's
+   *  startY. */
+  const heading = (t: string, gap = 12, right?: string, tone: StageStyle = BRAND) => {
+    let y = lastY() + gap + 8;
     if (y > H - 90) {
       doc.addPage();
-      y = 40;
+      y = 50;
     }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(22, 24, 29);
-    doc.text(t.toUpperCase(), M, y);
-    return y + 4;
+    return drawSectionHeading(doc, M, y, W - 2 * M, tone, t.toUpperCase(), right);
   };
 
   /* THE HEADER THUMBNAIL (2026-09-26) — the picture the page shows beside the
@@ -236,8 +263,9 @@ export async function exportGosPdf(
       ...grid,
       head: [["Destination", "Customer PO", "Delivery", "Earlier shipment", "Qty"]],
       body: sheet.destinations.map((d) => [txt(d.label), txt(d.poNo), fmtDate(d.deliveryDate), fmtDate(d.earlierShipmentDate), fmtNumber(d.qty)]),
-      startY: heading("Destinations"),
+      startY: heading("Destinations", 12, fmtNumber(sheet.destinations.reduce((a, d) => a + (d.qty ?? 0), 0))),
       columnStyles: { 4: { halign: "right" } },
+      ...striped(),
     });
   }
 
@@ -247,8 +275,8 @@ export async function exportGosPdf(
       ...grid,
       body: [
         [
-          { content: gosStyleTitle(style), colSpan: 4, styles: { fontStyle: "bold", fontSize: 9, fillColor: [246, 247, 249] } },
-          { content: `PO Qty ${fmtNumber(style.poQty)}`, colSpan: 2, styles: { fontStyle: "bold", halign: "right", fontSize: 9, fillColor: [246, 247, 249] } },
+          { content: gosStyleTitle(style), colSpan: 4, styles: { fontStyle: "bold", fontSize: 9, fillColor: rgb(BRAND.tint), textColor: rgb(BRAND.ink) } },
+          { content: `PO Qty ${fmtNumber(style.poQty)}`, colSpan: 2, styles: { fontStyle: "bold", halign: "right", fontSize: 9, fillColor: rgb(BRAND.tint), textColor: rgb(BRAND.ink) } },
         ],
         gosStyleFacts(style).slice(0, 3).flat(),
         /* Six facts since the CAD status joined (0628): two rows of three pairs.
@@ -264,16 +292,50 @@ export async function exportGosPdf(
       ],
       startY: lastY() + 16,
       columnStyles: { 0: { textColor: 110 }, 2: { textColor: 110 }, 4: { textColor: 110 } },
+      /* The banner wears the section's rule across its top, as a bar does. */
+      didDrawCell: (d) => {
+        if (d.section !== "body" || d.row.index !== 0) return;
+        doc.setFillColor(...rgb(BRAND.rule));
+        doc.rect(d.cell.x, d.cell.y, d.cell.width, 2, "F");
+      },
     });
 
     await drawImages(imagesOf(style.styleRef).map((i) => i.url), "Style images");
 
     const mx = matrixBody(style);
-    const my = heading("Size-wise and colour-wise break-up", 10);
-    if (mx) {
+    const my = heading(
+      "Size-wise and colour-wise break-up",
+      10,
+      isRefusal(style.matrix) ? undefined : `${fmtNumber(style.matrix.total)} pcs`,
+    );
+    if (mx && !isRefusal(style.matrix)) {
       const numeric: Record<number, { halign: "right" }> = {};
       for (let i = 1; i < mx.head.length; i++) numeric[i] = { halign: "right" };
-      autoTable(doc, { ...grid, head: [mx.head], body: mx.body, foot: [mx.foot], startY: my, columnStyles: numeric, showFoot: "lastPage" });
+      const combos = style.matrix.rows.map((r) => r.combo);
+      autoTable(doc, {
+        ...grid,
+        head: [mx.head],
+        body: mx.body,
+        foot: [mx.foot],
+        startY: my,
+        columnStyles: numeric,
+        showFoot: "lastPage",
+        /* Striped, with the colourway's swatch beside its name. */
+        didParseCell: (d) => {
+          paintRow(d, { tone: BRAND });
+          /* `columnStyles` reaches body rows only — the size heads and the
+             Total row sat left of the right-aligned figures under them. */
+          if (d.section !== "body" && d.column.index >= 1) d.cell.styles.halign = "right";
+          if (d.section === "body" && d.column.index === 0 && swatchFor(combos[d.row.index])) {
+            d.cell.styles.cellPadding = SWATCH_PADDING;
+          }
+        },
+        didDrawCell: (d) => {
+          if (d.section !== "body" || d.column.index !== 0) return;
+          const hex = swatchFor(combos[d.row.index]);
+          if (hex) drawSwatch(doc, d.cell, hex);
+        },
+      });
     } else {
       autoTable(doc, { ...grid, body: [[isRefusal(style.matrix) ? style.matrix.refused : ""]], startY: my, styles: { ...grid.styles, fontStyle: "bold" } });
     }
@@ -281,7 +343,36 @@ export async function exportGosPdf(
     const cb = componentBody(style);
     const cy = heading("Components", 10);
     if (cb) {
-      autoTable(doc, { ...grid, head: [cb.head], body: cb.body, startY: cy, columnStyles: { 2: { halign: "right" } } });
+      /* Row index -> the panel it prints (banner rows map to null), so the
+         colour cells carry their swatch and the banners keep their tint. */
+      const panelAt: (GosStyle["coordinates"][number]["panels"][number] | null)[] = [];
+      for (const block of style.coordinates) {
+        panelAt.push(null);
+        for (const p of block.panels) panelAt.push(p);
+      }
+      const colourOf = (row: number, col: number) => {
+        const p = panelAt[row];
+        return p && col >= 3 ? (p.colours[col - 3]?.colour ?? null) : null;
+      };
+      autoTable(doc, {
+        ...grid,
+        head: [cb.head],
+        body: cb.body,
+        startY: cy,
+        columnStyles: { 2: { halign: "right" } },
+        didParseCell: (d) => {
+          if (d.section === "body" && panelAt[d.row.index] === null) return;
+          paintRow(d, { tone: BRAND });
+          if (d.section === "body" && swatchFor(colourOf(d.row.index, d.column.index))) {
+            d.cell.styles.cellPadding = SWATCH_PADDING;
+          }
+        },
+        didDrawCell: (d) => {
+          if (d.section !== "body") return;
+          const hex = swatchFor(colourOf(d.row.index, d.column.index));
+          if (hex) drawSwatch(doc, d.cell, hex);
+        },
+      });
     } else {
       autoTable(doc, {
         ...grid,
@@ -298,8 +389,14 @@ export async function exportGosPdf(
       ...grid,
       head: [["Style ref (not declared)", "Colour", "Qty"]],
       body: sheet.orphans.map((o) => [o.ref, o.combo, fmtNumber(o.qty)]),
-      startY: heading("Quantities not shown above — correct the order before cutting", 16),
+      startY: heading(
+        "Quantities not shown above — correct the order before cutting",
+        16,
+        fmtNumber(sheet.orphans.reduce((a, o) => a + o.qty, 0)),
+        DANGER,
+      ),
       columnStyles: { 2: { halign: "right" } },
+      headStyles: { ...toneHead(DANGER), fontSize: 7.5 },
     });
   }
 

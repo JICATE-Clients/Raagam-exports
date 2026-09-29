@@ -5,15 +5,29 @@
  * island. It is handed the SAME `MbaRequirementReport` the on-screen view
  * renders, so the page, the paper and the spreadsheet cannot disagree.
  *
- * MONO TABLE, BRAND ON THE RULES — the same call the Accessories Requirement PDF
- * makes: a saturated header band turns to mud on the mono laser a supplier
- * prints on. The green rule and blue title echo the on-screen letterhead.
+ * THE YARN & FABRIC LOOK (user 2026-09-29: "another reports also need to look
+ * like yarn fabric requirement"). The table sits under a filled BRAND section
+ * bar with the line count, its head in the same tint, rows striped, the item
+ * colour swatched — `lib/orders/report-pdf-kit.ts`, one look for every order
+ * report. This replaced "MONO TABLE, BRAND ON THE RULES", whose worry was a
+ * SATURATED head band turning to mud on a supplier's mono laser: the kit's
+ * fills are pale tints under near-black ink, which a mono printer renders as
+ * light greys and never as mud. The green rule and blue title stay.
  */
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { fitLogo, loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
 import type { MbaRequirementReport } from "./requirement-report-types";
+import { swatchFor } from "@/lib/orders/fabric-bom/report-colours";
+import {
+  BRAND,
+  SWATCH_PADDING,
+  drawSectionHeading,
+  drawSwatch,
+  paintRow,
+  toneHead,
+} from "@/lib/orders/report-pdf-kit";
 import { fmtQty } from "@/lib/uom/convert";
 
 export type PdfOutput = "download" | "print";
@@ -106,15 +120,48 @@ export async function exportMaterialBomRequirementPdf(
   ].filter(Boolean) as string[];
   if (facts.length) doc.text(facts.join("     "), M, 94);
 
+  /* THE SECTION BAR — BRAND blue (a trim is not a production stage, so no
+     tag), the line count at the right. No total row: the lines are in
+     different units, and a sum of pieces and grams is no figure. */
+  const n = r.rows.length;
+  const startY = drawSectionHeading(
+    doc,
+    M,
+    118,
+    W - 2 * M,
+    BRAND,
+    "MATERIAL REQUIREMENT",
+    `${n} line${n === 1 ? "" : "s"}`,
+  );
+  const swatches = r.rows.map((x) => swatchFor(x.colour));
+
   autoTable(doc, {
     head: [HEAD],
     body: body(r),
-    startY: 104,
+    startY,
     margin: { left: M, right: M },
     styles: { fontSize: 8, cellPadding: 3.5, textColor: 20, lineColor: 200, lineWidth: 0.4 },
-    headStyles: { fillColor: [235, 237, 240], textColor: 20, fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [250, 250, 251] },
+    headStyles: { ...toneHead(BRAND), fontSize: 7.5 },
+    theme: "grid",
     columnStyles: { 2: { halign: "right" }, 3: { halign: "right", fontStyle: "bold" }, 5: { halign: "right" } },
+    didParseCell: (d) => {
+      /* A figure column's heading sits over its figures, on the right. */
+      if (d.section === "head" && [2, 3, 5].includes(d.column.index)) d.cell.styles.halign = "right";
+      paintRow(d, { tone: BRAND });
+      if (d.section !== "body") return;
+      if (d.column.index === 1 && swatches[d.row.index]) d.cell.styles.cellPadding = SWATCH_PADDING;
+      /* A refused Required Qty is its sentence, not a figure — plain weight. */
+      if (d.column.index === 3 && r.rows[d.row.index]?.required == null) {
+        d.cell.styles.fontStyle = "normal";
+        d.cell.styles.textColor = [110, 116, 128];
+        d.cell.styles.halign = "left";
+      }
+    },
+    didDrawCell: (d) => {
+      if (d.section !== "body" || d.column.index !== 1) return;
+      const hex = swatches[d.row.index];
+      if (hex) drawSwatch(doc, d.cell, hex);
+    },
   });
 
   const pages = doc.getNumberOfPages();

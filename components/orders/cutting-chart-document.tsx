@@ -4,12 +4,27 @@ import { Download, FileSpreadsheet, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cuttingCell, cuttingRows, sumOf, type CuttingChart, type CuttingFigures } from "@/lib/orders/cutting-chart/types";
 import { exportCuttingChartCsv, exportCuttingChartPdf, headerColumns, styleLine } from "@/lib/orders/cutting-chart/export";
+import {
+  ReportTable,
+  STAGE_STYLES,
+  SectionBar,
+  Swatch,
+  Th,
+  stripeRow,
+  totalRowStyle,
+} from "@/components/orders/report-kit";
+
+/** The chart is about the cutting table — the report palette's CUTTING tone,
+ *  as its PDF (`exportCuttingChartPdf`) wears it. */
+const TONE = STAGE_STYLES.cutting;
 
 /**
  * Orders ▸ <order> ▸ Cutting Chart (client 2026-09-23, legacy RP "CUTTING
- * CHART"). The Material / Fabric BOM reports' letterhead and table idiom, so
- * the order's documents read as one family; the body is the legacy's — sizes
- * across, and per colour the Order, Approval, Rej.Allow and Total rows.
+ * CHART"). The order documents' letterhead, so they read as one family; the
+ * body is the legacy's — sizes across, and per colour the Order, Approval,
+ * Rej.Allow and Total rows. The table wears the Yarn & Fabric Requirement's
+ * look (user 2026-09-29) through the shared `report-kit`: a filled CUTTING bar,
+ * striped rows, style bands and Total rows tinted, a swatch per colour.
  *
  * A client island only for the three export buttons; the data arrives whole
  * from the server page and the header facts / style lines come from the same
@@ -84,37 +99,38 @@ export function CuttingChartDocument({ chart }: { chart: CuttingChart }) {
           ))}
         </div>
 
-        <div className="overflow-x-auto border-x border-b border-border bg-white">
-          <table className="w-full min-w-max border-collapse text-[12px]">
-            <thead>
-              <tr>
-                <Th>Color</Th>
-                <Th>{""}</Th>
-                {chart.sizes.map((z) => (
-                  <Th key={z.key} right>
-                    {z.label}
-                  </Th>
-                ))}
-                <Th right>Total</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {chart.styles.map((s, si) => (
-                <StyleBlock key={`${s.styleRefNo ?? ""}-${si}`} cols={cols} line={styleLine(chart, s)}>
-                  {s.colours.map((col) => (
-                    <FigureRows key={col.combo} first={col.combo} f={col.figures} rows={rows} />
-                  ))}
-                </StyleBlock>
-              ))}
-              <StyleBlock cols={cols} line="RE Total">
-                <FigureRows first="" f={chart.total} rows={rows} />
-              </StyleBlock>
-            </tbody>
-          </table>
+        <div className="mt-3">
+          <SectionBar tone={TONE} title="Cutting Chart" right={`Cut Qty ${cuttingCell(sumOf(chart.total.total))}`} />
         </div>
+        <ReportTable>
+          <thead>
+            <tr>
+              <Th>Color</Th>
+              <Th>{""}</Th>
+              {chart.sizes.map((z) => (
+                <Th key={z.key} right>
+                  {z.label}
+                </Th>
+              ))}
+              <Th right>Total</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {chart.styles.map((s, si) => (
+              <StyleBlock key={`${s.styleRefNo ?? ""}-${si}`} cols={cols} line={styleLine(chart, s)}>
+                {s.colours.map((col) => (
+                  <FigureRows key={col.combo} first={col.combo} f={col.figures} rows={rows} />
+                ))}
+              </StyleBlock>
+            ))}
+            <StyleBlock cols={cols} line="RE Total">
+              <FigureRows first="" f={chart.total} rows={rows} />
+            </StyleBlock>
+          </tbody>
+        </ReportTable>
 
         {/* THE THREE SIGNATURES — the legacy's foot, on screen as on paper. */}
-        <div className="grid grid-cols-3 gap-4 rounded-b-md border-x border-b border-border bg-white px-5 pb-3 pt-10 text-[12px] font-semibold">
+        <div className="grid grid-cols-3 gap-4 rounded-b-md border border-t-0 border-border bg-white px-5 pb-3 pt-10 text-[12px] font-semibold">
           <div className="border-t border-[#16181d] pt-1">Prepared By</div>
           <div className="border-t border-[#16181d] pt-1 text-center">Checked By</div>
           <div className="border-t border-[#16181d] pt-1 text-right">Approved By</div>
@@ -127,8 +143,8 @@ export function CuttingChartDocument({ chart }: { chart: CuttingChart }) {
 function StyleBlock({ cols, line, children }: { cols: number; line: string; children: React.ReactNode }) {
   return (
     <>
-      <tr className="border-b border-border bg-[#f6f7f9]">
-        <td colSpan={cols} className="px-2 py-1 font-semibold text-[#16181d]">
+      <tr className="border-b border-border" style={totalRowStyle(TONE)}>
+        <td colSpan={cols} className="px-2 py-1 font-semibold">
           {line}
         </td>
       </tr>
@@ -154,9 +170,19 @@ function FigureRows({
           <tr
             key={r.key}
             className={total ? "border-b-2 border-border font-semibold" : "border-b border-border/60"}
+            style={total ? totalRowStyle(TONE) : stripeRow(i)}
           >
-            <td className="border-x border-border px-2 py-1 font-medium">{i === 0 ? first : ""}</td>
-            <td className="border-x border-border px-2 py-1 text-right text-[#5b6472]">{r.label}</td>
+            <td className="border-x border-border px-2 py-1 font-medium">
+              {i === 0 && first ? (
+                <>
+                  <Swatch name={first} />
+                  {first}
+                </>
+              ) : (
+                ""
+              )}
+            </td>
+            <td className={`border-x border-border px-2 py-1 text-right ${total ? "" : "text-[#5b6472]"}`}>{r.label}</td>
             {f[r.key].map((n, zi) => (
               <td key={zi} className="border-x border-border px-2 py-1 text-right tabular-nums">
                 {cuttingCell(n)}
@@ -169,15 +195,5 @@ function FigureRows({
         );
       })}
     </>
-  );
-}
-
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
-  return (
-    <th
-      className={`border-b border-border bg-[#f6f7f9] px-2 py-1 font-semibold text-[#5b6472] ${right ? "text-right" : "text-left"}`}
-    >
-      {children}
-    </th>
   );
 }

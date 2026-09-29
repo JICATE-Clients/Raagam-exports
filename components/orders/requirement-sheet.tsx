@@ -3,6 +3,9 @@ import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import { ACCESSORY_COLUMNS, accessoryQty, accessoryRows } from "@/lib/orders/requirement/sheet";
 import type { RequirementSheetData } from "@/lib/orders/requirement/service";
+import { STAGE_STRIPE, STAGE_STYLES } from "@/lib/orders/fabric-bom/report-colours";
+import { BRAND } from "@/lib/orders/report-pdf-kit";
+import { SectionBar, Swatch, stripeRow } from "@/components/orders/report-kit";
 
 /**
  * THE ACCESSORIES REQUIREMENT, ON SCREEN, IN THE RP PRINTOUT'S LAYOUT (client
@@ -26,6 +29,11 @@ import type { RequirementSheetData } from "@/lib/orders/requirement/service";
  *
  * A server component with nothing to hydrate; the three buttons above it are
  * `RequirementToolbar`.
+ *
+ * THE YARN & FABRIC LOOK (user 2026-09-29): the four-stage stripe over the
+ * letterhead, the RE No and Cut cells tinted as the PDF tints them, and TRIMS
+ * PURCHASE as a filled `SectionBar` over a table headed in the same tone with
+ * striped rows — the same section the PDF draws with `report-pdf-kit.ts`.
  */
 export function RequirementSheetDocument({ data }: { data: RequirementSheetData }) {
   const rows = accessoryRows(data.rows, data.names);
@@ -38,7 +46,13 @@ export function RequirementSheetDocument({ data }: { data: RequirementSheetData 
   return (
     <>
       <DocumentPrintStyles scope="req" />
-      <article className="req-sheet mx-auto max-w-[1100px] overflow-hidden rounded-md border border-border bg-white px-6 py-5 text-[12px] text-[#16181d] shadow-sm">
+      <article className="req-sheet mx-auto max-w-[1100px] overflow-hidden rounded-md border border-border bg-white px-6 pb-5 text-[12px] text-[#16181d] shadow-sm">
+        {/* THE FOUR-STAGE STRIPE — the PDF's own top rule (`drawStageStripe`). */}
+        <div className="-mx-6 mb-4 flex h-[4px]">
+          {STAGE_STRIPE.map((c) => (
+            <div key={c} className="flex-1" style={{ background: c }} />
+          ))}
+        </div>
         {/* THE CENTRED LETTERHEAD — company, unit, title — as the printout. */}
         <header className="text-center">
           <div className="text-[16px] font-bold uppercase tracking-wide">{data.company.name ?? h?.company.name ?? "RAAGAM EXPORTS"}</div>
@@ -100,7 +114,11 @@ export function RequirementSheetDocument({ data }: { data: RequirementSheetData 
           </thead>
           <tbody>
             <tr>
-              <Cell mono>{h?.scNo ?? data.order.scNo ?? ""}</Cell>
+              {/* RE No and Cut — the two figures people look up first, tinted
+                  as the PDF's header tints them. */}
+              <Cell mono bold tint={STAGE_STYLES.dyed}>
+                {h?.scNo ?? data.order.scNo ?? ""}
+              </Cell>
               <Cell mono>{h?.orderNo ?? data.order.orderNo ?? ""}</Cell>
               <Cell mono>{h?.styleRefNo ?? ""}</Cell>
               <Cell>{h?.styleName ?? ""}</Cell>
@@ -110,7 +128,7 @@ export function RequirementSheetDocument({ data }: { data: RequirementSheetData 
               <Cell right>{q ? fmtNumber(q.excessQty) : ""}</Cell>
               <Cell right>{q ? withPct(q.approvalQty, q.approvalPct) : ""}</Cell>
               <Cell right>{q ? withPct(q.rejectionQty, q.rejectionPct) : ""}</Cell>
-              <Cell right bold>
+              <Cell right bold tint={STAGE_STYLES.dyed}>
                 {q ? fmtNumber(q.cutQty) : ""}
               </Cell>
             </tr>
@@ -119,13 +137,18 @@ export function RequirementSheetDocument({ data }: { data: RequirementSheetData 
         {h && isReportRefusal(h.qty) && <p className="mt-1 text-[11.5px] font-medium text-destructive">{h.qty.refused}</p>}
 
         {/* TRIMS PURCHASE */}
-        <h2 className="mb-1 mt-3 text-[12.5px] font-bold uppercase">Trims Purchase</h2>
+        <div className="mt-4">
+          <SectionBar
+            title="Trims Purchase"
+            right={rows.length ? `${rows.length} item${rows.length === 1 ? "" : "s"}` : undefined}
+          />
+        </div>
         <div className="req-scroll">
           <table className="req-grid w-full border-collapse">
             <thead>
               <tr>
                 {ACCESSORY_COLUMNS.map((c) => (
-                  <Head key={c} right={c === "Qty"}>
+                  <Head key={c} right={c === "Qty"} tone>
                     {c}
                   </Head>
                 ))}
@@ -137,15 +160,20 @@ export function RequirementSheetDocument({ data }: { data: RequirementSheetData 
                   <Cell colSpan={ACCESSORY_COLUMNS.length}>No trims on this Material BOM.</Cell>
                 </tr>
               )}
-              {rows.map((r) => (
-                <tr key={r.key}>
+              {rows.map((r, i) => (
+                <tr key={r.key} style={stripeRow(i)}>
+                  {/* The category, written once over its items, wears the
+                      section's tone — the group's own heading cell. */}
                   {r.category != null && (
-                    <Cell rowSpan={r.span} top>
+                    <Cell rowSpan={r.span} top bold tint={BRAND}>
                       {r.category}
                     </Cell>
                   )}
                   <Cell>{r.item}</Cell>
-                  <Cell>{r.colour ?? ""}</Cell>
+                  <Cell>
+                    <Swatch name={r.colour} />
+                    {r.colour ?? ""}
+                  </Cell>
                   <Cell>{r.spec ?? ""}</Cell>
                   <Cell>{r.uom}</Cell>
                   <Cell>{r.size ?? ""}</Cell>
@@ -179,17 +207,23 @@ function Head({
   colSpan,
   right,
   center,
+  tone,
 }: {
   children: React.ReactNode;
   rowSpan?: number;
   colSpan?: number;
   right?: boolean;
   center?: boolean;
+  /** A section's table head — in the section's tint and ink (BRAND), the
+   *  PDF's `toneHead`. Inline, because `document-print-styles`'
+   *  `.req-sheet thead th` rule outranks a utility class. */
+  tone?: boolean;
 }) {
   return (
     <th
       rowSpan={rowSpan}
       colSpan={colSpan}
+      style={tone ? { background: BRAND.tint, color: BRAND.ink } : undefined}
       className={`border border-[#9aa4b2] bg-[#d9dcdf] px-2 py-1 text-[11px] font-bold ${
         right ? "text-right" : center ? "text-center" : "text-left"
       }`}
@@ -208,6 +242,7 @@ function Cell({
   bold,
   top,
   danger,
+  tint,
 }: {
   children: React.ReactNode;
   rowSpan?: number;
@@ -217,11 +252,14 @@ function Cell({
   bold?: boolean;
   top?: boolean;
   danger?: boolean;
+  /** Paint the cell in a tone's tint and ink (a group heading, a key figure). */
+  tint?: { tint: string; ink: string };
 }) {
   return (
     <td
       rowSpan={rowSpan}
       colSpan={colSpan}
+      style={tint ? { background: tint.tint, color: tint.ink } : undefined}
       className={[
         "border border-[#9aa4b2] px-2 py-1 text-[11.5px]",
         right ? "text-right" : "",

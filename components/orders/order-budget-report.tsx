@@ -7,6 +7,7 @@ import { fmtDate } from "@/lib/format";
 import type { BudgetGroupHead, Fig, OrderBudgetReport } from "@/lib/orders/budget/report";
 import { contributionText, inr, isFigRefusal, plain2, qty3, qtyCell } from "@/lib/orders/budget/report-format";
 import { exportOrderBudgetCsv, exportOrderBudgetPdf } from "@/lib/orders/budget/report-export";
+import { BRAND, ROW_STRIPE_BG, SectionBar, stripeRow, totalRowStyle } from "@/components/orders/report-kit";
 
 /**
  * Orders ▸ <RE> ▸ Budget Statement (client 2026-09-23) — the legacy RP
@@ -22,6 +23,11 @@ import { exportOrderBudgetCsv, exportOrderBudgetPdf } from "@/lib/orders/budget/
  *
  * It renders `getOrderBudgetReport`'s object and nothing else; the PDF and the
  * spreadsheet are handed the same object, so page, paper and Excel agree.
+ *
+ * THE YARN & FABRIC REQUIREMENT'S LOOK (user 2026-09-29) — filled BRAND bars
+ * over the Quantity, Statement, Summary and Amendment blocks, tinted heads,
+ * striped rows, Group Head contributions tinted as totals — from
+ * ./report-kit.tsx, the same look the PDF draws (report-pdf-kit.ts).
  */
 export function OrderBudgetReportView({
   data,
@@ -105,6 +111,7 @@ export function OrderBudgetReportView({
         </div>
 
         {/* THE QUANTITY TABLE — one row per style of every order covered. */}
+        <SectionBar title="Quantity" first />
         <div className="overflow-x-auto border border-t-0 border-border bg-white">
           <table className="w-full min-w-max border-collapse text-[12px]">
             <thead>
@@ -128,7 +135,7 @@ export function OrderBudgetReportView({
             </thead>
             <tbody>
               {data.quantities.map((q, i) => (
-                <tr key={`${q.reNo}-${q.styleRefNo}-${i}`}>
+                <tr key={`${q.reNo}-${q.styleRefNo}-${i}`} style={stripeRow(i)}>
                   <Td mono>{q.reNo ?? "—"}</Td>
                   <Td mono>{q.orderNo ?? "—"}</Td>
                   <Td mono>{q.styleRefNo ?? "—"}</Td>
@@ -138,7 +145,7 @@ export function OrderBudgetReportView({
                   <Td right>{qtyCell(q.excess)}</Td>
                   <Td right>{qtyCell(q.approval)}</Td>
                   <Td right>{qtyCell(q.rejection)}</Td>
-                  <Td right bold>
+                  <Td right bold ink>
                     {isFigRefusal(q.cut) ? <Muted>{q.cut.refused}</Muted> : qtyCell(q.cut)}
                   </Td>
                 </tr>
@@ -155,7 +162,13 @@ export function OrderBudgetReportView({
         )}
 
         {/* THE STATEMENT — Group Head · Cost Head · Particulars · Qty · UOM · Rate · Value. */}
-        <div className="mt-3 overflow-x-auto border border-border bg-white">
+        <div className="mt-3">
+          <SectionBar
+            title="Budget Statement"
+            right={isFigRefusal(sm.totalExpenses) ? undefined : `Total Expenses ${inr(sm.totalExpenses)}`}
+          />
+        </div>
+        <div className="overflow-x-auto border border-t-0 border-border bg-white">
           <table className="w-full min-w-max border-collapse text-[12px]">
             <thead>
               <tr>
@@ -178,6 +191,7 @@ export function OrderBudgetReportView({
         </div>
 
         {/* THE LEGACY'S SUMMARY BOXES. */}
+        <SectionBar title="Summary" />
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 border border-t-0 border-border bg-white px-5 py-3 text-[12.5px] md:grid-cols-4">
           <SumBox label="Total Income" v={sm.totalIncome} />
           <SumBox label="Total Expenses" v={sm.totalExpenses} />
@@ -190,11 +204,9 @@ export function OrderBudgetReportView({
 
         {/* AMENDMENT — approved vs proposed, while the RE is amending (spec §5). */}
         {amendment && (
-          <div className="border border-t-0 border-border bg-white px-5 py-3">
-            <div className="text-[11.5px] font-bold uppercase tracking-[.12em] text-[#16181d]">
-              Amendment{amendment.entryNo ? ` ${amendment.entryNo}` : ""} — Approved vs Proposed
-            </div>
-            <div className="mt-2 overflow-x-auto">
+          <div>
+            <SectionBar title={`Amendment${amendment.entryNo ? ` ${amendment.entryNo}` : ""} — Approved vs Proposed`} />
+            <div className="overflow-x-auto border border-t-0 border-border bg-white">
               <table className="w-full min-w-max border-collapse text-[12px]">
                 <thead>
                   <tr>
@@ -205,14 +217,14 @@ export function OrderBudgetReportView({
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
+                  <tr style={stripeRow(0)}>
                     <Td bold>Margin %</Td>
                     <Td right bold>{figText(amendment.margin.original, 2)}</Td>
                     <Td right bold>{figText(amendment.margin.amended, 2)}</Td>
                     <Td right bold>{figText(amendment.margin.delta, 2)}</Td>
                   </tr>
-                  {amendment.rows.map((r) => (
-                    <tr key={r.key}>
+                  {amendment.rows.map((r, i) => (
+                    <tr key={r.key} style={stripeRow(i + 1)}>
                       <Td>{r.label}</Td>
                       <Td right>{r.kind === "percent" ? figText(r.baseline, 2) : inr(r.baseline)}</Td>
                       <Td right>{r.kind === "percent" ? figText(r.current, 2) : inr(r.current)}</Td>
@@ -246,7 +258,8 @@ function GroupRows({ g }: { g: BudgetGroupHead }) {
       {g.heads.map((hd, hi) => (
         <HeadRows key={`${hd.label}-${hi}`} hd={hd} group={hi === 0 ? { label: g.label, span } : null} />
       ))}
-      <tr className="bg-[#f6f7f9]">
+      {/* The Group Head's contribution — the section's TOTAL row, in the tone. */}
+      <tr className="font-bold" style={totalRowStyle(BRAND)}>
         <td colSpan={6} className="border border-border px-2 py-1 text-[12.5px] font-bold">
           {contributionText(g.label, g)}
         </td>
@@ -287,7 +300,8 @@ function HeadRows({
           <Td right>{isFigRefusal(l.value) ? <Muted>{l.value.refused}</Muted> : plain2(l.value)}</Td>
         </tr>
       ))}
-      <tr>
+      {/* A Cost Head's contribution — bold on the stripe, lighter than the Group's. */}
+      <tr style={{ background: ROW_STRIPE_BG }}>
         <td colSpan={5} className="border border-border px-2 py-0.5 text-[10.5px] font-bold">
           {contributionText(hd.label, hd)}
         </td>
@@ -309,7 +323,10 @@ function SumBox({ label, v }: { label: string; v: Fig }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="font-semibold">{label}</span>
-      <span className="min-w-28 border border-[#16181d] px-2 py-1 text-right font-semibold tabular-nums">
+      <span
+        className="min-w-28 border px-2 py-1 text-right font-semibold tabular-nums"
+        style={{ background: BRAND.tint, color: BRAND.ink, borderColor: BRAND.rule }}
+      >
         {isFigRefusal(v) ? <Muted>{v.refused}</Muted> : label === "Profit %" ? v.toFixed(2) : inr(v)}
       </span>
     </div>
@@ -356,8 +373,10 @@ function Th({
     <th
       rowSpan={rowSpan}
       colSpan={colSpan}
+      /* The head in the tone's tint and ink — the table reads as its bar's own. */
+      style={{ background: BRAND.tint, color: BRAND.ink }}
       className={cn(
-        "border border-border bg-[#f6f7f9] px-2 py-1 font-semibold text-[#5b6472]",
+        "border border-border px-2 py-1 font-semibold",
         right ? "text-right" : center ? "text-center" : "text-left",
       )}
     >
@@ -366,9 +385,23 @@ function Th({
   );
 }
 
-function Td({ children, right, mono, bold }: { children: React.ReactNode; right?: boolean; mono?: boolean; bold?: boolean }) {
+function Td({
+  children,
+  right,
+  mono,
+  bold,
+  ink,
+}: {
+  children: React.ReactNode;
+  right?: boolean;
+  mono?: boolean;
+  bold?: boolean;
+  /** The tone's ink — the one figure a row is read for (Cut Qty). */
+  ink?: boolean;
+}) {
   return (
     <td
+      style={ink ? { color: BRAND.ink } : undefined}
       className={cn(
         "border border-border px-2 py-1",
         right && "text-right tabular-nums",
