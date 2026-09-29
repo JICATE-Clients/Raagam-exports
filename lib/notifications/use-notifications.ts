@@ -19,14 +19,33 @@ export function useNotifications() {
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * A NETWORK DROP IS NOT AN ERROR SCREEN (2026-09-29, screenshot 123220:
+   * "TypeError: Failed to fetch" in the dev overlay). This runs on every tab
+   * refocus, which is exactly the moment a laptop wakes from sleep before its
+   * Wi-Fi is back — and supabase-js THROWS on a fetch that never reached the
+   * server (its session refresh runs first) rather than returning `{ error }`.
+   * Unhandled, that surfaced as a console TypeError on whatever screen was open.
+   *
+   * On any failure the list keeps what it last showed: a failed query is an
+   * error, not an empty list (AGENTS.md), so blanking the bell would tell the
+   * operator they have no notifications. The `online` listener below retries
+   * the moment the connection returns.
+   */
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from("notifications")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(LIMIT);
-    setItems((data ?? []) as Notification[]);
-    setLoading(false);
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    try {
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(LIMIT);
+      if (!error) setItems((data ?? []) as Notification[]);
+    } catch {
+      // Offline / DNS / connection reset — keep the current list.
+    } finally {
+      setLoading(false);
+    }
   }, [supabase]);
 
   useEffect(() => {
@@ -53,10 +72,14 @@ export function useNotifications() {
       if (document.visibilityState === "visible") void load();
     };
     document.addEventListener("visibilitychange", onVisible);
+    // Back online after a drop: fetch what arrived while Realtime was down.
+    const onOnline = () => void load();
+    window.addEventListener("online", onOnline);
 
     return () => {
       void supabase.removeChannel(channel);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
     };
   }, [supabase, userId, load]);
 
@@ -68,11 +91,17 @@ export function useNotifications() {
       setItems((prev) =>
         prev.map((n) => (n.id === id && !n.read_at ? { ...n, read_at: now } : n)),
       );
-      await supabase
-        .from("notifications")
-        .update({ read_at: now })
-        .eq("id", id)
-        .is("read_at", null);
+      // Same network-drop guard as `load`: the tick already shows read, and
+      // the next successful load reconciles it with the server.
+      try {
+        await supabase
+          .from("notifications")
+          .update({ read_at: now })
+          .eq("id", id)
+          .is("read_at", null);
+      } catch {
+        /* offline — reconciled on the next load */
+      }
     },
     [supabase],
   );
@@ -80,10 +109,14 @@ export function useNotifications() {
   const markAllRead = useCallback(async () => {
     const now = new Date().toISOString();
     setItems((prev) => prev.map((n) => (n.read_at ? n : { ...n, read_at: now })));
-    await supabase
-      .from("notifications")
-      .update({ read_at: now })
-      .is("read_at", null);
+    try {
+      await supabase
+        .from("notifications")
+        .update({ read_at: now })
+        .is("read_at", null);
+    } catch {
+      /* offline — reconciled on the next load */
+    }
   }, [supabase]);
 
   return { items, unreadCount, loading, markRead, markAllRead };

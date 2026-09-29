@@ -363,12 +363,11 @@ export function DefectDetailMasterScreen({
       </div>
 
       {/* desktop table — COMPACT (erp-form-compact rule 4, applied to the list):
-          `dense` is the primitive's own tight-row prop (px-2 py-1, text-xs),
-          and `md:w-fit` lets the table hug its seven columns instead of
-          spreading them across a 1440px pane with gaps between. `max-w-full`
-          keeps the table's own horizontal scroll if a long name ever outgrows
-          the pane. */}
-      <div className="hidden md:block md:w-fit md:max-w-full">
+          `dense` is the primitive's own tight-row prop (px-2 py-1, text-xs).
+          FULL WIDTH, COLUMNS SPREAD (client 2026-09-29, every Master Data
+          list): it was `md:w-fit`, hugging its seven columns; the table now
+          fills the pane and shares the spare width among them. */}
+      <div className="hidden md:block">
         <DataTable
           dense
           columns={withCreatedColumns(columns, pg.paged)}
