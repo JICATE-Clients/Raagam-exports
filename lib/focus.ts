@@ -827,11 +827,29 @@ export interface GridEnterProbe {
  * hand-off and Save stay reachable off the last field of a grid that cannot
  * grow. That is the same decline-and-bubble `ownAddControl` returning null
  * already meant.
+ *
+ * ## A TABLE ROW WALKS ALONG ITSELF TOO — `"row"` IS NO LONGER RETURNED
+ * (client 2026-09-29, Customer ▸ Address ▸ Contacts: "department field aduthu
+ * contact name field ku poganum enter key press panna").
+ *
+ * The Excel key sent Enter in a table cell DOWN the column, so on the
+ * Contacts grid Enter in Department landed on the next contact's Department
+ * and Contact Name — the cell beside it — was reachable only by Tab or the
+ * mouse. Enter now means what it means on every form field: the next field.
+ * Along the row, then onto the next row's first cell, then "+ Add" off the
+ * grid's last cell (the 2026-08-19 rule, unchanged). ↓ / ↑ still move down /
+ * up a column — that is what an arrow means in a table, and it is untouched.
+ *
+ * This is the whole-app answer, deliberately: every table grid in the app
+ * reads this one function, so Contacts, Addresses, Markings and the ~40 other
+ * grids all changed together. `stacked` stays on the probe (the cards body
+ * still publishes it) but no longer changes the outcome — the two layouts now
+ * agree, which is the point. `"row"` stays in the type so a future layout
+ * that genuinely wants the Excel key can say so here, in one place.
  */
 export type GridEnter = "row" | "advance" | "add";
 
 export function enterInGrid(p: GridEnterProbe): GridEnter {
-  if (!p.stacked) return "row";
   if (p.fieldAfter) return "advance";
   return p.hasAdd ? "add" : "advance";
 }

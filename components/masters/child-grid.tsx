@@ -815,8 +815,11 @@ function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
 
 /**
  * Excel-like vertical movement inside a child grid (checklist "Better Table
- * Navigation"): Enter / ArrowDown move to the same column one row down; ArrowUp
- * moves up. On Enter in the last row we call `onAdd` and focus the same column
+ * Navigation"): ArrowDown moves to the same column one row down; ArrowUp moves
+ * up. ENTER NO LONGER GOES DOWN A COLUMN (client 2026-09-29): it walks along
+ * the row like any form field, then to the next row, then to "+ Add" — see
+ * `enterInGrid` in lib/focus.ts. The Enter notes below describe the older
+ * last-row behaviour, which `enterInGrid` now answers before it is reached. On Enter in the last row we call `onAdd` and focus the same column
  * in the freshly-added row. Horizontal movement stays on native Tab (and the
  * Sheet's row-major Enter-advance, which this overrides via stopPropagation for
  * the keys it handles). Only fires for text-like inputs, so pickers keep their
@@ -1012,14 +1015,15 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
    */
   if (e.key === "Enter") {
     const stacked = body.getAttribute("data-grid-axis") === "stack";
-    /* Only asked when it can change the answer — `enterInGrid` ignores both
-       flags unless `stacked`, and a `querySelectorAll` over every field of a
-       paginated grid is not work to do on every Enter in a table. */
-    const all = stacked
-      ? Array.from(body.querySelectorAll<HTMLElement>(ROW_FIELDS))
-      : [];
+    /* Asked on every layout since 2026-09-29: a TABLE row now walks along
+       itself on Enter as well (see `enterInGrid`), so "is there a field after
+       this one in the grid" decides tables too. Visible fields only — the
+       table and the card twin can both be mounted, one hidden by CSS. */
+    const all = Array.from(body.querySelectorAll<HTMLElement>(ROW_FIELDS)).filter(
+      (f) => f.offsetParent !== null,
+    );
     const at = all.indexOf(el);
-    const add = stacked ? ownAddControl(body) : null;
+    const add = ownAddControl(body);
     const verdict = enterInGrid({
       stacked,
       fieldAfter: at !== -1 && all.slice(at + 1).some((f) => !isOffTabPath(f)),
