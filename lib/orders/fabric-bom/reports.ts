@@ -29,6 +29,7 @@ import {
   type FabricSource,
 } from "./fabric-source";
 import { stageRank } from "./stage-routes";
+import { naturalSizeOrder } from "@/lib/masters/size-order";
 import { letterheadLogoOf, registeredAddressOf } from "./letterhead";
 import { fabricAllocationOf, type FabricAllocation } from "./fabric-allocation-report";
 import { consolidateContributions, mergeGreigeClothLines, mergeGreigeLines } from "./stage-ledger";
@@ -1360,6 +1361,12 @@ export type StageBreakdownLine = {
    *  the component's OWN colour (Components ▸ Required Color), not the assort
    *  colourway. Unset on every other section, which still bands by `combo`. */
   band?: string | null;
+  /** THE SIZE this line is — DYEING / DYED FABRIC PURCHASE lines only
+   *  (2026-09-29), one line per size of each component set. Null on every
+   *  other section, and on a set whose rows carry no size. */
+  sizeLabel?: string | null;
+  /** Garments of that size (Σ basis_qty) — beside `sizeLabel`, same lines. */
+  pieces?: number | null;
 };
 
 /**
@@ -1753,7 +1760,15 @@ export async function yarnFabricRequirementReport(
       /* `consumption` JOINED 2026-09-19 for the Printing Requirement's Piece
          Wt (client decision 1A) — kg per garment, checked live against every
          row: required_qty = basis_qty x consumption x (1 + wastage%). */
-      .select("item_id, combo, required_qty, entry_id, size_id, style_ref_no, basis_qty, consumption, consumption_uom_id")
+      /* `sno` + the SIZE'S NAME (2026-09-29) — the DYEING section's per-size
+         lines: the order sizes run in, and what to call each. Not
+         `slice_label`: that is "WHITE · M", the colourway the line already
+         shows beside it. Embedded by COLUMN (AGENTS.md, "A second FK breaks
+         every existing embed"). */
+      .select(
+        "item_id, combo, required_qty, entry_id, size_id, style_ref_no, basis_qty, consumption, consumption_uom_id, sno, " +
+          "size:config_lookups!size_id(name)",
+      )
       .eq("bom_id", bomId),
     uomIds.length ? s.from("uoms").select("id, code").in("id", uomIds) : Promise.resolve({ data: [], error: null }),
     /* WHICH PANELS EACH ENTRY COVERS — what a "Component Wise" route (0528)
@@ -1846,6 +1861,8 @@ export async function yarnFabricRequirementReport(
     basis_qty: number | null;
     consumption: number | null;
     consumption_uom_id: string | null;
+    sno: number | null;
+    size: { name: string | null } | { name: string | null }[] | null;
   }[];
   /** The unit the requirement is stored in — the kilogram (0562), read from
    *  the rows rather than assumed. One distinct answer or nothing, the same
@@ -1933,6 +1950,16 @@ export async function yarnFabricRequirementReport(
      and halve the piece weight. So the count keeps the largest `basis_qty` seen
      for a (style, size), while `consWt` (Σ basis x consumption, the cloth BEFORE
      wastage) does sum across panels: body + sleeves is the garment's cloth. */
+  /**
+   * ONE SIZE OF ONE SLICE (user 2026-09-29: the DYEING section is "Assort
+   * Color -> Component -> Size"). The requirement rows are already per size, so
+   * this only keeps apart what `NetSlice` sums: the size's net, its cloth count,
+   * its garments (`pcs` = Σ basis_qty) and `consWt` (Σ basis x consumption, the
+   * cloth before wastage — so grams per garment = consWt / pcs x 1000, the
+   * Manual's own figure). Keyed by size id; a row with none keys "" and prints
+   * as one line, which is what a pre-0435 BOM printed all along.
+   */
+  type SizeSlice = { label: string | null; sno: number; net: number; nos: number; pcs: number; consWt: number; dias: Set<string> };
   type NetSlice = {
     net: number;
     nos: number;
@@ -1946,6 +1973,8 @@ export async function yarnFabricRequirementReport(
      *  says it (2026-09-26) — a LOOSE FABRIC's, which is the yarn colour its
      *  unravelled yarn becomes (the CONVERSION block's colour). */
     colour?: string | null;
+    /** THE SAME FIGURES PER SIZE (2026-09-29) — see `SizeSlice`. */
+    bySize: Map<string, SizeSlice>;
   };
 
   const netByFabricComboPanels = new Map<string, Map<string, Map<string, NetSlice>>>();
@@ -1970,6 +1999,7 @@ export async function yarnFabricRequirementReport(
       dias: new Set<string>(),
       panels,
       part,
+      bySize: new Map<string, SizeSlice>(),
     };
     held.net += r.required_qty ?? 0;
     /* Within ONE entry a (style, size) appears once, so this adds; across
@@ -1983,6 +2013,27 @@ export async function yarnFabricRequirementReport(
     if (size) {
       held.nos += (r.basis_qty ?? 0) * size.consQty;
       if (size.dia != null) held.dias.add(size.dia);
+    }
+    {
+      const sk = r.size_id ?? "";
+      const bs = held.bySize.get(sk) ?? {
+        label: (Array.isArray(r.size) ? r.size[0]?.name : r.size?.name)?.trim() || null,
+        sno: r.sno ?? Number.MAX_SAFE_INTEGER,
+        net: 0,
+        nos: 0,
+        pcs: 0,
+        consWt: 0,
+        dias: new Set<string>(),
+      };
+      bs.sno = Math.min(bs.sno, r.sno ?? Number.MAX_SAFE_INTEGER);
+      bs.net += r.required_qty ?? 0;
+      bs.pcs += r.basis_qty ?? 0;
+      bs.consWt += (r.basis_qty ?? 0) * (r.consumption ?? 0);
+      if (size) {
+        bs.nos += (r.basis_qty ?? 0) * size.consQty;
+        if (size.dia != null) bs.dias.add(size.dia);
+      }
+      held.bySize.set(sk, bs);
     }
     byPanels.set(panelKey, held);
     byCombo.set(key, byPanels);
@@ -2296,6 +2347,8 @@ export async function yarnFabricRequirementReport(
           panels: [],
           part: "",
           colour,
+          // Unravelled, never cut — no sizes; its DYEING line stays one per colour.
+          bySize: new Map<string, SizeSlice>(),
         };
         held.net += part.toLoose;
         byPanels.set(slot, held);
@@ -2497,7 +2550,15 @@ export async function yarnFabricRequirementReport(
     return `(${parts.join(" , ")} )`;
   }
 
-  const componentNames = await routeComponentNames(s, routeRows.map((p) => p.component_id));
+  /* THE ENTRIES' PANELS AS WELL AS THE ROUTE'S (2026-09-29). The DYEING /
+     DYED FABRIC PURCHASE lines (2026-09-26) name each Manual panel set, but
+     this map was built from the route's components alone — so on any BOM
+     without a Component Wise route every one of those lines printed
+     "(component not found)". One query either way. */
+  const componentNames = await routeComponentNames(s, [
+    ...routeRows.map((p) => p.component_id),
+    ...[...entryFacts.values()].flatMap((e) => e.panels),
+  ]);
   if (isReportRefusal(componentNames)) return componentNames;
   const stageLedgerRefusals: string[] = [...conversionRefusals];
 
@@ -2600,10 +2661,11 @@ export async function yarnFabricRequirementReport(
             consWt: number;
             dias: Set<string>;
             colour?: string | null;
+            bySize: Map<string, SizeSlice>;
           }[];
         }
       >();
-      for (const { net, nos, garments, consWt, dias, panels, part, colour } of byPanels.values()) {
+      for (const { net, nos, garments, consWt, dias, panels, part, colour, bySize } of byPanels.values()) {
         const forColour = route.filter((st) => stageCoversCombo(st.combo, combo));
         const branch = resolveRouteComponents(forColour, panels);
         if (isReportRefusal(branch)) {
@@ -2628,7 +2690,7 @@ export async function yarnFabricRequirementReport(
           part,
           sets: [],
         };
-        held.sets.push({ panels: [...panels], net, nos, garments, consWt, dias, colour });
+        held.sets.push({ panels: [...panels], net, nos, garments, consWt, dias, colour, bySize });
         held.net += net;
         held.nos += nos;
         mergeGarmentCounts(held.garments, garments);
@@ -2729,30 +2791,50 @@ export async function yarnFabricRequirementReport(
                 ...new Set(set.panels.flatMap((id) => [...(componentColour.get(`${fabricId}::${combo}::${id}`) ?? [])])),
               ];
               const setColour = colours.length ? colours.join(" / ") : (set.colour ?? fabricColour);
-              group.lines.push({
-                itemId: fabricId,
-                fabricName,
-                combo: combo || null,
-                component:
-                  set.panels.map((id) => componentNames.get(id) ?? "(component not found)").join(" + ") || component,
-                lossPct: step.loss_pct,
-                plannedWt: Number((set.net * step.factorBefore).toFixed(6)),
-                toOrderedWt: Number((set.net * step.factorAfter).toFixed(6)),
-                dia: set.dias.size === 1 ? [...set.dias][0] : null,
-                fabricColour: setColour,
-                band: setColour,
-                ydComboName: ydCombo?.ydComboName ?? null,
-                mixingText,
-                formLabel,
-                gsm,
-                plannedNos: nosUomCode ? Number((set.nos * step.factorBefore).toFixed(3)) : null,
-                toOrderedNos: nosUomCode ? Number((set.nos * step.factorAfter).toFixed(3)) : null,
-                nosUomCode,
-                printName: null,
-                cutPieces: null,
-                pieceWt: null,
-                pieceWtG: setPcs > 0 ? Number(((set.consWt / setPcs) * 1000).toFixed(2)) : null,
-              });
+              const componentName =
+                set.panels.map((id) => componentNames.get(id) ?? "(component not found)").join(" + ") || component;
+              /* ONE LINE PER SIZE (user 2026-09-29: "Assort Color -> Component
+                 -> Size"). The sizes partition the set exactly as the sets
+                 partition the branch, on the SAME ladder factors, so the
+                 section and its colour subtotals still sum to the branch's
+                 weight. A set with no sized rows ("" alone) is the one line it
+                 always was. Sizes run XS -> S -> M -> L (`naturalSizeOrder`,
+                 the app's one size order) — the requirement's own row order is
+                 not size order (live 2026-09-29: M, S, 1X, L, XS …). */
+              const sizes = [...set.bySize.values()].sort(
+                (x, y) => (x.label && y.label ? naturalSizeOrder(x.label, y.label) : 0) || x.sno - y.sno,
+              );
+              const sized = sizes.length > 1 || (sizes.length === 1 && !!sizes[0].label);
+              const parts = sized
+                ? sizes.map((z) => ({ label: z.label, net: z.net, nos: z.nos, pcs: z.pcs, consWt: z.consWt, dias: z.dias }))
+                : [{ label: null, net: set.net, nos: set.nos, pcs: setPcs, consWt: set.consWt, dias: set.dias }];
+              for (const z of parts) {
+                group.lines.push({
+                  itemId: fabricId,
+                  fabricName,
+                  combo: combo || null,
+                  component: componentName,
+                  lossPct: step.loss_pct,
+                  plannedWt: Number((z.net * step.factorBefore).toFixed(6)),
+                  toOrderedWt: Number((z.net * step.factorAfter).toFixed(6)),
+                  dia: z.dias.size === 1 ? [...z.dias][0] : null,
+                  sizeLabel: z.label,
+                  pieces: sized && z.pcs > 0 ? z.pcs : null,
+                  fabricColour: setColour,
+                  band: setColour,
+                  ydComboName: ydCombo?.ydComboName ?? null,
+                  mixingText,
+                  formLabel,
+                  gsm,
+                  plannedNos: nosUomCode ? Number((z.nos * step.factorBefore).toFixed(3)) : null,
+                  toOrderedNos: nosUomCode ? Number((z.nos * step.factorAfter).toFixed(3)) : null,
+                  nosUomCode,
+                  printName: null,
+                  cutPieces: null,
+                  pieceWt: null,
+                  pieceWtG: z.pcs > 0 ? Number(((z.consWt / z.pcs) * 1000).toFixed(2)) : null,
+                });
+              }
             }
             group.plannedTotal += Number((net * step.factorBefore).toFixed(6));
             group.toOrderedTotal += Number((net * step.factorAfter).toFixed(6));

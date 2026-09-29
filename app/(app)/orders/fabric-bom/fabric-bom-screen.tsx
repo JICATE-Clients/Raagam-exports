@@ -87,6 +87,7 @@ import { Truncated } from "@/components/ui/truncated";
 import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
 import { loadPatternForFabricBom } from "@/lib/orders/cad-lifecycle/actions";
+import { PATTERN_STATUSES } from "@/lib/orders/cad-lifecycle/types";
 import { planPatternFill, type PatternFillEntry, type PatternFillLine } from "@/lib/orders/fabric-bom/pattern-fill";
 import { cn } from "@/lib/utils";
 import { today as calendarToday } from "@/lib/calendar";
@@ -4914,6 +4915,7 @@ export function FabricBomScreen({
   const [patternState, setPatternState] = useState<{
     forOrder: string;
     lines: PatternFillLine[];
+    styles: { style_ref_no: string; pattern_status: string }[];
   } | null>(null);
   useEffect(() => {
     const id = form.garment_order_id;
@@ -4921,7 +4923,7 @@ export function FabricBomScreen({
     let cancelled = false;
     loadPatternForFabricBom(id).then((res) => {
       if (cancelled || !res.ok) return;
-      setPatternState({ forOrder: id, lines: res.lines });
+      setPatternState({ forOrder: id, lines: res.lines, styles: res.styles });
     });
     return () => {
       cancelled = true;
@@ -5015,6 +5017,19 @@ export function FabricBomScreen({
     (patternLines ?? []).some(
       (l) => patternSameStyle(styleRef, l.style_ref_no) || patternSameStyle(l.style_ref_no, styleRef),
     );
+
+  /**
+   * The Pattern Sheet's status for this style, SAID beside Re-sync and never
+   * used to refuse it (user 2026-09-29, option 1). A sheet still being worked
+   * on fills Manual all the same; the gate that waited for Ready was dropped
+   * on 09-26 (0646), so this is the warning without the block.
+   */
+  const patternStatusOf = (styleRef: string) => {
+    const s = (patternState && patternState.forOrder === form.garment_order_id ? patternState.styles : []).find(
+      (x) => patternSameStyle(styleRef, x.style_ref_no) || patternSameStyle(x.style_ref_no, styleRef),
+    );
+    return s ? PATTERN_STATUSES.find((p) => p.value === s.pattern_status) : undefined;
+  };
 
   /** "Re-sync from Pattern Sheet" — one style, the sheet's latest figures over its entries. */
   function resyncFromPattern(styleRef: string) {
@@ -5814,7 +5829,18 @@ export function FabricBomScreen({
             fabrics' Type of Parts, Colour, Roll form, Size Wise, Dia and grams
             with the sheet's latest; nothing else on the entry is touched. */}
         {patternHasStyle(styleRow.style_ref_no) && (
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {(() => {
+              const st = patternStatusOf(styleRow.style_ref_no);
+              if (!st) return null;
+              return st.value === "ready" ? (
+                <span className="text-xs text-muted-foreground">Pattern: Ready</span>
+              ) : (
+                <span className="text-xs text-amber-700 dark:text-amber-400">
+                  Pattern: {st.label} — not Ready yet
+                </span>
+              );
+            })()}
             {/* toolbar-size: exempt -- a pane action inside the Manual tab, not a list header row. */}
             <Button type="button" variant="outline" size="sm" onClick={() => resyncFromPattern(styleRow.style_ref_no)}>
               Re-sync from Pattern Sheet
