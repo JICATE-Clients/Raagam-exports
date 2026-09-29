@@ -56,6 +56,7 @@ import {
   exportEntryRegisterPdf,
   exportPrintRequirementPdf,
   exportYarnRequirementPdf,
+  sizeRunContinues,
   type PdfOutput,
 } from "@/lib/orders/fabric-bom/reports-export";
 
@@ -1094,6 +1095,14 @@ function DetailsCell({ line }: { line: StageBreakdownLine }) {
   );
 }
 
+/** The ledger's `Dia/Size` cell — the dia, and on a per-size DYEING line the
+ *  size after it ("30 / M"); a dash when neither is known. Shared wording with
+ *  the PDF (`diaSizeCell` in reports-export.ts). */
+function diaSizeText(l: StageBreakdownLine): string {
+  const dia = l.dia != null && String(l.dia).trim() ? String(l.dia) : null;
+  return [dia, l.sizeLabel].filter(Boolean).join(" / ") || "—";
+}
+
 function StageBadge({ state }: { state: string }) {
   return (
     <span
@@ -1202,7 +1211,9 @@ function RequirementReportView({
                 </Td>
                 <Td>{l.colour ?? "—"}</Td>
                 <Td right mono>{fmtNumber(l.plannedWt)}</Td>
-                <Td right mono>{l.lossPct != null ? fmtNumber(l.lossPct) : "—"}</Td>
+                {/* Same shape as the YARN DYEING rows below ("5.00%"), which
+                    share this Loss % column — one column, one format. */}
+                <Td right mono>{l.lossPct != null ? `${l.lossPct.toFixed(2)}%` : "—"}</Td>
                 <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
               </tr>
             ))}
@@ -1363,6 +1374,9 @@ function RequirementReportView({
                     <Th rowSpan={2}>Details</Th>
                     <Th rowSpan={2}>Component</Th>
                     <Th rowSpan={2} right>Dia/Size</Th>
+                    {/* DYEING / DYED FABRIC PURCHASE list each component PER SIZE
+                        (2026-09-29) — the garments of that size beside it. */}
+                    {g.perComponent && <Th rowSpan={2} right>Pcs</Th>}
                     <Th colSpan={2} center>Planned</Th>
                     {/* DYEING / DYED FABRIC PURCHASE only (client spec
                         2026-09-26) — each component's grams per garment. */}
@@ -1389,15 +1403,28 @@ function RequirementReportView({
                     return (
                       <Fragment key={i}>
                         <tr style={{ background: runOf[i] % 2 === 1 ? COLOURWAY_BAND : "#ffffff" }}>
-                          <Td>
-                            <Swatch name={l.fabricColour} />
-                            {l.fabricColour ?? "—"}
-                          </Td>
-                          <Td>
-                            <DetailsCell line={l} />
-                          </Td>
-                          <Td>{l.component ?? "—"}</Td>
-                          <Td mono>{l.dia != null && String(l.dia).trim() ? String(l.dia) : "—"}</Td>
+                          {/* A SIZE RUN NAMES ITS CLOTH ONCE (2026-09-29) — the PDF's
+                              `sizeRunContinues`; the size rows under it stay blank. */}
+                          {sizeRunContinues(g.lines, i) ? (
+                            <>
+                              <Td>{""}</Td>
+                              <Td>{""}</Td>
+                              <Td>{""}</Td>
+                            </>
+                          ) : (
+                            <>
+                              <Td>
+                                <Swatch name={l.fabricColour} />
+                                {l.fabricColour ?? "—"}
+                              </Td>
+                              <Td>
+                                <DetailsCell line={l} />
+                              </Td>
+                              <Td>{l.component ?? "—"}</Td>
+                            </>
+                          )}
+                          <Td mono>{diaSizeText(l)}</Td>
+                          {g.perComponent && <Td right mono>{l.pieces != null ? fmtNumber(l.pieces) : "—"}</Td>}
                           <Td right mono>{l.plannedNos != null ? fmtNumber(l.plannedNos) : "—"}</Td>
                           <Td right mono>{fmtNumber(l.plannedWt)}</Td>
                           {g.perComponent && (
@@ -1409,7 +1436,7 @@ function RequirementReportView({
                         </tr>
                         {subtotal && (
                           <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
-                            <Td colSpan={5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
+                            <Td colSpan={g.perComponent ? 6 : 5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
                             <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
                             <Td colSpan={g.perComponent ? 3 : 2}>{""}</Td>
                             <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
@@ -1419,7 +1446,7 @@ function RequirementReportView({
                     );
                   })}
                   <tr className="font-semibold" style={{ background: tone.tint, color: tone.ink }}>
-                    <Td colSpan={5}>Grand Total</Td>
+                    <Td colSpan={g.perComponent ? 6 : 5}>Grand Total</Td>
                     <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
                     {g.perComponent && <Td>{""}</Td>}
                     {/* 0606 — "Avg" only when a colour-wise step put different

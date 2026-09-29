@@ -1124,21 +1124,36 @@ export function ComponentMapBody({
          short (screenshot 2935, "WHITE NAVY S…") — the box also carries a
          clear ✕ beside the value, so 18 capitals need ~215px. */
       width: "13.5rem",
-      cell: (l) => (
-        <Select
-          compact
-          className="h-8"
-          value={l.combo}
-          onChange={(e) => onPatchLine(l.key, { combo: e.target.value })}
-        >
-          <option value="" />
-          {comboOptions.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
-      ),
+      /* ONE LINE PER COLOURWAY WITHIN A PANEL (client 2026-09-29, "a colour
+         already configured should not appear again"). A panel's lines are keyed
+         (style, colourway, structure, panel), so a second FRONT BODY · WHITE is
+         the same line twice and its requirement is counted twice. The list
+         leaves out what the panel's OTHER lines already name; the row's own
+         value always stays, and deleting or re-picking a line puts its colour
+         straight back. ACROSS panels a colourway repeats by design (FRONT BODY
+         WHITE, SLEEVE WHITE), so only siblings of the same panel are read. */
+      cell: (l) => {
+        const k = (s: string) => s.trim().toUpperCase();
+        const siblings = gridPanels.find((g) => g.lines.some((x) => x.key === l.key))?.lines ?? [];
+        const taken = new Set(siblings.filter((x) => x.key !== l.key && x.combo).map((x) => k(x.combo)));
+        return (
+          <Select
+            compact
+            className="h-8"
+            value={l.combo}
+            onChange={(e) => onPatchLine(l.key, { combo: e.target.value })}
+          >
+            <option value="" />
+            {comboOptions
+              .filter((c) => !taken.has(k(c)) || k(c) === k(l.combo))
+              .map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+          </Select>
+        );
+      },
     },
     {
       header: "Fabric Type",

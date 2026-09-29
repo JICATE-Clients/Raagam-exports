@@ -91,17 +91,79 @@ function drawStageTag(doc: jsPDF, x: number, baselineY: number, st: StageStyle):
 }
 
 /**
- * A SECTION HEADING — the stage tag, the title beside it, and the stage's rule
- * across the width where the table starts. Returns the table's startY.
+ * A SECTION HEADING — THE SCREEN'S BAR (user 2026-09-29: "while downloading
+ * also need to download like same format, now the downloading format looks
+ * too normal"). A band in the stage's tint with the stage's rule across its
+ * top, the tag and the title in the stage's ink, and — where the screen shows
+ * one — the section's To Ordered total at the right. It was a white line with
+ * a rule under it, which is what read as plain beside the screen.
+ *
+ * `y` is the title's baseline, as before; the band sits around it and the
+ * table starts flush under the band. Returns the table's startY.
  */
-function drawSectionHeading(doc: jsPDF, x: number, y: number, width: number, st: StageStyle, title: string): number {
-  const tagW = drawStageTag(doc, x, y, st);
+function drawSectionHeading(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  width: number,
+  st: StageStyle,
+  title: string,
+  right?: string,
+): number {
+  const top = y - 10;
+  const bottom = y + 5;
+  doc.setFillColor(...rgb(st.tint));
+  doc.rect(x, top, width, bottom - top, "F");
+  doc.setFillColor(...rgb(st.rule));
+  doc.rect(x, top, width, 2, "F");
+  const tagW = drawStageTag(doc, x + 5, y, st);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
-  doc.text(title, x + tagW + 5, y);
-  doc.setFillColor(...rgb(st.rule));
-  doc.rect(x, y + 4, width, 2, "F");
-  return y + 6;
+  doc.setTextColor(...rgb(st.ink));
+  doc.text(title, x + 5 + tagW + 5, y);
+  if (right) doc.text(right, x + width - 5, y, { align: "right" });
+  doc.setTextColor(0);
+  return bottom;
+}
+
+/** A plain heading over a run of sections — the screen's "Process Stage
+ *  Ledger" band: pale blue, brand-blue capitals. Returns the next baseline. */
+function drawGroupHeading(doc: jsPDF, x: number, y: number, width: number, title: string): number {
+  doc.setFillColor(234, 247, 253);
+  doc.rect(x, y - 9, width, 13, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(3, 123, 184);
+  doc.text(title, x + 5, y);
+  doc.setTextColor(0);
+  return y + 4;
+}
+
+/**
+ * THE STAGE-STATE BADGE — GREY / GREIGE / DYED / RFD in the Yarn table's state
+ * column, the screen's `StageBadge`: the word on a rounded fill of its stage.
+ * An unknown word keeps plain text rather than a guessed colour.
+ */
+const STATE_BADGE: Record<string, { fill: string; ink: string }> = {
+  GREY: { fill: STAGE_STYLES.greige.tint, ink: STAGE_STYLES.greige.ink },
+  GREIGE: { fill: STAGE_STYLES.greige.tint, ink: STAGE_STYLES.greige.ink },
+  DYED: { fill: STAGE_STYLES.dyed.tint, ink: STAGE_STYLES.dyed.ink },
+  RFD: { fill: "#fde8cc", ink: "#8a5a15" },
+};
+function drawStateBadge(doc: jsPDF, cell: { x: number; y: number; height: number }, word: string): void {
+  const look = STATE_BADGE[word];
+  if (!look) return;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6);
+  const w = doc.getTextWidth(word) + 7;
+  const h = 8.5;
+  const bx = cell.x + 3;
+  const by = cell.y + (cell.height - h) / 2;
+  doc.setFillColor(...rgb(look.fill));
+  doc.roundedRect(bx, by, w, h, 1.5, 1.5, "F");
+  doc.setTextColor(...rgb(look.ink));
+  doc.text(word, bx + 3.5, by + 6.1);
+  doc.setTextColor(0);
 }
 
 /** A colourway swatch at the left of a table cell (the cell's own left
@@ -118,6 +180,9 @@ function drawSwatch(doc: jsPDF, cell: { x: number; y: number; height: number }, 
   doc.setLineWidth(0.4);
 }
 const SWATCH_PADDING = { top: 3, right: 3, bottom: 3, left: 12 };
+/** The Yarn table's alternate row — the screen's `even:` stripe, one step
+ *  darker because the screen's `#fafbfc` vanishes on paper (see COLOURWAY_BAND). */
+const YARN_STRIPE = "#f4f6f9";
 
 /** WHERE A CONTINUED TABLE RESUMES on a later page of the portrait
  *  requirement PDF — below the `Page : n/m` stamp at y = 62, which a table
@@ -132,7 +197,11 @@ export const CONTINUED_TOP = 72;
 function roomFor(doc: jsPDF, y: number, need: number): number {
   if (y + need <= doc.internal.pageSize.getHeight() - 60) return y;
   doc.addPage();
-  return CONTINUED_TOP - 14;
+  /* The heading's band starts 10pt above the baseline the caller draws at
+     (`y + 14`), so this puts the band's top at CONTINUED_TOP — clear of the
+     `Page : n/m` stamp, which the plain heading's thinner line used to fit
+     under with 14pt to spare (2026-09-29). */
+  return CONTINUED_TOP - 4;
 }
 
 export function monoStyles() {
@@ -995,16 +1064,28 @@ export async function exportYarnRequirementPdf(
       6: { halign: "right", cellWidth: 76 },
     },
     didParseCell: (d) => {
-      if (d.section === "body" && boldYarnRows.has(d.row.index)) {
+      if (d.section !== "body") return;
+      /* STRIPED ROWS, the screen's odd/even (2026-09-29) — under the totals
+         and tones below, which paint over it. */
+      if (d.row.index % 2 === 1) d.cell.styles.fillColor = rgb(YARN_STRIPE);
+      if (boldYarnRows.has(d.row.index)) {
         d.cell.styles.fontStyle = "bold";
         d.cell.styles.fillColor = rgb(STAGE_STYLES.yarn.tint);
       }
-      if (d.section === "body" && noteRows.has(d.row.index)) d.cell.styles.fontStyle = "italic";
-      const tone = d.section === "body" ? yarnRowTone.get(d.row.index) : undefined;
-      if (tone && d.column.index <= 1) {
+      if (noteRows.has(d.row.index)) d.cell.styles.fontStyle = "italic";
+      const tone = yarnRowTone.get(d.row.index);
+      if (tone && d.column.index === 0) {
         d.cell.styles.fillColor = rgb(tone.tint);
         d.cell.styles.textColor = rgb(tone.ink);
       }
+      /* THE STATE WORD BECOMES A BADGE (drawn in `didDrawCell`) — its text is
+         cleared here so the plain word does not print under the badge. */
+      if (d.column.index === 1 && STATE_BADGE[String(d.cell.raw ?? "")]) d.cell.text = [];
+    },
+    didDrawCell: (d) => {
+      if (d.section !== "body" || d.column.index !== 1) return;
+      const word = String(d.cell.raw ?? "");
+      if (STATE_BADGE[word]) drawStateBadge(doc, d.cell, word);
     },
   });
   y = finalY(doc, y);
@@ -1012,12 +1093,27 @@ export async function exportYarnRequirementPdf(
   // -- one block per process -------------------------------------------------
   /* NO FABRIC PURCHASE SECTIONS (user 2026-09-26) — a bought cloth is the
      Fabric Purchase Requirement block already; the screen leaves them out too. */
-  for (const g of data.stageBreakdown.filter((sec) => !sec.isClothPurchase)) {
+  const ledger = data.stageBreakdown.filter((sec) => !sec.isClothPurchase);
+  /* "PROCESS STAGE LEDGER" over the sections, as the screen heads them. */
+  if (ledger.length) {
+    y = roomFor(doc, y, 110);
+    y = drawGroupHeading(doc, M, y + 18, RIGHT - M, "PROCESS STAGE LEDGER");
+  }
+  for (const g of ledger) {
     /* THE SECTION WEARS ITS STAGE (2026-09-20) — Greige slate, Dyed blue,
-       Wash teal, Print green; a process run in two stages names both. */
+       Wash teal, Print green; a process run in two stages names both. The
+       bar carries the section's To Ordered total, as the screen's does. */
     const style = sectionStyle(g.stages, g.isPrint);
     y = roomFor(doc, y, 90);
-    const startY = drawSectionHeading(doc, M, y + 14, RIGHT - M, style, g.processName.toUpperCase());
+    const startY = drawSectionHeading(
+      doc,
+      M,
+      y + 14,
+      RIGHT - M,
+      style,
+      g.processName.toUpperCase(),
+      fmtNumber(g.toOrderedTotal),
+    );
 
     /* THE `Nos/Mtrs` PAIR IS ON EVERY SECTION, even one whose cloths are all
        bought by weight — legacy's own shape, and the reason is the document
@@ -1041,12 +1137,17 @@ export async function exportYarnRequirementPdf(
     let colourRun = 0;
     g.lines.forEach((l, i) => {
       if (i > 0 && bandOf(g.lines[i - 1]) !== bandOf(l)) colourRun++;
-      rowLook.set(body.length, { band: colourRun % 2 === 1, swatch: swatchFor(l.fabricColour) });
+      /* A SIZE RUN NAMES ITS CLOTH ONCE (2026-09-29) — on a per-size DYEING
+         line the colour, fabric and component print on the run's first size
+         only, as the Yarn table names "YARN PURCHASE" once. */
+      const head = !sizeRunContinues(g.lines, i);
+      rowLook.set(body.length, { band: colourRun % 2 === 1, swatch: head ? swatchFor(l.fabricColour) : null });
       body.push([
-        l.fabricColour ?? "",
-        detailsCell(l),
-        ...(pc ? [l.component ?? ""] : []),
-        l.dia ?? "",
+        head ? (l.fabricColour ?? "") : "",
+        head ? detailsCell(l) : "",
+        ...(pc ? [head ? (l.component ?? "") : ""] : []),
+        diaSizeCell(l),
+        ...(pc ? [l.pieces != null ? fmtNumber(l.pieces) : ""] : []),
         ...([l.plannedNos != null ? fmtNumber(l.plannedNos) : ""]),
         fmtNumber(l.plannedWt),
         ...(pc ? [l.pieceWtG != null ? fmtNumber(l.pieceWtG) : ""] : []),
@@ -1067,6 +1168,7 @@ export async function exportYarnRequirementPdf(
           `${sub.combo || "No colour"} — subtotal`,
           ...(pc ? [""] : []),
           "",
+          ...(pc ? [""] : []),
           ...([""]),
           fmtNumber(sub.plannedTotal),
           ...(pc ? [""] : []),
@@ -1082,6 +1184,7 @@ export async function exportYarnRequirementPdf(
       "Grand Total :",
       ...(pc ? [""] : []),
       "",
+      ...(pc ? [""] : []),
       ...([""]),
       fmtNumber(g.plannedTotal),
       ...(pc ? [""] : []),
@@ -1100,6 +1203,7 @@ export async function exportYarnRequirementPdf(
         { content: "Details", rowSpan: 2 },
         ...(pc ? [{ content: "Component", rowSpan: 2 }] : []),
         { content: "Dia/Size", rowSpan: 2 },
+        ...(pc ? [{ content: "Pcs", rowSpan: 2, styles: { halign: "right" as const } }] : []),
         { content: "Planned", colSpan: 2, styles: { halign: "center" } },
         ...(pc ? [{ content: "Piece Wt (g)", rowSpan: 2, styles: { halign: "right" as const } }] : []),
         { content: "Loss %", rowSpan: 2, styles: { halign: "right" } },
@@ -1121,20 +1225,23 @@ export async function exportYarnRequirementPdf(
       styles: { ...monoStyles(), fontSize: 7 },
       headStyles: { ...monoHead(), fontSize: 6.5, fillColor: rgb(style.tint), textColor: rgb(style.ink) },
       theme: "grid",
-      /* ONE LIST, INDEXED ONCE — the per-component section inserts two
+      /* ONE LIST, INDEXED ONCE — the per-component section inserts three
          columns, so the widths are laid out in order rather than by fixed
          index. Portrait A4 at M 28 is 539pt wide: the per-component section's
-         text columns are 64 + 110 + 64 + 48, Piece Wt 38 and Loss 34 (358),
-         leaving ~45pt for each of the four figures ("1,234.567" at 7pt). */
+         text columns are 58 + 96 + 64 + 48, Pcs 34, Piece Wt 38 and Loss 34
+         (372), leaving ~42pt for each of the four figures ("1,234.567" at 7pt). */
       columnStyles: Object.fromEntries(
         [
-          { cellWidth: pc ? 64 : 72 },
-          { cellWidth: pc ? 110 : 178 },
+          { cellWidth: pc ? 58 : 72 },
+          { cellWidth: pc ? 96 : 178 },
           ...(pc ? [{ cellWidth: 64 }] : []),
           /* LEFT AND WIDER SINCE 0566 — a dia is text now ("23 CM", "25 BOX",
              "36 x 44"), and right-aligning a label ragged-lefts a column of
              mixed-length words. 40pt fitted "64" and clips a unit. */
           { halign: "left" as const, cellWidth: pc ? 48 : 56 },
+          /* Pcs (2026-09-29) — the size's garments; its 34pt came off
+             Color (-6) and Details (-14), so the four figures keep ~42pt. */
+          ...(pc ? [{ halign: "right" as const, cellWidth: 34 }] : []),
           { halign: "right" as const },
           { halign: "right" as const },
           ...(pc ? [{ halign: "right" as const, cellWidth: 38 }] : []),
@@ -1301,6 +1408,29 @@ export function stampTopPageNumbers(doc: jsPDF, firstPageY = 62): void {
  * rather than in the report data, so the screen can set the YD combo name as
  * its own tagged line while the PDF sets it as a second text line.
  */
+/** Is line `i` a further size of the same cloth and component as the line
+ *  before it? Then it prints no colour / details / component of its own. */
+export function sizeRunContinues(lines: readonly StageBreakdownLine[], i: number): boolean {
+  if (i === 0 || !lines[i].sizeLabel) return false;
+  const a = lines[i - 1];
+  const b = lines[i];
+  return (
+    !!a.sizeLabel &&
+    a.itemId === b.itemId &&
+    a.combo === b.combo &&
+    a.band === b.band &&
+    a.component === b.component &&
+    a.ydComboName === b.ydComboName
+  );
+}
+
+/** `Dia/Size` — the dia, and on a per-size DYEING line the size after it
+ *  ("30 / M"). The screen's `diaSizeText`, blank instead of a dash. */
+function diaSizeCell(l: StageBreakdownLine): string {
+  const dia = l.dia != null && String(l.dia).trim() ? String(l.dia) : null;
+  return [dia, l.sizeLabel].filter(Boolean).join(" / ");
+}
+
 function detailsCell(l: StageBreakdownLine): string {
   /* A COMPOSITION THE NAME ALREADY STATES IS NOT REPEATED. This app's own
      fabric masters are NAMED for their blend — "SOLID CHAMBRAY (10'S COMBED
