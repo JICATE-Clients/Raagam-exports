@@ -2367,17 +2367,20 @@ export function MaterialMasterScreen({
                 // The whole name on hover — a composed name outruns the 288px box.
                 title={form.name || undefined}
                 onChange={(e) => set({ name: e.target.value })}
-                // A composed Name is never a tab stop — the operator reaches it
-                // by CLICK when they want to override one, which is the rare
-                // case. Keyed off the class, not off whether a name has been
-                // composed yet: see `nameIsComposed`.
+                // ENTER OFF ITEM CLASS LANDS HERE (client 2026-09-29: "item
+                // class aduthu enter press panna name ku pogam, HSN code ku
+                // poguthu"). A composed Name used to carry `tabIndex={-1}` on
+                // every composed class, so Yarn and Fabric — whose composed
+                // name the operator MAY overwrite — were skipped straight to
+                // HSN Code. That override is gone: a name that can be typed is
+                // on the keyboard path like any other field.
                 //
-                // `readOnly` is narrower on purpose. Attribute-driven
-                // accessories and General cannot be named by hand at all (the
-                // fields ARE the name — client 2026-07-28), while Yarn and
-                // Fabric compose a name that the operator may still overwrite.
-                // Both are out of the Tab order either way.
-                tabIndex={nameIsComposed ? -1 : undefined}
+                // `readOnly` still decides the rest, and needs no tabIndex of
+                // ours: Attribute-driven accessories and General cannot be
+                // named by hand at all (the fields ARE the name — client
+                // 2026-07-28), and `<Input readOnly>` already takes itself off
+                // Tab and Enter (see the note in lib/focus.ts), so on those
+                // classes the cursor still goes on to HSN Code.
                 readOnly={attributeDriven || formKey === "GEN"}
                 className={cn(
                   "text-base md:text-sm",

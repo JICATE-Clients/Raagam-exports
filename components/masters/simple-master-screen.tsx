@@ -491,11 +491,22 @@ export function SimpleMasterScreen<Row>({
    * object is replaced on every keystroke, and re-focusing mid-typing would send
    * the caret back to column one after each character.
    */
+  /*
+   * TWO REFS, NOT ONE (client 2026-09-29: "Add Count kuduthaum default aa name
+   * kitta mouse poidanum" — + Add left the cursor on the button). The desktop
+   * `<tr>` and the phone `MobileEditCard` are BOTH rendered, one hidden by CSS,
+   * and they shared a single ref. The card comes later in the DOM, so on a
+   * desktop the ref ended up pointing at the HIDDEN card, `focusFirstField`
+   * found nothing visible to focus in it, and the cursor never reached Name —
+   * on every master built on this engine, for Add and Edit alike. Each layout
+   * now has its own ref, and whichever one is actually on screen takes focus.
+   */
   const editRowRef = useRef<HTMLElement | null>(null);
+  const editCardRef = useRef<HTMLElement | null>(null);
   const editKey = editing ? editing.id ?? "__new__" : null;
   useEffect(() => {
     if (!editKey) return;
-    focusFirstField(editRowRef.current);
+    if (!focusFirstField(editRowRef.current)) focusFirstField(editCardRef.current);
   }, [editKey]);
 
   /** Write one field of the row being edited. Hoisted because two callers need
@@ -1062,7 +1073,7 @@ export function SimpleMasterScreen<Row>({
       <div className={cn("space-y-2.5 transition-opacity md:hidden", isStale && "opacity-60")}>
         {!sheetEditor && editing?.id === null && (
           <MobileEditCard
-                  cardRef={editRowRef as React.Ref<HTMLDivElement>}
+                  cardRef={editCardRef as React.Ref<HTMLDivElement>}
             fields={d.fields}
             editCell={editCell}
             statusCell={hasStatus ? statusEditCell() : null}
@@ -1079,7 +1090,7 @@ export function SimpleMasterScreen<Row>({
             if (!sheetEditor && editing?.id === getId(r)) {
               return (
                 <MobileEditCard
-                  cardRef={editRowRef as React.Ref<HTMLDivElement>}
+                  cardRef={editCardRef as React.Ref<HTMLDivElement>}
                   key={getId(r)}
                   fields={d.fields}
                   editCell={editCell}

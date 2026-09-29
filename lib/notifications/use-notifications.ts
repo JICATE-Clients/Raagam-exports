@@ -68,8 +68,26 @@ export function useNotifications() {
       )
       .subscribe();
 
+    /*
+     * WAIT A MOMENT BEFORE THE REFOCUS REFETCH (2026-09-29, screenshot 140943).
+     * Coming back to the tab after a while, the one-hour access token has
+     * usually expired, so this query first makes supabase-js refresh it — and
+     * on a laptop just woken from sleep the network is not back yet. That
+     * refresh fails inside @supabase/auth-js, whose `_handleRequest` calls
+     * `console.error(e)` ITSELF before rethrowing (lib/fetch.js), so the dev
+     * overlay shows "Console TypeError: Failed to fetch" pointing at `load`
+     * even though `load` catches it. No try/catch of ours can reach a log the
+     * library writes. What we can do is not ask during the first seconds after
+     * waking: `navigator.onLine` is often already true then, while the
+     * connection is not. Only the refocus is delayed; the first load is not.
+     */
+    let refocusTimer: ReturnType<typeof setTimeout> | undefined;
     const onVisible = () => {
-      if (document.visibilityState === "visible") void load();
+      clearTimeout(refocusTimer);
+      if (document.visibilityState !== "visible") return;
+      refocusTimer = setTimeout(() => {
+        if (document.visibilityState === "visible") void load();
+      }, 3000);
     };
     document.addEventListener("visibilitychange", onVisible);
     // Back online after a drop: fetch what arrived while Realtime was down.
@@ -77,6 +95,7 @@ export function useNotifications() {
     window.addEventListener("online", onOnline);
 
     return () => {
+      clearTimeout(refocusTimer);
       void supabase.removeChannel(channel);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
