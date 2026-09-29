@@ -206,6 +206,33 @@ export function YarnProcessGrid({
   const isConversion = (r: YarnStageRow) =>
     !!r.process_id && !!processes.find((p) => p.id === r.process_id)?.is_unravelling;
 
+  /**
+   * THE COLOURS ANOTHER STEP OF THIS YARN ALREADY TAKES (user 2026-09-29: "once
+   * the conversion colour is chosen, it doesn't allow it in another process").
+   * A yarn's colours are shared out between its processes — YELLOW converted,
+   * WHITE bought dyed, RED / GREEN dyed — so a colour one step names is not
+   * offered on another: a CONVERSION step's Details rows, a Color-Wise step's
+   * list. A row's own colours always stay on it ("Disabled rows").
+   *
+   * THE ENGINE READS THE SAME PARTITION (`claimedColoursOf`, `isConvertedPart`
+   * in loose-conversion.ts): a converted colour leaves the yarn's purchase, a
+   * claimed one is never unravelled. So a colour this list lets two steps hold
+   * would be counted by one of them only — which is why it cannot.
+   */
+  const colourKey = (c: string) => c.trim().toUpperCase();
+  const takenByOthers = (r: YarnStageRow): Set<string> => {
+    const out = new Set<string>();
+    for (const x of rows) {
+      if (x.key === r.key) continue;
+      if (isConversion(x)) {
+        for (const d of x.conversion_details ?? []) if (d.combo.trim()) out.add(colourKey(d.combo));
+      } else if (x.color_wise_loss) {
+        for (const k of Object.keys(x.color_losses ?? {})) if (k.trim()) out.add(colourKey(k));
+      }
+    }
+    return out;
+  };
+
   /*
    * NO `usedIds` ON THE PROCESS PICKER, for `FabricProcessGrid`'s reason: a
    * route is ORDERED, not a set. A yarn legitimately runs the same process twice
@@ -562,14 +589,20 @@ export function YarnProcessGrid({
                the Conversion Details. A yarn with no stripes lists its
                colourways, as before. `yarnPurchase` applies each colour's
                loss to that colour's share (`stripeWiseOwnSteps`). */
-            colours={lossColours}
+            colours={lossColours.filter((c) => !takenByOthers(r).has(colourKey(c)))}
             pickRows
             baseLoss={r.loss_pct}
             wise
             losses={r.color_losses ?? {}}
             stageLabel={(r.process_id ? processes.find((p) => p.id === r.process_id)?.name : null) || "this step"}
             readOnly={readOnly}
-            unavailable={lossColours.length === 0 ? "No colourway uses this yarn yet." : null}
+            unavailable={
+              lossColours.length === 0
+                ? "No colourway uses this yarn yet."
+                : lossColours.every((c) => takenByOthers(r).has(colourKey(c))) && Object.keys(r.color_losses ?? {}).length === 0
+                  ? "Every colour of this yarn is already taken by another process."
+                  : null
+            }
             onChange={(next) => patch(r.key, next)}
           />
         ) : (
@@ -657,7 +690,10 @@ export function YarnProcessGrid({
     }
     const live =
       stripeColours.length > 0 ? expanded.filter((d) => !d.combo.trim() || isStripe(d.combo) || typed(d)) : expanded;
-    const drafts = live.length > 0 ? live : detailColours.map(blankDetail);
+    /* SEEDED WITH THE FREE COLOURS ONLY (2026-09-29) — a colour another step
+       takes is that step's, and a row naming it here would convert it too. */
+    const taken = takenByOthers(r);
+    const drafts = live.length > 0 ? live : detailColours.filter((c) => !taken.has(colourKey(c))).map(blankDetail);
     return drafts.map((d, i) => ({ key: `d:${i}`, draft: inherit(d) }));
   };
   /**
@@ -688,8 +724,11 @@ export function YarnProcessGrid({
         const taken = detailRowsOf(r)
           .filter((_, k) => k !== i)
           .map((x) => x.draft.combo);
+        /* …and less those ANOTHER STEP of this yarn takes (2026-09-29). */
+        const elsewhere = takenByOthers(r);
         const options = [...new Set([...detailColours, ...(g.draft.combo ? [g.draft.combo] : [])])].filter(
-          (c) => sameCombo(c, g.draft.combo) || !taken.some((t) => sameCombo(t, c)),
+          (c) =>
+            sameCombo(c, g.draft.combo) || (!taken.some((t) => sameCombo(t, c)) && !elsewhere.has(colourKey(c))),
         );
         /* The stripe's label — "Color 1 — GREEN / WHITE (62.5%)"; a held value
            no longer listed shows as itself. */

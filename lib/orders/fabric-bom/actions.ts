@@ -15,6 +15,7 @@ import { yarnShadesOfRows } from "./yarn-dyed";
 import { colorLossesForStorage } from "./color-loss";
 import { yarnStageProblems } from "./yarn-stage-routes";
 import {
+  claimedColoursOf,
   conversionDetailsOf,
   conversionStepLossesOf,
   conversionLinksOf,
@@ -1161,6 +1162,8 @@ function normalizeYarns(
     details,
     // The yarn CONVERSION step's own loss (2026-09-26).
     stepLosses: conversionStepLossesOf(data.yarns, isUnravelling),
+    // Colours the yarn's other steps take (2026-09-29) — never converted.
+    claimed: claimedColoursOf(data.yarns, isUnravelling),
     isUnravelling,
     fabrics,
     compositions,

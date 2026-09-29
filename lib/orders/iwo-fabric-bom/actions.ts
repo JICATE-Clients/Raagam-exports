@@ -43,6 +43,7 @@ import {
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import {
+  claimedColoursOf,
   conversionDetailsOf,
   conversionStepLossesOf,
   conversionLinksOf,
@@ -656,6 +657,8 @@ async function writeYarns(
       links,
       details,
       stepLosses: conversionStepLossesOf(p.yarns, isUnravelling),
+      // Colours the yarn's other steps take (2026-09-29).
+      claimed: claimedColoursOf(p.yarns, isUnravelling),
       isUnravelling,
       fabrics: gross,
       compositions: compById,

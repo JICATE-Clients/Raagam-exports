@@ -13,6 +13,7 @@
  */
 
 import {
+  claimedColoursOf,
   conversionLinksOf,
   conversionStepLossesOf,
   conversionStepProblems,
@@ -255,7 +256,7 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
     gsm: null,
     dia: null,
   });
-  // NAVY: its own fabric B and 10% loss; RED: no row → the step's fabric, no loss.
+  // NAVY: its own fabric B and 10% loss; RED: no row → NOT converted (2026-09-29).
   const p8 = planConversions({
     links: new Map([[Y, LOOSE]]),
     details: new Map([[Y, [detail("navy", 10, LOOSE2)]]]),
@@ -273,8 +274,8 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
      to exactly 102.041 / 0.9 of dyed loose fabric. */
   check("8b its Loss % REPLACES the route's 2%: handed-on demand = 102.041 / 0.9 × 0.98", near(byCombo.get("NAVY")?.gross ?? 0, (102.041 / 0.9) * 0.98), true);
   check(
-    "8b2 loose to knit for NAVY + RED = (102.041/0.9 + 51.021/0.98) / 0.95 — one unravelling loss each",
-    conv8 && !isRefusal(conv8) ? near(conv8.looseKnitQty ?? 0, (102.041 / 0.9 + 51.021 / 0.98) / 0.95) : conv8,
+    "8b2 loose to knit for NAVY alone = (102.041/0.9) / 0.95 — RED has no row, so it is not converted",
+    conv8 && !isRefusal(conv8) ? near(conv8.looseKnitQty ?? 0, 102.041 / 0.9 / 0.95) : conv8,
     true,
   );
   check(
@@ -285,7 +286,9 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
     ),
     true,
   );
-  check("8c a colour with no row keeps the step's fabric and no extra loss", [byCombo.get("RED")?.fabric_id, near(byCombo.get("RED")?.gross ?? 0, 51.021)], [LOOSE, true]);
+  /* ONLY THE COLOURS IT NAMES (user 2026-09-29): a colourway with no row is
+     the yarn's own — bought or dyed by its other steps — never unravelled. */
+  check("8c a colourway with no row is not converted", byCombo.has("RED"), false);
   check("8d no details → exactly the 0633 answer", planConversions({ links, details: new Map(), fabrics, compositions, routesByFabric: routes, decimals: 3 }).looseDemand.map((d) => [d.fabric_id, d.gross]), [[LOOSE, 102.041]]);
   const onlyDetails = planConversions({
     links: new Map([[Y, null]]),
@@ -358,8 +361,8 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
   });
   const byFabric = (fid: string) => p9.looseDemand.filter((d) => d.fabric_id === fid).reduce((x, d) => x + (d.gross ?? 0), 0);
   check("9a Color 1 (60 %) goes to its own loose fabric", near(byFabric(LOOSE_G), 102.041 * 0.6), true);
-  check("9b Color 2 (no row) keeps the step's loose fabric", near(byFabric(LOOSE), 102.041 * 0.4), true);
-  check("9c the split never changes the converted total", near(byFabric(LOOSE_G) + byFabric(LOOSE), 102.041), true);
+  check("9b Color 2 (no row) is not converted — it stays the yarn's (2026-09-29)", byFabric(LOOSE), 0);
+  check("9c the converted total is Color 1's share alone", near(byFabric(LOOSE_G) + byFabric(LOOSE), 102.041 * 0.6), true);
   const legacy = planConversions({
     links: new Map([[Y, LOOSE]]),
     details: new Map([[Y, [row("NAVY", LOOSE_G)]]]),
@@ -419,7 +422,7 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
   });
   const onFabric = (fid: string) => p10.looseDemand.filter((d) => d.fabric_id === fid).map((d) => d.combo);
   check("10a WHITE (NAVY colourway's Color 1) goes to its own loose fabric", onFabric(LOOSE_W), ["NAVY"]);
-  check("10b RED (the other colourway's Color 1) is not dragged along with it", onFabric(LOOSE), ["RED"]);
+  check("10b RED (no row of its own) is not converted with it", onFabric(LOOSE), []);
   const byPosition = planConversions({
     links: new Map([[Y, LOOSE]]),
     details: new Map([[Y, [row("Color 1", LOOSE_W)]]]),
@@ -434,6 +437,81 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
     "10c a row saved by stripe position still covers every colour at it",
     byPosition.looseDemand.filter((d) => d.fabric_id === LOOSE_W).map((d) => d.combo).sort(),
     ["NAVY", "RED"],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 12. A YARN'S COLOURS SHARED BETWEEN ITS PROCESSES (user 2026-09-29, live
+//     HO/RE/26-27/0003): YELLOW converted from the loose fabric, WHITE bought
+//     dyed, RED dyed (3 %) and GREEN dyed (5 %). The collar is knitted from its
+//     own count X (a quarter per stripe), so X's purchase is the collar alone.
+// ---------------------------------------------------------------------------
+{
+  const X = "yarn-collar-x";
+  const comps12 = new Map(compositions).set(COLLAR, comp(COLLAR, "FLAT KNIT COLLAR", X, true));
+  const stripe = (position: string, colour: string, loss: number) => ({
+    fabric_id: COLLAR,
+    yarn_id: X,
+    combo: "NAVY",
+    share: 0.25,
+    loss_pct: loss,
+    position,
+    colour,
+  });
+  const shades = [
+    stripe("Color 1", "YELLOW", 0),
+    stripe("Color 2", "WHITE", 0),
+    stripe("Color 3", "RED", 3),
+    stripe("Color 4", "GREEN", 5),
+  ];
+  const row = (combo: string) => ({ combo, loss_pct: null, source_loose_fabric_id: LOOSE, gsm: null, dia: null });
+  const base12 = { links: new Map([[X, LOOSE]]), fabrics, compositions: comps12, routesByFabric: routes, decimals: 3, isUnravelling, shades };
+  const loose = (pl: ReturnType<typeof planConversions>) => pl.looseDemand.reduce((x, d) => x + (d.gross ?? 0), 0);
+  const colours = (pl: ReturnType<typeof planConversions>) => {
+    const c = pl.converted.get(X);
+    return c && !isRefusal(c) ? c.parts.map((p) => p.colour) : c;
+  };
+
+  const p12 = planConversions({ ...base12, details: new Map([[X, [row("YELLOW")]]]) });
+  check("12a only YELLOW is converted", colours(p12), ["YELLOW"]);
+  check("12b the loose fabric is bought for YELLOW's quarter alone = 102.041 / 4", near(loose(p12), 102.041 / 4), true);
+  const c12 = p12.converted.get(X);
+  check("12c the unravelling delivers YELLOW's share, rounded up once", c12 && !isRefusal(c12) ? c12.qty : c12, 25.511);
+
+  /* X STILL BUYS THE OTHER THREE: the collar's 3/4, through the collar route
+     (÷0.98), each stripe on its own dye loss — WHITE 0, RED 3, GREEN 5. */
+  const x12 = yarnPurchaseWithConversion(X, p12, { ...base, compositions: comps12, shades });
+  const expectX = Math.ceil(((75 / 0.98) * (1 / 3 + 1 / 3 / 0.97 + 1 / 3 / 0.95)) * 1000) / 1000;
+  check("12d the yarn buys WHITE + RED + GREEN, each on its own dye loss", qtyOf(x12), expectX);
+
+  /* NO DETAILS ROWS: every colour converts except the ones other steps claim. */
+  const claimed = planConversions({ ...base12, claimed: new Map([[X, new Set(["WHITE", "RED", "GREEN"])]]) });
+  check("12e no rows + other steps claim WHITE/RED/GREEN → only YELLOW converts", colours(claimed), ["YELLOW"]);
+  const all = planConversions({ ...base12 });
+  check("12f no rows, no claims → every colour converts (the 0633 answer)", near(loose(all), 102.041), true);
+  const xAll = yarnPurchaseWithConversion(X, all, { ...base, compositions: comps12, shades });
+  check("12g …and the converted count then buys 0", qtyOf(xAll), 0);
+
+  /* THE CLAIM HELPER reads Color-Wise steps only, and never the CONVERSION step. */
+  check(
+    "12h claimedColoursOf: Color-Wise steps' colours, not a Process-Wise leftover, not CONVERSION",
+    [
+      ...(claimedColoursOf(
+        [
+          {
+            item_id: X,
+            stages: [
+              { process_id: "CONV", color_wise_loss: true, color_losses: { yellow: 2 } },
+              { process_id: "DYEDPURCH", color_wise_loss: true, color_losses: { White: 2 } },
+              { process_id: "YDYE", color_wise_loss: true, color_losses: { RED: 3, GREEN: 5 } },
+              { process_id: "WIND", color_wise_loss: false, color_losses: { BLUE: 1 } },
+            ],
+          },
+        ],
+        isUnravelling,
+      ).get(X) ?? []),
+    ].sort(),
+    ["GREEN", "RED", "WHITE"],
   );
 }
 

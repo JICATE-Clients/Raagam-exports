@@ -14,6 +14,7 @@ import {
   type RouteStage,
 } from "./yarn-process";
 import {
+  claimedColoursOf,
   conversionDetailsOf,
   conversionStepLossesOf,
   conversionLinksOf,
@@ -1640,6 +1641,8 @@ export async function yarnFabricRequirementReport(
       .select(
         "item_id, purchase_qty, uom_id, refusal_reason, " +
           "stages:order_fabric_bom_yarn_stages(loss_pct, process_id, source_loose_fabric_id, conversion_details, " +
+          /* The colours a step takes (2026-09-29) — never converted. */
+          "color_wise_loss, color_losses, " +
           /* 0648 — a PURCHASE step in a coloured stage = yarn bought already
              dyed (DYED YARN PURCHASE): its stripes are not a dye-house lot.
              `stage_id` and `loss_for_id` both point at config_lookups, so the
@@ -1667,6 +1670,8 @@ export async function yarnFabricRequirementReport(
           process_id: string | null;
           source_loose_fabric_id: string | null;
           conversion_details: ConversionDetail[] | null;
+          color_wise_loss: boolean | null;
+          color_losses: Record<string, number> | null;
           stage: { name: string | null; code: string | null } | { name: string | null; code: string | null }[] | null;
           process: { is_cloth_purchase: boolean | null } | { is_cloth_purchase: boolean | null }[] | null;
         }[]
@@ -1680,19 +1685,55 @@ export async function yarnFabricRequirementReport(
      also what keeps the Budget's per-shade dyeing lines, read off that block,
      at zero for it. It stays in the yarn drawer: it is still BOUGHT. */
   const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
-  const boughtDyedYarns = new Set(
-    rows
-      .filter((r) =>
-        (r.stages ?? []).some((st) => {
-          const stage = one(st.stage);
-          return (
-            !!one(st.process)?.is_cloth_purchase &&
-            (stageRank({ id: "", code: stage?.code ?? null, name: stage?.name ?? "" }) ?? 0) >= 1
-          );
-        }),
-      )
-      .map((r) => r.item_id),
-  );
+  /* PER COLOUR SINCE 2026-09-29: a Color-Wise dyed purchase names the colours
+     it buys (WHITE), and only those leave the block — the yarn's other colours
+     (RED, GREEN on a YARN DYEING step) are still dyed. A dyed purchase that is
+     not Color-Wise buys the whole yarn dyed, as before (`null` = every colour). */
+  const boughtDyedColours = new Map<string, Set<string> | null>();
+  for (const r of rows) {
+    for (const st of r.stages ?? []) {
+      const stage = one(st.stage);
+      const dyedPurchase =
+        !!one(st.process)?.is_cloth_purchase &&
+        (stageRank({ id: "", code: stage?.code ?? null, name: stage?.name ?? "" }) ?? 0) >= 1;
+      if (!dyedPurchase) continue;
+      const keys = st.color_wise_loss ? Object.keys(st.color_losses ?? {}).filter((k) => k.trim()) : [];
+      if (keys.length === 0) {
+        boughtDyedColours.set(r.item_id, null);
+        continue;
+      }
+      const held = boughtDyedColours.get(r.item_id);
+      if (held === null) continue;
+      const set = held ?? new Set<string>();
+      for (const k of keys) set.add(k.trim().toUpperCase());
+      boughtDyedColours.set(r.item_id, set);
+    }
+  }
+  /* THE DYEING STEP'S OWN COLOUR LOSS (2026-09-29) — a Color-Wise dyeing step
+     in a coloured stage (YARN DYEING: RED 3 %, GREEN 5 %). The purchase already
+     grosses each stripe by it (`stripeWiseOwnSteps`); the YARN DYEING block
+     falls back to it where Yarn Dyed Details declares no dye-house loss, so the
+     block and the purchase state one loss. */
+  const unravellingIds = new Set(((unravelRes.data ?? []) as { id: string }[]).map((r) => r.id));
+  const dyeStepLoss = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    for (const st of r.stages ?? []) {
+      const stage = one(st.stage);
+      const coloured = (stageRank({ id: "", code: stage?.code ?? null, name: stage?.name ?? "" }) ?? 0) >= 1;
+      if (!coloured || !st.color_wise_loss || one(st.process)?.is_cloth_purchase) continue;
+      if (st.process_id && unravellingIds.has(st.process_id)) continue;
+      const held = dyeStepLoss.get(r.item_id) ?? new Map<string, number>();
+      for (const [k, v] of Object.entries(st.color_losses ?? {})) {
+        if (k.trim() && Number.isFinite(Number(v))) held.set(k.trim().toUpperCase(), Number(v));
+      }
+      dyeStepLoss.set(r.item_id, held);
+    }
+  }
+  const boughtDyed = (yarnId: string, colour: string | null | undefined) => {
+    if (!boughtDyedColours.has(yarnId)) return false;
+    const set = boughtDyedColours.get(yarnId);
+    return set == null || set.has((colour ?? "").trim().toUpperCase());
+  };
   /* LOOSE FABRIC CONVERSION (0633) — the links, off the STORED steps and the
      master's flag, exactly as `normalizeYarns` read them at Save. */
   const unravelling = new Set(((unravelRes.data ?? []) as { id: string }[]).map((r) => r.id));
@@ -2240,6 +2281,10 @@ export async function yarnFabricRequirementReport(
         yarn drawer for that yarn — their colour comes from the loose fabric's
         dye bath, and their yarn is unravelled, not bought. */
   const convertedFeeds = new Map<string, Set<string>>();
+  /* WHEN A YARN CONVERTS ONLY SOME COLOURS (2026-09-29) its cloths stay in the
+     drawer and the block, and just the converted stripes leave:
+     yarn -> "COLOURWAY::COLOUR" (or "COLOURWAY::*" for a part with no stripes). */
+  const convertedStripes = new Map<string, Set<string>>();
   /** Printed under the ledger with the other unresolved slices, below. */
   const conversionRefusals: string[] = [];
   const conversionLines: ConversionReportLine[] = [];
@@ -2277,6 +2322,11 @@ export async function yarnFabricRequirementReport(
       details: conversionDetails,
       // The yarn CONVERSION step's own loss (2026-09-26) — what the Save applied.
       stepLosses: conversionStepLossesOfStored,
+      // Colours the yarn's other steps take (2026-09-29) — what the Save left alone.
+      claimed: claimedColoursOf(
+        rows.map((r) => ({ item_id: r.item_id, stages: r.stages ?? [] })),
+        (id) => unravelling.has(id),
+      ),
       isUnravelling: (id) => unravelling.has(id),
       fabrics: [...buckets.values()],
       compositions: compositionByFabric,
@@ -2298,7 +2348,16 @@ export async function yarnFabricRequirementReport(
         conversionRefusals.push(`${itemNames.get(yarnId) ?? "A yarn"}: ${c.refused}`);
         continue;
       }
-      convertedFeeds.set(yarnId, new Set(c.fabricIds));
+      if (c.allConverted) {
+        convertedFeeds.set(yarnId, new Set(c.fabricIds));
+      } else {
+        convertedStripes.set(
+          yarnId,
+          new Set(
+            c.parts.map((p) => `${p.combo.trim().toUpperCase()}::${(p.colour ?? "").trim().toUpperCase() || "*"}`),
+          ),
+        );
+      }
       /* THE CONVERSION BLOCK — each colour's part, summed per (loose fabric,
          colour) across the colourways that share it. */
       const byColour = new Map<string, ConversionReportLine>();
@@ -2954,8 +3013,13 @@ export async function yarnFabricRequirementReport(
                fabric's bath (its DYEING section), never as yarn: a dye-house
                lot here would charge the same colour twice. */
             if (convertedFeeds.get(m.yarn_item_id)?.has(fabricId)) return;
-            /* 0648 — bought already dyed: no dye-house lot, no dyeing charge. */
-            if (boughtDyedYarns.has(m.yarn_item_id)) return;
+            const stripeColour = yd?.colours[i] || m.color_name;
+            const stripes = convertedStripes.get(m.yarn_item_id);
+            const ck = (combo ?? "").trim().toUpperCase();
+            if (stripes?.has(`${ck}::*`) || stripes?.has(`${ck}::${(stripeColour ?? "").trim().toUpperCase()}`)) return;
+            /* 0648 — bought already dyed: no dye-house lot, no dyeing charge
+               (per colour since 2026-09-29 — `boughtDyed`). */
+            if (boughtDyed(m.yarn_item_id, stripeColour)) return;
             dyeingSlices.push({
               yarnItemId: m.yarn_item_id,
               yarnName: m.yarn_name,
@@ -2969,7 +3033,9 @@ export async function yarnFabricRequirementReport(
               /* THIS SHADE'S OWN DYE-HOUSE LOSS (0568), off the combination's
                  colour row at the same stripe POSITION the colour name came
                  from. Undeclared reads 0 and grosses by nothing. */
-              lossPct: Number(yd?.losses[i] ?? 0),
+              lossPct:
+                Number(yd?.losses[i] ?? 0) ||
+                (dyeStepLoss.get(m.yarn_item_id)?.get((stripeColour ?? "").trim().toUpperCase()) ?? 0),
             });
           });
         }
