@@ -26,7 +26,7 @@ import type {
   GarmentRejectionRule,
   GarmentRejectionRuleInput,
 } from "@/lib/masters/garment-rejection-rule-types";
-import { createdMeta, HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 import {
   RANGE_KINDS,
   REJECTION_ALLOWANCE_TYPES,
@@ -77,10 +77,14 @@ const FIELD_W = {
 /**
  * The tier grid, from the same vocabulary (it was 8.5 / 7 / 7 / 12rem, hand-typed):
  *
- *   range 112 + from 112 + to 112 + allowance 176 = 512
- *   + 72 `#` and ✕ chrome                        = 584
+ *   range 112 + from 72 + to 72 + allowance 176 = 432
+ *   + 72 `#` and ✕ chrome                      = 504
  *
- * Every column declares a width, so the grid hugs those 584px instead of
+ * From and To are `num`, not `range` (client 2026-09-29: "from to field
+ * compact"): a piece count is at most five digits, ~40px of text-sm, and
+ * 112px left each box two-thirds empty.
+ *
+ * Every column declares a width, so the grid hugs those 504px instead of
  * sharing a 1180px sheet's slack among four short numbers. Well under the
  * 1155px pane, so no `tableFrom` is needed: the default `@lg` (512px) switch
  * already shows the table in every desktop sheet.
@@ -90,17 +94,17 @@ const FIELD_W = {
  */
 const TIER_W = {
   range: FIELD_WIDTH_CSS.range, //         112px — Up to · Between · Above
-  from: FIELD_WIDTH_CSS.range, //          112px — a piece count, up to 5 digits
-  to: FIELD_WIDTH_CSS.range, //            112px
+  from: FIELD_WIDTH_CSS.num, //             72px — a piece count, up to 5 digits
+  to: FIELD_WIDTH_CSS.num, //               72px
   allowance: FIELD_WIDTH_CSS.term, //      176px — number + basis select
 };
 
 /**
  * The footer's button box ends where the widest thing on the sheet ends — the
- * tier grid, 584px plus its own frame. 38rem (608px) leaves the frame's slack.
+ * tier grid, 504px plus its own frame. 33rem (528px) leaves the frame's slack.
  * One string, so a column width change moves the buttons with it.
  */
-const FORM_W = "max-w-[38rem]";
+const FORM_W = "max-w-[33rem]";
 
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 
@@ -316,17 +320,15 @@ export function GarmentRejectionRuleMasterScreen({
   }
 
   const columns: Column<GarmentRejectionRule>[] = [
-    { header: "Entry", className: HUG, cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
+    { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
     { header: "Rule", cell: (r) => <span className="text-sm">{r.rule ?? "—"}</span> },
     {
       header: "Effective From",
-      className: HUG,
       cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
     },
     {
       header: "Tiers",
       align: "right",
-      className: HUG,
       cell: (r) => <span className="tabular-nums text-sm">{r.lines.length}</span>,
     },
     {
@@ -376,13 +378,9 @@ export function GarmentRejectionRuleMasterScreen({
         )}
       </div>
 
-      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
-          erp-table-fit skill, client 2026-09-28). The short columns carry
-          `HUG`; Rule, the record's own text, stays unsized so it wraps.
-          `max-w-full` keeps a long list inside the pane, where the
-          primitive's own `overflow-x-auto` takes over. */}
-      <div className="hidden w-fit max-w-full md:block">
-        <DataTable columns={hugCreated(withCreatedColumns(columns, filtered))} rows={filtered} getKey={(r) => r.id} empty="No rejection rules yet." />
+      {/* desktop table */}
+      <div className="hidden md:block">
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No rejection rules yet." />
       </div>
 
       {/* mobile cards */}

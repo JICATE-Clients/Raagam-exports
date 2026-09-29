@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -400,21 +400,16 @@ export function ProcessMasterScreen({
     { header: "Process", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
       header: "HSN Code",
-      className: HUG,
       cell: (r) => <span className="text-sm text-muted-foreground">{r.hsn_code ?? "—"}</span>,
     },
     {
       header: "Billing On",
-      className: HUG,
       cell: (r) => <span className="text-sm text-muted-foreground">{r.billing_on ?? "—"}</span>,
     },
-    /* NOT hugged (erp-table-fit): a comma list of flags that can run long, so
-       `nowrap` would widen the whole table. Left unsized, it wraps. */
     { header: "For", cell: (r) => <span className="text-sm text-muted-foreground">{forSummary(r)}</span> },
     {
       header: "Sub-cats",
       align: "right",
-      className: HUG,
       cell: (r) => (
         <span className="tabular-nums text-sm text-muted-foreground">
           {r.has_sub_categories ? r.sub_categories.length : "—"}
@@ -533,12 +528,9 @@ export function ProcessMasterScreen({
         </div>
       </div>
 
-      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
-          erp-table-fit skill, client 2026-09-28). The short columns carry
-          `HUG`; `max-w-full` keeps a long list inside the pane, where the
-          primitive's own `overflow-x-auto` takes over. */}
-      <div className="hidden w-fit max-w-full md:block">
-        <DataTable columns={hugCreated(withCreatedColumns(columns, rows))} rows={pg.paged}
+      {/* desktop table */}
+      <div className="hidden md:block">
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
         paginate={false} getKey={(r) => r.id} empty="No process records yet." />
       </div>
 

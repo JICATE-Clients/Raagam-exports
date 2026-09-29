@@ -34,7 +34,7 @@ import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { fmtDate } from "@/lib/format";
-import { createdMeta, HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin?: boolean; canExport?: boolean };
 type LineRow = { key: string; description: string };
@@ -204,11 +204,9 @@ export function OutDocumentTermMasterScreen({
   }
 
   const columns: Column<OutDocumentTerm>[] = [
-    { header: "Entry", className: HUG, cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", className: HUG, cell: (r) => <span className="text-sm">{fmtDate(r.entry_date)}</span> },
-    { header: "Type", className: HUG, cell: (r) => <span className="text-sm">{r.type ?? "—"}</span> },
-    /* NOT hugged (erp-table-fit): the one name-like column on a list with no
-       Name — process names run long, so it is left unsized to wrap. */
+    { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.entry_date)}</span> },
+    { header: "Type", cell: (r) => <span className="text-sm">{r.type ?? "—"}</span> },
     {
       header: "Process",
       cell: (r) => (
@@ -219,7 +217,6 @@ export function OutDocumentTermMasterScreen({
     },
     {
       header: "Item Class",
-      className: HUG,
       cell: (r) => (
         <span className="text-sm text-muted-foreground">
           {r.item_class_id ? classLabel.get(r.item_class_id) ?? "—" : "—"}
@@ -229,7 +226,6 @@ export function OutDocumentTermMasterScreen({
     {
       header: "Lines",
       align: "right",
-      className: HUG,
       cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.lines.length}</span>,
     },
     rowActionsColumn((r) => (
@@ -324,12 +320,9 @@ export function OutDocumentTermMasterScreen({
         </div>
       </div>
 
-      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
-          erp-table-fit skill, client 2026-09-28). The short columns carry
-          `HUG`; `max-w-full` keeps a long list inside the pane, where the
-          primitive's own `overflow-x-auto` takes over. */}
-      <div className="hidden w-fit max-w-full md:block">
-        <DataTable columns={hugCreated(withCreatedColumns(columns, pg.paged))} rows={pg.paged}
+      {/* desktop table */}
+      <div className="hidden md:block">
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
         paginate={false} getKey={(r) => r.id} empty="No out document terms yet." />
       </div>
 

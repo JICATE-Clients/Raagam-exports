@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -487,15 +487,11 @@ export function CategoryMasterScreen({
   const columns: Column<Category>[] = [
     {
       header: "Item Class",
-      // A class label ("PACKING ACCESSORIES") — hugged. Name, the record's own
-      // name, carries no width (erp-table-fit: never hug the name column).
-      className: HUG,
       cell: (r) => <span className="text-sm">{classLabel.get(r.item_class_id) ?? "—"}</span>,
     },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
     {
       header: "Type",
-      className: HUG,
       cell: (r) => (
         <span className="text-sm text-muted-foreground">
           {r.made ?? (r.fabric_structure_id ? fabricStructureLabel.get(r.fabric_structure_id) : null) ?? "—"}
@@ -619,12 +615,9 @@ export function CategoryMasterScreen({
         </div>
       </div>
 
-      {/* desktop table — `w-fit`: AS WIDE AS ITS COLUMNS, not the pane (the
-          erp-table-fit skill, client 2026-09-28). The short columns carry
-          `HUG`; `max-w-full` keeps a long list inside the pane, where the
-          primitive's own `overflow-x-auto` takes over. */}
-      <div className="hidden w-fit max-w-full md:block">
-        <DataTable columns={hugCreated(withCreatedColumns(columns, rows))} rows={pg.paged}
+      {/* desktop table */}
+      <div className="hidden md:block">
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
         paginate={false} getKey={(r) => r.id} empty="No category records yet." />
       </div>
 
