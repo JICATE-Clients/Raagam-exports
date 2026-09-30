@@ -1895,7 +1895,7 @@ export default function PersonClient({
         return {
           ...base,
           done:
-            touched(["blocked", "guardian_name", "guardian_relation", "is_active", "mother_name", "name"]),
+            touched(["guardian_name", "guardian_relation", "mother_name", "name"]),
           content: (
             <div className="space-y-6">
               {/*
@@ -2082,37 +2082,11 @@ export default function PersonClient({
                   />
                 </Field>
 
-
-                {/* NOT A ROW OF THEIR OWN (client 2026-09-22: "remove the
-                    record status"). They stay on the editor because nothing
-                    else can retire or bar a person — the list has no such
-                    action — so they close the identity pane instead. */}
-                {/* Reads INACTIVE like every other master in HR; the column
-                    is `is_active`, so the switch inverts it. */}
-                <Field label="Status" size="sm">
-                  <div className="flex h-8 items-center">
-                    <Toggle
-                      checked={!form.is_active}
-                      onChange={(v) => set({ is_active: !v })}
-                      label="Inactive"
-                    />
-                  </div>
-                </Field>
-
-                {/*
-                  A BAR ON A CURRENT EMPLOYEE, which is not the same question
-                  as Status. 0534 keeps them separate so that un-blocking
-                  someone is not indistinguishable from re-hiring them.
-                */}
-                <Field label="Blocked" size="sm">
-                  <div className="flex h-8 items-center">
-                    <Toggle
-                      checked={form.blocked}
-                      onChange={(v) => set({ blocked: v })}
-                      label="Blocked"
-                    />
-                  </div>
-                </Field>
+                {/* NO STATUS / BLOCKED SWITCHES (client 2026-09-30: removed
+                    from the form, then from the profile card as well —
+                    "inactive and blocked button remove pannidu"). The record
+                    still carries both; the profile card and the list SHOW
+                    them as badges. */}
               </FieldGrid>
             </div>
           ),
@@ -4292,9 +4266,14 @@ export default function PersonClient({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.is_active ? "success" : "neutral"}>
-          {r.is_active ? "Active" : "Inactive"}
-        </StatusPill>
+        <span className="inline-flex flex-wrap gap-1">
+          <StatusPill tone={r.is_active ? "success" : "neutral"}>
+            {r.is_active ? "Active" : "Inactive"}
+          </StatusPill>
+          {"blocked" in r && r.blocked && (
+            <StatusPill tone="danger">Blocked</StatusPill>
+          )}
+        </span>
       ),
     },
     rowActionsColumn((r) => (
@@ -4384,6 +4363,7 @@ export default function PersonClient({
         code={editCode}
         name={form.name}
         isActive={form.is_active}
+        blocked={form.blocked}
         photoRequired
         photoUrl={form.photo_url ?? null}
         onPhotoChange={(url) => set({ photo_url: url })}
