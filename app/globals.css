@@ -1444,6 +1444,64 @@ body {
   border-bottom-color: var(--danger);
 }
 
+/* THE LINES LAYOUT ON A NARROW PANE (client 2026-09-30, a phone screenshot of
+   New Worker: "ID No", "Name", "Guardian" cut to three letters, and "data
+   fill pandra mari mobile view la pakka neat aa irukkanum").
+   The two rules above were sized for a laptop: two columns of fields, each a
+   10.5rem label BESIDE its line. On a ~340px phone pane that is two ~150px
+   cells each trying to hold a 168px label, so the label clipped and the input
+   had no width left at all. Container queries on the FieldGrid's own
+   `@container/section`, so they answer to the PANE, not the viewport: the
+   laptop pane (~620px at 1366) is above both thresholds and does not move.
+   - under 34rem: one field per line;
+   - under 24rem: the label goes ABOVE its line and the line takes the width.
+     DetailSection tracks (the address blocks) are left out of this one — their
+     columns are narrow on a laptop by design — and get the same stacking from
+     the phone media query below instead. The colon is dropped when stacked: a
+     colon points sideways at a value that is now underneath it. */
+@container section (max-width: 34rem) {
+  [data-field-style="lines"] [data-field-grid] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container section (max-width: 24rem) {
+  [data-field-style="lines"]
+    [data-field-grid]
+    > [data-field]:has(> [data-field-label]):not([data-detail-section] *) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.25rem;
+  }
+  [data-field-style="lines"]
+    [data-field-grid]
+    > [data-field]:has(> [data-field-label]):not([data-detail-section] *)
+    > [data-field-label]::after {
+    content: none;
+  }
+  [data-field-style="lines"]
+    [data-field-grid]
+    > [data-field]:has(> [data-field-label]):not([data-detail-section] *)
+    > p {
+    grid-column: 1;
+  }
+}
+@media (max-width: 767px) {
+  [data-field-style="lines"] [data-field]:has(> [data-field-label]) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.25rem;
+  }
+  [data-field-style="lines"] [data-field]:has(> [data-field-label]) > [data-field-label]:not([aria-hidden])::after {
+    content: none;
+  }
+  [data-field-style="lines"] [data-field]:has(> [data-field-label]) > p {
+    grid-column: 1;
+  }
+  /* A pair (Guardian: relation + name) is one line, and with the label above
+     it the 75% cap only shortens the name for nothing. */
+  [data-field-style="lines"] [data-field-pair] {
+    max-width: 100%;
+  }
+}
+
 /* THE FOCUSED FIELD IS THE BLUE. `--ring` is already the brand blue, so this
    only widens the halo so a curved field shows it — at 0.75rem radius a 1px
    ring disappears into the corner. */

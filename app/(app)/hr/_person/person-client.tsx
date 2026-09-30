@@ -45,6 +45,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionColumn, SectionGrid } from "@/components/masters/section-grid";
@@ -60,6 +61,8 @@ import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import {
   MasterFullScreen,
@@ -683,6 +686,29 @@ export default function PersonClient({
   const shellRef = useRef<MasterFullScreenHandle>(null);
   const [saved, setSaved] = useState<PersonInput>(DEFAULTS);
   const sel = useRowSelection();
+  /* The list's search box + Status facet + the shared Created Date facet —
+     the same hook every master list uses. Declared up here, above the
+     editor's early returns: AGENTS.md "Hooks above every early return". */
+  const {
+    query,
+    setQuery,
+    filtered,
+    filterValues,
+    setFilter,
+    activeCount,
+    reset,
+    dateFilter,
+  } = useMasterFilter(rows, {
+    searchKey: (r) =>
+      [r.code, r.name, r.designation_name, r.location_name]
+        .filter(Boolean)
+        .join(" "),
+    filters: {
+      status: (r, v) =>
+        v === "active" ? !!r.is_active : v === "inactive" ? !r.is_active : true,
+    },
+    initialFilters: { status: "" },
+  });
 
   const set = (patch: Partial<PersonInput>) =>
     setForm((f) => ({ ...f, ...patch }));
@@ -4332,6 +4358,59 @@ export default function PersonClient({
     ]
       .filter(Boolean)
       .join(", ");
+    /**
+     * THE PROFILE CARD, ONE BUILDER FOR ITS TWO PLACES (client 2026-09-30:
+     * "profile last aa kaatna pothum", pointing at the phone mock-up whose
+     * profile sits below everything else).
+     *
+     * From `xl` it is the 288px column beside the form, as approved on
+     * desktop. Below `xl` that column left the form ~80px wide, so there it is
+     * hidden and the SAME card is appended to the end of every section's
+     * content instead: the operator fills the fields first, and the photo,
+     * Upload and the read-back of what they typed are waiting at the bottom of
+     * the scroll. Rendered twice, shown once — one `display` switch each, so
+     * no width is ever measured in JS.
+     */
+    const profileCard = (className: string) => (
+      <PersonProfileAside
+        entity={copy.entity}
+        isEditing={!!editId}
+        code={editCode}
+        name={form.name}
+        isActive={form.is_active}
+        photoRequired
+        photoUrl={form.photo_url ?? null}
+        onPhotoChange={(url) => set({ photo_url: url })}
+        photoFolder={isWorker ? "workers" : "staff"}
+        designation={nameOfOption(designations, form.designation_id)}
+        department={nameOfOption(departments, form.department_id)}
+        location={nameOfOption(locations, form.location_id)}
+        employmentType={form.employment_type ?? null}
+        joinedDate={form.joined_date ?? null}
+        gender={form.gender ?? null}
+        dateOfBirth={form.date_of_birth ?? null}
+        email={form.email ?? null}
+        phone={form.perm_phone ?? null}
+        address={address || null}
+        bloodGroup={form.blood_group ?? null}
+        className={className}
+      />
+    );
+    const paneSections = sections.map((s) =>
+      s.groupOnly
+        ? s
+        : {
+            ...s,
+            content: (
+              <>
+                {s.content}
+                <div className="mt-8 xl:hidden">
+                  {profileCard("w-full overflow-visible")}
+                </div>
+              </>
+            ),
+          },
+    );
     return (
       // THREE COLUMNS (client 2026-09-15: "i want the left side rail back ...
       // what is left can go to the right side, so that remaining can be in
@@ -4408,7 +4487,7 @@ export default function PersonClient({
             // told. This screen still declares its own beside it — the counter
             // in `lib/reload-guard.ts` composes.
             dirty={dirty}
-            sections={sections}
+            sections={paneSections}
             footer={{
               status: dirty
                 ? "Unsaved changes"
@@ -4427,28 +4506,9 @@ export default function PersonClient({
             }}
           />
 
-          <PersonProfileAside
-            entity={copy.entity}
-            isEditing={!!editId}
-            code={editCode}
-            name={form.name}
-            isActive={form.is_active}
-            photoRequired
-            photoUrl={form.photo_url ?? null}
-            onPhotoChange={(url) => set({ photo_url: url })}
-            photoFolder={isWorker ? "workers" : "staff"}
-            designation={nameOfOption(designations, form.designation_id)}
-            department={nameOfOption(departments, form.department_id)}
-            location={nameOfOption(locations, form.location_id)}
-            employmentType={form.employment_type ?? null}
-            joinedDate={form.joined_date ?? null}
-            gender={form.gender ?? null}
-            dateOfBirth={form.date_of_birth ?? null}
-            email={form.email ?? null}
-            phone={form.perm_phone ?? null}
-            address={address || null}
-            bloodGroup={form.blood_group ?? null}
-          />
+          {/* The right-hand column: from `xl` only. Below it the same card
+              closes each section instead (`paneSections`). */}
+          {profileCard("hidden xl:block")}
         </div>
       </div>
     );
@@ -4462,15 +4522,38 @@ export default function PersonClient({
          header inside the screen for the same reason. */}
       <PageHeader title={copy.pageTitle} description={copy.pageDescription} />
       <div className="flex flex-wrap items-center gap-2">
+        <FilterBar
+          search={query}
+          onSearch={setQuery}
+          searchPlaceholder={`Search ${copy.lower} by code, name, designation…`}
+          activeCount={activeCount}
+          dateFilter={dateFilter}
+          onReset={reset}
+        >
+          <div>
+            <Label htmlFor="person-filter-status">Status</Label>
+            <Select
+              id="person-filter-status"
+              value={filterValues.status}
+              onChange={(e) => setFilter("status", e.target.value)}
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </div>
+        </FilterBar>
         <DataIoToolbar
           entityKey={copy.ioKey}
           rows={rows}
           canImport={canCreate}
           canExport={canExport}
         />
-        <div className="ml-auto">
+        {/* On a phone the Add button takes the rest of the wrapped row, so the
+            primary action is a full thumb-width target, not a stub at the edge. */}
+        <div className="ml-auto max-sm:flex-1">
           {canCreate && (
-            <Button size="md" onClick={openAdd}>
+            <Button size="md" onClick={openAdd} className="max-sm:w-full">
               + Add {copy.entity}
             </Button>
           )}
@@ -4488,13 +4571,13 @@ export default function PersonClient({
 
       <DataTable
         columns={withCreatedColumns(columns, rows)}
-        rows={rows}
+        rows={filtered}
         getKey={(r) => r.id}
         empty={copy.empty}
         selectable={canDelete}
         selectedKeys={sel.selectedKeys}
         onToggle={sel.toggle}
-        onToggleAll={() => sel.toggleAll(rows.map((r) => r.id))}
+        onToggleAll={() => sel.toggleAll(filtered.map((r) => r.id))}
       />
     </div>
   );

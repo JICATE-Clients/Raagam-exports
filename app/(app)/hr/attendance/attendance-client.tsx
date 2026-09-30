@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
 import { gridKeyNav } from "@/components/masters/child-grid";
 
@@ -112,24 +113,26 @@ export default function AttendanceClient({
   return (
     <div className="space-y-4">
       {/* Filter bar */}
+      {/* On a phone Date and Location share the row and Load wraps under
+          them; from `sm` up they keep their fixed widths. */}
       <div className="flex flex-wrap items-end gap-3">
-        <div>
+        <div className="min-w-0 flex-1 sm:flex-none">
           <Label htmlFor="att-date">Date</Label>
           <Input
             id="att-date"
             type="date"
             value={dateVal}
             onChange={(e) => setDateVal(e.target.value)}
-            className="w-40"
+            className="w-full sm:w-40"
           />
         </div>
-        <div>
+        <div className="min-w-0 flex-1 sm:flex-none">
           <Label htmlFor="att-loc">Location</Label>
           <Select
             id="att-loc"
             value={locationVal}
             onChange={(e) => setLocationVal(e.target.value)}
-            className="w-48"
+            className="w-full sm:w-48"
           >
             <option value="">All Locations</option>
             {locations.map((l) => (
@@ -150,7 +153,128 @@ export default function AttendanceClient({
         </p>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+          {/* PHONE: ONE CARD PER WORKER. The table below is eight columns of
+              inputs, so under `md` typing an OT figure meant scrolling sideways
+              inside the grid ("a grid wraps; it never scrolls sideways",
+              raagam-screen-layout). The same row state drives both, so a value
+              typed here is the value the table shows at a wider width. */}
+          <div className="space-y-3 md:hidden">
+            {workers.map((w) => {
+              const r = rows[w.id];
+              const otCapped = r.ot_hours > maxOtPerDay;
+              return (
+                <div
+                  key={w.id}
+                  className="space-y-3 rounded-lg border border-border bg-surface p-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium">{w.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {[w.code, WORKER_TYPE_LABELS[w.worker_type]]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </div>
+                    </div>
+                    <Toggle
+                      checked={r.present}
+                      onChange={(v) => setRow(w.id, { present: v })}
+                      label="Present"
+                    />
+                  </div>
+                  {/* responsive: exempt -- phone-only card; three short hour boxes (~100px each) fit 360px */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <Label htmlFor={`att-hrs-${w.id}`}>Hrs</Label>
+                      <Input
+                        id={`att-hrs-${w.id}`}
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={r.normal_hours}
+                        disabled={!r.present}
+                        onChange={(e) =>
+                          setRow(w.id, {
+                            normal_hours: parseFloat(e.target.value) || 0,
+                          })
+                        }
+                        className="w-full text-right tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`att-ot-${w.id}`}>
+                        OT Hrs
+                        {otCapped && (
+                          <span className="ml-1 text-xs text-warning">
+                            capped
+                          </span>
+                        )}
+                      </Label>
+                      <Input
+                        id={`att-ot-${w.id}`}
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={r.ot_hours}
+                        disabled={!r.present}
+                        onChange={(e) => handleOtChange(w.id, e.target.value)}
+                        className="w-full text-right tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`att-extra-${w.id}`}>Extra Hrs</Label>
+                      <Input
+                        id={`att-extra-${w.id}`}
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={r.extra_hours}
+                        disabled={!r.present}
+                        onChange={(e) =>
+                          setRow(w.id, {
+                            extra_hours: parseFloat(e.target.value) || 0,
+                          })
+                        }
+                        className="w-full text-right tabular-nums"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+                    <div>
+                      <Label htmlFor={`att-src-${w.id}`}>Source</Label>
+                      <Select
+                        id={`att-src-${w.id}`}
+                        value={r.source}
+                        onChange={(e) =>
+                          setRow(w.id, {
+                            source: e.target.value as "biometric" | "manual",
+                          })
+                        }
+                        className="w-full"
+                      >
+                        <option value="manual">Manual</option>
+                        <option value="biometric">Biometric</option>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor={`att-note-${w.id}`}>Note</Label>
+                      <Input
+                        id={`att-note-${w.id}`}
+                        value={r.note}
+                        placeholder="optional"
+                        onChange={(e) =>
+                          setRow(w.id, { note: e.target.value })
+                        }
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-surface-muted">
@@ -298,7 +422,7 @@ export default function AttendanceClient({
             </table>
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-muted-foreground">
               Max OT per day: <strong>{maxOtPerDay} hrs</strong>. Entries exceeding
               the limit are capped automatically on save.

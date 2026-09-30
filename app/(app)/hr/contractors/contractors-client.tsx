@@ -122,7 +122,12 @@ export default function ContractorsClient({
           canImport={canCreate}
           canExport={canExport}
         />
-        <Button variant="primary" size="md" onClick={openAdd}>
+        <Button
+          variant="primary"
+          size="md"
+          onClick={openAdd}
+          className="max-sm:flex-1"
+        >
           + Add Contractor
         </Button>
       </div>
@@ -139,12 +144,12 @@ export default function ContractorsClient({
       {showForm && (
         <Card>
           <CardBody>
-            <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 text-sm font-semibold text-foreground">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2 text-sm font-semibold text-foreground">
                 {editId ? "Edit Contractor" : "New Contractor"}
               </div>
 
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Label htmlFor="c-name">Name *</Label>
                 <Input
                   id="c-name"
@@ -190,7 +195,7 @@ export default function ContractorsClient({
                   ))}
                 </Select>
               </div>
-              <div className="flex items-center gap-2 pt-5">
+              <div className="flex items-center gap-2 sm:pt-5">
                 <input
                   type="checkbox"
                   id="c-active"
@@ -204,7 +209,7 @@ export default function ContractorsClient({
                   Active
                 </label>
               </div>
-              <div className="col-span-2 flex justify-end gap-2 pt-1">
+              <div className="sm:col-span-2 flex justify-end gap-2 pt-1">
                 <Button type="button" variant="outline" size="sm" onClick={cancel}>
                   Cancel
                 </Button>

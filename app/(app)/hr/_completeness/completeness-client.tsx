@@ -192,7 +192,7 @@ export default function CompletenessClient({
             primitive exempts this type by construction (AGENTS.md). */}
         <Input
           type="search"
-          className="h-9 w-56"
+          className="h-9 w-full sm:w-56"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           aria-label={`Search ${title}`}

@@ -408,8 +408,13 @@ export function PersonProfileView({
         <div className="space-y-4 xl:col-span-3">
           <Card>
             <CardBody className="space-y-4">
-              <div className="flex flex-col items-center gap-3 pt-2 text-center">
-                <div className="grid h-28 w-28 place-items-center overflow-hidden rounded-2xl border border-border bg-primary-soft text-3xl font-bold text-primary">
+              {/* Below `xl` this card is full width, so the identity reads as
+                  one row (photo left, name and pills beside it) instead of a
+                  centred 112px photo pushing everything else a screen down on a
+                  phone. From `xl` it is the narrow left column again and keeps
+                  its centred stack. */}
+              <div className="flex items-center gap-4 xl:flex-col xl:gap-3 xl:pt-2 xl:text-center">
+                <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-border bg-primary-soft text-xl font-bold text-primary xl:h-28 xl:w-28 xl:text-3xl">
                   {photo ? (
                     // eslint-disable-next-line @next/next/no-img-element -- a Supabase storage public URL, same as PhotoUpload's own preview.
                     <img
@@ -420,31 +425,36 @@ export function PersonProfileView({
                   ) : initials(name) ? (
                     <span aria-hidden>{initials(name)}</span>
                   ) : (
-                    <UserRound aria-hidden className="h-12 w-12" />
+                    <UserRound
+                      aria-hidden
+                      className="h-8 w-8 xl:h-12 xl:w-12"
+                    />
                   )}
                 </div>
-                <div className="w-full min-w-0">
-                  <Truncated
-                    text={name || "—"}
-                    className="block text-lg font-bold text-foreground"
-                  />
-                  <Truncated
-                    text={
-                      [designation, department].filter(Boolean).join(" · ") ||
-                      entity
-                    }
-                    className="block text-xs text-muted-foreground"
-                  />
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  {code && (
-                    <span className="rounded-full border border-border bg-surface-muted px-2.5 py-0.5 font-mono text-xs font-semibold text-foreground">
-                      ID {code}
-                    </span>
-                  )}
-                  <StatusPill tone={isActive ? "success" : "neutral"}>
-                    {isActive ? "Active" : "Inactive"}
-                  </StatusPill>
+                <div className="min-w-0 flex-1 space-y-2 xl:w-full xl:flex-none xl:space-y-3">
+                  <div className="min-w-0">
+                    <Truncated
+                      text={name || "—"}
+                      className="block text-lg font-bold text-foreground"
+                    />
+                    <Truncated
+                      text={
+                        [designation, department].filter(Boolean).join(" · ") ||
+                        entity
+                      }
+                      className="block text-xs text-muted-foreground"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 xl:justify-center">
+                    {code && (
+                      <span className="rounded-full border border-border bg-surface-muted px-2.5 py-0.5 font-mono text-xs font-semibold text-foreground">
+                        ID {code}
+                      </span>
+                    )}
+                    <StatusPill tone={isActive ? "success" : "neutral"}>
+                      {isActive ? "Active" : "Inactive"}
+                    </StatusPill>
+                  </div>
                 </div>
               </div>
 
@@ -791,6 +801,7 @@ export function PersonProfileView({
               <h2 className="text-sm font-semibold text-foreground">
                 Salary Summary
               </h2>
+              {/* responsive: exempt -- two-column read-only label/amount summary; it fits a phone as-is */}
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-muted-foreground">
@@ -1012,6 +1023,7 @@ function KeyDatesCalendar({ dates }: { dates: [string, string][] }) {
         </div>
       </div>
 
+      {/* responsive: exempt -- a month calendar is always 7 weekday columns; each cell is one day number and fits at 360px */}
       <div className="grid grid-cols-7 gap-1 text-center text-[11px]">
         {WEEKDAYS.map((w, i) => (
           <div key={i} className="py-1 font-semibold text-muted-foreground">
