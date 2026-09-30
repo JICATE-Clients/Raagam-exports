@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Layers, ListChecks, Filter, Power, PowerOff } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { RowActions } from "@/components/ui/row-actions";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -774,6 +774,7 @@ export function ApprovalFlowsScreen({
   const columns: Column<FlowRow>[] = [
     {
       header: "Document",
+      className: HUG,
       cell: (f) => <span className="text-sm">{workflowLabel(f.workflow_key)}</span>,
     },
     {
@@ -795,8 +796,11 @@ export function ApprovalFlowsScreen({
          a mis-built flow before production" — and it only pays off if the
          sentence is actually shown somewhere they look. */
       cell: (f) => (
+        /* CAPPED, not hugged (erp-table-fit): a sentence under `Truncated`
+           cannot wrap, so unsized it would stretch the table to its length.
+           18rem on the Truncated box; the rest is on hover. */
         <span className="text-xs text-muted-foreground">
-          <Truncated>{describeCriteria(f.criteria) || "Always"}</Truncated>
+          <Truncated className="block max-w-[18rem]">{describeCriteria(f.criteria) || "Always"}</Truncated>
         </span>
       ),
     },
@@ -804,7 +808,8 @@ export function ApprovalFlowsScreen({
       header: "Steps",
       cell: (f) => (
         <span className="text-xs text-muted-foreground">
-          <Truncated>
+          {/* Capped for the same reason as When above. */}
+          <Truncated className="block max-w-[18rem]">
             {(f.steps ?? []).map((s) => s.step_label).join(" → ") || "—"}
           </Truncated>
         </span>
@@ -813,10 +818,12 @@ export function ApprovalFlowsScreen({
     {
       header: "Priority",
       align: "right",
+      className: HUG,
       cell: (f) => <span className="text-sm tabular-nums">{f.priority}</span>,
     },
     {
       header: "Status",
+      className: HUG,
       cell: (f) =>
         f.is_active ? (
           <StatusPill tone="success">Active</StatusPill>
@@ -892,12 +899,16 @@ export function ApprovalFlowsScreen({
           </div>
         </FilterBar>
 
+        {/* AS WIDE AS ITS COLUMNS, not the pane (erp-table-fit skill, client
+            2026-09-28). */}
+        <div className="w-fit max-w-full">
         <DataTable
-          columns={withCreatedColumns(columns, filtered)}
+          columns={hugCreated(withCreatedColumns(columns, filtered))}
           rows={filtered}
           getKey={(f) => f.id}
           empty="No flows yet. Every document falls back to its default chain until one is built."
         />
+        </div>
       </div>
 
       <MasterFullScreen

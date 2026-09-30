@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -25,6 +26,20 @@ import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 const BLANK = { code: "", name: "", notes: "", is_active: true };
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). One screen for every
+ * `config_lookups` kind — a city, a composition, a payment term — so the name
+ * is free text of no fixed length: `name` (288px), and Notes matches it. This
+ * was `sm:grid-cols-2`, which gave the name half the sheet and Notes all of it.
+ */
+const FIELD_W = {
+  name: "name", //  288px — free-text name, any lookup kind
+  notes: "name", // 288px — same edge as the name above it
+} satisfies Record<string, FieldWidth>;
+
+/** The fields AND the footer's buttons end on one edge: 288px → 18rem. */
+const FORM_W = "max-w-[18rem]";
 
 /**
  * Generic CRUD screen for one `config_lookups` kind. Search + a dense table on
@@ -228,23 +243,23 @@ export function LookupMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? `Edit ${singular}` : `New ${singular}`}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the fields end. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+        <div className={`space-y-3 ${FORM_W}`}>
           {/* No Code input — the code is set automatically (blank → name server-side
               on create; edits keep the stored code via form.code passing through). */}
-          <div>
-            <Label htmlFor="lk-name">
-              Name <span className="text-danger">*</span>
-            </Label>
+          <FieldRow align="start">
+          <Field label="Name" required w={FIELD_W.name} htmlFor="lk-name">
             <Input
               id="lk-name"
               uppercase
@@ -264,9 +279,10 @@ export function LookupMasterScreen({
               duplicate={!!dupError}
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
-          </div>
-          <div className="sm:col-span-2">
-            <Label htmlFor="lk-notes">Notes</Label>
+          </Field>
+          </FieldRow>
+          <FieldRow>
+          <Field label="Notes" w={FIELD_W.notes} htmlFor="lk-notes">
             <Textarea
               id="lk-notes"
               rows={3}
@@ -274,17 +290,17 @@ export function LookupMasterScreen({
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               className="text-base md:text-sm"
             />
-          </div>
+          </Field>
+          </FieldRow>
           {editId && (
-            <label className="sm:col-span-2 flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
+            <FieldRow>
+              <Toggle
+                id="lk-active"
+                label="Active"
                 checked={form.is_active}
-                onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                onChange={(is_active) => setForm({ ...form, is_active })}
               />
-              <span className="text-sm text-foreground">Active</span>
-            </label>
+            </FieldRow>
           )}
         </div>
       </Sheet>

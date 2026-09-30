@@ -9,12 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtNumber } from "@/lib/format";
 import type { ReportStyleImage } from "@/lib/orders/gos/style-images";
-import { loadHeaderThumbnail } from "@/lib/orders/gos/report-thumbnail-actions";
-import {
-  loadFabricBomEntryRegister,
-  loadYarnFabricRequirementReport,
-} from "@/lib/orders/fabric-bom/actions";
-import { loadVFinalForBom } from "@/lib/orders/amendments/v-final-actions";
+import type { FabricBomReportsSheetLoad } from "@/lib/orders/fabric-bom/reports-sheet";
 import { VFinalSheetNote, type SheetVFinal } from "@/components/orders/v-final-sheet-note";
 import type {
   BomDocHeader,
@@ -120,31 +115,44 @@ export function FabricBomReportsSheet({
      proposed figures, and the note says which one is on screen. */
   const [vf, setVf] = useState<{ forBom: string; data: SheetVFinal } | null>(null);
   const [showProposed, setShowProposed] = useState(false);
-  /* THE HEADER THUMBNAIL (2026-09-26) — keyed by BOM like the reports, loaded
-     AFTER them because the order and style it belongs to are read off the
-     report's own header. A failure resolves to no picture, never an error. */
+  /* THE HEADER THUMBNAIL (2026-09-26) — keyed by BOM like the reports. A
+     failure resolves to no picture, never an error. */
   const [thumb, setThumb] = useState<{ forBom: string; data: ReportStyleImage | null } | null>(null);
 
+  /* ONE GET REQUEST FOR EVERYTHING ABOVE (2026-09-29, "report opening takes 2
+     seconds"). This was four server actions, and server actions are QUEUED: the
+     `Promise.all` here ran them one after another, with the thumbnail a fifth
+     trip after that. A route handler is not queued, and the server builds the
+     Entry Register once for both reports — `lib/orders/fabric-bom/reports-sheet.ts`.
+     A failure used to leave "Loading…" up for good; it now prints as the
+     reports' refusal, which the view already knows how to show. */
   useEffect(() => {
     if (!open || !bomId) return;
     let cancelled = false;
-    Promise.all([
-      loadFabricBomEntryRegister(bomId),
-      loadYarnFabricRequirementReport(bomId),
-      loadVFinalForBom("fabric", bomId),
-    ]).then(([r, y, v]) => {
-      if (cancelled) return;
-      setRegister({ forBom: bomId, data: r });
-      setRequirement({ forBom: bomId, data: y });
-      setVf({ forBom: bomId, data: v as SheetVFinal });
-      const hdr = !("refused" in r) ? r.header : !("refused" in y) ? y.header : null;
-      if (!hdr) return;
-      loadHeaderThumbnail(hdr.garmentOrderId, hdr.styleRefNo)
-        .catch(() => null)
-        .then((t) => {
-          if (!cancelled) setThumb({ forBom: bomId, data: t });
-        });
-    });
+    fetch(`/api/fabric-bom/${bomId}/reports`, { cache: "no-store", credentials: "same-origin" })
+      .then(async (res) => {
+        const body = (await res.json().catch(() => null)) as FabricBomReportsSheetLoad | null;
+        return body ?? { ok: false as const, error: `the server answered ${res.status}` };
+      })
+      .catch((e: unknown): FabricBomReportsSheetLoad => ({
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      }))
+      .then((load) => {
+        if (cancelled) return;
+        if (!load.ok) {
+          const refused = { refused: `The reports could not load: ${load.error}` };
+          setRegister({ forBom: bomId, data: refused });
+          setRequirement({ forBom: bomId, data: refused });
+          setVf({ forBom: bomId, data: { state: "live" } });
+          setThumb({ forBom: bomId, data: null });
+          return;
+        }
+        setRegister({ forBom: bomId, data: load.register });
+        setRequirement({ forBom: bomId, data: load.requirement });
+        setVf({ forBom: bomId, data: load.vFinal as SheetVFinal });
+        setThumb({ forBom: bomId, data: load.thumbnail });
+      });
     return () => {
       cancelled = true;
     };

@@ -4,7 +4,6 @@ import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +14,10 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -80,6 +82,67 @@ type Form = {
   inactive: boolean;
 };
 
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). The editor was `cols={2}` / `cols={3}`
+ * sections and `1fr` tracks, so a 2-digit percent and an account head each took
+ * half the sheet.
+ *
+ *   Header    entry 72 + type 176 + date 144 + effective 144, 3 × 12 gaps = 572
+ *   Annexure  no 144 + category 176 + slno 88 + calc 144,     3 × 12 gaps = 588
+ *   Rate line pct 72 + ac head 200, 8 gap = 280 (Cess: 112 + 72 + 200, 2 × 8 = 400)
+ *   Duty / TDS / Excise  3 × rate 88, 2 × 12 gaps = 288
+ */
+const FIELD_W = {
+  entry: "num", //         72px — a 1-4 digit number
+  type: "term", //        176px — "GST Intra State", "EXCISE DUTY"
+  date: "code", //        144px — a native date control needs ~130px
+  pct: "num", //           72px — a percent
+  rate: "hug", //          88px — a percent under a two-word label ("EDU on BED %")
+  cess_mode: "range", //  112px — Percent % · Flat
+  ac_head: "party", //    200px — picker trigger; a GL account name
+  annexure_no: "code", // 144px — a short code
+  category: "term", //    176px — picker trigger; a duty category
+  slno: "hug", //          88px — a number under "Category Slno"
+  calc: "code", //        144px — Calculated · Exempted
+  gst_total: "range", //  112px — "18"; the split it makes is in its tooltip
+  description: "name", // 288px — one line on the GST form
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * Every card AND the footer's buttons, from ONE string. Widest row is Annexure:
+ *
+ *   588 row + 2 × 8 card padding (compact) + 2 × 1 border = 606
+ *
+ * 38.5rem (616px) leaves room for the non-compact `p-2.5` density (+4px).
+ */
+const FORM_W = "max-w-[38.5rem]";
+
+/**
+ * THE GST FORM IS TWO ROWS (client 2026-09-29: "gst modules la irukka fields
+ * lam orey 2 rows aa kondu vanthuru", screenshot 102036). It was four cards —
+ * Header, the auto-split box, one line per tax, Description — stacked down a
+ * 616px column with the right half of the sheet empty. Now one card:
+ *
+ *   row 1  entry 72 + type 176 + date 144 + effective 144 + GST total 112
+ *          + description 288, 5 × 12 gaps                             = 996
+ *   row 2  CGST 280 + SGST 280 + Cess 400, 2 × 12 gaps               = 984
+ *          (a rate line is pct 72 + ac head 200 + 8; Cess adds its 112 mode)
+ *
+ *   996 + 2 × 8 card padding + 2 × 1 border = 1014 → 64rem (1024px), inside
+ *   the 1155px minimum pane.
+ *
+ * Row 2 fits because a tax the Type does not use is NOT DRAWN rather than
+ * greyed: Intra State shows CGST + SGST, Inter State shows IGST, Exempted
+ * only Cess. `submit` already zeroes every inactive component, so hiding one
+ * cannot leave a stale value behind. VAT / CST and the annexure types (Duty,
+ * TDS, Excise) keep their own cards below — this is the GST layout only.
+ */
+const GST_FORM_W = "max-w-[64rem]";
+
+/** A rate line's hand-rolled tracks, from the vocabulary rather than `1fr`. */
+const RATE_TRACKS = `${FIELD_WIDTH_CSS[FIELD_W.pct]} ${FIELD_WIDTH_CSS[FIELD_W.ac_head]}`;
+const CESS_TRACKS = `${FIELD_WIDTH_CSS[FIELD_W.cess_mode]} ${FIELD_WIDTH_CSS[FIELD_W.pct]} ${FIELD_WIDTH_CSS[FIELD_W.ac_head]}`;
+
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 function blankForm(): Form {
@@ -134,6 +197,11 @@ export function LevyMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("levy");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -338,9 +406,19 @@ export function LevyMasterScreen({
       cell: (r) => <span className="text-sm">{r.calc_exempt === "calculated" ? "Calculated" : "Exempted"}</span>,
     },
     {
-      header: "Inactive",
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
+      header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "neutral" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
+        <StatusToggle
+          row={r}
+          label={String(r.entry_no)}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: String(r.entry_no) })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -361,6 +439,7 @@ export function LevyMasterScreen({
   const isExciseDutyForm = isExciseDutyType(form.type);
   const isVatCstForm = isVatCstType(form.type);
   const isAnnexureForm = usesAnnexure(form.type);
+  const isGstForm = !isAnnexureForm && !isVatCstForm;
   const sheetTitle = isDutyForm
     ? "Duty Structure"
     : isTdsForm
@@ -370,6 +449,65 @@ export function LevyMasterScreen({
         : isVatCstForm
           ? `${form.type} Structure`
           : "GST Structure";
+
+  /** Entry No · Type · Date · Effective From — row 1 of every form. */
+  const headerFields = (
+    <>
+              {editEntryNo != null && (
+                <Field label="Entry No" w={FIELD_W.entry}>
+                  <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground @2xl/editor:h-8">
+                    {editEntryNo}
+                  </div>
+                </Field>
+              )}
+              {/* `<Field required>` draws the star from the same declaration the
+                  control's `required` holds with — the hand `*`s are gone. */}
+              <Field label="Type" w={FIELD_W.type} required htmlFor="lv-type">
+                {/* `levyInput.type` is a bare `z.enum` — mandatory. The hold itself
+                    is inert here because this Select has no blank option, so
+                    `holdEmpty` never sees an empty value; `required` is carried
+                    anyway so the `*` and the schema agree, and so it starts holding
+                    by itself the day someone adds a "— Select —" row. */}
+                <Select
+                  id="lv-type"
+                  required
+                  value={form.type}
+                  onChange={(e) => {
+                    set({ type: e.target.value as LevyType });
+                    setGstTotalPct("");
+                  }}
+                >
+                  {LEVY_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Date" w={FIELD_W.date} required htmlFor="lv-date">
+                <Input
+                  id="lv-date"
+                  type="date"
+                  // `.min(1)` in `levyInput` — see useRequiredHold.
+                  required
+                  value={form.levy_date}
+                  onChange={(e) => set({ levy_date: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </Field>
+              <Field label="Effective From" w={FIELD_W.date} required htmlFor="lv-eff">
+                <Input
+                  id="lv-eff"
+                  type="date"
+                  // `.min(1)` in `levyInput`.
+                  required
+                  value={form.effective_from}
+                  onChange={(e) => set({ effective_from: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </Field>
+    </>
+  );
 
   function acSelect(value: string, onChange: (v: string) => void, disabled: boolean): ReactNode {
     return (
@@ -392,9 +530,9 @@ export function LevyMasterScreen({
     enabled: boolean,
   ) {
     return (
-      <div className={enabled ? "" : "opacity-50"}>
+      <div className={enabled ? "shrink-0" : "shrink-0 opacity-50"}>
         <Label>{label}</Label>
-        <div className="grid grid-cols-[90px_1fr] gap-2">
+        <div className="grid gap-2" style={{ gridTemplateColumns: RATE_TRACKS }}>
           <Input
             type="number"
             min="0"
@@ -411,25 +549,52 @@ export function LevyMasterScreen({
     );
   }
 
+  /** Cess — on every GST type, with its own Percent / Flat basis. */
+  const cessRow = (
+    <div className="shrink-0">
+      <Label>Cess</Label>
+      <div className="grid gap-2" style={{ gridTemplateColumns: CESS_TRACKS }}>
+        <Select value={form.cess_mode} onChange={(e) => set({ cess_mode: e.target.value as CessMode })}>
+          {CESS_MODES.map((m) => (
+            <option key={m} value={m}>
+              {m === "percent" ? "Percent %" : "Flat"}
+            </option>
+          ))}
+        </Select>
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          value={form.cess_value}
+          onChange={(e) => set({ cess_value: e.target.value })}
+          className="text-base md:text-sm"
+        />
+        {acSelect(form.cess_ac_head, (v) => set({ cess_ac_head: v }), false)}
+      </div>
+    </div>
+  );
+
   /** Duty/TDS/Excise Duty all show 3 plain % fields under their own title —
    *  only the labels + bound values differ per type. */
   function rateFieldsBlock(title: string, fields: [string, string, (v: string) => void][]) {
     return (
-      <DetailSection label={title} cols={3}>
-        {fields.map(([label, value, onChange]) => (
-          <div key={label}>
-            <Label>{label}</Label>
-            <Input
-              type="number"
-              min="0"
-              max="100"
-              step="0.01"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              className="text-base md:text-sm"
-            />
-          </div>
-        ))}
+      <DetailSection label={title} cols={1} className={FORM_W}>
+        <FieldRow>
+          {fields.map(([label, value, onChange], i) => (
+            <Field key={label} label={label} w={FIELD_W.rate} htmlFor={`lv-rate-${i}`}>
+              <Input
+                id={`lv-rate-${i}`}
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                className="text-base md:text-sm"
+              />
+            </Field>
+          ))}
+        </FieldRow>
       </DetailSection>
     );
   }
@@ -581,144 +746,77 @@ export function LevyMasterScreen({
         onClose={() => setOpen(false)}
         title={`${editId ? "Edit" : "New"} ${sheetTitle}`}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the cards end. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${isGstForm ? GST_FORM_W : FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Header" cols={2}>
-            {editEntryNo != null && (
-              <div className="sm:col-span-2">
-                <Label>Entry No</Label>
-                <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
-                  {editEntryNo}
-                </div>
-              </div>
-            )}
-            <div className="sm:col-span-2">
-              <Label htmlFor="lv-type">
-                Type <span className="text-danger">*</span>
-              </Label>
-              {/* `levyInput.type` is a bare `z.enum` — mandatory. The hold itself
-                  is inert here because this Select has no blank option, so
-                  `holdEmpty` never sees an empty value; `required` is carried
-                  anyway so the `*` and the schema agree, and so it starts holding
-                  by itself the day someone adds a "— Select —" row. */}
-              <Select
-                id="lv-type"
-                required
-                value={form.type}
-                onChange={(e) => {
-                  set({ type: e.target.value as LevyType });
-                  setGstTotalPct("");
-                }}
-              >
-                {LEVY_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="lv-date">
-                Date <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="lv-date"
-                type="date"
-                // `.min(1)` in `levyInput` — see useRequiredHold.
-                required
-                value={form.levy_date}
-                onChange={(e) => set({ levy_date: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="lv-eff">
-                Effective From <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="lv-eff"
-                type="date"
-                // `.min(1)` in `levyInput`.
-                required
-                value={form.effective_from}
-                onChange={(e) => set({ effective_from: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </DetailSection>
+          {isGstForm ? (
+            <DetailSection label="GST Structure" cols={1} className={GST_FORM_W}>
+              <FieldRow>
+                {headerFields}
+                {(act.cgst || act.igst) && (
+                  <Field
+                    label="GST Total %"
+                    w={FIELD_W.gst_total}
+                    htmlFor="lv-gst-total"
+                  >
+                    <Input
+                      id="lv-gst-total"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      placeholder="18"
+                      title={
+                        act.igst
+                          ? "Fills IGST directly (inter-state — no split)."
+                          : "Splits evenly into CGST + SGST (intra-state). You can still override either."
+                      }
+                      value={gstTotalPct}
+                      onChange={(e) => applyGstTotal(e.target.value, form.type)}
+                      className="text-base md:text-sm"
+                    />
+                  </Field>
+                )}
+                <Field label="Description" w={FIELD_W.description} htmlFor="lv-desc">
+                  <Input
+                    id="lv-desc"
+                    value={form.description}
+                    onChange={(e) => set({ description: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </Field>
+              </FieldRow>
+              <FieldRow className="mt-3">
+                {act.cgst && rateRow("CGST %", form.cgst_pct, (v) => set({ cgst_pct: v }), form.cgst_ac_head, (v) => set({ cgst_ac_head: v }), true)}
+                {act.sgst && rateRow("SGST %", form.sgst_pct, (v) => set({ sgst_pct: v }), form.sgst_ac_head, (v) => set({ sgst_ac_head: v }), true)}
+                {act.igst && rateRow("IGST %", form.igst_pct, (v) => set({ igst_pct: v }), form.igst_ac_head, (v) => set({ igst_ac_head: v }), true)}
+                {cessRow}
+              </FieldRow>
+            </DetailSection>
+          ) : (
+            <DetailSection label="Header" cols={1} className={FORM_W}>
+              <FieldRow>
+                {headerFields}
+              </FieldRow>
+            </DetailSection>
+          )}
 
           {isVatCstForm && (
-            <DetailSection label={`${form.type} Rate`}>
+            <DetailSection label={`${form.type} Rate`} className={FORM_W}>
               {rateRow(`${form.type} %`, form.vat_cst_pct, (v) => set({ vat_cst_pct: v }), form.vat_cst_ac_head, (v) => set({ vat_cst_ac_head: v }), true)}
             </DetailSection>
           )}
 
-          {!isAnnexureForm && !isVatCstForm && (
-            <DetailSection label="Rates & account heads">
-              {(act.cgst || act.igst) && (
-                <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5">
-                  <Label className="flex items-center gap-1">
-                    GST % (auto-split)
-                    <span
-                      title={
-                        act.igst
-                          ? "Fills IGST directly (inter-state — no split)."
-                          : "Splits evenly into CGST + SGST (intra-state). You can still override either below."
-                      }
-                      className="cursor-help text-muted-foreground"
-                    >
-                      <Info className="h-3.5 w-3.5" />
-                    </span>
-                  </Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    placeholder={act.igst ? "e.g. 18 → IGST 18%" : "e.g. 18 → CGST 9% + SGST 9%"}
-                    value={gstTotalPct}
-                    onChange={(e) => applyGstTotal(e.target.value, form.type)}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-              )}
-              {rateRow("CGST %", form.cgst_pct, (v) => set({ cgst_pct: v }), form.cgst_ac_head, (v) => set({ cgst_ac_head: v }), act.cgst)}
-              {rateRow("SGST %", form.sgst_pct, (v) => set({ sgst_pct: v }), form.sgst_ac_head, (v) => set({ sgst_ac_head: v }), act.sgst)}
-              {rateRow("IGST %", form.igst_pct, (v) => set({ igst_pct: v }), form.igst_ac_head, (v) => set({ igst_ac_head: v }), act.igst)}
-
-              {/* Cess (always available for GST types) */}
-              <div>
-                <Label>Cess</Label>
-                <div className="grid grid-cols-[110px_90px_1fr] gap-2">
-                  <Select value={form.cess_mode} onChange={(e) => set({ cess_mode: e.target.value as CessMode })}>
-                    {CESS_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m === "percent" ? "Percent %" : "Flat"}
-                      </option>
-                    ))}
-                  </Select>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.cess_value}
-                    onChange={(e) => set({ cess_value: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                  {acSelect(form.cess_ac_head, (v) => set({ cess_ac_head: v }), false)}
-                </div>
-              </div>
-            </DetailSection>
-          )}
 
           {isDutyForm &&
             rateFieldsBlock("Duty components", [
@@ -743,57 +841,68 @@ export function LevyMasterScreen({
 
           {/* Annexure — shared by Duty, TDS and Excise Duty */}
           {isAnnexureForm && (
-            <DetailSection label="Annexure">
-              <div>
-                <Label>Annexure No</Label>
-                <Input
-                  uppercase
-                  value={form.annexure_no}
-                  onChange={(e) => set({ annexure_no: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div className="grid grid-cols-[1fr_90px] gap-2">
-                <LookupDialogPicker
-                  kind="duty_category"
-                  label="Category"
-                  options={dutyCategories}
-                  value={form.annexure_category_id}
-                  onChange={(v) => set({ annexure_category_id: v })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                  canDelete={perms.canDelete}
-                  isSuperAdmin={perms.isSuperAdmin}
-                  adminOnly
-                />
-                <div>
-                  <Label>Category Slno</Label>
+            <DetailSection label="Annexure" className={FORM_W}>
+              <FieldRow>
+                <Field label="Annexure No" w={FIELD_W.annexure_no} htmlFor="lv-annexure-no">
                   <Input
+                    id="lv-annexure-no"
+                    uppercase
+                    value={form.annexure_no}
+                    onChange={(e) => set({ annexure_no: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </Field>
+                {/* The picker renders its own label; the Field only sizes it. */}
+                <Field w={FIELD_W.category}>
+                  <LookupDialogPicker
+                    kind="duty_category"
+                    label="Category"
+                    options={dutyCategories}
+                    value={form.annexure_category_id}
+                    onChange={(v) => set({ annexure_category_id: v })}
+                    canCreate={perms.canCreate}
+                    canEdit={perms.canEdit}
+                    canDelete={perms.canDelete}
+                    isSuperAdmin={perms.isSuperAdmin}
+                    adminOnly
+                  />
+                </Field>
+                <Field label="Category Slno" w={FIELD_W.slno} htmlFor="lv-cat-sno">
+                  <Input
+                    id="lv-cat-sno"
                     type="number"
                     step="1"
                     value={form.annexure_category_sno}
                     onChange={(e) => set({ annexure_category_sno: e.target.value })}
                     className="text-base md:text-sm"
                   />
-                </div>
-              </div>
-              <div>
-                <Label>Calc/Exempt</Label>
-                <Select value={form.calc_exempt} onChange={(e) => set({ calc_exempt: e.target.value as CalcExemptMode })}>
-                  {CALC_EXEMPT_MODES.map((m) => (
-                    <option key={m} value={m}>
-                      {m === "calculated" ? "Calculated" : "Exempted"}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account Head</div>
-              {acSelect(form.annexure_ac_head, (v) => set({ annexure_ac_head: v }), false)}
+                </Field>
+                <Field label="Calc/Exempt" w={FIELD_W.calc} htmlFor="lv-calc">
+                  <Select
+                    id="lv-calc"
+                    value={form.calc_exempt}
+                    onChange={(e) => set({ calc_exempt: e.target.value as CalcExemptMode })}
+                  >
+                    {CALC_EXEMPT_MODES.map((m) => (
+                      <option key={m} value={m}>
+                        {m === "calculated" ? "Calculated" : "Exempted"}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </FieldRow>
+              {/* A `compact` picker draws no label of its own, so the Field's is it. */}
+              <FieldRow>
+                <Field label="Account Head" w={FIELD_W.ac_head}>
+                  {acSelect(form.annexure_ac_head, (v) => set({ annexure_ac_head: v }), false)}
+                </Field>
+              </FieldRow>
             </DetailSection>
           )}
 
-          <DetailSection label="Description">
+          {/* A sentence, so it takes the whole of FORM_W rather than a step. */}
+          {!isGstForm && (
+          <DetailSection label="Description" className={FORM_W}>
             <Textarea
               id="lv-desc"
               rows={2}
@@ -802,18 +911,8 @@ export function LevyMasterScreen({
               className="text-base md:text-sm"
             />
           </DetailSection>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
           )}
+          {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
         </div>
       </Sheet>
     </div>

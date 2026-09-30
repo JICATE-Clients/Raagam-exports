@@ -1285,8 +1285,20 @@ export function DataPicker({
           data-1p-ignore=""
           data-lpignore="true"
           data-form-type="other"
-          disabled={disabled}
-          readOnly={!fine}
+          /* LOCKED IS READ-ONLY, NOT DISABLED (client 2026-09-24, Order Info on an
+         approved order: Tab off Excess % "goes back to the top"). A locked
+         text box has always been `readOnly` and stayed on the Tab path; this
+         control was `disabled`, which takes it OFF the path — so on a view-only
+         record the cursor skipped every picker and switch, and with nothing
+         after Excess % it wrapped to the top of the section. Reachable, never
+         changeable: the value cannot move, the cursor can. An explicit
+         `disabled` from the call site still disables outright. `openList` already refuses while `disabled` (which
+             still includes the lock), so the list can never open and the ✕
+             stays inert through `FieldAffordance disabled`. */
+          disabled={ownDisabled}
+          aria-disabled={locked || undefined}
+          aria-readonly={locked || undefined}
+          readOnly={!fine || locked}
           value={triggerText}
           /**
            * AN UNFILLED PICKER SHOWS NOTHING (client 2026-08-17).
@@ -1385,6 +1397,7 @@ export function DataPicker({
             // which is what the control is for. `disabled:` still wins, below.
             "cursor-pointer",
             "disabled:cursor-not-allowed disabled:opacity-50",
+            locked && "cursor-not-allowed opacity-50",
             invalid ? "border-danger" : "border-border hover:border-primary",
             !selected && !open && "text-muted-foreground",
           )}

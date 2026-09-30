@@ -11,7 +11,11 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { Toggle } from "@/components/ui/toggle";
+import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { usePagination } from "@/lib/use-pagination";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -61,6 +65,41 @@ const BLANK = {
   has_sub_categories: false,
 };
 
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). Both sections were `cols={2}` on a
+ * full-screen sheet, so a three-value Category Type got half the pane.
+ *
+ *   Details row — item class 200 + name 200 + fabric structure 176,
+ *                 2 × 12 gaps = 600 (Yarn shows Category Type 144: 568)
+ *   Sub Categories grid — its one column 200
+ *
+ * NAME IS `party` (200px), NOT `name` (288) — the width the client asked for on
+ * Material's and Composition's Name the same day ("compact tight"). A category
+ * name is a trade word or two: COTTON SLUB, PACKING ACCESSORIES. A longer one
+ * scrolls inside the box, and `title` shows it whole on hover.
+ */
+const FIELD_W = {
+  item_class: "party", //       200px — "PACKING ACCESSORIES" is the longest class
+  made: "code", //              144px — NATURAL · MANMADE · MIXED
+  fabric_structure: "term", //  176px — picker trigger + its manage icon
+  name: "party", //             200px — see above
+} satisfies Record<string, FieldWidth>;
+
+/** Sub Categories' one column — the same kind of name as the parent's, so the
+ *  same step. Declared, so the grid hugs it instead of filling the card. */
+const SUB_NAME_W = FIELD_WIDTH_CSS.party;
+
+/**
+ * The card (and so the Sub Categories grid inside it) AND the footer's
+ * buttons, from ONE string. The widest row is Item Class · Name · Fabric
+ * Structure:
+ *
+ *   600 row + 2 × 8 card padding (compact) + 2 × 1 border = 618
+ *
+ * 39.5rem (632px) leaves room for the non-compact `p-2.5` density (+4px).
+ */
+const FORM_W = "max-w-[39.5rem]";
+
 /** A Sub Category row being edited. `id` is null for a row the user just added;
  *  carrying the real id back lets updateCategory reconcile instead of
  *  re-creating rows that materials point at (0349). */
@@ -93,6 +132,11 @@ export function CategoryMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("category");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -455,11 +499,19 @@ export function CategoryMasterScreen({
       ),
     },
     {
-      header: "Inactive",
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
+      header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>
-          {r.inactive ? "Inactive" : "Active"}
-        </StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.name}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -617,7 +669,9 @@ export function CategoryMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Category" : "New Category"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the cards end. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             {/* Says WHY Save is off, and clicking it takes the operator there.
                 A greyed button with no reason is the thing that makes people
                 hunt the form for the field they missed — which is the actual
@@ -659,11 +713,20 @@ export function CategoryMasterScreen({
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Classification" cols={2}>
+          {/* ONE CARD, ITEM CLASS AND NAME ON ONE ROW (client 2026-09-26: "item
+              class and item name one line and one row"). This was two cards —
+              Classification (Item Class · Category Type / Fabric Structure)
+              above Details (Name) — so the two fields that identify a category
+              sat on different rows. `cols={1}`: the row is a content-width
+              `FieldRow`. `align="start"`: Name renders its duplicate error and
+              the suggestion chips BELOW its control, and bottom alignment would
+              lift the fields beside it when they appear. */}
+          <DetailSection label="Details" cols={1} className={FORM_W}>
+            <FieldRow align="start">
             {/* Item Class stays a plain <Select>, unlike every other stored
                 list on this form: the FORM ITSELF branches on the chosen class.
                 `showFabricStructure` / `showSubCategories` / the Category Type
@@ -672,10 +735,7 @@ export function CategoryMasterScreen({
                 Item Classes are maintained on their own master, where the
                 questions each class asks are decided. Same reasoning as the
                 Materials form's own Item Class field. */}
-            <div>
-              <Label htmlFor="cat-item-class">
-                Item Class <span className="text-danger">*</span>
-              </Label>
+            <Field label="Item Class" w={FIELD_W.item_class} required htmlFor="cat-item-class">
               <Select
                 id="cat-item-class"
                 // Always on screen, always mandatory — `categoryInput.item_class_id`
@@ -695,87 +755,14 @@ export function CategoryMasterScreen({
                     </option>
                   ))}
               </Select>
-            </div>
+            </Field>
 
-            {/* "User Defined" (Yes/No) used to sit here for Sewing/Packing/
-                Garments. The client's answer to "what does it do?" was to remove
-                it (2026-07-30), so the question is no longer asked. The
-                categories.user_defined column is still written from `form` below
-                so a stored value round-trips untouched — no row has ever held
-                true. See doc/masters-open-questions.md #6. */}
-
-            {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only;
-                Fabric classifies via Fabric Structure below instead. */}
-            {showCategoryType && (
-              <div>
-                <Label htmlFor="cat-made">
-                  Category Type <span className="text-danger">*</span>
-                </Label>
-                <Select
-                  id="cat-made"
-                  // Bare, and that is the point: this control only EXISTS inside
-                  // `showCategoryType`, so the render condition is the gate. A
-                  // computed `required={showCategoryType}` would be a second copy
-                  // of the same condition to keep in step, and the note above
-                  // (`required-but-invisible is unsaveable`) is about exactly that
-                  // drift.
-                  required
-                  value={form.made}
-                  onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
-                  className="text-base md:text-sm"
-                >
-                  <option value=""></option>
-                  {MADE_TYPES.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
-            {/* Fabric Structure is a stored list, so it is a picker rather than a
-                <Select> — but it is SELECT-ONLY, exactly as Category Type above
-                cannot be extended (client 2026-08-11). Its three values are the
-                keys the Fabric UOM rule reads, so a fourth is a value nothing can
-                act on; `CLOSED_LOOKUP_KINDS` in extras-types.ts holds the whole
-                reasoning and the picker drops Add / Modify / Delete itself. The
-                permissions below are passed for the day the kind stops being
-                closed — they are what the rule overrides, not a contradiction. */}
-            {showFabricStructure && (
-              // id is the focus target for "jump to the first missing field" —
-              // LookupDialogPicker takes no id of its own, so the wrapper carries
-              // it and `focusFirstField` finds the trigger inside.
-              <div id="cat-fabric-structure">
-                <LookupDialogPicker
-                  kind="fabric_structure"
-                  required
-                  label="Fabric Structure"
-                  options={fabricStructures}
-                  value={form.fabric_structure_id}
-                  onChange={(v) => setForm({ ...form, fabric_structure_id: v })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                  canDelete={perms.canDelete}
-                />
-              </div>
-            )}
-            {/* "Has Sub Categories" and its Sub Categories grid used to sit HERE.
-                That was the bug (client 2026-08-01): they appeared the moment
-                General was picked — above a Name field the operator had not
-                reached yet, in an earlier section. They now live under the Name
-                in Details. Left as a signpost rather than silence, because the
-                option reads like Classification and the obvious instinct is to
-                move it back. */}
-          </DetailSection>
-
-          <DetailSection label="Details" cols={2}>
-            <div>
-              <Label htmlFor="cat-name">
-                Name <span className="text-danger">*</span>
-              </Label>
+            <Field label="Name" w={FIELD_W.name} required htmlFor="cat-name">
               <Input
                 id="cat-name"
                 uppercase
+                // The whole name on hover — a long one outruns the 200px box.
+                title={form.name || undefined}
                 // The identity — a nameless category is unusable in every picker
                 // that offers it.
                 required
@@ -796,7 +783,76 @@ export function CategoryMasterScreen({
                 duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
-            </div>
+            </Field>
+
+            {/* "User Defined" (Yes/No) used to sit here for Sewing/Packing/
+                Garments. The client's answer to "what does it do?" was to remove
+                it (2026-07-30), so the question is no longer asked. The
+                categories.user_defined column is still written from `form` below
+                so a stored value round-trips untouched — no row has ever held
+                true. See doc/masters-open-questions.md #6. */}
+
+            {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only;
+                Fabric classifies via Fabric Structure below instead. */}
+            {showCategoryType && (
+              <Field label="Category Type" w={FIELD_W.made} required htmlFor="cat-made">
+                <Select
+                  id="cat-made"
+                  // Bare, and that is the point: this control only EXISTS inside
+                  // `showCategoryType`, so the render condition is the gate. A
+                  // computed `required={showCategoryType}` would be a second copy
+                  // of the same condition to keep in step, and the note above
+                  // (`required-but-invisible is unsaveable`) is about exactly that
+                  // drift.
+                  required
+                  value={form.made}
+                  onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
+                  className="text-base md:text-sm"
+                >
+                  <option value=""></option>
+                  {MADE_TYPES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            {/* Fabric Structure is a stored list, so it is a picker rather than a
+                <Select> — but it is SELECT-ONLY, exactly as Category Type above
+                cannot be extended (client 2026-08-11). Its three values are the
+                keys the Fabric UOM rule reads, so a fourth is a value nothing can
+                act on; `CLOSED_LOOKUP_KINDS` in extras-types.ts holds the whole
+                reasoning and the picker drops Add / Modify / Delete itself. The
+                permissions below are passed for the day the kind stops being
+                closed — they are what the rule overrides, not a contradiction. */}
+            {showFabricStructure && (
+              // id is the focus target for "jump to the first missing field" —
+              // LookupDialogPicker takes no id of its own, so the wrapper carries
+              // it and `focusFirstField` finds the trigger inside. The picker
+              // renders its own label; the Field only sizes it.
+              <Field w={FIELD_W.fabric_structure}>
+              <div id="cat-fabric-structure">
+                <LookupDialogPicker
+                  kind="fabric_structure"
+                  required
+                  label="Fabric Structure"
+                  options={fabricStructures}
+                  value={form.fabric_structure_id}
+                  onChange={(v) => setForm({ ...form, fabric_structure_id: v })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                />
+              </div>
+              </Field>
+            )}
+            </FieldRow>
+            {/* "Has Sub Categories" and its Sub Categories grid sit below this
+                row, under the Name (client 2026-08-01) — the question "does
+                ELECTRICAL have types?" cannot be asked before there is an
+                ELECTRICAL. They follow the Name in DOM order, so Tab reaches
+                them after it. */}
             {/* General stores buy by category-then-type — ELECTRICAL ▸ LIGHTS /
                 FANS / SWITCHES — so annual spend can be read both per type and
                 as a category total (0349). Off by default: a category with no
@@ -813,20 +869,21 @@ export function CategoryMasterScreen({
                 and the typed rows stay in state, so clearing the Name and
                 retyping it brings them back untouched. Discarding them here
                 would make a stray Ctrl+A in the Name field destroy work, and a
-                nameless category cannot be saved anyway (Save is gated on it). */}
+                nameless category cannot be saved anyway (Save is gated on it).
+                `Toggle`, not a tick box — still a real checkbox underneath. */}
             {showSubCategories && nameEntered && (
-              <label className="flex h-9 cursor-pointer items-center gap-2 sm:col-span-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
+              <FieldRow>
+                <Toggle
+                  id="cat-has-subs"
+                  label="Has Sub Categories"
                   checked={form.has_sub_categories}
-                  onChange={(e) => toggleSubCategories(e.target.checked)}
+                  onChange={toggleSubCategories}
                 />
-                <span className="text-sm text-foreground">Has Sub Categories</span>
-              </label>
+              </FieldRow>
             )}
+            {/* Capped by the card's FORM_W (rule 4): as wide as the form. */}
             {showSubCategories && nameEntered && form.has_sub_categories && (
-              <div className="sm:col-span-2">
+              <div>
                 <ChildGrid<SubRow>
                   lockExisting
                   label="Sub Categories"
@@ -839,6 +896,7 @@ export function CategoryMasterScreen({
                   columns={[
                     {
                       header: "Name",
+                      width: SUB_NAME_W,
                       cell: (r) => (
                         <Input
                           value={r.name}
@@ -865,19 +923,8 @@ export function CategoryMasterScreen({
                 it, here or on a child grid, is putting this picker back and
                 nothing else. Levies are still pickable where they're actually
                 decided: VAT / Duty / TDS on the Vendor master. */}
+            {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
           </DetailSection>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
         </div>
       </Sheet>
     </div>

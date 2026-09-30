@@ -123,6 +123,8 @@ export function RowIconAction({
         variant="ghost"
         size={Icon ? "icon" : "sm"}
         className={cn(
+          // Same compact size as the pencil and bin beside it (COMPACT_ICON).
+          Icon && COMPACT_ICON,
           blocked
             ? "cursor-not-allowed text-muted-foreground opacity-50"
             : danger
@@ -169,6 +171,20 @@ const RowRecordContext = createContext<unknown>(undefined);
 export function useRowRecord(): unknown {
   return useContext(RowRecordContext);
 }
+
+/**
+ * THE ICON BUTTONS SHRINK INSIDE A COMPACT TABLE (client 2026-09-26, Stock
+ * Units: "ultra-compact … reducing excessive vertical row spacing").
+ *
+ * `size="icon"` is 36px on a list page, and a table row is as tall as its
+ * tallest cell — so a `compact` or `dense` table's `py-2` / `py-1` bought
+ * nothing: every row stood ~52px on the height of these three buttons. The
+ * table stamps `data-density="compact"` on itself (`DataTableFrame`) and this
+ * reads it, so EVERY compact list tightens at once and no default-density list
+ * changes. 28px (`h-7`) with the icon still 16px; a table is `md:`-and-up only,
+ * so no touch target is being cut.
+ */
+const COMPACT_ICON = "in-data-[density=compact]:h-7 in-data-[density=compact]:w-7";
 
 /**
  * Publish the row to `RowActions` beneath it.
@@ -363,11 +379,11 @@ export function RowActions({
   }
 
   return (
-    <div className="flex items-center justify-end gap-1">
+    <div className="flex items-center justify-end gap-1 in-data-[density=compact]:gap-0.5">
       {lead}
       {handleView && (
         <Tooltip label="View">
-          <Button variant="ghost" size="icon" aria-label={`View${suffix}`} onClick={handleView}>
+          <Button variant="ghost" size="icon" className={COMPACT_ICON} aria-label={`View${suffix}`} onClick={handleView}>
             <Eye />
           </Button>
         </Tooltip>
@@ -389,7 +405,7 @@ export function RowActions({
           <Button
             variant="ghost"
             size="icon"
-            className={cn(editBlocked && "cursor-not-allowed text-muted-foreground opacity-50")}
+            className={cn(COMPACT_ICON, editBlocked && "cursor-not-allowed text-muted-foreground opacity-50")}
             aria-label={
               editBlocked ? `Edit${suffix} — ${editDisabledReason}` : `Edit${suffix}`
             }
@@ -410,7 +426,7 @@ export function RowActions({
           <Link
             href={editHref!}
             aria-label={`Edit${suffix}`}
-            className={buttonClasses({ variant: "ghost", size: "icon" })}
+            className={cn(buttonClasses({ variant: "ghost", size: "icon" }), COMPACT_ICON)}
           >
             <Pencil />
           </Link>
@@ -425,6 +441,7 @@ export function RowActions({
             variant="ghost"
             size="icon"
             className={cn(
+              COMPACT_ICON,
               "text-muted-foreground",
               deleteBlocked ? "cursor-not-allowed opacity-50" : "hover:text-danger",
             )}

@@ -647,6 +647,7 @@ export function AttributePicker({
   clearable = true,
   required = false,
   invalid = false,
+  compact = false,
 }: {
   label: string;
   values: AttributeValue[];
@@ -657,6 +658,10 @@ export function AttributePicker({
   /** Set when the host grid already lists this attribute on another line — one
    *  attribute may appear only once per set (0350). */
   invalid?: boolean;
+  /** Inside a `<Field label>`: the Field draws the label and its `*`, so the
+   *  picker draws neither — otherwise the star shows twice, once on its own
+   *  line under the label (client 2026-09-29). `label` still names the dialog. */
+  compact?: boolean;
 }) {
   // No `inactive`: `attribute_values` has no disable column (it is a child of the
   // Attribute row, which is what gets switched off). Flag-less by construction —
@@ -674,6 +679,7 @@ export function AttributePicker({
       clearable={clearable}
       required={required}
       invalid={invalid}
+      compact={compact}
     />
   );
 }

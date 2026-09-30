@@ -22,6 +22,7 @@ import {
   type CustomChild,
 } from "@/lib/masters/registry";
 import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
+import { hubMark } from "@/components/masters/hub-icons";
 
 export default async function MaterialsMastersPage() {
   await requirePermission("masters", "view");
@@ -109,6 +110,11 @@ export default async function MaterialsMastersPage() {
     // are none in the registry today, so this branch is the one that keeps the
     // card honest the day one is added back.
     external: isLinkChild(c),
+    // The icon-and-tint mark, as every Associates card has (client 2026-09-26).
+    // Keyed on the slug in `MASTER_HUB_ICONS`; an unlisted slug falls back to
+    // `HubCard`'s default mark rather than breaking the tile.
+    icon: hubMark(c.slug)?.icon,
+    tone: hubMark(c.slug)?.tone,
     count: isLookupChild(c)
       ? counts.get(c.kind) ?? 0
       : isCustomChild(c)

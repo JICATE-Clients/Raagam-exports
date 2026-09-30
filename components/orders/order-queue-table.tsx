@@ -5,7 +5,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { FileText } from "lucide-react";
 import { RowActions, RowIconAction, type RowMenuItem } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 
 /**
  * THE "UPDATED" VIEW OF A WORK QUEUE, AS A TABLE (user, 2026-09-24,
@@ -38,6 +38,7 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
   menu,
   isPending = false,
   empty,
+  fit = false,
 }: {
   rows: T[];
   /** The card's heading — its title (RE No) and subtitle (customer · PO). */
@@ -69,12 +70,26 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
   menu?: (row: T) => RowMenuItem[];
   isPending?: boolean;
   empty: ReactNode;
+  /**
+   * THE TABLE IS AS WIDE AS ITS COLUMNS, not the pane (erp-table-fit skill,
+   * client 2026-09-28, Material BOM ▸ Updated). Every column but Customer is
+   * hugged — RE No, PO No and each module's own columns are codes, figures and
+   * dates — and the frame shrinks to `w-fit`. Customer, the one name, stays
+   * unsized so a long party name wraps. OPT-IN: three queues share this table
+   * and only Material BOM asked.
+   */
+  fit?: boolean;
 }) {
   const all: Column<T>[] = [
     {
       header: "RE No",
       /* A real <button>, as on Order Entry: opening the record is what the row
-         is for, and a button is a Tab stop on a list page with Enter working. */
+         is for, and a button is a Tab stop on a list page with Enter working.
+         THE SAME BLUE AND WEIGHT AS EVERY OTHER RE NO LINK (client 2026-09-28,
+         screenshot 142050) — `font-medium text-primary`, the shape All Orders,
+         CAD, Fabric Plan and Advised Items already draw. It was `font-semibold`,
+         and a same-day swap to `text-info` made it a darker blue than theirs;
+         both are undone so the RE No reads identically everywhere. */
       cell: (r) => {
         const no = heading(r).reNo;
         return (
@@ -84,7 +99,7 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
             className="rounded-sm text-left text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={`Open ${no ?? "order"}`}
           >
-            <span className="font-mono text-xs font-semibold">{no ?? "—"}</span>
+            <span className="font-mono text-xs font-medium">{no ?? "—"}</span>
           </button>
         );
       },
@@ -132,15 +147,29 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
     }),
   ];
 
-  return (
+  const table = (
     <DataTable
-      columns={withCreatedColumns(all, rows)}
+      columns={
+        fit
+          ? hugCreated(
+              withCreatedColumns(
+                all.map((c) =>
+                  c.header === "Customer" || c.header === ""
+                    ? c // the name, and the row actions (fixed width already)
+                    : { ...c, className: [c.className, HUG].filter(Boolean).join(" ") },
+                ),
+                rows,
+              ),
+            )
+          : withCreatedColumns(all, rows)
+      }
       rows={rows}
       compact
       getKey={(r) => r.id}
       empty={empty}
     />
   );
+  return fit ? <div className="w-fit max-w-full">{table}</div> : table;
 }
 
 /** A figure cell — right-aligned tabular digits, Order Entry's Quantity shape.

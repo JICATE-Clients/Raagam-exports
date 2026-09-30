@@ -11,7 +11,10 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { Sheet } from "@/components/ui/sheet";
+import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { fmtNumber } from "@/lib/format";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
@@ -43,6 +46,48 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExpo
 type LineRow = { key: string; category_id: string; description: string; mixing_pct: string };
 
 const BLANK = { item_class_id: "", short_name: "", name: "", inactive: false };
+
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). Details was `cols={2}` on a
+ * full-screen sheet, so a one-value Item Class got half the pane.
+ *
+ *   Details — item class 176 + name 200, 1 × 12 gap = 388
+ *
+ * NAME IS `party`, NOT `name` (client 2026-09-26: Name "compact tight"). It
+ * was 288px. The composed mixing ("COTTON 95% ELASTANE 5%") fits 200px; a
+ * longer blend scrolls inside the box, and `title` on the input shows the
+ * whole name on hover. Do not widen it back without the client asking.
+ */
+const FIELD_W = {
+  item_class: "term", // 176px — picker trigger + its manage icon; only FABRIC
+  name: "party", //      200px — the composed mixing; see above
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * The Details card, the Mixing grid (rule 4: a sub-grid is as wide as the
+ * FORM) AND the footer's buttons, from ONE string:
+ *
+ *   388 row + 2 × 8 card padding (compact) + 2 × 1 border = 406
+ *
+ * 26rem (416px) leaves room for the non-compact `p-2.5` density (+4px). The
+ * Mixing grid (~352px, MIX_W) sits inside it.
+ */
+const FORM_W = "max-w-[26rem]";
+
+/**
+ * The Mixing grid's columns. Yarn had no width, so it took whatever the 32rem
+ * cap left after the % column — ~350px for "COMBED COTTON". With a width on
+ * EVERY column the grid hugs its content (`hugsContent`) instead of filling:
+ *
+ *   `#` + yarn 200 + mixing 80 + ✕ ≈ 352px, inside FORM_W.
+ *
+ * Mixing % stays 5rem to match Material ▸ Mixing, the same idea on another
+ * screen — the two should not look like different products.
+ */
+const MIX_W = {
+  yarn: FIELD_WIDTH_CSS.party, // 200px — a yarn category: "POLYESTER VISCOSE"
+  mixing: "5rem", //               80px — as Material ▸ Mixing
+};
 
 /**
  * Master-detail CRUD for the legacy "Composition" master: a header (Item Class
@@ -83,6 +128,11 @@ export function CompositionMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("composition");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -339,11 +389,19 @@ export function CompositionMasterScreen({
       ),
     },
     {
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
       header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>
-          {r.inactive ? "Inactive" : "Active"}
-        </StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.name}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -472,14 +530,16 @@ export function CompositionMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Composition" : "New Composition"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the card and the grid end. Same `FORM_W`. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !form.item_class_id || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         {/* ONE COLUMN, TOP TO BOTTOM (client 2026-08-04).
@@ -497,11 +557,17 @@ export function CompositionMasterScreen({
             anyone opened the screen. Read top to bottom now: who this is, then
             what it is made of. */}
         <div className="space-y-4">
-          <DetailSection label="Details" cols={2}>
+          {/* `cols={1}`: the row inside is a content-width `FieldRow`, not a
+              twelfths track. `align="start"` because Name renders its
+              duplicate error below the control. */}
+          <DetailSection label="Details" cols={1} className={FORM_W}>
+            <FieldRow align="start">
             {/* Item Class — same LookupDialogPicker every master uses (search +
                 inline Add/Modify/Delete). Composition only ever applies to
                 Fabric, so `itemClasses` from page.tsx is already filtered to
-                that single row — the dialog just naturally lists only Fabric. */}
+                that single row — the dialog just naturally lists only Fabric.
+                The picker renders its own label; the Field only sizes it. */}
+            <Field w={FIELD_W.item_class}>
             <LookupDialogPicker
               kind="item_class"
               label="Item Class"
@@ -514,15 +580,15 @@ export function CompositionMasterScreen({
               canDelete={perms.canDelete}
               isSuperAdmin={perms.isSuperAdmin}
             />
+            </Field>
 
-            <div>
-              <Label htmlFor="cmp-name">
-                Name <span className="text-danger">*</span>
-              </Label>
+            <Field label="Name" w={FIELD_W.name} required htmlFor="cmp-name">
               <Input
                 id="cmp-name"
                 uppercase
                 value={form.name}
+                // The whole blend on hover — a long mixing outruns the 200px box.
+                title={form.name || undefined}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
                 // A composed Name is never a tab stop — the operator reaches it
@@ -546,30 +612,24 @@ export function CompositionMasterScreen({
                 duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
-            </div>
+            </Field>
+            </FieldRow>
+            {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
           </DetailSection>
 
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
-
-          {/* `inlineCards`, not `forceCards` — LAYOUT.md §6 picks the mode by
-              FIELDS PER ROW, and a mixing line has two. `forceCards` is the 6-8
-              band, so it drew each line as a stacked box: "#1", then the yarn on
-              its own line, then the % on another, ~120px of chrome for two
-              controls. This is the same grid Material ▸ Mixing renders, with the
-              same 5rem % column — the two screens edit the same idea and should
-              not look like different products. `renderMobileRow` goes with it:
-              `inlineCards` ignores it by contract, and a second copy of the
-              cells was only ever there to keep the card mode in step. */}
+          {/* A REAL TABLE (client 2026-09-26: "mixing ku table illama irukku,
+              yarn mixing kku table venum"). `inlineCards` drew a header band
+              and aligned columns but NO gridlines, so it read as loose fields
+              under grey labels — the same complaint Color/Print Details and
+              Process ▸ Sub Categories answered with `tableAlways`. It is
+              needed because FORM_W (416px) sits below ChildGrid's `@lg`
+              (512px) table breakpoint, so the plain responsive mode would fall
+              back to stacked cards. Safe because the table fits a phone:
+                `#` 2.5 + yarn 12.5 + mixing 5 + ✕ 3 = 23rem (368px) < FORM_W.
+              Every column declares a width, so the table hugs (`table-fixed`).
+              Change a MIX_W width and re-check that sum.
+              Capped to FORM_W (rule 4), so it ends where Details ends. */}
+          <div className={FORM_W}>
           <ChildGrid<LineRow>
             lockExisting
             label="Mixing"
@@ -579,17 +639,17 @@ export function CompositionMasterScreen({
               </span>
             }
             pageSize={10}
-            inlineCards
+            tableAlways
             rows={lines}
             onAdd={addLine}
             onRemove={(l) => removeLine(l.key)}
             addLabel="+ Add line"
             columns={[
-              { header: "Yarn", cell: (l) => fibreCell(l) },
+              { header: "Yarn", width: MIX_W.yarn, cell: (l) => fibreCell(l) },
               {
                 header: "Mixing %",
                 align: "center",
-                width: "5rem",
+                width: MIX_W.mixing,
                 cell: (l) => (
                   <Input
                     type="number"
@@ -604,6 +664,7 @@ export function CompositionMasterScreen({
               },
             ]}
           />
+          </div>
         </div>
       </Sheet>
     </div>

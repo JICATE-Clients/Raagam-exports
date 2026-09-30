@@ -251,6 +251,140 @@ export const ACTIVE_ENTITIES: Record<string, ActiveEntity> = {
     label: "Notify Party",
     revalidate: ["/masters", "/masters/associates", "/masters/associates/notify"],
   },
+
+  /* ── MATERIALS MODULE (client 2026-09-26: "meterial module filed kulla irukka
+   * inactive buttons lam veliya kondu varanum" — every Inactive switch inside a
+   * Materials form moves out to the listing's ⋮ menu). The 08-17 rule, arriving
+   * for the whole module at once.
+   *
+   * Columns checked against the migrations, not memory:
+   *   `is_active` — config_lookups (0218), defect_details / defect_groups
+   *                 (0333), items / uoms (0004), all in the `create table`.
+   *   `inactive`  — compositions, levies, processes (0299 rename + 0313
+   *                 add-if-missing), garment_rejection_rules, size_groups, bins
+   *                 (0305 rename), components (0299 / 0313).
+   * The config_lookups kinds are one table with five entries, so each toast
+   * names its own master ("Gauge blocked") and revalidates its own route. */
+  item_class: {
+    table: "config_lookups",
+    column: "is_active",
+    module: "masters",
+    label: "Item Class",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/item-class"],
+  },
+  count: {
+    table: "config_lookups",
+    column: "is_active",
+    module: "masters",
+    label: "Count",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/counts"],
+  },
+  yarn_purity: {
+    table: "config_lookups",
+    column: "is_active",
+    module: "masters",
+    label: "Yarn Purity",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/yarn-purities"],
+  },
+  gauge: {
+    table: "config_lookups",
+    column: "is_active",
+    module: "masters",
+    label: "Gauge",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/gauges"],
+  },
+  knitting_dia: {
+    table: "config_lookups",
+    column: "is_active",
+    module: "masters",
+    label: "Knitting Dia",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/knitting-dias"],
+  },
+  levy: {
+    table: "levies",
+    column: "inactive",
+    module: "masters",
+    label: "GST",
+    revalidate: ["/masters/materials", "/masters/materials/levies"],
+  },
+  stock_unit: {
+    table: "uoms",
+    column: "is_active",
+    module: "masters",
+    label: "Stock Unit",
+    revalidate: ["/masters/materials", "/masters/materials/stock-units"],
+  },
+  composition: {
+    table: "compositions",
+    column: "inactive",
+    module: "masters",
+    label: "Composition",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/compositions"],
+  },
+  material: {
+    table: "items",
+    column: "is_active",
+    module: "masters",
+    label: "Material",
+    revalidate: ["/masters/materials", "/masters/materials/materials"],
+  },
+  process: {
+    table: "processes",
+    column: "inactive",
+    module: "masters",
+    label: "Process",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/processes"],
+  },
+  component: {
+    table: "components",
+    column: "inactive",
+    module: "masters",
+    label: "Component",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/components"],
+  },
+  bin: {
+    table: "bins",
+    column: "inactive",
+    module: "masters",
+    label: "Bin",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/bins"],
+  },
+  garment_rejection_rule: {
+    table: "garment_rejection_rules",
+    column: "inactive",
+    module: "masters",
+    label: "Rejection Rule",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/garment-rejection-rules"],
+  },
+  defect_group: {
+    table: "defect_groups",
+    column: "is_active",
+    module: "masters",
+    label: "Defect Group",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/defect-groups"],
+  },
+  defect_detail: {
+    table: "defect_details",
+    column: "is_active",
+    module: "masters",
+    label: "Defect Detail",
+    revalidate: [
+      "/masters",
+      "/masters/materials",
+      "/masters/materials/defect-details",
+      "/masters/quality",
+      "/masters/quality/defect-details",
+    ],
+  },
+  size_group: {
+    table: "size_groups",
+    column: "inactive",
+    module: "masters",
+    label: "Size Group",
+    // `/orders/styles` too: the Style master fills a style's sizes from a group,
+    // and size-group-actions.ts revalidates it for the same reason.
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/size-groups", "/orders/styles"],
+  },
 };
 
 export type ActiveEntityKey = keyof typeof ACTIVE_ENTITIES;

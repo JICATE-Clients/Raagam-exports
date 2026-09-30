@@ -216,7 +216,25 @@ export async function getAmendmentStatusCounts(): Promise<Record<OrderQuickWord,
    * keeps being edited to stop, and it is only tolerable because the second way
    * is the first way's predecessor and disappears with it.
    */
-  console.error("[amendments] status count RPC unavailable, falling back:", error.message);
+  /* PGRST202 — "function not found": 0624 not applied yet. That is the one
+     EXPECTED failure, and a `console.warn` for it: Next's dev overlay raises
+     every server `console.error` as a red "Console Error" over the page, so
+     an anticipated, fully-handled state read as a crash (user 2026-09-24,
+     screenshot 142018). Anything else is a real fault and stays an error. */
+  if (error.code === "PGRST202") {
+    console.warn("[amendments] garment_order_status_counts() not deployed (apply 0624); counting the old way.");
+  } else if (!error.code && /fetch failed/i.test(error.message)) {
+    /* "TypeError: fetch failed" — the request never reached Supabase (network
+       blip, DNS, sleeping laptop). The fallback would go down the same wire
+       and fail three more times, so skip it and answer "nobody counted"
+       (null), which the box already renders honestly. A warn, not an error:
+       a dropped connection is not a fault in this code, and the dev overlay
+       raised it as a crash (user 2026-09-28, screenshot 092648). */
+    console.warn("[amendments] status counts skipped — Supabase unreachable:", error.message);
+    return null;
+  } else {
+    console.error("[amendments] status count RPC unavailable, falling back:", error.message);
+  }
   const one = async (w: OrderQuickWord) => {
     const where = ORDER_QUICK_WHERE[w];
     let q = s

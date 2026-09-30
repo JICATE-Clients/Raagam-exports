@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -179,6 +179,7 @@ export function ApprovalsInboxScreen({
   const columns: Column<QueueRow>[] = [
     {
       header: "Document",
+      className: HUG,
       cell: (r) => {
         const href = hrefFor(r);
         const label = workflowLabel(r.workflow_key);
@@ -193,6 +194,7 @@ export function ApprovalsInboxScreen({
     },
     {
       header: "Waiting on you for",
+      className: HUG,
       cell: (r) => (
         /* AMBER PAST A WEEK, and nothing before it. A colour on every row is a
            colour on none — the same argument `DaysOut` makes for going silent
@@ -216,6 +218,8 @@ export function ApprovalsInboxScreen({
         </span>
       ),
     },
+    /* NOT hugged (erp-table-fit): the step's own label varies most in length,
+       so it is the column left free to take the width. */
     {
       header: "Step",
       cell: (r) => (
@@ -227,6 +231,7 @@ export function ApprovalsInboxScreen({
     },
     {
       header: "Status",
+      className: HUG,
       cell: (r) =>
         r.is_overdue ? (
           <StatusPill tone="danger">Overdue</StatusPill>
@@ -324,10 +329,12 @@ export function ApprovalsInboxScreen({
           them (see the note there). `withCreatedColumns` self-hides if a future
           change stops supplying them, so this cannot decay into a dash column.
 
-          `hidden md:block` — the phone gets the card list below instead. */}
-      <div className="hidden md:block">
+          `hidden md:block` — the phone gets the card list below instead.
+          `w-fit max-w-full` — AS WIDE AS ITS COLUMNS, not the pane
+          (erp-table-fit skill, client 2026-09-28). */}
+      <div className="hidden w-fit max-w-full md:block">
         <DataTable
-          columns={withCreatedColumns(columns, filtered)}
+          columns={hugCreated(withCreatedColumns(columns, filtered))}
           rows={filtered}
           getKey={(r) => r.run_id}
           empty="Nothing is waiting on you. Requests appear here the moment a step names you as an approver."

@@ -27,6 +27,25 @@ import {
   Truck,
   Users,
   Wallet,
+  Archive,
+  Bug,
+  ChartPie,
+  CircleDot,
+  FileText,
+  FolderTree,
+  Gauge,
+  Hash,
+  Layers,
+  ListChecks,
+  Package,
+  Puzzle,
+  Ruler,
+  Shirt,
+  ShieldX,
+  SlidersHorizontal,
+  Sparkles,
+  TriangleAlert,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -144,6 +163,36 @@ export const MASTER_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   // different mark on purpose, since two Landmarks would undo the point.
   "our-banks": { icon: PiggyBank, tone: "success" },
   zones: { icon: Map, tone: "warning" },
+
+  /* ── MATERIALS (client 2026-09-26: the Materials hub should match the
+   * icon-and-tint cards Associates already draws). Keyed by the child's SLUG,
+   * the same key the Materials page passes to `hubMark`.
+   *
+   * TONES CYCLE IN GRID ORDER — primary · info · success · warning · accent ·
+   * danger, in `MATERIALS_CHILDREN`'s order. Six tones over a 3-column grid
+   * means a tile never shares a tint with the one beside it (i ± 1) or the one
+   * above / below it (i ± 3), which is the rule `ICON_TONES` states. Reorder
+   * the registry and re-deal the tones with it. */
+  "item-class": { icon: Layers, tone: "primary" },
+  attributes: { icon: SlidersHorizontal, tone: "info" },
+  levies: { icon: Percent, tone: "success" },
+  categories: { icon: FolderTree, tone: "warning" },
+  "material-attributes": { icon: ListChecks, tone: "accent" },
+  "stock-units": { icon: Ruler, tone: "danger" },
+  counts: { icon: Hash, tone: "primary" },
+  "yarn-purities": { icon: Sparkles, tone: "info" },
+  compositions: { icon: ChartPie, tone: "success" },
+  materials: { icon: Package, tone: "warning" },
+  processes: { icon: Workflow, tone: "accent" },
+  components: { icon: Puzzle, tone: "danger" },
+  "size-groups": { icon: Shirt, tone: "primary" },
+  gauges: { icon: Gauge, tone: "info" },
+  "knitting-dias": { icon: CircleDot, tone: "success" },
+  "out-document-terms": { icon: FileText, tone: "warning" },
+  bins: { icon: Archive, tone: "accent" },
+  "garment-rejection-rules": { icon: ShieldX, tone: "danger" },
+  "defect-groups": { icon: TriangleAlert, tone: "primary" },
+  "defect-details": { icon: Bug, tone: "info" },
 };
 
 /** The mark for a name, or `undefined` so the card keeps its own defaults. */

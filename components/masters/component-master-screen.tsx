@@ -11,6 +11,7 @@ import {
 } from "@/lib/masters/component-actions";
 import type { Component } from "@/lib/masters/component-types";
 import { GARMENT_COMPONENT_NAMES } from "@/lib/masters/name-vocabularies";
+import { FIELD_WIDTH } from "@/components/ui/field";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -45,7 +46,20 @@ const descriptor: SimpleMasterDescriptor<Component> = {
   entityLabel: "Component",
   ioEntityKey: "components",
   status: "active",
-  fields: [{ key: "name", label: "Name", required: true }],
+  // Block / Unblock from the listing's ⋮ menu, not the form (client
+  // 2026-09-26, the 08-17 rule for the Materials module) — see
+  // `blockEntity` in simple-master-screen.tsx.
+  blockEntity: "component",
+  fields: [
+    {
+      key: "name",
+      label: "Name",
+      required: true,
+      // COMPACT (erp-form-compact): a garment part — longest seed is
+      // "PLACKET FACING" (14 capitals) — so `term` (176px), not the whole column.
+      widthClass: FIELD_WIDTH.term,
+    },
+  ],
   fromRow: (r) => ({ name: r.short_name }),
   searchText: (r) => [r.short_name, r.description].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),

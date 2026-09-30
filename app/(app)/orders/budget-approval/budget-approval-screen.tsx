@@ -37,7 +37,7 @@ import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { Truncated } from "@/components/ui/truncated";
 import { Tooltip } from "@/components/ui/tooltip";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { cn } from "@/lib/utils";
@@ -432,6 +432,7 @@ export function BudgetApprovalScreen({
   const columns: Column<BudgetApprovalRow>[] = [
     {
       header: "Budget",
+      className: HUG,
       cell: (r) => (
         <button
           type="button"
@@ -445,23 +446,33 @@ export function BudgetApprovalScreen({
         </button>
       ),
     },
-    { header: "Group", cell: (r) => <Truncated>{r.description ?? "—"}</Truncated> },
+    /* THE ONE UNSIZED COLUMN (erp-table-fit: a list with no Name leaves the
+       column that varies most). It is under `Truncated`, which cannot wrap, so
+       it is CAPPED at 18rem instead — the rest is on hover. */
+    {
+      header: "Group",
+      cell: (r) => <Truncated className="block max-w-[18rem]">{r.description ?? "—"}</Truncated>,
+    },
     {
       header: "Date",
+      className: HUG,
       cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.budget_date)}</span>,
     },
     {
       header: "Orders",
       align: "right",
+      className: HUG,
       cell: (r) => <span className="tabular-nums text-sm">{r.order_count}</span>,
     },
     {
       header: "Lines",
       align: "right",
+      className: HUG,
       cell: (r) => <span className="tabular-nums text-sm">{r.line_count}</span>,
     },
     {
       header: "Submitted",
+      className: HUG,
       cell: (r) => (
         <span className="tabular-nums text-sm">
           {r.submitted_at ? fmtDate(r.submitted_at) : "—"}
@@ -470,6 +481,7 @@ export function BudgetApprovalScreen({
     },
     {
       header: "Status",
+      className: HUG,
       cell: (r) => (
         <StatusPill tone={budgetStatusTone(r.status)}>{budgetStatusText(r.status)}</StatusPill>
       ),
@@ -583,8 +595,11 @@ export function BudgetApprovalScreen({
           right={`${filtered.length} of ${rows.length}`}
         />
 
+        {/* AS WIDE AS ITS COLUMNS, not the pane (erp-table-fit skill, client
+            2026-09-28, screenshot 145600). */}
+        <div className="w-fit max-w-full">
         <DataTable
-          columns={withCreatedColumns(columns, filtered)}
+          columns={hugCreated(withCreatedColumns(columns, filtered))}
           rows={filtered}
           getKey={(r) => r.id}
           empty={
@@ -593,6 +608,7 @@ export function BudgetApprovalScreen({
               : "No budget matches these filters."
           }
         />
+        </div>
       </div>
 
       {/* THE ROW DECISION'S CONFIRM — one textarea and two buttons, so `sm` and

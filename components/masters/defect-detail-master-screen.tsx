@@ -10,7 +10,10 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { StatusToggle } from "@/components/ui/status-toggle";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -43,6 +46,40 @@ const BLANK = {
   is_active: true,
 };
 
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). The editor was `cols={3}` then
+ * `cols={2}` on a `size="lg"` sheet, so a two-character Category ID got ~370px
+ * and the Name ~560px, with the surplus reading as holes.
+ *
+ *   Code Components — catg 88 + id 88 + det 88 + generated 144, 3 × 12 gaps = 444
+ *   Details         — name 200 + group 176 + type 144,        2 × 12 gaps = 544
+ *
+ * The three ID parts are short codes (min 2, typed as "01" / "ST") whose
+ * two-word LABELS are wider than their values, so they take `hug` — the label
+ * floor — rather than `num`, under which "Category ID" would wrap.
+ * `name` is a defect phrase ("BROKEN STITCH"), free text: `party` rather than
+ * the full `name` step, so the Details row stays one line inside the form cap.
+ */
+const FIELD_W = {
+  catg: "hug", //        88px
+  id: "hug", //          88px
+  det: "hug", //         88px
+  generated: "code", // 144px — "AB.CD.EF", read-only
+  name: "party", //     200px — free text; scrolls past ~20 capitals
+  group: "term", //     176px — picker trigger + its manage icon
+  type: "code", //      144px
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * THE CARD AND THE FOOTER'S BUTTONS, FROM ONE STRING. The widest row is Details:
+ *
+ *   544 content + 2 × 8 card padding (compact) + 2 × 1 border = 562
+ *
+ * 36rem (576px) leaves 14px for the non-compact `p-2.5` density, so the row
+ * does not fold at one density and not the other.
+ */
+const FORM_W = "max-w-[36rem]";
+
 function autoCode(catg: string, id: string, det: string): string {
   const parts = [catg.trim(), id.trim(), det.trim()].filter(Boolean);
   return parts.join(".");
@@ -64,6 +101,11 @@ export function DefectDetailMasterScreen({
 }) {
   const router = useRouter();
   const { success, error } = useToast();
+  /** Active / Inactive from the listing's Status SWITCH (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("defect_detail");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -203,27 +245,39 @@ export function DefectDetailMasterScreen({
     return r.defect_group?.name ?? (r.defect_group_id ? groupLabel.get(r.defect_group_id) ?? "—" : "—");
   }
 
+  /* NO `text-sm` ON THE CELLS: the table is `dense` (text-xs) below and the
+     cells inherit it, the same rule `createdColumns` states for its own two.
+     `whitespace-nowrap` so each column hugs its value rather than wrapping
+     into a taller row. */
   const columns: Column<DefectDetail>[] = [
     {
       header: "Code",
       cell: (r) => (
-        <span className="font-mono text-xs">
+        <span className="whitespace-nowrap font-mono">
           {autoCode(r.defect_catg_id, r.defect_id, r.defect_det_id)}
         </span>
       ),
     },
-    { header: "Name", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
-    { header: "Defect Group", cell: (r) => <span className="text-sm">{groupName(r)}</span> },
+    { header: "Name", cell: (r) => <span className="whitespace-nowrap font-medium">{r.name}</span> },
+    { header: "Defect Group", cell: (r) => <span className="whitespace-nowrap">{groupName(r)}</span> },
     {
       header: "Type",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.defect_type ?? "—"}</span>,
+      cell: (r) => <span className="whitespace-nowrap text-muted-foreground">{r.defect_type ?? "—"}</span>,
     },
     {
+      /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
+         inactive switch pandara mari venum"). Same `StatusToggle` the
+         Country / Customer lists draw; blocking is the destructive
+         direction, so it is gated on delete, as `setMasterActive` is. */
       header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.is_active ? "success" : "danger"}>
-          {r.is_active ? "Active" : "Inactive"}
-        </StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.name}
+          disabled={!perms.canDelete || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
       ),
     },
     rowActionsColumn((r) => (
@@ -308,9 +362,14 @@ export function DefectDetailMasterScreen({
         </div>
       </div>
 
-      {/* desktop table */}
+      {/* desktop table — COMPACT (erp-form-compact rule 4, applied to the list):
+          `dense` is the primitive's own tight-row prop (px-2 py-1, text-xs).
+          FULL WIDTH, COLUMNS SPREAD (client 2026-09-29, every Master Data
+          list): it was `md:w-fit`, hugging its seven columns; the table now
+          fills the pane and shares the spare width among them. */}
       <div className="hidden md:block">
         <DataTable
+          dense
           columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
           paginate={false}
@@ -366,132 +425,110 @@ export function DefectDetailMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Defect Detail" : "New Defect Detail"}
         footer={
-          <>
+          /* `mr-auto` inside the footer's `justify-end` row parks this box at the
+             left, so the buttons end where the cards above them end rather than
+             at the far edge of the pane. Same `FORM_W` as the cards. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !canSave} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
+        {/* `cols={1}` on both cards: the rows inside are content-width
+            `FieldRow`s, not a twelfths track. Widths from FIELD_W above. */}
         <div className="space-y-4">
-          <DetailSection label="Code Components" cols={3}>
-            <div>
-              <Label htmlFor="dd-catg">
-                Category ID <span className="text-danger">*</span>
-              </Label>
-              <Input
-                uppercase
-                id="dd-catg"
-                // All four fields on this screen drew a `*` by hand and none of
-                // them carried `required`, so the operator saw four mandatory
-                // markers and Tab walked past every one. The prop is what makes
-                // the star and the hold the same declaration.
-                required
-                value={form.defect_catg_id}
-                onChange={(e) => set({ defect_catg_id: e.target.value })}
-                className="text-base md:text-sm"
-                minLength={2}
-              />
-            </div>
-            <div>
-              <Label htmlFor="dd-id">
-                Defect ID <span className="text-danger">*</span>
-              </Label>
-              <Input
-                uppercase
-                id="dd-id"
-                required
-                value={form.defect_id}
-                onChange={(e) => set({ defect_id: e.target.value })}
-                className="text-base md:text-sm"
-                minLength={2}
-              />
-            </div>
-            <div>
-              <Label htmlFor="dd-det">
-                Detail ID <span className="text-danger">*</span>
-              </Label>
-              <Input
-                uppercase
-                id="dd-det"
-                required
-                value={form.defect_det_id}
-                onChange={(e) => set({ defect_det_id: e.target.value })}
-                className="text-base md:text-sm"
-                minLength={2}
-              />
-            </div>
-            {displayCode && (
-              <div className="sm:col-span-2 lg:col-span-3">
-                <Label>Generated Code</Label>
-                <div className="rounded-md border border-border bg-surface-muted px-3 py-2 font-mono text-sm text-muted-foreground">
-                  {displayCode}
+          <DetailSection label="Code Components" cols={1} className={FORM_W}>
+            {/* `<Field required>` draws the star from the same declaration the
+                control's `required` holds the cursor with — never a hand `*`. */}
+            <FieldRow>
+              <Field label="Category ID" w={FIELD_W.catg} required htmlFor="dd-catg">
+                <Input
+                  uppercase
+                  id="dd-catg"
+                  required
+                  value={form.defect_catg_id}
+                  onChange={(e) => set({ defect_catg_id: e.target.value })}
+                  minLength={2}
+                />
+              </Field>
+              <Field label="Defect ID" w={FIELD_W.id} required htmlFor="dd-id">
+                <Input
+                  uppercase
+                  id="dd-id"
+                  required
+                  value={form.defect_id}
+                  onChange={(e) => set({ defect_id: e.target.value })}
+                  minLength={2}
+                />
+              </Field>
+              <Field label="Detail ID" w={FIELD_W.det} required htmlFor="dd-det">
+                <Input
+                  uppercase
+                  id="dd-det"
+                  required
+                  value={form.defect_det_id}
+                  onChange={(e) => set({ defect_det_id: e.target.value })}
+                  minLength={2}
+                />
+              </Field>
+              {/* Always rendered (a dash until a part is typed): appearing on
+                  the first keystroke used to reflow the card under the cursor. */}
+              <Field label="Generated Code" w={FIELD_W.generated}>
+                <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 font-mono text-sm text-muted-foreground @2xl/editor:h-8">
+                  {displayCode || "—"}
                 </div>
-              </div>
-            )}
+              </Field>
+            </FieldRow>
           </DetailSection>
 
-          <DetailSection label="Details" cols={2}>
-            <div>
-              <Label htmlFor="dd-name">
-                Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="dd-name"
-                uppercase
-                required
-                value={form.name}
-                onChange={(e) => set({ name: e.target.value })}
-                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
-                onKeyDown={nameSuggest.onKeyDown}
-                className="text-base md:text-sm"
-                {...dupFieldProps(dupError, "dd-name")}
-              />
-              <DuplicateError error={dupError} id="dd-name" />
-              <SpellSuggestHint
-                suggestions={nameSuggest.suggestions}
-                existing={nameSuggest.existing}
-                activeIndex={nameSuggest.activeIndex}
-                duplicate={!!dupError}
-                onApply={(v) => set({ name: v })}
-              />
-            </div>
-            <div>
-              <DefectGroupPicker
-                groups={defectGroups}
-                value={form.defect_group_id}
-                onChange={(v) => set({ defect_group_id: v })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-              />
-            </div>
-            <div>
-              <Label htmlFor="dd-type">Defect Type</Label>
-              <Input
-                uppercase
-                id="dd-type"
-                value={form.defect_type}
-                onChange={(e) => set({ defect_type: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
+          <DetailSection label="Details" cols={1} className={FORM_W}>
+            <FieldRow>
+              <Field label="Name" w={FIELD_W.name} required htmlFor="dd-name">
+                <Input
+                  id="dd-name"
+                  uppercase
+                  required
+                  value={form.name}
+                  onChange={(e) => set({ name: e.target.value })}
+                  // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                  onKeyDown={nameSuggest.onKeyDown}
+                  {...dupFieldProps(dupError, "dd-name")}
+                />
+                <DuplicateError error={dupError} id="dd-name" />
+                <SpellSuggestHint
+                  suggestions={nameSuggest.suggestions}
+                  existing={nameSuggest.existing}
+                  activeIndex={nameSuggest.activeIndex}
+                  duplicate={!!dupError}
+                  onApply={(v) => set({ name: v })}
+                />
+              </Field>
+              {/* DefectGroupPicker renders its own label; the Field only sizes it. */}
+              <Field w={FIELD_W.group}>
+                <DefectGroupPicker
+                  groups={defectGroups}
+                  value={form.defect_group_id}
+                  onChange={(v) => set({ defect_group_id: v })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                />
+              </Field>
+              <Field label="Defect Type" w={FIELD_W.type} htmlFor="dd-type">
+                <Input
+                  uppercase
+                  id="dd-type"
+                  value={form.defect_type}
+                  onChange={(e) => set({ defect_type: e.target.value })}
+                />
+              </Field>
+            </FieldRow>
+            {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
           </DetailSection>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={!form.is_active}
-                onChange={(e) => set({ is_active: !e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
         </div>
       </Sheet>
     </div>

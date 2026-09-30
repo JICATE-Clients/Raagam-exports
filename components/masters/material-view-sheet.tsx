@@ -238,7 +238,8 @@ function ValueSection({ label, pairs }: { label: string; pairs: [string, string 
 function Pairs({ pairs }: { pairs: [string, string | null][] }) {
   const shown = pairs.filter(([, v]) => v != null && String(v).trim() !== "");
   return (
-    <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+    // Label column sized to its longest label (≤12rem), same as `ViewPairs`.
+    <dl className="grid grid-cols-[fit-content(12rem)_minmax(0,1fr)] gap-x-6 gap-y-1.5 text-sm">
       {shown.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="truncate text-muted-foreground">{k}</dt>

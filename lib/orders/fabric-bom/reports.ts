@@ -1632,8 +1632,13 @@ export async function yarnFabricRequirementReport(
    * that reads the figures, not the printed page: the T&A tracker, the budget
    * pull and the fabric requirement never touch `allocation` (2026-09-24,
    * "T&A tab takes 2 seconds"). The section then says why it is absent.
+   *
+   * `register` — an Entry Register the caller already started for this same
+   * BOM, reused instead of building a second one. The Reports sheet prints the
+   * register AND this report, and used to build the register twice per open
+   * (2026-09-29, `lib/orders/fabric-bom/reports-sheet.ts`).
    */
-  opts: { allocation?: boolean } = {},
+  opts: { allocation?: boolean; register?: ReturnType<typeof fabricBomEntryRegister> } = {},
 ): Promise<YarnFabricRequirementReport | ReportRefusal> {
   /* THE REGISTER STARTS FIRST AND IS AWAITED LAST (2026-09-24, "T&A tab takes
      2 seconds" — the Fabric BOM T&A tab reads this report). It needs nothing
@@ -1644,7 +1649,7 @@ export async function yarnFabricRequirementReport(
   const registerP: ReturnType<typeof fabricBomEntryRegister> =
     opts.allocation === false
       ? Promise.resolve({ refused: "Fabric Allocation not loaded for this reader" })
-      : fabricBomEntryRegister(bomId);
+      : (opts.register ?? fabricBomEntryRegister(bomId));
   registerP.catch(() => {});
 
   const s = await createClient();

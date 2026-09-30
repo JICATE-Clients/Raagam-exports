@@ -6,6 +6,7 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { FIELD_WIDTH } from "@/components/ui/field";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -18,6 +19,10 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
   entityLabel: "Count",
   ioEntityKey: "counts",
   status: "active",
+  // Block / Unblock from the listing's ⋮ menu, not the form (client
+  // 2026-09-26, the 08-17 rule for the Materials module) — see
+  // `blockEntity` in simple-master-screen.tsx.
+  blockEntity: "count",
   fields: [
     {
       key: "name",
@@ -25,6 +30,9 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
       required: true,
       format: "yarn_count",
       placeholder: "e.g. 10'S, 2/10'S, 40 DINER",
+      // COMPACT (erp-form-compact): a count is a short trade word ("2/40'S",
+      // "40 DINER"), so `term` (176px) rather than the whole Name column.
+      widthClass: FIELD_WIDTH.term,
     },
   ],
   // Created Date / Created User are appended by the engine — see

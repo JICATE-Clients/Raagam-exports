@@ -6,13 +6,14 @@ import { cn } from "@/lib/utils";
 import { normName } from "@/lib/masters/name-dictionary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
@@ -50,9 +51,53 @@ type ChildRow = { key: string; size_name: string };
 
 const BLANK = { size_group_no: "", size_group_name: "", inactive: false };
 
+/**
+ * WIDTHS, NOT TWELFTHS (erp-form-compact). Name was `size="lg"` — half an
+ * ~1180px sheet for "MENS TOP S-XXL" — and the Sizes grid spread one column
+ * holding "S" / "XXL" across the full sheet.
+ */
+const FIELD_W = {
+  name: "party", // 200px — a group label, ~15 capitals ("MENS TOP S-XXL")
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * One size per row: S, XL, 3-4Y — at most ~4 capitals, so `hug` (88px), the
+ * vocabulary's floor. It was `code` (144px), which left each box two-thirds
+ * empty and the card wide around it (client 2026-09-28: "size input boxes are
+ * taking up too much width").
+ */
+const SIZE_W = FIELD_WIDTH_CSS.hug;
+
+/**
+ * NAME AND SIZES ON ONE LINE (client 2026-09-26: "i want same line name and
+ * size filed"). The two cards sit side by side, EACH AT ITS OWN WIDTH — they
+ * were one shared 16rem, which was the Name card's width forced onto a card
+ * holding an 88px box (client 2026-09-28):
+ *
+ *   Details — name 200 + 2 × 10 card padding + 2 × 1 border         = 222 → 16rem
+ *   Sizes   — row: # 16 + 8 + size 88 + 8 + ✕ 32 + 2 × 6 + 2 × 1   = 166
+ *             + the same card chrome (20 + 2)                        = 188 → 12rem
+ *
+ * `max-w-full` lets a phone take the whole width, where the flex row wraps the
+ * Sizes card under the Details card.
+ */
+const DETAILS_W = "w-[16rem] max-w-full";
+const SIZES_W = "w-[12rem] max-w-full";
+
+/**
+ * THE FOOTER'S BUTTONS END WHERE THE PAIR ENDS: the two cards + the 12px gap
+ * between them = 256 + 12 + 192 = 460 → 29rem (464px).
+ */
+const FORM_W = "max-w-[29rem]";
+
 export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perms: Perms }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
+  /** Block / Unblock in the listing's ⋮ menu (client 2026-09-26: every
+   *  Materials-module Inactive switch moves out of the form, the 08-17
+   *  rule). `form.inactive` still round-trips on save, so editing a
+   *  blocked row does not switch it back on. */
+  const { setStatus, isPending: statusPending } = useBlockAction("size_group");
   const [isPending, start] = useTransition();
 
   const [open, setOpen] = useState(false);
@@ -175,6 +220,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
   const childColumns: ChildGridColumn<ChildRow>[] = [
     {
       header: "Size",
+      width: SIZE_W,
       required: true,
       cell: (r) => {
         const dup = duplicateSizeKeys.has(normName(r.size_name));
@@ -286,7 +332,13 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
         columns={columns}
         addLabel="+ Add Size Group"
         onAdd={openAdd}
-        actions={{ onEdit: openEdit, onDelete: remove }}
+        actions={{
+          onEdit: openEdit,
+          onDelete: remove,
+          // The shell draws the Status column as a SWITCH when this is declared
+          // (client 2026-09-26) — same as Country / Customer.
+          onStatusChange: (r, active) => setStatus(r, active, { label: r.size_group_name }),
+        }}
         rowLabel={(r) => r.size_group_name ?? "size group"}
         mobile={{
           title: (r) => r.size_group_name ?? "—",
@@ -297,7 +349,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
               .join(" · "),
         }}
         empty="No size groups yet. Use “+ Add Size Group” to create the first."
-        isPending={isPending}
+        isPending={isPending || statusPending}
       />
 
       <Sheet
@@ -305,21 +357,26 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
         onClose={() => setOpen(false)}
         title={editId ? "Edit Size Group" : "New Size Group"}
         footer={
-          <>
+          /* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the Sizes card ends — FORM_W is the pair's width. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !canSave} onClick={submit}>
               {isPending ? "Saving…" : "Save size group"}
             </Button>
-          </>
+          </div>
         }
       >
-        <DetailSection label="Details" cols={12}>
-          <FieldGrid>
+        {/* Side by side, top-aligned: the Sizes card grows downward as rows are
+            added, and the Details card stays put beside its first row. */}
+        <div className="flex flex-wrap items-start gap-3">
+        <DetailSection label="Details" cols={1} className={DETAILS_W}>
+          <FieldRow>
             {/* No code field — codes are derived from the name and hidden from
                 the UI (client 2026-07-23). */}
-            <Field label="Name" required size="lg" htmlFor="sg-name">
+            <Field label="Name" required w={FIELD_W.name} htmlFor="sg-name">
               <Input
                 id="sg-name"
                 uppercase
@@ -339,26 +396,13 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
                 onApply={(v) => setForm((f) => ({ ...f, size_group_name: v }))}
               />
             </Field>
-            {/* Inactive is edit-only: a group being created is not one being
-                switched off. */}
-            {editId && (
-              <Field label="Inactive" size="sm" htmlFor="sg-inactive">
-                <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
-                  <input
-                    id="sg-inactive"
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.inactive}
-                    onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">Yes</span>
-                </label>
-              </Field>
-            )}
-          </FieldGrid>
+          </FieldRow>
+          {/* No Inactive switch — Block / Unblock is the listing's ⋮ menu now (`useBlockAction` above, client 2026-09-26). */}
         </DetailSection>
 
-        <DetailSection label="Sizes">
+        {/* Capped to the form (rule 4): a one-column grid of "S" / "XL" does not
+            get the sheet's width. The column's own `width` is SIZE_W. */}
+        <DetailSection label="Sizes" className={SIZES_W}>
           {/* `frameless` — the section already draws the border and names it.
               Row ORDER is the size order, so no sort column: the operator reads
               S · M · L down the grid and that is what a style gets filled with. */}
@@ -373,6 +417,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
             addLabel="+ Add size"
           />
         </DetailSection>
+        </div>
       </Sheet>
     </>
   );
