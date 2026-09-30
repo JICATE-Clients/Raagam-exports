@@ -1,10 +1,23 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Ban, Check, ChevronRight, Clock, RotateCcw, UserCog, X, AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  Check,
+  ChevronRight,
+  Clock,
+  FileText,
+  RotateCcw,
+  UserCog,
+  X,
+} from "lucide-react";
+import { Card, CardBody } from "@/components/ui/card";
+import { StatusPill } from "@/components/ui/status-pill";
+import { Truncated } from "@/components/ui/truncated";
 import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
 import { OrderFullDataSheet } from "@/components/approvals/order-full-data-sheet";
-import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtFixed, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   BUDGET_SOURCE_LABELS,
@@ -15,26 +28,37 @@ import {
   type Refusal,
 } from "@/lib/orders/budget/totals";
 import { MARGIN_TARGET_PCT, bucketLabelOfSource, perPiece } from "@/lib/orders/budget/breakdown";
+import { budgetStatusText, budgetStatusTone, type BudgetStatus } from "@/lib/orders/budget/types";
 import type { OrderApprovalCard } from "@/lib/approvals/order-approval-cards";
 import type { EventAction, TimelineRow } from "@/lib/approvals/types";
 
 /**
- * THE DESKTOP APPROVAL PAGE'S BODY (user 2026-09-30, screenshots 3162 / 3163,
- * canvas "Approval Desktop Layout"). The phone card stretched to 36rem left
- * half the full-page sheet empty, and the same figures were printed twice
- * ("Figures" and "As submitted"), so the decision sat three screens down.
+ * THE DESKTOP APPROVAL PAGE, IN THE STAFF PROFILE'S LAYOUT (user 2026-09-30:
+ * "the staff profile view UI looks a good fit for this desktop approval";
+ * canvas "Approval Desktop Layout", board B). The same bento the HR ▸ Staff
+ * details page uses (`hr/_person/person-profile-view.tsx`), so the approver
+ * reads an order the way they already read a person:
  *
- * Laid out to fit one desktop screen, two rows:
- *   Order facts · Where the sales go (the glass ring, wide) · Margin vs 15%
- *   Cost lines — every source, its chart group, amount, % of sales, per piece
- * The approval steps are one line (`ApprovalStrip`) and the decision is in the
- * sheet's footer, so neither needs scrolling to.
+ *   profile card      → the ORDER: initials tile, RE No, customer, version and
+ *                       status pills, then its key facts
+ *   personal info     → Order Info: merchandiser, submitted, full order data
+ *   completeness rings→ four tiles: Sales · Total cost · Profit · margin ring
+ *   pay structure     → where the sales go (the glass ring, `wide`)
+ *   documents         → the cost lines, every source with its chart group
+ *   calendar          → the approval trail
+ *   payroll summary   → per-piece summary: sold at, costs by group, profit
  *
- * Every figure comes from what the page already holds — the live `totals` and
- * the submitted `card` — and a refusal prints its reason in place of a number:
- * an MD must never approve a "0" that really means "not known".
+ * The decision (Approve · Request Rework) is the page's header action, where
+ * "Edit staff" sits on the profile; the comment is asked for by its confirm
+ * step. The override warning moves to the right column (`overrideNote`).
+ *
+ * Every figure is the page's own — the live `totals` and the submitted `card` —
+ * and a refusal prints its reason in place of a number: an MD must never
+ * approve a "0" that really means "not known".
  */
 type BudgetFacts = {
+  code: string | null;
+  status: BudgetStatus;
   currency_code: string | null;
   exchange_rate: number | null;
   budget_date: string | null;
@@ -42,219 +66,347 @@ type BudgetFacts = {
   decided_at: string | null;
 };
 
+/* Two decimals everywhere a figure sits in a column — "5,00,304.00" beside
+   "2,13,518.22", never "5,00,304" (screenshot 3166). */
 const figText = (v: number | Refusal | null | undefined, suffix = "") =>
-  v == null ? "—" : isRefusal(v) ? v.refused : `${fmtNumber(v)}${suffix}`;
+  v == null ? "—" : isRefusal(v) ? v.refused : `${fmtFixed(v)}${suffix}`;
+
+/** "AARSAN AMERICAS LLC" → "AA" — the profile tile's letters, for a customer. */
+const initialsOf = (s: string | null | undefined) =>
+  (s ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
 
 export function ApprovalOverview({
   card,
   budget,
   totals,
-  revision = false,
+  timeline,
+  names,
+  override = false,
+  children,
 }: {
   card: OrderApprovalCard | undefined;
   budget: BudgetFacts;
   totals: BudgetTotals;
-  revision?: boolean;
+  /** The run's steps, or null when the budget has no run. */
+  timeline: TimelineRow[] | null;
+  names: Record<string, string>;
+  /** The viewer would act as an override — said in the right column. */
+  override?: boolean;
+  /** Sections that follow the cost lines in the middle column (a revision's
+   *  comparison, an unresolved order, the legacy decide block). */
+  children?: ReactNode;
 }) {
   const [fullOpen, setFullOpen] = useState(false);
   const soId = card?.salesOrderIds[0] ?? null;
+  const revision = !!card?.revision;
   const qty = card?.orderQty ?? null;
   const unit = card?.orderUnit && !isRefusal(card.orderUnit) ? ` ${card.orderUnit}` : "";
   const profit = suppressedRefusal(totals.profit, totals);
   const pct = suppressedRefusal(totals.profitPct, totals);
   const bd = card?.breakdown;
+  const reNo = card?.reNos.join(", ") || `Budget ${budget.code ?? ""}`;
 
-  /* THE COST LINES — every source that carries an amount, in the budget's own
-     source order. `% of sales` needs a known, positive sales value. */
   const sales = totals.sales;
   const salesKnown = typeof sales === "number" && sales > 0;
   const lines = (Object.keys(BUDGET_SOURCE_LABELS) as BudgetSource[])
     .filter((k) => k !== "income" && totals.costBySource[k] !== 0)
     .map((k) => ({ key: k, amount: totals.costBySource[k] }));
   const share = (v: number | Refusal) =>
-    isRefusal(v) ? "—" : salesKnown ? `${fmtNumber((v / (sales as number)) * 100)}%` : "—";
+    isRefusal(v) ? "—" : salesKnown ? `${fmtFixed((v / (sales as number)) * 100)}%` : "—";
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[17rem_minmax(0,1fr)_19rem]">
-      {/* 1. THE ORDER */}
-      <Box title="Order">
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <Fact label="Qty" value={qty == null ? null : isRefusal(qty) ? qty.refused : `${fmtNumber(qty)}${unit}`} />
-          <Fact label="Earliest ship" value={card?.earliestShipment ? fmtDate(card.earliestShipment) : null} />
-          <Fact label="Merchandiser" value={card?.merchandiser ?? null} span />
-          <Fact
-            label="Currency"
-            value={budget.currency_code ? `${budget.currency_code} @ ${fmtNumber(budget.exchange_rate ?? 1)}` : null}
-          />
-          <Fact label="Budget date" value={budget.budget_date ? fmtDate(budget.budget_date) : null} />
-          <Fact
-            label="Submitted"
-            value={
-              budget.submitted_at
-                ? `${fmtDateTime(budget.submitted_at)}${card?.submittedBy ? ` · ${card.submittedBy}` : ""}`
-                : null
-            }
-            span
-          />
-          {budget.decided_at && <Fact label="Decided" value={fmtDateTime(budget.decided_at)} span />}
-        </dl>
-        {soId && (
-          <button
-            type="button"
-            onClick={() => setFullOpen(true)}
-            className="mt-auto inline-flex items-center justify-center gap-1 rounded-md border border-border px-3 py-2 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            View full order data
-            <ChevronRight className="size-3.5" aria-hidden />
-          </button>
-        )}
-        {soId && fullOpen && (
-          <OrderFullDataSheet
-            open
-            onClose={() => setFullOpen(false)}
-            salesOrderId={soId}
-            title={card?.reNos.join(", ") ?? ""}
-            revision={revision}
-          />
-        )}
-      </Box>
+    <div className="grid items-start gap-3 xl:grid-cols-12">
+      {/* ═══ LEFT — the order's identity, as the profile card ═══
+          ONE card, identity beside the tile rather than stacked under it
+          (screenshot 3166): the profile's two tall cards pushed this column
+          past the screen on their own. */}
+      <div className="xl:col-span-3">
+        <Card>
+          <CardBody className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="grid size-14 shrink-0 place-items-center rounded-2xl border border-border bg-primary-soft text-lg font-bold text-primary">
+                {initialsOf(card?.customer) || <FileText aria-hidden className="size-6" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-mono text-sm font-semibold text-foreground">{reNo}</div>
+                <Truncated text={card?.customer ?? "—"} className="block text-xs text-muted-foreground" />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <StatusPill tone="info">
+                {card?.revision
+                  ? `${card.revision.entryNo ?? "Revision"}${card.revision.revNo ? ` · Rev #${card.revision.revNo}` : ""}`
+                  : "V0 · First budget"}
+              </StatusPill>
+              <StatusPill tone={budgetStatusTone(budget.status)}>{budgetStatusText(budget.status)}</StatusPill>
+            </div>
+            <dl className="divide-y divide-border rounded-lg border border-border">
+              {(
+                [
+                  ["Style", card?.styles ?? null],
+                  ["Order qty", qty == null ? null : isRefusal(qty) ? qty.refused : `${fmtNumber(qty)}${unit}`],
+                  ["Earliest ship", card?.earliestShipment ? fmtDate(card.earliestShipment) : null],
+                  [
+                    "Currency",
+                    budget.currency_code ? `${budget.currency_code} @ ${fmtFixed(budget.exchange_rate ?? 1)}` : null,
+                  ],
+                  [
+                    "Budget",
+                    `No. ${budget.code ?? "—"}${budget.budget_date ? ` · ${fmtDate(budget.budget_date)}` : ""}`,
+                  ],
+                  ["Merchandiser", card?.merchandiser ?? null],
+                  ["Submitted by", card?.submittedBy ?? null],
+                  ["Submitted", budget.submitted_at ? fmtDateTime(budget.submitted_at) : null],
+                  ...(budget.decided_at ? ([["Decided", fmtDateTime(budget.decided_at)]] as [string, string][]) : []),
+                ] as [string, string | null][]
+              ).map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                  <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
+                  <dd className="m-0 min-w-0 text-right">
+                    <Truncated text={value ?? "—"} className="block text-xs font-semibold text-foreground" />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {soId && (
+              <button
+                type="button"
+                onClick={() => setFullOpen(true)}
+                className="flex w-full items-center justify-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                View full order data
+                <ChevronRight className="size-3.5" aria-hidden />
+              </button>
+            )}
+            {soId && fullOpen && (
+              <OrderFullDataSheet
+                open
+                onClose={() => setFullOpen(false)}
+                salesOrderId={soId}
+                title={reNo}
+                revision={revision}
+              />
+            )}
+          </CardBody>
+        </Card>
+      </div>
 
-      {/* 2. WHERE THE SALES GO — the same glass ring as the phone card, wide. */}
-      <div className="min-w-0">
+      {/* ═══ MIDDLE — tiles, the ring, the cost lines ═══ */}
+      <div className="min-w-0 space-y-3 xl:col-span-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Tile label="Sales value" value={figText(totals.sales)} sub={perPcText(perPiece(totals.sales, qty))} tone="text-primary" />
+          <Tile label="Total cost" value={figText(totals.cost)} sub={perPcText(perPiece(totals.cost, qty))} />
+          <Tile label="Profit" value={figText(profit)} sub={perPcText(perPiece(profit, qty))} tone={signTone(profit)} />
+          <MarginTile pct={pct} />
+        </div>
+
         {bd?.ok ? (
           <BudgetBreakdownChart current={bd.current} compare={false} wide />
         ) : (
-          <Box title="Where the sales go">
-            <p className="text-sm text-warning">Breakdown unavailable{bd && !bd.ok ? ` — ${bd.refused}` : ""}</p>
-          </Box>
+          <Card>
+            <CardBody>
+              <p className="text-sm text-warning">Breakdown unavailable{bd && !bd.ok ? ` — ${bd.refused}` : ""}</p>
+            </CardBody>
+          </Card>
         )}
+
+        <Card>
+          <CardBody className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">Cost Lines</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th scope="col" className="py-1.5 pr-3 text-left font-semibold">Head</th>
+                    <th scope="col" className="px-3 py-1.5 text-left font-semibold">Group</th>
+                    <th scope="col" className="px-3 py-1.5 text-right font-semibold">Amount</th>
+                    <th scope="col" className="px-3 py-1.5 text-right font-semibold">% sales</th>
+                    <th scope="col" className="py-1.5 pl-3 text-right font-semibold">Per pc</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {lines.map((l) => (
+                    <tr key={l.key} className="border-b border-border/60">
+                      <th scope="row" className="py-1.5 pr-3 text-left font-normal">{BUDGET_SOURCE_LABELS[l.key]}</th>
+                      <td className="px-3 py-1.5 text-muted-foreground">{bucketLabelOfSource(l.key) ?? "—"}</td>
+                      <td className={cn("px-3 py-1.5 text-right", isRefusal(l.amount) && "text-danger")}>{figText(l.amount)}</td>
+                      <td className="px-3 py-1.5 text-right">{share(l.amount)}</td>
+                      <td className="py-1.5 pl-3 text-right">{figText(perPiece(l.amount, qty))}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-surface-muted font-semibold">
+                    <th scope="row" className="py-1.5 pr-3 text-left">Total cost</th>
+                    <td className="px-3 py-1.5" />
+                    <td className="px-3 py-1.5 text-right">{figText(totals.cost)}</td>
+                    <td className="px-3 py-1.5 text-right">{share(totals.cost)}</td>
+                    <td className="py-1.5 pl-3 text-right">{figText(perPiece(totals.cost, qty))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {totals.unpriced.length > 0 && (
+              <p className="text-xs text-danger">
+                {totals.unpriced.length} cost {totals.unpriced.length === 1 ? "line is" : "lines are"} unpriced and
+                excluded from these figures.
+              </p>
+            )}
+            {totals.pending.length > 0 && (
+              <p className="text-xs text-danger">
+                {totals.pending.length} {totals.pending.length === 1 ? "line is" : "lines are"} waiting on a sales
+                value.
+              </p>
+            )}
+          </CardBody>
+        </Card>
+
+        {children}
       </div>
 
-      {/* 3. THE MARGIN, AGAINST THE LINE */}
-      <Box title="Margin">
-        <MarginGauge pct={pct} />
-        <dl className="grid grid-cols-3 gap-x-3 gap-y-3 border-t border-border pt-3">
-          <Fact label="Sales" value={figText(totals.sales)} />
-          <Fact label="Total cost" value={figText(totals.cost)} />
-          <Fact label="Profit" value={figText(profit)} tone={signTone(profit)} />
-          <Fact label="Sales / pc" value={figText(perPiece(totals.sales, qty))} />
-          <Fact label="Cost / pc" value={figText(perPiece(totals.cost, qty))} />
-          <Fact label="Profit / pc" value={figText(perPiece(profit, qty))} tone={signTone(profit)} />
-        </dl>
-      </Box>
+      {/* ═══ RIGHT — the trail, the per-piece summary, the override ═══ */}
+      <div className="space-y-3 xl:col-span-3">
+        {timeline && timeline.length > 0 && (
+          <Card>
+            <CardBody className="space-y-3">
+              <h2 className="text-sm font-semibold text-foreground">Approval</h2>
+              <ApprovalTrail
+                rows={timeline}
+                names={names}
+                submitted={
+                  budget.submitted_at
+                    ? `${card?.submittedBy ? `${card.submittedBy} · ` : ""}${fmtDateTime(budget.submitted_at)}`
+                    : null
+                }
+              />
+            </CardBody>
+          </Card>
+        )}
 
-      {/* 4. THE COST LINES, full width */}
-      <Box title="Cost lines" className="lg:col-span-3">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-                <th scope="col" className="py-2 pr-3 text-left font-semibold">Head</th>
-                <th scope="col" className="px-3 py-2 text-left font-semibold">Group</th>
-                <th scope="col" className="px-3 py-2 text-right font-semibold">Amount</th>
-                <th scope="col" className="px-3 py-2 text-right font-semibold">% of sales</th>
-                <th scope="col" className="py-2 pl-3 text-right font-semibold">Per piece</th>
-              </tr>
-            </thead>
-            <tbody className="tabular-nums">
-              {lines.map((l) => (
-                <tr key={l.key} className="border-b border-border/60">
-                  <th scope="row" className="py-2 pr-3 text-left font-normal">{BUDGET_SOURCE_LABELS[l.key]}</th>
-                  <td className="px-3 py-2 text-muted-foreground">{bucketLabelOfSource(l.key) ?? "—"}</td>
-                  <td className={cn("px-3 py-2 text-right", isRefusal(l.amount) && "text-danger")}>{figText(l.amount)}</td>
-                  <td className="px-3 py-2 text-right">{share(l.amount)}</td>
-                  <td className="py-2 pl-3 text-right">{figText(perPiece(l.amount, qty))}</td>
-                </tr>
-              ))}
-              <tr className="bg-surface-muted font-semibold">
-                <th scope="row" className="py-2 pr-3 text-left">Total cost</th>
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2 text-right">{figText(totals.cost)}</td>
-                <td className="px-3 py-2 text-right">{share(totals.cost)}</td>
-                <td className="py-2 pl-3 text-right">{figText(perPiece(totals.cost, qty))}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        {totals.unpriced.length > 0 && (
-          <p className="text-xs text-danger">
-            {totals.unpriced.length} cost {totals.unpriced.length === 1 ? "line is" : "lines are"} unpriced and
-            excluded from these figures.
-          </p>
+        <Card>
+          <CardBody className="space-y-2">
+            <h2 className="text-sm font-semibold text-foreground">Per Piece Summary</h2>
+            <table className="w-full text-sm">
+              <tbody className="tabular-nums">
+                <SummaryGroup title="Sold at" />
+                <SummaryRow label="Sales" value={perPiece(totals.sales, qty)} />
+                <SummaryGroup title="Costs" />
+                {bd?.ok
+                  ? bd.current.buckets.map((b) => (
+                      <SummaryRow key={b.key} label={b.label} value={perPiece(b.amount, qty)} />
+                    ))
+                  : null}
+                <SummaryRow label="Total cost" value={perPiece(totals.cost, qty)} strong rule />
+                <SummaryRow label="Profit" value={perPiece(profit, qty)} strong tone={signTone(profit)} />
+              </tbody>
+            </table>
+            <p className="text-[11px] text-muted-foreground">Per piece sold — the order quantity.</p>
+          </CardBody>
+        </Card>
+
+        {/* THE OVERRIDE, SAID BEFORE THE CLICK — moved here from the action
+            bar, which now sits in the page header (`overrideNote={false}`). */}
+        {override && (
+          <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-warning">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            You are not an approver on this step — acting here is recorded as an override.
+          </div>
         )}
-        {totals.pending.length > 0 && (
-          <p className="text-xs text-danger">
-            {totals.pending.length} {totals.pending.length === 1 ? "line is" : "lines are"} waiting on a sales value.
-          </p>
-        )}
-      </Box>
+      </div>
     </div>
   );
 }
 
-function Box({ title, className, children }: { title: string; className?: string; children: ReactNode }) {
-  return (
-    <section className={cn("flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-surface p-4", className)}>
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function Fact({
-  label,
-  value,
-  span = false,
-  tone,
-}: {
-  label: string;
-  value: string | null;
-  span?: boolean;
-  tone?: string;
-}) {
-  return (
-    <div className={cn("min-w-0", span && "col-span-2")}>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={cn("text-sm font-semibold tabular-nums", tone)}>
-        {value ?? <span className="font-normal text-muted-foreground">—</span>}
-      </dd>
-    </div>
-  );
-}
+const perPcText = (v: number | Refusal) => (isRefusal(v) ? v.refused : `${fmtFixed(v)} / pc`);
 
 const signTone = (v: number | Refusal) =>
   isRefusal(v) ? "text-warning" : v < 0 ? "text-danger" : "text-success";
 
-/**
- * NET MARGIN ON A 0–30% SCALE WITH THE 15% LINE MARKED — green at or above
- * the line, amber below, and the words say which so colour is never the only
- * carrier (the same rule as the phone card's `MarginLine`).
- */
-function MarginGauge({ pct }: { pct: number | Refusal }) {
-  if (isRefusal(pct)) return <p className="text-sm text-warning">Net margin — {pct.refused}</p>;
-  const ok = pct >= MARGIN_TARGET_PCT;
-  const SCALE = MARGIN_TARGET_PCT * 2;
-  const fill = Math.max(0, Math.min(1, pct / SCALE)) * 100;
+
+/* THE FOUR KPI TILES, COMPACT (user 2026-09-30) — a plain bordered block,
+   left-aligned, one short line each, instead of the profile's centred Card
+   tiles: the row now costs ~64px rather than ~120px of the screen. */
+const TILE = "min-w-0 rounded-xl border border-border bg-surface px-3 py-2";
+
+function Tile({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: string }) {
   return (
-    <div className="space-y-1.5">
-      <p className="flex flex-wrap items-baseline gap-x-2">
-        <span className={cn("text-3xl font-bold tabular-nums", ok ? "text-success" : "text-warning")}>
-          {fmtNumber(pct)}%
-        </span>
-        <span className={cn("text-sm font-medium", ok ? "text-success" : "text-warning")}>
-          {ok ? `at or above the ${MARGIN_TARGET_PCT}% line` : `below the ${MARGIN_TARGET_PCT}% line`}
-        </span>
-      </p>
-      <div className="relative h-2 rounded-full bg-surface-muted" aria-hidden>
-        <div className={cn("h-2 rounded-full", ok ? "bg-success" : "bg-warning")} style={{ width: `${fill}%` }} />
-        <div className="absolute left-1/2 top-[-4px] h-4 w-0.5 bg-foreground" />
-      </div>
-      <div className="flex justify-between text-[11px] text-muted-foreground">
-        <span>0%</span>
-        <span>{MARGIN_TARGET_PCT}% target</span>
-        <span>{SCALE}%</span>
+    <div className={TILE}>
+      <div className="text-[11px] font-semibold text-muted-foreground">{label}</div>
+      <div className={cn("truncate text-base font-bold leading-6 tabular-nums", tone)}>{value}</div>
+      <div className="text-[11px] text-muted-foreground">{sub}</div>
+    </div>
+  );
+}
+
+/**
+ * NET MARGIN AS A RING — a METER, as the profile's completeness rings are: the
+ * fill is the margin on a 0–30% scale (the 15% line at half way), green at or
+ * above the line and amber below, and the words say which.
+ */
+function MarginTile({ pct }: { pct: number | Refusal }) {
+  const R = 26;
+  const C = 2 * Math.PI * R;
+  const ok = !isRefusal(pct) && pct >= MARGIN_TARGET_PCT;
+  const frac = isRefusal(pct) ? 0 : Math.max(0, Math.min(1, pct / (MARGIN_TARGET_PCT * 2)));
+  return (
+    <div className={cn(TILE, "flex items-center gap-2.5")}>
+      <svg viewBox="0 0 64 64" className="size-10 shrink-0 -rotate-90" aria-hidden>
+        <circle cx="32" cy="32" r={R} fill="none" strokeWidth="9" className="stroke-surface-muted" />
+        <circle
+          cx="32"
+          cy="32"
+          r={R}
+          fill="none"
+          strokeWidth="9"
+          strokeLinecap="round"
+          strokeDasharray={`${frac * C} ${C}`}
+          className={ok ? "stroke-success" : "stroke-warning"}
+        />
+      </svg>
+      <div className="min-w-0">
+        <div className="text-[11px] font-semibold text-muted-foreground">Net margin</div>
+        <div className={cn("text-base font-bold leading-6 tabular-nums", isRefusal(pct) ? "text-warning" : ok ? "text-success" : "text-warning")}>
+          {isRefusal(pct) ? "—" : `${fmtFixed(pct, 1)}%`}
+        </div>
+        <div className={cn("truncate text-[11px]", isRefusal(pct) ? "text-warning" : ok ? "text-success" : "text-warning")}>
+          {isRefusal(pct) ? pct.refused : ok ? `above ${MARGIN_TARGET_PCT}% line` : `below ${MARGIN_TARGET_PCT}% line`}
+        </div>
       </div>
     </div>
+  );
+}
+
+function SummaryGroup({ title }: { title: string }) {
+  return (
+    <tr>
+      <td colSpan={2} className="pt-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </td>
+    </tr>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  strong = false,
+  rule = false,
+  tone,
+}: {
+  label: string;
+  value: number | Refusal;
+  strong?: boolean;
+  rule?: boolean;
+  tone?: string;
+}) {
+  return (
+    <tr className={cn(strong && "font-semibold", tone)}>
+      <td className={cn("py-0.5", rule && "border-t border-border pt-1.5")}>{label}</td>
+      <td className={cn("py-0.5 text-right", rule && "border-t border-border pt-1.5")}>{figText(value)}</td>
+    </tr>
   );
 }
 
@@ -270,7 +422,7 @@ const STEP_ICON: Record<EventAction, typeof Check> = {
 const STEP_WORD: Record<EventAction, string> = {
   submit: "Submitted",
   approve: "Approved",
-  reject: "Sent back",
+  reject: "Sent back for rework",
   return: "Returned",
   cancel: "Cancelled",
   delegate: "Delegated",
@@ -278,73 +430,80 @@ const STEP_WORD: Record<EventAction, string> = {
 };
 
 /**
- * THE APPROVAL STEPS AS ONE LINE (user 2026-09-30: "compact the approval step
- * section"). The full `ApprovalTimeline` stacked a boxed row per step; on a
- * one- or two-step chain that was a quarter of the screen for two facts. Each
- * step keeps what the timeline said — who, what, when, and a comment — with the
- * comment on hover.
+ * THE APPROVAL TRAIL — the profile's key-dates list, for steps: a dot, the
+ * step, what happened, who and when; a step's comment shows under it. Compact
+ * on purpose (user 2026-09-30: "compact the approval step section").
  */
-export function ApprovalStrip({
+function ApprovalTrail({
   rows,
   names,
-  lead,
+  submitted,
 }: {
   rows: TimelineRow[];
   names: Record<string, string>;
-  /** Printed before the steps, e.g. who submitted it. */
-  lead?: string | null;
+  submitted: string | null;
 }) {
-  if (rows.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-surface px-4 py-2.5 text-sm">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">Approval</span>
-      {lead && (
-        <span className="inline-flex items-center gap-1.5">
-          <Dot tone="done">
-            <Check className="size-3" aria-hidden />
-          </Dot>
-          <span className="font-semibold">Submitted</span>
-          <span className="text-muted-foreground">{lead}</span>
-        </span>
+    <ol className="space-y-2.5">
+      {submitted && (
+        <TrailItem tone="done" icon={Check} title="Submitted" line={submitted} />
       )}
       {rows.map((r, i) => {
-        const Icon = r.action ? STEP_ICON[r.action] : Clock;
         const actor = r.actor_id ? names[r.actor_id] : null;
         const tone = r.action === "approve" ? "done" : r.action ? "bad" : r.is_current ? "wait" : "idle";
         return (
-          <span key={`${r.step_order}-${i}`} className="inline-flex items-center gap-1.5" title={r.comment ?? undefined}>
-            {(lead || i > 0) && <ChevronRight className="size-4 text-muted-foreground" aria-hidden />}
-            <Dot tone={tone}>
-              <Icon className="size-3" aria-hidden />
-            </Dot>
-            <span className="font-semibold">
-              Step {r.step_order} · {r.step_label}
-            </span>
-            <span className={cn(tone === "wait" ? "text-warning" : "text-muted-foreground")}>
-              {r.action ? STEP_WORD[r.action] : r.is_current ? "waiting" : "next"}
-              {actor ? ` · ${actor}` : ""}
-              {r.acted_at ? ` · ${fmtDateTime(r.acted_at)}` : ""}
-              {r.is_override ? " · override" : ""}
-            </span>
-          </span>
+          <TrailItem
+            key={`${r.step_order}-${i}`}
+            tone={tone}
+            icon={r.action ? STEP_ICON[r.action] : Clock}
+            title={`Step ${r.step_order} · ${r.step_label}`}
+            line={[
+              r.action ? STEP_WORD[r.action] : r.is_current ? "Waiting" : "Next",
+              actor,
+              r.acted_at ? fmtDateTime(r.acted_at) : null,
+              r.is_override ? "override" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            comment={r.comment}
+          />
         );
       })}
-    </div>
+    </ol>
   );
 }
 
-function Dot({ tone, children }: { tone: "done" | "bad" | "wait" | "idle"; children: ReactNode }) {
+function TrailItem({
+  tone,
+  icon: Icon,
+  title,
+  line,
+  comment,
+}: {
+  tone: "done" | "bad" | "wait" | "idle";
+  icon: typeof Check;
+  title: string;
+  line: string;
+  comment?: string | null;
+}) {
   return (
-    <span
-      className={cn(
-        "inline-flex size-5 items-center justify-center rounded-full",
-        tone === "done" && "bg-success/15 text-success",
-        tone === "bad" && "bg-danger/15 text-danger",
-        tone === "wait" && "bg-warning/15 text-warning",
-        tone === "idle" && "border border-dashed border-border text-muted-foreground",
-      )}
-    >
-      {children}
-    </span>
+    <li className="flex gap-2.5">
+      <span
+        className={cn(
+          "mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full",
+          tone === "done" && "bg-success/15 text-success",
+          tone === "bad" && "bg-danger/15 text-danger",
+          tone === "wait" && "bg-warning/15 text-warning",
+          tone === "idle" && "border border-dashed border-border text-muted-foreground",
+        )}
+      >
+        <Icon className="size-3" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        <div className={cn("text-[11px]", tone === "wait" ? "text-warning" : "text-muted-foreground")}>{line}</div>
+        {comment && <p className="mt-0.5 text-xs text-foreground">“{comment}”</p>}
+      </div>
+    </li>
   );
 }
