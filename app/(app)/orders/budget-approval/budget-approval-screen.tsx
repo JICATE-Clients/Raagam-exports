@@ -20,8 +20,7 @@
  */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { CalendarRange, Check, Layers, Pencil, RotateCcw, Users, X, Undo2 } from "lucide-react";
+import { CalendarRange, Check, Layers, RotateCcw, Users, X, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -215,7 +214,6 @@ export function BudgetApprovalScreen({
   /** The budget a notice link asked for (`?open=`), opened on arrival. */
   initialOpenId?: string | null;
 }) {
-  const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
 
@@ -423,7 +421,7 @@ export function BudgetApprovalScreen({
         res = await decideBudget(row.id, kind === "approve" ? "approved" : "rejected", comment || null);
       }
       if (res.ok) {
-        success(kind === "approve" ? "Budget approved" : "Sent back for rework");
+        success(kind === "approve" ? `${cards[row.id]?.reNos.join(", ") || "Order"} approved` : "Sent back for rework");
         closeRowAct();
       } else {
         toastError(res.error);
@@ -558,38 +556,20 @@ export function BudgetApprovalScreen({
         <StatusPill tone={budgetStatusTone(r.status)}>{budgetStatusText(r.status)}</StatusPill>
       ),
     },
-    /* THE THREE ICONS, each in its own colour (the mock-up the client
-       approved): Edit blue, Cancel red, Approve green. Not `RowActions` — that
-       cluster is View / Edit / Delete, and two of these are decisions. Every
-       icon is drawn on every row so the column never jitters; one that cannot
-       apply is disabled and its tooltip says why. `w-32`: three icon buttons
-       and two gaps, narrower than the default `w-40`. */
+    /* THE TWO DECISIONS, each in its own colour: Request Rework amber,
+       Approve green. Not `RowActions` — that cluster is View / Edit / Delete,
+       and these are decisions. Both are drawn on every row so the column never
+       jitters; one that cannot apply is disabled and its tooltip says why. The
+       Edit pencil is gone (user 2026-09-30: "from approval no need it"). */
     rowActionsColumn<BudgetApprovalRow>(
       (r) => {
-        /* EDIT OPENS THE BUDGET WHATEVER ITS STATE. The editor already knows
-           which states it may change — a submitted or approved one opens
-           read-only with a line saying why (`budget-screen.tsx`, `editable`)
-           — so gating the icon here was a second rule that only made the
-           button look dead on the rows this queue mostly holds (2026-09-22). */
         const decidable = canApprove && r.status === "submitted";
         const label = r.code ?? r.id.slice(0, 8);
         return (
           <div className="flex items-center justify-end gap-1">
-            <Tooltip label={canEdit ? "Edit" : "Edit — you cannot edit budgets"}>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Edit ${label}`}
-                /* NO BACKGROUND, on hover either (user 2026-09-22): the blue
-                   pencil stands on its own, and `hover:bg-transparent` is what
-                   overrides the ghost variant's grey. */
-                className="text-primary hover:bg-transparent hover:text-primary-hover disabled:text-muted-foreground"
-                disabled={!canEdit || isPending}
-                onClick={() => router.push(`/orders/budgets?budget=${r.id}`)}
-              >
-                <Pencil />
-              </Button>
-            </Tooltip>
+            {/* NO EDIT ICON (user 2026-09-30): this is the approver's queue, and
+                the budget is edited on Budgeting — a pencil here led away from
+                the decision the row exists for. */}
             {/* REQUEST REWORK (client 2026-09-29) — was "Cancel", and it never
                 cancelled anything: it is the engine's `reject`, which sends a
                 first-time budget back to the merchandiser and restores V0 on a
@@ -627,7 +607,7 @@ export function BudgetApprovalScreen({
           </div>
         );
       },
-      "w-32",
+      "w-24",
     ),
   ];
 
@@ -691,11 +671,15 @@ export function BudgetApprovalScreen({
       <Sheet
         open={rowAct !== null}
         onClose={closeRowAct}
+        /* NAMED BY THE ORDER (user 2026-09-30, screenshot 3159: "the approval
+           still connects with budget child"). "Approve budget 4?" asked the MD
+           to decide a number; the RE No is what they know the order by, and the
+           budget number stays only as the reference under it. */
         title={
           rowAct
-            ? rowAct.kind === "approve"
-              ? `Approve budget ${rowAct.row.code ?? rowAct.row.id.slice(0, 8)}?`
-              : `Send budget ${rowAct.row.code ?? rowAct.row.id.slice(0, 8)} back for rework?`
+            ? `${rowAct.kind === "approve" ? "Approve" : "Send back for rework"} — ${
+                cards[rowAct.row.id]?.reNos.join(", ") || `Budget ${rowAct.row.code ?? rowAct.row.id.slice(0, 8)}`
+              }?`
             : ""
         }
         size="sm"
@@ -727,6 +711,13 @@ export function BudgetApprovalScreen({
           </div>
         }
       >
+        {/* THE ORDER CARD ABOVE THE COMMENT — the same one the sheet and the
+            phone inbox draw. The row icon used to open a bare comment box, so
+            an MD could approve without ever seeing the order, its margin or
+            where the money goes; the decision now always sits under them. */}
+        {rowAct && cards[rowAct.row.id] && (
+          <OrderApprovalCard card={cards[rowAct.row.id]} className="mb-4" />
+        )}
         <Field
           label={rowAct?.kind === "cancel" ? "Reason" : "Comment"}
           required={rowAct?.kind === "cancel"}
@@ -753,11 +744,15 @@ export function BudgetApprovalScreen({
            No ("1"), which named nothing an approver recognises. */
         title={
           <span className="flex flex-wrap items-center gap-2">
-            <span>Budget {budget?.code ?? ""}</span>
-            {reNosOf(budget).length > 0 && (
-              <span className="font-mono text-sm font-medium text-muted-foreground">
-                · {reNosOf(budget).join(", ")}
-              </span>
+            {/* RE No first, the budget number after it as the reference —
+                the order is what is being approved (screenshot 3159). */}
+            {reNosOf(budget).length > 0 ? (
+              <>
+                <span className="font-mono">{reNosOf(budget).join(", ")}</span>
+                <span className="text-sm font-medium text-muted-foreground">· Budget {budget?.code ?? ""}</span>
+              </>
+            ) : (
+              <span>Budget {budget?.code ?? ""}</span>
             )}
             {budget && (
               <StatusPill tone={budgetStatusTone(budget.status)}>{budgetStatusText(budget.status)}</StatusPill>
