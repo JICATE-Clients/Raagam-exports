@@ -315,8 +315,8 @@ function PacksTab({
 function QuantitiesTab({ ppm }: { ppm: PpmDetail }) {
   const qtyColumns: Column<QtyRow>[] = [
     { header: "S No",       cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span> },
-    { header: "Style Ref",  cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
-    { header: "Style",      cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
+    { header: "Style",      cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
+    { header: "Style No",   cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
     { header: "Article",    cell: (r) => <span className="text-sm">{r.article_no ?? "--"}</span> },
     { header: "UOM",        cell: (r) => <span className="text-xs text-muted-foreground">{r.uom_id ?? "--"}</span> },
     { header: "Cut Qty",    align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span> },

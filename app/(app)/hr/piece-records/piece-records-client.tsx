@@ -152,8 +152,8 @@ export default function PieceRecordsClient({
         onEdit={() => openEdit(r)}
         onDelete={() => handleDelete(r.id)}
         /* A locked record is closed payroll — neither editable nor removable. */
-        canEdit={!r.is_locked}
-        canDelete={!r.is_locked}
+        editDisabledReason={r.is_locked ? "Locked — payroll for this record is closed" : null}
+        deleteDisabledReason={r.is_locked ? "Locked — payroll for this record is closed" : null}
         isPending={isPending}
       />
     )),

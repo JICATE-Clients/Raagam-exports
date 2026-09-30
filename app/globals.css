@@ -224,9 +224,28 @@
    * panel rather than a bordered rectangle. Composed as an inset-shadow so
    * hover can swap the outer shadow and leave this intact. */
   --sheen: inset 0 1px 0 rgb(255 255 255 / 0.75);
+
+  /* CATEGORICAL CHART SERIES (2026-09-29, the approval budget chart). The
+     dataviz reference palette's first five slots, IN THAT ORDER — the order is
+     what keeps adjacent segments apart for colour-blind readers, so never
+     re-order or re-step one. Validated against this app's own surfaces
+     (#ffffff light, #14171d dark): every gate passes; light mode WARNs on
+     contrast for 3 / 4 / 5, so a chart using them must print its values as
+     text beside the marks (the legend rows do). NOT the status tokens: a red /
+     green segment would read as bad / good, which a cost bucket is not. */
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
 }
 
 .dark {
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+  --viz-5: #d55181;
   --background: #0b0d12;
   --surface: #14171d;
   --surface-muted: #1b1f27;

@@ -201,6 +201,8 @@ export function CadLifecycleScreen({
         actions={{
           onView: (r) => cad.showHistory(r),
           menu: (r) => [...cad.stepItems(r), ...cad.menuFor(r)],
+          // Orders, not Master Data: no ⋮ — each action is its own icon.
+          menuAs: "icons",
         }}
         rowLabel={(r) => `${r.re_no ?? r.order_code ?? ""} ${r.style_ref_no}`}
         empty={

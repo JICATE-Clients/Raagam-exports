@@ -2,15 +2,12 @@ import { jsPDF } from "jspdf";
 import autoTable, { type RowInput } from "jspdf-autotable";
 import {
   CONTINUED_TOP,
-  drawLegacyRequirementHeader,
+  drawSheetHeader,
   finalY,
   finishPdf,
-  monoHead,
-  monoStyles,
   openPrintTab,
   pageFooter,
   signOffFooter,
-  stampTopPageNumbers,
   type PdfOutput,
 } from "@/lib/orders/fabric-bom/reports-export";
 import { loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
@@ -18,11 +15,15 @@ import { swatchFor } from "@/lib/orders/fabric-bom/report-colours";
 import {
   BRAND,
   SWATCH_PADDING,
-  drawSectionHeading,
+  cardTableHead,
+  cardTableStyles,
+  drawCardHeader,
+  drawSheetLabel,
+  drawSummaryTiles,
   drawSwatch,
   paintRow,
+  roomFor,
   rgb,
-  toneHead,
 } from "@/lib/orders/report-pdf-kit";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import { ACCESSORY_COLUMNS, accessoryQty, accessoryRows, type AccessoryRow } from "./sheet";
@@ -44,6 +45,10 @@ import type { RequirementSheetData } from "./service";
  * reads Cut (client 2026-09-23 — "SQ" was read as Sample Quantity), and "SC No"
  * reads RE No (the app's name for it since 0431).
  *
+ * THE SHEET FORMAT (user 2026-09-29, the approved "Raagam Requirement Sheet"):
+ * the masthead / order facts / quantity sum opening (`drawSheetHeader`), the
+ * trims' count tiles, then TRIMS PURCHASE as a card. Page numbers at the foot.
+ *
  * THE YARN & FABRIC LOOK, STILL PRINT-SAFE (user 2026-09-29: the other
  * reports "need to look like yarn fabric requirement"). This used to say
  * "MONO, NOT BRANDED" — a supplier prints it on a mono laser, and a saturated
@@ -63,14 +68,15 @@ function stem(data: RequirementSheetData): string {
 function cells(r: AccessoryRow): RowInput {
   const row: RowInput = [];
   if (r.category != null) row.push({ content: r.category, rowSpan: r.span });
+  // ACCESSORY_COLUMNS' order (user 2026-09-29).
   row.push(
     r.item,
+    r.consumption,
     r.colour ?? "",
+    r.size ?? "",
     r.spec ?? "",
     r.uom,
-    r.size ?? "",
     r.qty == null ? (r.refusal ?? "—") : accessoryQty(r.qty),
-    r.consumption,
   );
   return row;
 }
@@ -82,24 +88,15 @@ export async function exportAccessoriesRequirementPdf(
   const tab = openPrintTab(output);
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const M = 28;
+  const W = doc.internal.pageSize.getWidth() - 2 * M;
 
   /* A SHEET WITHOUT A HEADER (the order's quantities refused to load at the
      very top) still prints — its body is what the supplier buys against. */
   const header = isReportRefusal(data.header) ? null : data.header;
   let y = 40;
-  let printedY = 62;
   if (header) {
     const logo = await loadLetterheadImage(header.company.logo);
-    ({ y, printedY } = drawLegacyRequirementHeader(doc, header, "Accessories Requirement", logo));
-    /* The quantity band's own refusal ("fill Approval Qty on the order") —
-       said where the figures would have been, never an empty row. */
-    if (isReportRefusal(header.qty)) {
-      doc.setFontSize(7);
-      doc.setTextColor(150, 30, 30);
-      doc.text(header.qty.refused, M, y + 10);
-      doc.setTextColor(0);
-      y += 14;
-    }
+    y = drawSheetHeader(doc, header, "Accessories Requirement", logo);
   } else {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
@@ -109,18 +106,36 @@ export async function exportAccessoriesRequirementPdf(
     doc.setTextColor(150, 30, 30);
     if (isReportRefusal(data.header)) doc.text(data.header.refused, M, (y += 14));
     doc.setTextColor(0);
+    y += 12;
   }
 
-  // -- TRIMS PURCHASE ---------------------------------------------------------
   const rows = accessoryRows(data.rows, data.names);
-  const startY = drawSectionHeading(
+  /* THE SUMMARY — counts the sheet already lists, nothing computed anew:
+     trim lines, categories, and any line whose quantity could not be worked
+     out (the supplier's unanswered question). */
+  const categories = rows.filter((r) => r.category != null).length;
+  const unplanned = rows.filter((r) => r.qty == null).length;
+  if (rows.length) {
+    y = drawSheetLabel(doc, M, y + 2, "This sheet");
+    y = drawSummaryTiles(doc, y, [
+      { label: "Trim lines", value: String(rows.length), note: "to purchase", tone: BRAND },
+      { label: "Categories", value: String(categories), note: "item groups", tone: BRAND },
+      ...(unplanned
+        ? [{ label: "Unplanned", value: String(unplanned), note: "quantity not worked out", tone: BRAND }]
+        : []),
+    ]);
+  }
+
+  // -- TRIMS PURCHASE, as a card ---------------------------------------------
+  y = roomFor(doc, y, 90);
+  const startY = drawCardHeader(
     doc,
     M,
-    y + 16,
-    doc.internal.pageSize.getWidth() - 2 * M,
+    y + 4,
+    W,
     BRAND,
-    "TRIMS PURCHASE",
-    rows.length ? `${rows.length} item${rows.length === 1 ? "" : "s"}` : undefined,
+    "Trims Purchase",
+    rows.length ? `${rows.length} item${rows.length === 1 ? "" : "s"}` : null,
   );
   /* Which body rows open a category — their first cell is the rowSpan group
      cell, tinted as the group's own heading. */
@@ -130,22 +145,26 @@ export async function exportAccessoriesRequirementPdf(
     body: rows.map(cells),
     startY,
     margin: { left: M, right: M, top: CONTINUED_TOP },
-    styles: { ...monoStyles(), fontSize: 7, valign: "top" },
-    headStyles: { ...monoHead(), ...toneHead(BRAND), fontSize: 7 },
-    theme: "grid",
+    styles: { ...cardTableStyles(), valign: "top" },
+    headStyles: cardTableHead(),
+    theme: "plain",
+    /* Category · Item Name · Consumption · Color · Size · Specification ·
+       UOM · Required Qty — 64 + 140 + 66 + 52 + 40 + 78 + 34 = 474 of the
+       page's 539pt, the last ~65pt for the quantity. */
     columnStyles: {
-      0: { cellWidth: 72 },
-      1: { cellWidth: 150 },
-      2: { cellWidth: 48 },
-      3: { cellWidth: 62 },
-      4: { cellWidth: 36 },
-      5: { cellWidth: 44 },
-      6: { cellWidth: 52, halign: "right" },
+      0: { cellWidth: 64 },
+      1: { cellWidth: 140 },
+      2: { cellWidth: 66 },
+      3: { cellWidth: 52 },
+      4: { cellWidth: 40 },
+      5: { cellWidth: 78 },
+      6: { cellWidth: 34 },
+      7: { halign: "right" },
     },
     didParseCell: (d) => {
       paintRow(d, { tone: BRAND });
       /* Qty's heading over its right-aligned figures, as the screen sets it. */
-      if (d.section === "head" && d.column.index === 6) d.cell.styles.halign = "right";
+      if (d.section === "head" && d.column.index === 7) d.cell.styles.halign = "right";
       if (d.section !== "body") return;
       /* THE CATEGORY'S GROUP CELL — tinted in the tone, over its whole span. */
       if (d.column.index === 0 && opensGroup.has(d.row.index)) {
@@ -153,16 +172,16 @@ export async function exportAccessoriesRequirementPdf(
         d.cell.styles.textColor = rgb(BRAND.ink);
         d.cell.styles.fontStyle = "bold";
       }
-      if (d.column.index === 2 && swatchFor(String(d.cell.raw ?? ""))) d.cell.styles.cellPadding = SWATCH_PADDING;
+      if (d.column.index === 3 && swatchFor(String(d.cell.raw ?? ""))) d.cell.styles.cellPadding = SWATCH_PADDING;
       /* A refused quantity is a sentence, set in red where the figure would be. */
       const raw = String(d.cell.raw ?? "");
-      if (d.column.index === 6 && raw && !/^[\d,.—]+$/.test(raw)) {
+      if (d.column.index === 7 && raw && !/^[\d,.—]+$/.test(raw)) {
         d.cell.styles.textColor = [150, 30, 30];
         d.cell.styles.halign = "left";
       }
     },
     didDrawCell: (d) => {
-      if (d.section !== "body" || d.column.index !== 2) return;
+      if (d.section !== "body" || d.column.index !== 3) return;
       const hex = swatchFor(String(d.cell.raw ?? ""));
       if (hex) drawSwatch(doc, d.cell, hex);
     },
@@ -173,13 +192,13 @@ export async function exportAccessoriesRequirementPdf(
   }
 
   signOffFooter(doc);
-  stampTopPageNumbers(doc, printedY);
-  if (header) pageFooter(doc, header, { pageNumbers: false });
+  if (header) pageFooter(doc, header);
   finishPdf(doc, `${stem(data)}.pdf`, output, tab);
 }
 
-/** The same grid as CSV (the Excel button) — the printout's eight columns,
- *  the category repeated on every row so a filter in Excel still works. */
+/** The same grid as CSV (the Excel button) — the same eight columns in the
+ *  same order, the category repeated on every row so a filter in Excel still
+ *  works. */
 export function accessoriesCsv(data: RequirementSheetData): string {
   const out: string[][] = [[...ACCESSORY_COLUMNS]];
   let category = "";
@@ -188,12 +207,12 @@ export function accessoriesCsv(data: RequirementSheetData): string {
     out.push([
       category,
       r.item,
+      r.consumption,
       r.colour ?? "",
+      r.size ?? "",
       r.spec ?? "",
       r.uom,
-      r.size ?? "",
       r.qty == null ? (r.refusal ?? "") : r.qty.toFixed(3),
-      r.consumption,
     ]);
   }
   return out

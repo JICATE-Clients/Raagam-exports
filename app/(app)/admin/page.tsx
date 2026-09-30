@@ -59,6 +59,17 @@ export default async function AdminPage() {
             </CardBody>
           </Card>
         </Link>
+        <Link href="/admin/permission-overrides">
+          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
+            <CardBody>
+              <div className="font-semibold text-foreground">Permission Overrides</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Give a named user time-limited access to correct an approved
+                order in place, with every edit audited.
+              </p>
+            </CardBody>
+          </Card>
+        </Link>
         <Link href="/admin/divisions">
           <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
             <CardBody>

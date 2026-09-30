@@ -379,16 +379,7 @@ export async function getAmendmentEntry(id: string, canEdit: boolean): Promise<A
      predecessor's baseline, so the earliest entry is V0 whichever it is. */
   let original: BudgetBaseline | null = baseline;
   if (amendNo > 1 && r.garment_order_id) {
-    const { data: first, error: firstErr } = await s
-      .from("order_budget_revisions")
-      .select("baseline")
-      .eq("garment_order_id", r.garment_order_id)
-      .not("baseline", "is", null)
-      .order("reopened_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (firstErr) throw new Error(`Could not read the original budget: ${firstErr.message}`);
-    original = ((first?.baseline as BudgetBaseline | null) ?? null) || baseline;
+    original = (await firstBaselineOf(r.garment_order_id)) || baseline;
   }
   const originalKpis = kpisFromJson(original?.kpis);
 
@@ -488,6 +479,26 @@ export type RevisionComparisonData = {
   original: Partial<Record<BaselineRow["key"], number | Refusal>>;
 };
 
+/**
+ * V0 — the baseline the order's FIRST revision froze, or null when the order
+ * has never been revised. One query, shared by `getRevisionComparison` and the
+ * approval chart (`lib/approvals/budget-breakdown.ts`), so "the original
+ * budget" cannot mean two different entries on two screens.
+ */
+export async function firstBaselineOf(garmentOrderId: string): Promise<BudgetBaseline | null> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("order_budget_revisions")
+    .select("baseline")
+    .eq("garment_order_id", garmentOrderId)
+    .not("baseline", "is", null)
+    .order("reopened_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Could not read the original budget: ${error.message}`);
+  return ((data?.baseline as BudgetBaseline | null) ?? null);
+}
+
 export async function getRevisionComparison(
   budget: NonNullable<Awaited<ReturnType<typeof getOrderBudget>>>,
 ): Promise<RevisionComparisonData | null> {
@@ -503,18 +514,8 @@ export async function getRevisionComparison(
 
   /* V0 is the baseline the order's FIRST entry froze — same rule, and the same
      query, as `getAmendmentEntry`. Read alongside the figures, not before. */
-  const s = await createClient();
   const [firstRes, figuresRes, changesRes] = await Promise.all([
-    open.garment_order_id
-      ? s
-          .from("order_budget_revisions")
-          .select("baseline")
-          .eq("garment_order_id", open.garment_order_id)
-          .not("baseline", "is", null)
-          .order("reopened_at", { ascending: true })
-          .limit(1)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+    open.garment_order_id ? firstBaselineOf(open.garment_order_id) : Promise.resolve(null),
     budgetFiguresOf(budget).then(
       (f) => ({ ok: true as const, f }),
       (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "The budget's figures could not be worked out" }),
@@ -526,8 +527,7 @@ export async function getRevisionComparison(
         )
       : Promise.resolve({ ok: true as const, c: [] as OrderFieldChange[] }),
   ]);
-  if (firstRes.error) throw new Error(`Could not read the original budget: ${firstRes.error.message}`);
-  const original = ((firstRes.data?.baseline as BudgetBaseline | null) ?? null) || baseline;
+  const original = firstRes || baseline;
 
   const figures = figuresRes.ok ? figuresRes.f : null;
   const originalRows = figures && original ? compareToBaseline(original, figures.general) : [];

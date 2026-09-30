@@ -316,7 +316,7 @@ function OrdersTab({
                 />
               </div>
               <div>
-                <Label>Style Ref No</Label>
+                <Label>Style</Label>
                 <Input
                   value={form.style_ref_no}
                   onChange={(e) => setForm((f) => ({ ...f, style_ref_no: e.target.value }))}

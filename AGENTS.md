@@ -381,6 +381,32 @@ fallback in that file already records: a per-screen fix leaves a remainder.
 `paginate={false}` pages a document. Until `audit_layout.py` gains a
 `--check paginate-document`, a detail page gets this right by reading this section.
 
+## Row actions: icons, no ⋮ (STANDING)
+
+**A listing row's actions are inline icons — never a `⋮` menu** (client
+2026-09-29 on the Orders register; the user extended it the same day to every
+module except Master Data). Three statements:
+
+- **No ⋮.** `RowActions`' `menu` items render INLINE as icon buttons
+  (`RowIconAction`), left of Edit/Delete so the pencil and bin stay aligned down
+  the column. Give every item an `icon`; one without renders as a small text
+  button rather than a guessed glyph.
+- **Report takes the eye's slot** on a record that has reports: pass it as
+  `lead={<RowIconAction … icon={FileText} />}` with `view={false}`. The RE No /
+  name link is how the record is opened (read-only when locked).
+- **A locked record keeps its pencil and bin, GREYED, saying why** —
+  `editDisabledReason` / `deleteDisabledReason`, never `canEdit={!locked}`.
+  **Hiding is for missing PERMISSION only**: that is a fact about the operator,
+  not the record, and an absent icon cannot tell the two apart. This reverses
+  the Orders queues' 2026-09-24 "eye instead of pencil, no bin" deliberately.
+
+**MASTER DATA KEEPS ITS ⋮.** `MasterListShell` defaults `actions.menuAs` to
+`"dropdown"` (its Block/Unblock item), and its collapsed `TableRowActionsMenu`
+variant (client 2026-09-11) is a separate renderer. A NON-master screen that
+borrows the shell passes `menuAs: "icons"` (CAD Lifecycle does). Not yet
+enforced by a script — a new `canDelete={r.status === "draft"}` is the shape
+to catch in review.
+
 ## Created Date / Created User (STANDING)
 
 **Every listing of records shows who made the row and when** — two columns, in that
@@ -1256,6 +1282,17 @@ stale tab, `lib/data-io` or a second window is refused the same way the screen
 is. `open` / `amending` / `approved` are the three states; `sync_re_status_from_budget`
 never drags an amending order back to `open`.
 
+- **A BUDGET WITH THE MD LOCKS ITS ORDER TOO (0652, client 2026-09-29).**
+  While any budget covering an RE is `submitted`, the order and both BOMs are
+  refused exactly as if approved — `order_pending_of` + the pending half of
+  `order_lock_message` ("Waiting for MD approval — … until the MD approves it
+  or sends it back for rework"), twin `orderPendingMessage`. `order_lock_of`
+  still means APPROVED only; `orderLocks()` carries both, so editors' banners
+  and greyed row icons need nothing per screen. The way out must exist: a
+  CANCELLED run returns its budget to draft (0652), and budget decisions read
+  **Approve · Request Rework** (`ApprovalActionBar rework`) — Request Rework is
+  the engine's reject; Return is withheld, since on the one-step MD flow it
+  re-queues to the MD while the merchandiser stays locked out.
 - **THE OPERATOR'S WORD IS "REVISION" (client, 2026-09-23; 0623).** Every label,
   button, badge and message says Revision — Orders ▸ Order Management ▸ Order
   Revisions, Raise Revision, Rev #n, Waiting Revision — and the two database

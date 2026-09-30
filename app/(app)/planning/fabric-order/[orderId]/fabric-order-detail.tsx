@@ -522,7 +522,7 @@ function StylesEditTab({
   type StyleRow = OrderDetail["styles"][number];
   const columns: Column<StyleRow>[] = [
     { header: "S No",         cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span> },
-    { header: "Style Ref",    cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
+    { header: "Style",        cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
     { header: "Article No",   cell: (r) => <span className="text-sm">{r.article_no ?? "--"}</span> },
     { header: "Delivery Date", cell: (r) => <span className="tabular-nums text-sm">{r.delivery_date ? fmtDate(r.delivery_date) : "--"}</span> },
     { header: "Details",      align: "right", cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.details.length} rows</span> },
@@ -594,7 +594,7 @@ function StylesEditTab({
                 />
               </div>
               <div>
-                <Label>Style Ref No</Label>
+                <Label>Style</Label>
                 <Input
                   value={form.style_ref_no}
                   onChange={(e) => setForm((f) => ({ ...f, style_ref_no: e.target.value }))}

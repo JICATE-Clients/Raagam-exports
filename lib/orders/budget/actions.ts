@@ -36,6 +36,7 @@ import { bomStatusText } from "@/lib/orders/bom-status";
 import { amendmentTypesLabel, marginDelta } from "@/lib/orders/amendments/amendment-entry";
 import { amendmentSubmitProblem } from "@/lib/orders/amendments/submit-gate";
 import { budgetAmendmentScopeOf } from "./lock";
+import { budgetOverrideCommitOf, saveUnderOverride, type OverrideSave } from "@/lib/orders/overrides/commit";
 import { budgetScopeProblem, type BudgetScopeLine } from "./amendment-scope";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
@@ -357,11 +358,16 @@ function refuseOrphanLines(data: OrderBudgetInput): Result | null {
 async function assertEditable(
   s: Awaited<ReturnType<typeof createClient>>,
   id: string,
+  /** 0653: an APPROVED budget is editable under the caller's open
+   *  `order_budget` override commit. Only the update passes this — an
+   *  override never deletes a budget. */
+  allowOverride = false,
 ): Promise<Result> {
   const { data } = await s.from("order_budgets").select("status").eq("id", id).maybeSingle();
   if (!data) return fail("That budget no longer exists");
   const status = data.status as BudgetStatus;
   if (status === "draft" || status === "rejected") return { ok: true };
+  if (status === "approved" && allowOverride && (await budgetOverrideCommitOf(id))) return { ok: true };
   return fail(
     status === "submitted"
       ? "This budget is with the approver — it cannot be changed until it comes back"
@@ -398,7 +404,33 @@ export async function createOrderBudget(data: OrderBudgetInput): Promise<Result>
   return { ok: true, id: created.id };
 }
 
-export async function updateOrderBudget(id: string, data: OrderBudgetInput): Promise<Result> {
+/**
+ * Save a budget. With `override` (0653) the save runs inside a permission-
+ * override commit, opened on one of the budget's orders: an APPROVED budget
+ * becomes editable (`assertEditable` finds the commit), its lines pass the
+ * budget lock trigger and are logged, the header edit is logged by 0653's
+ * header trigger, and the budget stays APPROVED — no revision, no MD (R-6).
+ */
+export async function updateOrderBudget(
+  id: string,
+  data: OrderBudgetInput,
+  override?: OverrideSave,
+): Promise<Result> {
+  if (!override) return saveOrderBudget(id, data, false);
+  const s = await createClient();
+  const { data: link, error } = await s
+    .from("order_budget_orders")
+    .select("garment_order_id")
+    .eq("budget_id", id)
+    .limit(1)
+    .maybeSingle();
+  if (error) return fail(`Could not read the budget's orders: ${error.message}`);
+  const orderId = (link as { garment_order_id: string | null } | null)?.garment_order_id;
+  if (!orderId) return fail("This budget covers no order — there is no approval lock to override.");
+  return saveUnderOverride(orderId, override, () => saveOrderBudget(id, data, true));
+}
+
+async function saveOrderBudget(id: string, data: OrderBudgetInput, underOverride: boolean): Promise<Result> {
   if (!(await can("orders", "edit"))) return fail("Forbidden");
   const p = orderBudgetInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
@@ -407,7 +439,7 @@ export async function updateOrderBudget(id: string, data: OrderBudgetInput): Pro
   if (orphan) return orphan;
 
   const s = await createClient();
-  const guard = await assertEditable(s, id);
+  const guard = await assertEditable(s, id, underOverride);
   if (!guard.ok) return guard;
   const unready = await refuseUnreadyOrders(s, p.data.orders.map((o) => o.garment_order_id));
   if (unready) return unready;

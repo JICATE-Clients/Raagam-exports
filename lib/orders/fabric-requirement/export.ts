@@ -10,14 +10,15 @@
  * trusting it. Eight columns on A4 portrait wraps the fabric name to three lines
  * and the sheet stops being scannable.
  *
- * ## THE YARN & FABRIC REQUIREMENT'S LOOK, PRINT-SAFE BY CONSTRUCTION
+ * ## THE SHEET FORMAT, PRINT-SAFE BY CONSTRUCTION
  *
- * User 2026-09-29: "another reports also need to look like yarn fabric
- * requirement like looking". Every section is a filled bar in its tone (the
- * fabric table in the app's blue, YARN PURCHASE in the yarn stage's amber,
- * FABRIC PURCHASE in greige or dyed), heads tinted to match, rows striped,
- * totals tinted — drawn with `lib/orders/report-pdf-kit.ts`, the kit the Yarn &
- * Fabric Requirement draws with. This file USED to be handed a mono theme ("a
+ * User 2026-09-29: "this is okay apply it" — the approved sheet format: the
+ * masthead (mark, company, kind, RE No large), the order's facts as a grid
+ * beside the style picture, the tiles purchasing came for, then each section
+ * as a CARD in its tone (the fabric table in the app's blue, YARN PURCHASE in
+ * the yarn stage's amber, FABRIC PURCHASE in greige or dyed) with light-ruled
+ * tables — drawn with `lib/orders/report-pdf-kit.ts`, the kit every order sheet
+ * draws with, and the same blocks the screen renders. This file USED to be handed a mono theme ("a
  * saturated head band turns to mud on a mono laser"); the kit's fills are PALE
  * TINTS under near-black ink, not a saturated band, so a supplier's mono laser
  * still separates the sections and no page carries a solid fill.
@@ -34,24 +35,33 @@ import { DEFAULT_LETTERHEAD_LOGO, fitLogo, loadLetterheadImage } from "@/lib/ord
 import { swatchFor } from "@/lib/orders/fabric-bom/report-colours";
 import {
   BRAND,
+  CONTINUED_TOP,
   STAGE_STYLES,
   SWATCH_PADDING,
-  drawSectionHeading,
+  cardTableHead,
+  cardTableStyles,
+  drawCardHeader,
+  drawOrderFacts,
+  drawSheetLabel,
+  drawSheetMasthead,
+  drawSummaryTiles,
   drawSwatch,
   paintRow,
   rgb,
   roomFor,
-  toneHead,
   type StageStyle,
 } from "@/lib/orders/report-pdf-kit";
-import { fmtNumber } from "@/lib/format";
+import { signOffFooter } from "@/lib/orders/fabric-bom/reports-export";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   fabricConsumptionLabel,
   fabricRequirementSummary,
+  fabricRequirementTiles,
   fabricSheetQty,
   type FabricSheetRow,
+  type FabricSheetTile,
 } from "./sheet";
 /* THE RULE 2 DEMAND LINE (0564) — declared by the report that computes it, so
    the on-screen sheet, this file and the printed report all name one type
@@ -77,6 +87,13 @@ export type FabricSheetMeta = {
    *  the default wordmark (`DEFAULT_LETTERHEAD_LOGO`, what `letterheadLogoOf`
    *  answers for an empty Company Profile); null → no logo. */
   logo?: string | null;
+  /** The order facts the sheet format's grid prints (2026-09-29) — the same
+   *  ones the screen shows. Absent → a dash, never a guess. */
+  orderDate?: string | null;
+  deliveryDate?: string | null;
+  bomDate?: string | null;
+  plannedPcs?: number | null;
+  excessPct?: number | null;
 };
 
 /** A filesystem-safe stem: `FabricRequirement_HO-RE-2627-0001`. */
@@ -176,93 +193,99 @@ export async function exportFabricRequirementPdf(
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   const W = RIGHT - M;
 
-  /* THE ORDER DOCUMENTS' FRAME (2026-09-29) — green rule, logo, company, blue
-     title, dark rule: the letterhead the Garment Order Sheet, the Budget and
-     the Fabric BOM reports already wear. This sheet was the one order document
-     still printing a bare black name and title. */
-  doc.setFillColor(133, 194, 39);
-  doc.rect(M, 20, W, 2.5, "F");
-  let textX = M;
-  let logoBottom = 0;
-  if (logo) {
-    const { w, h } = fitLogo(logo, 120, 40);
-    doc.addImage(logo.dataUrl, "PNG", M, 28, w, h);
-    textX = M + w + 12;
-    logoBottom = 28 + h;
-  }
-  let y = 44;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(22, 24, 29);
-  doc.text(meta.company, textX, y);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(90);
-  if (meta.address) {
-    const lines = doc.splitTextToSize(meta.address, Math.max(160, RIGHT - textX - 220)) as string[];
-    for (const line of lines.slice(0, 3)) doc.text(line, textX, (y += 10));
-  }
-  if (meta.gstin) doc.text(`GSTIN ${meta.gstin}`, textX, (y += 10));
+  /* THE MASTHEAD (sheet format, 2026-09-29) — mark or logo, company, the
+     document's kind in spaced blue capitals and the RE No large. */
+  const fitted = logo ? fitLogo(logo, 96, 32) : null;
+  let y = drawSheetMasthead(doc, {
+    company: meta.company,
+    logo: logo && fitted ? { dataUrl: logo.dataUrl, w: fitted.w, h: fitted.h } : null,
+    kind: "Fabric Requirement",
+    reNo: meta.scNo,
+    meta: [meta.docNo, meta.computedAt ? `Stored ${meta.computedAt}` : null].filter(Boolean).join(" · "),
+    margin: M,
+  });
 
-  // The document's own name, right-aligned against the letterhead, in the app's blue.
-  doc.setTextColor(3, 123, 184);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("FABRIC REQUIREMENT", RIGHT, 44, { align: "right" });
-  doc.setTextColor(0);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  if (meta.docNo) doc.text(meta.docNo, RIGHT, 56, { align: "right" });
-
-  /* A DARK RULE UNDER THE LETTERHEAD, below whichever is taller. */
-  y = Math.max(y, logoBottom, 56) + 8;
-  doc.setDrawColor(22, 24, 29);
-  doc.setLineWidth(1);
-  doc.line(M, y, RIGHT, y);
-  doc.setLineWidth(0.4);
-  doc.setDrawColor(0);
-
-  y += 14;
-  /* THE HEADER THUMBNAIL (2026-09-26) at the facts' top-left, fitted into an
-     86 pt square; the facts move right by its width and the table starts below
-     whichever is taller. Drawn only when the picture loaded. */
+  /* THE ORDER'S FACTS as a grid, the style picture (2026-09-26) at its left. */
   const THUMB = 86;
-  let fx = M;
-  let tableTop = y + 10;
+  let thumbW = 0;
   if (thumb) {
-    const top = y - 9;
     const { w, h } = fitLogo(thumb, THUMB - 4, THUMB - 4);
     doc.setDrawColor(200);
     doc.setLineWidth(0.4);
-    doc.rect(M, top, THUMB, THUMB);
-    doc.addImage(thumb.dataUrl, "PNG", M + (THUMB - w) / 2, top + (THUMB - h) / 2, w, h);
-    fx = M + THUMB + 8;
-    tableTop = Math.max(tableTop, top + THUMB + 8);
+    doc.rect(M, y, THUMB, THUMB);
+    doc.addImage(thumb.dataUrl, "PNG", M + (THUMB - w) / 2, y + (THUMB - h) / 2, w, h);
+    doc.setDrawColor(0);
+    thumbW = THUMB;
   }
-  doc.setFontSize(9);
-  doc.setTextColor(22, 24, 29);
-  const facts = [
-    meta.customer ? `Customer: ${meta.customer}` : null,
-    meta.scNo ? `SC No: ${meta.scNo}` : null,
-    meta.orderNo ? `Order No: ${meta.orderNo}` : null,
-  ].filter(Boolean) as string[];
-  if (facts.length) doc.text(facts.join("    "), fx, y);
+  const date = (v: string | null | undefined) => (v ? fmtDate(v) : null);
+  y = drawOrderFacts(
+    doc,
+    y,
+    [
+      { label: "Customer", value: meta.customer },
+      { label: "Order No", value: meta.orderNo },
+      { label: "Order Date", value: date(meta.orderDate) },
+      { label: "Delivery Date", value: date(meta.deliveryDate) },
+      { label: "BOM Date", value: date(meta.bomDate) },
+      {
+        label: "Planned",
+        value: meta.plannedPcs == null ? null : `${fmtNumber(meta.plannedPcs)} pcs`,
+        sub: meta.excessPct == null ? null : `Buyer excess ${meta.excessPct}%`,
+      },
+    ],
+    { margin: M, cols: 3, thumbWidth: thumbW },
+  );
+  /* THE DERIVATION, STATED ONCE — the opposite of the Accessories sheet on
+     purpose: fabric buys the rejection allowance, a trim does not. */
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor(74, 85, 99);
+  doc.text("Rejection allowance is bought here — a garment cut and scrapped has already eaten its cloth.", M, y + 4);
+  doc.setTextColor(0);
+  y += 16;
 
-  /* THE FABRIC TABLE — a bar in the app's blue (a fabric sheet spans every
+  /* THE TILES — what purchasing came for (`fabricRequirementTiles`, which the
+     screen reads too). Left out where a figure has no single answer. */
+  const toneOfTile: Record<FabricSheetTile["tone"], StageStyle> = {
+    brand: BRAND,
+    yarn: STAGE_STYLES.yarn,
+    greige: STAGE_STYLES.greige,
+    dyed: STAGE_STYLES.dyed,
+  };
+  const tiles = fabricRequirementTiles(rows, yarns, cloth);
+  if (tiles.length) {
+    y = drawSheetLabel(doc, M, y + 6, "To buy for this order");
+    y = drawSummaryTiles(
+      doc,
+      y,
+      tiles.map((t) => ({
+        label: t.label,
+        value: fmtNumber(Number(t.qty.toFixed(3))),
+        unit: t.unit ?? undefined,
+        note: t.note,
+        tone: toneOfTile[t.tone],
+      })),
+      M,
+    );
+  }
+
+  /* THE FABRIC TABLE AS A CARD — the app's blue (a fabric sheet spans every
      stage its cloths pass through, so no one stage owns it), carrying the same
-     count the on-screen band does. */
+     count the screen's card does. Titled "Fabric Requirement": the rolls BOUGHT
+     finished are the separate "Fabric Purchase" card below, and two cards of
+     one name read as a repeat (2026-09-29). */
   const { body, bandAt, styleAt, totalAt } = matrix(rows);
   const bands = new Set(bandAt);
   const styleBands = new Set(styleAt);
   const totals = new Set(totalAt);
   const summary = fabricRequirementSummary(rows);
-  const mainStart = drawSectionHeading(
+  const mainStart = drawCardHeader(
     doc,
     M,
-    tableTop + 10,
+    roomFor(doc, y + 4, 90, 40),
     W,
     BRAND,
-    "FABRIC PURCHASE",
+    "Fabric Requirement",
     `${summary.entries} entr${summary.entries === 1 ? "y" : "ies"} · ${summary.styles} style${summary.styles === 1 ? "" : "s"} · ${summary.slices} slice${summary.slices === 1 ? "" : "s"}` +
       (summary.refused ? ` · ${summary.refused} unplanned` : ""),
   );
@@ -271,11 +294,14 @@ export async function exportFabricRequirementPdf(
     head: [COLUMNS],
     body,
     startY: mainStart,
-    margin: { left: M, right: M },
-    styles: { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 },
-    headStyles: toneHead(BRAND),
+    margin: { left: M, right: M, top: CONTINUED_TOP },
+    styles: cardTableStyles(),
+    headStyles: cardTableHead(),
+    theme: "plain",
     columnStyles: { 4: { halign: "right" }, 7: { halign: "right" } },
     didParseCell: (d) => {
+      /* A figure's heading sits over the figure — `columnStyles` never reach the head. */
+      if (d.section === "head" && (d.column.index === 4 || d.column.index === 7)) d.cell.styles.halign = "right";
       paintRow(d, { tone: BRAND, totals });
       if (d.section !== "body") return;
       /* A STYLE BAND in the section's tint; an ENTRY header bold on white —
@@ -309,24 +335,26 @@ export async function exportFabricRequirementPdf(
      computed none, which is the honest state for cloth bought finished. */
   if (yarns.length) {
     const tone = STAGE_STYLES.yarn;
-    const startY = drawSectionHeading(
+    const startY = drawCardHeader(
       doc,
       M,
-      roomFor(doc, lastY(doc, y), 80, 40) + 22,
+      roomFor(doc, lastY(doc, y) + 14, 80, 40),
       W,
       tone,
-      "YARN PURCHASE",
+      "Yarn Purchase",
       `${yarns.length} yarn${yarns.length === 1 ? "" : "s"}`,
     );
     autoTable(doc, {
       head: [["Yarn", "UOM", "Purchase Qty"]],
       body: matrix(yarns).body.map((r) => [r[0], r[6], r[7]]),
       startY,
-      margin: { left: M, right: M },
-      styles: { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 },
-      headStyles: toneHead(tone),
+      margin: { left: M, right: M, top: CONTINUED_TOP },
+      styles: cardTableStyles(),
+      headStyles: cardTableHead(),
+      theme: "plain",
       columnStyles: { 2: { halign: "right" } },
       didParseCell: (d) => {
+        if (d.section === "head" && d.column.index === 2) d.cell.styles.halign = "right";
         paintRow(d, { tone });
         if (d.section === "body" && d.column.index === 2 && !isFigure(String(d.cell.raw ?? ""))) {
           d.cell.styles.textColor = REFUSAL_INK;
@@ -365,24 +393,26 @@ export async function exportFabricRequirementPdf(
       const uom = [...units][0];
       clothBody.push([`Total Fabric Purchase Requirement${uom ? ` (${uom})` : ""}`, "", "", "", "", fmtNumber(total)]);
     }
-    const startY = drawSectionHeading(
+    const startY = drawCardHeader(
       doc,
       M,
-      roomFor(doc, lastY(doc, y), 80, 40) + 22,
+      roomFor(doc, lastY(doc, y) + 14, 80, 40),
       W,
       tone,
-      "FABRIC PURCHASE",
+      "Fabric Purchase",
       `${cloth.length} line${cloth.length === 1 ? "" : "s"}`,
     );
     autoTable(doc, {
       head: [["Fabric", "Buying", "Colour", "UOM", "Net Wt", "Purchase Wt"]],
       body: clothBody,
       startY,
-      margin: { left: M, right: M },
-      styles: { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 },
-      headStyles: toneHead(tone),
+      margin: { left: M, right: M, top: CONTINUED_TOP },
+      styles: cardTableStyles(),
+      headStyles: cardTableHead(),
+      theme: "plain",
       columnStyles: { 4: { halign: "right" }, 5: { halign: "right", fontStyle: "bold" } },
       didParseCell: (d) => {
+        if (d.section === "head" && (d.column.index === 4 || d.column.index === 5)) d.cell.styles.halign = "right";
         paintRow(d, { tone, totals: new Set([totalRow]) });
         if (d.section !== "body" || d.row.index === totalRow) return;
         const line = cloth[d.row.index];
@@ -400,6 +430,11 @@ export async function exportFabricRequirementPdf(
       },
     });
   }
+
+  /* PREPARED / CHECKED / APPROVED — the sheet format signs off, as the screen
+     does. On a page of its own when the last table ran into the sign-off band. */
+  if (lastY(doc, y) > doc.internal.pageSize.getHeight() - 70) doc.addPage();
+  signOffFooter(doc);
 
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {

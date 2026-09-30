@@ -31,6 +31,9 @@
  */
 
 import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
+import { OverrideBanner, useOverrideCommit, type OverrideSaveRequest } from "@/components/orders/override-commit";
+import { areaOverride } from "@/lib/orders/overrides/override-modules";
+import type { OverrideEditState } from "@/lib/orders/overrides/types";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -49,6 +52,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Toggle } from "@/components/ui/toggle";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
 import {
@@ -613,6 +617,7 @@ export function BudgetScreen({
   openLine = null,
   openField = null,
   embed = null,
+  overrideState = null,
 }: {
   budgets: OrderBudget[];
   data: BudgetFormData;
@@ -628,10 +633,15 @@ export function BudgetScreen({
   openField?: string | null;
   /** EMBEDDED in an amendment — open this budget (`id`), hide the queue, return on close. */
   embed?: EmbedTarget | null;
+  /** The caller's live PERMISSION-OVERRIDE keys (0653) — null without one. With
+   *  an Order Budget key, an APPROVED budget opens editable in override mode. */
+  overrideState?: OverrideEditState | null;
 }) {
   const router = useRouter();
   const { success, error: toastError, toast } = useToast();
   const [isPending, start] = useTransition();
+  /* PERMISSION OVERRIDE (0653) — the "Commit Changes (Override)" dialog. */
+  const overrideCommit = useOverrideCommit();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
@@ -808,7 +818,14 @@ export function BudgetScreen({
   /** A budget stops being the operator's once it is submitted. Mirrors
    *  `assertEditable` in the actions — the screen closes the door and the server
    *  is what actually holds it. */
-  const editable = status === "draft" || status === "rejected";
+  /* PERMISSION OVERRIDE (0653): an APPROVED budget the caller holds a live
+     Order Budget key for is editable in place — it stays approved, no MD
+     (R-6). A plain const; `assertEditable` on the server is what holds it. */
+  const budgetOverride =
+    editId && status === "approved"
+      ? areaOverride(overrideState, "budget", orders.find((o) => o.garment_order_id)?.garment_order_id)
+      : null;
+  const editable = status === "draft" || status === "rejected" || !!budgetOverride;
   /**
    * THE BOM'S CELLS ON A PULLED LINE ARE READ-ONLY (user 2026-09-19: "the
    * merchandiser's role is strictly to input the unit rates"). Item,
@@ -1675,15 +1692,64 @@ export function BudgetScreen({
     ),
   });
 
-  /* FOC AND IMPORT ARE HIDDEN ON EVERY BUDGET TAB (user 2026-09-24: "in budget
-     child all tab included foc import field hide it"). The switches are gone
-     from every cost grid; the columns `is_foc` / `is_import` stay on the line
-     and are still saved as they stand, so a line pulled with FOC from its
-     Material BOM (0474) is still FOC. Curr · Ex Rate · INR Rate below still
-     show on a line that already HOLDS a foreign currency (`importOnly`) —
-     hiding a currency that prices the line would be a silent dollar figure.
-     The switch, its INR reset and its order-currency prefill (`flagToggle`)
-     are in git history (before 2026-09-24) if the columns come back. */
+  /* FOC AND IMPORT ARE BACK ON THE THREE PURCHASE GRIDS (client 2026-09-29) —
+     Yarn, Fabric and Accessories Purchases, and NOWHERE ELSE. They were hidden
+     on every budget tab on 2026-09-24 (user: "in budget child all tab included
+     foc import field hide it"); the client reversed that for purchases only,
+     because a buyer supplies trims or special yarn free and a purchase may be
+     imported, and a grid without the switch leaves no way to say so. The
+     process tabs and CMTs stay without them (the 09-24 hide stands there).
+     This is the switch exactly as it stood before 09-24 — its INR reset and
+     its order-currency prefill included. Fabric Purchases had Import only
+     (for six hours on 09-24) and never FOC; it now has both, like the others.
+
+     FOC LOCKS THE RATE AT 0.00 (client 2026-09-29): see `rateCol`. The engine
+     already priced an FOC line at zero (`lineInrRate`, totals.ts); the box now
+     says so instead of holding a figure that no longer counts. The Kg / Reqd
+     stays live — FOC changes what the line COSTS, never what the order needs. */
+  const flagToggle = (r: CostRow, key: "is_foc" | "is_import", aria: string, className?: string) => (
+    <span data-focus-optional={r[key] ? undefined : ""}>
+      <Toggle
+        checked={r[key]}
+        ariaLabel={aria}
+        disabled={rateLock(r)}
+        onChange={(v) =>
+          /* IMPORT OFF IS INR (client 2026-09-23). The currency columns hide
+             with the switch (`importOnly`), so a foreign currency left behind
+             would price the line in dollars with nothing on screen saying so —
+             switching Import off takes the line back to rupees. */
+          setCost(
+            r.key,
+            key !== "is_import"
+              ? { [key]: v }
+              : !v
+                ? { is_import: false, currency_code: "", ex_rate: "" }
+                : /* IMPORT ON STARTS IN THE ORDER'S CURRENCY (client 2026-09-24,
+                     shot 3041: switched on, the line still read INR with a blank
+                     Ex Rate). An imported line is quoted in foreign money, and
+                     the order's own currency and rate (the header's Currency /
+                     Conv) are the ones it is most likely quoted in — the same
+                     prefill `pickCurrency` gives. A currency already on the
+                     line is kept; an INR order has nothing to prefill. */
+                  !r.currency_code && orderCurrency && orderCurrency !== "INR"
+                  ? {
+                      is_import: true,
+                      currency_code: orderCurrency,
+                      ex_rate: orderRate != null ? String(orderRate) : "",
+                    }
+                  : { is_import: true },
+          )
+        }
+        className={className}
+      />
+    </span>
+  );
+  const toggleCol = (header: string, key: "is_foc" | "is_import", aria: string): CostCol => ({
+    header,
+    cell: (r) => flagToggle(r, key, aria),
+  });
+  const focCol = toggleCol("FOC", "is_foc", "Free of cost");
+  const importCol = toggleCol("Import", "is_import", "Imported");
 
   /**
    * CURR · EX RATE · INR RATE ONLY ON AN IMPORT LINE (client 2026-09-23: "after
@@ -1831,13 +1897,16 @@ export function BudgetScreen({
               : "")
           }
           required={rateRequired(r)}
-          readOnly={rateLock(r)}
+          /* FOC: the box reads 0.00 and is locked. The typed rate is kept on
+             the line, untouched, so switching FOC off gives it back; the
+             engine ignores it while FOC is on (`lineInrRate`). */
+          readOnly={rateLock(r) || r.is_foc}
           /* MANUAL ENTRY NEEDED (0619, spec §3.2): an unpriced line's rate is
              AMBER at rest, before any Save — the operator is told which cell
              is missing rather than finding it by pressing Save. */
           data-manual-entry={unpricedKeys.has(r.key) ? "" : undefined}
           inputMode="decimal"
-          value={r.rate}
+          value={r.is_foc ? "0.00" : r.rate}
           onChange={(e) => setCost(r.key, { rate: e.target.value })}
           /* Alt+L takes the hint below without leaving the box. Alt, not
              Ctrl: every Ctrl+letter on a grid cell is either the browser's
@@ -2234,7 +2303,11 @@ export function BudgetScreen({
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     // FOC and Import in their OWN columns (user 2026-09-19: "foc and imports
-    // toggle in separate field and cell"), at the END of the row (2026-09-22).
+    // toggle in separate field and cell"), at the END of the row (2026-09-22);
+    // hidden 2026-09-24, back 2026-09-29 (client). 664 + 72 + 72 + 72 + 72 +
+    // 88 = 1040, + 72 = 1112 <= 1120 beside the rail.
+    { ...focCol, width: FIELD_WIDTH_CSS.num },
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
     // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-23).
     { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
@@ -2274,6 +2347,10 @@ export function BudgetScreen({
     { ...qtyUnitCol("Reqd"), width: FIELD_WIDTH_CSS.range },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    // FOC + Import (client 2026-09-29) — FOC new on this grid. Same sum as
+    // Yarn Purchases: 1040, + 72 = 1112 <= 1120 beside the rail.
+    { ...focCol, width: FIELD_WIDTH_CSS.num },
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
     // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-24).
     { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
@@ -2304,7 +2381,10 @@ export function BudgetScreen({
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
     // FOC and Import in their own columns, as on Yarn Purchases (user
-    // 2026-09-19), at the row's end (2026-09-22).
+    // 2026-09-19), at the row's end (2026-09-22); back 2026-09-29 (client).
+    // 600 + 72 + 72 + 232 = 976, + 72 = 1048 <= 1120.
+    { ...focCol, width: FIELD_WIDTH_CSS.num },
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
     // Curr · Ex Rate · INR Rate only once Import is on (client 2026-09-23).
     { ...importOnly(currencyCol), width: FIELD_WIDTH_CSS.num },
     { ...importOnly(exRateCol), width: FIELD_WIDTH_CSS.num },
@@ -2384,9 +2464,9 @@ export function BudgetScreen({
      112 + 112 + 88 + 72 + 88 + 88 + 88 = 648, + 72 = 720. */
   const garmentProcessColumns: CostCol[] = withRowRules([
     {
-      header: "Style Ref No",
+      header: "Style", // not "Style Ref No" (user 2026-09-29) — the same value
       width: FIELD_WIDTH_CSS.range,
-      labelFor: (r) => (r.style_ref_no ? "Style Ref No" : "Description"),
+      labelFor: (r) => (r.style_ref_no ? "Style" : "Description"),
       cell: (r) =>
         r.style_ref_no ? (
           <div className="min-w-0 leading-tight">
@@ -2477,16 +2557,16 @@ export function BudgetScreen({
 
   /* CMTs — 112 + 176 + 144 + 144 + 88 + 88 + 88 + 88 + 112 = 1040, + 72 = 1112
      <= 1155 -> 5xl.
-     A hand-added line shows its Description under "Style Ref No" in the table
+     A hand-added line shows its Description under "Style" in the table
      (its style cells are empty — `showFor`); the card layout below the
      threshold labels it as a Description. */
   const cmtColumns: CostCol[] = withRowRules([
     {
-      header: "Style Ref No",
+      header: "Style", // not "Style Ref No" (user 2026-09-29)
       width: FIELD_WIDTH_CSS.range,
       // A HAND-ADDED LINE HAS NO STYLE, so its first cell is what it IS — a
       // typed description, labelled as one.
-      labelFor: (r) => (styleBound(r) ? "Style Ref No" : "Description"),
+      labelFor: (r) => (styleBound(r) ? "Style" : "Description"),
       cell: (r) =>
         styleBound(r) ? (
           <Truncated className="text-sm">{r.style_ref_no}</Truncated>
@@ -4044,12 +4124,17 @@ export function BudgetScreen({
 
   function submit() {
     setSaveAttempted(true);
-    start(async () => {
+    /* PERMISSION OVERRIDE (0653): on an approved budget, Save asks for the
+       reason first and the same save runs with it. A refusal keeps the form. */
+    const doSave = (o?: OverrideSaveRequest) => start(async () => {
       const res = editId
-        ? await updateOrderBudget(editId, payloadOf())
+        ? await updateOrderBudget(editId, payloadOf(), o)
         : await createOrderBudget(payloadOf());
       if (res.ok) {
-        success(editId ? "Budget updated" : "Budget created");
+        success(
+          (editId ? "Budget updated" : "Budget created") +
+            (o ? " — recorded in the Override Edit Report" : ""),
+        );
         setDirty(false);
         setMode("list");
         router.refresh();
@@ -4057,6 +4142,11 @@ export function BudgetScreen({
         toastError(res.error);
       }
     });
+    if (budgetOverride) {
+      overrideCommit.request(budgetOverride, doSave);
+      return;
+    }
+    doSave();
   }
 
   /** Save, then send to the approver — never one without the other. Submitting a
@@ -4275,7 +4365,14 @@ export function BudgetScreen({
             - any other read-only state (with the approver): `viewOnly`.
            The approver's Reopen stays in the header — it is not a field. */
         locked={
-          editId && status === "approved"
+          budgetOverride
+            ? /* OVERRIDE EDIT MODE (0653): every section lifted; the budget
+                 stays approved and the save is audited. */
+              {
+                message: <OverrideBanner override={budgetOverride} />,
+                open: sections.map((sec) => sec.key),
+              }
+            : editId && status === "approved"
             ? {
                 message: "This budget is approved — it and its orders are read-only. To change them, raise a revision.",
                 action:
@@ -4292,12 +4389,15 @@ export function BudgetScreen({
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New budget",
           onCancel: () => setMode("list"),
           onSave: submit,
-          saveLabel: "Save budget",
+          saveLabel: budgetOverride ? "Commit Changes (Override)" : "Save budget",
           canSave: validity.canSave && editable,
           onBlockedSave: revealFirstProblem,
           isPending,
         }}
       />
+
+      {/* PERMISSION OVERRIDE (0653) — "Commit Changes (Override)". */}
+      {overrideCommit.dialog}
 
       <CopyFromSheet
         open={copyOpen}

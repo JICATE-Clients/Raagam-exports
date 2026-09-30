@@ -19,11 +19,13 @@ import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import { WORKFLOWS, WORKFLOW_LIST, workflowLabel } from "@/lib/approvals/workflows";
 import { isRefusal, type Refusal } from "@/lib/orders/material-bom/requirement";
-import type { BudgetKpis } from "@/lib/orders/budget/amendment";
 import type { CanActVerdict, QueueItem, StrandedRun } from "@/lib/approvals/types";
 import { RevisionComparePanel } from "@/components/approvals/revision-compare-panel";
 import { revisionCompareAction } from "@/lib/approvals/revision-compare-actions";
 import type { RevisionCompare } from "@/lib/approvals/revision-compare";
+import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
+import type { OrderApprovalCard as OrderCardData } from "@/lib/approvals/order-approval-cards";
+import { OrderApprovalCard } from "@/components/approvals/order-approval-card";
 
 /** A queue row with the two keys `withCreators` / `withCreatedColumns` read. */
 export type QueueRow = QueueItem & {
@@ -33,38 +35,20 @@ export type QueueRow = QueueItem & {
 };
 
 /**
- * The budget behind one `order_budget` queue row, for the phone card
- * (`doc/order/newfeature.md` §2). `kpis` is `submitted_summary` read back —
- * the figures AS SUBMITTED, never recomputed here. NULL when the budget
- * predates the summary column, in which case the card names the document and
- * shows no figures rather than inventing them.
+ * The ORDER behind one `order_budget` queue row, for the phone card — one
+ * shape with the desktop register, assembled once by `loadOrderApprovalCards`
+ * (RE No, customer, style, qty, earliest shipment, merchandiser, submitter,
+ * revision, and the cost breakdown with V0). `kpis` is `submitted_summary`
+ * read back — the figures AS SUBMITTED, never recomputed. NULL when the budget
+ * predates the summary column: the card names the document and shows no
+ * figures rather than inventing them.
  */
-export type BudgetCard = {
-  code: string | null;
-  currency: string | null;
-  kpis: BudgetKpis | null;
-  /** The budget's customers and "STYLE REF / DESCRIPTION"s, comma-joined. */
-  customer: string | null;
-  styles: string | null;
-  /**
-   * The OPEN revision entry on this budget, or null for a first submit
-   * (client 2026-09-24: the MD's card names the RE, the Rev #, who raised it
-   * and why). `revNo` is the register's own "Rev #n".
-   */
-  revision: {
-    entryId: string;
-    entryNo: string | null;
-    revNo: number | null;
-    reason: string | null;
-    raisedBy: string | null;
-    raisedAt: string;
-  } | null;
-};
+export type BudgetCard = OrderCardData;
 
 /** "HO/RE/26-27/0001" — the RE No(s) a budget card leads with, else its code. */
 function reOf(b: BudgetCard | undefined): string | null {
-  const re = b?.kpis?.re_nos.join(", ");
-  return re || b?.code || null;
+  const re = b?.reNos.join(", ");
+  return re || b?.budgetCode || null;
 }
 
 /**
@@ -117,6 +101,9 @@ export function ApprovalsInboxScreen({
    * is "still working it out".
    */
   const [compare, setCompare] = useState<{ entryId: string; result: RevisionCompare | null } | null>(null);
+  /* THE COST BREAKDOWN ARRIVES WITH THE CARD (Phase 2, 2026-09-30) —
+     `loadOrderApprovalCards` computes it with the queue, so the tap that
+     opens the sheet no longer waits on a second action for it. */
   const openDecision = (r: QueueRow) => {
     setDecideOn(r.run_id);
     const rev = budgets[r.subject_id]?.revision;
@@ -382,9 +369,38 @@ export function ApprovalsInboxScreen({
         * `MobileCardList`'s own header asks for that, so a caller wanting cards
         * at every width simply omits the wrapper.
         */}
-      <div className="md:hidden">
+      <div className="space-y-3 md:hidden">
+        {/* AN ORDER BUDGET IS AN ORDER CARD, WITH THE DECISION ON IT (client
+            2026-09-29, "MD Approval Screen in Mobile View"): the order, the
+            cost bar, the margin against the 15% line, V0 vs the proposal per
+            piece, and Approve · Request Rework — decided from the queue
+            without opening anything. "View full sheet" still opens the
+            revision detail below. Every other workflow keeps the list card. */}
+        {filtered
+          .filter((r) => budgets[r.subject_id])
+          .map((r) => (
+            <OrderApprovalCard
+              key={r.run_id}
+              card={budgets[r.subject_id]}
+              waited={waited(r.waiting_hours)}
+              overdue={r.is_overdue}
+              onOpenSheet={verdicts[r.run_id] ? () => openDecision(r) : undefined}
+              actions={
+                verdicts[r.run_id] ? (
+                  <ApprovalActionBar
+                    run={{ id: r.run_id, lock_version: r.lock_version, status: "in_progress" }}
+                    verdict={verdicts[r.run_id]}
+                    subjectPath="/approvals"
+                    rework
+                    compact
+                  />
+                ) : undefined
+              }
+            />
+          ))}
+        {(filtered.some((r) => !budgets[r.subject_id]) || filtered.length === 0) && (
         <MobileCardList<QueueRow>
-          rows={filtered}
+          rows={filtered.filter((r) => !budgets[r.subject_id])}
           getKey={(r) => r.run_id}
           /* A BUDGET CARD LEADS WITH ITS RE NO (client 2026-09-24) — the number
              the MD knows the order by — then the customer and style under it.
@@ -400,7 +416,7 @@ export function ApprovalsInboxScreen({
             const b = budgets[r.subject_id];
             if (!b) return null;
             const line = [b.customer, b.styles].filter(Boolean).join(" · ");
-            return line ? <Truncated>{line}</Truncated> : b.code;
+            return line ? <Truncated>{line}</Truncated> : b.budgetCode;
           }}
           pill={(r) => {
             /* "REV #2 · PENDING" — a revision says which one, in the pill the
@@ -433,6 +449,7 @@ export function ApprovalsInboxScreen({
           }}
           empty="Nothing is waiting on you. Requests appear here the moment a step names you as an approver."
         />
+        )}
       </div>
 
       {/* THE DECISION, WITH THE FIGURES STILL ON SCREEN. */}
@@ -443,8 +460,8 @@ export function ApprovalsInboxScreen({
           title={
             decideRevision
               ? `${reOf(decideCard) ?? "Revision"}${decideRevision.revNo ? ` · Rev #${decideRevision.revNo}` : ""}`
-              : decideCard?.code
-                ? `${workflowLabel(decideRow.workflow_key)} · ${decideCard.code}`
+              : decideCard?.budgetCode
+                ? `${workflowLabel(decideRow.workflow_key)} · ${decideCard.budgetCode}`
                 : workflowLabel(decideRow.workflow_key)
           }
         >
@@ -482,6 +499,18 @@ export function ApprovalsInboxScreen({
                   Open the full revision (every line, Original Budget, what changed)
                 </Link>
               </>
+            )}
+            {/* THE CHART BEFORE THE FIGURES AND THE BUTTONS (client 2026-09-29):
+                where the sales go, and on a revision how that moved since V0 —
+                read before Approve / Request Rework, not after. */}
+            {decideCard && decideRow && (
+              <div className="rounded-md border border-border bg-surface p-3">
+                {(() => {
+                  const res = decideCard.breakdown;
+                  if (!res.ok) return <p className="text-sm text-warning">Breakdown unavailable — {res.refused}</p>;
+                  return <BudgetBreakdownChart current={res.current} original={res.original} />;
+                })()}
+              </div>
             )}
             {/**
               * THE SAME COMPONENTS THE DESKTOP APPROVAL SCREEN USES.
@@ -555,6 +584,9 @@ export function ApprovalsInboxScreen({
               }}
               verdict={decideVerdict}
               subjectPath="/approvals"
+              /* An order budget reads Approve · Request Rework (client
+                 2026-09-29); every other workflow keeps its three buttons. */
+              rework={decideRow.workflow_key === WORKFLOWS.order_budget.key}
             />
           </div>
         </Sheet>

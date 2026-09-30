@@ -141,8 +141,8 @@ check(
 refute("...it does not fall back to the whole order", parseAxes("banana"), []);
 check(
   "a display label is NOT a stored grain, and says so rather than half-matching",
-  refusalOf(parseAxes("Style Ref No / Order Color")),
-  '"style ref no / order color" is not a split this order can be exploded by',
+  refusalOf(parseAxes("Style / Order Color")),
+  '"style / order color" is not a split this order can be exploded by',
 );
 
 console.log("\n§3  labels are DERIVED — one direction only");
@@ -150,18 +150,18 @@ console.log("\n§3  labels are DERIVED — one direction only");
 check(
   "the client's #19 reads back exactly",
   labelFor(["style_ref", "colour", "size"]),
-  "Style Ref No / Order Color / Order Size",
+  "Style / Order Color / Order Size",
 );
 check(
   "#24 is the same label, because it is the same grain",
   labelFor(["style_ref", "size", "colour"]),
-  "Style Ref No / Order Color / Order Size",
+  "Style / Order Color / Order Size",
 );
-check("#12", labelFor(["style_ref"]), "Style Ref No");
+check("#12", labelFor(["style_ref"]), "Style");
 check("#28", labelFor(["country"]), "Country");
 check("#26", labelFor(["trim_colour", "colour"]), "Order Color / Combination");
 check("#16", labelFor(["style_ref", "country", "colour", "size"]),
-  "Style Ref No / Order Color / Order Size / Country");
+  "Style / Order Color / Order Size / Country");
 /* NAMED, never blank — a blank cell and "the whole order" must not look alike. */
 check("#1 is named", labelFor([]), "Whole order");
 
@@ -537,7 +537,7 @@ refute(
 check(
   "an unreachable grain names itself",
   refusalOf(slicesForAxes(["style_ref", "country"], ORDER)),
-  "Style Ref No / Country is not a split this order can be exploded by yet",
+  "Style / Country is not a split this order can be exploded by yet",
 );
 
 /* TRIM COLOUR IS NOT AN ORDER AXIS. It is applied per BOM LINE by `colourSplits`

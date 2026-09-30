@@ -7,8 +7,13 @@ import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
    the twin of the `report-pdf-kit.ts` the PDF draws with. */
 import {
   BRAND,
-  SectionBar,
+  OrderFacts,
+  SectionCard,
+  SheetLabel,
+  SheetMasthead,
+  SignOff,
   STAGE_STYLES,
+  SummaryTiles,
   Swatch,
   Th,
   stripeRow,
@@ -20,10 +25,12 @@ import {
   fabricConsumptionLabel,
   fabricRequirementSheetRows,
   fabricRequirementSummary,
+  fabricRequirementTiles,
   fabricSheetQty,
   totalIsPartial,
   yarnSheetRows,
   type FabricSheetRow,
+  type FabricSheetTile,
 } from "@/lib/orders/fabric-requirement/sheet";
 import type { FabricRequirementSheetData } from "@/lib/orders/fabric-requirement/service";
 
@@ -71,91 +78,82 @@ export function FabricRequirementSheetDocument({
   const rows = fabricRequirementSheetRows(data.rows, data.names);
   const yarns = yarnSheetRows(data.yarns, data.names);
   const summary = fabricRequirementSummary(rows);
+  /* What purchasing came for — `fabricRequirementTiles`, which the PDF reads too. */
+  const tiles = fabricRequirementTiles(rows, yarns, data.cloth);
 
   return (
     <>
       <DocumentPrintStyles scope="fab" />
-      <article className="fab-sheet mx-auto max-w-[1200px] overflow-hidden rounded-md border border-border bg-white text-[#16181d] shadow-sm">
-        {/* Identity band. The green stripe is the ONE place brand green is spent
-            on this document; everything else that carries colour is the primary
-            blue, so the sheet reads as one thing rather than a palette. */}
-        <div className="grid grid-cols-[6px_1fr]">
-          <div className="fab-stripe bg-[#85c227]" />
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#16181d] px-5 py-4">
-            <div>
-              <div className="text-[21px] font-bold tracking-wide">
-                {data.company.name ?? "RAAGAM EXPORTS"}
-              </div>
-              <div className="max-w-[46ch] text-[11.5px] leading-relaxed text-[#5b6472]">
-                {data.company.address}
-                {data.company.gstin ? ` · GSTIN ${data.company.gstin}` : ""}
-              </div>
+      {/* THE SHEET FORMAT (user 2026-09-29, "this is okay apply it") — the
+          masthead, the order's facts beside the style picture, the tiles, then
+          each section as a card. The PDF draws the same blocks. */}
+      <article className="fab-sheet mx-auto grid max-w-[1200px] gap-5 text-[#16181d]">
+        <div>
+          <SheetMasthead
+            company={{ name: data.company.name, logo: data.company.logo }}
+            kind="Fabric Requirement"
+            reNo={data.order.scNo}
+            meta={[data.bom.code, data.bom.computedAt ? `Stored ${fmtDateTime(data.bom.computedAt)}` : null]
+              .filter(Boolean)
+              .join(" · ")}
+          />
+          <OrderFacts
+            thumbnail={thumbnail ? <ReportThumbnail image={thumbnail} /> : undefined}
+            facts={[
+              { label: "Customer", value: data.order.customer },
+              { label: "Order No", value: data.order.orderNo, mono: true },
+              { label: "Order Date", value: fmtDate(data.order.orderDate), mono: true },
+              { label: "Delivery Date", value: fmtDate(data.order.deliveryDate), mono: true },
+              { label: "BOM Date", value: fmtDate(data.bom.bomDate), mono: true },
+              {
+                label: "Planned",
+                value: data.bom.computedForQty != null ? `${fmtNumber(data.bom.computedForQty)} pcs` : null,
+                sub: data.order.excessPct != null ? `Buyer excess ${data.order.excessPct}%` : null,
+                mono: true,
+              },
+            ]}
+          />
+          {/* CAD PENDING (0628) — a bordered badge, not a watermark (cad-lifecycle/stamp.ts). */}
+          {cadPending && (
+            <div className="border border-t-0 border-border bg-white px-5 py-2">
+              <CadPendingBadge />
             </div>
-            <div className="text-right">
-              <div className="text-[15px] font-bold uppercase tracking-[.14em] text-[#037bb8]">
-                Fabric Requirement
-              </div>
-              <div className="font-mono text-[13px]">{data.bom.code ?? "—"}</div>
-            </div>
+          )}
+          {/* THE DERIVATION, STATED ONCE — and here it says the OPPOSITE of the
+              accessories sheet, deliberately. Fabric carries the full target with
+              the rejection allowance INCLUDED, because a garment scrapped during
+              panel processing has already eaten its cloth; a trim on the same
+              garment has not been used. That is the client's own distinction and
+              the two documents must each say which side of it they are on. */}
+          <div className="fab-keep rounded-b-md border border-t-0 border-border bg-[#f7f9fb] px-5 py-2 text-[11.5px] text-[#4a5563]">
+            Rejection allowance <b>is</b> bought here — a garment cut and scrapped has already eaten its cloth.
           </div>
         </div>
-        {/* CAD PENDING (0628) — a bordered badge, not a watermark (cad-lifecycle/stamp.ts). */}
-        {cadPending && (
-          <div className="border-b border-border px-5 py-2">
-            <CadPendingBadge />
+
+        {tiles.length > 0 && (
+          <div>
+            <SheetLabel>To buy for this order</SheetLabel>
+            <SummaryTiles
+              tiles={tiles.map((t) => ({
+                label: t.label,
+                value: fmtNumber(Number(t.qty.toFixed(3))),
+                unit: t.unit ?? undefined,
+                note: t.note,
+                tone: TILE_TONE[t.tone],
+              }))}
+            />
           </div>
         )}
 
-        {/* No picture → no left column at all; the facts take the full width. */}
-        <div className="flex items-start gap-3 border-b border-border">
-          {thumbnail && (
-            <div className="py-2 pl-5">
-              <ReportThumbnail image={thumbnail} />
-            </div>
-          )}
-          <dl className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
-            <Fact label="Customer" value={data.order.customer} />
-            <Fact label="SC No" value={data.order.scNo} mono />
-            <Fact label="Order No" value={data.order.orderNo} mono />
-            <Fact label="Order Dt" value={fmtDate(data.order.orderDate)} mono />
-            <Fact label="Delivery Dt" value={fmtDate(data.order.deliveryDate)} mono />
-            <Fact label="BOM Dt" value={fmtDate(data.bom.bomDate)} mono />
-          </dl>
-        </div>
-
-        {/* THE DERIVATION, STATED ONCE — and here it says the OPPOSITE of the
-            accessories sheet, deliberately. Fabric carries the full target with
-            the rejection allowance INCLUDED, because a garment scrapped during
-            panel processing has already eaten its cloth; a trim on the same
-            garment has not been used. That is the client's own distinction and
-            the two documents must each say which side of it they are on, or a
-            reader who knows one will assume the other. */}
-        <div className="fab-keep flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-[#f1f3f5] px-5 py-2.5 font-mono text-[12.5px]">
-          <span className="font-semibold text-[#037bb8]">
-            {data.bom.computedForQty != null ? fmtNumber(data.bom.computedForQty) : "—"}
-          </span>
-          <span className="text-[#8b95a3]">pcs planned</span>
-          {data.order.excessPct != null && (
-            <>
-              <span className="text-[#8b95a3]">· buyer excess</span>
-              <span>{data.order.excessPct}%</span>
-            </>
-          )}
-          <span className="ml-auto font-sans text-[11.5px] text-[#5b6472]">
-            Rejection allowance <b>is</b> bought here — a garment cut and scrapped has already eaten
-            its cloth.
-          </span>
-        </div>
-
-        <section>
-          {/* THE FABRIC TABLE'S BAR — the app's blue: a fabric sheet spans every
-              stage its cloths pass through, so no one stage owns it. The PDF
-              draws the same bar with the same count. */}
-          <SectionBar
+        {/* THE FABRIC TABLE AS A CARD — the app's blue: a fabric sheet spans every
+            stage its cloths pass through, so no one stage owns it. Titled
+            "Fabric Requirement" (2026-09-29): the rolls BOUGHT finished are the
+            separate "Fabric Purchase" card below, and two cards of one name
+            read as a repeat. The PDF draws the same card with the same count. */}
+          <SectionCard
             tone={BRAND}
-            first
-            title="Fabric Purchase"
-            right={
+            title="Fabric Requirement"
+            total={
               <>
                 {summary.entries} entr{summary.entries === 1 ? "y" : "ies"} · {summary.styles} style
                 {summary.styles === 1 ? "" : "s"} · {summary.slices} slice
@@ -169,7 +167,7 @@ export function FabricRequirementSheetDocument({
                 ) : null}
               </>
             }
-          />
+          >
           <div className="fab-scroll">
             <table className="w-full border-collapse text-[13px]">
               <thead>
@@ -189,7 +187,7 @@ export function FabricRequirementSheetDocument({
               </tbody>
             </table>
           </div>
-        </section>
+          </SectionCard>
 
         {/* THE YARN SECTION IS OMITTED WHEN THE BOM COMPUTED NONE, rather than
             printed empty. Cloth bought finished needs no yarn purchase, so an
@@ -198,12 +196,11 @@ export function FabricRequirementSheetDocument({
             not in a position to make. The BOM's own Yarn Process tab is where an
             absent split is chased. */}
         {yarns.length > 0 && (
-          <section>
-            <SectionBar
-              tone={STAGE_STYLES.yarn}
-              title="Yarn Purchase"
-              right={`${yarns.length} yarn${yarns.length === 1 ? "" : "s"}`}
-            />
+          <SectionCard
+            tone={STAGE_STYLES.yarn}
+            title="Yarn Purchase"
+            total={`${yarns.length} yarn${yarns.length === 1 ? "" : "s"}`}
+          >
             <div className="fab-scroll">
               <table className="w-full border-collapse text-[13px]">
                 <thead>
@@ -226,7 +223,7 @@ export function FabricRequirementSheetDocument({
                 </tbody>
               </table>
             </div>
-          </section>
+          </SectionCard>
         )}
 
         {/* FABRIC PURCHASE (0564) — Default Rule 2's demand, and the reason
@@ -238,14 +235,13 @@ export function FabricRequirementSheetDocument({
             reason the yarn section is: a heading over nothing states a
             purchase that does not exist. */}
         {data.cloth.length > 0 && (
-          <section>
-            {/* Greige or dyed rolls — the bar wears the stage they are bought in
-                (Dyed only when every line is), each Buying cell its own. */}
-            <SectionBar
-              tone={clothTone(data.cloth)}
-              title="Fabric Purchase"
-              right={`${data.cloth.length} line${data.cloth.length === 1 ? "" : "s"}`}
-            />
+          /* Greige or dyed rolls — the card wears the stage they are bought in
+             (Dyed only when every line is), each Buying cell its own. */
+          <SectionCard
+            tone={clothTone(data.cloth)}
+            title="Fabric Purchase"
+            total={`${data.cloth.length} line${data.cloth.length === 1 ? "" : "s"}`}
+          >
             <div className="fab-scroll">
               <table className="w-full border-collapse text-[13px]">
                 <thead>
@@ -305,23 +301,15 @@ export function FabricRequirementSheetDocument({
                 </tbody>
               </table>
             </div>
-          </section>
+          </SectionCard>
         )}
 
-        <div className="grid grid-cols-3 border-t-2 border-[#16181d]">
-          {["Prepared By", "Checked By", "Approved By"].map((s) => (
-            <div key={s} className="border-r border-border px-5 pb-3 pt-8 text-center last:border-r-0">
-              <span className="block border-t border-[#9aa4b2] pt-2 text-[11px] font-semibold uppercase tracking-[.1em] text-[#5b6472]">
-                {s}
-              </span>
-            </div>
-          ))}
-        </div>
+        <SignOff />
 
         {/* WHEN THE FIGURES WERE STORED, not when the page was opened. A sheet
             that dated itself "now" would look current while printing a
             requirement computed against an order that has since moved. */}
-        <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 border-t border-border px-5 py-2 font-mono text-[10.5px] text-[#8b95a3]">
+        <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 border-t border-border py-2 font-mono text-[10.5px] text-[#8b95a3]">
           <span>
             Requirement stored {data.bom.computedAt ? fmtDateTime(data.bom.computedAt) : "—"}
           </span>
@@ -332,18 +320,13 @@ export function FabricRequirementSheetDocument({
   );
 }
 
-function Fact({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
-  return (
-    <div className="border-b border-r border-border px-5 py-2 last:border-r-0">
-      <dt className="mb-px text-[10.5px] font-semibold uppercase tracking-[.1em] text-[#8b95a3]">
-        {label}
-      </dt>
-      <dd className={`m-0 font-medium ${mono ? "font-mono text-[13px]" : "text-[14px]"}`}>
-        {value || "—"}
-      </dd>
-    </div>
-  );
-}
+/** A tile's tone (`fabricRequirementTiles` names it; the kit's palette answers). */
+const TILE_TONE: Record<FabricSheetTile["tone"], StageStyle> = {
+  brand: BRAND,
+  yarn: STAGE_STYLES.yarn,
+  greige: STAGE_STYLES.greige,
+  dyed: STAGE_STYLES.dyed,
+};
 
 /** A bought roll's stage — greige unless it is bought dyed. */
 function lineTone(l: ClothPurchaseLine): StageStyle {

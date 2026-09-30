@@ -1,5 +1,6 @@
 "use client";
 
+import { Send, Undo2 } from "lucide-react";
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -326,16 +327,18 @@ export function FinesScreen({ rows, staff, canCreate, canEdit, canDelete }: Prop
       label={r.code}
       onView={() => openView(r)}
       onEdit={() => openEdit(r)}
-      canEdit={canEdit && r.status === "draft"}
+      canEdit={canEdit}
+      editDisabledReason={r.status === "draft" ? null : "Only a draft fine can be edited"}
       onDelete={() => doDelete(r)}
-      canDelete={canDelete && r.status === "draft"}
+      canDelete={canDelete}
+      deleteDisabledReason={r.status === "draft" ? null : "Only a draft fine can be deleted"}
       isPending={isPending}
       menu={[
         ...(r.status === "draft" && (canCreate || canEdit)
-          ? [{ label: "Submit for approval…", onClick: () => openConfirm(r) }]
+          ? [{ label: "Submit for approval…", icon: Send, onClick: () => openConfirm(r) }]
           : []),
         ...((r.status === "draft" || r.status === "pending") && canEdit
-          ? [{ label: "Abandon…", danger: true, onClick: () => { setAbandonReason(""); setAbandonFor(r); } }]
+          ? [{ label: "Abandon…", icon: Undo2, danger: true, onClick: () => { setAbandonReason(""); setAbandonFor(r); } }]
           : []),
       ]}
     />

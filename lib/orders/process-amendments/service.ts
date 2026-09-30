@@ -11,7 +11,7 @@ export type OrderRow = {
   order_number: string | null;
   buyer_id: string | null;
 };
-/** Style option (Style Ref No picker) + its display Style / Article No. */
+/** Style option (the Style picker) + its display Article No. */
 export type StyleRow = {
   id: string;
   code: string | null;

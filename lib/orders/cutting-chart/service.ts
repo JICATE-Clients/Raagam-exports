@@ -71,7 +71,7 @@ export async function getCuttingChart(salesOrderId: string): Promise<CuttingChar
     };
   }
 
-  const [approvalRes, styleRes, coRes, locRes, tiersById, sizeNames] = await Promise.all([
+  const [approvalRes, styleRes, coRes, locRes, tiersById, sizeNames, shipRes] = await Promise.all([
     s
       .from("garment_order_amendment_approval_qtys")
       .select("style_ref_no, combo, size_id, qty, approval_qty, sno")
@@ -88,7 +88,10 @@ export async function getCuttingChart(salesOrderId: string): Promise<CuttingChar
       : Promise.resolve({ data: null, error: null }),
     rejectionTiersById(),
     sizeNamesById(),
+    // The destinations' Earlier Shipment Dates (2026-09-29) — the header's date.
+    s.from("garment_order_amendment_quantities").select("earlier_shipment_date").eq("amendment_id", go.id),
   ]);
+  if (shipRes.error) return { refused: `Could not read the order's shipment dates: ${shipRes.error.message}` };
   if (approvalRes.error) return { refused: `Could not read the order's Approval Qty: ${approvalRes.error.message}` };
   if (styleRes.error) return { refused: `Could not read the order's styles: ${styleRes.error.message}` };
   if (locRes.error) return { refused: `Could not read the order's unit: ${locRes.error.message}` };
@@ -193,6 +196,16 @@ export async function getCuttingChart(salesOrderId: string): Promise<CuttingChar
          as the Fabric BOM reports do (`loadBomDocHeader`). */
       deliveryFrom: go.delivery_date,
       deliveryTo: go.delivery_date,
+      /* "EARLIER SHIPMENT DATE" IS THAT FIELD, NOT A RELABELLED DELIVERY DATE
+         (2026-09-29): Order Entry keeps both, the earlier one defaulting to a
+         week before delivery, so printing delivery under this name would state
+         a date a week late. The earliest across destinations — Order Entry's
+         ship-date rule, and the Garment Order Sheet's (`earliestShipment`). */
+      earlierShipment:
+        ((shipRes.data ?? []) as { earlier_shipment_date: string | null }[])
+          .map((r) => (r.earlier_shipment_date ?? "").trim())
+          .filter(Boolean)
+          .sort()[0] ?? null,
       orderNo: go.po_no,
       excessPct,
       orderQty,

@@ -105,6 +105,13 @@ export default async function FabricRequirementPage({
               computedAt: data.bom.computedAt ? fmtDateTime(data.bom.computedAt) : null,
               cadPending,
               thumbUrl: thumbnail?.url ?? null,
+              // The sheet format's masthead and fact grid (2026-09-29) — the screen's own facts.
+              logo: data.company.logo,
+              orderDate: data.order.orderDate,
+              deliveryDate: data.order.deliveryDate,
+              bomDate: data.bom.bomDate,
+              plannedPcs: data.bom.computedForQty,
+              excessPct: data.order.excessPct,
             }}
           />
         )}

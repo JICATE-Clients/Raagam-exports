@@ -130,7 +130,7 @@ function ProcessTab({
       cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span>,
     },
     {
-      header: "Style Ref",
+      header: "Style",
       cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span>,
     },
     {

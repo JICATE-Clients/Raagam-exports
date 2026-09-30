@@ -301,16 +301,25 @@ export function requirementSummary(rows: readonly SheetRow[]): {
  * leaves the cell below it empty, and both renderers draw that as one merged
  * cell (a `rowSpan` on screen, an autoTable `rowSpan` in the PDF).
  */
-/** The printout's eight columns, in its order — read by the page, the PDF and the CSV. */
+/**
+ * The grid's columns, in order — read by the page, the PDF and the CSV.
+ *
+ * THE CLIENT'S STANDARD SEQUENCE (user 2026-09-29, "Accessories / Material BOM
+ * Report Standard"): Item Name → Consumption → Color → Size → Specification →
+ * UOM → Required Qty. It replaces the RP printout's order (Item · Color ·
+ * Specification · UOM · Item Size · Qty · Consumption). Category stays at the
+ * far left because it is not a data column: it is the rowSpan group band
+ * written once over its items.
+ */
 export const ACCESSORY_COLUMNS = [
   "Category",
-  "Item",
+  "Item Name",
+  "Consumption",
   "Color",
+  "Size",
   "Specification",
   "UOM",
-  "Item Size",
-  "Qty",
-  "Consumption",
+  "Required Qty",
 ] as const;
 
 export type AccessoryRow = {
@@ -321,7 +330,8 @@ export type AccessoryRow = {
    *  PRINTED / SATIN / CUT & SEAL", category word included. */
   item: string;
   colour: string | null;
-  /** "Type:Local", then the line's own specification text when it has one. */
+  /** EXACTLY the Specification the user typed on the Material BOM line; null
+   *  when blank (user 2026-09-29) — never a default. */
   spec: string | null;
   uom: string;
   size: string | null;
@@ -368,7 +378,6 @@ export function accessoryRows(stored: readonly StoredRequirement[], names: Sheet
     }
   }
 
-  const title = (v: string) => v.trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
   const out: AccessoryRow[] = [];
   const categories = [...byCategory.entries()].sort((a, b) => a[1].sno - b[1].sno);
   for (const [category, cat] of categories) {
@@ -380,9 +389,14 @@ export function accessoryRows(stored: readonly StoredRequirement[], names: Sheet
       const refused = g.rows.find((r) => num(r.required_qty) == null);
       const qty = refused ? null : Number(g.rows.reduce((s, r) => s + (num(r.required_qty) ?? 0), 0).toFixed(6));
       const line = first.item_line_id ? names.lines?.[first.item_line_id] : undefined;
-      const spec = [line?.supplyType ? `Type:${title(line.supplyType)}` : null, line?.specification?.trim() || null]
-        .filter(Boolean)
-        .join(" ");
+      /* THE USER'S OWN TEXT, OR NOTHING (user 2026-09-29: "display the exact
+         text string entered … if blank, leave it empty — remove fallback
+         defaults like 'Local'"). This cell used to lead with `Type:<supply
+         type>`, and a new Material BOM line opens on supply type "Local"
+         (`DEFAULT_SUPPLY_TYPE`), so every line printed "Type:Local" whether
+         or not anyone had specified anything. The supply type is not a
+         specification; it stays on the BOM. */
+      const spec = line?.specification?.trim() || "";
       out.push({
         key: `a:${category}:${key}`,
         category: i === 0 ? category : null,

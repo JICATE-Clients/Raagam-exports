@@ -51,7 +51,7 @@ type Bucket = (typeof BUCKETS)[number];
 
 /**
  * FILTERS (user, 2026-09-23: "implement the Material BOM filter in every
- * Orders child"). Order / Style Ref, Buyer, Activity and -- only on the
+ * Orders child"). Order / Style, Buyer, Activity and -- only on the
  * all-departments view, where there is more than one to tell apart --
  * Department. Much the same questions `ta-followup` (the approvals half of
  * this ladder) already answers, for the same reason: on the all-departments
@@ -280,7 +280,7 @@ export default async function TaWorklistPage({
                   <StaticFilterText
                     id="twl-ref"
                     name="ref"
-                    label="Order / Style Ref"
+                    label="Order / Style"
                     defaultValue={filters.ref}
                     placeholder="Search…"
                     wide

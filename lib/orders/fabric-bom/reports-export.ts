@@ -51,6 +51,7 @@ function avgLossText(
    drawn into every PDF header below. A logo that fails to load prints nothing
    rather than stopping the download. */
 import { fitLogo, loadLetterheadImage, type LetterheadImage } from "./letterhead";
+import { requirementBuyTiles, requirementRoute } from "./sheet-summary";
 /* THE STAGE COLOURS (client 2026-09-20, design A "with colourful
    differentiation") — one palette shared with the on-screen report. */
 import {
@@ -66,15 +67,19 @@ import {
   ROW_STRIPE,
   STATE_BADGE,
   SWATCH_PADDING,
-  drawGroupHeading,
-  drawSectionHeading,
-  drawStageStripe,
-  drawStageTag,
   drawStateBadge,
   drawSwatch,
+  drawCardHeader,
+  drawOrderFacts,
+  drawQtyEquation,
+  drawRouteStrip,
+  drawSheetLabel,
+  drawSheetMasthead,
+  drawSummaryTiles,
+  cardTableHead,
+  cardTableStyles,
   paintRow,
   roomFor,
-  toneHead,
   BRAND,
 } from "@/lib/orders/report-pdf-kit";
 
@@ -144,152 +149,8 @@ function drawThumbnail(doc: jsPDF, thumb: LetterheadImage | null, x: number, y: 
   return THUMB + THUMB_GAP;
 }
 
-/** The Entry Register's facts line — Customer / RE No / Order No / Style Ref
- *  No / Delivery Date; the quantity line under it (`drawLetterhead`,
- *  `excessAsPct`) carries Order Qty / Excess % / Rejection Allowance /
- *  Approval Allowance / Cut Qty (client 2026-09-23). Same ten facts, same
- *  order, as `EntryRegisterFactsRow` + `QuantityBand` on screen. */
-function entryRegisterFacts(header: BomDocHeader): string[] {
-  return [
-    header.customer ? `Customer: ${header.customer}` : null,
-    header.scNo ? `RE No: ${header.scNo}` : null,
-    header.orderNo ? `Order No: ${header.orderNo}` : null,
-    header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
-    header.deliveryFromDate ? `Delivery Date: ${fmtDate(header.deliveryFromDate)}` : null,
-  ].filter(Boolean) as string[];
-}
 
-/** The Yarn & Fabric Requirement Report's OWN header line (client spec,
- *  2026-09-11): Customer / RE No / Order No / Style Ref No / Delivery, in
- *  this order, and NOTHING ELSE — kept apart from `entryRegisterFacts` so
- *  each report's header can follow its own spec; see `YarnReportFactsRow`'s
- *  identical note on the on-screen Sheet. */
-function yarnReportFacts(header: BomDocHeader): string[] {
-  return [
-    header.customer ? `Customer: ${header.customer}` : null,
-    header.scNo ? `RE No: ${header.scNo}` : null,
-    header.orderNo ? `Order No: ${header.orderNo}` : null,
-    header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
-    header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
-  ].filter(Boolean) as string[];
-}
 
-/** The letterhead + facts strip, drawn once per document and returned as the
- *  Y position the first table should start below. `facts` defaults to
- *  `entryRegisterFacts`; pass `yarnReportFacts(header)` for the one report with
- *  its own exact spec. */
-function drawLetterhead(
-  doc: jsPDF,
-  header: BomDocHeader,
-  title: string,
-  facts: string[] = entryRegisterFacts(header),
-  /** The company logo (2026-09-19) — see ./letterhead.ts. Null draws the
-   *  text-only letterhead this function always drew. */
-  logo: LetterheadImage | null = null,
-  /** A requirement document (2026-09-20) wears the four-stage stripe; the
-   *  Entry Register keeps the brand-green rule. */
-  stageStripe = false,
-  /** The Entry Register states the order's Excess % where the requirement
-   *  reports print the Excess Qty (client 2026-09-23). */
-  excessAsPct = false,
-  /** The style picture at the facts' top-left (2026-09-26) — `drawThumbnail`. */
-  thumb: LetterheadImage | null = null,
-): number {
-  const M = 36;
-  const RIGHT = doc.internal.pageSize.getWidth() - M;
-
-  /* THE FRAME — a thin rule across the top, the same the on-screen letterhead
-     carries, so the page and the printout read as one document. */
-  if (stageStripe) {
-    drawStageStripe(doc, M, 20, RIGHT - M, 3);
-  } else {
-    doc.setFillColor(133, 194, 39);
-    doc.rect(M, 20, RIGHT - M, 2.5, "F");
-  }
-
-  /* THE LOGO, LEFT, fitted into 120 x 40 pt keeping its aspect ratio; the
-     company's name and address sit beside it. */
-  let textX = M;
-  let logoBottom = 0;
-  if (logo) {
-    const { w, h } = fitLogo(logo, 120, 40);
-    doc.addImage(logo.dataUrl, "PNG", M, 28, w, h);
-    textX = M + w + 12;
-    logoBottom = 28 + h;
-  }
-
-  let y = 44;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(header.company.name ?? "RAAGAM EXPORTS", textX, y);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(90);
-  /* THE UNIT, THEN THE REGISTERED ADDRESS (client spec 2026-09-19: Company
-     Name, Unit Name, Registered Address on every exported report). The address
-     WRAPS rather than running under the title on the right: it is typed on the
-     Company Profile at whatever length the office uses. */
-  if (header.company.unit) {
-    doc.setFont("helvetica", "bold");
-    doc.text(header.company.unit.toUpperCase(), textX, (y += 12));
-    doc.setFont("helvetica", "normal");
-  }
-  if (header.company.address) {
-    const lines = doc.splitTextToSize(header.company.address, Math.max(160, RIGHT - textX - 220)) as string[];
-    for (const line of lines.slice(0, 3)) doc.text(line, textX, (y += 10));
-  }
-  if (header.company.gstin) doc.text(`GSTIN ${header.company.gstin}`, textX, (y += 10));
-
-  doc.setTextColor(3, 123, 184);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text(title.toUpperCase(), RIGHT, 44, { align: "right" });
-  doc.setTextColor(0);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  if (header.bomCode) doc.text(header.bomCode, RIGHT, 56, { align: "right" });
-
-  /* A DARK RULE UNDER THE LETTERHEAD, below whichever is taller — the text
-     block or the logo. */
-  y = Math.max(y, logoBottom) + 8;
-  doc.setDrawColor(22, 24, 29);
-  doc.setLineWidth(1);
-  doc.line(M, y, RIGHT, y);
-  doc.setLineWidth(0.4);
-
-  /* The picture sits under the rule at the left; the two fact lines move
-     right by its width and WRAP inside what is left rather than running off
-     the page. The block ends below whichever is taller. */
-  const thumbTop = y + 6;
-  const fx = M + drawThumbnail(doc, thumb, M, thumbTop);
-  const thumbBottom = fx > M ? thumbTop + THUMB : 0;
-
-  y += 14;
-  doc.setFontSize(9);
-  if (facts.length) {
-    const lines = doc.splitTextToSize(facts.join("    "), RIGHT - fx) as string[];
-    lines.forEach((line, i) => doc.text(line, fx, i === 0 ? y : (y += 11)));
-  }
-
-  if (!isReportRefusal(header.qty)) {
-    y += 12;
-    doc.setFontSize(8);
-    doc.setTextColor(70);
-    const excess = excessAsPct
-      ? `Excess % ${header.excessPct != null ? `${fmtNumber(header.excessPct)}%` : "—"}`
-      : `Excess Qty ${fmtNumber(header.qty.excessQty)}`;
-    const lines = doc.splitTextToSize(
-      `Order Qty ${fmtNumber(header.qty.orderQty)}    ${excess}` +
-        `    Rejection Allowance ${fmtNumber(header.qty.rejectionQty)}    Approval Allowance ${fmtNumber(header.qty.approvalQty)}` +
-        `    Cut Qty ${fmtNumber(header.qty.cutQty)}`,
-      RIGHT - fx,
-    ) as string[];
-    lines.forEach((line, i) => doc.text(line, fx, i === 0 ? y : (y += 10)));
-    doc.setTextColor(0);
-  }
-
-  return Math.max(y + 10, thumbBottom + 8);
-}
 
 /**
  * `Computed <date>` bottom left and `Page n / m` bottom right.
@@ -464,9 +325,30 @@ export async function exportEntryRegisterPdf(
   const tab = openPrintTab(output);
   const [logo, thumb] = await Promise.all([loadLetterheadImage(data.header.company.logo), loadLetterheadImage(thumbUrl)]);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-  const M = 36;
-  const y = drawLetterhead(doc, data.header, "Fabric BOM Entry Register", undefined, logo, false, true, thumb);
+  /* THE SHEET FORMAT (user 2026-09-29, "this is okay apply it") — the shared
+     opening (`drawSheetHeader`: masthead, order facts, the quantity as a sum),
+     the register's totals as tiles, then each table as a card. 28pt margins,
+     the opening's own, so the cards line up under it in landscape too. */
+  const M = 28;
+  let y = drawSheetHeader(doc, data.header, "Fabric BOM Entry Register", logo, thumb);
   const RIGHT = doc.internal.pageSize.getWidth() - M;
+  y = drawSheetLabel(doc, M, y + 2, "This register");
+  y = drawSummaryTiles(
+    doc,
+    y,
+    [
+      { label: "Net requirement", value: fmtNumber(data.grandTotal.netReqWt), unit: "kg", note: "before process loss", tone: BRAND },
+      { label: "Total (gross)", value: fmtNumber(data.grandTotal.grossWt), unit: "kg", note: "to order", tone: BRAND },
+      { label: "Colourways", value: String(data.groups.length), note: "assort colours", tone: BRAND },
+      {
+        label: "Components",
+        value: String(data.groups.reduce((sum, g) => sum + g.components.length, 0)),
+        note: "fabric · component sets",
+        tone: BRAND,
+      },
+    ],
+    M,
+  );
 
   /* THE YARN & FABRIC LOOK (user 2026-09-29) — a filled section bar with the
      register's gross total, the head in its tint, one band per assort colour
@@ -476,14 +358,16 @@ export async function exportEntryRegisterPdf(
      not a requirement (2026-09-20). */
   const tone = BRAND;
   const { body, kinds } = registerBody(data);
-  const startY = drawSectionHeading(
+  y = roomFor(doc, y, 90, 40);
+  const startY = drawCardHeader(
     doc,
     M,
-    y + 14,
+    y + 4,
     RIGHT - M,
     tone,
-    "FABRIC REQUIREMENT — COLOUR · COMPONENT · SIZE",
-    `${fmtNumber(data.grandTotal.grossWt)} gross`,
+    "Fabric Requirement — Colour · Component · Size",
+    fmtNumber(data.grandTotal.grossWt),
+    "Gross",
   );
 
   autoTable(doc, {
@@ -491,9 +375,9 @@ export async function exportEntryRegisterPdf(
     body,
     startY,
     margin: { left: M, right: M },
-    styles: monoStyles(),
-    headStyles: toneHead(tone),
-    theme: "grid",
+    styles: cardTableStyles(),
+    headStyles: cardTableHead(),
+    theme: "plain",
     columnStyles: {
       // GSM(4), Width(7), Cut Qty(8), Piece Wt(9), Wastage %(10),
       // Net Req Wt(11), Loss %(12), Total (Gross) Wt(13) — every numeric
@@ -534,7 +418,7 @@ export async function exportEntryRegisterPdf(
 
   if (data.stageLedger.length) {
     let ly = roomFor(doc, finalY(doc, y), 90, 40);
-    ly = drawSectionHeading(doc, M, ly + 22, RIGHT - M, tone, "PROCESS SEQUENCE & STAGE LOSS LEDGER");
+    ly = drawCardHeader(doc, M, ly + 12, RIGHT - M, tone, "Process Sequence & Stage Loss Ledger");
     autoTable(doc, {
       head: [["Class", "Item", "Colour", "Component", "Stage", "Process", "Loss %"]],
       body: data.stageLedger.map((r) => [
@@ -548,9 +432,9 @@ export async function exportEntryRegisterPdf(
       ]),
       startY: ly,
       margin: { left: M, right: M },
-      styles: monoStyles(),
-      headStyles: toneHead(tone),
-      theme: "grid",
+      styles: cardTableStyles(),
+      headStyles: cardTableHead(),
+      theme: "plain",
       columnStyles: { 6: { halign: "right" } },
       didParseCell: (d) => {
         paintRow(d, { tone });
@@ -573,190 +457,73 @@ export async function exportEntryRegisterPdf(
 // Yarn & Fabric Requirement Report
 // ---------------------------------------------------------------------------
 
+
+
 /**
- * THE LEGACY RP REQUIREMENT HEADER — centred company, unit and registered
- * address, the centred title, "Report Printed Date & Time", the Customer /
- * Delivery grid, and the RE No / Order No / Style Ref No / Style / Excess% /
- * Unit row under a five-column Quantity block ending in Cut. Shared by the
- * Yarn & Fabric Requirement and the Accessories Requirement (client
- * 2026-09-24, "Accessories Requirement.pdf" — the same band as the RP
- * printout), so the two documents cannot drift apart. Moved out of
- * `exportYarnRequirementPdf` unchanged except for the title.
- *
- * Returns where the next table starts, and the printed-at line's Y for
- * `stampTopPageNumbers`.
+ * THE SHEET FORMAT'S OPENING (user 2026-09-29, the approved "Raagam Requirement
+ * Sheet") — masthead, the order's facts beside the style picture, and the
+ * quantity drawn as the sum it is. Replaces `drawLegacyRequirementHeader`'s RP
+ * bordered grid for the documents that have moved to the new format; the facts
+ * are the same ones, in the client's words (Style / Description, Earlier
+ * Shipment with Delivery under it). Returns the Y below the quantity block.
  */
-export function drawLegacyRequirementHeader(
+export function drawSheetHeader(
   doc: jsPDF,
   h: BomDocHeader,
-  title: string,
+  kind: string,
   logo: LetterheadImage | null,
-  /** The style picture at the facts' top-left (2026-09-26) — `drawThumbnail`.
-   *  The Accessories Requirement passes none and is laid out as before. */
   thumb: LetterheadImage | null = null,
-): { y: number; printedY: number } {
+): number {
   const M = 28;
-  const RIGHT = doc.internal.pageSize.getWidth() - M;
-  const MID = doc.internal.pageSize.getWidth() / 2;
-
-  /* THE LEGACY LAYOUT KEEPS ITS CENTRED TITLE; the logo (2026-09-19) sits at
-     the top LEFT, fitted to 96 x 32 pt, clear of the centred lines and above
-     the "Report Printed" line at y = 62. A thin brand-green rule runs across
-     the top, the same frame the other Fabric BOM documents carry. */
-  drawStageStripe(doc, M, 12, RIGHT - M, 3);
-  if (logo) {
-    const { w, h: lh } = fitLogo(logo, 96, 32);
-    doc.addImage(logo.dataUrl, "PNG", M, 20, w, lh);
+  const fitted = logo ? fitLogo(logo, 96, 32) : null;
+  let y = drawSheetMasthead(doc, {
+    company: h.company.name,
+    unit: h.company.unit,
+    logo: logo && fitted ? { dataUrl: logo.dataUrl, w: fitted.w, h: fitted.h } : null,
+    kind,
+    reNo: h.scNo,
+    meta: [h.bomCode, h.computedAt ? `Computed ${fmtDate(h.computedAt)}` : null].filter(Boolean).join(" · "),
+  });
+  const tw = drawThumbnail(doc, thumb, M, y);
+  y = drawOrderFacts(
+    doc,
+    y,
+    [
+      { label: "Customer", value: h.customer },
+      { label: "Order No", value: h.orderNo },
+      { label: "Style", value: h.styleRefNo, sub: h.styleName },
+      {
+        label: "Earlier Shipment",
+        value: h.earlierShipmentDate ? fmtDate(h.earlierShipmentDate) : null,
+        sub: h.deliveryFromDate ? `Delivery ${fmtDate(h.deliveryFromDate)}` : null,
+      },
+      { label: "Unit", value: ["PCS", h.company.unit].filter(Boolean).join(" · ") },
+      { label: "Excess", value: h.excessPct == null ? null : `${fmtNumber(h.excessPct)}%` },
+    ],
+    { thumbWidth: tw ? tw - THUMB_GAP : 0 },
+  );
+  if (isReportRefusal(h.qty)) {
+    doc.setFontSize(7);
+    doc.setTextColor(150, 30, 30);
+    doc.text(h.qty.refused, M, y + 8);
+    doc.setTextColor(0);
+    return y + 16;
   }
-
-  /* THE PRINT TIME IS THE READER'S OWN CLOCK, taken here rather than on the
-     server. `header.computedAt` is a different fact and is already printed by
-     the page footer: when the FIGURES were computed, which can be days before
-     someone prints them. Legacy's line says "Report Printed Date & Time", and
-     a server-side stamp would render it in UTC on a UTC+5:30 business — the
-     mistake `lib/dashboard/range.ts` records for `today()`. */
-  const printedAt = new Date();
-  const printed =
-    `${String(printedAt.getDate()).padStart(2, "0")}-${String(printedAt.getMonth() + 1).padStart(2, "0")}-` +
-    `${printedAt.getFullYear()} ${printedAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text(h.company.name ?? "RAAGAM EXPORTS", MID, 32, { align: "center" });
-
-  /* THE UNIT AND THE REGISTERED ADDRESS, centred under the name (client spec
-     2026-09-19: Company Name, Unit Name, Registered Address on every exported
-     report — this header printed the name alone). The address wraps inside the
-     band the logo leaves clear (96 pt each side plus a gap), so it never runs
-     under the logo, and everything below moves down by however many lines it
-     took — a blank address costs no space at all. */
-  let headY = 32;
-  doc.setFontSize(7.5);
-  if (h.company.unit) doc.text(h.company.unit.toUpperCase(), MID, (headY += 9), { align: "center" });
-  doc.setFont("helvetica", "normal");
-  if (h.company.address) {
-    const band = RIGHT - M - 2 * (96 + 12);
-    const lines = doc.splitTextToSize(h.company.address, band) as string[];
-    for (const line of lines.slice(0, 2)) doc.text(line, MID, (headY += 8.5), { align: "center" });
-  }
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  const titleY = Math.max(48, headY + 13);
-  doc.text(title.toUpperCase(), MID, titleY, { align: "center" });
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  const printedY = titleY + 14;
-  doc.text(`Report Printed Date & Time: ${printed}`, M, printedY);
-  /* `Page : 1/1` SITS AT THE TOP RIGHT, where legacy puts it, as well as in
-     the page footer. Written after every table has been laid out (the total
-     is not known until then) — see the `stampTopPageNumbers` call at the
-     foot of this function. */
-
-  let y = printedY + 8;
-
-  /* THE THUMBNAIL at the grids' top-left; both fact grids start right of it,
-     and the block ends below whichever is taller. */
-  const fx = M + drawThumbnail(doc, thumb, M, y);
-  const thumbBottom = fx > M ? y + THUMB : 0;
-
-  // -- the order facts, as a grid --------------------------------------------
-  const fact = (label: string, value: string | null | undefined) => ({
-    content: `${label} ${value ?? ""}`.trim(),
-    styles: { fontStyle: "normal" as const },
-  });
-  autoTable(doc, {
-    body: [
-      [
-        fact("Customer:", h.customer),
-        fact(
-          "Delivery From:",
-          h.deliveryFromDate
-            ? `${fmtDate(h.deliveryFromDate)}  To: ${fmtDate(h.deliveryToDate ?? h.deliveryFromDate)}`
-            : "",
-        ),
-      ],
+  const q = h.qty;
+  const pct = (v: number | null) => (v == null ? null : `${v.toFixed(2)}%`);
+  y = drawSheetLabel(doc, M, y + 6, "Quantity to cut");
+  return drawQtyEquation(
+    doc,
+    y,
+    [
+      { label: "Order", value: fmtNumber(q.orderQty), note: "pcs" },
+      { label: "Excess", value: fmtNumber(q.excessQty), note: h.excessPct == null ? null : `${fmtNumber(h.excessPct)}%` },
+      { label: "Approval", value: fmtNumber(q.approvalQty), note: pct(q.approvalPct) },
+      { label: "Rej. Allow", value: fmtNumber(q.rejectionQty), note: pct(q.rejectionPct) },
     ],
-    startY: y,
-    margin: { left: fx, right: M, top: CONTINUED_TOP },
-    styles: { ...monoStyles(), fontSize: 7 },
-    theme: "grid",
-  });
-  y = finalY(doc, y);
-
-  /* THE QUANTITY BLOCK — five columns under one spanning header, which is
-     what makes Order + Excess + Approval + Rej.Allow = Cut read as a sum. The
-     two allowance columns carry their own percentage of the order qty
-     (`approvalPct` / `rejectionPct`, derived once in ./reports.ts). */
-  const q = isReportRefusal(h.qty) ? null : h.qty;
-  const withPct = (qty: number, pct: number | null) =>
-    pct == null ? fmtNumber(qty) : `${fmtNumber(qty)} (${pct.toFixed(2)}%)`;
-  autoTable(doc, {
-    head: [
-      [
-        { content: "RE No.", rowSpan: 2 },
-        { content: "Order No.", rowSpan: 2 },
-        { content: "Style Ref No", rowSpan: 2 },
-        { content: "Style", rowSpan: 2 },
-        { content: "Excess%", rowSpan: 2 },
-        { content: "Unit", rowSpan: 2 },
-        { content: "Quantity", colSpan: 5, styles: { halign: "center" as const } },
-      ],
-      [
-        { content: "Order", styles: { halign: "right" as const } },
-        { content: "Excess", styles: { halign: "right" as const } },
-        { content: "Approval", styles: { halign: "right" as const } },
-        { content: "Rej.Allow", styles: { halign: "right" as const } },
-        { content: "Cut", styles: { halign: "right" as const } },
-      ],
-    ],
-    body: [
-      [
-        h.scNo ?? "",
-        h.orderNo ?? "",
-        h.styleRefNo ?? "",
-        h.styleName ?? "",
-        h.excessPct == null ? "" : `${h.excessPct}`,
-        /* PCS, AND IT IS NOT A GUESS — every quantity in this block is a
-           GARMENT count (`OrderProductionInput`'s approval rows are pieces),
-           which is the one unit this document's header can state without
-           reading a column that does not exist. */
-        q ? "PCS" : "",
-        q ? fmtNumber(q.orderQty) : "",
-        q ? fmtNumber(q.excessQty) : "",
-        q ? withPct(q.approvalQty, q.approvalPct) : "",
-        q ? withPct(q.rejectionQty, q.rejectionPct) : "",
-        q ? fmtNumber(q.cutQty) : "",
-      ],
-    ],
-    startY: y + 4,
-    margin: { left: fx, right: M, top: CONTINUED_TOP },
-    styles: { ...monoStyles(), fontSize: 7 },
-    headStyles: { ...monoHead(), fontSize: 6.5 },
-    theme: "grid",
-    columnStyles: {
-      6: { halign: "right" },
-      7: { halign: "right" },
-      8: { halign: "right" },
-      9: { halign: "right" },
-      10: { halign: "right" },
-    },
-    /* THE TWO FIGURES PEOPLE LOOK UP FIRST — the RE No and the Cut quantity —
-       tinted (2026-09-20). */
-    didParseCell: (d) => {
-      if (d.section === "body" && (d.column.index === 0 || d.column.index === 10)) {
-        d.cell.styles.fillColor = rgb(STAGE_STYLES.dyed.tint);
-        d.cell.styles.textColor = rgb(STAGE_STYLES.dyed.ink);
-        d.cell.styles.fontStyle = "bold";
-      }
-    },
-  });
-  y = Math.max(finalY(doc, y), thumbBottom);
-
-  return { y, printedY };
+    { label: "Cut Qty", value: fmtNumber(q.cutQty), note: "pcs" },
+  );
 }
-
 
 /**
  * THE LEGACY PRINTOUT, COLUMN FOR COLUMN — "Yarndyed _Format.pdf", the RP
@@ -800,50 +567,35 @@ export async function exportYarnRequirementPdf(
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   const h = data.header;
 
-  const { y: headerEndY, printedY } = drawLegacyRequirementHeader(doc, h, "Yarn and Fabric Requirement", logo, thumb);
-  let y = headerEndY;
-
-  /* THE KEY — what the stage colours below mean, once, under the order
-     facts (2026-09-20). */
-  {
-    const keyY = y + 12;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(6.5);
-    doc.setTextColor(0);
-    doc.text("KEY", M, keyY);
-    let kx = M + doc.getTextWidth("KEY") + 6;
-    const entries: [StageStyle, string][] = [
-      [STAGE_STYLES.yarn, "yarn to buy"],
-      [STAGE_STYLES.greige, "one lot per fabric"],
-      [STAGE_STYLES.dyed, "per colourway"],
-      [STAGE_STYLES.print, "printed colourways only"],
-      [STAGE_STYLES.cutting, "to the cutting table"],
-    ];
-    for (const [st, text] of entries) {
-      kx += drawStageTag(doc, kx, keyY, st) + 3;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.5);
-      doc.setTextColor(85, 92, 102);
-      doc.text(text, kx, keyY);
-      kx += doc.getTextWidth(text) + 9;
-    }
-    doc.setTextColor(0);
-    y = keyY + 2;
+  /* THE SHEET FORMAT (user 2026-09-29) — masthead, order facts, quantity,
+     then the figures purchasing came for and the order's route, before any
+     detail. The tiles and the route are `sheet-summary.ts`'s, which the screen
+     reads too. */
+  let y = drawSheetHeader(doc, h, "Yarn & Fabric Requirement", logo, thumb);
+  const tiles = requirementBuyTiles(data);
+  if (tiles.length) {
+    y = drawSheetLabel(doc, M, y + 2, "To buy for this order");
+    y = drawSummaryTiles(
+      doc,
+      y,
+      tiles.map((t) => ({ label: t.label, value: fmtNumber(Number(t.qty.toFixed(3))), unit: t.unit ?? undefined, note: t.note, tone: t.tone })),
+    );
   }
-
-  /* THE REFUSAL, WHERE THE BREAKDOWN WOULD HAVE BEEN. `productionTarget`
-     refuses by name (no Approval Qty yet, a rejection tier with a gap) and
-     that sentence is the document's answer, not an empty row of dashes. */
-  if (isReportRefusal(h.qty)) {
-    doc.setFontSize(7);
-    doc.setTextColor(150, 30, 30);
-    doc.text(h.qty.refused, M, y + 10);
-    doc.setTextColor(0);
-    y += 14;
-  }
+  y = drawSheetLabel(doc, M, y + 2, "Route for this order");
+  y = drawRouteStrip(doc, y, requirementRoute(data));
 
   // -- YARN REQUIREMENT ------------------------------------------------------
-  const yarnStartY = drawSectionHeading(doc, M, y + 14, RIGHT - M, STAGE_STYLES.yarn, "YARN REQUIREMENT");
+  y = roomFor(doc, y, 90);
+  const yarnStartY = drawCardHeader(
+    doc,
+    M,
+    y + 4,
+    RIGHT - M,
+    STAGE_STYLES.yarn,
+    "Yarn Purchase Requirement",
+    data.yarnGrandTotal ? `${fmtNumber(data.yarnGrandTotal.qty)}${data.yarnGrandTotal.uomCode ? ` ${data.yarnGrandTotal.uomCode}` : ""}` : null,
+    data.yarnGrandTotal ? "Total to order" : null,
+  );
   /* THE STAGE OF EACH ROW'S LABEL CELLS — the yarn dyeing rows are Dyed, a
      bought roll is Greige or Dyed (2026-09-20). Rows not here stay white. */
   const yarnRowTone = new Map<number, StageStyle>();
@@ -859,14 +611,17 @@ export async function exportYarnRequirementPdf(
 
   const noteRows = new Set<number>();
   data.yarns.forEach((r, i) => {
+    /* GREIGE ONLY when part of this yarn is bought dyed (2026-09-29) — the
+       dyed colours are their own DYED YARN PURCHASE lines below. */
+    const qty = r.greigeQty ?? r.purchaseQty;
     yarnBody.push([
       i === 0 ? "YARN PURCHASE" : "",
       r.stageState,
       r.yarnName,
       r.color ?? "",
-      r.purchaseQty != null ? fmtNumber(r.purchaseQty) : "",
+      qty != null ? fmtNumber(qty) : "",
       "",
-      r.purchaseQty != null ? fmtNumber(r.purchaseQty) : "",
+      qty != null ? fmtNumber(qty) : "",
     ]);
     /* A REFUSAL GETS ITS OWN FULL-WIDTH ROW, not the To Ordered Wt cell. It is
        a sentence, and a sentence in a figures column stretches that column to
@@ -878,6 +633,22 @@ export async function exportYarnRequirementPdf(
       yarnBody.push([{ content: r.refusalReason, colSpan: 7, styles: { textColor: [150, 30, 30] } }]);
     }
   });
+  /* DYED YARN PURCHASE (client 2026-09-29) — bought already dyed, one line per
+     colour, never merged into the greige lines. */
+  data.yarns
+    .flatMap((r) => (r.dyedPurchases ?? []).map((d) => ({ r, d })))
+    .forEach(({ r, d }, i) => {
+      yarnRowTone.set(yarnBody.length, STAGE_STYLES.dyed);
+      yarnBody.push([
+        i === 0 ? "DYED YARN PURCHASE" : "",
+        "DYED",
+        r.yarnName,
+        d.colour,
+        fmtNumber(d.plannedWt),
+        d.lossPct != null ? d.lossPct.toFixed(2) : "",
+        fmtNumber(d.toOrderedWt),
+      ]);
+    });
   if (data.yarns.length) {
     boldYarnRows.add(yarnBody.length);
     yarnBody.push([
@@ -982,14 +753,9 @@ export async function exportYarnRequirementPdf(
     body: yarnBody,
     startY: yarnStartY,
     margin: { left: M, right: M, top: CONTINUED_TOP },
-    styles: { ...monoStyles(), fontSize: 7 },
-    headStyles: {
-      ...monoHead(),
-      fontSize: 6.5,
-      fillColor: rgb(STAGE_STYLES.yarn.tint),
-      textColor: rgb(STAGE_STYLES.yarn.ink),
-    },
-    theme: "grid",
+    styles: cardTableStyles(),
+    headStyles: cardTableHead(),
+    theme: "plain",
     columnStyles: {
       0: { cellWidth: 74 },
       1: { cellWidth: 34 },
@@ -1032,7 +798,7 @@ export async function exportYarnRequirementPdf(
   /* "PROCESS STAGE LEDGER" over the sections, as the screen heads them. */
   if (ledger.length) {
     y = roomFor(doc, y, 110);
-    y = drawGroupHeading(doc, M, y + 18, RIGHT - M, "PROCESS STAGE LEDGER");
+    y = drawSheetLabel(doc, M, y + 18, "Process stage ledger");
   }
   for (const g of ledger) {
     /* THE SECTION WEARS ITS STAGE (2026-09-20) — Greige slate, Dyed blue,
@@ -1040,15 +806,7 @@ export async function exportYarnRequirementPdf(
        bar carries the section's To Ordered total, as the screen's does. */
     const style = sectionStyle(g.stages, g.isPrint);
     y = roomFor(doc, y, 90);
-    const startY = drawSectionHeading(
-      doc,
-      M,
-      y + 14,
-      RIGHT - M,
-      style,
-      g.processName.toUpperCase(),
-      fmtNumber(g.toOrderedTotal),
-    );
+    const startY = drawCardHeader(doc, M, y + 6, RIGHT - M, style, g.processName, fmtNumber(g.toOrderedTotal));
 
     /* THE `Nos/Mtrs` PAIR IS ON EVERY SECTION, even one whose cloths are all
        bought by weight — legacy's own shape, and the reason is the document
@@ -1157,9 +915,9 @@ export async function exportYarnRequirementPdf(
       body,
       startY,
       margin: { left: M, right: M, top: CONTINUED_TOP },
-      styles: { ...monoStyles(), fontSize: 7 },
-      headStyles: { ...monoHead(), fontSize: 6.5, fillColor: rgb(style.tint), textColor: rgb(style.ink) },
-      theme: "grid",
+      styles: cardTableStyles(),
+      headStyles: cardTableHead(),
+      theme: "plain",
       /* ONE LIST, INDEXED ONCE — the per-component section inserts three
          columns, so the widths are laid out in order rather than by fixed
          index. Portrait A4 at M 28 is 539pt wide: the per-component section's
@@ -1231,7 +989,16 @@ export async function exportYarnRequirementPdf(
       doc.addPage();
       startY = 44;
     }
-    startY = drawSectionHeading(doc, M, startY - 6, RIGHT - M, STAGE_STYLES.cutting, "FABRIC ALLOCATION (CUTTING)");
+    startY = drawCardHeader(
+      doc,
+      M,
+      startY - 12,
+      RIGHT - M,
+      STAGE_STYLES.cutting,
+      "Fabric Allocation",
+      isReportRefusal(data.allocation) ? null : fmtNumber(data.allocation.allocatedWt),
+      isReportRefusal(data.allocation) ? null : "To the cutting table",
+    );
     if (isReportRefusal(data.allocation)) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7);
@@ -1273,14 +1040,9 @@ export async function exportYarnRequirementPdf(
         body: allocBody,
         startY,
         margin: { left: M, right: M, top: CONTINUED_TOP },
-        styles: { ...monoStyles(), fontSize: 7 },
-        headStyles: {
-          ...monoHead(),
-          fontSize: 6.5,
-          fillColor: rgb(STAGE_STYLES.cutting.tint),
-          textColor: rgb(STAGE_STYLES.cutting.ink),
-        },
-        theme: "grid",
+        styles: cardTableStyles(),
+        headStyles: cardTableHead(),
+        theme: "plain",
         columnStyles: {
           0: { cellWidth: 92 },
           1: { cellWidth: 70 },
@@ -1309,29 +1071,10 @@ export async function exportYarnRequirementPdf(
   }
 
   signOffFooter(doc);
-  stampTopPageNumbers(doc, printedY);
-  pageFooter(doc, data.header, { pageNumbers: false });
+  pageFooter(doc, data.header);
   finishPdf(doc, `${stem("YarnFabricRequirement", data.header)}.pdf`, output, tab);
 }
 
-/** `Page : 1/1` at the top right of every page — legacy's own placement,
- *  beside the printed-at line. Written last because the page COUNT is not
- *  known until every table has been laid out. */
-/* `firstPageY` keeps page 1's stamp level with its "Report Printed" line,
-   which moves down when the unit and registered address print above it;
-   later pages keep the fixed position they always had. */
-export function stampTopPageNumbers(doc: jsPDF, firstPageY = 62): void {
-  const M = 28;
-  const RIGHT = doc.internal.pageSize.getWidth() - M;
-  const pages = doc.getNumberOfPages();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor(0);
-    doc.text(`Page : ${p}/${pages}`, RIGHT, p === 1 ? firstPageY : 62, { align: "right" });
-  }
-}
 
 /**
  * The `Details` cell — legacy's own sentence, in its own order:
@@ -1475,15 +1218,30 @@ export async function exportPrintRequirementPdf(
   const tab = openPrintTab(output);
   const [logo, thumb] = await Promise.all([loadLetterheadImage(data.header.company.logo), loadLetterheadImage(thumbUrl)]);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-  const M = 36;
-  const top = drawLetterhead(doc, data.header, "Printing Requirement", yarnReportFacts(data.header), logo, true, false, thumb);
-  const y = drawSectionHeading(
+  /* THE SHEET FORMAT (user 2026-09-29) — the shared opening, what goes to the
+     printer and comes back as tiles, then the table as a card. */
+  const M = 28;
+  let top = drawSheetHeader(doc, data.header, "Printing Requirement", logo, thumb);
+  top = drawSheetLabel(doc, M, top + 2, "This sheet");
+  top = drawSummaryTiles(
+    doc,
+    top,
+    [
+      { label: "Sent for printing", value: fmtNumber(data.printing.sentWt), unit: "kg", tone: STAGE_STYLES.print },
+      { label: "Received back", value: fmtNumber(data.printing.receivedWt), unit: "kg", note: "after print loss", tone: STAGE_STYLES.print },
+      { label: "Colourways", value: String(data.printing.groups.length), note: "printed", tone: STAGE_STYLES.print },
+    ],
+    M,
+  );
+  const y = drawCardHeader(
     doc,
     M,
-    top + 12,
+    roomFor(doc, top, 90, 40) + 4,
     doc.internal.pageSize.getWidth() - M * 2,
     STAGE_STYLES.print,
-    "FABRIC SENT FOR PRINTING",
+    "Fabric Sent for Printing",
+    fmtNumber(data.printing.sentWt),
+    "Sent",
   );
   const body: string[][] = [];
   const bold = new Set<number>();
@@ -1509,8 +1267,9 @@ export async function exportPrintRequirementPdf(
     body,
     startY: y,
     margin: { left: M, right: M },
-    styles: monoStyles(),
-    headStyles: { ...monoHead(), fillColor: rgb(STAGE_STYLES.print.tint), textColor: rgb(STAGE_STYLES.print.ink) },
+    styles: cardTableStyles(),
+    headStyles: cardTableHead(),
+    theme: "plain",
     columnStyles: {
       6: { halign: "right" },
       7: { halign: "right" },

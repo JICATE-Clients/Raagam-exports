@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { orderLockMessage } from "./amendment";
+import { orderLockMessage, orderPendingMessage } from "./amendment";
 import {
   amendmentTypesLabel,
   areaOpen,
@@ -10,6 +10,7 @@ import {
   type AmendmentArea,
   type FrozenScope,
 } from "@/lib/orders/amendments/amendment-entry";
+import { overrideScopeFromJson } from "@/lib/orders/overrides/override-modules";
 
 /**
  * THE APPROVAL LOCK, READ FROM THE SERVER — the courtesy half (0576).
@@ -77,6 +78,27 @@ export async function orderLockOf(orderId: string): Promise<OrderLock | null> {
   };
 }
 
+/**
+ * Is this order WAITING FOR THE MD — a submitted budget over it or any
+ * document of its RE No (0652)? The pending sentence, or null.
+ *
+ * READ THROUGH `order_pending_of()`, the function `order_lock_message` — and
+ * so every lock trigger — reads for the pending half. Same reason as
+ * `orderLockOf`: one definition of "locked", the database's.
+ */
+export async function orderPendingOf(orderId: string): Promise<string | null> {
+  const s = await createClient();
+  const { data, error } = await s.rpc("order_pending_of", { p_order: orderId });
+  if (error) throw new Error(`Could not read whether this order is waiting for approval: ${error.message}`);
+  const row = ((data ?? []) as {
+    re_no: string | null;
+    budget_code: string | null;
+    submitted_at: string | null;
+  }[])[0];
+  if (!row) return null;
+  return orderPendingMessage({ reNo: row.re_no, budgetCode: row.budget_code, submittedAt: row.submitted_at });
+}
+
 /** The open Amendment Entry scoping an order — `order_amendment_scope_of` (0604 · 0616). */
 export type OrderAmendment = {
   entryId: string;
@@ -115,11 +137,39 @@ export async function orderAmendmentOf(orderId: string): Promise<OrderAmendment 
 }
 
 /**
+ * A PERMISSION OVERRIDE the caller is saving under right now (0653) — their
+ * open override commit on this approved RE, the keys still live this instant,
+ * and the per-key seed scope those keys open (never 0627's whole overlay).
+ */
+export type OrderOverride = {
+  commitId: string;
+  keys: string[];
+  scope: FrozenScope;
+};
+
+/**
+ * READ THROUGH `order_override_scope()`, the function the lock trigger itself
+ * consults — one definition, the database's. Asked only once the order has
+ * already read as LOCKED, so an open order's save makes no extra round trip.
+ * A failed read is "no override": the lock then refuses, which is the closed
+ * direction to fail in.
+ */
+export async function orderOverrideOf(orderId: string): Promise<OrderOverride | null> {
+  const s = await createClient();
+  const { data, error } = await s.rpc("order_override_scope", { p_order: orderId });
+  if (error) return null;
+  const row = ((data ?? []) as { commit_id: string; keys: string[] | null; scope: unknown }[])[0];
+  if (!row?.commit_id) return null;
+  return { commitId: row.commit_id, keys: row.keys ?? [], scope: overrideScopeFromJson(row.scope) };
+}
+
+/**
  * The guard a write action calls BEFORE its first write — with the AREA it is
  * about to write, because since 0604 "locked" has three answers:
  *
  *   open      → pass
  *   approved  → refuse with the lock sentence
+ *   pending   → refuse while a budget waits for the MD (0652)
  *   amending  → pass if the open entry's scope opens this AREA, else refuse
  *               with the out-of-scope sentence (the trigger's own words)
  *
@@ -134,21 +184,35 @@ export async function orderAmendmentOf(orderId: string): Promise<OrderAmendment 
 export async function assertOrderWritable(
   orderId: string | null | undefined,
   area: AmendmentArea,
-): Promise<{ ok: true; amendment: OrderAmendment | null } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; amendment: OrderAmendment | null; override?: OrderOverride }
+  | { ok: false; error: string }
+> {
   if (!orderId) return { ok: true, amendment: null };
   try {
     // Both reads at once — two independent questions every Orders save asks
     // before its first write (~260 ms a round trip, 2026-09-25). The LOCK
     // STILL WINS: a failed amendment read is held back until the lock is
     // judged, so a locked order still says "locked", never a read error.
-    const [lock, amendmentRead] = await Promise.all([
+    // 0652: the PENDING lock (budget with the MD) is asked beside them — it
+    // refuses before the amendment scope, as the trigger does.
+    const [lock, pending, amendmentRead] = await Promise.all([
       orderLockOf(orderId),
+      orderPendingOf(orderId),
       orderAmendmentOf(orderId).then(
         (a) => ({ ok: true as const, a }),
         (e: unknown) => ({ ok: false as const, e }),
       ),
     ]);
-    if (lock) return { ok: false, error: orderLockMessage(lock) };
+    if (lock) {
+      /* 0653 · A PERMISSION OVERRIDE — asked only now, the order already
+         locked: the caller's open commit opens this AREA, or the lock
+         refuses as before. The trigger still judges every row and column. */
+      const override = await orderOverrideOf(orderId);
+      if (override && areaOpen(override.scope, area)) return { ok: true, amendment: null, override };
+      return { ok: false, error: orderLockMessage(lock) };
+    }
+    if (pending) return { ok: false, error: pending };
     if (!amendmentRead.ok) throw amendmentRead.e;
     const amendment = amendmentRead.a;
     if (amendment && !areaOpen(amendment.scope, area)) {
@@ -238,6 +302,7 @@ export async function reopenedBudgetForOrder(orderId: string): Promise<ReopenedB
  *
  *   open      → pass (an ordinary re-save would too)
  *   approved  → refuse with the lock sentence
+ *   pending   → refuse while a budget waits for the MD (0652)
  *   amending  → pass if the entry opened this BOM whole OR opened its derived
  *               rows (a quantity or colourway change, spec §3.1: "automatic
  *               recalculation … across all locations" while the BOM itself
@@ -248,21 +313,34 @@ export async function reopenedBudgetForOrder(orderId: string): Promise<ReopenedB
 export async function assertOrderRecalculable(
   orderId: string | null | undefined,
   area: "fabric_bom" | "material_bom",
-): Promise<{ ok: true; amendment: OrderAmendment | null } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; amendment: OrderAmendment | null; override?: OrderOverride }
+  | { ok: false; error: string }
+> {
   if (!orderId) return { ok: true, amendment: null };
   try {
     // Both reads at once — two independent questions every Orders save asks
     // before its first write (~260 ms a round trip, 2026-09-25). The LOCK
     // STILL WINS: a failed amendment read is held back until the lock is
     // judged, so a locked order still says "locked", never a read error.
-    const [lock, amendmentRead] = await Promise.all([
+    // 0652: the PENDING lock (budget with the MD) is asked beside them — it
+    // refuses before the amendment scope, as the trigger does.
+    const [lock, pending, amendmentRead] = await Promise.all([
       orderLockOf(orderId),
+      orderPendingOf(orderId),
       orderAmendmentOf(orderId).then(
         (a) => ({ ok: true as const, a }),
         (e: unknown) => ({ ok: false as const, e }),
       ),
     ]);
-    if (lock) return { ok: false, error: orderLockMessage(lock) };
+    if (lock) {
+      /* 0653 · an override commit whose keys open this BOM whole, or its
+         derived rows (a quantity or colourway key), may recalculate it. */
+      const override = await orderOverrideOf(orderId);
+      if (override && areaRecalculable(override.scope, area)) return { ok: true, amendment: null, override };
+      return { ok: false, error: orderLockMessage(lock) };
+    }
+    if (pending) return { ok: false, error: pending };
     if (!amendmentRead.ok) throw amendmentRead.e;
     const amendment = amendmentRead.a;
     if (amendment && !areaRecalculable(amendment.scope, area)) {

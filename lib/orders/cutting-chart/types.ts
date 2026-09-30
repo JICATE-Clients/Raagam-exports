@@ -28,6 +28,10 @@ export type CuttingChart = {
     customer: string | null;
     deliveryFrom: string | null;
     deliveryTo: string | null;
+    /** The EARLIEST Earlier Shipment Date across the order's destinations
+     *  (2026-09-29) — the date the header prints under that name. Null when no
+     *  destination has one; never the delivery date standing in for it. */
+    earlierShipment: string | null;
     orderNo: string | null;
     excessPct: number;
     orderQty: number;

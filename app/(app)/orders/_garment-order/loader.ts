@@ -9,6 +9,7 @@ import type { OrderQuickWord } from "@/lib/orders/amendments/types";
 import { listMaterialBomStatus } from "@/lib/orders/material-bom-amendment/service";
 import { previewOrderNumber } from "@/lib/orders/actions";
 import { orderAmendmentStates, orderLocks } from "@/lib/orders/order-locks";
+import { overrideEditState } from "@/lib/orders/overrides/editor-state";
 
 /**
  * Everything `AmendmentScreen` needs, fetched once and shared by BOTH its
@@ -37,7 +38,7 @@ export async function loadGarmentOrderProps(
 ) {
   const user = await requirePermission("orders", "view");
 
-  const [rows, data, bomStatus, canCreate, canEdit, canDelete, mCreate, mEdit, initialOrderNo, locks, orderAmendments, quickCounts] =
+  const [rows, data, bomStatus, canCreate, canEdit, canDelete, mCreate, mEdit, initialOrderNo, locks, orderAmendments, quickCounts, overrideState] =
     await Promise.all([
       getAmendments(status),
       getAmendmentFormData(),
@@ -91,6 +92,9 @@ export async function loadGarmentOrderProps(
          — not over `rows`, which `status` has just narrowed. Its own three
          `count(*)` calls, no rows returned; see `getAmendmentStatusCounts`. */
       getAmendmentStatusCounts(),
+      /* The caller's live permission-override keys (Phase 5, doc/email role
+         system.md) — null for anyone without one, after a single RPC. */
+      overrideEditState(),
     ]);
 
   return {
@@ -106,5 +110,6 @@ export async function loadGarmentOrderProps(
     orderLocks: locks.messages,
     raiseFor: locks.raiseFor,
     orderAmendments,
+    overrideState,
   };
 }

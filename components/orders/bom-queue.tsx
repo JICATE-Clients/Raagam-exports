@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
-import { Check, Clock, FileText, Pencil } from "lucide-react";
+import { Check, Clock, Pencil } from "lucide-react";
 import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -574,7 +574,7 @@ export function BomQueue({
   stat,
   onOpen,
   canDelete = false,
-  lockedRow,
+  lockReason,
   onDelete,
   onReports,
   quickStatus = false,
@@ -606,12 +606,14 @@ export function BomQueue({
   onOpen: (t: BomTaskRow) => void;
   canDelete?: boolean;
   /**
-   * The order is APPROVED (or amending outside this module): no bin on its
-   * card or row, and the Updated table shows the eye instead of the pencil
-   * (client 2026-09-24). Both screens pass `orderLocks[t.id]` — `t.id` IS the
-   * garment order id — the same map that makes their editor read-only.
+   * The order is LOCKED — approved, waiting for the MD (0652), or amending
+   * outside this module: no bin on its card, and a greyed pencil and bin on
+   * its row saying why (2026-09-29; the 09-24 "eye instead of pencil" is
+   * reversed). Both screens pass `orderLocks[t.id]` — `t.id` IS the garment
+   * order id — the same map that makes their editor read-only, so the value
+   * is the lock's own sentence, or undefined when unlocked.
    */
-  lockedRow?: (t: BomTaskRow) => boolean;
+  lockReason?: (t: BomTaskRow) => string | null | undefined;
   onDelete?: (t: BomTaskRow) => void;
   /** A document report reachable straight off the card, without opening the
    *  editor — opt-in (Material BOM's caller passes nothing and is unchanged).
@@ -848,15 +850,10 @@ export function BomQueue({
           onOpen={onOpen}
           canDelete={canDelete}
           canDeleteRow={(t) => !!t.bom_id}
-          lockedRow={lockedRow}
+          lockReason={lockReason}
           onDelete={onDelete}
-          /* The card's Reports button, as the row's ⋮ — the same gate. */
-          menu={
-            onReports
-              ? (t) =>
-                  t.bom_id ? [{ label: "Reports", icon: FileText, onClick: () => onReports(t) }] : []
-              : undefined
-          }
+          /* The card's Reports button, in the eye's slot — the same gate. */
+          reports={onReports ? (t) => (t.bom_id ? () => onReports(t) : null) : undefined}
           isPending={isPending}
           empty={
             tasks.length > 0
@@ -917,7 +914,7 @@ export function BomQueue({
            "Pending" case, and it is the whole reason the queue lists ORDERS.
            Without it the button renders on every card and does nothing when
            pressed. */
-        canDeleteRow={(t) => !!t.bom_id && !lockedRow?.(t)}
+        canDeleteRow={(t) => !!t.bom_id && !lockReason?.(t)}
         onDelete={onDelete}
         onReports={onReports}
         canReportsRow={(t) => !!t.bom_id}

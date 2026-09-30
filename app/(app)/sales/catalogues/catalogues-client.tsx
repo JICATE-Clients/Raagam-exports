@@ -228,7 +228,7 @@ function PiEnquiryTab({ rows }: { rows: PiEnquiryRow[] }) {
           })
         }
         /* Only a draft can be withdrawn; a confirmed enquiry is history. */
-        canDelete={r.status === "draft"}
+        deleteDisabledReason={r.status === "draft" ? null : "Confirmed enquiries cannot be deleted"}
         isPending={isPending}
       />
     )),

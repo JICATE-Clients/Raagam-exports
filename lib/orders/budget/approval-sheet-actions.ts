@@ -5,6 +5,7 @@ import { getApprovalPanel } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { getOrderBudget } from "@/lib/orders/budget/service";
 import { getRevisionComparison } from "@/lib/orders/order-amendments/service";
+import { breakdownOfBudget } from "@/lib/approvals/budget-breakdown";
 
 /**
  * Everything the Budget Approval sheet reads when it OPENS — the approval
@@ -22,13 +23,17 @@ import { getRevisionComparison } from "@/lib/orders/order-amendments/service";
  */
 export async function loadBudgetApprovalSheet(budgetId: string) {
   if (!(await can("orders", "view"))) {
-    return { panel: { run: null, verdict: null, timeline: [], names: {} }, revision: null };
+    return { panel: { run: null, verdict: null, timeline: [], names: {} }, revision: null, breakdown: null };
   }
-  const [panel, revision] = await Promise.all([
+  /* THE COST CHART RIDES THE SAME ACTION (2026-09-29) — same reason as the
+     comparison: a second action would queue behind this one. It reads the
+     budget this action already reads, and V0's frozen lines, which only the
+     server has (the chart splits the fabric's job-work out of V0's Fabric). */
+  const budget = getOrderBudget(budgetId);
+  const [panel, revision, breakdown] = await Promise.all([
     getApprovalPanel(WORKFLOWS.order_budget.subjectTable, budgetId),
-    getOrderBudget(budgetId)
-      .then((b) => (b && b.status === "submitted" ? getRevisionComparison(b) : null))
-      .catch(() => null),
+    budget.then((b) => (b && b.status === "submitted" ? getRevisionComparison(b) : null)).catch(() => null),
+    budget.then((b) => (b ? breakdownOfBudget(b) : null)).catch(() => null),
   ]);
-  return { panel, revision };
+  return { panel, revision, breakdown };
 }

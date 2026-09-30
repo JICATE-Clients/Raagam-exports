@@ -139,7 +139,7 @@ function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
           })
         }
         /* Once confirmed the order is downstream history. */
-        canDelete={r.status === "draft"}
+        deleteDisabledReason={r.status === "draft" ? null : "Confirmed orders cannot be deleted"}
         isPending={isPending}
       />
     )),
@@ -258,7 +258,7 @@ function SeasonalTab({ rows }: { rows: SeasonalOrder[] }) {
             } else error(res.error);
           })
         }
-        canDelete={r.status === "draft"}
+        deleteDisabledReason={r.status === "draft" ? null : "Confirmed orders cannot be deleted"}
         isPending={isPending}
       />
     )),

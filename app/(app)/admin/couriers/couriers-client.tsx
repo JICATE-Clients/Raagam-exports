@@ -180,7 +180,10 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
         onDelete={() => run(() => deleteDespatch(r.id), "Deleted")}
         /* A despatched consignment is a record of fact; only an unsent or
            cancelled one can be removed. */
-        canDelete={canDelete && (r.status === "draft" || r.status === "cancelled")}
+        canDelete={canDelete}
+        deleteDisabledReason={
+          r.status === "draft" || r.status === "cancelled" ? null : "Despatched consignments cannot be deleted"
+        }
         isPending={isPending}
       />
     )),

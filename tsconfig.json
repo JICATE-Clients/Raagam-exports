@@ -52,6 +52,7 @@
     "scripts/check-amendment-diff.mts",
     "scripts/check-amendment-scope.mts",
     "scripts/check-amendment-modules.mts",
+    "scripts/check-permission-overrides.mts",
     "scripts/check-order-value.mts",
     "scripts/check-order-status-filter.mts",
     "scripts/check-bom-requirement.mts",

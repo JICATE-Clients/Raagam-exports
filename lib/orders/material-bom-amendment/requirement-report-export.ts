@@ -5,14 +5,14 @@
  * island. It is handed the SAME `MbaRequirementReport` the on-screen view
  * renders, so the page, the paper and the spreadsheet cannot disagree.
  *
- * THE YARN & FABRIC LOOK (user 2026-09-29: "another reports also need to look
- * like yarn fabric requirement"). The table sits under a filled BRAND section
- * bar with the line count, its head in the same tint, rows striped, the item
- * colour swatched — `lib/orders/report-pdf-kit.ts`, one look for every order
- * report. This replaced "MONO TABLE, BRAND ON THE RULES", whose worry was a
+ * THE SHEET FORMAT (user 2026-09-29: "this is okay apply it"). Masthead (mark,
+ * company, kind, RE No large), the order's facts as a grid, the tiles the
+ * reader came for, then the table as a CARD with the line count, light rules,
+ * rows striped, the item colour swatched — `lib/orders/report-pdf-kit.ts`, one
+ * format for every order sheet, the same blocks the screen renders. This replaced "MONO TABLE, BRAND ON THE RULES", whose worry was a
  * SATURATED head band turning to mud on a supplier's mono laser: the kit's
  * fills are pale tints under near-black ink, which a mono printer renders as
- * light greys and never as mud. The green rule and blue title stay.
+ * light greys and never as mud.
  */
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -22,24 +22,34 @@ import type { MbaRequirementReport } from "./requirement-report-types";
 import { swatchFor } from "@/lib/orders/fabric-bom/report-colours";
 import {
   BRAND,
+  CONTINUED_TOP,
   SWATCH_PADDING,
-  drawSectionHeading,
+  cardTableHead,
+  cardTableStyles,
+  drawCardHeader,
+  drawOrderFacts,
+  drawSheetLabel,
+  drawSheetMasthead,
+  drawSummaryTiles,
   drawSwatch,
   paintRow,
-  toneHead,
 } from "@/lib/orders/report-pdf-kit";
+import { signOffFooter } from "@/lib/orders/fabric-bom/reports-export";
 import { fmtQty } from "@/lib/uom/convert";
 
 export type PdfOutput = "download" | "print";
 
 /* "Purchase Qty" JOINED ON 2026-09-20 and sits BEFORE its unit — the paper and
    the spreadsheet print what the screen prints, column for column. */
+/* THE REPORT STANDARD'S ORDER (user 2026-09-29) for the columns shared with it
+   — Item Name → Color → UOM → Required Qty; Calculated Qty (Required before
+   process loss) stays beside Required. Screen, PDF and CSV read this list. */
 const HEAD = [
   "Item Name",
   "Item Color",
+  "Uom",
   "Calculated Qty",
   "Required Qty",
-  "Uom",
   "Purchase Qty",
   "Purchase Uom",
   "Stage",
@@ -54,13 +64,30 @@ function body(r: MbaRequirementReport): string[][] {
   return r.rows.map((x) => [
     x.material,
     x.colour,
+    x.uom,
     x.calculated != null ? fmtQty(x.calculated, x.decimals) : "—",
     x.required != null ? fmtQty(x.required, x.decimals) : (x.refusal ?? "—"),
-    x.uom,
     x.purchaseQty != null ? fmtQty(x.purchaseQty, x.purchaseDecimals) : "—",
     x.purchaseUom,
     x.stage,
   ]);
+}
+
+/**
+ * THE SHEET'S TILES (2026-09-29) — counts of the lines it prints, never a sum
+ * across units (pieces and grams add to no figure). The screen reads this too.
+ */
+export function mbomRequirementTiles(r: MbaRequirementReport): { label: string; value: number; note: string }[] {
+  const n = r.rows.length;
+  const items = new Set(r.rows.map((x) => x.material)).size;
+  const toBuy = r.rows.filter((x) => x.purchaseQty != null).length;
+  const refused = r.rows.filter((x) => x.required == null).length;
+  const tiles = [
+    { label: "Material lines", value: n, note: `${items} item${items === 1 ? "" : "s"}` },
+    { label: "To purchase", value: toBuy, note: `line${toBuy === 1 ? "" : "s"} with a purchase quantity` },
+  ];
+  if (refused) tiles.push({ label: "Not worked out", value: refused, note: "see the reason on the line" });
+  return tiles;
 }
 
 export async function exportMaterialBomRequirementPdf(
@@ -77,81 +104,59 @@ export async function exportMaterialBomRequirementPdf(
   const h = r.header;
   const c = h.company;
 
-  doc.setFillColor(133, 194, 39);
-  doc.rect(M, 24, W - 2 * M, 3, "F");
-
-  let x = M;
+  /* THE MASTHEAD AND THE ORDER'S FACTS (sheet format, 2026-09-29). */
   const logo = await loadLetterheadImage(c.logo);
-  if (logo) {
-    const { w, h: lh } = fitLogo(logo, 110, 36);
-    doc.addImage(logo.dataUrl, "PNG", M, 36, w, lh);
-    x = M + w + 12;
-  }
-  doc.setTextColor(22, 24, 29);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text((c.name ?? "RAAGAM EXPORTS").toUpperCase(), x, 50);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(91, 100, 114);
-  const contact = [c.address, c.gstin ? `GSTIN ${c.gstin}` : null].filter(Boolean).join("  ·  ");
-  if (contact) doc.text(contact, x, 62, { maxWidth: W - x - 220 });
+  const fitted = logo ? fitLogo(logo, 96, 32) : null;
+  let y = drawSheetMasthead(doc, {
+    company: c.name,
+    logo: logo && fitted ? { dataUrl: logo.dataUrl, w: fitted.w, h: fitted.h } : null,
+    kind: "Material BOM Requirement",
+    reNo: h.scNo,
+    meta: [h.bomCode, h.computedAt ? `Stored ${fmtDateTime(h.computedAt)}` : null].filter(Boolean).join(" · "),
+    margin: M,
+  });
+  y = drawOrderFacts(
+    doc,
+    y,
+    [
+      { label: "Customer", value: h.customer },
+      { label: "Order No", value: h.orderNo },
+      { label: "BOM Date", value: h.bomDate ? fmtDate(h.bomDate) : null },
+    ],
+    { margin: M, cols: 3 },
+  );
+  y = drawSheetLabel(doc, M, y + 4, "Summary");
+  y = drawSummaryTiles(
+    doc,
+    y,
+    mbomRequirementTiles(r).map((t) => ({ label: t.label, value: String(t.value), note: t.note, tone: BRAND })),
+    M,
+  );
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10.5);
-  doc.setTextColor(3, 123, 184);
-  doc.text("MATERIAL BOM REQUIREMENT", W - M, 50, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(91, 100, 114);
-  if (h.bomCode) doc.text(h.bomCode, W - M, 62, { align: "right" });
-
-  doc.setDrawColor(22, 24, 29);
-  doc.setLineWidth(1.2);
-  doc.line(M, 78, W - M, 78);
-
-  doc.setFontSize(9);
-  doc.setTextColor(20);
-  const facts = [
-    h.customer ? `Customer: ${h.customer}` : null,
-    h.scNo ? `RE No: ${h.scNo}` : null,
-    h.orderNo ? `Order No: ${h.orderNo}` : null,
-    h.bomDate ? `Date: ${fmtDate(h.bomDate)}` : null,
-  ].filter(Boolean) as string[];
-  if (facts.length) doc.text(facts.join("     "), M, 94);
-
-  /* THE SECTION BAR — BRAND blue (a trim is not a production stage, so no
+  /* THE TABLE AS A CARD — BRAND blue (a trim is not a production stage, so no
      tag), the line count at the right. No total row: the lines are in
      different units, and a sum of pieces and grams is no figure. */
   const n = r.rows.length;
-  const startY = drawSectionHeading(
-    doc,
-    M,
-    118,
-    W - 2 * M,
-    BRAND,
-    "MATERIAL REQUIREMENT",
-    `${n} line${n === 1 ? "" : "s"}`,
-  );
+  const startY = drawCardHeader(doc, M, y + 2, W - 2 * M, BRAND, "Material Requirement", `${n} line${n === 1 ? "" : "s"}`);
   const swatches = r.rows.map((x) => swatchFor(x.colour));
 
   autoTable(doc, {
     head: [HEAD],
     body: body(r),
     startY,
-    margin: { left: M, right: M },
-    styles: { fontSize: 8, cellPadding: 3.5, textColor: 20, lineColor: 200, lineWidth: 0.4 },
-    headStyles: { ...toneHead(BRAND), fontSize: 7.5 },
-    theme: "grid",
-    columnStyles: { 2: { halign: "right" }, 3: { halign: "right", fontStyle: "bold" }, 5: { halign: "right" } },
+    margin: { left: M, right: M, top: CONTINUED_TOP },
+    styles: { ...cardTableStyles(), fontSize: 7.8 },
+    headStyles: cardTableHead(),
+    theme: "plain",
+    columnStyles: { 3: { halign: "right" }, 4: { halign: "right", fontStyle: "bold" }, 5: { halign: "right" } },
     didParseCell: (d) => {
       /* A figure column's heading sits over its figures, on the right. */
-      if (d.section === "head" && [2, 3, 5].includes(d.column.index)) d.cell.styles.halign = "right";
+      if (d.section === "head" && [3, 4, 5].includes(d.column.index)) d.cell.styles.halign = "right";
       paintRow(d, { tone: BRAND });
       if (d.section !== "body") return;
       if (d.column.index === 1 && swatches[d.row.index]) d.cell.styles.cellPadding = SWATCH_PADDING;
       /* A refused Required Qty is its sentence, not a figure — plain weight. */
-      if (d.column.index === 3 && r.rows[d.row.index]?.required == null) {
+      if (d.column.index === 4 && r.rows[d.row.index]?.required == null) {
         d.cell.styles.fontStyle = "normal";
         d.cell.styles.textColor = [110, 116, 128];
         d.cell.styles.halign = "left";
@@ -163,6 +168,12 @@ export async function exportMaterialBomRequirementPdf(
       if (hex) drawSwatch(doc, d.cell, hex);
     },
   });
+
+  /* PREPARED / CHECKED / APPROVED — on a page of its own when the table ran
+     into the sign-off band. */
+  const tableEnd = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+  if (tableEnd > doc.internal.pageSize.getHeight() - 70) doc.addPage();
+  signOffFooter(doc);
 
   const pages = doc.getNumberOfPages();
   const H = doc.internal.pageSize.getHeight();

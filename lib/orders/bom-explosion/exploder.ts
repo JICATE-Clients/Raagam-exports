@@ -1,7 +1,7 @@
 /**
  * Material BOM — THE EXPLOSION GRAIN, as a SET OF AXES.
  *
- * The client's matrix names 28 attribute permutations — "Style Ref No / Order
+ * The client's matrix names 28 attribute permutations — "Style / Order
  * Color / Order Size", "Combination / Order Color", and so on. This module is
  * the vocabulary behind them, and the shape is the whole point:
  *
@@ -99,7 +99,11 @@ export type Axis = (typeof AXES)[number];
  * requirement row exists (`colourSplits`, 0436), so trim colour is the grain.
  */
 const AXIS_LABELS: Record<Axis, string> = {
-  style_ref: "Style Ref No",
+  /* "Style", NOT "Style Ref No" (user 2026-09-29: Style Ref removed from every
+     screen). The value IS the Style Order Entry names; the client's matrix
+     (`client-matrix.ts`) already said "Style". Display only — the stored
+     token stays `style_ref`. */
+  style_ref: "Style",
   colour: "Order Color",
   size: "Order Size",
   trim_colour: "Combination",
@@ -389,8 +393,8 @@ export function groupKeyFor(axes: readonly Axis[], slice: ExplodedSlice): string
  *
  * Present so a screen can say "this attribute makes 12 rows" BEFORE the operator
  * commits to it — the 28-permutation matrix is unreadable without that, and a
- * planner choosing between `Style Ref No / Order Color` and
- * `Style Ref No / Order Color / Order Size` is choosing between 3 rows and 15.
+ * planner choosing between `Style / Order Color` and
+ * `Style / Order Color / Order Size` is choosing between 3 rows and 15.
  */
 export function rowCountFor(axes: readonly Axis[], slices: readonly ExplodedSlice[]): number {
   return new Set(slices.map((s) => groupKeyFor(axes, s))).size;

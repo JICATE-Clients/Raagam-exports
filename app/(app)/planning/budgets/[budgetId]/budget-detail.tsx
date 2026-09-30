@@ -834,7 +834,7 @@ function CmtSection({
 
   const cmtColumns: Column<CmtWithOps>[] = [
     { header: "S No", cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span> },
-    { header: "Style Ref", cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
+    { header: "Style", cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
     { header: "Style No", cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
     { header: "Article No", cell: (r) => <span className="text-sm">{r.article_no ?? "--"}</span> },
     { header: "OC No", cell: (r) => <span className="text-sm">{r.oc_no ?? "--"}</span> },
@@ -959,7 +959,7 @@ function CmtSection({
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
               <div>
-                <Label>Style Ref</Label>
+                <Label>Style</Label>
                 <Input value={cmtForm.style_ref_no} onChange={(e) => setCmtForm((f) => ({ ...f, style_ref_no: e.target.value }))} />
               </div>
               <div>
@@ -1247,7 +1247,7 @@ function GeneralTab({
 
   const styleColumns: Column<BudgetStyle>[] = [
     { header: "S No", cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span> },
-    { header: "Style Ref", cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
+    { header: "Style", cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
     { header: "Style No", cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
     { header: "Article No", cell: (r) => <span className="text-sm">{r.article_no ?? "--"}</span> },
     { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span> },

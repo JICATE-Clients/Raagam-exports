@@ -26,6 +26,7 @@ import {
   yarnPurchaseWithConversion,
 } from "./loose-conversion";
 import { fabricBomInput, type FabricBomFormInput, type FabricBomInput } from "./types";
+import { saveUnderOverride, type OverrideSave } from "@/lib/orders/overrides/commit";
 import {
   getBomYarnComposition,
   getFabricProcessLookupRows,
@@ -2634,7 +2635,25 @@ export async function createFabricBom(data: FabricBomFormInput): Promise<Result>
   return { ok: true, id: created.id };
 }
 
-export async function updateFabricBom(id: string, data: FabricBomFormInput): Promise<Result> {
+/**
+ * Save a Fabric BOM. With `override` (0653) the save runs inside a permission-
+ * override commit on its APPROVED order — the same body and guards; the lock
+ * helper finds the open commit and passes when its keys open the Fabric BOM.
+ */
+export async function updateFabricBom(
+  id: string,
+  data: FabricBomFormInput,
+  override?: OverrideSave,
+): Promise<Result> {
+  if (!override) return saveFabricBom(id, data);
+  const s = await createClient();
+  const stored = await storedBomOrderId(s, id);
+  if (!stored.ok) return fail(stored.error);
+  if (!stored.orderId) return fail("This Fabric BOM belongs to no order — there is no approval lock to override.");
+  return saveUnderOverride(stored.orderId, override, () => saveFabricBom(id, data));
+}
+
+async function saveFabricBom(id: string, data: FabricBomFormInput): Promise<Result> {
   if (!(await can("orders", "edit"))) return fail("Forbidden");
   const p = fabricBomInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");

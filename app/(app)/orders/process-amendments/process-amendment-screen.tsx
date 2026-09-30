@@ -265,23 +265,19 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
     setRows: (fn: (xs: LineRow[]) => LineRow[]) => void,
   ): ChildGridColumn<LineRow>[] => [
     {
-      header: "Style Ref No",
+      /* "STYLE" (user 2026-09-29: remove Style Ref everywhere). The picker
+         shows the style's name, so the read-only "Style" column that repeated
+         it beside the picker is gone; Article No stays. */
+      header: "Style",
       cell: (r) => (
         <RecordPicker
-          label="Style Ref No"
+          label="Style"
           items={styleItems}
           value={r.style_id}
           onChange={(id) => setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, style_id: id } : x)))}
           compact
         />
       ),
-    },
-    {
-      header: "Style",
-      cell: (r) => {
-        const st = r.style_id ? styleById.get(r.style_id) : undefined;
-        return <span className="text-sm">{st?.style_name ?? "—"}</span>;
-      },
     },
     {
       header: "Article No",

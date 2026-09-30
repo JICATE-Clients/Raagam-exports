@@ -16,8 +16,15 @@ import { BudgetApprovalScreen } from "./budget-approval-screen";
  * seeds the permission row and grants it to no role — who may approve is the
  * client's decision, made on the Roles screen.
  */
-export default async function BudgetApprovalPage() {
+export default async function BudgetApprovalPage({
+  searchParams,
+}: {
+  /** `?open=<budget id>` — the approval notice's link opens THAT budget
+   *  (2026-09-30); it used to land on the list, leaving the MD to find it. */
+  searchParams: Promise<{ open?: string }>;
+}) {
   await requirePermission("orders", "view");
+  const { open } = await searchParams;
 
   const [rows, budgets, canApprove, canEdit] = await Promise.all([
     listBudgetsForApproval(),
@@ -32,6 +39,8 @@ export default async function BudgetApprovalPage() {
       budgets={budgets}
       canApprove={canApprove}
       canEdit={canEdit}
+      // Only an id this approver can actually see opens; anything else is the list.
+      initialOpenId={open && budgets.some((b) => b.id === open) ? open : null}
     />
   );
 }

@@ -5,6 +5,7 @@ import {
   listFabricBoms,
 } from "@/lib/orders/fabric-bom/service";
 import { orderLocks } from "@/lib/orders/order-locks";
+import { overrideEditState } from "@/lib/orders/overrides/editor-state";
 import { FabricBomScreen } from "./fabric-bom-screen";
 
 /**
@@ -20,7 +21,7 @@ import { FabricBomScreen } from "./fabric-bom-screen";
 export default async function FabricBomPage() {
   await requirePermission("orders", "view");
 
-  const [tasks, boms, data, canCreate, canEdit, canDelete, locks] = await Promise.all([
+  const [tasks, boms, data, canCreate, canEdit, canDelete, locks, overrideState] = await Promise.all([
     listFabricBomTasks(),
     listFabricBoms(),
     getFabricBomFormData(),
@@ -29,6 +30,8 @@ export default async function FabricBomPage() {
     can("orders", "delete"),
     // Orders locked by an approved budget (Phase 5) — the editor's banner.
     orderLocks(undefined, "fabric_bom"),
+    // The caller's live permission-override keys (0653) — null without one.
+    overrideEditState(),
   ]);
 
   // No wrapper here — the screen renders its own PageHeader, and the editor is
@@ -41,6 +44,7 @@ export default async function FabricBomPage() {
       perms={{ canCreate, canEdit, canDelete }}
       orderLocks={locks.messages}
       raiseFor={locks.raiseFor}
+      overrideState={overrideState}
     />
   );
 }

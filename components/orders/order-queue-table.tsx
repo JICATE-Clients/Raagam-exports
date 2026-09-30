@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, type RowMenuItem } from "@/components/ui/row-actions";
+import { FileText } from "lucide-react";
+import { RowActions, RowIconAction, type RowMenuItem } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 
@@ -31,7 +32,8 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
   onOpen,
   canDelete = false,
   canDeleteRow,
-  lockedRow,
+  lockReason,
+  reports,
   onDelete,
   menu,
   isPending = false,
@@ -48,14 +50,23 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
   canDelete?: boolean;
   canDeleteRow?: (row: T) => boolean;
   /**
-   * An APPROVED order (or one whose open Revision does not cover this module):
-   * the row offers the EYE instead of the pencil and no bin (client
-   * 2026-09-24). The eye opens the same record — the editor is already
-   * read-only for it (`MasterFullScreen locked`) — and the server refuses a
-   * delete regardless; this is the half that stops offering one.
+   * WHY THIS ROW IS LOCKED, or null when it is not — the lock's own sentence
+   * (`orderLocks`): approved ("… Raise an Order Revision to change it"),
+   * waiting for the MD (0652), or a revision that does not cover this module.
+   * The pencil and bin stay, GREYED, with this as their tooltip (client
+   * 2026-09-29 — reversing 2026-09-24's "eye instead of pencil, no bin", which
+   * could not be told apart from a missing permission), so the row, the
+   * editor's banner and the database's refusal say one thing. The RE No still
+   * opens the record, read-only (`MasterFullScreen locked`).
    */
-  lockedRow?: (row: T) => boolean;
+  lockReason?: (row: T) => string | null | undefined;
   onDelete?: (row: T) => void;
+  /**
+   * The row's Reports, drawn FIRST in the eye's slot (no ⋮ — see
+   * `RowIconAction`). Return the handler, or null where the row has no
+   * document to report on yet (the icon greys and says so).
+   */
+  reports?: (row: T) => (() => void) | null;
   menu?: (row: T) => RowMenuItem[];
   isPending?: boolean;
   empty: ReactNode;
@@ -103,20 +114,32 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
     },
     ...columns,
     rowActionsColumn((r) => {
-      const locked = lockedRow?.(r) ?? false;
+      const why = lockReason?.(r) ?? null;
       return (
         <RowActions
           label={heading(r).reNo}
-          /* NO AUTOMATIC EYE: these queues have no read-only view of their own,
-             and the automatic one would only repeat the row's columns back. The
-             pencil opens the record, as the RE No does — and on a LOCKED row the
-             eye takes its place, opening the same (read-only) record. */
+          /* NO EYE: these queues have no read-only view of their own, and the
+             automatic one would only repeat the row's columns back. The RE No
+             opens the record (read-only when locked); Reports takes the eye's
+             slot where the module has any. */
           view={false}
-          onView={locked ? () => onOpen(r) : undefined}
+          lead={
+            reports ? (
+              <RowIconAction
+                label="Reports"
+                name={heading(r).reNo}
+                icon={FileText}
+                className="text-primary"
+                onClick={reports(r) ?? undefined}
+                disabledReason={reports(r) ? null : "No document yet — nothing to report on"}
+              />
+            ) : undefined
+          }
           onEdit={() => onOpen(r)}
-          canEdit={!locked}
+          editDisabledReason={why}
           onDelete={onDelete ? () => onDelete(r) : undefined}
-          canDelete={canDelete && !locked && (canDeleteRow ? canDeleteRow(r) : true)}
+          canDelete={canDelete && (canDeleteRow ? canDeleteRow(r) : true)}
+          deleteDisabledReason={why}
           menu={menu?.(r)}
           isPending={isPending}
         />

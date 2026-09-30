@@ -2,6 +2,9 @@
 
 import { sortBySize } from "@/lib/masters/size-order";
 import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
+import { OverrideBanner, useOverrideCommit, type OverrideSaveRequest } from "@/components/orders/override-commit";
+import { areaOverride } from "@/lib/orders/overrides/override-modules";
+import type { OverrideEditState } from "@/lib/orders/overrides/types";
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -190,6 +193,9 @@ interface Props {
    * amending order already has its revision. Absent key = no link.
    */
   raiseFor?: Record<string, string>;
+  /** The caller's live PERMISSION-OVERRIDE keys (0653) — null without one. With
+   *  a Material BOM key, an approved order's BOM opens in override edit mode. */
+  overrideState?: OverrideEditState | null;
 }
 
 /**
@@ -1207,7 +1213,7 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        recorded it dropping to ~132px as "the trade the client chose". A switch
        needs none of that width and this does. */
     { header: H.material, w: "name", weight: "key" },
-    /* A GRAIN READS "Style Ref No / Order Color / Order Size" — the longest
+    /* A GRAIN READS "Style / Order Color / Order Size" — the longest
        value on the row after Material, and a native `<Select>` with no reveal
        bubble to rescue it, so it does not go below `md`. */
     { header: H.attribute, w: "term", weight: "key" },
@@ -1337,11 +1343,14 @@ export function MbaMasterScreen({
   masterPerms,
   orderLocks,
   raiseFor = {},
+  overrideState = null,
   embed = null,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
+  /* PERMISSION OVERRIDE (0653) — the "Commit Changes (Override)" dialog. */
+  const overrideCommit = useOverrideCommit();
 
   /*
    * WHICH LINES HAVE THEIR CONSUMPTION GRID CLOSED — ABSENCE MEANS OPEN.
@@ -1800,6 +1809,11 @@ export function MbaMasterScreen({
      hook — the server guard and 0576's triggers are the lock; this is the
      banner and the read-only fields `MasterFullScreen` derives from it. */
   const lockMessage = form.garment_order_id ? orderLocks[form.garment_order_id] : undefined;
+  /* PERMISSION OVERRIDE (0653) — also a plain const: non-null only on an
+     APPROVED order (`raiseFor`) the caller holds a live Material BOM key for. */
+  const bomOverride = form.garment_order_id
+    ? areaOverride(overrideState, "material_bom", raiseFor[form.garment_order_id])
+    : null;
 
   /** The customer is the ORDER's, never typed here. A BOM belongs to whoever the
    *  order belongs to, and a second copy of that fact is a second thing to keep
@@ -2172,7 +2186,7 @@ export function MbaMasterScreen({
    * 'Combination'"*.
    *
    * **`requirement_basis = 'combination'` is the decoy, not the switch.** It
-   * means colour x size (0420); `labelFor` renders it "Style Ref No / Order
+   * means colour x size (0420); `labelFor` renders it "Style / Order
    * Color / Order Size" and `REQUIREMENT_BASIS_LABELS` renders it "Combination
    * (Color + Size)", a qualifier types.ts says exists *precisely* to tell it
    * apart from this cell. Gating on it would grey the button out on eight of the
@@ -3372,12 +3386,17 @@ export function MbaMasterScreen({
         status: p.status as "planned" | "sent" | "part_received" | "received",
       })),
     };
-    start(async () => {
+    /* PERMISSION OVERRIDE (0653): on an approved order, Save asks for the
+       reason first and the same save runs with it. A refusal keeps the form. */
+    const doSave = (o?: OverrideSaveRequest) => start(async () => {
       const res = editId
-        ? await updateMaterialBomAmendment(editId, payload)
+        ? await updateMaterialBomAmendment(editId, payload, o)
         : await createMaterialBomAmendment(payload);
       if (res.ok) {
-        success(editId ? "Material BOM updated" : "Material BOM created");
+        success(
+          (editId ? "Material BOM updated" : "Material BOM created") +
+            (o ? " — recorded in the Override Edit Report" : ""),
+        );
         setDirty(false);
         setMode("list");
         router.refresh();
@@ -3385,6 +3404,11 @@ export function MbaMasterScreen({
         toastError(res.error);
       }
     });
+    if (bomOverride && editId) {
+      overrideCommit.request(bomOverride, doSave);
+      return;
+    }
+    doSave();
   }
 
   function del(t: BomTaskRow) {
@@ -4068,7 +4092,7 @@ export function MbaMasterScreen({
     for (const r of items) {
       if (!r.item_id) continue;
       const material = itemDisplayName(r);
-      /* NAMED FROM THE GRAIN, so a composed one reads "Style Ref No / Order
+      /* NAMED FROM THE GRAIN, so a composed one reads "Style / Order
          Color / Order Size / Country" rather than the dash it would get from a
          `requirement_basis` it does not have. */
       const basisLabel = r.requirement_grain
@@ -4667,7 +4691,7 @@ export function MbaMasterScreen({
     },
     {
       header: H.attribute,
-      /* Wider than the 130px it was: a grain reads "Style Ref No / Order Color /
+      /* Wider than the 130px it was: a grain reads "Style / Order Color /
          Order Size", which is the client's own wording for #19 and is the point
          of the column. */
       className: "min-w-[200px]",
@@ -7080,7 +7104,7 @@ export function MbaMasterScreen({
           onOpen={openTask}
           canDelete={perms.canDelete}
           /* An approved order offers no bin, and its Updated row an eye (2026-09-24). */
-          lockedRow={(t) => !!orderLocks[t.id]}
+          lockReason={(t) => orderLocks[t.id]}
           onDelete={del}
           /* A Pending row has no `bom_id` and `BomQueue` never renders the
              button on one (`canReportsRow`). Opens straight off the queue. */
@@ -7097,7 +7121,15 @@ export function MbaMasterScreen({
         ref={shellRef}
         mount="overlay"
         locked={
-          lockMessage
+          bomOverride
+            ? /* OVERRIDE EDIT MODE (0653): the Material BOM key opens the BOM
+                 whole, so every section is lifted; requirements stay what
+                 they are — server-written only (R-8). */
+              {
+                message: <OverrideBanner override={bomOverride} />,
+                open: sections.map((sec) => sec.key),
+              }
+            : lockMessage
             ? {
                 message: lockMessage,
                 action:
@@ -7189,13 +7221,17 @@ export function MbaMasterScreen({
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New material BOM",
           onCancel: () => setMode("list"),
           onSave: () => submit(false),
-          saveLabel: "Save material BOM",
+          saveLabel: bomOverride ? "Commit Changes (Override)" : "Save material BOM",
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
-          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          /* No draft under an override: the approved version is edited in
+             place (R-6), there is no draft of it to park. */
+          onSaveDraft: perms.canCreate && !bomOverride ? () => submit(true) : undefined,
           isPending,
         }}
       />
+      {/* PERMISSION OVERRIDE (0653) — "Commit Changes (Override)". */}
+      {overrideCommit.dialog}
 
       {/* THE REPORTS SHEET — read-only, no Save, no unsaved guard; see
           `MaterialBomReportsSheet`'s own header. At the editor root so it is

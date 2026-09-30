@@ -585,6 +585,19 @@ check("7c a held CONVERSION survives on a wrong route (twin + Save rule name it)
     near(missing.loss_pct ?? -1, (1 - 1 / (0.25 / 0.9 + 0.75 / 0.97)) * 100),
     true,
   );
+  /* A YARN COLOUR NAMED LIKE THE COLOURWAY (2026-09-29, live HO/RE/26-27/0003):
+     on the WHITE colourway a dyed purchase lists the WHITE stripe at 2 %; GREEN
+     is not bought dyed and must take the step's own loss (none), not WHITE's. */
+  const whiteWay = [
+    { ...stripe("WHITE", 0.6), combo: "WHITE" },
+    { ...stripe("GREEN", 0.4), combo: "WHITE" },
+  ];
+  const [dyedBuy] = stripeWiseOwnSteps([{ loss_pct: null, color_losses: { WHITE: 2 } }], whiteWay, COLLAR, Y, "WHITE");
+  check(
+    "12c2 GREEN is not grossed by the WHITE stripe's loss because the colourway is also WHITE",
+    near(dyedBuy.loss_pct ?? -1, (1 - 1 / (0.6 / 0.98 + 0.4)) * 100),
+    true,
+  );
   const byCombo = { loss_pct: 3, color_losses: { NAVY: 7 } };
   check("12d a map keyed by colourway is left for lossForCombo", stripeWiseOwnSteps([byCombo], shades12, COLLAR, Y, "NAVY")[0], byCombo);
   check("12e a slice with no stripes is left unchanged", stripeWiseOwnSteps([step12], [], COLLAR, Y, "NAVY")[0], step12);

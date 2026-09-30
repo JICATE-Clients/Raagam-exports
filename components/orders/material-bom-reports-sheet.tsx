@@ -14,13 +14,26 @@ import type { MbaRequirementReport } from "@/lib/orders/material-bom-amendment/r
 import {
   exportMaterialBomRequirementCsv,
   exportMaterialBomRequirementPdf,
+  mbomRequirementTiles,
 } from "@/lib/orders/material-bom-amendment/requirement-report-export";
 import {
   ORDER_REPORTS,
   isMaterialBomSheetReport,
   type MaterialBomReportKey,
 } from "@/lib/orders/order-reports";
-import { BRAND, ReportTable, SectionBar, Swatch, Td, Th, stripeRow } from "@/components/orders/report-kit";
+import {
+  OrderFacts,
+  ReportTable,
+  SectionCard,
+  SheetLabel,
+  SheetMasthead,
+  SignOff,
+  SummaryTiles,
+  Swatch,
+  Td,
+  Th,
+  stripeRow,
+} from "@/components/orders/report-kit";
 
 /**
  * Orders ▸ Material BOM ▸ Reports (client 2026-09-20: "there is no material bom
@@ -154,7 +167,6 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
   }
   const h = data.header;
   const c = h.company;
-  const contact = [c.address, c.gstin ? `GSTIN ${c.gstin}` : null].filter(Boolean).join("  ·  ");
 
   return (
     <div className="space-y-3">
@@ -173,61 +185,52 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
         </Button>
       </div>
 
-      <div>
-        {/* THE LETTERHEAD — the Fabric BOM reports' frame (green rule, dark
-            rule, blue title), so the order's documents read as one family. */}
-        <div className="overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
-          <div className="h-[3px] bg-[#85c227]" />
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-[#16181d] px-5 py-3">
-            <div className="flex min-w-0 items-center gap-4">
-              {c.logo && (
-                // A plain <img>: a stored data URL or an external Company
-                // Profile URL, which next/image would need configuring for.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={c.logo} alt={c.name ?? "Company logo"} className="h-12 w-auto shrink-0 object-contain" />
-              )}
-              <div className="min-w-0">
-                <div className="text-[16px] font-bold uppercase tracking-wide text-[#16181d]">
-                  {c.name ?? "RAAGAM EXPORTS"}
-                </div>
-                {contact && <div className="mt-0.5 text-[11.5px] text-[#5b6472]">{contact}</div>}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[12.5px] font-bold uppercase tracking-[.12em] text-[#037bb8]">
-                Material BOM Requirement
-              </div>
-              {h.bomCode && <div className="font-mono text-[12px] text-[#5b6472]">{h.bomCode}</div>}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
-          <Fact label="Customer" value={h.customer} />
-          <Fact label="RE No" value={h.scNo} mono />
-          <Fact label="Order No" value={h.orderNo} mono />
-          <Fact label="Date" value={fmtDate(h.bomDate)} mono />
-        </div>
-
-        {/* THE YARN & FABRIC LOOK (user 2026-09-29) — the section wears a filled
-            BRAND bar (a trim is not a production stage, so no tag) with the
-            line count at the right, rows striped, the colour swatched. The
-            columns and their order are unchanged. No total: the lines are in
-            different units, and a sum of pieces and grams is no figure. */}
-        <div className="mt-3">
-          <SectionBar
-            tone={BRAND}
-            title="Material Requirement"
-            right={`${data.rows.length} line${data.rows.length === 1 ? "" : "s"}`}
+      {/* THE SHEET FORMAT (user 2026-09-29, "this is okay apply it") — masthead,
+          the order's facts, the tiles, then the table as a card. The PDF draws
+          the same blocks (`requirement-report-export.ts`). */}
+      <div className="grid gap-5">
+        <div>
+          <SheetMasthead
+            company={{ name: c.name, logo: c.logo }}
+            kind="Material BOM Requirement"
+            reNo={h.scNo}
+            meta={[h.bomCode, h.computedAt ? `Stored ${fmtDateTime(h.computedAt)}` : null].filter(Boolean).join(" · ")}
           />
-          <ReportTable>
+          <OrderFacts
+            facts={[
+              { label: "Customer", value: h.customer },
+              { label: "Order No", value: h.orderNo, mono: true },
+              { label: "BOM Date", value: fmtDate(h.bomDate), mono: true },
+            ]}
+          />
+        </div>
+
+        <div>
+          <SheetLabel>Summary</SheetLabel>
+          <SummaryTiles
+            tiles={mbomRequirementTiles(data).map((t) => ({ label: t.label, value: String(t.value), note: t.note }))}
+          />
+        </div>
+
+        {/* No total: the lines are in different units, and a sum of pieces and
+            grams is no figure. The columns and their order are unchanged. */}
+        <SectionCard
+          title="Material Requirement"
+          total={`${data.rows.length} line${data.rows.length === 1 ? "" : "s"}`}
+        >
+          <ReportTable bare>
             <thead>
               <tr>
+                {/* THE REPORT STANDARD'S ORDER (user 2026-09-29) for the columns
+                    this report shares with it — Item Name → Color → UOM →
+                    Required Qty; the Accessories sheet's Consumption / Size /
+                    Specification live inside Item Name here. Calculated Qty is
+                    Required before process loss, so it stays beside it. */}
                 <Th>Item Name</Th>
                 <Th>Item Color</Th>
+                <Th>Uom</Th>
                 <Th right>Calculated Qty</Th>
                 <Th right>Required Qty</Th>
-                <Th>Uom</Th>
                 {/* THE PURCHASE FIGURE SITS BESIDE ITS UNIT (client
                     2026-09-20). Without it the row read "5,225 · NOS · GROSS"
                     — pieces printed under a unit they are not in. */}
@@ -244,6 +247,7 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
                     <Swatch name={r.colour} />
                     {r.colour}
                   </Td>
+                  <Td>{r.uom}</Td>
                   <Td right mono className="text-[#5b6472]">
                     {r.calculated != null ? fmtQty(r.calculated, r.decimals) : "—"}
                   </Td>
@@ -256,7 +260,6 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
                       <span className="font-sans font-normal text-muted-foreground">{r.refusal}</span>
                     )}
                   </Td>
-                  <Td>{r.uom}</Td>
                   <Td right mono>
                     {r.purchaseQty != null ? fmtQty(r.purchaseQty, r.purchaseDecimals) : "—"}
                   </Td>
@@ -266,23 +269,10 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
               ))}
             </tbody>
           </ReportTable>
-        </div>
-        {h.computedAt && (
-          <div className="mt-1 text-right text-[11px] text-muted-foreground">
-            Requirement stored {fmtDateTime(h.computedAt)}
-          </div>
-        )}
+        </SectionCard>
+
+        <SignOff />
       </div>
     </div>
   );
 }
-
-function Fact({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
-  return (
-    <span>
-      <span className="text-[#8b95a3]">{label}: </span>
-      <span className={mono ? "font-mono" : ""}>{value || "—"}</span>
-    </span>
-  );
-}
-

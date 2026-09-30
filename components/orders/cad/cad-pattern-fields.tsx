@@ -6,7 +6,8 @@
  * Pattern Details — the Order Entry ▸ CAD spec's "Compact CAD Entry Details":
  * Bit Wash (the spec's "Fit Wash Process", renamed by the user 2026-09-25 —
  * LABEL only, the column stays `fit_wash`; on Yes, the two shrinkage
- * percentages) and Cut Type.
+ * percentages) and Cut Type. Since 2026-09-29 they are one row INSIDE the
+ * Order Sheet, above its table — not a section of their own.
  *
  * Order Sheet — see `OrderSheetSection` below.
  *
@@ -14,6 +15,7 @@
  * and the History card reads the same words through `patternFactLines`.
  */
 
+import type { ReactNode } from "react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { FIELD_WIDTH_CSS, Field, FieldRow, fieldWidthStep } from "@/components/ui/field";
@@ -83,15 +85,25 @@ export function PatternDetailsFields({
   errors?: { length?: string; width?: string };
 }) {
   const set = (patch: Partial<PatternDetailsValue>) => onChange({ ...value, ...patch });
-  return (
-    <>
-      {/* CAPPED (user 2026-09-26, screenshot 3105: "compact the field size").
-          Bit Wash is Yes / No — hug 88. The shrinkage boxes stay code 144 for
-          their labels ("Length Shrinkage %" would wrap narrower and drop its box
-          below the row). hug 88 + code 144 × 2 + term 176 + 3 gaps 36 = 588
-          + ~22 padding = 610 ≤ 39rem. */}
-      <DetailSection label="Pattern Details" className="max-w-[39rem]">
-        <FieldRow align="start">
+  /* ONE ROW, DIRECTLY ABOVE THE COMPONENT TABLE (client 2026-09-29: "compact
+     Cut Type, Cut Method and GSM … a single horizontal toolbar row directly
+     above the pattern component table"). Bit Wash · Shrinkage · Cut Type had
+     a "Pattern Details" section of their own — a second frame, title and
+     padding stacked on the Order Sheet's — so the grid started a whole section
+     lower than it needed to. They now ride INSIDE the Order Sheet, between the
+     Sizes line and the table (`OrderSheetSection`'s `toolbar`).
+     Widths (user 2026-09-26, screenshot 3105): Bit Wash hug 88, Cut Type
+     term 176. The shrinkage boxes were code 144 ONLY to fit their labels
+     ("Length Shrinkage %" is ~125px) around a value like "2.5" (user
+     2026-09-30, screenshot 3137: "no need excess gap … just show the value").
+     So the LABEL was shortened to "L. Shrink %" / "W. Shrink %" and the box
+     is hug 88, the floor where a label stays on one line. The controls
+     are already the compact 32px inside an editor (`@2xl/editor:h-8`).
+     CUT METHOD AND GSM STAY PER COMPONENT, in the table: Cut Method is stored
+     per (coordinate, component) (0637) and GSM is each component's own, so
+     one box for the order would be a different fact, not a smaller one. */
+  const toolbar = (
+        <FieldRow align="start" gap="tight">
           <Field label="Bit Wash" w="hug" htmlFor="cad-fit-wash">
             <Select
               id="cad-fit-wash"
@@ -109,7 +121,7 @@ export function PatternDetailsFields({
           </Field>
           {value.fit_wash && (
             <>
-              <Field label="Length Shrinkage %" required w="code" htmlFor="cad-len-shrink" error={errors?.length}>
+              <Field label="L. Shrink %" required w="hug" htmlFor="cad-len-shrink" error={errors?.length}>
                 <Input
                   id="cad-len-shrink"
                   type="number"
@@ -121,7 +133,7 @@ export function PatternDetailsFields({
                   onChange={(e) => set({ length_shrink_pct: e.target.value })}
                 />
               </Field>
-              <Field label="Width Shrinkage %" required w="code" htmlFor="cad-wid-shrink" error={errors?.width}>
+              <Field label="W. Shrink %" required w="hug" htmlFor="cad-wid-shrink" error={errors?.width}>
                 <Input
                   id="cad-wid-shrink"
                   type="number"
@@ -146,14 +158,15 @@ export function PatternDetailsFields({
             </Select>
           </Field>
         </FieldRow>
-      </DetailSection>
-      <OrderSheetSection
-        components={components}
-        sizes={sizes}
-        cuts={value.component_cuts}
-        onChange={(component_cuts) => set({ component_cuts })}
-      />
-    </>
+  );
+  return (
+    <OrderSheetSection
+      components={components}
+      sizes={sizes}
+      cuts={value.component_cuts}
+      onChange={(component_cuts) => set({ component_cuts })}
+      toolbar={toolbar}
+    />
   );
 }
 
@@ -182,11 +195,14 @@ export function OrderSheetSection({
   sizes,
   cuts,
   onChange,
+  toolbar,
 }: {
   components: StyleComponent[];
   sizes: string[];
   cuts: ComponentCut[];
   onChange: (next: ComponentCut[]) => void;
+  /** The order-wide pattern fields, drawn between Sizes and the table. */
+  toolbar?: ReactNode;
 }) {
   // An entry saved before 0637 carries no coordinate: it still answers for its
   // component on every coordinate, until something is changed on that row.
@@ -245,10 +261,12 @@ export function OrderSheetSection({
   }
   // COMPACTED (user 2026-09-26, screenshot 3105): each column sized to its
   // value — Component and Structure code 144 (long names truncate and reveal
-  // on hover), GSM num 72, Cut Method term 176 ("Bit Form Cutting" + clear +
-  // chevron), Notes name 288. NO COORDINATE COLUMN: the side rail names the
-  // coordinate (screenshot 3106). 144 × 2 + 72 + 176 + 288 = 824 + 72 chrome
-  // = 896 ≤ 1,155 (check:grid-budget). Three facts from the order, two fields.
+  // on hover), GSM num 72, Notes name 288. NO COORDINATE COLUMN: the side rail
+  // names the coordinate (screenshot 3106).
+  // 2026-09-29 (client, "compact Cut Method"): term 176 -> code 144. Its
+  // longest value is "Direct Shape" (the "Bit Form Cutting" this note used to
+  // size for was renamed "Bit Cutting"), which fits 144 with the chevron.
+  // 144 × 3 + 72 + 288 = 792, 832 with chrome ≤ 1,155 (check:grid-budget).
   const orderSheetColumns: ChildGridColumn<GridRow>[] = [
     {
       header: "Component",
@@ -265,15 +283,17 @@ export function OrderSheetSection({
       width: FIELD_WIDTH_CSS.code,
       cell: (c) => <Truncated className="text-sm">{c.structure ?? "—"}</Truncated>,
     },
+    // GSM left-aligned (user 2026-09-30, screenshot 3137): right-aligned in
+    // its 72px the three digits floated away from the Structure beside them,
+    // reading as a gap rather than a column.
     {
       header: "GSM",
       width: FIELD_WIDTH_CSS.num,
-      align: "right",
       cell: (c) => <span className="text-sm tabular-nums">{c.gsm ?? "—"}</span>,
     },
     {
       header: "Cut Method",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.code,
       cell: (c) => (
         <Select
           aria-label={`Cut Method — ${c.coordinate_name ? `${c.coordinate_name} ` : ""}${c.name}`}
@@ -319,6 +339,7 @@ export function OrderSheetSection({
           <span className="font-medium text-foreground">{sizes.join(" · ")}</span>
         </p>
       )}
+      {toolbar}
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           This style has no components yet — add them on Order Info ▸ Style Components.

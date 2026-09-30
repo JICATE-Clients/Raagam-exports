@@ -111,7 +111,8 @@ export function CadCompletionReport({ rows }: { rows: CadStyleRow[] }) {
     columns: [
       { key: "re_no", header: "RE No", value: (r) => r.re_no ?? r.order_code ?? "—" },
       { key: "customer", header: "Customer", value: (r) => r.customer_name ?? "—" },
-      { key: "style", header: "Style Ref", value: (r) => r.style_ref_no },
+      // "Style", never "Style Ref" (user 2026-09-29) — it is Order Entry's Style.
+      { key: "style", header: "Style", value: (r) => r.style_ref_no },
       { key: "maker", header: "Pattern Maker", value: (r) => r.maker ?? "—" },
       { key: "cad_type", header: "CAD Type", value: (r) => cadTypeLabel(latestVersion(r.versions)?.cad_type) },
       { key: "versions", header: "Total Versions", isNumeric: true, value: (r) => r.completion.totalVersions },

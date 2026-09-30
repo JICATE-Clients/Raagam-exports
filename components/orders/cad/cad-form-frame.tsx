@@ -10,12 +10,16 @@
  * fields, rules and actions; only the wrapper changes. So the two doors still
  * cannot offer a style different steps (the `useCadActions` rule).
  *
- * THE INLINE PANEL IS ITS OWN KEYBOARD SURFACE. It sits inside the order
- * editor, whose Save writes the ORDER. `data-focus-scope` makes the panel the
- * boundary Tab wraps inside, and `data-focus-region="footer"` makes its own
- * last button what Enter off the last field presses (`submitTargetOf` rule 1).
- * Without the two markers, Enter off the CAD's last field would have saved the
- * garment order instead.
+ * THE INLINE PANEL HAS NO BUTTONS (user 2026-09-30, screenshot 3136: "no need
+ * [a separate save] … while saving order the CAD details also will save"). The
+ * forms park their step in `cad-pending.ts` and the ORDER's Save writes it, so
+ * the panel is part of the order's keyboard surface, not its own: no
+ * `data-focus-scope`, no footer region, and Enter off the CAD's last field
+ * reaches the order's Save like any other section's last field. (It used to
+ * carry both markers precisely so that it would NOT — the panel had a Save of
+ * its own then.) On a LOCKED order the order's Save is refused while CAD must
+ * still work (it is outside the lock), so there the forms pass their buttons
+ * again and the panel is its own surface once more — both markers return.
  *
  * `useUnsavedGuard` here does what a `Sheet` does for itself: a typed-but-unsaved
  * CAD step holds off the silent auto-reload (AGENTS.md "Auto-reload guard").
@@ -66,7 +70,9 @@ function InlinePanel({ title, footer, children }: { title: ReactNode; footer?: R
     // the page exactly as Order Info's do — full pane width, rows ragged-right —
     // and the Component Cut Method grid gets the width to be a table.
     <section
-      data-focus-scope
+      // Its own keyboard surface only while it has its own buttons (a locked
+      // order's CAD) — see the note at the top.
+      data-focus-scope={footer ? "" : undefined}
       aria-label={typeof title === "string" ? title : undefined}
       onInputCapture={() => setDirty(true)}
       onChangeCapture={() => setDirty(true)}
