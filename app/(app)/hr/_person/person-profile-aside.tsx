@@ -25,6 +25,9 @@ export type PersonProfileAsideProps = {
   code: string | null;
   name: string;
   isActive: boolean;
+  /** A bar on a current employee — not the same question as `isActive`
+   *  (0534 keeps them apart so un-blocking is not re-hiring). */
+  blocked: boolean;
   photoUrl: string | null;
   onPhotoChange: (url: string | null) => void;
   photoFolder: string;
@@ -166,6 +169,7 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
               ) : (
                 <StatusPill tone="info">New</StatusPill>
               )}
+              {p.blocked && <StatusPill tone="danger">Blocked</StatusPill>}
             </div>
             {/* A PHOTOGRAPH IS PART OF THE RECORD (client 2026-09-18: "photo
                 should be mand"), so it carries the same red star every other
