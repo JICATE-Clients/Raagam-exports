@@ -44,6 +44,9 @@ type Fail = { ok: false; error: string };
 type Delivered = {
   ok: true;
   email: string;
+  /** The login's id — set by createUserFromStaff, so a caller can go on to
+   *  assign it a role (Users ▸ bulk Assign role). */
+  userId?: string;
   /** The welcome mail went out. */
   emailed: boolean;
   /** Why it did not, in words for the admin. */
@@ -151,7 +154,7 @@ export async function createUserFromStaff(input: {
   });
   revalidatePath("/admin/users");
   revalidatePath("/admin/access-control");
-  return { ok: true, email, ...delivery };
+  return { ok: true, email, userId: authData.user.id, ...delivery };
 }
 
 export async function resendWelcome(userId: string): Promise<Delivered | Fail> {

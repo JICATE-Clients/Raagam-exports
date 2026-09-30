@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { ACTIONS, type Action, type Module } from "@/lib/auth/types";
 import { treeFromRows, type PermissionTree } from "./effective";
 
@@ -30,16 +30,32 @@ export interface AccessUser {
   employee_code: string | null;
   is_active: boolean;
   is_super_admin: boolean;
+  /**
+   * 0661: false for someone given email access BEFORE they have a login — a
+   * staff member picked on "+ Give email access". Their `id` is then
+   * `email:<address>` (there is no profile id yet), and the access starts
+   * counting the first time they sign in with that email.
+   */
+  has_login: boolean;
   roles: string[];
   /** Email-based access: null = never set up. */
   access: { is_active: boolean; note: string | null; updated_at: string } | null;
   tree: PermissionTree;
 }
 
+/** A person from HR ▸ Staff who can be given email access (has an email, no row above yet). */
+export interface AccessStaffOption {
+  email: string;
+  name: string;
+  code: string | null;
+}
+
 export interface AccessControlData {
   roles: AccessRole[];
   users: AccessUser[];
   offered: Partial<Record<Module, Action[]>>;
+  /** For "+ Give email access": active staff with an email who are not already listed. */
+  staffOptions: AccessStaffOption[];
 }
 
 export async function loadAccessControl(): Promise<AccessControlData> {
@@ -108,11 +124,52 @@ export async function loadAccessControl(): Promise<AccessControlData> {
         employee_code: p.employee_code,
         is_active: p.is_active,
         is_super_admin: p.is_super_admin,
+        has_login: true,
         roles: [...new Set(ur.filter((x) => x.user_id === p.id).map((x) => roleName.get(x.role_id)).filter((n): n is string => !!n))],
         access: acc ? { is_active: acc.is_active, note: acc.note, updated_at: acc.updated_at } : null,
         tree: treeFromRows(up.filter((x) => x.user_email === email), usp.filter((x) => x.user_email === email)),
       };
     });
 
-  return { roles, users, offered };
+  /* HR ▸ STAFF, for naming access-only rows and for the picker. Read with the
+     service role after the page's own system_admin gate: `staff_read` needs
+     hr_payroll:view AND the current unit, so an administrator without payroll
+     access would otherwise get an empty picker (the same reason the Users
+     screen reads it this way). Only name, code and email. */
+  const { data: staffRows, error: staffErr } = await createAdminClient()
+    .from("staff")
+    .select("code, name, email")
+    .eq("is_active", true)
+    .or("blocked.is.null,blocked.eq.false")
+    .order("name");
+  if (staffErr) throw new Error(`Could not read staff: ${staffErr.message}`);
+  const staffByEmail = new Map<string, AccessStaffOption>();
+  for (const r of (staffRows ?? []) as { code: string | null; name: string; email: string | null }[]) {
+    const email = r.email?.trim().toLowerCase();
+    if (email && !staffByEmail.has(email)) staffByEmail.set(email, { email, name: r.name, code: r.code });
+  }
+
+  // 0661: access given ahead of a login is a row too — otherwise it is saved and invisible.
+  const withLogin = new Set(users.map((u) => u.email));
+  for (const a of ua) {
+    if (withLogin.has(a.user_email)) continue;
+    const st = staffByEmail.get(a.user_email);
+    users.push({
+      id: `email:${a.user_email}`,
+      email: a.user_email,
+      full_name: st?.name ?? null,
+      employee_code: st?.code ?? null,
+      is_active: false,
+      is_super_admin: false,
+      has_login: false,
+      roles: [],
+      access: { is_active: a.is_active, note: a.note, updated_at: a.updated_at },
+      tree: treeFromRows(up.filter((x) => x.user_email === a.user_email), usp.filter((x) => x.user_email === a.user_email)),
+    });
+  }
+
+  const listed = new Set(users.map((u) => u.email));
+  const staffOptions = [...staffByEmail.values()].filter((o) => !listed.has(o.email));
+
+  return { roles, users, offered, staffOptions };
 }

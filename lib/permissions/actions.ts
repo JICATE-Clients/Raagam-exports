@@ -11,7 +11,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { screenCatalog } from "./screen-catalog";
@@ -122,6 +122,27 @@ export async function deleteRole(roleId: string): Promise<Result> {
   if (dErr) return { ok: false, error: dErr.message };
   if (!deleted) return { ok: false, error: "The role could not be deleted." };
   await writeAudit({ action: "role.deleted", entityType: "role", entityId: roleId, metadata: { name: r.name } });
+  rev();
+  return { ok: true };
+}
+
+/**
+ * REMOVE EMAIL ACCESS FOR SOMEONE WITH NO LOGIN (0661) — the bin on a By User
+ * row that has no login behind it, so there is no login to delete. The removal
+ * is first saved as "switched off, nothing granted" (so `user_access_history`
+ * records who removed what), then the row itself is deleted; its grants
+ * cascade with it. A person WITH a login is deleted through `deleteUserLogin`.
+ */
+export async function removeUserAccess(email: string): Promise<Result> {
+  if (!(await can("system_admin", "delete"))) return { ok: false, error: "Forbidden" };
+  const e = email.trim().toLowerCase();
+  if (!e) return { ok: false, error: "Choose the user." };
+  const s = await createClient();
+  const { error } = await s.rpc("save_user_permissions", { p_email: e, p_tree: [], p_active: false, p_note: "Access removed" });
+  if (error) return { ok: false, error: error.message };
+  const { error: delErr } = await createAdminClient().from("user_access").delete().eq("user_email", e);
+  if (delErr) return { ok: false, error: delErr.message };
+  await writeAudit({ action: "user_access.removed", entityType: "user_access", entityId: e });
   rev();
   return { ok: true };
 }

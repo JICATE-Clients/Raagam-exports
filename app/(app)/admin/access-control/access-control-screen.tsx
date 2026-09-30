@@ -22,7 +22,8 @@ import { PermissionTree } from "@/components/permissions/permission-tree";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { screenCatalog } from "@/lib/permissions/screen-catalog";
 import type { PermissionTree as Tree } from "@/lib/permissions/effective";
-import { deleteRole, saveRoleAccess, saveUserAccess } from "@/lib/permissions/actions";
+import { deleteRole, removeUserAccess, saveRoleAccess, saveUserAccess } from "@/lib/permissions/actions";
+import { Combobox } from "@/components/ui/combobox";
 import { deleteUserLogin } from "@/lib/users/actions";
 import type { AccessControlData, AccessRole, AccessUser } from "@/lib/permissions/service";
 
@@ -81,6 +82,14 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   const [userNote, setUserNote] = useState(openFromUrl?.access?.note ?? "");
   const [userTree, setUserTree] = useState<Tree>(openFromUrl?.tree ?? {});
   const [userDirty, setUserDirty] = useState(false);
+  /* "+ GIVE EMAIL ACCESS" (user 2026-09-30, screenshot 3158: "there is no
+     option for allocation email access"). Pick a staff member from HR ▸ Staff,
+     or type any email, then the same permission editor opens for them. 0661
+     lets the access be saved before they have a login. */
+  const [pickOpen, setPickOpen] = useState(false);
+  const [pickStaff, setPickStaff] = useState("");
+  const [pickEmail, setPickEmail] = useState("");
+  const [pickError, setPickError] = useState<string | null>(null);
 
   /* AGENTS.md "Auto-reload guard": a silent deploy reload must not eat a tree
      half-edited. Keyed on real edits, not on a sheet merely being open. */
@@ -120,6 +129,39 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
     setUserNote(u.access?.note ?? "");
     setUserTree(u.tree);
     setUserDirty(false);
+  }
+
+  function openPicker() {
+    setPickStaff("");
+    setPickEmail("");
+    setPickError(null);
+    setPickOpen(true);
+  }
+
+  /** Continue from the picker: an existing row opens as-is; a new email opens empty. */
+  function continuePick() {
+    const email = (pickStaff || pickEmail).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setPickError("Pick a staff member or type a valid email.");
+      return;
+    }
+    const existing = data.users.find((u) => u.email === email);
+    const st = data.staffOptions.find((o) => o.email === email);
+    setPickOpen(false);
+    openUser(
+      existing ?? {
+        id: `email:${email}`,
+        email,
+        full_name: st?.name ?? null,
+        employee_code: st?.code ?? null,
+        is_active: false,
+        is_super_admin: false,
+        has_login: false,
+        roles: [],
+        access: null,
+        tree: {},
+      },
+    );
   }
 
   function saveUser() {
@@ -223,6 +265,14 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
    *  (see `deleteUserLogin`), and the toast says which happened. */
   function removeUser(u: AccessUser) {
     start(async () => {
+      // No login behind the row (0661): the access record is all there is to remove.
+      if (!u.has_login) {
+        const r = await removeUserAccess(u.email);
+        if (!r.ok) return toastError(r.error);
+        success(`Email access removed for ${u.email}`);
+        router.refresh();
+        return;
+      }
       const res = await deleteUserLogin(u.id);
       if (!res.ok) return toastError(res.error);
       success(
@@ -265,7 +315,12 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
     { header: "Grants", cell: (u) => <span className="text-sm">{treeSummary(u.tree)}</span> },
     {
       header: "Login",
-      cell: (u) => <StatusPill tone={u.login_active ? "success" : "danger"}>{u.login_active ? "Active" : "Deactivated"}</StatusPill>,
+      cell: (u) =>
+        !u.has_login ? (
+          <StatusPill tone="neutral">No login yet</StatusPill>
+        ) : (
+          <StatusPill tone={u.login_active ? "success" : "danger"}>{u.login_active ? "Active" : "Deactivated"}</StatusPill>
+        ),
     },
   ];
 
@@ -322,7 +377,9 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
       onPanelReset={userFilter.reset}
       getKey={(u) => u.id}
       // `canDelete` gates both the bin and the Status switch in the shell.
-      perms={{ canCreate: false, canEdit, canDelete }}
+      perms={{ canCreate: canEdit, canEdit, canDelete }}
+      addLabel="+ Give email access"
+      onAdd={canEdit ? openPicker : undefined}
       searchText={(u) => `${u.full_name ?? ""} ${u.email} ${u.roles.join(" ")}`}
       columns={userColumns}
       view={false}
@@ -371,7 +428,15 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
                       confirmLabel={`Confirm — delete ${full.filter((u) => !userProtected(u)).length} login(s)`}
                       icon={<Trash2 className="h-4 w-4" aria-hidden />}
                       disabled={isPending}
-                      onConfirm={() => runBulk(full, userProtected, (u) => deleteUserLogin(u.id), "deleted", clear)}
+                      onConfirm={() =>
+                        runBulk(
+                          full,
+                          userProtected,
+                          (u) => (u.has_login ? deleteUserLogin(u.id) : removeUserAccess(u.email)),
+                          "deleted",
+                          clear,
+                        )
+                      }
                     />
                   )}
                 </>
@@ -477,6 +542,12 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
                 {user.email} · roles: {user.is_super_admin ? "Super admin (already holds everything)" : user.roles.join(", ") || "none"}.
                 What you tick here is added to what their roles give — for this person only.
               </p>
+              {!user.has_login && (
+                <p className="text-sm text-muted-foreground">
+                  No login yet — this access starts working the first time they sign in with this email (Users ▸ Send
+                  welcome mail creates the login).
+                </p>
+              )}
               {isMe && <p className="text-sm text-warning">Your own access is set by another administrator.</p>}
               {/* No Status switch and no Note here (user 2026-09-30, screenshots
                   3147 / 3152): status lives in the list's Status column, and the
@@ -494,6 +565,53 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
 
           </div>
         )}
+      </Sheet>
+
+      {/* ── "+ Give email access": choose who, then the editor opens ───────── */}
+      <Sheet
+        open={pickOpen}
+        onClose={() => setPickOpen(false)}
+        title="Give email access"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" size="md" onClick={() => setPickOpen(false)}>Cancel</Button>
+            <Button size="md" disabled={!pickStaff && !pickEmail.trim()} onClick={continuePick}>
+              Continue
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Staff member" htmlFor="ac-pick-staff">
+            <Combobox
+              id="ac-pick-staff"
+              options={data.staffOptions.map((o) => ({ value: o.email, label: o.name, sublabel: o.email, search: `${o.code ?? ""} ${o.email}` }))}
+              value={pickStaff}
+              onChange={(v) => {
+                setPickStaff(v);
+                if (v) setPickEmail("");
+                setPickError(null);
+              }}
+              clearable
+            />
+          </Field>
+          <Field label="Or email" htmlFor="ac-pick-email" error={pickError ?? undefined}>
+            <Input
+              id="ac-pick-email"
+              type="email"
+              value={pickEmail}
+              onChange={(e) => {
+                setPickEmail(e.target.value);
+                if (e.target.value) setPickStaff("");
+                setPickError(null);
+              }}
+            />
+          </Field>
+          {data.staffOptions.length === 0 && (
+            <p className="text-xs text-muted-foreground">Every staff member with an email is already listed — type an email instead.</p>
+          )}
+        </div>
       </Sheet>
     </>
   );

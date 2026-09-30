@@ -377,7 +377,8 @@ export default function UsersClient({
     items: UserRow[],
     skip: (r: UserRow) => boolean,
     act: (r: UserRow) => Promise<{ ok: boolean; error?: string }>,
-    doneWord: string,
+    /** A function when the wording depends on what the run did. */
+    doneWord: string | (() => string),
     after?: () => void,
   ) {
     const todo = items.filter((r) => !skip(r));
@@ -397,7 +398,8 @@ export default function UsersClient({
       const tail = [skipped ? `${skipped} skipped` : "", ok < todo.length ? `${todo.length - ok} failed: ${firstError}` : ""]
         .filter(Boolean)
         .join(" · ");
-      if (ok) success(`${ok} ${doneWord}${tail ? ` (${tail})` : ""}`);
+      const word = typeof doneWord === "function" ? doneWord() : doneWord;
+      if (ok) success(`${ok} ${word}${tail ? ` (${tail})` : ""}`);
       else toastError(tail);
       sel.clear();
       after?.();
@@ -429,18 +431,54 @@ export default function UsersClient({
       (r) => setLoginActive(r.profile!.id, active),
       active ? "login(s) switched on" : "login(s) switched off",
     );
+  /* A PERSON WITH NO LOGIN YET GETS ONE FIRST (user 2026-09-30: "can't able
+     to assign role" — the ticked row was an HR Staff member without a login,
+     and the only answer was "they were all skipped"). A role hangs off a
+     login, so the login is created here — quietly, no welcome mail — and the
+     role follows; "Send welcome mail" stays the separate, deliberate step.
+     Still skipped: a super admin (every permission already), someone who
+     already holds this role here, and a no-login row with no email in HR
+     (a login cannot be made without one), each named in the toast. */
+  const bulkAssignSkip = (r: UserRow): string | null => {
+    if (!r.profile) return r.email ? null : "no email in HR";
+    if (r.profile.is_super_admin) return "super admin";
+    const has = (rolesByUser[r.profile.id] ?? []).some(
+      (ur) => ur.role_id === bulkRoleId && (ur.location_id ?? "") === bulkLocationId,
+    );
+    return has ? "already has this role" : null;
+  };
   const bulkAssign = () => {
     if (!bulkRoleId) return;
+    let created = 0;
+    const why = selectedRows.map(bulkAssignSkip).filter((w): w is string => !!w);
+    if (why.length === selectedRows.length) {
+      const counts = new Map<string, number>();
+      for (const w of why) counts.set(w, (counts.get(w) ?? 0) + 1);
+      toastError(
+        `Nothing to assign — ${[...counts].map(([w, n]) => (selectedRows.length > 1 ? `${n} ${w}` : w)).join(" · ")}.`,
+      );
+      return;
+    }
     runBulk(
       selectedRows,
-      (r) =>
-        !r.profile ||
-        r.profile.is_super_admin ||
-        (rolesByUser[r.profile.id] ?? []).some(
-          (ur) => ur.role_id === bulkRoleId && (ur.location_id ?? "") === bulkLocationId,
-        ),
-      (r) => assignRole(r.profile!.id, bulkRoleId, bulkLocationId || null),
-      "role(s) assigned",
+      (r) => !!bulkAssignSkip(r),
+      async (r) => {
+        let userId = r.profile?.id;
+        if (!userId) {
+          const made = await createUserFromStaff({ staffId: r.staffId!, sendWelcome: false });
+          if (!made.ok) return { ok: false, error: made.error };
+          userId = made.userId;
+          created++;
+          if (!userId) return { ok: false, error: "The login was created but its id did not come back — reload and assign again." };
+        }
+        return assignRole(userId, bulkRoleId, bulkLocationId || null);
+      },
+      // A login made here has a password nobody was told — say so, or the admin
+      // reads "assigned" as "they can sign in now".
+      () =>
+        created
+          ? `role(s) assigned — ${created} new login(s) created; send their welcome mail from the row or the bulk bar so they can sign in`
+          : "role(s) assigned",
       () => {
         setBulkRoleOpen(false);
         setBulkRoleId("");
@@ -764,8 +802,9 @@ export default function UsersClient({
             </Select>
           </div>
           <p className="text-xs text-muted-foreground">
-            Skipped automatically: people with no login yet, super admins, and anyone who already holds this role at
-            this location.
+            Anyone without a login yet gets one first (no mail is sent — use Send welcome mail when they should sign
+            in). Skipped: super admins, people with no email in HR, and anyone who already holds this role at this
+            location.
           </p>
         </div>
       </Sheet>
