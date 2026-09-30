@@ -13,7 +13,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { ChevronLeft, X, type LucideIcon } from "lucide-react";
+import { ChevronLeft, Menu, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { LockScope, UnlockScope } from "@/components/ui/field";
@@ -277,6 +277,12 @@ export type MasterFullScreenHandle = {
    * the hold are the same mechanism seen from opposite ends.
    */
   goToSection: (key: string, land?: Landing) => void;
+  /**
+   * Slide out the phone side menu (`mobileNav="drawer"`). For a screen that
+   * draws its OWN trigger — see `drawerTrigger="external"`. A no-op where
+   * there is no drawer.
+   */
+  openNav: () => void;
 };
 
 /**
@@ -333,6 +339,8 @@ export function MasterFullScreen({
   railCollapsed = false,
   fitRail = false,
   railHeading = "Sections",
+  mobileNav = "strip",
+  drawerTrigger = "bar",
   onExpandRail,
   initialSection,
   summary,
@@ -487,6 +495,33 @@ export function MasterFullScreen({
    * Vendor's rail would be worse than the generic word it replaced.
    */
   railHeading?: string;
+  /**
+   * HOW A PHONE REACHES THE SECTIONS (below `md`; desktop never changes).
+   *
+   * `"strip"` (default) is the horizontal chip strip every editor has had.
+   * `"drawer"` turns the same rail into a Gmail-style side menu: a top bar
+   * with ☰ and the current section, the rail sliding in from the left over
+   * a dimmed page, closing on a pick, a tap outside or Escape (client
+   * 2026-09-30, the HR worker record: ~30 sections in a sideways strip were
+   * a list nobody could see whole — "left side menu mari touch panni
+   * ovvoru filed aa open pannikra mari mail la irukkumla").
+   *
+   * OPT-IN PER SCREEN, like `railHeading`: this shell carries every master
+   * and order editor, and a rail of four sections is better served by the
+   * strip than by a menu hiding four chips. It is the SAME `<nav>` and the
+   * same rows — keys, roving tabindex, the sealRail guard and group toggling
+   * are untouched; only where the list sits on a phone changes.
+   */
+  mobileNav?: "strip" | "drawer";
+  /**
+   * Who opens the drawer. `"bar"` (default): the shell draws its own phone
+   * row — ☰, the section, n / total. `"external"`: the screen already has a
+   * line of its own above the shell and puts a Sections button THERE, calling
+   * `openNav()` on the handle — so the phone does not spend a second row on
+   * it (client 2026-09-30, the HR worker record: the button belongs in the
+   * "NEW WORKER — ← Back to list" line, whose middle was an empty rule).
+   */
+  drawerTrigger?: "bar" | "external";
   /**
    * Bring the rail back. Required in spirit by `railCollapsed`: without it the
    * fold is a one-way door, and the operator has no way to reach another section
@@ -696,6 +731,11 @@ export function MasterFullScreen({
   /** Only for the lock's refusal — see `locked`. Above every early return. */
   const { error: toastError } = useToast();
   const [section, setSection] = useState(firstKey);
+  /** `mobileNav="drawer"` only: whether the phone side menu is out. Below
+   *  `md` the rail is off-canvas until this is true; from `md` up every class
+   *  it drives is overridden, so desktop never reads it. */
+  const [navOpen, setNavOpen] = useState(false);
+  const drawer = mobileNav === "drawer";
 
   /* THROUGH A REF, so the effect below is keyed on the SECTION and not on the
      caller's function identity — an inline arrow is a new value every render,
@@ -815,6 +855,9 @@ export function MasterFullScreen({
   );
 
   useModalGuard(open && mount === "overlay");
+  // The side menu is a hand-rolled overlay: while it is out, a silent
+  // auto-reload would yank it from under the operator (AGENTS.md, STANDING).
+  useModalGuard(open && drawer && navOpen);
 
   // The page mount's counterpart: gate on real unsaved work, and include
   // `isPending` — a reload landing mid-server-action loses the success toast and
@@ -931,7 +974,19 @@ export function MasterFullScreen({
     [land],
   );
 
-  useImperativeHandle(ref, () => ({ goToSection }), [goToSection]);
+  const openNav = useCallback(() => {
+    if (!drawer) return;
+    setNavOpen(true);
+    // Put the keyboard on the row being worked, so Escape and the arrows
+    // answer at once.
+    window.setTimeout(() => {
+      railRef.current
+        ?.querySelector<HTMLElement>('[aria-selected="true"]')
+        ?.focus();
+    }, 0);
+  }, [drawer]);
+
+  useImperativeHandle(ref, () => ({ goToSection, openNav }), [goToSection, openNav]);
 
   /**
    * MOVING PAST THE LAST FIELD OF A SECTION OPENS THE NEXT SECTION — Tab off the
@@ -1404,6 +1459,55 @@ export function MasterFullScreen({
         </div>
       )}
 
+      {/* THE PHONE BAR for `mobileNav="drawer"`: ☰, where you are, and how
+          far along. `md:hidden` — from `md` up the rail is back beside the
+          pane and says all of this itself. */}
+      {drawer && drawerTrigger === "bar" && (() => {
+        const at = sections.findIndex((x) => x.key === section);
+        let group: string | null = null;
+        for (let i = at; i >= 0; i--) {
+          if (!sections[i].sub) {
+            if (i !== at) group = sections[i].label;
+            break;
+          }
+        }
+        const panes = sections.filter((x) => !x.groupOnly);
+        const pos = panes.findIndex((x) => x.key === section) + 1;
+        return (
+          <div
+            data-focus-region="header"
+            className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-2 md:hidden"
+          >
+            <button
+              type="button"
+              aria-label={`Open ${railHeading}`}
+              aria-expanded={navOpen}
+              onClick={openNav}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-surface-muted text-foreground"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="min-w-0 flex-1">
+              {group && (
+                /* truncate-reveal: exempt -- rail chrome; the menu names it in full */
+                <span className="block truncate text-xs text-muted-foreground">
+                  {group}
+                </span>
+              )}
+              {/* truncate-reveal: exempt -- rail chrome; the menu names it in full */}
+              <span className="block truncate text-base font-semibold text-foreground">
+                {sections[at]?.label}
+              </span>
+            </div>
+            {pos > 0 && (
+              <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+                {pos} / {panes.length}
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
       {/* body: rail + content */}
       <div
         className={cn(
@@ -1438,6 +1542,14 @@ export function MasterFullScreen({
               : "md:grid-cols-[192px_1fr]",
         )}
       >
+        {drawer && navOpen && (
+          <button
+            type="button"
+            aria-label={`Close ${railHeading}`}
+            onClick={() => setNavOpen(false)}
+            className="fixed inset-0 z-40 bg-black/45 md:hidden"
+          />
+        )}
         <nav
           ref={railRef}
           role="tablist"
@@ -1445,7 +1557,16 @@ export function MasterFullScreen({
           // but the layout is CSS-driven and reading it during render would risk
           // a hydration mismatch). The keydown handler serves both axes anyway.
           aria-orientation="vertical"
-          onKeyDown={onRailKeyDown}
+          onKeyDown={(e) => {
+            // Escape closes the phone menu first — one layer per press.
+            if (drawer && navOpen && e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              setNavOpen(false);
+              return;
+            }
+            onRailKeyDown(e);
+          }}
           // Chrome, not a field: it sorts with the ✕ at the end of the Tab cycle
           // rather than in the middle of data entry. Tab normally never needs it
           // at all now — Tab off a section's last field opens the next section.
@@ -1465,7 +1586,18 @@ export function MasterFullScreen({
                below its content, so `overflow-y-auto` alone would have changed
                nothing — the same trap the page-mount card's own comment
                records one level up. */
-            "scrollbar-none flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:min-h-0 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r md:p-3",
+            drawer
+              ? /* PHONE: an off-canvas panel from the left (a static literal
+                   per state — Tailwind cannot see a computed class). From
+                   `md` every one of these is put back to the rail it is on
+                   desktop. `invisible` while closed takes the off-screen
+                   rows out of the Tab order and the accessibility tree. */
+                cn(
+                  "scrollbar-none fixed inset-y-0 left-0 z-50 flex w-[19.5rem] max-w-[85vw] flex-col gap-1 overflow-y-auto rounded-r-2xl bg-surface p-3 shadow-xl transition-transform duration-200",
+                  "md:static md:z-auto md:w-auto md:max-w-none md:translate-x-0 md:rounded-none md:bg-surface-muted md:shadow-none md:transition-none md:visible md:min-h-0 md:border-r md:border-border",
+                  navOpen ? "translate-x-0" : "invisible -translate-x-full",
+                )
+              : "scrollbar-none flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:min-h-0 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r md:p-3",
             /* `md:hidden`, NOT `hidden`: the horizontal chip strip below the
                breakpoint is the only section nav a phone has, and collapsing is
                a desktop answer to a desktop problem. */
@@ -1480,7 +1612,12 @@ export function MasterFullScreen({
               `text-[10.5px] font-bold` written here was never what rendered;
               11px at weight 500 was. Dropping the class is what lets the
               utilities win, rather than piling on an `!important`. */}
-          <span className="hidden px-2 pb-1.5 pt-1 text-sm font-bold uppercase tracking-wide text-foreground md:block">
+          <span
+            className={cn(
+              "px-2 pb-1.5 pt-1 text-sm font-bold uppercase tracking-wide text-foreground md:block",
+              drawer ? "block" : "hidden",
+            )}
+          >
             {railHeading}
           </span>
           {railRows.map((s) => {
@@ -1557,6 +1694,9 @@ export function MasterFullScreen({
                     }
                   }
                   goToSection(s.key);
+                  // A pick closes the phone menu; a GROUP row only opens its
+                  // children, so the operator can choose one of them next.
+                  if (drawer && !parent) setNavOpen(false);
                 }}
                 aria-current={isActive}
                 aria-selected={isActive}
@@ -1566,6 +1706,8 @@ export function MasterFullScreen({
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
                   "ty-sidebar flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13.5px] transition-colors md:w-full",
+                  // A menu row is a thumb target: full width, 44px tall.
+                  drawer && "min-h-11 w-full md:min-h-0",
                   // `min-w-0` so the row — and its active fill — is bounded by
                   // the rail, never widened by its label. See `fitRail`.
                   fitRail && "min-w-0 gap-2 px-2",

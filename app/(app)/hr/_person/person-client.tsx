@@ -6,6 +6,9 @@ import {
   useState,
   useTransition,
 } from "react";
+import { ChevronDown, List as ListIcon, UserRound as UserRoundIcon } from "lucide-react";
+import { Sheet } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -684,6 +687,12 @@ export default function PersonClient({
   const [editCode, setEditCode] = useState<string | null>(null);
   const [form, setForm] = useState<PersonInput>(DEFAULTS);
   const shellRef = useRef<MasterFullScreenHandle>(null);
+  /** The section the editor is on — read by the phone Sections button in
+   *  the mode line. `null` until the shell reports its first section. */
+  const [paneKey, setPaneKey] = useState<string | null>(null);
+  /** Below `xl`, where the profile column is hidden: the profile opens in a
+   *  sheet from the icon in the mode line. */
+  const [profileOpen, setProfileOpen] = useState(false);
   const [saved, setSaved] = useState<PersonInput>(DEFAULTS);
   const sel = useRowSelection();
   /* The list's search box + Status facet + the shared Created Date facet —
@@ -4365,11 +4374,11 @@ export default function PersonClient({
      *
      * From `xl` it is the 288px column beside the form, as approved on
      * desktop. Below `xl` that column left the form ~80px wide, so there it is
-     * hidden and the SAME card is appended to the end of every section's
-     * content instead: the operator fills the fields first, and the photo,
-     * Upload and the read-back of what they typed are waiting at the bottom of
-     * the scroll. Rendered twice, shown once — one `display` switch each, so
-     * no width is ever measured in JS.
+     * hidden and the SAME card opens in a sheet from the profile icon in the
+     * mode line (client 2026-09-30: "simple aa oru icon profile nu, atha touch
+     * panna profile view aagra mari"). One tap from any section, so the
+     * mandatory photo can be added at any point — the earlier answer, the card
+     * appended after the last section, put Upload at the far end of ~30.
      */
     const profileCard = (className: string) => (
       <PersonProfileAside
@@ -4395,21 +4404,6 @@ export default function PersonClient({
         bloodGroup={form.blood_group ?? null}
         className={className}
       />
-    );
-    const paneSections = sections.map((s) =>
-      s.groupOnly
-        ? s
-        : {
-            ...s,
-            content: (
-              <>
-                {s.content}
-                <div className="mt-8 xl:hidden">
-                  {profileCard("w-full overflow-visible")}
-                </div>
-              </>
-            ),
-          },
     );
     return (
       // THREE COLUMNS (client 2026-09-15: "i want the left side rail back ...
@@ -4440,9 +4434,43 @@ export default function PersonClient({
         */}
         <div
           data-focus-region="header"
-          className="flex w-full flex-wrap items-baseline gap-x-6 gap-y-2"
+          className="flex w-full flex-wrap items-center gap-x-6 gap-y-2 max-md:gap-x-2 md:items-baseline"
         >
-          <div className="flex shrink-0 items-baseline gap-2">
+          {/* PHONE: THE SECTIONS BUTTON LIVES IN THIS LINE (client 2026-09-30:
+              option 2 of the "Menu button" mock-up). It takes the place of the
+              empty rule, carries the mode ("New Worker") so the label beside it
+              can go, and opens the shell's side menu — so the phone spends no
+              second row on a ☰. A list icon, not ☰: the app's own bottom bar
+              already has a ☰ Menu, and two identical icons doing different
+              jobs is how the wrong one gets tapped. From `md` the rail is on
+              screen and this line is exactly as before. */}
+          {(() => {
+            const panes = sections.filter((s) => !s.groupOnly);
+            const cur =
+              sections.find((s) => s.key === paneKey) ?? panes[0];
+            const pos = cur ? panes.findIndex((s) => s.key === cur.key) + 1 : 0;
+            return (
+              <button
+                type="button"
+                onClick={() => shellRef.current?.openNav()}
+                aria-label={`Sections: ${cur?.label ?? ""}, ${pos} of ${panes.length}`}
+                className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border-[1.5px] border-primary bg-surface px-3 text-left md:hidden"
+              >
+                <ListIcon aria-hidden className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] leading-tight text-muted-foreground">
+                    {editId ? `Edit ${copy.entity}` : `New ${copy.entity}`} · {pos}/{panes.length}
+                  </span>
+                  {/* truncate-reveal: exempt -- rail chrome; the menu it opens names it in full */}
+                  <span className="block truncate text-sm font-semibold leading-tight text-foreground">
+                    {cur?.label}
+                  </span>
+                </span>
+                <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-primary" />
+              </button>
+            );
+          })()}
+          <div className="flex shrink-0 items-baseline gap-2 max-md:hidden">
             <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {editId ? `Edit ${copy.entity}` : `New ${copy.entity}`}
             </dt>
@@ -4452,16 +4480,41 @@ export default function PersonClient({
           </div>
           <div
             aria-hidden
-            className="h-px min-w-[2rem] flex-1 self-center bg-border"
+            className="h-px min-w-[2rem] flex-1 self-center bg-border max-md:hidden"
           />
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3 max-md:gap-2">
             {dirty && (
               <span className="text-[11px] font-medium text-warning">
                 ● Unsaved
               </span>
             )}
-            <Button variant="outline" size="sm" onClick={cancel}>
-              ← Back to list
+            {/* THE PROFILE, ONE TAP AWAY — wherever the profile column is not
+                on screen (below `xl`). A dot while the mandatory photo is
+                missing, so the operator knows without opening it. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setProfileOpen(true)}
+              aria-label={form.photo_url ? "View profile" : "View profile — photo missing"}
+              className="relative xl:hidden max-md:h-11 max-md:w-11 max-md:px-0"
+            >
+              <UserRoundIcon aria-hidden className="h-4 w-4" />
+              <span className="max-md:hidden">Profile</span>
+              {!form.photo_url && (
+                <span
+                  aria-hidden
+                  className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-surface bg-danger"
+                />
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={cancel}
+              aria-label="Back to list"
+              className="max-md:h-11 max-md:w-11 max-md:px-0"
+            >
+              ←<span className="max-md:hidden"> Back to list</span>
             </Button>
           </div>
         </div>
@@ -4474,6 +4527,12 @@ export default function PersonClient({
                (client 2026-09-19). It follows the record's kind, so the Worker
                screen does not call itself Staff. */
             railHeading={`${copy.entity} Info`}
+            // Phone: the ~30 sections are a Gmail-style side menu (☰)
+            // rather than a sideways strip nobody can see whole.
+            mobileNav="drawer"
+            // The trigger is the Sections button in the mode line above.
+            drawerTrigger="external"
+            onEnterSection={setPaneKey}
             // The rail truncates at this depth, so the pane names the section
             // in full (client 2026-09-11). See `paneHeading` for why it is
             // opt-in.
@@ -4487,7 +4546,7 @@ export default function PersonClient({
             // told. This screen still declares its own beside it — the counter
             // in `lib/reload-guard.ts` composes.
             dirty={dirty}
-            sections={paneSections}
+            sections={sections}
             footer={{
               status: dirty
                 ? "Unsaved changes"
@@ -4509,6 +4568,15 @@ export default function PersonClient({
           {/* The right-hand column: from `xl` only. Below it the same card
               closes each section instead (`paneSections`). */}
           {profileCard("hidden xl:block")}
+          <Sheet
+            open={profileOpen}
+            onClose={() => setProfileOpen(false)}
+            title="Profile"
+            size="sm"
+            footer={<SubSheetFooter onDone={() => setProfileOpen(false)} />}
+          >
+            {profileCard("w-full overflow-visible")}
+          </Sheet>
         </div>
       </div>
     );
