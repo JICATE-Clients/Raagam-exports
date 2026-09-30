@@ -61,6 +61,7 @@ export function ApprovalActionBar({
   onDone,
   rework = false,
   compact = false,
+  overrideNote = true,
 }: {
   run: ActionBarRun;
   verdict: CanActVerdict;
@@ -85,6 +86,13 @@ export function ApprovalActionBar({
   /** Drop the "Step n · label" line — for a card that already says whose
    *  decision it is. The override warning is never dropped. */
   compact?: boolean;
+  /**
+   * `false` ONLY when the caller prints the override warning itself, beside
+   * the figures (the desktop approval page puts this bar in its header and the
+   * warning in its right column). Never false with nothing else saying it:
+   * someone who did not realise they were overriding cannot explain it later.
+   */
+  overrideNote?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -175,7 +183,7 @@ export function ApprovalActionBar({
             the event log for ever. Someone who did not realise they were
             overriding cannot explain it afterwards, and the comment the database
             demands would be written without knowing what it was for. */}
-        {isOverride && (
+        {isOverride && overrideNote && (
           <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-xs font-medium text-warning">
             <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
             You are not an approver on this step — acting here is recorded as an

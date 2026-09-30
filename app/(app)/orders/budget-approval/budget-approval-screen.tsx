@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { budgetTotals } from "@/lib/orders/budget/totals";
 import type { OrderApprovalCard as OrderCardData } from "@/lib/approvals/order-approval-cards";
-import { ApprovalOverview, ApprovalStrip } from "./approval-overview";
+import { ApprovalOverview } from "./approval-overview";
 import { MARGIN_TARGET_PCT } from "@/lib/orders/budget/breakdown";
 import {
   BUDGET_STATUSES,
@@ -593,58 +593,58 @@ export function BudgetApprovalScreen({
       <Sheet
         open={!!budget}
         onClose={close}
-        /* "BUDGET 1 · HO/RE/26-27/0012" and its state — it was the bare Entry
-           No ("1"), which named nothing an approver recognises. */
+        /* THE STAFF PROFILE'S HEADER (canvas board B): the page's name and
+           where it sits, then the decision where "Edit staff" sits on a
+           profile. The RE No, customer and status are the identity card's. */
         title={
-          <span className="flex flex-wrap items-center gap-2">
-            {/* RE No first, the budget number after it as the reference —
-                the order is what is being approved (screenshot 3159). */}
-            {reNosOf(budget).length > 0 ? (
-              <>
-                <span className="font-mono">{reNosOf(budget).join(", ")}</span>
-                <span className="text-sm font-medium text-muted-foreground">· Budget {budget?.code ?? ""}</span>
-              </>
-            ) : (
-              <span>Budget {budget?.code ?? ""}</span>
-            )}
-            {budget && (
-              <StatusPill tone={budgetStatusTone(budget.status)}>{budgetStatusText(budget.status)}</StatusPill>
-            )}
+          <span className="flex flex-col">
+            <span>Order Approval</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              Orders / Approval /{" "}
+              <span className="font-mono text-foreground">{reNosOf(budget).join(", ") || `Budget ${budget?.code ?? ""}`}</span>
+            </span>
           </span>
         }
-        size="lg"
-        /* THE DECISION, ALWAYS ON SCREEN — Approve · Request Rework in the
-           footer rather than at the bottom of the page. Renders nothing unless
-           `approval_can_act` said yes, so there is no permission check here. */
-        footer={
+        /* Approve · Request Rework — renders nothing unless `approval_can_act`
+           said yes, so there is no permission check here. The override
+           warning is printed in the page's right column instead. */
+        headerActions={
           panel?.run && panel.verdict ? (
-            <div className="w-full">
-              <ApprovalActionBar
-                run={panel.run}
-                verdict={panel.verdict}
-                subjectPath="/orders/budget-approval"
-                /* The sheet's run and verdict were read before the decision —
-                   close it rather than show a stale bar. */
-                onDone={() => setOpenId(null)}
-                rework
-              />
-            </div>
+            <ApprovalActionBar
+              run={panel.run}
+              verdict={panel.verdict}
+              subjectPath="/orders/budget-approval"
+              /* The sheet's run and verdict were read before the decision —
+                 close it rather than show a stale bar. */
+              onDone={() => setOpenId(null)}
+              rework
+              compact
+              overrideNote={false}
+            />
           ) : undefined
         }
+        size="lg"
+        /* THE WHOLE SCREEN (user 2026-09-30, screenshot 3166: "organise it
+           desktop fit instead of this kind of scrolling"). The 1180px reading
+           cap left a gutter each side and pushed the three columns long; a
+           dashboard of cards is not prose, so it takes the pane. */
+        fullBleed
       >
         {budget && totals && (
           <>
-            {/* THE DESKTOP PAGE (user 2026-09-30, canvas "Approval Desktop
-                Layout"): order facts · the glass ring · the margin, then every
-                cost line — one screen, no figure printed twice. It replaced the
-                phone card at 36rem and the Budget / Figures / As submitted
-                sections that repeated each other below it. */}
+            {/* THE DESKTOP PAGE IN THE STAFF PROFILE'S LAYOUT (user 2026-09-30,
+                canvas "Approval Desktop Layout" board B) — see
+                `approval-overview.tsx`. It replaced the phone card at 36rem and
+                the Budget / Figures / As submitted sections that repeated each
+                other below it; what follows here fills its middle column. */}
             <ApprovalOverview
               card={cards[budget.id]}
               budget={budget}
               totals={totals}
-              revision={!!cards[budget.id]?.revision}
-            />
+              timeline={panel?.run ? panel.timeline : null}
+              names={panel?.names ?? {}}
+              override={!!panel?.verdict?.can_act && !!panel.verdict.is_override}
+            >
 
             {/* ORDERS — listed only when there is something the overview cannot
                 say: more than one order, or an order whose value nobody could
@@ -788,22 +788,6 @@ export function BudgetApprovalScreen({
               </DetailSection>
             )}
 
-            {/* THE APPROVAL CHAIN AS ONE LINE (user 2026-09-30: "compact the
-                approval step section"). Rendered whenever a run exists, whatever
-                its state: a sent-back budget's trail carries the reason (hover
-                a step for its comment). The decision itself is in the footer. */}
-            {panel?.run && (
-              <ApprovalStrip
-                rows={panel.timeline}
-                names={panel.names}
-                lead={
-                  budget.submitted_at
-                    ? `${cards[budget.id]?.submittedBy ?? ""}${cards[budget.id]?.submittedBy ? " · " : ""}${fmtDateTime(budget.submitted_at)}`
-                    : null
-                }
-              />
-            )}
-
             {/* THE LEGACY DECIDE BLOCK, AND WHY IT SURVIVES.
                 It is hidden the moment a run exists — two writers to one
                 `status` column is exactly the divergence 0505's trigger raises
@@ -868,6 +852,7 @@ export function BudgetApprovalScreen({
                 </div>
               </DetailSection>
             )}
+            </ApprovalOverview>
           </>
         )}
       </Sheet>

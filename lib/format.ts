@@ -21,6 +21,17 @@ export function fmtNumber(value: number | null | undefined): string {
   return value.toLocaleString("en-IN");
 }
 
+/**
+ * A FIGURE TO A FIXED NUMBER OF DECIMALS, Indian grouping — "5,00,304.00",
+ * "37.01". `fmtNumber` prints whatever the value holds, so one column of
+ * amounts read "5,00,304" beside "2,13,518.22" and a share read "37.005%"
+ * (approval page, 2026-09-30). Use this where figures sit in a column.
+ */
+export function fmtFixed(value: number | null | undefined, decimals = 2): string {
+  if (value == null) return "—";
+  return value.toLocaleString("en-IN", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
 // ============================================================================
 // Dates — DD/MM/YYYY everywhere (client 2026-07-29).
 //

@@ -119,7 +119,16 @@ function compactInr(n: number): string {
 }
 
 function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
-  const [active, setActive] = useState<Slice["key"] | null>(null);
+  /* HOVER PREVIEWS, A CLICK OR TAP PICKS (user 2026-09-30: "previously if I
+     click the chart colour it worked, now it's not working"). A touch pointer
+     "leaves" the moment the finger lifts, so a hover-only highlight flashed
+     and vanished on a phone; a picked slice now stays lit, and the same
+     slice (or the centre) again clears it. Mouse hover still wins while it
+     lasts, so pointing at another colour previews it. */
+  const [hover, setHover] = useState<Slice["key"] | null>(null);
+  const [pinned, setPinned] = useState<Slice["key"] | null>(null);
+  const active = hover ?? pinned;
+  const pick = (k: Slice["key"]) => setPinned((p) => (p === k ? null : k));
 
   const blocked: Refusal | null = isRefusal(b.sales)
     ? b.sales
@@ -143,13 +152,32 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
 
   // Arc positions, clockwise from 12 o'clock (the svg is rotated -90°). Each
   // arc starts half a trim in, so its round cap sits inside its own share.
+  //
+  // A SMALL SLICE STILL GETS ROOM TO BE SEEN (user 2026-09-30, screenshot
+  // 3164: "that green is hidden from another colour behind"). Every arc gives
+  // back TRIM for its caps and gap, so a share shorter than TRIM — Trims &
+  // Accessories at 1.0% is ~5 units of a 503-unit ring against TRIM 26 —
+  // collapsed to a bare round cap sitting on its neighbours' caps, and the
+  // colour vanished under them. Each non-zero slice now spans at least
+  // MIN_SPAN (caps + gap + a visible stretch); the others give the difference
+  // back in proportion. The legend beside the ring prints every exact figure,
+  // so the ring only has to show that a slice EXISTS, never its precise size.
+  const MIN_SPAN = TRIM + 10;
+  const raw = slices.map((s) => (base > 0 ? (s.amount / base) * C : 0));
+  const total = raw.reduce((a, n) => a + n, 0);
+  const small = raw.map((n) => n > 0 && n < MIN_SPAN);
+  const lifted = small.filter(Boolean).length * MIN_SPAN;
+  const bigTotal = raw.reduce((a, n, i) => a + (small[i] ? 0 : n), 0);
+  // What the large slices keep, scaled so the ring still sums to what it drew.
+  const scale = bigTotal > 0 ? Math.max(0, total - lifted) / bigTotal : 1;
+  const spans = raw.map((n, i) => (n <= 0 ? 0 : small[i] ? MIN_SPAN : n * scale));
+
   const arcs: (Slice & { start: number; len: number })[] = [];
   let at = 0;
-  for (const s of slices) {
-    const len = base > 0 ? (s.amount / base) * C : 0;
-    arcs.push({ ...s, start: at + TRIM / 2, len: Math.max(0.1, len - TRIM) });
-    at += len;
-  }
+  slices.forEach((s, i) => {
+    arcs.push({ ...s, start: at + TRIM / 2, len: Math.max(0.1, spans[i] - TRIM) });
+    at += spans[i];
+  });
 
   const focus = active ? slices.find((s) => s.key === active) : null;
   const money = typeof b.profit === "number" ? compactInr(b.profit) : "";
@@ -190,8 +218,11 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
                 carries every value as text. */}
             {/* `contents` keeps the stacked phone layout untouched; `wide`
                 turns ring + legend into one row. */}
-            <div className={wide ? "flex items-center gap-6" : "contents"}>
-            <div className="relative size-[11rem] shrink-0 self-center" onPointerLeave={() => setActive(null)}>
+            {/* WIDE FROM `sm` UP ONLY (screenshot 3167): at phone width a row
+                left the legend ~100px and cut every figure to "37.". Below
+                `sm` the wide chart stacks exactly like the phone card. */}
+            <div className={wide ? "flex flex-col gap-3.5 sm:flex-row sm:items-center sm:gap-6" : "contents"}>
+            <div className={cn("relative shrink-0 self-center", wide ? "size-[11rem] sm:size-[9.5rem]" : "size-[11rem]")} onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}>
               <svg viewBox="0 0 200 200" className="size-full -rotate-90 overflow-visible" aria-hidden>
                 <circle cx="100" cy="100" r={R} fill="none" strokeWidth={STROKE} style={{ stroke: "var(--glass-track)" }} />
                 {arcs.map((a) => (
@@ -211,7 +242,8 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
                       opacity: active && active !== a.key ? 0.25 : 1,
                       filter: `drop-shadow(0 0 ${active === a.key ? 10 : 4}px ${COLOR[a.key]})`,
                     }}
-                    onPointerEnter={() => setActive(a.key)}
+                    onPointerEnter={(e) => e.pointerType === "mouse" && setHover(a.key)}
+                    onClick={() => pick(a.key)}
                   />
                 ))}
               </svg>
@@ -235,7 +267,7 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
 
             {/* THE LEGEND — every value in text, each bucket's share as a slim
                 glowing bar on one scale. Pointing at a row lifts its slice. */}
-            <ul className={cn("grid gap-1.5", wide && "min-w-0 flex-1")}>
+            <ul className={cn("grid", wide ? "min-w-0 gap-1.5 sm:flex-1 sm:gap-1" : "gap-1.5")}>
               {b.buckets.map((x) => (
                 <LegendRow
                   key={x.key}
@@ -244,9 +276,11 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
                   pct={x.pct}
                   amount={x.amount}
                   maxPct={maxPct}
+                  inline={wide}
                   lifted={active === x.key}
                   dim={!!active && active !== x.key}
-                  onPoint={(on) => setActive(on ? x.key : null)}
+                  onPoint={(on) => setHover(on ? x.key : null)}
+                  onPick={() => pick(x.key)}
                 />
               ))}
               <LegendRow
@@ -255,10 +289,12 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
                 pct={b.profitPct}
                 amount={b.profit}
                 maxPct={maxPct}
+                inline={wide}
                 danger={loss}
                 lifted={active === "profit"}
                 dim={!!active && active !== "profit"}
-                onPoint={(on) => setActive(on && !loss ? "profit" : null)}
+                onPoint={(on) => setHover(on && !loss ? "profit" : null)}
+                onPick={loss ? undefined : () => pick("profit")}
               />
             </ul>
             </div>
@@ -278,7 +314,9 @@ function LegendRow({
   danger = false,
   lifted = false,
   dim = false,
+  inline = false,
   onPoint,
+  onPick,
 }: {
   color: string;
   label: string;
@@ -288,32 +326,79 @@ function LegendRow({
   danger?: boolean;
   lifted?: boolean;
   dim?: boolean;
+  /** ONE LINE — dot, label, bar, %, amount — for the wide desktop chart,
+   *  where the two-line phone row made the card twice as tall as its ring. */
+  inline?: boolean;
   onPoint?: (on: boolean) => void;
+  /** Click / tap: pick this row's slice (again: let it go). */
+  onPick?: () => void;
 }) {
   const refused = isRefusal(amount) ? amount.refused : isRefusal(pct) ? pct.refused : null;
   const width = typeof pct === "number" && pct > 0 ? `${Math.min(100, (pct / maxPct) * 100)}%` : "0%";
   return (
     <li
       className={cn(
-        "grid cursor-default grid-cols-[0.625rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 rounded-xl px-2.5 py-[7px] transition-[opacity,background] duration-200",
+        onPick ? "cursor-pointer" : "cursor-default",
+        "grid items-center rounded-xl px-2.5 transition-[opacity,background] duration-200",
+        inline
+          ? /* two lines on a phone, one from `sm` — the cells are PLACED, so
+               one markup order serves both grids */
+            "grid-cols-[0.625rem_minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 py-[7px] sm:grid-cols-[0.625rem_minmax(0,8.5rem)_minmax(0,1fr)_3.25rem_6.75rem] sm:gap-x-2.5 sm:gap-y-0 sm:py-1"
+          : "grid-cols-[0.625rem_minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 py-[7px]",
         dim && "opacity-45",
       )}
       style={{ background: lifted ? "var(--glass-strong)" : "var(--glass-row)", border: "1px solid var(--glass-edge)" }}
-      onPointerEnter={() => onPoint?.(true)}
-      onPointerLeave={() => onPoint?.(false)}
+      onPointerEnter={(e) => e.pointerType === "mouse" && onPoint?.(true)}
+      onPointerLeave={(e) => e.pointerType === "mouse" && onPoint?.(false)}
+      onClick={onPick}
     >
-      <span className="size-2.5 rounded-full" style={{ background: color, boxShadow: `0 0 8px ${color}` }} aria-hidden />
-      <Truncated className={cn("text-[13px] font-medium", danger && "font-semibold text-danger")}>
+      <span
+        className={cn("size-2.5 rounded-full", inline && "col-start-1 row-start-1")}
+        style={{ background: color, boxShadow: `0 0 8px ${color}` }}
+        aria-hidden
+      />
+      <Truncated
+        className={cn("text-[13px] font-medium", inline && "col-start-2 row-start-1", danger && "font-semibold text-danger")}
+      >
         {danger ? `▼ ${label}` : label}
       </Truncated>
-      {refused ? (
+      {inline ? (
+        /* dot · label · bar · % · amount, on one line */
+        refused ? (
+          <span className="col-start-3 row-start-1 text-right text-xs text-warning sm:col-span-3">{refused}</span>
+        ) : (
+          <>
+            <span
+              className="col-start-2 row-start-2 h-1 overflow-hidden rounded-full sm:col-start-3 sm:row-start-1"
+              style={{ background: "var(--glass-track)" }}
+              aria-hidden
+            >
+              <span
+                className="viz-grow block h-full rounded-full"
+                style={{ width, background: color, boxShadow: `0 0 6px ${color}` }}
+              />
+            </span>
+            <span
+              className={cn(
+                "col-start-3 row-start-1 text-right text-[13px] font-bold tabular-nums sm:col-start-4",
+                danger && "text-danger",
+              )}
+            >
+              {pctText(pct)}
+            </span>
+            <span className="col-start-3 row-start-2 text-right text-[11px] tabular-nums text-muted-foreground sm:col-start-5 sm:row-start-1">
+              {moneyText(amount)}
+            </span>
+          </>
+        )
+      ) : refused ? (
         <span className="text-right text-xs text-warning">{refused}</span>
       ) : (
         <span className={cn("text-right text-[13px] font-bold tabular-nums", danger && "text-danger")}>
           {pctText(pct)}
         </span>
       )}
-      {!refused && (
+      {!inline && !refused ? (
         <>
           <span aria-hidden />
           <span className="h-1 overflow-hidden rounded-full" style={{ background: "var(--glass-track)" }} aria-hidden>
@@ -324,7 +409,7 @@ function LegendRow({
           </span>
           <span className="text-right text-[11px] tabular-nums text-muted-foreground">{moneyText(amount)}</span>
         </>
-      )}
+      ) : null}
     </li>
   );
 }
