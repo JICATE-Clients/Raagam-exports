@@ -52,6 +52,13 @@ type Props = {
   grants: OverrideGrant[];
   grantees: OverrideGrantee[];
   canManage: boolean;
+  /**
+   * ONE PERSON'S corrections — the Access Control screen's By User tab
+   * (user 2026-09-30: the three access pages merged). Only that email's grants
+   * are listed and a new grant is for that email; everything else — the rules,
+   * the RPCs, the history — is this same screen.
+   */
+  forEmail?: string;
 };
 
 type GrantForm = {
@@ -90,7 +97,8 @@ const MODULE_FILTER: ShellExtraFilter<OverrideGrant> = {
   predicate: (r, v) => r.module_key === v,
 };
 
-export function PermissionOverridesScreen({ grants, grantees, canManage }: Props) {
+export function PermissionOverridesScreen({ grants: allGrants, grantees, canManage, forEmail }: Props) {
+  const grants = forEmail ? allGrants.filter((g) => g.user_email === forEmail) : allGrants;
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
@@ -173,7 +181,7 @@ export function PermissionOverridesScreen({ grants, grantees, canManage }: Props
 
   function openGrant() {
     setRenewing(false);
-    setForm({ ...BLANK, expiry: toLocalInput(new Date(Date.now() + 7 * 86_400_000)) });
+    setForm({ ...BLANK, email: forEmail ?? "", expiry: toLocalInput(new Date(Date.now() + 7 * 86_400_000)) });
     setErrors({});
     setDept("");
     setDesig("");
@@ -348,7 +356,7 @@ export function PermissionOverridesScreen({ grants, grantees, canManage }: Props
             padding = 820px → 52rem (832px). Every other row is narrower:
             User name 288 + Expires party 200 + Quick name 288 + 2 × 12 = 800px. */}
         <DetailSection label="Who" cols={1} className="max-w-[52rem]">
-          {!renewing && (departments.length > 0 || designations.length > 0) && (
+          {!renewing && !forEmail && (departments.length > 0 || designations.length > 0) && (
             <FieldRow>
               <Field label="Department" w="party" htmlFor="po-dept">
                 <Select id="po-dept" value={dept} onChange={(e) => setDept(e.target.value)}>
@@ -370,7 +378,7 @@ export function PermissionOverridesScreen({ grants, grantees, canManage }: Props
           )}
           <FieldRow align="start">
             <Field label="User" required w="name" htmlFor="po-user" error={errors.email}>
-              {renewing ? (
+              {renewing || forEmail ? (
                 <Input id="po-user" readOnly value={form.email} />
               ) : (
                 <Select

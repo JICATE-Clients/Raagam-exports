@@ -17,6 +17,7 @@ import {
   FileText,
   PackageCheck,
   PenTool,
+  ShieldAlert,
   TrendingUp,
   UserCheck,
   type LucideIcon,
@@ -105,6 +106,18 @@ export const REPORTS: ReportDefinition[] = [
     label: "CAD Completion",
     description: "Versions per style and the lead time from first allocation to buyer approval",
     icon: PenTool,
+    module: "orders",
+  },
+  /* OVERRIDE EDIT REPORT (doc/email role system.md §7.3, R-18) — every field
+     changed on an APPROVED order under a permission override, old → new, who,
+     why and when, grouped by save. `module: "orders"` only decides who sees the
+     tile; the page's own gate is `can_view_permission_overrides()` (MD and
+     admins, D-7), the function the audit tables' RLS reads. */
+  {
+    slug: "override-edits",
+    label: "Override Edit Report",
+    description: "Post-approval edits made under a permission override — old → new, by whom and why",
+    icon: ShieldAlert,
     module: "orders",
   },
 ];

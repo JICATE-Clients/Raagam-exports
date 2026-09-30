@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPreviewedRoleIds, getRolesPreview } from "./role-simulation";
+import { screenOfPath, type CatalogScreen } from "@/lib/permissions/screen-catalog";
 import {
   type AppUser,
   type Module,
@@ -75,11 +76,16 @@ async function loadAppUser(): Promise<AppUser | null> {
     phone: typeof claims.phone === "string" && claims.phone ? claims.phone : null,
   };
 
-  const [{ data: profile }, { data: perms }, { data: roles }, previewedRoleIds] =
+  const [{ data: profile }, { data: perms }, { data: roles }, { data: screenFacts }, previewedRoleIds] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", user.id).single(),
       supabase.rpc("my_permissions"),
       supabase.rpc("my_roles"),
+      /* 0658: the screen-level facts, from roles AND active email access —
+         in the same parallel batch, so screen permissions cost no extra
+         round trip. A failed read leaves them absent = module mode, the
+         answer every user had before screen permissions existed. */
+      supabase.rpc("my_screen_permissions"),
       getPreviewedRoleIds(),
     ]);
 
@@ -93,6 +99,7 @@ async function loadAppUser(): Promise<AppUser | null> {
     email: profile?.email ?? user.email ?? null,
     phone: profile?.phone ?? user.phone ?? null,
     fullName: profile?.full_name ?? null,
+    mustChangePassword: profile?.must_change_password === true,
     isSuperAdmin: realIsSuperAdmin,
     realIsSuperAdmin,
     simulatedRoleIds: [],
@@ -100,6 +107,7 @@ async function loadAppUser(): Promise<AppUser | null> {
     currentLocationId: profile?.current_location_id ?? null,
     roleNames: ((roles ?? []) as { name: string }[]).map((r) => r.name),
     permissions,
+    ...screenFactsOf(screenFacts),
   };
 
   // Only a REAL Super Admin's own cookie can put them into preview — a role
@@ -119,7 +127,36 @@ async function loadAppUser(): Promise<AppUser | null> {
     simulatedRoleIds: preview.ids,
     roleNames: preview.names,
     permissions: preview.permissions,
+    moduleMode: preview.moduleMode,
+    screenGrants: preview.screenGrants,
   };
+}
+
+/** `my_screen_permissions()` rows → the two AppUser fields; absent on a failed read. */
+function screenFactsOf(rows: unknown): Pick<AppUser, "moduleMode" | "screenGrants"> {
+  if (!Array.isArray(rows)) return {};
+  const moduleMode: PermissionKey[] = [];
+  const screenGrants: string[] = [];
+  for (const r of rows as { kind: string; key: string }[]) {
+    if (r.kind === "module") moduleMode.push(r.key as PermissionKey);
+    else if (r.kind === "screen") screenGrants.push(r.key);
+  }
+  return { moduleMode, screenGrants };
+}
+
+/**
+ * THE SCREEN THIS REQUEST IS ON — from `x-pathname`, which the proxy SETS on
+ * every request (lib/supabase/middleware.ts), so it cannot be supplied by the
+ * browser. A server action POSTs to its page's own URL, so an action is
+ * attributed to the screen it was used on. Null outside a request, on a hub,
+ * or on an unregistered route: the check then answers at module grain.
+ */
+export async function currentScreen(): Promise<CatalogScreen | null> {
+  try {
+    return screenOfPath((await headers()).get("x-pathname"));
+  } catch {
+    return null; // outside a request
+  }
 }
 
 /** Require an authenticated user or redirect to /login. */
@@ -135,13 +172,28 @@ export async function requirePermission(
   action: Action,
 ): Promise<AppUser> {
   const user = await requireUser();
-  if (!hasPermission(user, module, action)) {
+  /* 0658: the screen the page is — so a role or a person's email access that
+     grants only some screens of this module is refused on the others, with
+     no edit to any of the ~242 pages that call this. */
+  if (!hasPermission(user, module, action, await currentScreen())) {
     redirect("/?denied=" + module);
   }
   return user;
 }
 
-/** Boolean check for server code (no redirect). */
+/** Boolean check for server code (no redirect). Screen-aware (0658): inside a
+ *  page render or a server action it answers for the screen the request is on. */
 export async function can(module: Module, action: Action): Promise<boolean> {
-  return hasPermission(await getAppUser(), module, action);
+  return hasPermission(await getAppUser(), module, action, await currentScreen());
+}
+
+/**
+ * May the user OPEN this href — its screen's View? For the hubs that redirect
+ * to "the first child", so they redirect to the first one the user may see.
+ * An href that is not a screen (a hub) answers true.
+ */
+export async function canViewHref(href: string): Promise<boolean> {
+  const screen = screenOfPath(href);
+  if (!screen) return true;
+  return hasPermission(await getAppUser(), screen.module, "view", screen);
 }

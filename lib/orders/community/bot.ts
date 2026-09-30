@@ -84,6 +84,8 @@ export async function postBotAlert(input: BotAlertInput): Promise<BotAlertResult
         href: href ?? `/orders/${sales_order_id}/community`,
         type: "info",
       },
+      // A channel with nobody else in it is nothing to report, not an unrouted alert.
+      { fallbackToAdmins: false },
     );
 
     return { ok: true, messageId: rows[0].message_id, notified: recipients.length };

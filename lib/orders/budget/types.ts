@@ -144,6 +144,8 @@ export interface BudgetOrder {
     delivery_date: string | null;
     customer: { id: string; name: string } | null;
     sales_order: { order_number: string | null } | null;
+    /** The RE's `sales_orders` id — what every per-order report route keys on. */
+    sales_order_id?: string | null;
   } | null;
 }
 

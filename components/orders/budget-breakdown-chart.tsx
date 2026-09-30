@@ -1,6 +1,6 @@
 "use client";
 
-import { Tooltip } from "@/components/ui/tooltip";
+import { useState } from "react";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -68,12 +68,60 @@ export function BudgetBreakdownChart({
   );
 }
 
+/**
+ * WHERE THE SALES GO — THE GLASS RING (client 2026-09-30: "sophisticated and
+ * ultra modern … it should attract"; the glass design approved on the canvas
+ * "Glass Approval Chart" the same day).
+ *
+ * A 176px ring (compacted from 208 the same day, client: "compact the ring a
+ * little") on a frosted panel over three soft colour glows, with a frosted
+ * disc in the centre carrying the one number an approval turns on — net
+ * margin. Below it, one glass row per bucket: a glowing dot, its %, a slim
+ * share bar and its amount. Hover or tap a slice or a row and that bucket
+ * lifts and glows, the rest recede, and the centre speaks for it; let go and
+ * the centre returns to the margin. Slices draw in once (off under reduced
+ * motion). Every colour is a token (`--glass-*`, `--viz-*`), so `.dark`
+ * restyles the whole panel.
+ *
+ * It stays honest the same ways the bar did:
+ *  - a PART-TO-WHOLE of sales (+ other income) — five marks, the dataviz cap
+ *    for a ring read at a glance; every value is ALSO printed in the legend, so
+ *    the ring is never the only carrier (three light-mode series colours sit
+ *    under 3:1 — globals.css);
+ *  - a surface gap between slices (round caps, so the gap allows for them);
+ *  - a SUPPRESSED profit leaves its arc as bare track, and the centre says
+ *    "Suppressed" instead of a margin nobody can work out;
+ *  - a LOSS draws the costs as the whole ring and the centre reads "Net loss"
+ *    in the danger colour, in words;
+ *  - a refused bucket means the proportions are unknown: no ring, the reason.
+ */
+type Slice = { key: BreakdownBucketKey | "profit"; label: string; amount: number; pct: Fig };
+
+const R = 80; // ring radius in the 200-unit viewBox
+const C = 2 * Math.PI * R;
+const STROKE = 20;
+/** Round caps overhang each end by half the stroke, so the drawn length gives
+ *  back one stroke plus a visible gap. */
+const TRIM = STROKE + 6;
+
+/** "₹4.19 L" / "₹1.26 Cr" — the centre has room for a figure, not its paise. */
+function compactInr(n: number): string {
+  const a = Math.abs(n);
+  const sign = n < 0 ? "−" : "";
+  if (a >= 1e7) return `${sign}₹${(a / 1e7).toFixed(2)} Cr`;
+  if (a >= 1e5) return `${sign}₹${(a / 1e5).toFixed(2)} L`;
+  return `${sign}${fmtMoney(a)}`;
+}
+
 function ShareBar({ b }: { b: BudgetBreakdown }) {
+  const [active, setActive] = useState<Slice["key"] | null>(null);
+
   const blocked: Refusal | null = isRefusal(b.sales)
     ? b.sales
     : (b.buckets.find((x) => isRefusal(x.amount))?.amount as Refusal | undefined) ?? null;
 
-  const segments: { key: BreakdownBucketKey | "profit"; label: string; amount: number; pct: Fig }[] = blocked
+  const loss = typeof b.profit === "number" && b.profit < 0;
+  const slices: Slice[] = blocked
     ? []
     : [
         ...b.buckets.map((x) => ({ key: x.key, label: x.label, amount: x.amount as number, pct: x.pct })),
@@ -82,69 +130,132 @@ function ShareBar({ b }: { b: BudgetBreakdown }) {
           : []),
       ];
   const sales = typeof b.sales === "number" ? b.sales : 0;
-  const drawn = segments.reduce((a, s) => a + s.amount, 0);
-  // With a profit the segments sum to sales + other income; with a loss (or a
+  const drawn = slices.reduce((a, s) => a + s.amount, 0);
+  // With a profit the slices sum to sales + other income; with a loss (or a
   // suppressed profit) they are the costs alone, measured against sales.
   const base = Math.max(drawn, sales);
-  const loss = typeof b.profit === "number" && b.profit < 0;
+  const maxPct = Math.max(1, ...slices.map((s) => (typeof s.pct === "number" ? s.pct : 0)));
+
+  // Arc positions, clockwise from 12 o'clock (the svg is rotated -90°). Each
+  // arc starts half a trim in, so its round cap sits inside its own share.
+  const arcs: (Slice & { start: number; len: number })[] = [];
+  let at = 0;
+  for (const s of slices) {
+    const len = base > 0 ? (s.amount / base) * C : 0;
+    arcs.push({ ...s, start: at + TRIM / 2, len: Math.max(0.1, len - TRIM) });
+    at += len;
+  }
+
+  const focus = active ? slices.find((s) => s.key === active) : null;
+  const money = typeof b.profit === "number" ? compactInr(b.profit) : "";
+  const centre = focus
+    ? { label: focus.label.split(" ")[0], value: pctText(focus.pct), sub: compactInr(focus.amount), color: COLOR[focus.key], tone: "" }
+    : isRefusal(b.profitPct)
+      ? { label: "Net margin", value: "—", sub: "Suppressed", color: undefined, tone: "text-warning" }
+      : loss
+        ? { label: "Net loss", value: pctText(b.profitPct), sub: money, color: undefined, tone: "text-danger" }
+        : { label: "Net margin", value: pctText(b.profitPct), sub: money, color: undefined, tone: "" };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Cost breakdown
-        </span>
-        <span className="text-[11px] text-muted-foreground">% of gross sales</span>
-      </div>
+    <div
+      className="relative isolate overflow-hidden rounded-[22px]"
+      style={{ background: "var(--glass-ground)" }}
+    >
+      {/* The glows the glass frosts — decorative. */}
+      <span aria-hidden className="pointer-events-none absolute -left-16 -top-10 size-60 rounded-full blur-[40px]" style={{ background: "var(--glass-blob-a)" }} />
+      <span aria-hidden className="pointer-events-none absolute -right-16 top-40 size-56 rounded-full blur-[44px]" style={{ background: "var(--glass-blob-b)" }} />
+      <span aria-hidden className="pointer-events-none absolute -bottom-20 left-10 h-52 w-64 rounded-full blur-[48px]" style={{ background: "var(--glass-blob-c)" }} />
 
-      {blocked ? (
-        <p className="text-sm text-warning">Breakdown unavailable — {blocked.refused}</p>
-      ) : (
-        base > 0 && (
-          <div className="relative" aria-hidden>
-            {/* The track shows through wherever nothing is drawn — the part of
-                sales a suppressed profit leaves unaccounted for. The 2px gap
-                between segments is the surface, per the mark spec. */}
-            <div className="flex h-3.5 gap-[2px] overflow-hidden rounded-[4px] bg-surface-muted">
-              {segments.map((s) => (
-                <div
-                  key={s.key}
-                  className="h-full min-w-[2px]"
-                  style={{ width: `${(s.amount / base) * 100}%`, background: COLOR[s.key] }}
-                >
-                  <Tooltip
-                    label={`${s.label} · ${pctText(s.pct)} · ${fmtMoney(s.amount)}`}
-                    touch
-                    className="block h-full w-full"
-                  >
-                    <span className="block h-full w-full" />
-                  </Tooltip>
-                </div>
-              ))}
-            </div>
-            {loss && sales > 0 && (
-              /* Where sales end: everything drawn past this tick is the loss. */
+      <div
+        className="relative m-3 flex flex-col gap-3.5 rounded-[18px] p-4 backdrop-blur-[22px] backdrop-saturate-[1.7]"
+        style={{ background: "var(--glass)", border: "1px solid var(--glass-edge)", boxShadow: "var(--glass-shadow)" }}
+      >
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            Cost breakdown
+          </span>
+          <span className="text-[11px] text-muted-foreground">% of gross sales</span>
+        </div>
+
+        {blocked ? (
+          <p className="text-sm text-warning">Breakdown unavailable — {blocked.refused}</p>
+        ) : (
+          <>
+            {/* THE RING — decorative for assistive tech: the legend below
+                carries every value as text. */}
+            <div className="relative size-[11rem] self-center" onPointerLeave={() => setActive(null)}>
+              <svg viewBox="0 0 200 200" className="size-full -rotate-90 overflow-visible" aria-hidden>
+                <circle cx="100" cy="100" r={R} fill="none" strokeWidth={STROKE} style={{ stroke: "var(--glass-track)" }} />
+                {arcs.map((a) => (
+                  <circle
+                    key={a.key}
+                    cx="100"
+                    cy="100"
+                    r={R}
+                    fill="none"
+                    stroke={COLOR[a.key]}
+                    strokeWidth={active === a.key ? STROKE + 6 : STROKE}
+                    strokeLinecap="round"
+                    strokeDasharray={`${a.len} ${C}`}
+                    strokeDashoffset={-a.start}
+                    className="viz-slice cursor-pointer transition-[opacity,stroke-width] duration-200"
+                    style={{
+                      opacity: active && active !== a.key ? 0.25 : 1,
+                      filter: `drop-shadow(0 0 ${active === a.key ? 10 : 4}px ${COLOR[a.key]})`,
+                    }}
+                    onPointerEnter={() => setActive(a.key)}
+                  />
+                ))}
+              </svg>
+              {/* The frosted centre: the margin at rest, the pointed-at bucket otherwise. */}
               <div
-                className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-foreground"
-                style={{ left: `calc(${(sales / base) * 100}% - 1px)` }}
-              />
-            )}
-          </div>
-        )
-      )}
+                className="pointer-events-none absolute left-1/2 top-1/2 flex size-[6.25rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full text-center backdrop-blur-md"
+                style={{ background: "var(--glass-disc)", border: "1px solid var(--glass-edge)", boxShadow: "var(--glass-disc-shadow)" }}
+              >
+                <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                  {centre.label}
+                </span>
+                <span
+                  className={cn("text-[1.6rem] font-bold leading-[1.1] tracking-tight tabular-nums", centre.tone)}
+                  style={centre.color ? { color: centre.color } : undefined}
+                >
+                  {centre.value}
+                </span>
+                <span className={cn("text-[11px] tabular-nums text-muted-foreground", centre.tone)}>{centre.sub}</span>
+              </div>
+            </div>
 
-      <ul className="grid gap-1 text-sm">
-        {b.buckets.map((x) => (
-          <LegendRow key={x.key} color={COLOR[x.key]} label={x.label} pct={x.pct} amount={x.amount} />
-        ))}
-        <LegendRow
-          color={COLOR.profit}
-          label={loss ? "Net Loss" : "Net Profit"}
-          pct={b.profitPct}
-          amount={b.profit}
-          danger={loss}
-        />
-      </ul>
+            {/* THE LEGEND — every value in text, each bucket's share as a slim
+                glowing bar on one scale. Pointing at a row lifts its slice. */}
+            <ul className="grid gap-1.5">
+              {b.buckets.map((x) => (
+                <LegendRow
+                  key={x.key}
+                  color={COLOR[x.key]}
+                  label={x.label}
+                  pct={x.pct}
+                  amount={x.amount}
+                  maxPct={maxPct}
+                  lifted={active === x.key}
+                  dim={!!active && active !== x.key}
+                  onPoint={(on) => setActive(on ? x.key : null)}
+                />
+              ))}
+              <LegendRow
+                color={COLOR.profit}
+                label={loss ? "Net Loss" : "Net Profit"}
+                pct={b.profitPct}
+                amount={b.profit}
+                maxPct={maxPct}
+                danger={loss}
+                lifted={active === "profit"}
+                dim={!!active && active !== "profit"}
+                onPoint={(on) => setActive(on && !loss ? "profit" : null)}
+              />
+            </ul>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -154,31 +265,55 @@ function LegendRow({
   label,
   pct,
   amount,
+  maxPct,
   danger = false,
+  lifted = false,
+  dim = false,
+  onPoint,
 }: {
   color: string;
   label: string;
   pct: Fig;
   amount: Fig;
+  maxPct: number;
   danger?: boolean;
+  lifted?: boolean;
+  dim?: boolean;
+  onPoint?: (on: boolean) => void;
 }) {
   const refused = isRefusal(amount) ? amount.refused : isRefusal(pct) ? pct.refused : null;
+  const width = typeof pct === "number" && pct > 0 ? `${Math.min(100, (pct / maxPct) * 100)}%` : "0%";
   return (
-    <li className="grid grid-cols-[0.625rem_minmax(0,1fr)_auto_auto] items-center gap-x-2">
-      <span className="size-2.5 rounded-[3px]" style={{ background: color }} aria-hidden />
-      <Truncated className={cn(danger && "font-semibold text-danger")}>
+    <li
+      className={cn(
+        "grid cursor-default grid-cols-[0.625rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 rounded-xl px-2.5 py-[7px] transition-[opacity,background] duration-200",
+        dim && "opacity-45",
+      )}
+      style={{ background: lifted ? "var(--glass-strong)" : "var(--glass-row)", border: "1px solid var(--glass-edge)" }}
+      onPointerEnter={() => onPoint?.(true)}
+      onPointerLeave={() => onPoint?.(false)}
+    >
+      <span className="size-2.5 rounded-full" style={{ background: color, boxShadow: `0 0 8px ${color}` }} aria-hidden />
+      <Truncated className={cn("text-[13px] font-medium", danger && "font-semibold text-danger")}>
         {danger ? `▼ ${label}` : label}
       </Truncated>
       {refused ? (
-        <span className="col-span-2 text-right text-xs text-warning">{refused}</span>
+        <span className="text-right text-xs text-warning">{refused}</span>
       ) : (
+        <span className={cn("text-right text-[13px] font-bold tabular-nums", danger && "text-danger")}>
+          {pctText(pct)}
+        </span>
+      )}
+      {!refused && (
         <>
-          <span className={cn("text-right font-semibold tabular-nums", danger && "text-danger")}>
-            {pctText(pct)}
+          <span aria-hidden />
+          <span className="h-1 overflow-hidden rounded-full" style={{ background: "var(--glass-track)" }} aria-hidden>
+            <span
+              className="viz-grow block h-full rounded-full"
+              style={{ width, background: color, boxShadow: `0 0 6px ${color}` }}
+            />
           </span>
-          <span className="min-w-[6.5rem] text-right text-xs tabular-nums text-muted-foreground">
-            {moneyText(amount)}
-          </span>
+          <span className="text-right text-[11px] tabular-nums text-muted-foreground">{moneyText(amount)}</span>
         </>
       )}
     </li>

@@ -1,93 +1,73 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Bell, BellOff } from "lucide-react";
-import { subscribeToPush, unsubscribeFromPush } from "@/lib/notifications/actions";
-
-function urlBase64ToUint8Array(base64: string): Uint8Array {
-  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
-  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(b64);
-  const arr = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-  return arr;
-}
+import { currentPushSubscription, pushSupport, turnOffPush, turnOnPush, type PushSupport } from "@/lib/pwa/push";
 
 /**
- * Toggle web-push for this device. Subscribes via the service worker's
- * PushManager and stores the subscription server-side (push_subscriptions).
- * Renders nothing where push isn't supported (and note the SW only runs in a
- * production build, so this is inert under `next dev`).
+ * Alerts on this device, from the bell menu. Built on lib/pwa/push.ts, which
+ * the "Turn on alerts" card shares, so both say the same thing and both check
+ * the save: this used to flip to "enabled" whether or not the server stored the
+ * subscription (notification audit 2026-09-30).
+ *
+ * On an iPhone browser tab push does not exist until the app is on the home
+ * screen, so instead of rendering nothing it says how. The service worker only
+ * runs in a production build, so this is inert under `next dev`.
  */
+const noSubscribe = () => () => {};
+
 export function PushToggle() {
-  const [supported, setSupported] = useState(false);
+  // What this device can do never changes while the page is open, so it is read
+  // once as an external value: "unsupported" on the server, the real answer in
+  // the browser — no state set from an effect, no hydration mismatch.
+  const support = useSyncExternalStore<PushSupport>(noSubscribe, pushSupport, () => "unsupported");
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const ok =
-      typeof window !== "undefined" &&
-      "serviceWorker" in navigator &&
-      "PushManager" in window &&
-      !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    setSupported(ok);
-    if (!ok) return;
-    navigator.serviceWorker.ready
-      .then((reg) => reg.pushManager.getSubscription())
-      .then((sub) => setEnabled(!!sub))
-      .catch(() => {});
-  }, []);
+    if (support !== "supported") return;
+    currentPushSubscription().then((sub) => setEnabled(!!sub && Notification.permission === "granted"));
+  }, [support]);
 
-  async function enable() {
+  async function toggle() {
     setBusy(true);
+    setError(null);
     try {
-      const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      if (!key) return;
-      if ((await Notification.requestPermission()) !== "granted") return;
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(key) as BufferSource,
-      });
-      const json = sub.toJSON();
-      if (!json.keys) return;
-      await subscribeToPush({
-        endpoint: sub.endpoint,
-        keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
-        userAgent: navigator.userAgent,
-      });
-      setEnabled(true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function disable() {
-    setBusy(true);
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        await unsubscribeFromPush(sub.endpoint);
-        await sub.unsubscribe();
+      if (enabled) {
+        await turnOffPush();
+        setEnabled(false);
+      } else {
+        const res = await turnOnPush();
+        if (res.ok) setEnabled(true);
+        else setError(res.error);
       }
-      setEnabled(false);
     } finally {
       setBusy(false);
     }
   }
 
-  if (!supported) return null;
+  if (support === "ios-needs-install") {
+    return (
+      <p className="px-2 py-1.5 text-xs text-muted-foreground">
+        To get alerts on iPhone: tap Share ▸ Add to Home Screen, then open Raagam from the home screen.
+      </p>
+    );
+  }
+  if (support !== "supported") return null;
 
   return (
-    <button
-      type="button"
-      onClick={enabled ? disable : enable}
-      disabled={busy}
-      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-surface-muted hover:text-foreground disabled:opacity-60"
-    >
-      {enabled ? <BellOff className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
-      {enabled ? "Disable device notifications" : "Enable device notifications"}
-    </button>
+    <div>
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={busy}
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-surface-muted hover:text-foreground disabled:opacity-60"
+      >
+        {enabled ? <BellOff className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
+        {enabled ? "Turn off alerts on this device" : "Turn on alerts on this device"}
+      </button>
+      {error && <p className="px-2 pb-1 text-xs text-danger">{error}</p>}
+    </div>
   );
 }

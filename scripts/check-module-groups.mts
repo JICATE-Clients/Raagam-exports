@@ -504,6 +504,10 @@ const REDIRECTED: Record<string, string> = {
   // can confirm it. What is still asserted below is the pair — the page exists
   // and it really does `redirect("…")` to exactly this string.
   "/admin/document-no-formats": "/masters/system/document-no-format",
+  // Roles & Permissions and Permission Overrides MERGED into one Access Control
+  // screen (user 2026-09-30) — By Role / By User over the screen-level tree.
+  "/admin/roles": "/admin/access-control",
+  "/admin/permission-overrides": "/admin/access-control?tab=users",
   // Material BOM was never an amendment screen — one door, and the revision
   // case is `bomStatus`'s `recalculate` state in place. The URL was named after
   // `material_bom_amendments` (0265), which took ITS name from the legacy

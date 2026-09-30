@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { requirePermission } from "@/lib/auth/server";
+import { canViewHref, requirePermission } from "@/lib/auth/server";
 import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
 import { MODULE_GROUPS } from "@/lib/nav/module-groups";
 import { hubCounts } from "@/lib/nav/hub-counts";
@@ -74,9 +74,31 @@ export async function ModuleHub({ moduleHref }: { moduleHref: string }) {
    * already used to grey it out — redirecting into a screen whose table does
    * not exist would trade one confusing page for another.
    */
-  const firstReachable = entries.find(
-    (e) => e.kind === "group" || e.status !== "unavailable",
-  );
+  /* 0658: reachable = something in it the user may OPEN. A group counts when
+     any of its screens is viewable (its own hub then picks which); a link when
+     its screen is. */
+  let firstReachable: (typeof entries)[number] | undefined;
+  for (const e of entries) {
+    if (e.kind === "link") {
+      if (e.status !== "unavailable" && (await canViewHref(e.href))) {
+        firstReachable = e;
+        break;
+      }
+      continue;
+    }
+    let any = false;
+    for (const c of e.children) {
+      if (c.status === "todo" || c.status === "unavailable") continue;
+      if (await canViewHref(c.href)) {
+        any = true;
+        break;
+      }
+    }
+    if (any) {
+      firstReachable = e;
+      break;
+    }
+  }
   if (firstReachable) {
     redirect(
       firstReachable.kind === "group"

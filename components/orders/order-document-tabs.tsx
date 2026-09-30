@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OrderOverrideNote } from "@/components/orders/order-override-note";
 import { ClipboardList, FileText, Layers, Printer, Scissors, Spool, Table, Wallet, type LucideIcon } from "lucide-react";
 import {
   ORDER_REPORTS,
@@ -74,6 +75,7 @@ export function OrderDocumentTabs({
   current: OrderDocumentKey;
 }) {
   return (
+    <>
     <nav
       aria-label="Order reports"
       className="flex flex-wrap items-stretch gap-2 rounded-md border border-border bg-surface-muted p-1 print:hidden"
@@ -116,5 +118,10 @@ export function OrderDocumentTabs({
         );
       })}
     </nav>
+    {/* PERMISSION OVERRIDE (0656) — outside the print-hidden strip on purpose:
+        a printed report says it carries post-approval override edits. Renders
+        nothing for an order without any. */}
+    <OrderOverrideNote orderId={orderId} />
+    </>
   );
 }

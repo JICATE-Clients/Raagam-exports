@@ -9,6 +9,7 @@ import type { MouseEvent } from "react";
 import { NAV, type NavItem, type SubNavItem } from "@/components/shell/nav";
 import { owningNavHref } from "@/lib/nav/module-groups";
 import { hasPermission, type AppUser } from "@/lib/auth/types";
+import { screenOfPath } from "@/lib/permissions/screen-catalog";
 
 export { NAV };
 export type { NavItem, SubNavItem };
@@ -56,9 +57,41 @@ export function activeChildFor(
   return owningNavHref(moduleHref, pathname) ?? activeChildHref(pathname, children);
 }
 
-/** NAV items the current user may see, permission-filtered. */
-export function visibleModules(
-  user: Pick<AppUser, "isSuperAdmin" | "permissions"> | null,
-): NavItem[] {
-  return NAV.filter((i) => hasPermission(user, i.module, "view"));
+type NavUser = Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants"> | null;
+
+/** May the user open this href — its screen's View (0658)? A hub / group row
+ *  is not a screen and answers true; its children decide whether it shows. */
+export function screenVisible(user: NavUser, href: string): boolean {
+  const screen = screenOfPath(href);
+  if (!screen) return true;
+  return hasPermission(user, screen.module, "view", screen);
+}
+
+/** A module's children with every screen the user may not view taken out,
+ *  and a group row dropped once nothing under it is left. */
+function visibleChildren(user: NavUser, children: SubNavItem[] | undefined): SubNavItem[] | undefined {
+  if (!children) return children;
+  const out: SubNavItem[] = [];
+  for (const c of children) {
+    if (c.children?.length) {
+      const rows = c.children.filter((g) => screenVisible(user, g.href));
+      if (rows.length) out.push({ ...c, children: rows });
+    } else if (screenVisible(user, c.href)) {
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+/**
+ * NAV items the current user may see, permission-filtered — the module by its
+ * View, and (0658) each child screen by ITS View, so a role or a person's
+ * email access that grants only some screens sees only those rows. Every nav
+ * surface reads this one filter: both sidebars, the mobile nav, the workspace
+ * tab bar.
+ */
+export function visibleModules(user: NavUser): NavItem[] {
+  return NAV.filter((i) => hasPermission(user, i.module, "view")).map((i) =>
+    i.children ? { ...i, children: visibleChildren(user, i.children) } : i,
+  );
 }

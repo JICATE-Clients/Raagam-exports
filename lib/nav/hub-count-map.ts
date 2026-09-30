@@ -250,7 +250,7 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // href along. Assertion 15 would not have caught either — it only guards an
   // `unavailable` card naming a table.
   "/admin/users": "profiles",
-  "/admin/roles": "roles",
+  "/admin/access-control": "roles",
   "/admin/assets": "assets",
   "/admin/couriers": "couriers",
   // One legal entity — `company_profile` is a singleton, so the count is

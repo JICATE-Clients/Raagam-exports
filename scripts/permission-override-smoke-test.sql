@@ -658,3 +658,54 @@ begin
   else r := r || format('FAIL cascade (q %s/%s, lines %s/%s, sizes %s/%s) ', g_q, n_q, g_l, n_l, g_z, n_z); nfail := nfail + 1; end if;
   raise exception 'DRY RUN (rolled back) — % FAIL: %', nfail, r;
 end $smoke_cascade$;
+
+-- ============================================================================
+-- Phase 6 — the report's reads (0656). Rolled back.
+-- ============================================================================
+--   count-zero-before   an order with no override edit gives the note nothing to say
+--   merch               a Merchandiser reads the COUNT (the report footer note is
+--                       for every reader) but not one audit row (RLS, D-7)
+--   AC-16               the MD / admin reads the edit with everything the Override
+--                       Edit Report shows: user, field, old, new, reason, outcome
+--   re-no               the RE No the report prints resolves from the commit
+
+do $smoke_report$
+declare
+  u_admin uuid := (select id from public.profiles where lower(email) = 'admin@raagam.test');
+  u_merch uuid := (select id from public.profiles where lower(email) = 'merch.audit@raagam.test');
+  o_appr uuid := (select id from public.garment_order_amendments where re_status = 'approved' order by created_at limit 1);
+  v_c uuid; n int; v_cnt record; r text := ''; nfail int := 0; v_txt text;
+begin
+  select * into v_cnt from public.order_override_edit_count(o_appr);
+  if v_cnt.commits = 0 then r := r || 'ok count-zero-before '; else r := r || 'FAIL count-before '; nfail := nfail + 1; end if;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', u_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.grant_permission_override('merch.audit@raagam.test', '{price_change}', now() + interval '1 day', 'smoke phase six');
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', u_merch, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_c := public.override_commit_open(o_appr, '{price_change}', 'smoke phase six commit');
+  update public.garment_order_amendments set ex_rate = coalesce(ex_rate, 0) + 3 where id = o_appr;
+  perform public.override_commit_close(v_c, 'committed');
+
+  select * into v_cnt from public.order_override_edit_count(o_appr);
+  select count(*) into n from public.override_audit_trail;
+  if v_cnt.commits = 1 and v_cnt.fields = 1 and n = 0 then r := r || 'ok merch-count-visible-audit-hidden ';
+  else r := r || format('FAIL merch (commits=%s fields=%s audit_rows=%s) ', v_cnt.commits, v_cnt.fields, n); nfail := nfail + 1; end if;
+  reset role;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', u_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select format('%s|%s|%s|%s|%s|%s', t.user_email, t.field_name,
+                (t.old_value is not null)::text, (t.new_value is not null)::text, t.reason, c.status)
+    into v_txt
+    from public.override_audit_trail t join public.override_commits c on c.id = t.commit_id
+   where t.commit_id = v_c;
+  if v_txt = 'merch.audit@raagam.test|ex_rate|true|true|smoke phase six commit|committed' then r := r || 'ok AC-16-admin-reads-edit ';
+  else r := r || format('FAIL AC-16 (%s) ', v_txt); nfail := nfail + 1; end if;
+  select count(*) into n from public.sales_orders where id = (select sales_order_id from public.override_commits where id = v_c);
+  if n = 1 then r := r || 'ok re-no-resolvable '; else r := r || 'FAIL re-no '; nfail := nfail + 1; end if;
+  reset role;
+  raise exception 'DRY RUN (rolled back) — % FAIL: %', nfail, r;
+end $smoke_report$;

@@ -84,6 +84,8 @@ const code = strip(readMig("0650_permission_overrides.sql"));
 const code51 = strip(readMig("0651_permission_override_rpcs.sql"));
 const code53 = strip(readMig("0653_permission_override_enforcement.sql"));
 const code55 = strip(readMig("0655_permission_override_budget_and_cascades.sql"));
+const code56 = strip(readMig("0656_order_override_edit_count.sql"));
+const code57 = strip(readMig("0657_permission_override_gate_self_only.sql"));
 
 // ---------------------------------------------------------------------------
 // 1. The catalog agrees
@@ -217,7 +219,7 @@ check(
 // 5. Migration hygiene
 // ---------------------------------------------------------------------------
 
-for (const [name, src] of [["0650", code], ["0651", code51], ["0653", code53], ["0655", code55]] as const) {
+for (const [name, src] of [["0650", code], ["0651", code51], ["0653", code53], ["0655", code55], ["0656", code56], ["0657", code57]] as const) {
   const fns = [...src.matchAll(/create or replace function public\.([a-z_]+)\(/gi)].map((m) => m[1]);
   for (const f of fns) {
     const re = new RegExp(`revoke all on function public\\.${f}\\([^)]*\\)\\s+from public, anon`, "i");

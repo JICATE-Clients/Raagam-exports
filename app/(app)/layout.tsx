@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/server";
 import { getCurrentLocation } from "@/lib/auth/location";
 import { listPreviewableRoles } from "@/lib/auth/role-simulation";
@@ -9,6 +10,7 @@ import { Topbar } from "@/components/shell/topbar";
 import { RolePreviewBanner } from "@/components/shell/role-preview-banner";
 import { WorkspaceTabsBar } from "@/components/shell/workspace-tabs-bar";
 import { MobileNav } from "@/components/shell/mobile-nav";
+import { PushPrompt } from "@/components/pwa/push-prompt";
 import { SearchProvider } from "@/components/search/search-provider";
 import { ShortcutsProvider } from "@/components/shell/shortcuts-provider";
 import { KeyboardNavProvider } from "@/components/shell/keyboard-nav-provider";
@@ -16,6 +18,9 @@ import { listStoreNavLinks } from "@/lib/stores/service";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await requireUser();
+  // 0659: a login still holding the temporary password emailed to it goes
+  // nowhere in the app until it has chosen its own.
+  if (user.mustChangePassword) redirect("/set-password");
 
   // THE UNIT IS RESOLVED ONCE, HERE, FOR THE WHOLE REQUEST.
   //
@@ -84,6 +89,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                     {children}
                   </main>
                   <MobileNav stores={stores} />
+                  <PushPrompt userId={user.id} />
                 </div>
               </div>
             </KeyboardNavProvider>

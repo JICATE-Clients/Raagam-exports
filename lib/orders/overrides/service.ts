@@ -1,7 +1,14 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
-import type { ActiveOverride, OverrideGrant, OverrideGrantee, OverrideGrantHistoryRow } from "./types";
+import type {
+  ActiveOverride,
+  OrderOverrideEditCount,
+  OverrideEditRow,
+  OverrideGrant,
+  OverrideGrantee,
+  OverrideGrantHistoryRow,
+} from "./types";
 import { grantStatusOf } from "./override-modules";
 
 /** Can the caller READ the override register (R-18, D-7)? Managers, plus
@@ -85,6 +92,69 @@ export async function getOverrideGrantHistory(overrideId: string): Promise<Overr
   const rows = (data ?? []) as Omit<OverrideGrantHistoryRow, "actor_name">[];
   const names = await namesOf(rows.map((r) => r.actor_id));
   return rows.map((r) => ({ ...r, actor_name: names.get(r.actor_id) ?? null }));
+}
+
+/**
+ * THE OVERRIDE EDIT REPORT'S ROWS (R-18) — every field changed under an
+ * override, newest save first, each carrying its save's outcome and RE No.
+ *
+ * Three reads, not an embed: the audit tables carry no FKs on purpose (a
+ * deleted order keeps its history, 0650), so there is nothing to embed
+ * through. RLS answers who may see any of it (`can_view_permission_overrides`).
+ * A FAILED QUERY IS AN ERROR, NOT AN EMPTY REPORT — an empty report reads as
+ * "nobody edited anything", which is exactly the answer that must never be
+ * shown by accident (AGENTS.md, "An empty REPORT is the dangerous one").
+ */
+export async function listOverrideEdits(): Promise<OverrideEditRow[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("override_audit_trail")
+    .select(
+      "id, commit_id, sales_order_id, garment_order_id, order_version, user_email, module_key, " +
+        "entity_table, entity_row_id, field_name, old_value, new_value, reason, action_timestamp",
+    )
+    .order("action_timestamp", { ascending: false });
+  if (error) throw new Error(`Could not read the override edits: ${error.message}`);
+  const rows = (data ?? []) as unknown as (Omit<OverrideEditRow, "commit_status" | "committed_at" | "direction_breach" | "re_no"> & {
+    action_timestamp: string;
+  })[];
+  if (rows.length === 0) return [];
+
+  const commitIds = [...new Set(rows.map((r) => r.commit_id))];
+  const soIds = [...new Set(rows.map((r) => r.sales_order_id))];
+  const [{ data: commits, error: cErr }, { data: sos, error: sErr }] = await Promise.all([
+    s.from("override_commits").select("id, status, opened_at, closed_at, direction_breach").in("id", commitIds),
+    s.from("sales_orders").select("id, order_number").in("id", soIds),
+  ]);
+  if (cErr) throw new Error(`Could not read the override saves: ${cErr.message}`);
+  if (sErr) throw new Error(`Could not read the RE numbers: ${sErr.message}`);
+
+  const commitOf = new Map(
+    ((commits ?? []) as { id: string; status: OverrideEditRow["commit_status"]; opened_at: string; closed_at: string | null; direction_breach: boolean }[])
+      .map((c) => [c.id, c]),
+  );
+  const reOf = new Map(((sos ?? []) as { id: string; order_number: string | null }[]).map((o) => [o.id, o.order_number]));
+
+  return rows.map(({ action_timestamp, ...r }) => {
+    const c = commitOf.get(r.commit_id);
+    return {
+      ...r,
+      commit_status: c?.status ?? "committed",
+      committed_at: c?.closed_at ?? c?.opened_at ?? action_timestamp,
+      direction_breach: c?.direction_breach ?? false,
+      re_no: reOf.get(r.sales_order_id) ?? null,
+    };
+  });
+}
+
+/** The report footer's note — numbers only, readable by anyone who can read
+ *  the order (`order_override_edit_count`, 0656). A failed read is "none":
+ *  the note is information, never a gate. */
+export async function orderOverrideEditCount(orderId: string): Promise<OrderOverrideEditCount> {
+  const s = await createClient();
+  const { data, error } = await s.rpc("order_override_edit_count", { p_order: orderId });
+  const row = !error ? ((data ?? []) as { commits: number; fields: number; last_at: string | null }[])[0] : undefined;
+  return { commits: row?.commits ?? 0, fields: row?.fields ?? 0, lastAt: row?.last_at ?? null };
 }
 
 /** The admin screen's user picker (C-8). Throws for a non-manager (R-15). */

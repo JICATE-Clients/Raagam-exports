@@ -1,3 +1,4 @@
+import { permissionAllows } from "@/lib/permissions/effective";
 // RBAC vocabulary shared across server + client.
 
 export const MODULES = [
@@ -109,6 +110,9 @@ export interface AppUser {
   email: string | null;
   phone: string | null;
   fullName: string | null;
+  /** 0659: still on the temporary password emailed at creation — the app
+   *  layout sends them to /set-password until they choose their own. */
+  mustChangePassword?: boolean;
   /**
    * Governs every `hasPermission()` call. While a Role Preview (see
    * `lib/auth/role-simulation.ts`) is active, this is FALSE even for a real
@@ -145,14 +149,47 @@ export interface AppUser {
   roleNames: string[];
   /** Effective permission keys, e.g. "orders:approve". */
   permissions: PermissionKey[];
+  /**
+   * SCREEN-LEVEL PERMISSIONS (0658) — `my_screen_permissions()`, from roles AND
+   * active email access. `moduleMode`: keys granted module-wide by a source in
+   * MODULE MODE. `screenGrants`: `screen_key|action` granted by a source in
+   * SCREEN MODE. Absent (an older shape) = module mode everywhere, which is
+   * exactly the answer before screen permissions existed.
+   */
+  moduleMode?: PermissionKey[];
+  screenGrants?: string[];
 }
 
+/**
+ * THE permission question, for server and client alike.
+ *
+ * Without `screen` it answers at MODULE grain, exactly as it always has. With
+ * the screen the request is on (`currentScreen()` on the server, the pathname
+ * on the client) it applies the screen rule — `permissionAllows` in
+ * lib/permissions/effective.ts, the one definition, tested there: the module
+ * grant stays the ceiling, and a screen-mode grant narrows it only on that
+ * module's own screens.
+ */
 export function hasPermission(
-  user: Pick<AppUser, "isSuperAdmin" | "permissions"> | null,
+  user: Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants"> | null,
   module: Module,
   action: Action,
+  screen?: { key: string; module: Module } | null,
 ): boolean {
   if (!user) return false;
   if (user.isSuperAdmin) return true;
-  return user.permissions.includes(`${module}:${action}`);
+  const key = `${module}:${action}` as PermissionKey;
+  if (!user.permissions.includes(key)) return false;
+  if (!screen || !user.moduleMode) return true; // module grain — today's answer
+  return permissionAllows(
+    {
+      isSuperAdmin: false,
+      permissions: new Set(user.permissions),
+      moduleMode: new Set(user.moduleMode),
+      screenGrants: new Set(user.screenGrants ?? []),
+    },
+    module,
+    action,
+    screen,
+  );
 }

@@ -1333,13 +1333,16 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Users, roles and the audit trail",
         children: [
           { href: "/admin/users", label: "Users", description: "User accounts and their roles" },
-          { href: "/admin/roles", label: "Roles & Permissions", description: "Role grants and permission scopes" },
-          { href: "/admin/audit", label: "Audit Log", description: "Who changed what, and when" },
+          // ONE ROW FOR ROLES, EMAIL ACCESS AND APPROVED-ORDER CORRECTIONS (user
+          // 2026-09-30: "role and permission and permission override need to
+          // merge"). /admin/roles and /admin/permission-overrides redirect here
+          // (declared in REDIRECTED, scripts/check-module-groups.mts).
           {
-            href: "/admin/permission-overrides",
-            label: "Permission Overrides",
-            description: "Time-limited access to edit approved orders in place",
+            href: "/admin/access-control",
+            label: "Access Control",
+            description: "Screen access by role and by person (email), and approved-order corrections",
           },
+          { href: "/admin/audit", label: "Audit Log", description: "Who changed what, and when" },
         ],
       },
       {

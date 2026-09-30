@@ -287,8 +287,9 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
 
   "/integration/tally": ["Run Export"],
 
-  "/admin/users": ["New User"],
-  "/admin/roles": ["New Role"],
+  // "/admin/users" has no ＋ action: logins come only from the HR Employee
+  // master (Send welcome mail on the employee's row), never a blank form.
+  "/admin/access-control": ["New Role"],
 
   // Masters entity pages — generated from the same registries the hub pages
   // render from, so new masters get their ＋ action automatically.
