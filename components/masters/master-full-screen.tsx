@@ -695,6 +695,21 @@ export function MasterFullScreen({
      */
     stepper?: boolean;
     /**
+     * A "SKIP" BESIDE NEXT, IN PLACE OF CANCEL (client 2026-09-30, HR worker
+     * editor: "save cancel button kku pathila next skip button"). Only while
+     * `stepper` is stepping; the last section shows Cancel + Save as before.
+     *
+     * The two buttons differ by `stepGuard` and nothing else: **Next** asks the
+     * guard (this section's mandatory fields), **Skip** steps forward without
+     * asking — the section is left for later, and Save still refuses at the end
+     * and `onBlockedSave` still brings the operator back to it.
+     *
+     * Cancel may leave the footer ONLY because the screen offers another way
+     * out on screen (the HR band's "Back to list", and Escape). A caller with
+     * no such exit must not set this.
+     */
+    skip?: boolean;
+    /**
      * REFUSE A FORWARD STEP OUT OF ONE NAMED SECTION. Return the reason, or
      * null to allow the move. Consulted ONLY by the footer's Next button.
      *
@@ -2064,9 +2079,22 @@ export function MasterFullScreen({
           ) : (
           <>
           {!stepping && footer.extra}
-          <Button variant="outline" size="sm" onClick={footer.onCancel}>
-            Cancel
-          </Button>
+          {stepping && footer.skip ? (
+            /* SKIP — see `footer.skip`. Outline, so Next stays the primary
+               action that Enter and `submitTargetOf` resolve to. Never
+               consults `stepGuard`: skipping past the check is its job. */
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToSection(nextSectionKey!, "first")}
+            >
+              Skip
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={footer.onCancel}>
+              Cancel
+            </Button>
+          )}
           {/*
             NEXT, WHILE THERE IS A SECTION AFTER THIS ONE — see `footer.stepper`.
 

@@ -6,7 +6,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { ChevronDown, List as ListIcon, UserRound as UserRoundIcon } from "lucide-react";
+import { UserRound as UserRoundIcon } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { useCreateIntent } from "@/lib/use-create-intent";
@@ -687,9 +687,6 @@ export default function PersonClient({
   const [editCode, setEditCode] = useState<string | null>(null);
   const [form, setForm] = useState<PersonInput>(DEFAULTS);
   const shellRef = useRef<MasterFullScreenHandle>(null);
-  /** The section the editor is on — read by the phone Sections button in
-   *  the mode line. `null` until the shell reports its first section. */
-  const [paneKey, setPaneKey] = useState<string | null>(null);
   /** Below `xl`, where the profile column is hidden: the profile opens in a
    *  sheet from the icon in the mode line. */
   const [profileOpen, setProfileOpen] = useState(false);
@@ -4436,41 +4433,7 @@ export default function PersonClient({
           data-focus-region="header"
           className="flex w-full flex-wrap items-center gap-x-6 gap-y-2 max-md:gap-x-2 md:items-baseline"
         >
-          {/* PHONE: THE SECTIONS BUTTON LIVES IN THIS LINE (client 2026-09-30:
-              option 2 of the "Menu button" mock-up). It takes the place of the
-              empty rule, carries the mode ("New Worker") so the label beside it
-              can go, and opens the shell's side menu — so the phone spends no
-              second row on a ☰. A list icon, not ☰: the app's own bottom bar
-              already has a ☰ Menu, and two identical icons doing different
-              jobs is how the wrong one gets tapped. From `md` the rail is on
-              screen and this line is exactly as before. */}
-          {(() => {
-            const panes = sections.filter((s) => !s.groupOnly);
-            const cur =
-              sections.find((s) => s.key === paneKey) ?? panes[0];
-            const pos = cur ? panes.findIndex((s) => s.key === cur.key) + 1 : 0;
-            return (
-              <button
-                type="button"
-                onClick={() => shellRef.current?.openNav()}
-                aria-label={`Sections: ${cur?.label ?? ""}, ${pos} of ${panes.length}`}
-                className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border-[1.5px] border-primary bg-surface px-3 text-left md:hidden"
-              >
-                <ListIcon aria-hidden className="h-4 w-4 shrink-0 text-primary" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[11px] leading-tight text-muted-foreground">
-                    {editId ? `Edit ${copy.entity}` : `New ${copy.entity}`} · {pos}/{panes.length}
-                  </span>
-                  {/* truncate-reveal: exempt -- rail chrome; the menu it opens names it in full */}
-                  <span className="block truncate text-sm font-semibold leading-tight text-foreground">
-                    {cur?.label}
-                  </span>
-                </span>
-                <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-primary" />
-              </button>
-            );
-          })()}
-          <div className="flex shrink-0 items-baseline gap-2 max-md:hidden">
+          <div className="flex shrink-0 items-baseline gap-2">
             <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {editId ? `Edit ${copy.entity}` : `New ${copy.entity}`}
             </dt>
@@ -4480,7 +4443,7 @@ export default function PersonClient({
           </div>
           <div
             aria-hidden
-            className="h-px min-w-[2rem] flex-1 self-center bg-border max-md:hidden"
+            className="h-px min-w-[2rem] flex-1 self-center bg-border"
           />
           <div className="flex shrink-0 items-center gap-3 max-md:gap-2">
             {dirty && (
@@ -4527,12 +4490,11 @@ export default function PersonClient({
                (client 2026-09-19). It follows the record's kind, so the Worker
                screen does not call itself Staff. */
             railHeading={`${copy.entity} Info`}
-            // Phone: the ~30 sections are a Gmail-style side menu (☰)
-            // rather than a sideways strip nobody can see whole.
-            mobileNav="drawer"
-            // The trigger is the Sections button in the mode line above.
-            drawerTrigger="external"
-            onEnterSection={setPaneKey}
+            // Phone: the sections are the shell's chip strip. The side-menu
+            // drawer was tried and its trigger removed twice (client
+            // 2026-09-30: first the full-width Sections bar, then the list
+            // icon that replaced it), so the strip is the one way in that
+            // costs no button.
             // The rail truncates at this depth, so the pane names the section
             // in full (client 2026-09-11). See `paneHeading` for why it is
             // opt-in.
@@ -4562,6 +4524,24 @@ export default function PersonClient({
               // Ctrl+S and Enter-off-the-last-field reach the same handler.
               onBlockedSave: revealFirstProblem,
               isPending,
+              // NEXT / SKIP IN PLACE OF CANCEL / SAVE until the last section
+              // (client 2026-09-30). Next refuses while THIS section still has
+              // a blank mandatory field (Name, Photo on Detail); Skip steps on
+              // regardless, and Save on the last section still catches it.
+              // Cancel can leave the footer because "Back to list" and Escape
+              // stay on screen.
+              stepper: true,
+              skip: true,
+              stepGuard: (from) =>
+                validity.blocking.find((p) => p.section === from)?.message ??
+                null,
+              onStepBlocked: (reason) => {
+                toastError(reason);
+                const p = validity.blocking.find((b) => b.message === reason);
+                if (p?.fieldId) {
+                  shellRef.current?.goToSection(p.section, { fieldId: p.fieldId });
+                }
+              },
             }}
           />
 
