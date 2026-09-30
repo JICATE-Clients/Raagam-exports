@@ -9,11 +9,14 @@
  * one family; the body is the legacy RP Cutting Chart's — sizes across, Order /
  * Approval / Rej.Allow / Total per colour, and the three signatures at the foot.
  *
- * THE TABLE WEARS THE YARN & FABRIC REQUIREMENT'S LOOK (user 2026-09-29) — the
- * shared `report-pdf-kit`: a filled bar in the CUTTING tone with the Cut Qty at
- * its right, a tinted head, striped rows, style bands and Total rows tinted in
- * the tone, and a swatch beside each colour. Pale tints under dark ink, so a
- * mono printout still reads.
+ * THE SHEET FORMAT (user 2026-09-29, "this is okay apply it" — the approved
+ * "Raagam Requirement Sheet" design): a masthead drawn to the kit's design that
+ * keeps the chart's centred "<COMPANY> — CUTTING CHART" identity (the same
+ * day's spec) with the RE No large at the right; the facts as a label/value
+ * grid; the quantity drawn as the sum it is; summary tiles; and the chart as a
+ * CUTTING card — tone header with the Cut Qty, clean table, style bands and
+ * Total rows tinted, a swatch per colour. Every figure the chart printed before
+ * is still here. Pale tints under dark ink, so a mono printout still reads.
  */
 import { jsPDF } from "jspdf";
 import autoTable, { type RowInput } from "jspdf-autotable";
@@ -23,11 +26,16 @@ import { swatchFor } from "@/lib/orders/fabric-bom/report-colours";
 import {
   STAGE_STYLES,
   SWATCH_PADDING,
-  drawSectionHeading,
+  cardTableHead,
+  cardTableStyles,
+  drawCardHeader,
+  drawOrderFacts,
+  drawQtyEquation,
+  drawSheetLabel,
+  drawStageStripe,
   drawSwatch,
   paintRow,
   rgb,
-  toneHead,
 } from "@/lib/orders/report-pdf-kit";
 import { cuttingCell, cuttingRows, sumOf, type CuttingChart, type CuttingFigures } from "./types";
 
@@ -38,13 +46,18 @@ function stem(c: CuttingChart): string {
   return `Cutting-Chart_${key}`;
 }
 
-/** `Style Ref No · Style` — the block's identity line, as the legacy prints it. */
+/** The chart table's own header line per style — RE No first (user 2026-09-29:
+ *  "move RE No into the table header"; it left the boxed header above, where it
+ *  was printed twice), then Order No, Style and Description, which appear
+ *  nowhere else on the chart. "Style" is the ref — Order Entry's Style — and
+ *  never reads "Style Ref No" (user 2026-09-29); the style's name beside it
+ *  reads "Description". */
 export function styleLine(c: CuttingChart, s: CuttingChart["styles"][number]): string {
   return [
     c.header.scNo ? `RE No: ${c.header.scNo}` : null,
     c.header.orderNo ? `Order No: ${c.header.orderNo}` : null,
-    s.styleRefNo ? `Style Ref No: ${s.styleRefNo}` : null,
-    s.styleName ? `Style: ${s.styleName}` : null,
+    s.styleRefNo ? `Style: ${s.styleRefNo}` : null,
+    s.styleName ? `Description: ${s.styleName}` : null,
   ]
     .filter(Boolean)
     .join("     ");
@@ -54,8 +67,13 @@ export function styleLine(c: CuttingChart, s: CuttingChart["styles"][number]): s
  * THE LEGACY'S BOXED HEADER, as its four columns — each read DOWN, the way the
  * RP printout lays them out (client 2026-09-23):
  *
- *   RE No · Date · Customer | Delivery Window · Order Qty |
+ *   Date · Customer | Earlier Shipment Date · Order Qty |
  *   Excess Qty · Approval Qty · Net Qty | Rej.Allow Qty · Cut Qty
+ *
+ * RE No LEFT THIS BOX (user 2026-09-29): it leads the chart table's own header
+ * line (`styleLine`), which printed it a second time. "Delivery Window" became
+ * "Earlier Shipment Date" (same spec) — and prints THAT field's value
+ * (`header.earlierShipment`), never the delivery date under its name.
  *
  * Legacy's "S.Q.No" and "S.Q.Qty" read RE No and Cut Qty (the SQ term is
  * retired). Its "Description" printed the RE number beside the SQ number — with
@@ -67,12 +85,11 @@ export function headerColumns(c: CuttingChart): [string, string][][] {
   const n = (v: number) => v.toLocaleString("en-IN");
   return [
     [
-      ["RE No", h.scNo ?? "—"],
       ["Date", fmtDate(h.date)],
       ["Customer", h.customer ?? "—"],
     ],
     [
-      ["Delivery Window", `${fmtDate(h.deliveryFrom)} To ${fmtDate(h.deliveryTo)}`],
+      ["Earlier Shipment Date", fmtDate(h.earlierShipment)],
       ["Order Qty", `${n(h.orderQty)} PCS`],
     ],
     [
@@ -87,9 +104,46 @@ export function headerColumns(c: CuttingChart): [string, string][][] {
   ];
 }
 
-/** The same facts flat, for the spreadsheet. */
+/** The same facts flat, for the spreadsheet — RE No first, since the flat file
+ *  has no table band to carry it at the top. */
 export function headerFacts(c: CuttingChart): [string, string][] {
-  return headerColumns(c).flat();
+  return [["RE No", c.header.scNo ?? "—"], ...headerColumns(c).flat()];
+}
+
+/**
+ * THE SHEET FORMAT'S FACTS (2026-09-29) — the boxed header's non-quantity facts
+ * as a label / value grid; the quantities move to the sum below
+ * (`chartQtyTerms`). The delivery date rides under the Earlier Shipment Date as
+ * its sub-line, stated without taking the other's name.
+ */
+export function chartFacts(c: CuttingChart): { label: string; value: string; sub?: string | null }[] {
+  const h = c.header;
+  return [
+    { label: "Date", value: fmtDate(h.date) },
+    { label: "Customer", value: h.customer ?? "—" },
+    {
+      label: "Earlier Shipment Date",
+      value: fmtDate(h.earlierShipment),
+      sub: h.deliveryFrom ? `Delivery ${fmtDate(h.deliveryFrom)}` : null,
+    },
+  ];
+}
+
+/** Order + Excess + Approval + Rej.Allow = Cut, with the Net Qty (Order +
+ *  Excess + Approval) as the Approval term's note — the boxed header's five
+ *  figures, none dropped. Excess stays a term at 0, as the legacy lists it. */
+export function chartQtyTerms(c: CuttingChart) {
+  const h = c.header;
+  const n = (v: number) => v.toLocaleString("en-IN");
+  return {
+    terms: [
+      { label: "Order", value: n(h.orderQty), note: "pcs" },
+      { label: "Excess", value: n(h.excessQty), note: h.excessPct > 0 ? `${h.excessPct}%` : null },
+      { label: "Approval", value: n(h.approvalQty), note: `Net ${n(h.netQty)}` },
+      { label: "Rej. Allow", value: n(h.rejectionQty), note: null },
+    ],
+    result: { label: "Cut Qty", value: n(h.cutQty), note: "pcs" },
+  };
 }
 
 /* The spreadsheet gets bare digits — a grouped "3,024" is a string to Excel
@@ -111,57 +165,73 @@ export async function exportCuttingChartPdf(c: CuttingChart, output: PdfOutput =
   const h = c.header;
   const co = h.company;
 
-  doc.setFillColor(133, 194, 39);
-  doc.rect(M, 24, W - 2 * M, 3, "F");
-
-  let x = M;
+  /* THE MASTHEAD, TO THE SHEET FORMAT'S DESIGN — the four-stage stripe, the
+     logo (or the Raagam mark) at the left, "<COMPANY> — CUTTING CHART" as ONE
+     centred title (user 2026-09-29), the unit under it, the RE No large at the
+     right, and the dark rule. The kit's masthead puts the company at the left,
+     so this one is drawn here with the kit's own measures. */
+  drawStageStripe(doc, M, 14, W - 2 * M, 4);
+  const top = 28;
   const logo = await loadLetterheadImage(co.logo);
   if (logo) {
-    const { w, h: lh } = fitLogo(logo, 110, 36);
-    doc.addImage(logo.dataUrl, "PNG", M, 36, w, lh);
-    x = M + w + 12;
+    const { w, h: lh } = fitLogo(logo, 96, 32);
+    doc.addImage(logo.dataUrl, "PNG", M, top, w, lh);
+  } else {
+    doc.setFillColor(3, 123, 184);
+    doc.roundedRect(M, top, 30, 30, 5, 5, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(255, 255, 255);
+    doc.text((co.name ?? "R").trim().charAt(0).toUpperCase(), M + 15, top + 20.5, { align: "center" });
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(M + 22, top + 22, 10, 10, 2, 2, "F");
+    doc.setFillColor(133, 194, 39);
+    doc.roundedRect(M + 23.5, top + 23.5, 7, 7, 1.5, 1.5, "F");
   }
-  doc.setTextColor(22, 24, 29);
+  const company = (co.name ?? "RAAGAM EXPORTS").toUpperCase();
+  const docName = " — CUTTING CHART";
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text((co.name ?? "RAAGAM EXPORTS").toUpperCase(), x, 50);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(91, 100, 114);
-  const contact = [co.unit, co.address, co.gstin ? `GSTIN ${co.gstin}` : null].filter(Boolean).join("  ·  ");
-  if (contact) doc.text(contact, x, 62, { maxWidth: W - x - 220 });
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10.5);
+  doc.setFontSize(14);
+  const wCo = doc.getTextWidth(company);
+  const wDoc = doc.getTextWidth(docName);
+  const tx = (W - wCo - wDoc) / 2;
+  doc.setTextColor(23, 32, 43);
+  doc.text(company, tx, top + 14);
   doc.setTextColor(3, 123, 184);
-  doc.text("CUTTING CHART", W - M, 50, { align: "right" });
-
-  doc.setDrawColor(22, 24, 29);
+  doc.text(docName, tx + wCo, top + 14);
+  if (co.unit) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.8);
+    doc.setTextColor(123, 133, 148);
+    doc.setCharSpace(0.5);
+    doc.text(co.unit.toUpperCase(), W / 2, top + 25, { align: "center" });
+    doc.setCharSpace(0);
+  }
+  if (h.scNo) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.5);
+    doc.setTextColor(123, 133, 148);
+    doc.text("RE NO", W - M, top + 6, { align: "right" });
+    doc.setFont("courier", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(23, 32, 43);
+    doc.text(h.scNo, W - M, top + 21, { align: "right" });
+  }
+  doc.setDrawColor(23, 32, 43);
   doc.setLineWidth(1.2);
-  doc.line(M, 78, W - M, 78);
+  doc.line(M, top + 42, W - M, top + 42);
+  doc.setLineWidth(0.4);
+  doc.setDrawColor(0);
+  doc.setTextColor(0);
 
-  /* THE LEGACY'S BOXED HEADER — four label/value column pairs, read down. */
-  const hcols = headerColumns(c);
-  const depth = Math.max(...hcols.map((col) => col.length));
-  const factBody: string[][] = [];
-  for (let i = 0; i < depth; i++) factBody.push(hcols.flatMap((col) => col[i] ?? ["", ""]));
-  autoTable(doc, {
-    body: factBody,
-    startY: 86,
-    margin: { left: M, right: M },
-    theme: "grid",
-    styles: { fontSize: 8, cellPadding: 2.5, textColor: 20, lineColor: 200, lineWidth: 0.4 },
-    columnStyles: {
-      0: { textColor: 120 },
-      2: { textColor: 120 },
-      4: { textColor: 120 },
-      6: { textColor: 120 },
-      1: { fontStyle: "bold" },
-      3: { fontStyle: "bold" },
-      5: { fontStyle: "bold" },
-      7: { fontStyle: "bold" },
-    },
-  });
+  let y = drawOrderFacts(doc, top + 52, chartFacts(c), { margin: M, cols: 4 });
+  const q = chartQtyTerms(c);
+  y = drawSheetLabel(doc, M, y + 6, "Quantity to cut");
+  y = drawQtyEquation(doc, y, q.terms, q.result, M);
+  /* NO SUMMARY TILES ON THE CHART: its headline figures ARE the sum above
+     (Cut, and Net as the Approval term's note), and a landscape page has no
+     height to spare for saying them twice — the chart and its signatures stay
+     on one sheet. */
 
   const tone = STAGE_STYLES.cutting;
   const nCols = c.sizes.length + 3;
@@ -192,28 +262,27 @@ export async function exportCuttingChartPdf(c: CuttingChart, output: PdfOutput =
 
   const numeric: Record<number, { halign: "right" }> = {};
   for (let i = 2; i < nCols; i++) numeric[i] = { halign: "right" };
-  const lastY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-
-  /* THE SECTION BAR — the chart's headline figure, the RE's Cut Qty, at its
-     right (the RE Total block's own Total, so bar and table agree). */
-  const startY = drawSectionHeading(
+  /* THE CHART AS A CUTTING CARD — its headline figure, the RE's Cut Qty, at
+     the right (the RE Total block's own Total, so card and table agree). */
+  const startY = drawCardHeader(
     doc,
     M,
-    lastY + 22,
+    y + 4,
     W - 2 * M,
     tone,
-    "CUTTING CHART",
-    `Cut Qty ${cuttingCell(sumOf(c.total.total))}`,
+    "Cutting Chart",
+    cuttingCell(sumOf(c.total.total)),
+    "Cut Qty",
   );
 
   autoTable(doc, {
     head: [["Color", "", ...c.sizes.map((z) => z.label), "Total"]],
     body,
     startY,
-    margin: { left: M, right: M },
-    theme: "grid",
-    styles: { fontSize: 8, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 },
-    headStyles: { ...toneHead(tone), fontSize: 8 },
+    margin: { left: M, right: M, top: 36 },
+    theme: "plain",
+    styles: { ...cardTableStyles(), fontSize: 7.8 },
+    headStyles: cardTableHead(),
     columnStyles: { ...numeric, [nCols - 1]: { halign: "right", fontStyle: "bold" } },
     didParseCell: (d) => {
       // The Total row of every block reads bold and tinted, as the legacy's bold.
@@ -237,24 +306,37 @@ export async function exportCuttingChartPdf(c: CuttingChart, output: PdfOutput =
 
   const H = doc.internal.pageSize.getHeight();
   const endY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-  const sigY = Math.min(endY + 60, H - 40);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.setTextColor(20);
-  doc.text("Prepared By", M, sigY);
-  doc.text("Checked By", W / 2, sigY, { align: "center" });
-  doc.text("Approved By", W - M, sigY, { align: "right" });
+  /* Prepared / Checked / Approved, each over its own rule (the sheet format). */
+  /* At the foot of the chart's own page when it fits; a page of its own only
+     when the chart has filled this one. */
+  let sigY = Math.min(endY + 48, H - 52);
+  if (sigY < endY + 22) {
+    doc.addPage();
+    sigY = 70;
+  }
+  const colW = (W - 2 * M - 2 * 28) / 3;
+  doc.setDrawColor(23, 32, 43);
   doc.setLineWidth(0.6);
-  doc.line(M, sigY + 4, W - M, sigY + 4);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(23, 32, 43);
+  ["Prepared By", "Checked By", "Approved By"].forEach((label, i) => {
+    const x = M + i * (colW + 28);
+    doc.line(x, sigY, x + colW, sigY);
+    doc.text(label, x, sigY + 11);
+  });
 
   const printed = `Printed ${fmtDateTime(new Date().toISOString())}`;
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
+    doc.setDrawColor(221, 226, 232);
+    doc.setLineWidth(0.5);
+    doc.line(M, H - 30, W - M, H - 30);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
-    doc.setTextColor(120);
-    doc.text(printed, M, H - 20);
+    doc.setTextColor(123, 133, 148);
+    doc.text(`${h.scNo ?? ""}  ·  Cutting Chart  ·  ${printed}`, M, H - 20);
     doc.text(`Page ${p} of ${pages}`, W - M, H - 20, { align: "right" });
   }
 

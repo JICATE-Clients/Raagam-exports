@@ -98,7 +98,10 @@ export function StyleIdentityBand({
   return (
     <dl className={cn("flex w-full items-baseline gap-x-6", className)}>
       {[
-        { key: "ref", label: "Style Ref No", value: identity?.ref || styleRefNo },
+        /* "STYLE", NOT "STYLE REF NO" (user 2026-09-29: remove Style Ref
+           everywhere). The value is the Style typed on Order Info — the key
+           `style_ref_no`, unchanged; only the word left. */
+        { key: "ref", label: "Style", value: identity?.ref || styleRefNo },
         { key: "style", label: "Style No", value: identity?.style ?? "" },
         { key: "article", label: "Article No", value: identity?.article ?? "" },
       ]

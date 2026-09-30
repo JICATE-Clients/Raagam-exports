@@ -59,6 +59,8 @@ export function ApprovalActionBar({
   verdict,
   subjectPath,
   onDone,
+  rework = false,
+  compact = false,
 }: {
   run: ActionBarRun;
   verdict: CanActVerdict;
@@ -67,6 +69,22 @@ export function ApprovalActionBar({
   /** After a decision lands — e.g. close the sheet holding this bar, whose
    *  run and verdict were read before the decision and are now stale. */
   onDone?: () => void;
+  /**
+   * THE ORDER-BUDGET WORDING (client 2026-09-29, "Request Rework"): two
+   * buttons, Approve and Request Rework — no Return.
+   *
+   * Request Rework IS the engine's `reject`, relabelled, not a new action: on
+   * a first-time budget it sends the budget back to the merchandiser
+   * (`rejected`, editable, resubmittable); on a revision the terminal trigger
+   * restores V0 (`order_amendment_revert`). Return is withheld because on the
+   * one-step MD flow it restarts the run at step 1 — the MD's own queue —
+   * while the budget stays `submitted` and the merchandiser cannot touch it:
+   * a button that reads "send it back" and sends it nowhere.
+   */
+  rework?: boolean;
+  /** Drop the "Step n · label" line — for a card that already says whose
+   *  decision it is. The override warning is never dropped. */
+  compact?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -89,7 +107,9 @@ export function ApprovalActionBar({
   const COPY: Record<RunAction, { title: string; verb: string; needsComment: boolean }> = {
     approve: { title: "Approve this request?", verb: "Approve", needsComment: false },
     return: { title: "Return for changes?", verb: "Return", needsComment: true },
-    reject: { title: "Reject this request?", verb: "Reject", needsComment: true },
+    reject: rework
+      ? { title: "Send back for rework?", verb: "Request Rework", needsComment: true }
+      : { title: "Reject this request?", verb: "Reject", needsComment: true },
   };
 
   const commentRequired = pending
@@ -113,7 +133,9 @@ export function ApprovalActionBar({
           action === "approve"
             ? "Approved"
             : action === "reject"
-              ? "Rejected"
+              ? rework
+                ? "Sent back for rework"
+                : "Rejected"
               : "Returned for changes",
         );
         setPending(null);
@@ -141,10 +163,12 @@ export function ApprovalActionBar({
             context is a button an operator presses without knowing what they
             are signing as — the step label is the whole answer to "on whose
             behalf am I doing this". */}
-        <span className="text-xs text-muted-foreground">
-          Step {verdict.step_order}
-          {verdict.step_label ? ` · ${verdict.step_label}` : ""}
-        </span>
+        {!compact && (
+          <span className="text-xs text-muted-foreground">
+            Step {verdict.step_order}
+            {verdict.step_label ? ` · ${verdict.step_label}` : ""}
+          </span>
+        )}
 
         {/* AN OVERRIDE SAYS SO, LOUDLY AND BEFORE THE CLICK. A super admin acting
             on a run they were not routed to is recorded `is_override = true` in
@@ -167,19 +191,21 @@ export function ApprovalActionBar({
             onClick={() => setPending("reject")}
             disabled={isPending}
           >
-            <X className="h-4 w-4" aria-hidden />
-            Reject
+            {rework ? <RotateCcw className="h-4 w-4" aria-hidden /> : <X className="h-4 w-4" aria-hidden />}
+            {rework ? "Request Rework" : "Reject"}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPending("return")}
-            disabled={isPending}
-          >
-            <RotateCcw className="h-4 w-4" aria-hidden />
-            Return
-          </Button>
+          {!rework && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPending("return")}
+              disabled={isPending}
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden />
+              Return
+            </Button>
+          )}
           <Button
             type="button"
             size="sm"

@@ -198,7 +198,13 @@ export async function notifyRequesterOfDecision(
       what = code ? `Budget ${code}` : "Your budget";
     }
     const decl = WORKFLOWS[run.workflow_key as WorkflowKey];
-    const href = decl?.href.replace(":id", run.subject_id) ?? "/approvals";
+    const isBudget = run.workflow_key === "order_budget";
+    /* A BUDGET DECISION OPENS THE BUDGET (2026-09-30), not the approval queue:
+       what the merchandiser does next — fix and resubmit, or read what was
+       approved — happens in Budgeting (`?budget=`, the row pencil's own link). */
+    const href = isBudget
+      ? `/orders/budgets?budget=${run.subject_id}`
+      : (decl?.href.replace(":id", run.subject_id) ?? "/approvals");
     const note = v.comment?.trim() ? `"${v.comment.trim()}"` : undefined;
 
     const payload: NotificationInput =
@@ -207,14 +213,34 @@ export async function notifyRequesterOfDecision(
         : v.action === "return"
           ? { title: `${what} was returned for rework`, body: note, href, type: "warning" }
           : {
-              title: `${what} was not approved`,
+              /* "Request Rework" on a budget (client 2026-09-29) is the engine's
+                 reject — say what the merchandiser now has to do, with the MD's
+                 remark, rather than "not approved". */
+              title: isBudget ? `${what} was sent back for rework` : `${what} was not approved`,
               body: [note, am ? "The order and its BOMs are back at the last approved version." : null]
                 .filter((l): l is string => !!l)
                 .join("\n") || undefined,
               href,
-              type: "danger",
+              type: isBudget ? "warning" : "danger",
             };
-    await notify({ userIds: [run.requested_by] }, payload);
+
+    /* AND THE ORDER'S MERCHANDISER (client 2026-09-29, flow spec §3), who is
+       not always the one who pressed Submit. Resolved in SQL
+       (`order_budget_merchandiser_profiles`, 0654): the merchandiser is an
+       EMPLOYEE, reached as a login only through `profiles.employee_code`, and
+       `profiles` RLS would hide every other user's row from this session. It
+       ADDS to the requester, de-duplicated, and never replaces them — on
+       2026-09-30 no merchandiser had a linked login, so the requester is still
+       the only one told until Employee Codes are set on the users. */
+    let userIds = [run.requested_by];
+    if (isBudget) {
+      const { data: merch, error: mErr } = await s.rpc("order_budget_merchandiser_profiles", {
+        p_budget: run.subject_id,
+      });
+      if (mErr) console.error("[approvals/notify] merchandiser lookup:", mErr.message);
+      userIds = [...new Set([...userIds, ...((merch ?? []) as string[])])];
+    }
+    await notify({ userIds }, payload);
   } catch {
     // Never fail the decision over a notification.
   }

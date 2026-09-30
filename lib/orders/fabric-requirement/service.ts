@@ -6,7 +6,7 @@ import type { EntryFacts, FabricSheetNames, StoredFabricRequirement, StoredYarn 
    route, two documents. */
 import { yarnFabricRequirementReport, isReportRefusal } from "@/lib/orders/fabric-bom/reports";
 import type { ClothPurchaseLine } from "@/lib/orders/fabric-bom/reports";
-import { companyAddressOf } from "@/lib/orders/fabric-bom/letterhead";
+import { companyAddressOf, letterheadLogoOf } from "@/lib/orders/fabric-bom/letterhead";
 
 /**
  * Reading one order's Fabric Requirement.
@@ -69,6 +69,9 @@ export type FabricRequirementSheetData = {
     name: string | null;
     address: string | null;
     gstin: string | null;
+    /** The letterhead logo (2026-09-29) — `letterheadLogoOf`, the same answer
+     *  the Fabric BOM reports print, so the sheet's masthead matches theirs. */
+    logo: string | null;
   };
   rows: StoredFabricRequirement[];
   yarns: StoredYarn[];
@@ -218,7 +221,7 @@ export async function getFabricRequirementSheet(
           "components:order_fabric_bom_manual_components(component:components(short_name))",
       )
       .eq("bom_id", bom.id),
-    s.from("sales_orders").select("order_number").eq("id", salesOrderId).maybeSingle(),
+    s.from("sales_orders").select("order_number, order_date").eq("id", salesOrderId).maybeSingle(),
     s.from("company_profile").select("*").limit(1).maybeSingle(),
   ]);
 
@@ -326,7 +329,10 @@ export async function getFabricRequirementSheet(
       scNo: (scRes.data as { order_number: string | null } | null)?.order_number ?? null,
       customer: go.customer?.name ?? null,
       orderNo: go.po_no,
-      orderDate: go.po_date,
+      /* THE ORDER'S OWN DATE (2026-09-29), as the Garment Order Sheet and the
+         Cutting Chart print it — `po_date` is the customer's PO date, a
+         different fact, blank on most orders; kept only as the fallback. */
+      orderDate: (scRes.data as { order_date: string | null } | null)?.order_date ?? go.po_date,
       deliveryDate: go.delivery_date,
       excessPct: go.excess_pct,
     },
@@ -341,6 +347,7 @@ export async function getFabricRequirementSheet(
          Profile actually saves (2026-09-19; `address` never existed). */
       address: companyAddressOf(co),
       gstin: str("gstin"),
+      logo: letterheadLogoOf(co),
     },
     rows,
     yarns,

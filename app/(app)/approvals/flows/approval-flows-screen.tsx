@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Layers, ListChecks, Filter } from "lucide-react";
+import { Layers, ListChecks, Filter, Power, PowerOff } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -842,6 +842,7 @@ export function ApprovalFlowsScreen({
         menu={[
           {
             label: f.is_active ? "Switch off" : "Switch on",
+            icon: f.is_active ? PowerOff : Power,
             onClick: () => toggleActive(f),
             disabled: isPending,
           },

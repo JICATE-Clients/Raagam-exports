@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Eye, Pencil, Trash2 } from "lucide-react";
+import { Eye, Pencil, Trash2, type LucideIcon } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
@@ -71,6 +71,76 @@ import { cn } from "@/lib/utils";
 export type RowMenuItem = DropdownItem;
 
 /**
+ * NO ⋮ ON A ROW — EVERY ACTION IS ITS OWN ICON (client 2026-09-29, Orders
+ * register; extended by the user the same day to every module but Master Data).
+ *
+ * `menu` used to collapse extra actions behind a `DropdownMenu`. The Orders
+ * register's ⋮ held exactly one item — Reports — so the most-used document on
+ * the row was two clicks and a hunt away, while the eye beside it re-opened a
+ * record the RE No link already opened. The rule that replaced it:
+ *
+ * - **No ⋮.** `menu` items render INLINE as icon buttons, left of Edit/Delete
+ *   so the pencil and bin stay aligned down the column however many extras a
+ *   row carries. An item with no `icon` renders as a small text button rather
+ *   than a guessed glyph.
+ * - **Report takes the eye's slot** on a record that has reports: pass it as
+ *   `lead` with `view={false}` (the RE No / name link is the way to open it).
+ * - **A locked record keeps its pencil and bin, greyed**, with the reason on
+ *   hover/focus (`editDisabledReason` / `deleteDisabledReason`). HIDING them
+ *   is for missing PERMISSION only — that is a fact about the operator, not
+ *   the record, and a missing icon cannot tell the two apart.
+ *
+ * MASTER DATA KEEPS ITS ⋮, deliberately: `MasterListShell` passes
+ * `menuAs="dropdown"` (its Block/Unblock item, client "Block is a row action"),
+ * and its collapsed `TableRowActionsMenu` variant (client 2026-09-11) is a
+ * separate renderer this does not touch.
+ */
+export function RowIconAction({
+  label,
+  name,
+  icon: Icon,
+  onClick,
+  disabledReason = null,
+  danger = false,
+  className,
+}: {
+  /** Tooltip text and the start of the aria-label. */
+  label: string;
+  /** The record's name, appended to the aria-label only ("Reports HO/RE/…"). */
+  name?: string | null;
+  icon?: LucideIcon;
+  onClick?: () => void;
+  /** Set it and the button stays, greyed and `aria-disabled`, explaining why. */
+  disabledReason?: string | null;
+  danger?: boolean;
+  className?: string;
+}) {
+  const blocked = !!disabledReason;
+  const aria = name ? `${label} ${name}` : label;
+  return (
+    <Tooltip label={disabledReason ?? label} touch={blocked}>
+      <Button
+        variant="ghost"
+        size={Icon ? "icon" : "sm"}
+        className={cn(
+          blocked
+            ? "cursor-not-allowed text-muted-foreground opacity-50"
+            : danger
+              ? "text-muted-foreground hover:text-danger"
+              : undefined,
+          className,
+        )}
+        aria-label={blocked ? `${aria} — ${disabledReason}` : aria}
+        aria-disabled={blocked || undefined}
+        onClick={blocked ? undefined : onClick}
+      >
+        {Icon ? <Icon /> : label}
+      </Button>
+    </Tooltip>
+  );
+}
+
+/**
  * The row the actions cell belongs to, so `RowActions` can offer a View without
  * every screen threading the record back into it by hand.
  *
@@ -132,10 +202,13 @@ export function RowActions({
   canEdit = true,
   canDelete = true,
   editDisabled = false,
+  editDisabledReason = null,
   deleteDisabledReason = null,
   isPending = false,
   deleteLabel = "Delete",
   menu = [],
+  menuAs = "icons",
+  lead,
   row,
   view,
 }: {
@@ -185,6 +258,14 @@ export function RowActions({
   /** Greys out Edit without hiding it — e.g. another row is mid-inline-edit. */
   editDisabled?: boolean;
   /**
+   * Why this row cannot be edited — the pencil's twin of `deleteDisabledReason`
+   * below, and built the same way for the same reasons: the pencil stays in
+   * place, greyed and `aria-disabled` (still focusable, so the tooltip can say
+   * why), and the reason replaces "Edit" in the tooltip and the `aria-label`.
+   * `canEdit={false}` HIDES the pencil; this keeps it and explains it.
+   */
+  editDisabledReason?: string | null;
+  /**
    * Why this row cannot be deleted — "In use by 3 Materials — cannot delete."
    * Set it and the bin stays in place, greyed, refusing: no confirm strip, and
    * the reason is what the tooltip says instead of "Delete".
@@ -209,8 +290,17 @@ export function RowActions({
   isPending?: boolean;
   /** Override the confirm wording where "Delete" is the wrong verb. */
   deleteLabel?: string;
-  /** Extra actions behind a `⋮` — Duplicate, Export row. Never Delete. */
+  /** Extra actions — Duplicate, Export row. Never Delete. Inline icons by
+   *  default; see `RowIconAction` for the rule. */
   menu?: RowMenuItem[];
+  /** `"dropdown"` keeps the old `⋮` — Master Data only (`MasterListShell`). */
+  menuAs?: "icons" | "dropdown";
+  /**
+   * A control drawn FIRST, in the eye's slot — for a list whose primary row
+   * action is not "view" (Order Entry's Report, client 2026-09-29). Pair it
+   * with `view={false}`, or the eye renders beside it.
+   */
+  lead?: ReactNode;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [viewing, setViewing] = useState(false);
@@ -221,6 +311,7 @@ export function RowActions({
   const showEditLink = !onEdit && !!editHref && canEdit && !editDisabled;
   const showDelete = !!onDelete && canDelete;
   const deleteBlocked = !!deleteDisabledReason;
+  const editBlocked = !!editDisabledReason;
   const suffix = label ? ` ${label}` : "";
 
   // THE EYE IS ON BY DEFAULT. A screen gets a View by doing nothing, because the
@@ -273,6 +364,7 @@ export function RowActions({
 
   return (
     <div className="flex items-center justify-end gap-1">
+      {lead}
       {handleView && (
         <Tooltip label="View">
           <Button variant="ghost" size="icon" aria-label={`View${suffix}`} onClick={handleView}>
@@ -280,14 +372,30 @@ export function RowActions({
           </Button>
         </Tooltip>
       )}
+      {menuAs === "icons" &&
+        menu.map((m) => (
+          <RowIconAction
+            key={m.label}
+            label={m.label}
+            name={label}
+            icon={m.icon}
+            onClick={m.onClick}
+            danger={m.danger}
+            disabledReason={m.disabled ? m.label : null}
+          />
+        ))}
       {showEdit && (
-        <Tooltip label="Edit">
+        <Tooltip label={editDisabledReason ?? "Edit"} touch={editBlocked}>
           <Button
             variant="ghost"
             size="icon"
-            aria-label={`Edit${suffix}`}
+            className={cn(editBlocked && "cursor-not-allowed text-muted-foreground opacity-50")}
+            aria-label={
+              editBlocked ? `Edit${suffix} — ${editDisabledReason}` : `Edit${suffix}`
+            }
+            aria-disabled={editBlocked || undefined}
             disabled={editDisabled}
-            onClick={onEdit}
+            onClick={editBlocked ? undefined : onEdit}
           >
             <Pencil />
           </Button>
@@ -332,7 +440,9 @@ export function RowActions({
           </Button>
         </Tooltip>
       )}
-      {menu.length > 0 && <DropdownMenu items={menu} label={`More actions${suffix}`} />}
+      {menuAs === "dropdown" && menu.length > 0 && (
+        <DropdownMenu items={menu} label={`More actions${suffix}`} />
+      )}
       {sheet}
     </div>
   );

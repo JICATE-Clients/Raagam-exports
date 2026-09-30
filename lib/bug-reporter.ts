@@ -20,7 +20,17 @@ const apiUrl = process.env.NEXT_PUBLIC_BUG_REPORTER_API_URL;
  * today, and hard-coding that would let a format change on their side silently
  * disable the widget across the whole app.
  */
+/**
+ * Hidden by default (user 2026-09-30: "hide the bug icon from ui, if needed
+ * can enable it"). Set `NEXT_PUBLIC_BUG_REPORTER_ENABLED=true` and redeploy to
+ * bring the widget AND the "My bug reports" menu item back together — gating
+ * here rather than in the wrapper keeps the two agreeing, per the note above.
+ * A `NEXT_PUBLIC_` var is inlined at build time, so a change needs a rebuild.
+ */
+const enabled = process.env.NEXT_PUBLIC_BUG_REPORTER_ENABLED === "true";
+
 export const bugReporterConfigured =
+  enabled &&
   !!apiKey &&
   !!apiUrl &&
   !apiKey.includes("REPLACE_ME") &&

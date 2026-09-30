@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { orderLockMessage } from "@/lib/orders/budget/amendment";
+import { orderLockMessage, orderPendingMessage } from "@/lib/orders/budget/amendment";
 import {
   amendmentBanner,
   areaOpen,
@@ -71,8 +71,11 @@ export async function orderLocks(
   area?: AmendmentArea,
 ): Promise<{ messages: Record<string, string>; raiseFor: Record<string, string> }> {
   if (orderIds && orderIds.length === 0) return { messages: {}, raiseFor: {} };
-  const scoped = area ? await amendingClosedOn(area, orderIds) : {};
-  const none = { messages: scoped, raiseFor: {} };
+  const [scoped, pending] = await Promise.all([
+    area ? amendingClosedOn(area, orderIds) : Promise.resolve({} as Record<string, string>),
+    pendingLocks(orderIds),
+  ]);
+  const none = { messages: { ...scoped, ...pending }, raiseFor: {} };
   try {
     const s = await createClient();
     /* Every APPROVED document — not narrowed by `orderIds`, because the one
@@ -83,14 +86,14 @@ export async function orderLocks(
       .eq("re_status", "approved");
     if (error) {
       console.error("[order-locks] reading re_status:", error.message);
-      return { messages: {}, raiseFor: {} };
+      return { messages: pending, raiseFor: {} };
     }
     const rows = (orders ?? []) as unknown as {
       id: string;
       sales_order_id: string | null;
       sales_order: { order_number: string | null } | { order_number: string | null }[] | null;
     }[];
-    if (rows.length === 0) return { messages: {}, raiseFor: {} };
+    if (rows.length === 0) return { messages: pending, raiseFor: {} };
 
     /* WHICH budget — for the words only; the lock itself is `re_status`. */
     const { data: links, error: bErr } = await s
@@ -147,10 +150,78 @@ export async function orderLocks(
       });
       raiseFor[docId] = lockerId;
     }
-    return { messages: { ...scoped, ...out }, raiseFor };
+    // Approved wins over pending over out-of-scope: the strongest lock names it.
+    return { messages: { ...scoped, ...pending, ...out }, raiseFor };
   } catch (e) {
     console.error("[order-locks]", e instanceof Error ? e.message : e);
     return none;
+  }
+}
+
+/**
+ * Every document WAITING FOR THE MD (0652) — a budget over it, or over any
+ * document of its RE No, is `submitted` — keyed by id, with the pending
+ * sentence (`orderPendingMessage`, the trigger's own words).
+ *
+ * Not in `raiseFor`: a revision is raised on an APPROVED order, and this one
+ * is not decided yet. Display only, like the rest of this file — the write
+ * path is `assertOrderWritable` and the triggers.
+ */
+async function pendingLocks(orderIds?: readonly string[]): Promise<Record<string, string>> {
+  try {
+    const s = await createClient();
+    const { data, error } = await s
+      .from("order_budget_orders")
+      .select(
+        "garment_order_id, budget:order_budgets!inner(code, status, submitted_at), order:garment_order_amendments!garment_order_id(sales_order_id, sales_order:sales_orders(order_number))",
+      )
+      .eq("order_budgets.status", "submitted");
+    if (error) {
+      console.error("[order-locks] reading submitted budgets:", error.message);
+      return {};
+    }
+    type One<T> = T | T[] | null;
+    const first = <T,>(v: One<T>) => (Array.isArray(v) ? (v[0] ?? null) : v);
+    const rows = (data ?? []) as unknown as {
+      garment_order_id: string;
+      budget: One<{ code: string | null; submitted_at: string | null }>;
+      order: One<{ sales_order_id: string | null; sales_order: One<{ order_number: string | null }> }>;
+    }[];
+    if (rows.length === 0) return {};
+
+    // The sentence per RE No, from the pending document itself.
+    const msgBySo = new Map<string, string>();
+    const msgByDoc = new Map<string, string>();
+    for (const r of rows) {
+      const b = first(r.budget);
+      const o = first(r.order);
+      const msg = orderPendingMessage({
+        reNo: first(o?.sales_order ?? null)?.order_number ?? null,
+        budgetCode: b?.code ?? null,
+        submittedAt: b?.submitted_at ?? null,
+      });
+      msgByDoc.set(r.garment_order_id, msg);
+      if (o?.sales_order_id && !msgBySo.has(o.sales_order_id)) msgBySo.set(o.sales_order_id, msg);
+    }
+    // THE SIBLINGS: every document of a pending RE No is locked with it.
+    if (msgBySo.size > 0) {
+      const { data: sibs, error: sErr } = await s
+        .from("garment_order_amendments")
+        .select("id, sales_order_id")
+        .in("sales_order_id", [...msgBySo.keys()]);
+      if (sErr) console.error("[order-locks] reading pending siblings:", sErr.message);
+      for (const d of (sibs ?? []) as { id: string; sales_order_id: string | null }[]) {
+        const m = d.sales_order_id ? msgBySo.get(d.sales_order_id) : undefined;
+        if (m && !msgByDoc.has(d.id)) msgByDoc.set(d.id, m);
+      }
+    }
+    const wanted = orderIds ? new Set(orderIds) : null;
+    const out: Record<string, string> = {};
+    for (const [id, m] of msgByDoc) if (!wanted || wanted.has(id)) out[id] = m;
+    return out;
+  } catch (e) {
+    console.error("[order-locks] pending:", e instanceof Error ? e.message : e);
+    return {};
   }
 }
 

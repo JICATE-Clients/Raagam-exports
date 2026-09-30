@@ -47,7 +47,8 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     key: "order_budget",
     subjectTable: "order_budgets",
     label: "Order Budget",
-    href: "/orders/budget-approval",
+    // `?open=` opens the budget's approval sheet (budget-approval/page.tsx).
+    href: "/orders/budget-approval?open=:id",
   },
   /* 0595 — an Internal Work Order's budget. The queue row opens the IWO Budget
      screen on that budget (`useOpenIntent` there accepts a budget id). */

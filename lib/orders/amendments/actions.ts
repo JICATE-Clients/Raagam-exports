@@ -9,6 +9,8 @@ import { assertOrderWritable } from "@/lib/orders/budget/lock";
 import { kindsMoveBoms } from "@/lib/orders/amendments/amendment-entry";
 import { recalculateDownstream } from "@/lib/orders/amendments/recalc-downstream";
 import { scopeAllowsRewrite, type FrozenScope } from "@/lib/orders/amendments/amendment-entry";
+import { saveUnderOverride, type OverrideSave } from "@/lib/orders/overrides/commit";
+import { qtyDirectionProblem } from "@/lib/orders/overrides/override-modules";
 import { notifyCadOfNewOrder } from "@/lib/orders/cad/notify";
 import {
   amendmentInput,
@@ -2228,7 +2230,37 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
   return { ok: true };
 }
 
+/**
+ * Save an order. With `override` (0653, doc/email role system.md) the save runs
+ * inside a permission-override commit on an APPROVED order: the same body, the
+ * same guards — `assertOrderWritable` finds the open commit and hands back the
+ * override's scope, which narrows the save exactly as a revision's scope does.
+ * Without it, this is the save it always was.
+ */
 export async function updateAmendment(
+  id: string,
+  data: AmendmentInput,
+  override?: OverrideSave,
+): Promise<Result> {
+  if (!override) return saveAmendment(id, data);
+  /* D-6: Quantity Addition only raises the total, Cancellation only lowers it —
+     judged here, before the commit opens, against the STORED pieces. */
+  if (override.keys.includes("qty_addition") || override.keys.includes("qty_cancellation")) {
+    const s = await createClient();
+    const { data: rows, error } = await s
+      .from("garment_order_amendment_quantities")
+      .select("po_qty")
+      .eq("amendment_id", id);
+    if (error) return fail(`Could not read the order's quantities: ${error.message}`);
+    const before = ((rows ?? []) as { po_qty: number | null }[]).reduce((t, r) => t + Number(r.po_qty ?? 0), 0);
+    const after = (data.quantities ?? []).reduce((t, q) => t + Number(q.po_qty ?? 0), 0);
+    const moved = qtyDirectionProblem(override.keys, before, after);
+    if (moved) return fail(moved);
+  }
+  return saveUnderOverride(id, override, () => saveAmendment(id, data));
+}
+
+async function saveAmendment(
   id: string,
   data: AmendmentInput,
 ): Promise<Result> {
@@ -2250,7 +2282,9 @@ export async function updateAmendment(
      not written unchanged, SKIPPED, because "delete every row and put the same
      rows back" is two writes the trigger refuses. Null = no amendment: the
      save is exactly what it was. */
-  const scope: FrozenScope | null = lock.amendment?.scope ?? null;
+  /* 0653: under a permission override the override's scope narrows the save
+     the same way — named header columns, grids open for insert AND delete. */
+  const scope: FrozenScope | null = lock.amendment?.scope ?? lock.override?.scope ?? null;
   const p = amendmentInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   /* Requiredness that Zod cannot state: whether a part's Colour is mandatory
@@ -2336,7 +2370,11 @@ export async function updateAmendment(
      while its required weights follow the order. What it could not fill is
      said back as Manual Entry Needed. The order is saved either way. */
   let notice: string | undefined;
-  if (lock.amendment && kindsMoveBoms(lock.amendment.types)) {
+  /* An override's keys ARE kinds (qty_addition, combo_colour_change …), so a
+     quantity or colourway override recalculates the BOMs' derived rows the
+     same way — under the same commit, whose scope opens exactly those rows. */
+  const movedKinds = lock.amendment?.types ?? lock.override?.keys ?? [];
+  if (movedKinds.length > 0 && kindsMoveBoms(movedKinds)) {
     try {
       const r = await recalculateDownstream(id);
       notice = [...r.done, ...r.manualEntries].join(" · ") || undefined;

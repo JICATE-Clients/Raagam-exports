@@ -376,3 +376,67 @@ export function fabricRequirementSummary(rows: readonly FabricSheetRow[]): {
   }
   return { styles, entries, slices, refused };
 }
+
+/**
+ * THE SHEET'S SUMMARY TILES (user 2026-09-29, the approved sheet format) — the
+ * figures purchasing came for, before the detail: the fabric the order needs,
+ * the yarn and the rolls to buy. Each is a sum of lines the sheet prints below,
+ * and each is LEFT OUT rather than guessed where it has no single answer (two
+ * units, or a line that could not be planned). The screen and the PDF both
+ * read this, so they cannot print two different tiles.
+ */
+export type FabricSheetTile = {
+  label: string;
+  qty: number;
+  unit: string | null;
+  note: string;
+  tone: "brand" | "yarn" | "greige" | "dyed";
+};
+
+export function fabricRequirementTiles(
+  rows: readonly FabricSheetRow[],
+  yarns: readonly FabricSheetRow[],
+  cloth: readonly { source: string; purchaseWt: number; uomCode: string | null }[],
+): FabricSheetTile[] {
+  const tiles: FabricSheetTile[] = [];
+  const s = fabricRequirementSummary(rows);
+
+  const totals = rows.filter((r): r is Extract<FabricSheetRow, { kind: "total" }> => r.kind === "total");
+  const fabricUnits = new Set(totals.map((t) => t.uom));
+  if (totals.length && fabricUnits.size === 1 && !s.refused) {
+    tiles.push({
+      label: "Fabric required",
+      qty: totals.reduce((sum, t) => sum + t.qty, 0),
+      unit: [...fabricUnits][0] || null,
+      note: `${s.entries} entr${s.entries === 1 ? "y" : "ies"} · ${s.styles} style${s.styles === 1 ? "" : "s"}`,
+      tone: "brand",
+    });
+  }
+
+  const yarnRows = yarns.filter((r): r is Extract<FabricSheetRow, { kind: "yarn" }> => r.kind === "yarn");
+  const yarnUnits = new Set(yarnRows.map((y) => y.uom));
+  if (yarnRows.length && yarnUnits.size === 1 && yarnRows.every((y) => y.qty != null)) {
+    tiles.push({
+      label: "Yarn to buy",
+      qty: yarnRows.reduce((sum, y) => sum + (y.qty ?? 0), 0),
+      unit: [...yarnUnits][0] || null,
+      note: `${yarnRows.length} yarn${yarnRows.length === 1 ? "" : "s"}`,
+      tone: "yarn",
+    });
+  }
+
+  const clothUnits = new Set(cloth.map((c) => c.uomCode ?? ""));
+  if (cloth.length && clothUnits.size === 1) {
+    const dyed = cloth.filter((c) => c.source === "dyed_purchase").length;
+    const allDyed = dyed === cloth.length;
+    const greige = cloth.length - dyed;
+    tiles.push({
+      label: "Fabric rolls to buy",
+      qty: cloth.reduce((sum, c) => sum + c.purchaseWt, 0),
+      unit: [...clothUnits][0] || null,
+      note: [dyed ? `${dyed} dyed` : null, greige ? `${greige} greige` : null].filter(Boolean).join(" · "),
+      tone: allDyed ? "dyed" : "greige",
+    });
+  }
+  return tiles;
+}

@@ -443,7 +443,7 @@ function ConsumptionsTab({
       cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.allowance_qty)}</span>,
     },
     {
-      header: "Style Ref",
+      header: "Style",
       cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span>,
     },
     {
@@ -595,7 +595,7 @@ function ConsumptionsTab({
                 />
               </div>
               <div>
-                <Label>Style Ref</Label>
+                <Label>Style</Label>
                 <Input
                   value={consForm.style_ref_no}
                   onChange={(e) => setConsForm((f) => ({ ...f, style_ref_no: e.target.value }))}

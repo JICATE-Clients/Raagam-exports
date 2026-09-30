@@ -15,6 +15,7 @@
 
 import { useState, useTransition, type MouseEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { FileText, PenTool, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { findOrderReport, orderReportHref } from "@/lib/orders/order-reports";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -94,7 +95,7 @@ export function useCadActions({
     const gos = findOrderReport("gos");
     if (!gos || !r.sales_order_id) return [];
     const href = orderReportHref(r.sales_order_id, gos);
-    return [{ label: "View Order Sheet", onClick: () => router.push(href) }];
+    return [{ label: "View Order Sheet", icon: FileText, onClick: () => router.push(href) }];
   }
 
   /** The corrections — each bounded exactly as 0628 bounds it — after View Order Sheet. */
@@ -115,9 +116,10 @@ export function useCadActions({
         // the queue is the Pattern Maker's screen.
         ...(assignOnly
           ? []
-          : [{ label: "Pattern Sheet", onClick: () => setOpen({ kind: "pattern", row: r, origin: null }) }]),
+          : [{ label: "Pattern Sheet", icon: PenTool, onClick: () => setOpen({ kind: "pattern", row: r, origin: null }) }]),
         {
           label: "Delete",
+          icon: Trash2,
           danger: true,
           onClick: () => run(() => deleteCadAllocation(v.id), "CAD assignment deleted"),
         },
@@ -129,12 +131,13 @@ export function useCadActions({
     if (!assignOnly) return [];
     if (v.decision?.status === "pending") {
       return [
-        { label: "Undo send", danger: true, onClick: () => run(() => undoCadDispatch(v.dispatch!.id), "Send undone") },
+        { label: "Undo send", icon: Undo2, danger: true, onClick: () => run(() => undoCadDispatch(v.dispatch!.id), "Send undone") },
       ];
     }
     return [
       {
         label: "Reopen decision",
+        icon: RotateCcw,
         onClick: () => run(() => reopenCadDecision(v.dispatch!.id), "Decision reopened — awaiting buyer"),
       },
     ];

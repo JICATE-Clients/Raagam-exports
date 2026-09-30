@@ -1811,6 +1811,21 @@ export async function listOrderBudgets(): Promise<OrderBudget[]> {
   return shapeBudgets((data ?? []) as unknown as OrderBudget[]);
 }
 
+/**
+ * Several budgets, whole, in ONE read — the approval cards
+ * (`lib/approvals/order-approval-cards.ts`) need every queued budget's lines
+ * and snapshot orders for its chart, and one `getOrderBudget` per card would be
+ * a round trip per card. Same select and shaping as `getOrderBudget`.
+ */
+export async function getOrderBudgetsByIds(ids: readonly string[]): Promise<OrderBudget[]> {
+  if (ids.length === 0) return [];
+  const s = await createClient();
+  const { data, error } = await s.from("order_budgets").select(BUDGET_SELECT).in("id", [...ids]);
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (see listOrderBudgets).
+  if (error) throw new Error(`Could not read the budgets: ${error.message}`);
+  return shapeBudgets((data ?? []) as unknown as OrderBudget[]);
+}
+
 /** One budget, whole — what submit and reopen compute their figures from. */
 export async function getOrderBudget(id: string): Promise<OrderBudget | null> {
   const s = await createClient();

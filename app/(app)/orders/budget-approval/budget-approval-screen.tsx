@@ -21,7 +21,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Ban, CalendarRange, Check, Layers, Pencil, Users, X, Undo2 } from "lucide-react";
+import { CalendarRange, Check, Layers, Pencil, RotateCcw, Users, X, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -43,7 +43,14 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { cn } from "@/lib/utils";
 import { FigureCell, HighlightTile, signTone } from "../budgets/budget-general";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
-import { budgetTotals, BUDGET_SOURCE_LABELS, type BudgetSource } from "@/lib/orders/budget/totals";
+import {
+  budgetTotals,
+  BUDGET_SOURCE_LABELS,
+  suppressedRefusal,
+  type BudgetSource,
+} from "@/lib/orders/budget/totals";
+import type { BudgetBreakdownPair } from "@/lib/approvals/budget-breakdown";
+import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
 import {
   BUDGET_STATUSES,
   budgetStatusText,
@@ -192,6 +199,7 @@ export function BudgetApprovalScreen({
   budgets,
   canApprove,
   canEdit,
+  initialOpenId = null,
 }: {
   rows: BudgetApprovalRow[];
   budgets: OrderBudget[];
@@ -199,12 +207,14 @@ export function BudgetApprovalScreen({
    *  not thereby an approver. */
   canApprove: boolean;
   canEdit: boolean;
+  /** The budget a notice link asked for (`?open=`), opened on arrival. */
+  initialOpenId?: string | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
 
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const [remark, setRemark] = useState("");
   /**
    * EDIT · CANCEL · APPROVE ON THE ROW (user 2026-09-22, from the artifact
@@ -257,6 +267,8 @@ export function BudgetApprovalScreen({
     names: Record<string, string>;
     /** The revised budget's Original · Last · Latest (null = not a revision). */
     revision: RevisionComparisonData | null;
+    /** The cost chart's figures (null = the budget could not be read). */
+    breakdown: BudgetBreakdownPair | null;
   } | null>(null);
 
   /* The panel AND the revision comparison, one action (2026-09-24): the
@@ -264,8 +276,8 @@ export function BudgetApprovalScreen({
      budget on every render, including the re-render each decision triggers. */
   useEffect(() => {
     if (!openId) return;
-    void loadBudgetApprovalSheet(openId).then(({ panel: p, revision }) =>
-      setLoaded({ forId: openId, ...p, revision }),
+    void loadBudgetApprovalSheet(openId).then(({ panel: p, revision, breakdown }) =>
+      setLoaded({ forId: openId, ...p, revision, breakdown }),
     );
   }, [openId]);
 
@@ -407,7 +419,7 @@ export function BudgetApprovalScreen({
         res = await decideBudget(row.id, kind === "approve" ? "approved" : "rejected", comment || null);
       }
       if (res.ok) {
-        success(kind === "approve" ? "Budget approved" : "Budget cancelled");
+        success(kind === "approve" ? "Budget approved" : "Sent back for rework");
         closeRowAct();
       } else {
         toastError(res.error);
@@ -494,19 +506,23 @@ export function BudgetApprovalScreen({
                 <Pencil />
               </Button>
             </Tooltip>
-            <Tooltip label={decidable ? "Cancel" : "Cancel — only a submitted budget"}>
+            {/* REQUEST REWORK (client 2026-09-29) — was "Cancel", and it never
+                cancelled anything: it is the engine's `reject`, which sends a
+                first-time budget back to the merchandiser and restores V0 on a
+                revision. The internal kind keeps its old name. */}
+            <Tooltip label={decidable ? "Request Rework" : "Request Rework — only a submitted budget"}>
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label={`Cancel ${label}`}
-                className="text-danger hover:bg-danger/10 hover:text-danger disabled:text-muted-foreground"
+                aria-label={`Request rework on ${label}`}
+                className="text-warning hover:bg-warning/10 hover:text-warning disabled:text-muted-foreground"
                 disabled={!decidable || isPending}
                 onClick={() => {
                   setRowComment("");
                   setRowAct({ row: r, kind: "cancel" });
                 }}
               >
-                <Ban />
+                <RotateCcw />
               </Button>
             </Tooltip>
             <Tooltip label={decidable ? "Approve" : "Approve — only a submitted budget"}>
@@ -589,9 +605,9 @@ export function BudgetApprovalScreen({
         onClose={closeRowAct}
         title={
           rowAct
-            ? `${rowAct.kind === "approve" ? "Approve" : "Cancel"} budget ${
-                rowAct.row.code ?? rowAct.row.id.slice(0, 8)
-              }?`
+            ? rowAct.kind === "approve"
+              ? `Approve budget ${rowAct.row.code ?? rowAct.row.id.slice(0, 8)}?`
+              : `Send budget ${rowAct.row.code ?? rowAct.row.id.slice(0, 8)} back for rework?`
             : ""
         }
         size="sm"
@@ -604,7 +620,7 @@ export function BudgetApprovalScreen({
             <Button
               type="button"
               size="sm"
-              variant={rowAct?.kind === "cancel" ? "danger" : "approve"}
+              variant={rowAct?.kind === "cancel" ? "outline" : "approve"}
               onClick={decideRow}
               disabled={isPending || (rowAct?.kind === "cancel" && !rowComment.trim())}
             >
@@ -615,8 +631,8 @@ export function BudgetApprovalScreen({
                 </>
               ) : (
                 <>
-                  <Ban className="h-4 w-4" aria-hidden />
-                  Cancel budget
+                  <RotateCcw className="h-4 w-4" aria-hidden />
+                  Request Rework
                 </>
               )}
             </Button>
@@ -740,9 +756,40 @@ export function BudgetApprovalScreen({
               <dl className="flex flex-wrap items-stretch gap-2.5">
                 <HighlightTile w="code" tone="sales" label="Sales value" value={totals.sales} />
                 <HighlightTile w="code" tone="plain" label="Total cost" value={totals.cost} />
-                <HighlightTile w="code" tone={signTone(totals.profit)} label="Profit / loss" value={totals.profit} />
-                <HighlightTile w="hug" tone={signTone(totals.profit)} label="Margin %" value={totals.profitPct} suffix="%" />
+                {/* The SHORT refusal (`suppressedRefusal`), as the budget's own
+                    summary bar and the phone sheet print it: the engine's
+                    sentence names every unrated line and ran down the tile. */}
+                <HighlightTile
+                  w="code"
+                  tone={signTone(totals.profit)}
+                  label="Profit / loss"
+                  value={suppressedRefusal(totals.profit, totals)}
+                />
+                <HighlightTile
+                  w="hug"
+                  tone={signTone(totals.profit)}
+                  label="Margin %"
+                  value={suppressedRefusal(totals.profitPct, totals)}
+                  suffix="%"
+                />
               </dl>
+
+              {/* WHERE THE SALES GO, and on a revision how that moved since V0
+                  (client 2026-09-29) — the phone sheet's chart, from the SAME
+                  loader (`breakdownOfBudget`), so the two cannot disagree. It
+                  is loaded with the panel rather than built here from `totals`:
+                  V0 needs its frozen lines, which only the server holds.
+                  Capped: legend rows run label · % · amount, and 880px would
+                  strand the figures a hand's width from their labels. */}
+              <div className="mt-4 max-w-[34rem]">
+                {!panel ? (
+                  <p className="text-sm text-muted-foreground">Working out the cost breakdown…</p>
+                ) : !panel.breakdown ? null : !panel.breakdown.ok ? (
+                  <p className="text-sm text-warning">Breakdown unavailable — {panel.breakdown.refused}</p>
+                ) : (
+                  <BudgetBreakdownChart current={panel.breakdown.current} original={panel.breakdown.original} />
+                )}
+              </div>
 
               {/* COST BY SOURCE, the same cells one tier down. A SOURCE CAN
                   REFUSE since 0575 — a percent line whose sales base is
@@ -935,6 +982,8 @@ export function BudgetApprovalScreen({
                       /* The sheet's run and verdict were read before the
                          decision — close it rather than show a stale bar. */
                       onDone={() => setOpenId(null)}
+                      /* Approve · Request Rework — see the prop. */
+                      rework
                     />
                   </div>
                 )}

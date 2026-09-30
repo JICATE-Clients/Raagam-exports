@@ -1093,8 +1093,8 @@ export function shadeDyeFactor(
  * share, and each stripe goes through its OWN colour's loss, so the step's
  * uplift for the slice is `Σ share_i / (1 − L_i)`, handed back as the one
  * equivalent `loss_pct` `comboUplift` multiplies by. A colour missing from the
- * map takes the colourway's figure (a map saved per colourway), then the
- * step's own Loss %.
+ * map takes the step's own Loss % — never the colourway's figure (2026-09-29,
+ * see the loop below).
  *
  * A step keyed only by colourways — every map saved before this — has no key
  * that names a stripe colour, and is returned unchanged for `lossForCombo`.
@@ -1129,7 +1129,14 @@ export function stripeWiseOwnSteps<
     if (!stripes.some((h) => byKey.has(comboKey(h.colour)))) return st;
     let uplift = 0;
     for (const h of stripes) {
-      const L = byKey.get(comboKey(h.colour)) ?? byKey.get(comboKey(combo)) ?? st.loss_pct ?? 0;
+      /* NO COLOURWAY FALLBACK ON A STRIPE-KEYED LIST (2026-09-29). This list
+         names stripe colours (the test above), so a key equal to the garment
+         colourway is a YARN colour that happens to share its name: on the
+         WHITE colourway, a DYED YARN PURCHASE listing WHITE 2 % was grossing the
+         GREEN stripe — dyed at the dye house, never bought dyed — by WHITE's 2 %
+         (live HO/RE/26-27/0003: 375.43 bought for 373.49). A stripe the list
+         does not name takes the step's own Loss %. */
+      const L = byKey.get(comboKey(h.colour)) ?? st.loss_pct ?? 0;
       // Out of range: hand it on as the step's loss so `comboUplift` refuses it.
       if (!Number.isFinite(L) || L < 0 || L >= 100) return { ...st, loss_pct: L, color_losses: null };
       uplift += h.share / total / (1 - L / 100);

@@ -114,7 +114,11 @@ export function ContractReviewClient({
       <RowActions
         label={r.code}
         onDelete={() => startTransition(async () => { const res = await deleteContractReview(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
-        canDelete={r.approval_status === "pending"}
+        /* A decided review keeps its bin, greyed, saying why (2026-09-29) —
+           a missing bin reads as a missing permission. */
+        deleteDisabledReason={
+          r.approval_status === "pending" ? null : "Approved or rejected reviews cannot be deleted"
+        }
         isPending={isPending}
       />
     )),

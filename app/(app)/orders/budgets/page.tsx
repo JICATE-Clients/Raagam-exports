@@ -1,5 +1,6 @@
 import { requirePermission, can } from "@/lib/auth/server";
 import { getBudgetFormData, listOrderBudgets } from "@/lib/orders/budget/service";
+import { overrideEditState } from "@/lib/orders/overrides/editor-state";
 import { BudgetScreen } from "./budget-screen";
 
 /**
@@ -28,7 +29,7 @@ export default async function BudgetsPage({
      line's cell once the budget is open. */
   const { budget: openId, line: openLine, field: openField } = await searchParams;
 
-  const [budgets, data, canCreate, canEdit, canDelete, mCreate, mEdit, canApprove] = await Promise.all([
+  const [budgets, data, canCreate, canEdit, canDelete, mCreate, mEdit, canApprove, overrideState] = await Promise.all([
     listOrderBudgets(),
     getBudgetFormData(),
     can("orders", "create"),
@@ -43,6 +44,8 @@ export default async function BudgetsPage({
     // it undoes an approval and unlocks the orders, so it answers to the same
     // permission that granted it — and the RPC refuses anyone else anyway.
     can("orders", "approve"),
+    // The caller's live permission-override keys (0653) — null without one.
+    overrideEditState(),
   ]);
 
   return (
@@ -54,6 +57,7 @@ export default async function BudgetsPage({
       openId={openId ?? null}
       openLine={openLine ?? null}
       openField={openField ?? null}
+      overrideState={overrideState}
     />
   );
 }

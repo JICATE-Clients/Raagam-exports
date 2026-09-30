@@ -137,8 +137,14 @@ export type MasterListShellProps<Row> = {
      * to one. Associates is the module being moved over first.
      */
     variant?: "icons" | "menu";
-    /** Extra items behind a `⋮` — Duplicate, Export row. Never Delete. */
+    /** Extra row actions — Duplicate, Export row. Never Delete. */
     menu?: (r: Row) => RowMenuItem[];
+    /**
+     * How `menu` renders on the icons variant. `"dropdown"` (the default here)
+     * keeps Master Data's `⋮`; a screen OUTSIDE Master Data that borrows this
+     * shell passes `"icons"` — the app-wide no-⋮ rule (see `RowIconAction`).
+     */
+    menuAs?: "icons" | "dropdown";
   };
   /**
    * The row's name, folded into every action's aria-label ("Edit CHENNAI").
@@ -386,6 +392,9 @@ export function MasterListShell<Row>({
           canDelete={perms.canDelete}
           isPending={isPending}
           menu={actions?.menu?.(r) ?? []}
+          /* Master Data keeps its ⋮ (see `RowIconAction`) — the one module
+             the 2026-09-29 inline-icons rule was scoped away from. */
+          menuAs={actions?.menuAs ?? "dropdown"}
         />
       )),
     ];

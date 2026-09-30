@@ -205,7 +205,10 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
   if (mode === "list") {
     const columns: Column<TaStyle>[] = [
       {
-        header: "Style Ref No",
+        /* "TA STYLE NO" (user 2026-09-29: remove Style Ref everywhere). This
+           is the T&A template's own auto code, never an order's style — the
+           old label read as the order's Style Ref. */
+        header: "TA Style No",
         cell: (r) => (
           <button
             type="button"
@@ -255,7 +258,7 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
         <FilterBar
           search={query}
           onSearch={setQuery}
-          searchPlaceholder="Search Style Ref No, customer or description…"
+          searchPlaceholder="Search TA Style No, customer or description…"
           activeCount={facets.activeCount}
           onReset={facets.activeCount ? facets.reset : undefined}
           panel={facets.panel}
@@ -349,7 +352,7 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
       <Card>
         <CardBody>
           <FieldGrid>
-            <Field label="Style Ref No" size="sm" htmlFor="tas-ref">
+            <Field label="TA Style No" size="sm" htmlFor="tas-ref">
               <Input id="tas-ref" className="font-mono" value={editCode ?? "(auto)"} readOnly />
             </Field>
             {/* The picker draws its own label; `Field` carries the span. */}

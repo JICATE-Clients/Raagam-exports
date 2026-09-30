@@ -2,9 +2,13 @@
 
 import { PenTool } from "lucide-react";
 import { OrderCadTab } from "@/components/orders/cad/order-cad-tab";
+import { clearPendingCad, pendingCadProblem, savePendingCad } from "@/components/orders/cad/cad-pending";
 import { prefetchOrderTabs } from "@/lib/orders/order-tab-reads";
 import { LAYOUT_TYPES } from "@/lib/orders/cad-lifecycle/types";
 import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
+import { OverrideBanner, useOverrideCommit, type OverrideSaveRequest } from "@/components/orders/override-commit";
+import { areaOverride, overrideScopeOf } from "@/lib/orders/overrides/override-modules";
+import type { OverrideEditState } from "@/lib/orders/overrides/types";
 import {
   Fragment,
   type FocusEvent,
@@ -116,7 +120,8 @@ import { Segmented } from "@/components/ui/segmented";
 import type { FieldWidth } from "@/lib/ui/sizes";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
+import { RowActions, RowIconAction } from "@/components/ui/row-actions";
+import { isPendingLockMessage } from "@/lib/orders/budget/amendment";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import {
   BOM_STATUSES,
@@ -397,6 +402,13 @@ interface Props {
    * amending order already has its revision. Absent key = no link.
    */
   raiseFor?: Record<string, string>;
+  /**
+   * The caller's live PERMISSION-OVERRIDE keys (doc/email role system.md, 0653)
+   * — null for anyone without one. With a key opening Order Entry, an order in
+   * `raiseFor` (approved, not pending, not amending) opens in override edit
+   * mode: the key's sections unlock and Save asks for a reason (R-16).
+   */
+  overrideState?: OverrideEditState | null;
   /**
    * Orders under an OPEN AMENDMENT ENTRY (0604 · 0616), keyed by amendment id.
    * Resolved by the loader (`orderAmendmentStates`) for the same reason as
@@ -1980,6 +1992,7 @@ export function GarmentOrderScreen({
   purpose = "entry",
   orderLocks,
   raiseFor = {},
+  overrideState = null,
   orderAmendments,
   status,
   quickCounts,
@@ -2010,6 +2023,10 @@ export function GarmentOrderScreen({
    */
   const listedComboStyles = useRef<Set<string>>(new Set());
   const [isPending, start] = useTransition();
+  /* PERMISSION OVERRIDE (0653) — the "Commit Changes (Override)" dialog. A
+     hook, so it lives up here with the others, ABOVE the `if (mode === "list")`
+     return (AGENTS.md: that rule has been broken five times in this file). */
+  const overrideCommit = useOverrideCommit();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
@@ -4308,6 +4325,9 @@ export function GarmentOrderScreen({
   }
 
   function openEdit(r: GarmentOrderAmendment) {
+    // A CAD step typed on an earlier visit and never saved is not carried into
+    // this one (cad-pending.ts) — the order's own fields are not either.
+    clearPendingCad(r.id);
     setViewOnly(false);
     setSavedOrderNo(r.sales_order?.order_number ?? null);
     setPreviewNo(null);
@@ -4925,11 +4945,36 @@ export function GarmentOrderScreen({
         approval_id: r.approval_id,
       })),
     };
-    start(async () => {
+    /* THE CAD TAB SAVES WITH THE ORDER (user 2026-09-30, screenshot 3136). Its
+       forms have no buttons now; a changed one is parked in `cad-pending.ts`.
+       Refused HERE, before the order is written, so an incomplete CAD step
+       never leaves a saved order and an unsaved CAD behind one click. */
+    const cadProblem = editId ? pendingCadProblem(editId) : null;
+    if (cadProblem) {
+      toastError(cadProblem);
+      return;
+    }
+    /* PERMISSION OVERRIDE (0653, doc/email role system.md §7.2). On an
+       approved order the caller holds a key for, Save becomes "Commit Changes
+       (Override)": the dialog takes the reason (R-16) and hands it back here,
+       and the SAME save runs with it — the action opens the override commit
+       around the unchanged body. A refusal toasts and keeps every typed value;
+       nothing below resets the editor unless the save succeeded. */
+    const override = editId ? areaOverride(overrideState, "order", raiseFor[editId]) : null;
+    const doSave = (o?: OverrideSaveRequest) => start(async () => {
       const res = editId
-        ? await updateAmendment(editId, payload)
+        ? await updateAmendment(editId, payload, o)
         : await createAmendment(payload);
       if (res.ok) {
+        /* The order FIRST — a CAD is allocated against its saved styles. A
+           CAD write that fails keeps the editor open with the step still
+           parked, so pressing Save again retries only what did not land. */
+        const cad = editId ? await savePendingCad(editId) : { saved: 0, errors: [] };
+        if (cad.errors.length) {
+          toastError(`The order was saved, but the CAD was not — ${cad.errors.join("; ")}`);
+          router.refresh();
+          return;
+        }
         success(
           (amending
             ? "Amendment updated"
@@ -4938,7 +4983,8 @@ export function GarmentOrderScreen({
               : "Garment order created") +
             /* 0619 — what the automatic BOM recalculation did, or what it
                could not fill (Manual Entry Needed). */
-            ("notice" in res && res.notice ? ` — ${res.notice}` : ""),
+            ("notice" in res && res.notice ? ` — ${res.notice}` : "") +
+            (o ? " — recorded in the Override Edit Report" : ""),
         );
         setMode("list");
         router.refresh();
@@ -4946,6 +4992,11 @@ export function GarmentOrderScreen({
         toastError(res.error);
       }
     });
+    if (override) {
+      overrideCommit.request(override, doSave);
+      return;
+    }
+    doSave();
   }
 
   function del(r: GarmentOrderAmendment) {
@@ -5439,10 +5490,19 @@ export function GarmentOrderScreen({
             options: [
               { value: "open", label: "Open" },
               { value: "amending", label: "Under revision" },
+              /* 0652: a budget with the MD locks the order too — its own state,
+                 not "Approved", which it is not yet. The lock sentence says which. */
+              { value: "pending", label: "Waiting for MD" },
               { value: "approved", label: "Approved" },
             ],
             match: (r, v) =>
-              (orderLocks[r.id] ? "approved" : orderAmendments[r.id] ? "amending" : "open") === v,
+              (orderLocks[r.id]
+                ? isPendingLockMessage(orderLocks[r.id])
+                  ? "pending"
+                  : "approved"
+                : orderAmendments[r.id]
+                  ? "amending"
+                  : "open") === v,
           },
           {
             key: "bom",
@@ -5729,48 +5789,52 @@ export function GarmentOrderScreen({
            * asks for “the sheet for HO/RE/26-27/0009”, and each document resolves
            * its own current BOM.
            */
-          menu={(() => {
-            const soId = r.sales_order_id;
-            /* ONE ENTRY, NOT THREE (client 2026-09-07: "reports listing
-               separate separate, make it as reports one single value").
-               The three used to be flat items under a "Documents" heading —
-               Order sheet / Material BOM / Fabric BOM, each its own row menu
-               click. `OrderDocumentTabs` (components/orders/order-document-
-               tabs.tsx) already exists as the switcher BETWEEN the three, and
-               every one of the three pages already renders it — so three menu
-               entries and the tab strip were two ways of answering the same
-               "which document" question, and the menu was the redundant one.
-               Reports now opens straight to the order sheet (the one document
-               with no gate — see the note this replaced), and the tab strip on
-               that page reaches the rest in one click each.
+          /* THE ROW IS REPORT · EDIT · DELETE, AND NOTHING ELSE (client
+             2026-09-29). The ⋮ menu is gone — its one item was Reports — and
+             the eye went with it: the RE No link already opens the order (read
+             only without edit permission), so the eye was a second door to the
+             same room while Reports sat a click deeper behind ⋮. Reports now
+             takes the eye's slot, on every order, approved or not.
 
-               THE STRIP IS `ORDER_REPORTS` (client 2026-09-19: "report option
-               is not linked with the actual report"). It was a list of three
-               while the Fabric BOM's own reports lived only inside its editor;
-               every report registered in `lib/orders/order-reports.ts` is now on
-               it, and this entry opens the registry's first. */
-            return [
-              {
-                label: soId ? "Reports" : "Reports — no order number yet",
-                icon: FileText,
-                disabled: !soId,
-                onClick: () => soId && router.push(orderReportHref(soId, ORDER_REPORTS[0])),
-              },
-              /* NO AMEND HERE (user 2026-09-23): an amendment is raised and
-                 worked inside Orders ▸ Order Amendments. The row's RE Status
-                 pill says when one is open. */
-            ];
-          })()}
-          /* THE EYE OPENS THE ORDER, READ ONLY — see `openView`. Replaces the
-             automatic raw-column sheet `RowActions` draws when no `onView`. */
-          onView={() => openView(r)}
+             Reports still opens `ORDER_REPORTS[0]`, whose tab strip reaches every
+             other registered report (see "An order's reports are declared once"
+             in AGENTS.md). The `!soId` gate stays for the reason it always had:
+             with no sales order there is no route to push — the icon is greyed
+             and says so rather than vanishing. */
+          view={false}
+          lead={
+            <RowIconAction
+              label="Reports"
+              name={r.sales_order?.order_number ?? r.code}
+              icon={FileText}
+              className="text-primary"
+              onClick={
+                r.sales_order_id
+                  ? () => router.push(orderReportHref(r.sales_order_id!, ORDER_REPORTS[0]))
+                  : undefined
+              }
+              disabledReason={
+                r.sales_order_id ? null : "No order number yet — save the order first"
+              }
+            />
+          }
           onEdit={() => openEdit(r)}
-          /* An APPROVED order offers no Edit or Delete (Phase 5): both would be
-             refused on save. It can still be VIEWED — the eye, or the RE No,
-             which opens the editor locked with the reason on it. */
-          canEdit={perms.canEdit && !orderLocks[r.id]}
+          /* AN APPROVED ORDER KEEPS ITS PENCIL AND BIN, GREYED (client
+             2026-09-29) — until then both were hidden, and an operator reading
+             a row with no Edit could not tell "approved" from "no permission".
+             Visible-but-refusing, with the reason on hover/focus, says which.
+             Permission still HIDES them: that is not a state of the order.
+             Both would be refused on save anyway (Phase 5); the RE No still
+             opens the editor locked with the full lock sentence on it. */
+          canEdit={perms.canEdit}
+          /* THE LOCK'S OWN SENTENCE (0652): approved ("… Raise an Order
+             Revision to change it") or waiting for the MD ("… until the MD
+             approves it or sends it back for rework") — the words the editor's
+             banner and the database's refusal use, so the three agree. */
+          editDisabledReason={orderLocks[r.id] ?? null}
           onDelete={() => del(r)}
-          canDelete={perms.canDelete && !orderLocks[r.id]}
+          canDelete={perms.canDelete}
+          deleteDisabledReason={orderLocks[r.id] ?? null}
           isPending={isPending}
         />
       )),
@@ -12905,7 +12969,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         out.push({
           section: "quantities",
           label: "Assortment style",
-          message: `${who}: ${orphans === 1 ? "one assortment line has" : `${orphans} assortment lines have`} quantities but name no style. Open Details and pick a Style Ref No, or switch back to Single Style.`,
+          message: `${who}: ${orphans === 1 ? "one assortment line has" : `${orphans} assortment lines have`} quantities but name no style. Open Details and pick a Style, or switch back to Single Style.`,
           kind: "custom",
         });
       }
@@ -13973,8 +14037,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * and combo from the previous tab data").
    *
    * Legacy's tab is master-detail and the conversion took only the master, so a
-   * pack type was a WORD with nothing under it. The four columns are legacy's:
-   * StyleRefNo | Style No | Combo | Qty.
+   * pack type was a WORD with nothing under it. Legacy's four columns were
+   * StyleRefNo | Style No | Combo | Qty; since 2026-09-29 (user: remove Style
+   * Ref everywhere) the first two are ONE "Style" column — they held one value.
    *
    * ## BOTH LISTS COME FROM THE TABS BEFORE THIS ONE, WHICH IS THE ASK
    *
@@ -13989,13 +14054,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * it — which reads as "nobody filled this in" and invites the operator to
    * overwrite a value they were never shown.
    *
-   * ## STYLE NO IS A FACT, NOT A FIELD
+   * ## NO SEPARATE "STYLE NO" COLUMN (2026-09-29)
    *
-   * Rendered as text rather than a disabled input, so it neither invites a
-   * click nor sits in the Tab path — the call the Prices tab's Unit cell makes
-   * for the same shape. On a typed line it equals the ref ("THE REF IS THE
-   * NAME NOW"); the column is kept because legacy shows it and because a
-   * document imported with both still round-trips.
+   * It was a read-only echo of the picker: on a typed line the ref IS the name
+   * ("THE REF IS THE NAME NOW"), and `styleNameForRef` finds the line by the
+   * ref, so it could only ever print the same string. Removed with the "Style
+   * Ref No" label; the stored `style_ref_no` is unchanged.
    *
    * ## NOTHING IS `required`
    *
@@ -14021,7 +14085,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          layout, and the choice is per grid rather than per pixel. */
       columns={[
         {
-          header: "Style Ref No",
+          /* "STYLE", ONE COLUMN (user 2026-09-29: remove Style Ref everywhere).
+             The value IS the Style typed on Order Info (`style_ref_no` — the
+             key is untouched); the read-only "Style No" column beside it
+             printed the same string (`styleNameForRef` finds the line BY this
+             ref, so it always returns it) and is gone. */
+          header: "Style",
           cell: (l) => (
             <Combobox
               options={withHeldOption(styleRefOptions, l.style_ref_no)}
@@ -14051,14 +14120,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           ),
         },
         {
-          header: "Style No",
-          cell: (l) => (
-            <div className="flex min-h-8 items-center text-sm text-muted-foreground">
-              <Truncated>{styleNameForRef(l.style_ref_no) || "—"}</Truncated>
-            </div>
-          ),
-        },
-        {
           header: "Combo",
           cell: (l) => {
             const scoped = comboOptionsForStyle(l.style_ref_no).map((c) => ({
@@ -14077,12 +14138,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   )
                 }
                 /* placeholder-blank: exempt -- names the tab that fills this,
-                   the same way the Style Ref cell above names its section. A
+                   the same way the Style cell above names its section. A
                    line whose style is not chosen yet cannot have a colourway
                    list at all, and the two states read differently. */
                 placeholder={
                   !l.style_ref_no.trim()
-                    ? "Pick a Style Ref No first"
+                    ? "Pick a Style first"
                     : scoped.length
                       ? undefined
                       : "No combos on this style yet"
@@ -19409,7 +19470,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                blocked Save name the REF and the count; this names the lines.
                Worded from the row's side rather than restating the count. */
             ...(duplicateStyleRefs.some((d) => d.ref === styleKey(r.style_ref_no))
-              ? ["Another style line carries this same Style ref."]
+              ? ["Another style line carries this same Style."]
               : []),
           ];
           /* AMBER, AND NOW HONESTLY SO: what is left here is PO Qty alone, which
@@ -23349,16 +23410,29 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     /* CAD (doc/order/cad.md; user 2026-09-24: "Both"). This order's CAD
        lifecycle per style — the same steps and sheets as Orders ▸ CAD ▸ CAD
        Lifecycle (`useCadActions`). A component that reads its own rows, so no
-       hook joins this screen below its early return. Its writes are CAD
-       documents through their own actions, never this order's Save; the Eye's
-       read-only view passes canEdit=false. */
+       hook joins this screen below its early return. THIS ORDER'S SAVE WRITES
+       ITS CAD STEP (user 2026-09-30, screenshot 3136: no separate Save) — see
+       `submit` and `cad-pending.ts`. Not on a locked order: its Save is
+       refused, and CAD is outside the lock, so there the forms keep their own
+       buttons. The Eye's read-only view passes canEdit=false. */
     {
       key: "cad",
       label: "CAD",
       icon: PenTool,
-      content: <OrderCadTab orderId={editId} canEdit={perms.canEdit && !viewOnly} />,
+      content: (
+        <OrderCadTab
+          orderId={editId}
+          canEdit={perms.canEdit && !viewOnly}
+          withOrderSave={!(editId && (orderLocks[editId] || (orderAmendments[editId] && !embed)))}
+        />
+      ),
     },
   ];
+
+  /* PERMISSION OVERRIDE (0653) — a plain const, no hook: this is below the
+     `if (mode === "list")` return. Non-null only on an APPROVED order
+     (`raiseFor`) the caller holds a live Order Entry key for. */
+  const editOverride = editId ? areaOverride(overrideState, "order", raiseFor[editId]) : null;
 
   return (
     // `flex h-full flex-col` is what a page-mounted MasterFullScreen requires:
@@ -23378,7 +23452,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       {/**
         * A DIVIDER, NOT A PAGE HEADER (client 2026-09-05, reference: the
         * label/hairline band Fabric BOM's Components tab uses for its own
-        * "Style Ref No · Style No · Article No" strip — `StyleIdentityBand`,
+        * "Style · Style No · Article No" strip — `StyleIdentityBand`,
         * `components/orders/style-identity-band.tsx`. That component takes a
         * style's own three fields and cannot name an order, so this is the
         * same VISUAL LANGUAGE (uppercase 10.5px label, bold value, a hairline
@@ -23529,7 +23603,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            triggers are the lock; this is the banner, the read-only fields and
            a Save that explains. Order Amendment (purpose="amend") locks too. */
         locked={
-          editId && orderLocks[editId]
+          editOverride
+            ? /* OVERRIDE EDIT MODE (0653): locked, with exactly the sections the
+                 caller's keys open lifted — the same `openAreasOf` a revision
+                 uses, over the keys' seed scope (never the whole-order overlay,
+                 R-17). The trigger still judges every row and column. */
+              {
+                message: <OverrideBanner override={editOverride} />,
+                open: openAreasOf(overrideScopeOf(editOverride.keys)),
+                action: raiseFor[editId as string] ? <RaiseRevisionLink orderId={raiseFor[editId as string]} /> : undefined,
+              }
+            : editId && orderLocks[editId]
             ? /* APPROVED: the way out is a link to the register (user
                  2026-09-24), which stays the one door a revision goes through. */
               {
@@ -23601,9 +23685,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               : editId
                 ? "Editing garment order"
                 : "New garment order",
-          onCancel: () => setMode("list"),
+          onCancel: () => {
+            clearPendingCad(editId);
+            setMode("list");
+          },
           onSave: () => submit(false),
-          saveLabel: amending ? "Save amendment" : "Save garment order",
+          saveLabel: editOverride ? "Commit Changes (Override)" : amending ? "Save amendment" : "Save garment order",
           canSave,
           /* THE LINE THAT WAS MISSING. Without it the primitive disables Save,
              which is a dead button and — via `submitTargetOf` — Ctrl+S and Enter
@@ -23735,6 +23822,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           },
         }}
       />
+      {/* PERMISSION OVERRIDE (0653) — "Commit Changes (Override)". */}
+      {overrideCommit.dialog}
       {/*
        * THE STRUCTURE DETAILS OVERLAY (0408 · 0409).
        *

@@ -1335,6 +1335,11 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/admin/users", label: "Users", description: "User accounts and their roles" },
           { href: "/admin/roles", label: "Roles & Permissions", description: "Role grants and permission scopes" },
           { href: "/admin/audit", label: "Audit Log", description: "Who changed what, and when" },
+          {
+            href: "/admin/permission-overrides",
+            label: "Permission Overrides",
+            description: "Time-limited access to edit approved orders in place",
+          },
         ],
       },
       {

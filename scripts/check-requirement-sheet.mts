@@ -21,6 +21,7 @@
  * Runs under `tsx` because the module imports a `@/lib/...` alias at runtime.
  */
 import {
+  ACCESSORY_COLUMNS,
   accessoryQty,
   accessoryRows,
   consumptionLabel,
@@ -298,9 +299,16 @@ check(
   grid[1].item,
   "LABEL / MAIN & SIZE / PRINTED / SATIN / CUT & SEAL",
 );
-check("Specification is the line's supply type, as the printout", grid[0].spec, "Type:Local");
-check("...followed by the line's own specification text", grid[1].spec, "Type:Local SATIN FINISH");
-check("a line with no supply type prints nothing, not 'Type:'", grid[3].spec, null);
+/* SPECIFICATION IS THE USER'S OWN TEXT, OR NOTHING (user 2026-09-29): the
+   supply type ("Local", every new line's default) is no longer printed. */
+check("a line with no specification prints nothing — not 'Type:Local'", grid[0].spec, null);
+check("a line's specification prints exactly as typed", grid[1].spec, "SATIN FINISH");
+check("a line with no supply type and no specification prints nothing", grid[3].spec, null);
+check(
+  "columns run Item Name → Consumption → Color → Size → Specification → UOM → Required Qty",
+  [...ACCESSORY_COLUMNS],
+  ["Category", "Item Name", "Consumption", "Color", "Size", "Specification", "UOM", "Required Qty"],
+);
 check(
   "each colour is its own row, and one colour across two lines is summed",
   grid.filter((r) => r.item.startsWith("PIN")).map((r) => [r.colour, r.qty]),

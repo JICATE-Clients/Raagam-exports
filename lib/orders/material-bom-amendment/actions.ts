@@ -15,6 +15,7 @@ import {
   type BomCopyPayload,
 } from "./types";
 import { getOrderProduction } from "./service";
+import { saveUnderOverride, type OverrideSave } from "@/lib/orders/overrides/commit";
 import {
   basisFingerprint,
   colourSplits,
@@ -1518,7 +1519,25 @@ export async function createMaterialBomAmendment(
   return { ok: true, id: created.id };
 }
 
+/**
+ * Save a Material BOM. With `override` (0653) the save runs inside a permission-
+ * override commit on its APPROVED order — the same body and guards; the lock
+ * helper finds the open commit and passes when its keys open the Material BOM.
+ */
 export async function updateMaterialBomAmendment(
+  id: string,
+  data: MaterialBomAmendmentInput,
+  override?: OverrideSave,
+): Promise<Result> {
+  if (!override) return saveMaterialBomAmendment(id, data);
+  const s = await createClient();
+  const stored = await storedBomOrderId(s, id);
+  if (!stored.ok) return fail(stored.error);
+  if (!stored.orderId) return fail("This Material BOM belongs to no order — there is no approval lock to override.");
+  return saveUnderOverride(stored.orderId, override, () => saveMaterialBomAmendment(id, data));
+}
+
+async function saveMaterialBomAmendment(
   id: string,
   data: MaterialBomAmendmentInput,
 ): Promise<Result> {

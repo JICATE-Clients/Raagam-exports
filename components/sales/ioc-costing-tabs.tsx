@@ -71,7 +71,7 @@ function StyleCostsSummaryTab({ styleCosts, costSheetId, opportunityId, currency
 
   const columns: Column<IocStyleCost>[] = [
     { header: "#", cell: (r) => r.sno },
-    { header: "Style Ref", cell: (r) => r.style_ref_no ?? "—" },
+    { header: "Style", cell: (r) => r.style_ref_no ?? "—" },
     { header: "Style No", cell: (r) => r.style_no ?? "—" },
     { header: "Article", cell: (r) => r.article_no ?? "—" },
     { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.order_qty ?? "—"}</span> },
@@ -97,7 +97,7 @@ function StyleCostsSummaryTab({ styleCosts, costSheetId, opportunityId, currency
       </div>
       {adding && (
         <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
-          <div><Label>Style Ref</Label><Input className="w-24" value={form.style_ref_no} onChange={(e) => setForm({ ...form, style_ref_no: e.target.value })} /></div>
+          <div><Label>Style</Label><Input className="w-24" value={form.style_ref_no} onChange={(e) => setForm({ ...form, style_ref_no: e.target.value })} /></div>
           <div><Label>Style No</Label><Input className="w-24" value={form.style_no} onChange={(e) => setForm({ ...form, style_no: e.target.value })} /></div>
           <div><Label>Article</Label><Input className="w-24" value={form.article_no} onChange={(e) => setForm({ ...form, article_no: e.target.value })} /></div>
           <div><Label>UOM</Label><Input className="w-16" value={form.uom_id} onChange={(e) => setForm({ ...form, uom_id: e.target.value })} /></div>

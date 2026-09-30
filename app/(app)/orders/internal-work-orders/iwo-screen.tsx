@@ -23,7 +23,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarRange, ClipboardList, Layers, Users } from "lucide-react";
+import { Ban, CalendarRange, CheckCircle2, ClipboardList, Layers, Send, Users, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -518,26 +518,28 @@ export function IwoScreen({
       ),
     },
     rowActionsColumn((r) => {
-      // The status steps the old detail page carried as buttons live in the
-      // row's ⋮, since the editor is a mode of this list.
+      // The status steps the old detail page carried as buttons are the row's
+      // own icons (no ⋮ since 2026-09-29), since the editor is a mode of this list.
       const menu: RowMenuItem[] = [];
       const b = isIwoFor(r.iwo_for) ? bomOf(r.iwo_for) : null;
       if (b && isIwoFor(r.iwo_for)) {
         const f = r.iwo_for;
-        menu.push({ label: `Open ${b.label}`, onClick: () => router.push(bomHref(f, r.id)) });
+        menu.push({ label: `Open ${b.label}`, icon: Layers, onClick: () => router.push(bomHref(f, r.id)) });
         // The work order's budget, pulled from that BOM (0594).
-        menu.push({ label: "Open Budget", onClick: () => router.push(`/orders/iwo-budgets?open=${r.id}`) });
+        menu.push({ label: "Open Budget", icon: Wallet, onClick: () => router.push(`/orders/iwo-budgets?open=${r.id}`) });
       }
       if (perms.canEdit && r.status === "draft")
-        menu.push({ label: "Issue", onClick: () => changeStatus(r, "issued", "Work order issued") });
+        menu.push({ label: "Issue", icon: Send, onClick: () => changeStatus(r, "issued", "Work order issued") });
       if (perms.canEdit && r.status === "issued")
         menu.push({
           label: "Mark complete",
+          icon: CheckCircle2,
           onClick: () => changeStatus(r, "completed", "Work order completed"),
         });
       if (perms.canEdit && (r.status === "draft" || r.status === "issued"))
         menu.push({
           label: "Cancel work order",
+          icon: Ban,
           danger: true,
           onClick: () => changeStatus(r, "cancelled", "Work order cancelled"),
         });

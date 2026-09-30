@@ -779,7 +779,13 @@ export function IwoBudgetScreen({
         onEdit={() => openTask(t)}
         canEdit={t.budget ? perms.canEdit : perms.canCreate}
         onDelete={t.budget ? () => del(t) : undefined}
-        canDelete={!!t.budget && perms.canDelete && (t.budget.status === "draft" || t.budget.status === "rejected")}
+        canDelete={!!t.budget && perms.canDelete}
+        /* A submitted / approved budget keeps its bin, greyed (2026-09-29). */
+        deleteDisabledReason={
+          t.budget && t.budget.status !== "draft" && t.budget.status !== "rejected"
+            ? "Submitted or approved budgets cannot be deleted"
+            : null
+        }
         deleteLabel="Delete budget"
         isPending={isPending}
       />

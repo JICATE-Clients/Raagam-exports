@@ -231,7 +231,7 @@ export function blockedRows(): (ClientGrainRow & { reason: string })[] {
  *
  * So the two are standardised on the CLIENT'S name instead, and this is the one
  * function that resolves it. `labelFor` is deliberately NOT changed: it is the
- * ENGINE's naming, it appears inside refusal sentences ("Style Ref No / Country
+ * ENGINE's naming, it appears inside refusal sentences ("Style / Country
  * is not a split this order can be exploded by yet"), and several vectors assert
  * those strings exactly. Two names for two audiences, one lookup each, neither
  * guessing at the other.

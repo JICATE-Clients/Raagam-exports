@@ -225,6 +225,10 @@ export type BomDocHeader = {
   styleNo: string | null;
   deliveryFromDate: string | null;
   deliveryToDate: string | null;
+  /** The EARLIEST Earlier Shipment Date across the order's destinations
+   *  (2026-09-29) — the date the new sheet format leads with. Null when no
+   *  destination has one; never the delivery date standing in for it. */
+  earlierShipmentDate?: string | null;
   excessPct: number | null;
   /** null when the order carries no Approval Qty yet, or a chosen Garment
    *  Rejection Rule has a gap — same refusal `productionTarget` itself makes,
@@ -359,7 +363,7 @@ async function loadDocHeader(src: DocSource, bomId: string): Promise<BomDocHeade
      line agrees — same abstain rule `fabricAllocationColumns`'s GSM lookup
      uses ("one distinct answer or nothing"), rather than picking the first
      line's style and mislabelling a multi-style document. */
-  const [order, coRes, styleRes, orderStyleRes, cadPending] = await Promise.all([
+  const [order, coRes, styleRes, orderStyleRes, cadPending, shipRes] = await Promise.all([
     getOrderProduction(go.id),
     s.from("company_profile").select("*").limit(1).maybeSingle(),
     s.from(src.linesTable).select("style_ref_no").eq(src.linesKey, bomId),
@@ -379,7 +383,10 @@ async function loadDocHeader(src: DocSource, bomId: string): Promise<BomDocHeade
     /* THE CAD STAMP'S FLAG (0628) — a Fabric BOM's own question; the Material
        BOM shares this loader and never asks it. */
     src.table === "order_fabric_boms" ? cadOrderPending(go.id) : Promise.resolve(undefined),
+    // The destinations' Earlier Shipment Dates (2026-09-29).
+    s.from("garment_order_amendment_quantities").select("earlier_shipment_date").eq("amendment_id", go.id),
   ]);
+  if (shipRes.error) return { refused: `Could not read the order's shipment dates: ${shipRes.error.message}` };
   if (orderStyleRes.error) {
     return { refused: `Could not read the order's styles: ${orderStyleRes.error.message}` };
   }
@@ -456,6 +463,11 @@ async function loadDocHeader(src: DocSource, bomId: string): Promise<BomDocHeade
     // slots would invent a range nobody entered.
     deliveryFromDate: go.delivery_date,
     deliveryToDate: go.delivery_date,
+    earlierShipmentDate:
+      ((shipRes.data ?? []) as { earlier_shipment_date: string | null }[])
+        .map((r) => (r.earlier_shipment_date ?? "").trim())
+        .filter(Boolean)
+        .sort()[0] ?? null,
     excessPct: go.excess_pct,
     qty,
   };
@@ -1258,7 +1270,20 @@ export type YarnRequirementLine = {
    *  fabric's own later stage (see the Process Stage Ledger). Not a stored
    *  column: `order_fabric_bom_yarns` names no stage of its own, so this is
    *  the one state every row is actually in, stated rather than invented. */
-  stageState: "GREY";
+  stageState: "GREY" | "DYED";
+  /**
+   * GREIGE VS DYED YARN PURCHASE (client 2026-09-29, record-1790664848668):
+   * yarn bought undyed for the dye house and yarn bought already dyed from the
+   * market are two purchases and print as two kinds of line. `dyedPurchases`
+   * are the colours a Color-Wise DYED YARN PURCHASE step names (WHITE), each
+   * with its own plan, loss and weight; `greigeQty` is what is left of
+   * `purchaseQty` for them — the grey yarn the dye house gets (RED + GREEN).
+   * `purchaseQty` stays the yarn's WHOLE purchase: the total row and Fabric T&A
+   * (one row per yarn) read it. A yarn bought wholly dyed (a dyed purchase that
+   * is not Color-Wise) is `stageState: "DYED"` with no split.
+   */
+  greigeQty?: number | null;
+  dyedPurchases?: { colour: string; plannedWt: number; lossPct: number | null; toOrderedWt: number }[];
   /** Always "YARN" — the legacy PDF's own Type column, constant on every
    *  yarn row (Type varies only in the FABRIC ledger, where it distinguishes
    *  Solid/Melange/Yarn Dyed). */
@@ -1727,6 +1752,28 @@ export async function yarnFabricRequirementReport(
         if (k.trim() && Number.isFinite(Number(v))) held.set(k.trim().toUpperCase(), Number(v));
       }
       dyeStepLoss.set(r.item_id, held);
+    }
+  }
+  /* THE DYED PURCHASE'S OWN LOSS PER COLOUR (2026-09-29) — its Color-Wise
+     list (WHITE 2), else the step's Loss %. What a DYED line grosses by. */
+  const boughtDyedLoss = new Map<string, { byColour: Map<string, number>; step: number | null }>();
+  for (const r of rows) {
+    for (const st of r.stages ?? []) {
+      const stage = one(st.stage);
+      const dyedPurchase =
+        !!one(st.process)?.is_cloth_purchase &&
+        (stageRank({ id: "", code: stage?.code ?? null, name: stage?.name ?? "" }) ?? 0) >= 1;
+      if (!dyedPurchase) continue;
+      const held = boughtDyedLoss.get(r.item_id) ?? { byColour: new Map<string, number>(), step: null };
+      if (st.loss_pct != null && String(st.loss_pct).trim() !== "" && Number.isFinite(Number(st.loss_pct))) {
+        held.step = Number(st.loss_pct);
+      }
+      if (st.color_wise_loss) {
+        for (const [k, v] of Object.entries(st.color_losses ?? {})) {
+          if (k.trim() && Number.isFinite(Number(v))) held.byColour.set(k.trim().toUpperCase(), Number(v));
+        }
+      }
+      boughtDyedLoss.set(r.item_id, held);
     }
   }
   const boughtDyed = (yarnId: string, colour: string | null | undefined) => {
@@ -2667,6 +2714,8 @@ export async function yarnFabricRequirementReport(
   const byYarnFabricWt = new Map<string, Map<string, YarnFabricContribution[]>>(); // yarnId -> fabricId -> contributions
   /** One cloth's contribution to one stripe of one yarn, before the slices of
    *  one dye lot are summed — see the grouping note below the loop. */
+  /** Stripes bought ALREADY DYED (2026-09-29) — the DYED yarn purchase lines. */
+  const dyedPurchaseSlices: { yarnItemId: string; colour: string; plannedWt: number }[] = [];
   const dyeingSlices: {
     yarnItemId: string;
     yarnName: string;
@@ -3019,7 +3068,19 @@ export async function yarnFabricRequirementReport(
             if (stripes?.has(`${ck}::*`) || stripes?.has(`${ck}::${(stripeColour ?? "").trim().toUpperCase()}`)) return;
             /* 0648 — bought already dyed: no dye-house lot, no dyeing charge
                (per colour since 2026-09-29 — `boughtDyed`). */
-            if (boughtDyed(m.yarn_item_id, stripeColour)) return;
+            if (boughtDyed(m.yarn_item_id, stripeColour)) {
+              /* …but it IS bought — as dyed yarn, a line of its own under Yarn
+                 Purchase (2026-09-29). Only for a Color-Wise dyed purchase: a
+                 yarn bought wholly dyed prints as one DYED line already. */
+              if (boughtDyedColours.get(m.yarn_item_id)) {
+                dyedPurchaseSlices.push({
+                  yarnItemId: m.yarn_item_id,
+                  colour: (stripeColour ?? "").trim().toUpperCase(),
+                  plannedWt: (gross * m.mixing_pct) / 100,
+                });
+              }
+              return;
+            }
             dyeingSlices.push({
               yarnItemId: m.yarn_item_id,
               yarnName: m.yarn_name,
@@ -3162,13 +3223,38 @@ export async function yarnFabricRequirementReport(
        (fabric, panel branch) with the combined weight, the same consolidation
        the purchase total now takes. */
     const byFabric = consolidateContributions([...(byYarnFabricWt.get(r.item_id)?.values() ?? [])].flat());
+    /* GREIGE VS DYED (2026-09-29) — see `YarnRequirementLine.dyedPurchases`.
+       One line per colour across colourways: dyed yarn is bought per shade. */
+    const dyedByColour = new Map<string, number>();
+    for (const sl of dyedPurchaseSlices) {
+      if (sl.yarnItemId !== r.item_id) continue;
+      dyedByColour.set(sl.colour, (dyedByColour.get(sl.colour) ?? 0) + sl.plannedWt);
+    }
+    const lossOf = boughtDyedLoss.get(r.item_id);
+    const dyedPurchases = [...dyedByColour].map(([colour, planned]) => {
+      const L = lossOf?.byColour.get(colour) ?? lossOf?.step ?? null;
+      const ok = L != null && L >= 0 && L < 100;
+      return {
+        colour,
+        plannedWt: Number(planned.toFixed(3)),
+        lossPct: L,
+        toOrderedWt: Number((ok ? planned / (1 - L / 100) : planned).toFixed(3)),
+      };
+    });
+    const dyedTotal = dyedPurchases.reduce((sum, d) => sum + d.toOrderedWt, 0);
     return {
       itemId: r.item_id,
       yarnName: itemNames.get(r.item_id) ?? "(yarn not found)",
-      stageState: "GREY",
+      /* A yarn bought WHOLLY dyed (not Color-Wise) is a DYED purchase line. */
+      stageState: boughtDyedColours.has(r.item_id) && boughtDyedColours.get(r.item_id) === null ? "DYED" : "GREY",
       itemType: "YARN",
       color: shades && shades.size === 1 ? [...shades][0] : null,
       purchaseQty: r.purchase_qty,
+      greigeQty:
+        dyedPurchases.length > 0 && r.purchase_qty != null
+          ? Math.max(0, Number((Number(r.purchase_qty) - dyedTotal).toFixed(3)))
+          : null,
+      dyedPurchases,
       uomCode: r.uom_id ? (uomCodes.get(r.uom_id) ?? null) : null,
       refusalReason: r.refusal_reason,
       byFabric,

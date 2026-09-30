@@ -5,25 +5,53 @@
  * island. Handed the SAME `OrderBudgetReport` the page renders, so the page,
  * the paper and the spreadsheet cannot disagree.
  *
- * THE LEGACY RP "BUDGET STATEMENT", portrait A4: the boxed header, the
- * Quantity table, one Group Head · Cost Head · Particulars · Qty · UOM · Rate ·
- * Value table with its CONTRIBUTION lines, the summary boxes and the
- * signatures — inside the order documents' letterhead (green rule, blue title).
+ * IN THE SHEET FORMAT (user 2026-09-29: "this is okay apply it" — the approved
+ * "Raagam Budget Statement" mockup), portrait A4: masthead with the RE No and
+ * status, the order's facts, the RESULT first (net profit, sales value, total
+ * cost, cost per garment), where the cost goes as one bar to scale, the
+ * quantity as a sum, then one card per cost group — value, share and Rs / pc in
+ * its header; each Cost Head's lines and subtotal inside (the legacy's
+ * "… CONTRIBUTION ( 34.67 % ) RS. 82.84 PER GARMENT" figures, unchanged) — the
+ * summary, the amendment when there is one, and the signatures. Every figure
+ * of the legacy statement is kept. Blocks from `../report-pdf-kit.ts`; display
+ * decisions from `./sheet-format.ts`, which the screen reads too. Money prints
+ * "Rs" — the PDF's standard fonts have no ₹ glyph.
  *
- * THE YARN & FABRIC REQUIREMENT'S LOOK (user 2026-09-29): each block under a
- * filled BRAND bar (`drawSectionHeading`), tinted table heads, striped rows, the
- * Group Head CONTRIBUTION lines tinted as totals — from `../report-pdf-kit.ts`,
- * the one look every order report draws with. Pale tints under dark ink only,
- * so the page still separates on a mono laser. The legacy's structure — rows,
- * spans, boxes, signatures — is unchanged.
+ * The Excel keeps the legacy's flat shape (raw digits, so it sums).
  */
 import { jsPDF } from "jspdf";
-import autoTable, { type CellInput, type RowInput } from "jspdf-autotable";
+import autoTable, { type RowInput } from "jspdf-autotable";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { fitLogo, loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
-import { BRAND, ROW_STRIPE, drawSectionHeading, paintRow, rgb, roomFor, toneHead } from "@/lib/orders/report-pdf-kit";
-import type { BudgetGroupHead, Fig, OrderBudgetReport } from "./report";
-import { contributionText, inr, isFigRefusal, plain2, qty3, qtyCell } from "./report-format";
+import {
+  BRAND,
+  CONTINUED_TOP,
+  ROW_STRIPE,
+  cardTableHead,
+  cardTableStyles,
+  drawCardHeader,
+  drawOrderFacts,
+  drawQtyEquation,
+  drawSheetLabel,
+  drawSheetMasthead,
+  drawSummaryTiles,
+  paintRow,
+  rgb,
+  roomFor,
+} from "@/lib/orders/report-pdf-kit";
+import type { Fig, OrderBudgetReport } from "./report";
+import { contributionText, inr, isFigRefusal, qtyCell } from "./report-format";
+import {
+  PROFIT_TONE,
+  costSegments,
+  groupTone,
+  headIsOwnRow,
+  lineFlag,
+  money,
+  qtyText,
+  quantitySum,
+  shareText,
+} from "./sheet-format";
 
 export type PdfOutput = "download" | "print";
 
@@ -55,7 +83,8 @@ function headerColumns(r: OrderBudgetReport): [string, string][][] {
   ];
 }
 
-const QTY_HEAD = ["RE No", "Order No", "Style Ref No", "Style", "Unit", "Order", "Excess", "Approval", "Rej.Allow", "Cut Qty"];
+// "Style" / "Description", never "Style Ref No" (user 2026-09-29).
+const QTY_HEAD = ["RE No", "Order No", "Style", "Description", "Unit", "Order", "Excess", "Approval", "Rej.Allow", "Cut Qty"];
 
 function qtyRows(r: OrderBudgetReport): string[][] {
   return r.quantities.map((q) => [
@@ -73,52 +102,6 @@ function qtyRows(r: OrderBudgetReport): string[][] {
 }
 
 const STATEMENT_HEAD = ["Group Head", "Cost Head", "Particulars", "Qty", "UOM", "Rate", "Value"];
-
-const valueText = (v: Fig | null) => (v == null ? "" : isFigRefusal(v) ? v.refused : plain2(v));
-
-/** The statement's rows for the PDF — Group Head and Cost Head cells span
- *  their rows, and the CONTRIBUTION lines are merged across, as the legacy
- *  prints them. */
-function statementRows(groups: readonly BudgetGroupHead[]): RowInput[] {
-  const rows: RowInput[] = [];
-  for (const g of groups) {
-    const span = g.heads.reduce((n, hd) => n + hd.lines.length + 1, 0);
-    g.heads.forEach((hd, hi) => {
-      hd.lines.forEach((l, li) => {
-        const row: CellInput[] = [];
-        if (hi === 0 && li === 0) row.push({ content: g.label, rowSpan: span, styles: { valign: "top" } });
-        if (li === 0) row.push({ content: hd.label, rowSpan: hd.lines.length, styles: { valign: "top" } });
-        row.push(
-          `${l.particulars}${l.foc ? "  (FOC)" : ""}`,
-          isFigRefusal(l.qty) ? l.qty.refused : qty3(l.qty),
-          l.uom ?? "",
-          l.rate,
-          valueText(l.value),
-        );
-        rows.push(row);
-      });
-      rows.push([
-        /* A Cost Head's contribution — bold on the stripe, lighter than the
-           Group Head's tinted total below it (2026-09-29). */
-        { content: contributionText(hd.label, hd), colSpan: 5, styles: { fontStyle: "bold", fontSize: 6.5, fillColor: rgb(ROW_STRIPE) } },
-        { content: inr(hd.value), styles: { fontStyle: "bold", halign: "right", fontSize: 6.5, fillColor: rgb(ROW_STRIPE) } },
-      ]);
-    });
-    rows.push([
-      /* A Group Head's contribution — the section's TOTAL row, in the tone. */
-      {
-        content: contributionText(g.label, g),
-        colSpan: 6,
-        styles: { fontStyle: "bold", fontSize: 8.5, fillColor: rgb(BRAND.tint), textColor: rgb(BRAND.ink) },
-      },
-      {
-        content: inr(g.value),
-        styles: { fontStyle: "bold", halign: "right", fontSize: 8.5, fillColor: rgb(BRAND.tint), textColor: rgb(BRAND.ink) },
-      },
-    ]);
-  }
-  return rows;
-}
 
 function summaryPairs(r: OrderBudgetReport): [string, string][] {
   const s = r.summary;
@@ -157,166 +140,304 @@ export async function exportOrderBudgetPdf(
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 30;
+  const M = 28;
+  const CW = W - 2 * M;
   const c = r.company;
   const b = r.budget;
-
-  doc.setFillColor(133, 194, 39);
-  doc.rect(M, 24, W - 2 * M, 3, "F");
-
-  let x = M;
-  const logo = await loadLetterheadImage(c.logo);
-  if (logo) {
-    const { w, h: lh } = fitLogo(logo, 100, 34);
-    doc.addImage(logo.dataUrl, "PNG", M, 36, w, lh);
-    x = M + w + 12;
-  }
-  doc.setTextColor(22, 24, 29);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12.5);
-  doc.text((c.name ?? "RAAGAM EXPORTS").toUpperCase(), x, 50);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(91, 100, 114);
-  const contact = [c.address, c.gstin ? `GSTIN ${c.gstin}` : null].filter(Boolean).join("  ·  ");
-  if (contact) doc.text(contact, x, 62, { maxWidth: W - x - 160 });
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10.5);
-  doc.setTextColor(3, 123, 184);
-  doc.text("BUDGET STATEMENT", W - M, 50, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(91, 100, 114);
-  doc.text([b.code ? `Budget ${b.code}` : null, b.statusText].filter(Boolean).join(" · "), W - M, 62, { align: "right" });
-
-  doc.setDrawColor(22, 24, 29);
-  doc.setLineWidth(1.2);
-  doc.line(M, 76, W - M, 76);
-
+  const h = r.header;
+  const sm = r.summary;
+  /* THE PDF'S FONTS HAVE NO ₹ GLYPH — money prints "Rs" here, "₹" on screen. */
+  const RS = "Rs";
   const lastY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-  const grid = {
-    margin: { left: M, right: M },
-    theme: "grid" as const,
-    styles: { fontSize: 7, cellPadding: 2.5, textColor: 20, lineColor: 170, lineWidth: 0.4 },
-    headStyles: { ...toneHead(BRAND), fontSize: 7 },
-  };
-  /** A block's filled bar, kept on the page with its first rows. */
-  const bar = (at: number, title: string, right?: string, need = 70) => {
-    const top = roomFor(doc, at, need, 50);
-    return drawSectionHeading(doc, M, top + 14, W - 2 * M, BRAND, title, right);
-  };
 
-  // THE BOXED HEADER — four label/value column pairs, read down.
-  const cols = headerColumns(r);
-  const depth = Math.max(...cols.map((col) => col.length));
-  const headerBody: string[][] = [];
-  for (let i = 0; i < depth; i++) headerBody.push(cols.flatMap((col) => col[i] ?? ["", ""]));
-  autoTable(doc, {
-    ...grid,
-    body: headerBody,
-    startY: 84,
-    styles: { ...grid.styles, fontSize: 7.5 },
-    columnStyles: {
-      0: { fontStyle: "bold" },
-      2: { fontStyle: "bold" },
-      4: { fontStyle: "bold" },
-      6: { fontStyle: "bold" },
-      7: { halign: "right" },
-    },
-    /* The labels on the tint, the values on white — the facts read as a key. */
-    didParseCell: (d) => {
-      if (d.section === "body" && d.column.index % 2 === 0) {
-        d.cell.styles.fillColor = rgb(BRAND.tint);
-        d.cell.styles.textColor = rgb(BRAND.ink);
-      }
-    },
+  // ---- masthead + order facts ------------------------------------------
+  const logo = await loadLetterheadImage(c.logo);
+  const fitted = logo ? fitLogo(logo, 96, 32) : null;
+  let y = drawSheetMasthead(doc, {
+    company: c.name,
+    logo: logo && fitted ? { dataUrl: logo.dataUrl, w: fitted.w, h: fitted.h } : null,
+    kind: "Budget Statement",
+    reNo: h.reNo,
+    meta: [b.code ? `Budget ${b.code}` : null, `Printed ${fmtDateTime(new Date().toISOString())}`].filter(Boolean).join(" · "),
+    status: b.statusText,
   });
-
-  // THE QUANTITY TABLE.
-  autoTable(doc, {
-    ...grid,
-    head: [
-      [
-        { content: "RE No", rowSpan: 2 },
-        { content: "Order No", rowSpan: 2 },
-        { content: "Style Ref No", rowSpan: 2 },
-        { content: "Style", rowSpan: 2 },
-        { content: "Unit", rowSpan: 2 },
-        { content: "Quantity", colSpan: 5, styles: { halign: "center" } },
-      ],
-      ["Order", "Excess", "Approval", "Rej.Allow", "Cut Qty"].map((t) => ({ content: t, styles: { halign: "right" as const } })),
+  const mine = r.quantities.filter((q) => q.reNo === h.reNo);
+  const first = mine[0] ?? r.quantities[0];
+  const styles = [...new Set(mine.map((q) => q.styleRefNo).filter(Boolean))];
+  const ccy = typeof h.currency === "string" ? h.currency : "";
+  y = drawOrderFacts(
+    doc,
+    y,
+    [
+      { label: "Customer", value: h.customer },
+      {
+        label: "Order No · Style",
+        value: [first?.orderNo, styles.length > 1 ? `${styles.length} styles` : first?.styleRefNo].filter(Boolean).join(" · "),
+        sub: styles.length > 1 ? null : first?.style,
+      },
+      {
+        label: "Earlier Shipment",
+        value: h.earlierShipment ? fmtDate(h.earlierShipment) : null,
+        sub: h.deliveryFrom
+          ? h.deliveryTo && h.deliveryTo !== h.deliveryFrom
+            ? `Delivery ${fmtDate(h.deliveryFrom)} - ${fmtDate(h.deliveryTo)}`
+            : `Delivery ${fmtDate(h.deliveryFrom)}`
+          : null,
+      },
+      {
+        label: "Price",
+        value: `${ccy} ${figText(h.avgPrice, 3)} x ${figText(h.exRate, 4)}`.trim(),
+        sub: typeof h.currency === "string" ? "per piece · exchange rate" : h.currency.refused,
+      },
+      ...(h.otherReNos.length ? [{ label: "Also covers", value: h.otherReNos.join(", ") }] : []),
     ],
-    body: qtyRows(r),
-    startY: bar(lastY() + 2, "QUANTITY"),
-    columnStyles: { 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" }, 9: { halign: "right", fontStyle: "bold" } },
-    didParseCell: (d) => {
-      paintRow(d, { tone: BRAND });
-      if (d.section === "body" && d.column.index === 9) d.cell.styles.textColor = rgb(BRAND.ink);
-    },
-  });
+    { cols: 4 },
+  );
 
-  let y = lastY() + 8;
+  // ---- the unrated notice, where the figures it withholds begin ---------
   if (r.unratedNotice) {
-    doc.setFont("helvetica", "normal");
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     doc.setTextColor(179, 38, 30);
-    const lines = doc.splitTextToSize(r.unratedNotice, W - 2 * M) as string[];
-    doc.text(lines, M, y + 6);
-    y += 6 + lines.length * 9;
-    doc.setTextColor(20);
+    const lines = doc.splitTextToSize(r.unratedNotice, CW - 16) as string[];
+    doc.setFillColor(253, 243, 242);
+    doc.roundedRect(M, y, CW, 8 + lines.length * 9, 3, 3, "F");
+    doc.text(lines, M + 8, y + 11);
+    y += 14 + lines.length * 9;
+    doc.setTextColor(0);
+    doc.setFont("helvetica", "normal");
   }
 
-  // THE STATEMENT.
-  autoTable(doc, {
-    ...grid,
-    // A figure column's head sits over its figures — right-aligned.
-    head: [STATEMENT_HEAD.map((t, i) => ({ content: t, styles: { halign: i === 3 || i >= 5 ? ("right" as const) : ("left" as const) } }))],
-    body: statementRows([...r.groups, ...(r.income ? [r.income] : [])]),
-    /* No stripes here: the Group / Cost Head cells span their rows, and a stripe
-       under a spanning cell reads as a colour that belongs to one line only.
-       The contribution lines give the statement its rhythm instead. */
-    startY: bar(
-      y - 2,
-      "BUDGET STATEMENT",
-      isFigRefusal(r.summary.totalExpenses) ? undefined : `Total Expenses ${inr(r.summary.totalExpenses)}`,
-    ),
-    columnStyles: {
-      0: { cellWidth: 62 },
-      1: { cellWidth: 78 },
-      3: { halign: "right", cellWidth: 48 },
-      4: { cellWidth: 30 },
-      5: { halign: "right", cellWidth: 42 },
-      6: { halign: "right", cellWidth: 58 },
+  // ---- the result, first -------------------------------------------------
+  y = drawSheetLabel(doc, M, y + 4, "Result");
+  const salesNote = (() => {
+    const order = r.quantities.reduce((s, q) => s + (q.order ?? 0), 0);
+    if (!order || isFigRefusal(h.avgPrice) || isFigRefusal(h.exRate) || typeof h.currency !== "string") return null;
+    return `${order.toLocaleString("en-IN")} pcs x ${h.currency} ${h.avgPrice.toFixed(3)} x ${h.exRate.toFixed(4)}`;
+  })();
+  y = drawSummaryTiles(doc, y, [
+    {
+      label: "Net profit",
+      value: isFigRefusal(sm.profitPct) ? "—" : `${sm.profitPct.toFixed(2)}%`,
+      note: isFigRefusal(sm.netProfit)
+        ? sm.netProfit.refused
+        : [money(sm.netProfit, RS), isFigRefusal(sm.profitPerGarment) ? null : `${RS} ${sm.profitPerGarment.toFixed(2)} per garment`]
+            .filter(Boolean)
+            .join(" · "),
+      tone: PROFIT_TONE,
     },
-  });
+    { label: "Sales value", value: money(h.salesValue, RS), note: salesNote },
+    {
+      label: "Total cost",
+      value: money(sm.totalExpenses, RS),
+      note:
+        !isFigRefusal(sm.totalExpenses) && !isFigRefusal(h.salesValue) && h.salesValue > 0
+          ? `${((sm.totalExpenses / h.salesValue) * 100).toFixed(2)}% of sales`
+          : null,
+    },
+    {
+      label: "Cost per garment",
+      value: money(sm.costPerGarment, RS),
+      note: isFigRefusal(r.cutQty) ? null : `on ${qtyCell(r.cutQty)} cut pcs`,
+    },
+  ]);
 
-  // THE SUMMARY BOXES — label, value, label, value … as the legacy's foot.
-  const pairs = summaryPairs(r);
+  // ---- where the cost goes: one bar to scale + a legend ------------------
+  const segments = costSegments(r, RS);
+  if (segments.length) {
+    y = roomFor(doc, y, 80, 50);
+    y = drawSheetLabel(doc, M, y + 4, "Where the cost goes");
+    const barH = 9;
+    let bx = M;
+    for (const sg of segments) {
+      const w = (CW * sg.pct) / 100;
+      doc.setFillColor(...rgb(sg.tone.rule));
+      doc.rect(bx, y, w, barH, "F");
+      bx += w;
+    }
+    doc.setDrawColor(221, 226, 232);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(M, y, CW, barH, 2, 2, "S");
+    y += barH + 12;
+    const colW = CW / 3;
+    segments.forEach((sg, i) => {
+      const lx = M + (i % 3) * colW;
+      const ly = y + Math.floor(i / 3) * 22;
+      doc.setFillColor(...rgb(sg.tone.rule));
+      doc.roundedRect(lx, ly - 6, 6, 6, 1, 1, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.2);
+      doc.setTextColor(23, 32, 43);
+      doc.text(sg.label, lx + 10, ly);
+      doc.setFont("courier", "bold");
+      doc.text(money(sg.value, RS), lx + colW - 10, ly, { align: "right" });
+      doc.setFont("courier", "normal");
+      doc.setFontSize(6.4);
+      doc.setTextColor(123, 133, 148);
+      doc.text(sg.share, lx + 10, ly + 9);
+    });
+    y += Math.ceil(segments.length / 3) * 22 + 4;
+    doc.setTextColor(0);
+    doc.setFont("helvetica", "normal");
+  }
+
+  // ---- the quantity, as the sum it is -------------------------------------
+  y = roomFor(doc, y, 60, 50);
+  y = drawSheetLabel(doc, M, y + 4, "Quantity");
+  const q = quantitySum(r);
+  y = drawQtyEquation(
+    doc,
+    y,
+    [
+      { label: "Order", value: qtyCell(q.order) || "0" },
+      { label: "Excess", value: qtyCell(q.excess) || "0" },
+      { label: "Approval", value: qtyCell(q.approval) || "0" },
+      { label: "Rej. Allow", value: qtyCell(q.rejection) || "0" },
+    ],
+    { label: "Cut Qty", value: isFigRefusal(q.cut) ? "—" : qtyCell(q.cut), note: isFigRefusal(q.cut) ? q.cut.refused : null },
+  );
+  /* Several styles: the per-style breakdown the sum came from, as its own card. */
+  if (r.quantities.length > 1) {
+    y = roomFor(doc, y, 70, 50);
+    const startY = drawCardHeader(doc, M, y, CW, BRAND, "Quantity by style");
+    autoTable(doc, {
+      head: [QTY_HEAD.map((t, i) => ({ content: t, styles: { halign: i >= 5 ? ("right" as const) : ("left" as const) } }))],
+      body: qtyRows(r),
+      startY,
+      margin: { left: M, right: M, top: CONTINUED_TOP },
+      theme: "plain",
+      styles: cardTableStyles(),
+      headStyles: cardTableHead(),
+      columnStyles: { 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" }, 9: { halign: "right", fontStyle: "bold" } },
+      didParseCell: (d) => paintRow(d, { tone: BRAND }),
+    });
+    y = lastY() + 12;
+  }
+
+  // ---- one card per cost group ---------------------------------------------
+  for (const g of [...r.groups, ...(r.income ? [r.income] : [])]) {
+    const tone = groupTone(g.key);
+    const ownRows = headIsOwnRow(g);
+    type Kind = "head" | "line" | "sub";
+    const kinds: Kind[] = [];
+    const body: RowInput[] = [];
+    let stripe = 0;
+    const stripeOf: number[] = [];
+    for (const hd of g.heads) {
+      /* A Cost Head of ONE line: its heading row carries its share figures, and
+         no subtotal repeats the line's own value. */
+      const single = ownRows && hd.lines.length === 1;
+      if (ownRows) {
+        body.push([
+          { content: [hd.label.toUpperCase(), single ? shareText(hd, RS) : null].filter(Boolean).join("   ·   "), colSpan: 5 },
+        ]);
+        kinds.push("head");
+        stripeOf.push(-1);
+      }
+      for (const l of hd.lines) {
+        const flag = lineFlag(l);
+        const text = [l.particulars, flag ? `[${flag}]` : null].filter(Boolean).join("  ");
+        body.push([
+          text,
+          isFigRefusal(l.qty) ? l.qty.refused : qtyText(l.qty),
+          l.uom ?? "",
+          l.rate,
+          l.value == null ? "" : isFigRefusal(l.value) ? l.value.refused : inr(l.value),
+        ]);
+        kinds.push("line");
+        stripeOf.push(stripe++);
+      }
+      if (ownRows && !single) {
+        body.push([
+          { content: [hd.label, shareText(hd, RS)].filter(Boolean).join("  ·  "), colSpan: 4 },
+          isFigRefusal(hd.value) ? hd.value.refused : inr(hd.value),
+        ]);
+        kinds.push("sub");
+        stripeOf.push(-1);
+      }
+    }
+    y = roomFor(doc, y + 4, 80, 50);
+    const startY = drawCardHeader(doc, M, y, CW, tone, g.label, money(g.value, RS), shareText(g, RS));
+    autoTable(doc, {
+      head: [["Particulars", "Qty", "UOM", "Rate", `Value ${RS}`].map((t, i) => ({ content: t, styles: { halign: i === 1 || i >= 3 ? ("right" as const) : ("left" as const) } }))],
+      body,
+      startY,
+      margin: { left: M, right: M, top: CONTINUED_TOP },
+      theme: "plain",
+      styles: cardTableStyles(),
+      headStyles: cardTableHead(),
+      columnStyles: {
+        1: { halign: "right", cellWidth: 58 },
+        2: { cellWidth: 34 },
+        3: { halign: "right", cellWidth: 62 },
+        4: { halign: "right", cellWidth: 74 },
+      },
+      didParseCell: (d) => {
+        if (d.section !== "body") return;
+        const k = kinds[d.row.index];
+        if (k === "head") {
+          d.cell.styles.fontStyle = "bold";
+          d.cell.styles.fontSize = 6.4;
+          d.cell.styles.textColor = rgb(tone.ink);
+          d.cell.styles.cellPadding = { top: 6, right: 5, bottom: 2.5, left: 5 };
+        } else if (k === "sub") {
+          d.cell.styles.fontStyle = "bold";
+          d.cell.styles.fillColor = rgb(tone.tint);
+          d.cell.styles.textColor = rgb(tone.ink);
+        } else if (stripeOf[d.row.index] % 2 === 1) {
+          d.cell.styles.fillColor = rgb(ROW_STRIPE);
+        }
+      },
+    });
+    y = lastY() + 10;
+  }
+
+  // ---- the summary ----------------------------------------------------------
+  y = roomFor(doc, y, 90, 50);
+  y = drawSheetLabel(doc, M, y + 4, "Summary");
   autoTable(doc, {
-    ...grid,
-    body: [pairs.slice(0, 4).flat(), ["", "", ...pairs.slice(4).flat(), "", ""]],
-    startY: bar(lastY() + 2, "SUMMARY", undefined, 50),
-    styles: { ...grid.styles, fontSize: 8, fontStyle: "bold" },
-    columnStyles: { 1: { halign: "right" }, 3: { halign: "right" }, 5: { halign: "right" }, 7: { halign: "right" } },
-    /* The figures on the tint, in the tone's ink — the page's headline boxes. */
+    body: [
+      ["Total income", money(sm.totalIncome, RS)],
+      ["Total expenses", money(sm.totalExpenses, RS)],
+      ["Cost per garment", money(sm.costPerGarment, RS)],
+      ["Profit per garment", money(sm.profitPerGarment, RS)],
+      [`Net profit${isFigRefusal(sm.profitPct) ? "" : ` · ${sm.profitPct.toFixed(2)}%`}`, money(sm.netProfit, RS)],
+    ],
+    startY: y,
+    margin: { left: M, right: M },
+    theme: "plain",
+    styles: { ...cardTableStyles(), fontSize: 8 },
+    columnStyles: { 1: { halign: "right", font: "courier" } },
     didParseCell: (d) => {
-      if (d.section === "body" && d.column.index % 2 === 1 && String(d.cell.raw ?? "") !== "") {
-        d.cell.styles.fillColor = rgb(BRAND.tint);
-        d.cell.styles.textColor = rgb(BRAND.ink);
+      if (d.section !== "body") return;
+      if (d.row.index === 2) d.cell.styles.fontStyle = "bold";
+      if (d.row.index === 4) {
+        d.cell.styles.fontStyle = "bold";
+        d.cell.styles.fillColor = rgb(PROFIT_TONE.tint);
+        d.cell.styles.textColor = rgb(PROFIT_TONE.ink);
       }
     },
   });
+  y = lastY() + 10;
 
   if (showAmendment && r.amendment) {
+    y = roomFor(doc, y, 80, 50);
+    const startY = drawCardHeader(
+      doc,
+      M,
+      y,
+      CW,
+      BRAND,
+      `Amendment${r.amendment.entryNo ? ` ${r.amendment.entryNo}` : ""} — Approved vs Proposed`,
+    );
     autoTable(doc, {
-      ...grid,
       head: [["Figure", "Approved", "Proposed", "Variance"].map((t, i) => ({ content: t, styles: { halign: i ? ("right" as const) : ("left" as const) } }))],
       body: amendmentRows(r),
-      startY: bar(
-        lastY() + 4,
-        `AMENDMENT${r.amendment.entryNo ? ` ${r.amendment.entryNo}` : ""} — APPROVED VS PROPOSED`,
-      ),
+      startY,
+      margin: { left: M, right: M, top: CONTINUED_TOP },
+      theme: "plain",
+      styles: cardTableStyles(),
+      headStyles: cardTableHead(),
       columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } },
       // Margin % leads, bold — the one figure the MD reads first.
       didParseCell: (d) => {
@@ -324,39 +445,51 @@ export async function exportOrderBudgetPdf(
         if (d.section === "body" && d.row.index === 0) d.cell.styles.fontStyle = "bold";
       },
     });
+    y = lastY() + 10;
   }
 
-  // SIGNATURES — the names over the lines, then the end mark.
-  let sy = lastY() + 50;
+  // ---- signatures, then the end mark ----------------------------------------
+  let sy = y + 44;
   if (sy > H - 50) {
     doc.addPage();
-    sy = 90;
+    sy = 110;
   }
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(60);
-  if (b.preparedBy) doc.text(b.preparedBy, M, sy - 4);
-  if (b.approvedBy) doc.text(b.approvedBy, W - M, sy - 4, { align: "right" });
-  doc.setDrawColor(22, 24, 29);
-  doc.setLineWidth(0.6);
-  doc.line(M, sy + 10, W - M, sy + 10);
+  const third = CW / 3;
+  const cells: [string, string | null][] = [
+    ["Prepared By", b.preparedBy],
+    ["Checked By", null],
+    ["Approved By", b.approvedBy],
+  ];
+  cells.forEach(([label, name], i) => {
+    const x = M + i * third;
+    doc.setDrawColor(23, 32, 43);
+    doc.setLineWidth(0.6);
+    doc.line(x, sy, x + third - 18, sy);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(23, 32, 43);
+    doc.text(label, x, sy + 10);
+    if (name) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.2);
+      doc.setTextColor(123, 133, 148);
+      doc.text(name, x, sy + 19);
+    }
+  });
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(20);
-  doc.text("Prepared By", M, sy + 7);
-  doc.text("Checked By", W / 2, sy + 7, { align: "center" });
-  doc.text("Approved By", W - M, sy + 7, { align: "right" });
-  doc.text("<< End Of Report >>", W - M, sy + 24, { align: "right" });
+  doc.setFontSize(7);
+  doc.setTextColor(123, 133, 148);
+  doc.text("End of report", W - M, sy + 32, { align: "right" });
 
-  const printed = `Report Printed Date & Time: ${fmtDateTime(new Date().toISOString())}`;
+  const foot = [h.reNo, "Budget Statement", b.code ? `Budget ${b.code}` : null].filter(Boolean).join(" · ");
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(120);
-    doc.text(printed, M, H - 18);
-    doc.text(`Page : ${p}/${pages}`, W - M, H - 18, { align: "right" });
+    doc.text(foot, M, H - 18);
+    doc.text(`Page ${p} of ${pages}`, W - M, H - 18, { align: "right" });
   }
 
   if (output === "print" && tab && !tab.closed) {

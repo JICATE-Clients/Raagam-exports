@@ -19,7 +19,9 @@
  * A SEPARATE DOCUMENT INSIDE THE ORDER (`SeparateDocumentScope`). CAD records
  * are outside the order lock (0576 left them out, 0628 kept it so): a buyer's
  * rework arrives after approval too. So on an approved order this tab still
- * works — but only through its own actions, never the order's Save. The Eye's
+ * works — through its own buttons, since the order's Save is refused there.
+ * On an order that CAN be saved the forms have no buttons: the order's Save
+ * writes the CAD step too (withOrderSave, user 2026-09-30). The Eye's
  * read-only view passes `canEdit={false}` and the tab shows, never acts.
  */
 
@@ -43,7 +45,16 @@ import { SectionBody } from "@/components/masters/master-full-screen";
 import { DetailSection } from "@/components/masters/detail-section";
 import { AllocationSheet, DecisionSheet } from "./cad-sheets";
 
-export function OrderCadTab({ orderId, canEdit }: { orderId: string | null; canEdit: boolean }) {
+export function OrderCadTab({
+  orderId,
+  canEdit,
+  withOrderSave = false,
+}: {
+  orderId: string | null;
+  canEdit: boolean;
+  /** The order's Save writes the CAD step (cad-pending.ts); false on a locked order. */
+  withOrderSave?: boolean;
+}) {
   const [data, setData] = useState<{
     forOrder: string;
     rows: CadStyleRow[];
@@ -159,6 +170,7 @@ export function OrderCadTab({ orderId, canEdit }: { orderId: string | null; canE
               row={selected}
               employees={current.employees}
               editable={editable}
+              withOrderSave={withOrderSave}
               onDone={() => {
                 setFormNonce((n) => n + 1);
                 reload();
@@ -181,11 +193,13 @@ function InlineStep({
   row,
   employees,
   editable,
+  withOrderSave,
   onDone,
 }: {
   row: CadStyleRow;
   employees: PatternMakerRow[];
   editable: boolean;
+  withOrderSave: boolean;
   onDone: () => void;
 }) {
   const step = cadNextStep(row.state);
@@ -199,6 +213,7 @@ function InlineStep({
     return (
       <AllocationSheet
         inline
+        withOrderSave={withOrderSave}
         row={row}
         mode={step === "allocate" ? "new" : "reallocate"}
         employees={employees}
@@ -218,7 +233,7 @@ function InlineStep({
           <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
           {ps && <StatusPill tone={ps.tone}>{`Pattern: ${ps.label}`}</StatusPill>}
         </div>
-        <AllocationSheet inline row={row} mode="edit" employees={employees} onClose={onDone} />
+        <AllocationSheet inline withOrderSave={withOrderSave} row={row} mode="edit" employees={employees} onClose={onDone} />
         {/* NO SEND CAD FORM HERE (user 2026-09-25, screenshot 3084: "Send CAD
             … no need, remove it from here"). It appeared under the assignment
             once the pattern was Ready (screenshot 3082). The Fabric BOM gate
@@ -234,7 +249,7 @@ function InlineStep({
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
         </div>
-        <DecisionSheet inline row={row} onClose={onDone} />
+        <DecisionSheet inline withOrderSave={withOrderSave} row={row} onClose={onDone} />
       </div>
     );
   }

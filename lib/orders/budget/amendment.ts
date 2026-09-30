@@ -151,6 +151,43 @@ export function orderLockMessage(v: {
   return `Selected budget has been approved${tail}. Direct edits are disabled. Raise an Order Revision to change it.`;
 }
 
+/**
+ * THE PENDING LOCK'S SENTENCE (0652) — an order whose budget is WAITING FOR
+ * THE MD. Word for word the pending half of `order_lock_message`, so the
+ * banner an editor shows and the refusal the trigger raises are one sentence:
+ *
+ *   Waiting for MD approval — RE <no>, budget <code>, submitted on
+ *   <dd/mm/yyyy>. Direct edits are disabled until the MD approves it or sends
+ *   it back for rework.
+ *
+ * Same fallbacks as `orderLockMessage` above. Edit the words here AND in the
+ * migration, or the two drift apart.
+ */
+export const PENDING_LOCK_PREFIX = "Waiting for MD approval";
+
+export function orderPendingMessage(v: {
+  reNo: string | null;
+  budgetCode: string | null;
+  submittedAt: string | null;
+}): string {
+  const reNo = (v.reNo ?? "").trim();
+  const code = (v.budgetCode ?? "").trim();
+  const at = (v.submittedAt ?? "").trim();
+
+  const facts: string[] = [];
+  if (reNo) facts.push(`RE ${reNo}`);
+  if (code) facts.push(`budget ${code}`);
+  if (at) facts.push(`submitted on ${fmtDate(istDay(at))}`);
+  const tail = facts.length > 0 ? ` — ${facts.join(", ")}` : "";
+  return `${PENDING_LOCK_PREFIX}${tail}. Direct edits are disabled until the MD approves it or sends it back for rework.`;
+}
+
+/** Is this lock sentence the PENDING one (vs approved)? For the screens that
+ *  word the two states differently — the sentence itself says which. */
+export function isPendingLockMessage(msg: string | null | undefined): boolean {
+  return !!msg && msg.startsWith(PENDING_LOCK_PREFIX);
+}
+
 // ---------------------------------------------------------------------------
 // The submission summary (§4.2)
 // ---------------------------------------------------------------------------
@@ -394,20 +431,7 @@ function regroupedRows(b: Partial<GeneralSummary>, lines: unknown): Partial<Gene
   const rows: Partial<GeneralSummary["rows"][number]>[] = Array.isArray(b.rows) ? b.rows : [];
   if (b.grouping === 2 || rows.length === 0) return rows;
 
-  let moved: number | Refusal = 0;
-  if (!Array.isArray(lines)) {
-    moved = { refused: "Approved lines not recorded — the fabric steps cannot be regrouped" };
-  } else {
-    for (const l of lines as BudgetLineInput[]) {
-      if (l?.source !== "fabric_process") continue;
-      const a = lineAmount(l);
-      if (isRefusal(a)) {
-        moved = { refused: a.refused };
-        break;
-      }
-      moved = money(moved + a);
-    }
-  }
+  const moved = fabricProcessAmountOf(lines);
   const shift = (key: GeneralCategoryKey, sign: 1 | -1) => (r: Partial<GeneralSummary["rows"][number]>) => {
     if (r?.key !== key) return r;
     const was = r.amount;
@@ -415,6 +439,27 @@ function regroupedRows(b: Partial<GeneralSummary>, lines: unknown): Partial<Gene
     return typeof was === "number" ? { ...r, amount: money(was + sign * moved) } : r;
   };
   return rows.map(shift("fabric", 1)).map(shift("processing", -1));
+}
+
+/**
+ * The fabric's own job-work (`fabric_process` lines) in a baseline's frozen
+ * LINES — what `regroupedRows` moves into Fabric, and what the approval chart
+ * moves back out into Process (`lib/orders/budget/breakdown.ts`). A process
+ * line is never a percentage, so no sales base is needed. Refuses when the
+ * lines were not recorded or one of them refuses.
+ */
+export function fabricProcessAmountOf(lines: unknown): number | Refusal {
+  if (!Array.isArray(lines)) {
+    return { refused: "Approved lines not recorded — the fabric steps cannot be regrouped" };
+  }
+  let sum = 0;
+  for (const l of lines as BudgetLineInput[]) {
+    if (l?.source !== "fabric_process") continue;
+    const a = lineAmount(l);
+    if (isRefusal(a)) return { refused: a.refused };
+    sum = money(sum + a);
+  }
+  return sum;
 }
 
 /**

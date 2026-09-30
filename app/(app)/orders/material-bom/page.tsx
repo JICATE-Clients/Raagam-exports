@@ -6,6 +6,7 @@ import {
   listMaterialBomTasks,
 } from "@/lib/orders/material-bom-amendment/service";
 import { orderLocks } from "@/lib/orders/order-locks";
+import { overrideEditState } from "@/lib/orders/overrides/editor-state";
 import { MbaMasterScreen } from "./mba-master-screen";
 
 /**
@@ -22,7 +23,7 @@ import { MbaMasterScreen } from "./mba-master-screen";
 export default async function MaterialBomPage() {
   await requirePermission("orders", "view");
 
-  const [tasks, boms, copySources, data, canCreate, canEdit, canDelete, mCreate, mEdit, locks] =
+  const [tasks, boms, copySources, data, canCreate, canEdit, canDelete, mCreate, mEdit, locks, overrideState] =
     await Promise.all([
       listMaterialBomTasks(),
       listMaterialBomAmendments(),
@@ -35,6 +36,8 @@ export default async function MaterialBomPage() {
       can("masters", "edit"),
       // Orders locked by an approved budget (Phase 5) — the editor's banner.
       orderLocks(undefined, "material_bom"),
+      // The caller's live permission-override keys (0653) — null without one.
+      overrideEditState(),
     ]);
 
   // No wrapper and no PageHeader here — the screen renders its own, and the
@@ -49,6 +52,7 @@ export default async function MaterialBomPage() {
       masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
       orderLocks={locks.messages}
       raiseFor={locks.raiseFor}
+      overrideState={overrideState}
     />
   );
 }

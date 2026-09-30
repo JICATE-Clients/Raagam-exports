@@ -37,7 +37,7 @@
  * table of facts.
  */
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldRow } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -75,6 +75,7 @@ import {
 } from "@/lib/orders/cad-lifecycle/types";
 import { CadFileUpload, downloadCadFile, prettySize } from "./cad-file-upload";
 import { CadFormFrame } from "./cad-form-frame";
+import { pendingCadDraft, setPendingCad } from "./cad-pending";
 import { DetailSection } from "@/components/masters/detail-section";
 import {
   PatternDetailsFields,
@@ -154,6 +155,16 @@ function Subject({ row, extra, hide }: { row: CadStyleRow; extra?: React.ReactNo
 
 export type AllocationMode = "new" | "reallocate" | "edit";
 
+/** The Assign form's fields, as parked for the order's Save (cad-pending.ts). */
+type AllocationDraft = {
+  makerId: string | null;
+  cadType: CadType | "";
+  target: string;
+  remarks: string;
+  pattern: ReturnType<typeof patternDetailsFrom>;
+};
+type DecisionDraft = { status: "" | "approved" | "rework"; decidedOn: string; comments: string };
+
 export function AllocationSheet({
   row,
   mode,
@@ -161,6 +172,7 @@ export function AllocationSheet({
   origin,
   onClose,
   inline = false,
+  withOrderSave = false,
 }: {
   row: CadStyleRow;
   mode: AllocationMode;
@@ -169,6 +181,12 @@ export function AllocationSheet({
   onClose: () => void;
   /** Order Entry ▸ CAD renders the form in place of a pop-up (cad-form-frame.tsx). */
   inline?: boolean;
+  /**
+   * Inline, and the ORDER's Save can run: no buttons of its own — a changed
+   * form is parked in cad-pending.ts and the order's Save writes it. False on
+   * a locked order, whose Save is refused while its CAD still has to work.
+   */
+  withOrderSave?: boolean;
 }) {
   const toast = useToast();
   const [isPending, start] = useTransition();
@@ -177,17 +195,29 @@ export function AllocationSheet({
   // — the same maker and type are the likeliest answers for the next attempt.
   const seed = mode === "new" ? null : latest;
   const today = istToday();
-  const [makerId, setMakerId] = useState<string | null>(seed?.pattern_maker_id ?? null);
-  // NO CAD TYPE IN ORDER ENTRY (user 2026-09-25: "remove CAD Type from the
-  // Order Entry CAD tab"). The column is NOT NULL, so the tab stores Initial
-  // Fit Pattern; the CAD team can still change it from the CAD Queue, where
-  // this same form opens as a sheet WITH the field.
-  const [cadType, setCadType] = useState<CadType | "">(seed?.cad_type ?? (inline ? "first_pattern" : ""));
-  const [target, setTarget] = useState<string>(mode === "edit" ? (seed?.target_date ?? "") : "");
-  const [remarks, setRemarks] = useState<string>(mode === "edit" ? (seed?.remarks ?? "") : "");
-  // 0632's pattern details — seeded from the previous version on Re-allocate
-  // too: a rework usually changes a figure, not the whole setup.
-  const [pattern, setPattern] = useState(() => patternDetailsFrom(seed));
+  // What the form opens with. Inline, a draft parked for the order's Save
+  // (cad-pending.ts) wins — the tab remounts each time it is revisited.
+  const initial: AllocationDraft = {
+    makerId: seed?.pattern_maker_id ?? null,
+    // NO CAD TYPE IN ORDER ENTRY (user 2026-09-25: "remove CAD Type from the
+    // Order Entry CAD tab"). The column is NOT NULL, so the tab stores Initial
+    // Fit Pattern; the CAD team can still change it from the CAD Queue, where
+    // this same form opens as a sheet WITH the field.
+    cadType: seed?.cad_type ?? (inline ? "first_pattern" : ""),
+    target: mode === "edit" ? (seed?.target_date ?? "") : "",
+    remarks: mode === "edit" ? (seed?.remarks ?? "") : "",
+    // 0632's pattern details — seeded from the previous version on Re-allocate
+    // too: a rework usually changes a figure, not the whole setup.
+    pattern: patternDetailsFrom(seed),
+  };
+  const pendingKey = `${row.key}|alloc|${mode}|${latest?.id ?? "new"}`;
+  const parked = withOrderSave ? pendingCadDraft<AllocationDraft>(row.garment_order_id, pendingKey) : undefined;
+  const start0 = parked ?? initial;
+  const [makerId, setMakerId] = useState<string | null>(start0.makerId);
+  const [cadType, setCadType] = useState<CadType | "">(start0.cadType);
+  const [target, setTarget] = useState<string>(start0.target);
+  const [remarks, setRemarks] = useState<string>(start0.remarks);
+  const [pattern, setPattern] = useState(start0.pattern);
   const [tried, setTried] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -215,24 +245,42 @@ export function AllocationSheet({
       },
       allocationDate,
     );
+  const payload = () => ({
+    garment_order_id: row.garment_order_id,
+    style_ref_no: row.style_ref_no,
+    pattern_maker_id: makerId!,
+    cad_type: cadType as CadType,
+    target_date: target,
+    remarks,
+    ...patternDetailsPayload(pattern),
+  });
+  const commit = () =>
+    mode === "edit" && latest ? updateCadAllocation(latest.id, payload()) : allocateCad(payload());
+
+  // INLINE, THE ORDER'S SAVE WRITES THIS (user 2026-09-30, screenshot 3136).
+  // Parked only once something was changed: an untouched Assign form is not a
+  // request to assign, and would only block the order's Save on its blanks.
+  const draft: AllocationDraft = { makerId, cadType, target, remarks, pattern };
+  const dirty = withOrderSave && JSON.stringify(draft) !== JSON.stringify(initial);
+  useEffect(() => {
+    if (!withOrderSave) return;
+    setPendingCad(
+      row.garment_order_id,
+      pendingKey,
+      dirty ? { label: title, problem: () => check()?.message ?? null, commit, draft } : null,
+    );
+  });
+
   // Silent until the first Save — a freshly opened sheet is not a wall of red.
-  const problem = tried ? check() : null;
+  // Inline there is no Save of its own, so a changed form says what it lacks.
+  const problem = tried || dirty ? check() : null;
 
   function save() {
     setTried(true);
     setServerError(null);
     if (check()) return;
-    const payload = {
-      garment_order_id: row.garment_order_id,
-      style_ref_no: row.style_ref_no,
-      pattern_maker_id: makerId!,
-      cad_type: cadType as CadType,
-      target_date: target,
-      remarks,
-      ...patternDetailsPayload(pattern),
-    };
     start(async () => {
-      const r = mode === "edit" && latest ? await updateCadAllocation(latest.id, payload) : await allocateCad(payload);
+      const r = await commit();
       if (!r.ok) {
         setServerError(r.error);
         return;
@@ -256,14 +304,16 @@ export function AllocationSheet({
       alignToPane
       origin={origin}
       footer={
-        <>
-          <Button variant="outline" size="md" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="md" disabled={isPending} onClick={save}>
-            {isPending ? "Saving…" : mode === "edit" ? "Save" : "Assign CAD"}
-          </Button>
-        </>
+        withOrderSave ? undefined : (
+          <>
+            <Button variant="outline" size="md" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button size="md" disabled={isPending} onClick={save}>
+              {isPending ? "Saving…" : mode === "edit" ? "Save" : "Assign CAD"}
+            </Button>
+          </>
+        )
       }
     >
       <Subject hide={inline} row={row} extra={<Fact label="Allocation Date">{fmtDate(allocationDate)}</Fact>} />
@@ -564,21 +614,27 @@ export function DecisionSheet({
   origin,
   onClose,
   inline = false,
+  withOrderSave = false,
 }: {
   row: CadStyleRow;
   origin?: SheetOrigin | null;
   onClose: () => void;
   /** Order Entry ▸ CAD renders the form in place of a pop-up (cad-form-frame.tsx). */
   inline?: boolean;
+  /** See AllocationSheet. */
+  withOrderSave?: boolean;
 }) {
   const toast = useToast();
   const [isPending, start] = useTransition();
   const version = latestVersion(row.versions)!;
   const dispatch = version.dispatch!;
   const today = istToday();
-  const [status, setStatus] = useState<"" | "approved" | "rework">("");
-  const [decidedOn, setDecidedOn] = useState(today);
-  const [comments, setComments] = useState("");
+  const initial: DecisionDraft = { status: "", decidedOn: today, comments: "" };
+  const pendingKey = `${row.key}|decide|${dispatch.id}`;
+  const start0 = (withOrderSave && pendingCadDraft<DecisionDraft>(row.garment_order_id, pendingKey)) || initial;
+  const [status, setStatus] = useState<"" | "approved" | "rework">(start0.status);
+  const [decidedOn, setDecidedOn] = useState(start0.decidedOn);
+  const [comments, setComments] = useState(start0.comments);
   const [tried, setTried] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -590,19 +646,33 @@ export function DecisionSheet({
       row.style_ref_no,
       today,
     );
-  const problem = tried ? check() : null;
+  const title = `CAD Approval · ${row.style_ref_no}${versionWord(version.version_no)}`;
+  const commit = () =>
+    decideCad({
+      dispatch_id: dispatch.id,
+      status: status as "approved" | "rework",
+      decided_on: decidedOn,
+      buyer_comments: comments,
+    });
+  // Inline, the order's Save writes the decision — see AllocationSheet.
+  const draft: DecisionDraft = { status, decidedOn, comments };
+  const dirty = withOrderSave && JSON.stringify(draft) !== JSON.stringify(initial);
+  useEffect(() => {
+    if (!withOrderSave) return;
+    setPendingCad(
+      row.garment_order_id,
+      pendingKey,
+      dirty ? { label: title, problem: () => check()?.message ?? null, commit, draft } : null,
+    );
+  });
+  const problem = tried || dirty ? check() : null;
 
   function save() {
     setTried(true);
     setServerError(null);
     if (check()) return;
     start(async () => {
-      const r = await decideCad({
-        dispatch_id: dispatch.id,
-        status: status as "approved" | "rework",
-        decided_on: decidedOn,
-        buyer_comments: comments,
-      });
+      const r = await commit();
       if (!r.ok) {
         setServerError(r.error);
         return;
@@ -617,19 +687,21 @@ export function DecisionSheet({
       inline={inline}
       open
       onClose={onClose}
-      title={`CAD Approval · ${row.style_ref_no}${versionWord(version.version_no)}`}
+      title={title}
       size="sm"
       alignToPane
       origin={origin}
       footer={
-        <>
-          <Button variant="outline" size="md" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="md" disabled={isPending} onClick={save}>
-            {isPending ? "Saving…" : "Save CAD Approval"}
-          </Button>
-        </>
+        withOrderSave ? undefined : (
+          <>
+            <Button variant="outline" size="md" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button size="md" disabled={isPending} onClick={save}>
+              {isPending ? "Saving…" : "Save CAD Approval"}
+            </Button>
+          </>
+        )
       }
     >
       <Subject hide={inline}

@@ -147,7 +147,7 @@ export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: G
       <RowActions
         label={r.code}
         onDelete={() => remove(r.id)}
-        canDelete={r.status === "draft"}
+        deleteDisabledReason={r.status === "draft" ? null : "Confirmed quotations cannot be deleted"}
         isPending={isPending}
       />
     )),

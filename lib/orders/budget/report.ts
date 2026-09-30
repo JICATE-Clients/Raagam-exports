@@ -119,6 +119,11 @@ export type OrderBudgetReport = {
     customer: string | null;
     deliveryFrom: string | null;
     deliveryTo: string | null;
+    /** The EARLIEST Earlier Shipment Date across this RE's destinations
+     *  (2026-09-29, the sheet format's order facts). Null when none is set —
+     *  never the delivery date under its name. Optional: a V_final copy frozen
+     *  before this field existed has none. */
+    earlierShipment?: string | null;
     avgPrice: Fig;
     currency: string | { refused: string };
     exRate: Fig;
@@ -438,6 +443,22 @@ export async function getOrderBudgetReport(salesOrderId: string): Promise<OrderB
   const dates = facts.map((o) => o.delivery_date).filter((d): d is string => !!d).sort();
   const reNo = mine[0] ? (mine[0].re_no ?? mine[0].sc_no) : null;
 
+  /* THE EARLIER SHIPMENT DATE (2026-09-29) — this RE's destinations, earliest
+     first: Order Entry's ship-date rule, the Cutting Chart's and the GOS's. */
+  let earlierShipment: string | null = null;
+  if (mine.length) {
+    const { data: ship, error: shipErr } = await s
+      .from("garment_order_amendment_quantities")
+      .select("earlier_shipment_date")
+      .in("amendment_id", mine.map((o) => o.id));
+    if (shipErr) return { refused: `Could not read the order's shipment dates: ${shipErr.message}` };
+    earlierShipment =
+      ((ship ?? []) as { earlier_shipment_date: string | null }[])
+        .map((r) => (r.earlier_shipment_date ?? "").trim())
+        .filter(Boolean)
+        .sort()[0] ?? null;
+  }
+
   const co = coRes.data as Record<string, unknown> | null;
   const str = (k: string) => (typeof co?.[k] === "string" ? (co[k] as string) : null);
   const salesValue = totals.sales;
@@ -467,6 +488,7 @@ export async function getOrderBudgetReport(salesOrderId: string): Promise<OrderB
       customer: [...new Set(thisFirst.map((o) => o.customer_name).filter((v): v is string => !!v))].join(", ") || null,
       deliveryFrom: dates[0] ?? null,
       deliveryTo: dates[dates.length - 1] ?? null,
+      earlierShipment,
       avgPrice: sales.avgPrice,
       currency: sales.currency,
       exRate: sales.conv,

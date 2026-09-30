@@ -36,6 +36,9 @@
  */
 
 import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
+import { OverrideBanner, useOverrideCommit, type OverrideSaveRequest } from "@/components/orders/override-commit";
+import { areaOverride } from "@/lib/orders/overrides/override-modules";
+import type { OverrideEditState } from "@/lib/orders/overrides/types";
 import {
   Fragment,
   useEffect,
@@ -1143,6 +1146,7 @@ export function FabricBomScreen({
   perms,
   orderLocks,
   raiseFor = {},
+  overrideState = null,
   embed = null,
 }: {
   tasks: BomTaskRow[];
@@ -1160,10 +1164,15 @@ export function FabricBomScreen({
    * amending order already has its revision. Absent key = no link.
    */
   raiseFor?: Record<string, string>;
+  /** The caller's live PERMISSION-OVERRIDE keys (0653) — null without one. With
+   *  a Fabric BOM key, an approved order's BOM opens in override edit mode. */
+  overrideState?: OverrideEditState | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
+  /* PERMISSION OVERRIDE (0653) — the "Commit Changes (Override)" dialog. */
+  const overrideCommit = useOverrideCommit();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
@@ -1541,6 +1550,11 @@ export function FabricBomScreen({
      hook — the server guard and 0576's triggers are the lock; this is the
      banner and the read-only fields `MasterFullScreen` derives from it. */
   const lockMessage = form.garment_order_id ? orderLocks[form.garment_order_id] : undefined;
+  /* PERMISSION OVERRIDE (0653) — also a plain const: non-null only on an
+     APPROVED order (`raiseFor`) the caller holds a live Fabric BOM key for. */
+  const bomOverride = form.garment_order_id
+    ? areaOverride(overrideState, "fabric_bom", raiseFor[form.garment_order_id])
+    : null;
 
   /**
    * One round trip per ORDER, not per keystroke.
@@ -9808,13 +9822,15 @@ export function FabricBomScreen({
              `["ref", "article"]`): with more than one section on screen, the
              ref is the key that tells them apart, and Style No may be blank or
              shared. The "All styles" section has no style to describe, so its
-             band says so in the ref slot. */
+             band says so in the ref slot. Style No is dropped too since the
+             ref became labelled "Style" (user 2026-09-29, Style Ref removed):
+             on typed lines the two are the same string, side by side. */
           return allocationStyleGroups.map((g) => (
             <Fragment key={g.key || "__all_styles"}>
               <StyleIdentityBand
                 styleRefNo={g.ref || "ALL STYLES"}
                 identity={g.ref ? styleIdentityFor(g.ref) : null}
-                omit={g.ref ? ["article"] : ["style", "article"]}
+                omit={["style", "article"]}
               />
               {allocationGrid(g.rows, g.ref)}
             </Fragment>
@@ -11018,12 +11034,17 @@ export function FabricBomScreen({
         })),
       })),
     };
-    start(async () => {
+    /* PERMISSION OVERRIDE (0653): on an approved order, Save asks for the
+       reason first and the same save runs with it. A refusal keeps the form. */
+    const doSave = (o?: OverrideSaveRequest) => start(async () => {
       const res = editId
-        ? await updateFabricBom(editId, payload)
+        ? await updateFabricBom(editId, payload, o)
         : await createFabricBom(payload);
       if (res.ok) {
-        success(editId ? "Fabric BOM updated" : "Fabric BOM created");
+        success(
+          (editId ? "Fabric BOM updated" : "Fabric BOM created") +
+            (o ? " — recorded in the Override Edit Report" : ""),
+        );
         setDirty(false);
         setMode("list");
         router.refresh();
@@ -11031,6 +11052,11 @@ export function FabricBomScreen({
         toastError(res.error);
       }
     });
+    if (bomOverride && editId) {
+      overrideCommit.request(bomOverride, doSave);
+      return;
+    }
+    doSave();
   }
 
   function remove(bomId: string) {
@@ -11122,7 +11148,7 @@ export function FabricBomScreen({
           onOpen={openTask}
           canDelete={perms.canDelete}
           /* An approved order offers no bin, and its Updated row an eye (2026-09-24). */
-          lockedRow={(t) => !!orderLocks[t.id]}
+          lockReason={(t) => orderLocks[t.id]}
           /* `bom_id` is non-null here by `canDeleteRow` — a Pending row has no
              document, and the card hides the ✕ on exactly those. */
           onDelete={(t) => remove(t.bom_id as string)}
@@ -11138,7 +11164,15 @@ export function FabricBomScreen({
         ref={shellRef}
         mount="overlay"
         locked={
-          lockMessage
+          bomOverride
+            ? /* OVERRIDE EDIT MODE (0653): the Fabric BOM key opens the BOM
+                 whole, so every section is lifted; calculated fields stay
+                 what they are — server-written only (R-8). */
+              {
+                message: <OverrideBanner override={bomOverride} />,
+                open: sections.map((sec) => sec.key),
+              }
+            : lockMessage
             ? {
                 message: lockMessage,
                 action:
@@ -11228,13 +11262,17 @@ export function FabricBomScreen({
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New fabric BOM",
           onCancel: () => setMode("list"),
           onSave: () => submit(false),
-          saveLabel: "Save fabric BOM",
+          saveLabel: bomOverride ? "Commit Changes (Override)" : "Save fabric BOM",
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
-          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          /* No draft under an override: the approved version is edited in
+             place (R-6), there is no draft of it to park. */
+          onSaveDraft: perms.canCreate && !bomOverride ? () => submit(true) : undefined,
           isPending,
         }}
       />
+      {/* PERMISSION OVERRIDE (0653) — "Commit Changes (Override)". */}
+      {overrideCommit.dialog}
 
       {/* THE TWO PER-BOM REPORTS — read-only, no fields, no Save; see
           `FabricBomReportsSheet`'s own header for why it needs no unsaved

@@ -157,8 +157,8 @@ function StylesTab({
   type StyleRow = CancelDetail["styles"][number];
   const styleColumns: Column<StyleRow>[] = [
     { header: "S No",       cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span> },
-    { header: "Style Ref",  cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
-    { header: "Style",      cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
+    { header: "Style",      cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
+    { header: "Style No",   cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
     { header: "Article",    cell: (r) => <span className="text-sm">{r.article_no ?? "--"}</span> },
     { header: "RE No",      cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
     { header: "Order No",   cell: (r) => <span className="text-sm">{r.order_no ?? "--"}</span> },
@@ -236,7 +236,7 @@ function StylesTab({
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
               <div>
-                <Label>Style Ref No</Label>
+                <Label>Style</Label>
                 <Input
                   value={form.style_ref_no}
                   onChange={(e) => setForm((f) => ({ ...f, style_ref_no: e.target.value }))}

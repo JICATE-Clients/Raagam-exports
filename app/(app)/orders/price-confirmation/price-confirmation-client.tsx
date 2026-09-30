@@ -227,7 +227,8 @@ export function PriceConfirmationClient({
       <RowActions
         label={r.code}
         onDelete={() => startTransition(async () => { const res = await deletePriceConf(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
-        canDelete={r.status === "draft"}
+        /* Greyed with a reason once confirmed, not hidden (2026-09-29). */
+        deleteDisabledReason={r.status === "draft" ? null : "Confirmed prices cannot be deleted — amend instead"}
         isPending={isPending}
       />
     )),
