@@ -82,16 +82,31 @@ export function useNotifications() {
      * connection is not. Only the refocus is delayed; the first load is not.
      */
     let refocusTimer: ReturnType<typeof setTimeout> | undefined;
-    const onVisible = () => {
+    const settleThenLoad = () => {
       clearTimeout(refocusTimer);
-      if (document.visibilityState !== "visible") return;
       refocusTimer = setTimeout(() => {
         if (document.visibilityState === "visible") void load();
       }, 3000);
     };
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") {
+        clearTimeout(refocusTimer);
+        return;
+      }
+      settleThenLoad();
+    };
     document.addEventListener("visibilitychange", onVisible);
-    // Back online after a drop: fetch what arrived while Realtime was down.
-    const onOnline = () => void load();
+    /*
+     * Back online after a drop: fetch what arrived while Realtime was down —
+     * AFTER THE SAME SETTLE (2026-09-30, screenshot 140434, the same "Failed
+     * to fetch" pointing at `load`). The refocus above was delayed and this
+     * was not, and `online` is the less trustworthy of the two: the browser
+     * fires it when the interface comes up, before DNS and the route to
+     * Supabase work, so an immediate query's token refresh failed and
+     * auth-js logged it. One shared timer, so a wake that fires both events
+     * loads once.
+     */
+    const onOnline = () => settleThenLoad();
     window.addEventListener("online", onOnline);
 
     return () => {
