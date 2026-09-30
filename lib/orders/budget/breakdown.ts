@@ -71,6 +71,15 @@ export const BREAKDOWN_BUCKETS: readonly { key: BreakdownBucketKey; label: strin
   { key: "cmt_overheads", label: "CMT & Overheads" },
 ];
 
+/** The chart group a budget source rolls into, by its label ("Process" for
+ *  Fabric Processing) — so a per-line table can say which slice of the ring
+ *  each line is part of. Null for `income`, which is not a cost. */
+export function bucketLabelOfSource(source: BudgetSource): string | null {
+  if (source === "income") return null;
+  const key = BUCKET_OF_SOURCE[source];
+  return BREAKDOWN_BUCKETS.find((b) => b.key === key)?.label ?? null;
+}
+
 type Fig = number | Refusal;
 
 export type BudgetBreakdown = {

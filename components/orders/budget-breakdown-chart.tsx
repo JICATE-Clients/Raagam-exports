@@ -50,6 +50,7 @@ export function BudgetBreakdownChart({
   current,
   original = null,
   compare = true,
+  wide = false,
   className,
 }: {
   current: BudgetBreakdown;
@@ -58,11 +59,15 @@ export function BudgetBreakdownChart({
   /** `false` draws the share bar only — for a surface that shows V0 its own
    *  way (the approval card's per-piece variance table). */
   compare?: boolean;
+  /** Ring BESIDE its legend instead of above it — the desktop approval page
+   *  (user 2026-09-30), where the card is wide and short. Same glass, same
+   *  animation; only the arrangement changes. */
+  wide?: boolean;
   className?: string;
 }) {
   return (
     <div className={cn("space-y-3", className)}>
-      <ShareBar b={current} />
+      <ShareBar b={current} wide={wide} />
       {compare && original && <VersionCompare original={original} current={current} />}
     </div>
   );
@@ -113,7 +118,7 @@ function compactInr(n: number): string {
   return `${sign}${fmtMoney(a)}`;
 }
 
-function ShareBar({ b }: { b: BudgetBreakdown }) {
+function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
   const [active, setActive] = useState<Slice["key"] | null>(null);
 
   const blocked: Refusal | null = isRefusal(b.sales)
@@ -183,7 +188,10 @@ function ShareBar({ b }: { b: BudgetBreakdown }) {
           <>
             {/* THE RING — decorative for assistive tech: the legend below
                 carries every value as text. */}
-            <div className="relative size-[11rem] self-center" onPointerLeave={() => setActive(null)}>
+            {/* `contents` keeps the stacked phone layout untouched; `wide`
+                turns ring + legend into one row. */}
+            <div className={wide ? "flex items-center gap-6" : "contents"}>
+            <div className="relative size-[11rem] shrink-0 self-center" onPointerLeave={() => setActive(null)}>
               <svg viewBox="0 0 200 200" className="size-full -rotate-90 overflow-visible" aria-hidden>
                 <circle cx="100" cy="100" r={R} fill="none" strokeWidth={STROKE} style={{ stroke: "var(--glass-track)" }} />
                 {arcs.map((a) => (
@@ -227,7 +235,7 @@ function ShareBar({ b }: { b: BudgetBreakdown }) {
 
             {/* THE LEGEND — every value in text, each bucket's share as a slim
                 glowing bar on one scale. Pointing at a row lifts its slice. */}
-            <ul className="grid gap-1.5">
+            <ul className={cn("grid gap-1.5", wide && "min-w-0 flex-1")}>
               {b.buckets.map((x) => (
                 <LegendRow
                   key={x.key}
@@ -253,6 +261,7 @@ function ShareBar({ b }: { b: BudgetBreakdown }) {
                 onPoint={(on) => setActive(on && !loss ? "profit" : null)}
               />
             </ul>
+            </div>
           </>
         )}
       </div>
