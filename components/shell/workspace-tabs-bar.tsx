@@ -51,7 +51,7 @@ import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useWorkspaceTabs } from "@/
 import { NAV } from "@/components/shell/nav";
 import { isHubRoute } from "@/lib/nav/module-groups";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
-import { isPlainLeftClick } from "@/components/navigation/navigation-config";
+import { isPlainLeftClick, visibleModules } from "@/components/navigation/navigation-config";
 import { cn } from "@/lib/utils";
 
 /** Last-resort title for a route NAV doesn't know about (a dynamic `[id]`
@@ -146,7 +146,8 @@ export function WorkspaceTabsBar() {
 
   const { tabs, activate, close, closeOthers, closeAll } = useWorkspaceTabs();
 
-  const modules = NAV.filter((i) => hasPermission(user, i.module, "view"));
+  /* 0658: the shared filter — modules AND their screens (navigation-config). */
+  const modules = visibleModules(user);
   const showHome = hasPermission(user, "dashboard", "view");
   const isHomeActive = pathname === "/";
   /**

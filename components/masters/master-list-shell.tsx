@@ -36,6 +36,7 @@ import {
 import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkActionsBar } from "@/components/data-io/bulk-actions-bar";
+import { SelectionBar } from "@/components/ui/selection-bar";
 
 export type MasterStatus = "active" | "inactive" | "draft";
 
@@ -87,6 +88,9 @@ export type MasterListShellProps<Row> = {
     onView?: (r: Row) => void;
     onEdit?: (r: Row) => void;
     onDelete?: (r: Row) => void;
+    /** Why THIS row's bin is greyed (a locked or held record) — the bin stays,
+     *  saying why, per "Row actions: icons, no ⋮". Null = deletable. */
+    deleteDisabledReason?: (r: Row) => string | null;
     /**
      * SWITCH THE ROW ON OR OFF FROM THE LISTING, and — by being present at all
      * — give this list a Status column of switches.
@@ -197,6 +201,14 @@ export type MasterListShellProps<Row> = {
   /** Noun for bulk toasts, e.g. "banks". Defaults to "records". */
   bulkLabel?: string;
   /**
+   * The screen's OWN bulk buttons (user 2026-09-30, Access Control) — for a
+   * list that is not a data-io entity, or whose bulk work is not
+   * Activate / Deactivate. Given, the desktop table gains row tick-boxes and a
+   * `SelectionBar` holding what this returns for the ticked rows. `clear`
+   * empties the selection (call it once an action has run).
+   */
+  bulkActions?: (selected: Row[], clear: () => void) => ReactNode;
+  /**
    * OPT-IN: the grouped filter drawer (`useFacetFilter`'s `panel`,
    * `components/ui/filter-drawer.tsx`) drawn INSTEAD of the shell's own facet
    * grid (user, 2026-09-23: "implement the Material BOM filter in every Orders
@@ -260,6 +272,7 @@ export function MasterListShell<Row>({
   panelActiveCount = 0,
   onPanelReset,
   filterLeading,
+  bulkActions,
 }: MasterListShellProps<Row>) {
   const hasDraft = useMemo(
     () => !!statusOf && rows.some((r) => statusOf(r) === "draft"),
@@ -388,10 +401,17 @@ export function MasterListShell<Row>({
           onView={onView && (() => onView(r))}
           onEdit={actions?.onEdit && (() => actions.onEdit!(r))}
           onDelete={actions?.onDelete && (() => actions.onDelete!(r))}
+          deleteDisabledReason={actions?.deleteDisabledReason?.(r) ?? null}
           canEdit={perms.canEdit}
           canDelete={perms.canDelete}
           isPending={isPending}
           menu={actions?.menu?.(r) ?? []}
+          /* The shell owns its view: `onView` above is either the screen's own
+             sheet or the shell's columns-derived one, and absent when the
+             screen said `view={false}`. Without this the cluster's OWN default
+             eye (it reads the row from DataTable's context) came back on every
+             screen that had opted out (user 2026-09-30, Access Control). */
+          view={false}
           /* Master Data keeps its ⋮ (see `RowIconAction`) — the one module
              the 2026-09-29 inline-icons rule was scoped away from. */
           menuAs={actions?.menuAs ?? "dropdown"}
@@ -490,6 +510,7 @@ export function MasterListShell<Row>({
 
   // Opt-in desktop multi-select + bulk actions (only when bulkEntityKey given).
   const sel = useRowSelection();
+  const selecting = !!bulkEntityKey || !!bulkActions;
   const rowByKey = useMemo(() => {
     const m = new Map<string, Row>();
     rows.forEach((r) => m.set(getKey(r), r));
@@ -602,6 +623,11 @@ export function MasterListShell<Row>({
 
       {/* Dimmed while the deferred filter catches up — see useMasterFilter. */}
       <div className={cn("hidden space-y-3 transition-opacity md:block", isStale && "opacity-60")}>
+        {!bulkEntityKey && bulkActions && (
+          <SelectionBar count={selectedRows.length} onClear={sel.clear}>
+            {bulkActions(selectedRows, sel.clear)}
+          </SelectionBar>
+        )}
         {bulkEntityKey && sel.selectedIds.length > 0 && (
           <BulkActionsBar
             entityKey={bulkEntityKey}
@@ -621,10 +647,10 @@ export function MasterListShell<Row>({
           getKey={(r) => getKey(r)}
           rowClassName={rowClassName}
           empty={empty}
-          selectable={!!bulkEntityKey}
-          selectedKeys={bulkEntityKey ? sel.selectedKeys : undefined}
-          onToggle={bulkEntityKey ? sel.toggle : undefined}
-          onToggleAll={bulkEntityKey ? () => sel.toggleAll(pg.paged.map((r) => getKey(r))) : undefined}
+          selectable={selecting}
+          selectedKeys={selecting ? sel.selectedKeys : undefined}
+          onToggle={selecting ? sel.toggle : undefined}
+          onToggleAll={selecting ? () => sel.toggleAll(pg.paged.map((r) => getKey(r))) : undefined}
         />
       </div>
 

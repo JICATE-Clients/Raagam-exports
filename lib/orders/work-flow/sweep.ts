@@ -65,7 +65,7 @@ export async function sweepWorkFlow(): Promise<WorkFlowSweepResult> {
       .in("code", ALERTING)
       .select(
         "id, code, target_date, sales_order_id, " +
-          "owner:employees!owner_id(code), so:sales_orders!sales_order_id(order_number)",
+          "owner_id, so:sales_orders!sales_order_id(order_number)",
       );
     if (claimErr) return { ...out, error: claimErr.message };
     const overdue = (claimed ?? []) as unknown as Row[];
@@ -75,51 +75,48 @@ export async function sweepWorkFlow(): Promise<WorkFlowSweepResult> {
       const soIds = [...new Set(overdue.map((r) => String(r.sales_order_id)))];
       const { data: docs, error: docErr } = await admin
         .from("garment_order_amendments")
-        .select("sales_order_id, created_at, merch:employees!merchandiser_id(code)")
+        .select("sales_order_id, created_at, merchandiser_id")
         .in("sales_order_id", soIds)
         .order("created_at", { ascending: true });
       if (docErr) return { ...out, error: docErr.message };
-      const merchCodeBySo = new Map<string, string | null>();
+      const merchBySo = new Map<string, string | null>();
       for (const d of (docs ?? []) as unknown as Row[]) {
         const so = String(d.sales_order_id);
-        if (!merchCodeBySo.has(so)) merchCodeBySo.set(so, str((d.merch as Row | null)?.code));
+        if (!merchBySo.has(so)) merchBySo.set(so, str(d.merchandiser_id));
       }
 
-      const codes = new Set<string>();
+      /* EMPLOYEE → LOGIN THROUGH THE ONE RESOLVER (0660 employee_login_ids):
+         employee code first, then email — so a login made from HR ▸ Staff
+         reaches the merchandiser the order names in the Employee master. This
+         joined on `profiles.employee_code` alone before, which no login carried,
+         and every overdue alert went unrouted. */
+      const empIds = new Set<string>();
       for (const r of overdue) {
-        const c = str((r.owner as Row | null)?.code);
-        if (c) codes.add(c);
+        const o = str(r.owner_id);
+        if (o) empIds.add(o);
       }
-      for (const c of merchCodeBySo.values()) if (c) codes.add(c);
-      const profileByCode = new Map<string, string>();
-      if (codes.size) {
-        const { data: profs, error: pErr } = await admin
-          .from("profiles")
-          .select("id, employee_code")
-          .in("employee_code", [...codes])
-          .eq("is_active", true);
-        if (pErr) return { ...out, error: pErr.message };
-        for (const p of (profs ?? []) as Row[]) {
-          const c = str(p.employee_code);
-          if (c) profileByCode.set(c, String(p.id));
-        }
+      for (const m of merchBySo.values()) if (m) empIds.add(m);
+      const profileByEmployee = new Map<string, string>();
+      if (empIds.size) {
+        const { data: links, error: lErr } = await admin.rpc("employee_login_ids", { p_employees: [...empIds] });
+        if (lErr) return { ...out, error: lErr.message };
+        for (const l of (links ?? []) as Row[]) profileByEmployee.set(String(l.employee_id), String(l.profile_id));
       }
 
       for (const r of overdue) {
         const def = workFlowDef(String(r.code));
         const target = str(r.target_date);
         const re = str((r.so as Row | null)?.order_number) ?? "an order";
-        const ownerCode = str((r.owner as Row | null)?.code);
-        const merchCode = merchCodeBySo.get(String(r.sales_order_id)) ?? null;
+        const ownerId = str(r.owner_id);
+        const merchId = merchBySo.get(String(r.sales_order_id)) ?? null;
         const userId =
-          (ownerCode && profileByCode.get(ownerCode)) || (merchCode && profileByCode.get(merchCode)) || null;
-        if (!userId) {
-          out.unrouted++;
-          continue;
-        }
+          (ownerId && profileByEmployee.get(ownerId)) || (merchId && profileByEmployee.get(merchId)) || null;
+        // Still counted, and no longer dropped: an empty target goes to the
+        // administrators (notify()'s fallback, 0660) saying nobody was set up.
+        if (!userId) out.unrouted++;
         const late = target ? daysBetween(target, now) : 0;
         await notify(
-          { userId },
+          userId ? { userId } : { userIds: [] },
           {
             title: `Action required: ${def?.label ?? r.code} overdue for ${re}`,
             body: `Target was ${fmtDate(target)} — ${late} day${late === 1 ? "" : "s"} late. ${def?.doneWhen ?? ""}`.trim(),
@@ -127,7 +124,7 @@ export async function sweepWorkFlow(): Promise<WorkFlowSweepResult> {
             type: "danger",
           },
         );
-        out.overdue++;
+        if (userId) out.overdue++;
       }
     }
 

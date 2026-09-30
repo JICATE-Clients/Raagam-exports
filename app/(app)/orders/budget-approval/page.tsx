@@ -1,5 +1,6 @@
 import { requirePermission, can } from "@/lib/auth/server";
 import { listBudgetsForApproval, listOrderBudgets } from "@/lib/orders/budget/service";
+import { loadOrderApprovalCards } from "@/lib/approvals/order-approval-cards";
 import { BudgetApprovalScreen } from "./budget-approval-screen";
 
 /**
@@ -33,9 +34,19 @@ export default async function BudgetApprovalPage({
     can("orders", "edit"),
   ]);
 
+  /* THE ROWS ARE ORDERS (client 2026-09-29): each budget's order card — RE
+     No, customer, style, qty, ship date, merchandiser, revision, figures —
+     from the one loader the phone inbox uses. An enrichment: if it fails the
+     list still renders, keyed on the budget alone. */
+  const cards = await loadOrderApprovalCards(rows.map((r) => r.id)).catch((e: unknown) => {
+    console.error("[budget-approval] order cards:", e instanceof Error ? e.message : e);
+    return {};
+  });
+
   return (
     <BudgetApprovalScreen
       rows={rows}
+      cards={cards}
       budgets={budgets}
       canApprove={canApprove}
       canEdit={canEdit}

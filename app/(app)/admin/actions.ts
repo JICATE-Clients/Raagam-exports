@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 
@@ -10,58 +10,8 @@ type Result = { ok: true } | { ok: false; error: string };
 /* Users                                                                */
 /* ------------------------------------------------------------------ */
 
-export async function createUser(data: {
-  email: string;
-  password: string;
-  fullName: string;
-  employeeCode?: string;
-  locationId?: string;
-}): Promise<Result> {
-  if (!(await can("system_admin", "create"))) return { ok: false, error: "Forbidden" };
-
-  if (!data.email || !data.password || !data.fullName) {
-    return { ok: false, error: "Email, password, and full name are required." };
-  }
-
-  const admin = createAdminClient();
-  const { data: authData, error: authError } = await admin.auth.admin.createUser({
-    email: data.email,
-    password: data.password,
-    email_confirm: true,
-    user_metadata: { full_name: data.fullName },
-  });
-
-  if (authError || !authData.user) {
-    return { ok: false, error: authError?.message ?? "Failed to create auth user." };
-  }
-
-  const { error: profileError } = await admin.from("profiles").upsert(
-    {
-      id: authData.user.id,
-      email: data.email,
-      full_name: data.fullName,
-      employee_code: data.employeeCode ?? null,
-      default_location_id: data.locationId ?? null,
-      is_active: true,
-      is_super_admin: false,
-    },
-    { onConflict: "id" },
-  );
-
-  if (profileError) {
-    return { ok: false, error: profileError.message };
-  }
-
-  await writeAudit({
-    action: "user.created",
-    entityType: "profile",
-    entityId: authData.user.id,
-    metadata: { email: data.email, fullName: data.fullName },
-  });
-
-  revalidatePath("/admin/users");
-  return { ok: true };
-}
+// Creating a login lives in lib/users/actions.ts (createUserFromStaff):
+// picked from HR & Payroll ▸ People ▸ Staff, temporary password generated and emailed.
 
 export async function assignRole(
   userId: string,

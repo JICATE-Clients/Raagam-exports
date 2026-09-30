@@ -81,3 +81,35 @@ self.addEventListener("notificationclick", (event) => {
     })(),
   );
 });
+
+// ── A subscription the browser replaced on its own ──────────────────────────
+// Browsers rotate or expire push subscriptions without asking. Unhandled, the
+// server keeps the dead endpoint, the next send 404s/410s, notify() prunes it —
+// and that device goes silent until someone happens to open the bell and turn
+// alerts back on (notification audit 2026-09-30). So re-subscribe with the same
+// key and hand the new one to the server, which swaps it for the old row. The
+// request carries the session cookie (same origin); a device with no signed-in
+// session is simply picked up by the app's re-sync on the next sign-in.
+type SubscriptionChangeEvent = ExtendableEvent & {
+  oldSubscription?: PushSubscription | null;
+  newSubscription?: PushSubscription | null;
+};
+self.addEventListener("pushsubscriptionchange", (event) => {
+  const e = event as SubscriptionChangeEvent;
+  e.waitUntil(
+    (async () => {
+      const old = e.oldSubscription ?? null;
+      const key = old?.options?.applicationServerKey ?? null;
+      const sub =
+        e.newSubscription ??
+        (key ? await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }) : null);
+      if (!sub) return;
+      await fetch("/api/push/resubscribe", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ oldEndpoint: old?.endpoint ?? null, subscription: sub.toJSON() }),
+      }).catch(() => {});
+    })(),
+  );
+});

@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import type { HubIconTone } from "@/components/masters/hub-card";
 import { notFound, redirect } from "next/navigation";
-import { requirePermission } from "@/lib/auth/server";
+import { canViewHref, requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { HubCard } from "@/components/masters/hub-card";
 import { findGroup, groupAtRoute } from "@/lib/nav/module-groups";
@@ -204,9 +204,17 @@ export async function GroupHub({
    * to the (now cardless) page below rather than redirecting nowhere; the nav
    * check's own assertions are what keep that from being the common case.
    */
-  const firstChild = group.children.find(
-    (c) => c.status !== "todo" && c.status !== "unavailable",
-  );
+  /* 0658: the first child the user may OPEN — a role or email access that
+     grants only the third screen of a group lands on the third, not on a
+     first screen that would only refuse them. */
+  let firstChild: (typeof group.children)[number] | undefined;
+  for (const c of group.children) {
+    if (c.status === "todo" || c.status === "unavailable") continue;
+    if (await canViewHref(c.href)) {
+      firstChild = c;
+      break;
+    }
+  }
   if (firstChild) redirect(firstChild.href);
 
   // AFTER the permission gate, never before: a count is a fact about records

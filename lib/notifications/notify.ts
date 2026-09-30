@@ -5,13 +5,31 @@ import { notificationInput, type NotificationInput } from "./types";
 
 /**
  * Who receives a notification. One user, an explicit list, everyone in a role,
- * or everyone who holds a module:action permission (role-granted or super admin).
+ * everyone who holds a module:action permission (role-granted, email access
+ * (0658) or super admin — active logins only, 0660), or the logins of named
+ * EMPLOYEES (a merchandiser, a milestone owner), resolved by employee code then
+ * email through `employee_login_ids` (0660).
  */
 export type NotifyTarget =
   | { userId: string }
   | { userIds: string[] }
   | { role: string }
-  | { permission: { module: string; action: string } };
+  | { permission: { module: string; action: string } }
+  | { employeeIds: string[] };
+
+export type NotifyOptions = {
+  /**
+   * AN ALERT THAT REACHES NOBODY GOES TO THE ADMINISTRATORS (0660, notification
+   * audit 2026-09-30). "New order → CAD Technician" with nobody holding the
+   * role used to vanish without trace. Now it goes to Administrator role holders
+   * and super admins, prefixed with why. Only the UNROUTED ones — copying them
+   * on every alert is how admins learn to ignore the buzz. Pass `false` where an
+   * empty list is a legitimate answer (nobody to tell is nothing to report).
+   */
+  fallbackToAdmins?: boolean;
+};
+
+const FALLBACK_NOTE = "No one is set up to receive this alert, so it came to you. ";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -36,6 +54,12 @@ async function resolveRecipients(
 ): Promise<string[]> {
   if ("userId" in target) return [target.userId];
   if ("userIds" in target) return target.userIds;
+  if ("employeeIds" in target) {
+    const ids = [...new Set(target.employeeIds.filter(Boolean))];
+    if (!ids.length) return [];
+    const { data } = await admin.rpc("employee_login_ids", { p_employees: ids });
+    return (data ?? []).map((r: { profile_id: string }) => r.profile_id);
+  }
   if ("role" in target) {
     const { data } = await admin.rpc("users_with_role", { p_name: target.role });
     return (data ?? []).map((r: { user_id: string }) => r.user_id);
@@ -63,16 +87,21 @@ async function resolveRecipients(
 export async function notify(
   target: NotifyTarget,
   payload: NotificationInput,
+  options: NotifyOptions = {},
 ): Promise<void> {
   try {
     const parsed = notificationInput.safeParse(payload);
     if (!parsed.success) return;
-    const { title, body, href, type } = parsed.data;
+    const { title, href, type } = parsed.data;
+    let body = parsed.data.body;
 
     const admin = createAdminClient();
-    const recipients = [...new Set(await resolveRecipients(admin, target))].filter(
-      Boolean,
-    );
+    let recipients = [...new Set(await resolveRecipients(admin, target))].filter(Boolean);
+    if (recipients.length === 0 && options.fallbackToAdmins !== false) {
+      const { data } = await admin.rpc("notification_fallback_recipients");
+      recipients = [...new Set((data ?? []).map((r: { user_id: string }) => r.user_id))].filter(Boolean) as string[];
+      body = FALLBACK_NOTE + (body ?? "");
+    }
     if (recipients.length === 0) return;
 
     // 1) In-app rows (service role bypasses RLS for the fan-out insert).

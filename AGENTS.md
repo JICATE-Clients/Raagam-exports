@@ -333,6 +333,38 @@ another document, where a seeded row would sit beside computed ones and look lik
 which with a `// default-row: exempt -- <reason>` comment. Full rules in the
 `erp-table-default-row` skill.
 
+## Folds are accordions (STANDING)
+
+**Where sections fold, one is open at a time, and working in a section opens it**
+(user 2026-09-30, Access Control: "if user work on the section open it and then move to
+the next submodule close the previous … add this kind of action globally"). Tab or
+click into another section and it unfolds while the one behind folds.
+
+This is the THIRD time it was asked for — Combos ▸ Structure Details (2026-08-18,
+`ChildGrid`'s `openRowKey`), Material BOM Amendment's combination bands (2026-08-27,
+`openGroups`), and now the permission editor — and each screen had grown its own copy,
+which is why a new screen kept arriving multi-open. **`useAccordion`
+(`lib/ui/use-accordion.ts`) is the one implementation**: a fold holds ONE key or null,
+never a `Set` of open keys, so "two open" cannot be written. Spread `focusProps(key)` on
+the section wrapper — React's `onFocus` bubbles, so Tab arriving on any field claims it —
+and give the header `toggle(key)`. The hook already absorbs the focus-then-click race
+(a click on a shut header focuses it, which opens it, before the click would shut it).
+
+Three things that are NOT this rule, so do not "fix" them into it:
+
+- **A section held open for a reason of its own** — a blank mandatory field is never
+  hidden (Mandatory fields) — is `isOpen(k) || blank` at render, never a second key.
+- **A search opens everything** it matched, so no hit sits behind a fold.
+- **Material BOM Amendment's slice grids** open by default on a recorded client decision
+  (2026-08-20, in that file); they sit under a master-detail line, so only one is ever
+  on screen anyway. Changing their default needs a new client decision.
+
+Converted 2026-09-30: the permission editor and PO detail's delivery schedules. Already
+single-open before this and left as they are: `ChildGrid` (`foldRows`), the section rail
+(`openParent`), `bom-slice-grid`, `process-fold-list`, Approval Qty, the yarn process
+grid. **Not yet enforced by a script** — a new `useState<Set<string>>` of open keys is the
+shape to catch in review.
+
 ## Pagination (STANDING)
 
 **Every listing pages itself, and there is ONE "Rows per page" for the whole app**
@@ -1495,3 +1527,52 @@ escalation returning the LEVEL 1 holders rather than the people it escalated to.
 reasoning in `supabase/migrations/0601_approval_sla_escalation.sql` and
 `0603_approval_notify_missed_approver.sql`; the plan and what was already built in
 `doc/order/newfeature-plan.md`.
+
+## Permission overrides (STANDING)
+
+**A named user may edit an APPROVED order in place — no revision, no MD — only through
+an override, and the override lives INSIDE the two lock triggers, never beside them.**
+Spec `doc/email role system.md`; what was built and every decision against the spec in
+`doc/order/permission-override-findings.md` (0650 · 0651 · 0653 · 0655 · 0656).
+
+An admin or the MD grants `(email, key, expiry ≤ 30 days, reason)` on **Admin ▸ Access
+Control ▸ Permission Overrides**. The keys ARE the Raise Revision kinds (`price_change`,
+`qty_addition` … plus `material_bom` / `fabric_bom` / `order_budget`), and what a key
+opens is that kind's revision SEED — **without** 0627's whole-document overlay, so a Price
+Change override opens the price tables and nothing else. Four rules hold it together:
+
+- **THE TRIGGER IS THE CONTROL.** `refuse_when_order_locked` and
+  `refuse_when_budget_approved` ask `order_override_scope()` / `budget_override_commit()`
+  ONLY inside the branch where the lock is already about to refuse — an open order's save
+  makes no extra lookup. A write let through is logged to `override_row_log` IN THE SAME
+  STATEMENT (R-7); the field-level `override_audit_trail` is derived when the save closes.
+  **Whoever next re-creates either trigger must start from the latest body** —
+  `npm run check:permission-overrides` finds the latest migration defining each and fails
+  if any line of 0576 / 0619 / 0653's bodies is missing from it. That is how 0617's guard
+  was lost twice, and why the check exists.
+- **A GRANT IS NOT A STANDING KEY — A SAVE OPENS A COMMIT.** The trigger honours a grant
+  only through an open `override_commits` row (≤ 30 min, the caller's own, carrying the
+  mandatory reason). Save paths wrap their unchanged body in `saveUnderOverride()`
+  (`lib/orders/overrides/commit.ts`); `updateAmendment` / `updateFabricBom` /
+  `updateMaterialBomAmendment` / `updateOrderBudget` take an optional `override` and are
+  byte-for-byte the old save without it. A new save path in these four modules that
+  should honour overrides takes the same optional argument — never its own lock bypass.
+- **NEVER WHILE A REVISION OR THE MD HOLDS THE ORDER.** Amending and pending-MD orders
+  stand the override down (a revision's Reject reverts whole modules to V0 and would erase
+  it). The grantee must already hold `orders:edit` — the override lifts the approval lock,
+  it does not stand in for the role.
+- **LOOKUPS NEVER GO THROUGH A TABLE THE SAVE REWRITES.** The budget commit is found by
+  `override_commits.budget_id`, not through `order_budget_orders`, which the budget save
+  deletes and re-inserts (0651 did, and every budget override save would have failed).
+  Any new resolver the triggers call obeys the same rule.
+
+Verified by `scripts/permission-override-smoke-test.sql` — dry-run blocks that always end
+in `raise exception`, impersonating the `*.audit@raagam.test` logins; run each block and
+read `0 FAIL` from the message. Blocks that need a real DELETE run with merch's claims but
+without `set local role authenticated`, because of the finding below.
+
+**KNOWN, NOT FIXED: delete-and-reinsert saves need `orders:delete`.** The budget lines /
+order links delete policies require it while the saves ask only `orders:edit`, so for a
+role without delete RLS turns each DELETE into 0 rows SILENTLY and the INSERTs duplicate
+every line. Pre-existing, independent of overrides — and it means an override grantee
+needs `orders:delete` for any grid a key rewrites.

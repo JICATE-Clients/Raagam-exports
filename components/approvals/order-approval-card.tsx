@@ -1,6 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
+import { OrderFullDataSheet } from "@/components/approvals/order-full-data-sheet";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
@@ -63,6 +65,12 @@ export function OrderApprovalCard({
 }) {
   const bd = card.breakdown;
   const rev = card.revision;
+  /* "VIEW FULL ORDER DATA" (client 2026-09-30): the budget block opens the
+     order's own reports, read-only (`OrderFullDataSheet`). Keyed on the RE's
+     sales order — one budget is one order in practice. */
+  const [fullOpen, setFullOpen] = useState(false);
+  const salesOrderId = card.salesOrderIds[0] ?? null;
+  const openFull = salesOrderId ? () => setFullOpen(true) : undefined;
 
   return (
     <article
@@ -96,14 +104,45 @@ export function OrderApprovalCard({
         {waited ? ` · waiting ${waited}` : card.submittedAt ? ` · ${fmtDate(card.submittedAt)}` : ""}
       </p>
 
-      {/* 2. WHERE THE SALES GO, AND THE MARGIN */}
-      {!bd.ok ? (
-        <p className="text-sm text-warning">Breakdown unavailable — {bd.refused}</p>
-      ) : (
-        <>
-          <BudgetBreakdownChart current={bd.current} compare={false} />
-          <MarginLine pct={bd.current.profitPct} perPc={perPiece(bd.current.profit, card.orderQty)} />
-        </>
+      {/* 2. WHERE THE SALES GO, AND THE MARGIN — the whole block opens the
+          full order data (spec: "clicking anywhere on the Itemized Budget &
+          Profit Margin card"). The click is on the container for the pointer;
+          the real <button> at its foot is the keyboard and screen-reader way
+          in, so the block is never mouse-only. */}
+      <div
+        className={cn("space-y-3 rounded-[24px]", openFull && "cursor-pointer transition-transform duration-200 hover:-translate-y-0.5")}
+        onClick={openFull}
+      >
+        {!bd.ok ? (
+          <p className="text-sm text-warning">Breakdown unavailable — {bd.refused}</p>
+        ) : (
+          <>
+            <BudgetBreakdownChart current={bd.current} compare={false} />
+            <MarginLine pct={bd.current.profitPct} perPc={perPiece(bd.current.profit, card.orderQty)} />
+          </>
+        )}
+        {openFull && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openFull();
+            }}
+            className="flex w-full items-center justify-center gap-1 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            View full order data
+            <ChevronRight className="size-3.5" aria-hidden />
+          </button>
+        )}
+      </div>
+      {salesOrderId && fullOpen && (
+        <OrderFullDataSheet
+          open
+          onClose={() => setFullOpen(false)}
+          salesOrderId={salesOrderId}
+          title={card.reNos.join(", ") || `Budget ${card.budgetCode ?? ""}`}
+          revision={!!rev}
+        />
       )}
 
       {/* 3. V0 vs PROPOSED, PER PIECE */}

@@ -1,53 +1,17 @@
-import { requirePermission } from "@/lib/auth/server";
-import { createClient } from "@/lib/supabase/server";
-import { PageHeader } from "@/components/ui/page-header";
-import RolesClient from "./roles-client";
+import { redirect } from "next/navigation";
 
-export interface RoleRow {
-  id: string;
-  name: string;
-  description: string | null;
-  is_system: boolean;
-}
-
-export interface PermissionRow {
-  id: string;
-  module: string;
-  action: string;
-}
-
-export interface RolePermissionRow {
-  role_id: string;
-  permission_id: string;
-}
-
-export default async function RolesPage() {
-  await requirePermission("system_admin", "view");
-
-  const supabase = await createClient();
-
-  const [{ data: rolesData }, { data: permsData }, { data: rpData }] =
-    await Promise.all([
-      supabase.from("roles").select("id, name, description, is_system").order("name"),
-      supabase.from("permissions").select("id, module, action"),
-      supabase.from("role_permissions").select("role_id, permission_id"),
-    ]);
-
-  const roles = (rolesData ?? []) as RoleRow[];
-  const permissions = (permsData ?? []) as PermissionRow[];
-  const rolePermissions = (rpData ?? []) as RolePermissionRow[];
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Roles &amp; Permissions"
-        description="Create roles and configure module-level permission matrices."
-      />
-      <RolesClient
-        roles={roles}
-        permissions={permissions}
-        rolePermissions={rolePermissions}
-      />
-    </div>
-  );
+/**
+ * MERGED INTO ACCESS CONTROL (user 2026-09-30: "role and permission and
+ * permission override need to merge"). Roles are now the By Role tab of
+ * Administration ▸ Access Control ▸ Access Control, over the screen-level
+ * permission tree (0658).
+ *
+ * A REDIRECT, NEVER A DELETION — every bookmark still lands. Declared in
+ * `REDIRECTED` in scripts/check-module-groups.mts, which asserts this page
+ * and its `redirect(...)` target together.
+ *
+ * No `requirePermission` here: the target runs its own gate.
+ */
+export default function RolesPage() {
+  redirect("/admin/access-control");
 }

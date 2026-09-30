@@ -69,6 +69,12 @@ export interface RolesPreview {
   names: string[];
   /** The UNION of every previewed role's grants, de-duplicated — never an intersection. */
   permissions: PermissionKey[];
+  /** 0658: module-wide keys from roles in MODULE MODE for that module. */
+  moduleMode: PermissionKey[];
+  /** 0658: `screen_key|action` from roles in SCREEN MODE — the same shape
+   *  `my_screen_permissions()` gives a real user, so a preview previews the
+   *  screen rules too. (A preview is of ROLES, so no email access is added.) */
+  screenGrants: string[];
 }
 
 /**
@@ -92,12 +98,13 @@ export async function getRolesPreview(
 ): Promise<RolesPreview | null> {
   if (roleIds.length === 0) return null;
 
-  const [{ data: roles }, { data: rolePerms }] = await Promise.all([
+  const [{ data: roles }, { data: rolePerms }, { data: screenRows }] = await Promise.all([
     supabase.from("roles").select("id, name").in("id", roleIds),
     supabase
       .from("role_permissions")
-      .select("permissions(module, action)")
+      .select("role_id, permissions(module, action)")
       .in("role_id", roleIds),
+    supabase.from("role_screen_permissions").select("role_id, module, screen_key, action").in("role_id", roleIds),
   ]);
 
   const validRoles = (roles ?? []) as { id: string; name: string }[];
@@ -123,9 +130,23 @@ export async function getRolesPreview(
     }
   }
 
+  /* THE MODE RULE, per role (0658): a role with screen rows for a module is in
+     screen mode there, so its role_permissions rows for that module are the
+     kept OR and do not count as module-wide. */
+  const screens = (screenRows ?? []) as { role_id: string; module: string; screen_key: string; action: string }[];
+  const screenModuleOf = new Set(screens.map((r) => `${r.role_id}:${r.module}`));
+  const moduleMode = new Set<PermissionKey>();
+  for (const rp of (rolePerms ?? []) as Record<string, unknown>[]) {
+    const p = rp.permissions as Record<string, unknown> | null;
+    if (!p || screenModuleOf.has(`${rp.role_id}:${p.module}`)) continue;
+    moduleMode.add(`${p.module}:${p.action}` as PermissionKey);
+  }
+
   return {
     ids: validRoles.map((r) => r.id),
     names: validRoles.map((r) => r.name),
     permissions,
+    moduleMode: [...moduleMode],
+    screenGrants: [...new Set(screens.map((r) => `${r.screen_key}|${r.action}`))],
   };
 }

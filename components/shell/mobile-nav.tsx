@@ -17,7 +17,7 @@ import {
   FileText,
   type LucideIcon,
 } from "lucide-react";
-import { NAV, SECTION_ACTIONS, type NavItem, type SubNavItem } from "./nav";
+import { SECTION_ACTIONS, type NavItem, type SubNavItem } from "./nav";
 import { actionIcon, createHref, searchNav, type NavSearchRow } from "./nav-search";
 import { type StoreNavLink } from "./sidebar";
 import { mastersFabSections } from "@/lib/masters/masters-nav";
@@ -25,7 +25,7 @@ import { moduleLeafItems, owningNavHref } from "@/lib/nav/module-groups";
 import { useOverlayFocus } from "@/lib/use-overlay-focus";
 import { confirmDiscard, useModalGuard } from "@/lib/reload-guard";
 import { useAppUser } from "@/lib/auth/permission-context";
-import { hasPermission } from "@/lib/auth/types";
+import { visibleModules } from "@/components/navigation/navigation-config";
 import type { SearchEntity, SearchResult } from "@/lib/search/types";
 import { cn } from "@/lib/utils";
 
@@ -200,7 +200,8 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const createRef = useRef<HTMLDivElement>(null);
 
   const modules = useMemo(
-    () => NAV.filter((i) => hasPermission(user, i.module, "view")),
+    /* 0658: the shared filter — modules AND their screens (navigation-config). */
+    () => visibleModules(user),
     [user],
   );
 

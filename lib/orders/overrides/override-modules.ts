@@ -180,6 +180,44 @@ export function areaOverride(
   };
 }
 
+const titleCase = (snake: string) =>
+  snake
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
+/**
+ * The audit row's TABLE, in the operator's words — "Order Entry · Style Prices",
+ * "Fabric BOM · Yarns". The Override Edit Report's grouping column. Unknown
+ * tables fall through title-cased rather than hidden: a report that drops a
+ * row it cannot name is the silent kind of wrong.
+ */
+export function overrideTableLabel(table: string): string {
+  if (table === "garment_order_amendments") return "Order Entry · Header";
+  if (table === "order_fabric_boms") return "Fabric BOM · Header";
+  if (table === "material_bom_amendments") return "Material BOM · Header";
+  if (table === "order_budgets") return "Order Budget · Header";
+  const prefixes: [string, string][] = [
+    ["garment_order_amendment_", "Order Entry"],
+    ["order_fabric_bom_", "Fabric BOM"],
+    ["material_bom_amendment_", "Material BOM"],
+    ["order_budget_", "Order Budget"],
+  ];
+  for (const [p, label] of prefixes) {
+    if (table.startsWith(p)) return `${label} · ${titleCase(table.slice(p.length))}`;
+  }
+  return titleCase(table);
+}
+
+/** The audit row's FIELD — "fob_selling_price" → "Fob Selling Price"; the
+ *  "(recalc)" suffix and the row markers ("(row added)") pass through. */
+export function overrideFieldLabel(field: string): string {
+  if (field.startsWith("(")) return field;
+  const m = field.match(/^(.*?)( \(recalc\))?$/);
+  return titleCase(m?.[1] ?? field) + (m?.[2] ?? "");
+}
+
 /** Which editors a set of keys unlocks at all. */
 export function overrideAreasOf(keys: readonly string[]): AmendmentArea[] {
   const scope = overrideScopeOf(keys);

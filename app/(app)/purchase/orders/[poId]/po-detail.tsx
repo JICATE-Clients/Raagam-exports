@@ -40,6 +40,7 @@ import { useToast } from "@/components/ui/toast";
 import type { PoLineItem, PoStatus } from "@/lib/purchase/types";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { PoDeliveryEditor } from "./po-delivery-editor";
+import { useAccordion } from "@/lib/ui/use-accordion";
 
 function poStatusTone(status: PoStatus): StatusTone {
   switch (status) {
@@ -626,7 +627,9 @@ export function PoDetail({
   const [form, setForm] = useState<LineFields>(emptyLine());
   const [rejectNote, setRejectNote] = useState("");
   const [showRejectForm, setShowRejectForm] = useState(false);
-  const [expandedLines, setExpandedLines] = useState<Set<string>>(new Set());
+  // One line's delivery schedule open at a time — the app's fold rule
+  // (AGENTS.md "Folds are accordions"; lib/ui/use-accordion.ts).
+  const deliveryFold = useAccordion();
 
   const isDraft = po.status === "draft";
   const isPendingApproval = po.status === "pending_approval";
@@ -845,17 +848,10 @@ export function PoDetail({
               <Button
                 size="sm"
                 variant="ghost"
-                aria-expanded={expandedLines.has(r.id)}
-                onClick={() => {
-                  setExpandedLines((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(r.id)) next.delete(r.id);
-                    else next.add(r.id);
-                    return next;
-                  });
-                }}
+                aria-expanded={deliveryFold.isOpen(r.id)}
+                onClick={() => deliveryFold.toggle(r.id)}
               >
-                {expandedLines.has(r.id) ? "Hide" : "Show"}
+                {deliveryFold.isOpen(r.id) ? "Hide" : "Show"}
               </Button>
             ),
           },
@@ -932,7 +928,7 @@ export function PoDetail({
 
           {/* Expanded delivery editors for each line */}
           {po.lines
-            .filter((l) => expandedLines.has(l.id))
+            .filter((l) => deliveryFold.isOpen(l.id))
             .map((l) => (
               <div key={`del-${l.id}`} className="ml-4">
                 <p className="mb-1 text-xs font-bold text-muted-foreground">

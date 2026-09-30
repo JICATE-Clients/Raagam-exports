@@ -1,6 +1,8 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { screenOfPath } from "@/lib/permissions/screen-catalog";
 import {
   type AppUser,
   type Module,
@@ -33,8 +35,11 @@ export function useAppUser(): AppUser {
   return user;
 }
 
-/** Client-side permission check, e.g. usePermission("orders", "approve"). */
+/** Client-side permission check, e.g. usePermission("orders", "approve").
+ *  Screen-aware (0658): it answers for the screen the browser is on, the same
+ *  rule `can()` applies on the server for that page. */
 export function usePermission(module: Module, action: Action): boolean {
   const user = useContext(PermissionContext);
-  return hasPermission(user, module, action);
+  const pathname = usePathname();
+  return hasPermission(user, module, action, screenOfPath(pathname));
 }

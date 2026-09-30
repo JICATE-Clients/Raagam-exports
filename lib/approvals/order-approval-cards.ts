@@ -43,6 +43,9 @@ export type OrderApprovalCard = {
   currency: string | null;
   /** `sales_orders.order_number` of each order on the budget. */
   reNos: string[];
+  /** The orders' `sales_orders` ids — what the report routes and the "View full
+   *  order data" pop-up key on (one budget = one order in practice). */
+  salesOrderIds: string[];
   customer: string | null;
   /** "REF / DESCRIPTION", in style order, comma-joined. */
   styles: string | null;
@@ -200,6 +203,7 @@ export async function loadOrderApprovalCards(
         budgetStatus: b.status,
         currency: b.currency_code,
         reNos: reNos.length ? reNos : (kpis?.re_nos ?? []),
+        salesOrderIds: [...new Set(orders.map((o) => o.sales_order_id).filter((v): v is string => !!v))],
         customer: customers.join(", ") || null,
         styles: [...new Set(styles)].join(", ") || null,
         merchandiser: merch.join(", ") || null,

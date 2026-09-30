@@ -233,3 +233,16 @@ Also from the live DB: `pg_trigger` holds **45** triggers named `trg_order_lock`
   - the budget's `editable` is also true for approved + an `order_budget` key (submit stays hidden because `canTransition(approved→submitted)` is false).
 - **Verified:** tsc clean, check:hooks 0, eslint 0 errors (the 25 warnings are pre-existing unused vars). In the browser as the admin (no grant), Fabric BOM loads and the approved BOM shows the unchanged lock banner with no console errors (AC-17 UI).
 - **Override mode itself is left to the user to test** (user 2026-09-30).
+
+**Phase 6 — reports (2026-09-30, 0656 applied).**
+- **Reports ▸ Override Edit Report** (`app/(app)/reports/override-edits/`), registered in `lib/reports/catalog.ts`.
+  - Gate: `can_view_permission_overrides()` (MD + admins, D-7).
+  - One row per field changed: Saved, RE No, Version, User, Module, Area, Field, Old, New, Reason, and Save (outcome + commit id + any direction-breach flag). Newest save first, one save's fields together (R-18 "grouped by commit").
+  - Filters: date range, RE No, user, module. PDF / Excel / Print come from `ReportView`.
+  - Data comes from `listOverrideEdits()`: three reads, no embeds (the audit tables have no FKs by design), and a failed read throws rather than showing an empty report.
+- **Report footer note:** `components/orders/order-override-note.tsx`, rendered by `OrderDocumentTabs`, so every per-order report page carries it with no per-report edit. It prints (it sits outside the print-hidden strip) and renders nothing when there are no edits. The count comes from `order_override_edit_count()` (0656, SECURITY DEFINER, numbers only), so every reader sees it while the details stay behind RLS.
+- **Labels:** `overrideTableLabel` / `overrideFieldLabel` in override-modules.
+- **Verified:** tsc, eslint, check:hooks, check:nav, check:order-reports and check:permission-overrides all green. The smoke block `$smoke_report$` passes 4/4: note silent before any edit; a Merchandiser sees the count but zero audit rows; the admin reads user, field, old, new, reason and outcome (AC-16); the RE No resolves.
+- **Not done, by decision:**
+  - **The note is not in the jsPDF exports.** They draw from data, so each exporter would need the count passed in.
+  - **Budget `RevisionHistory` has no "Direct edit — override" label.** It would add a query to every budget listing and show names and reasons to viewers the audit's RLS excludes. The footer note and the report cover "this version has override edits".

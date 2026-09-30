@@ -49,8 +49,9 @@ import {
   suppressedRefusal,
   type BudgetSource,
 } from "@/lib/orders/budget/totals";
-import type { BudgetBreakdownPair } from "@/lib/approvals/budget-breakdown";
-import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
+import type { OrderApprovalCard as OrderCardData } from "@/lib/approvals/order-approval-cards";
+import { OrderApprovalCard } from "@/components/approvals/order-approval-card";
+import { MARGIN_TARGET_PCT } from "@/lib/orders/budget/breakdown";
 import {
   BUDGET_STATUSES,
   budgetStatusText,
@@ -196,12 +197,16 @@ function reNosOf(b: OrderBudget | null | undefined): string[] {
 
 export function BudgetApprovalScreen({
   rows,
+  cards = {},
   budgets,
   canApprove,
   canEdit,
   initialOpenId = null,
 }: {
   rows: BudgetApprovalRow[];
+  /** Each budget's ORDER card (`loadOrderApprovalCards`) — the facts the list
+   *  and the sheet lead with. A budget missing here still lists, by its code. */
+  cards?: Record<string, OrderCardData>;
   budgets: OrderBudget[];
   /** `orders:approve` — declared since 0001 and used here first. An editor is
    *  not thereby an approver. */
@@ -267,8 +272,6 @@ export function BudgetApprovalScreen({
     names: Record<string, string>;
     /** The revised budget's Original · Last · Latest (null = not a revision). */
     revision: RevisionComparisonData | null;
-    /** The cost chart's figures (null = the budget could not be read). */
-    breakdown: BudgetBreakdownPair | null;
   } | null>(null);
 
   /* The panel AND the revision comparison, one action (2026-09-24): the
@@ -276,8 +279,8 @@ export function BudgetApprovalScreen({
      budget on every render, including the re-render each decision triggers. */
   useEffect(() => {
     if (!openId) return;
-    void loadBudgetApprovalSheet(openId).then(({ panel: p, revision, breakdown }) =>
-      setLoaded({ forId: openId, ...p, revision, breakdown }),
+    void loadBudgetApprovalSheet(openId).then(({ panel: p, revision }) =>
+      setLoaded({ forId: openId, ...p, revision }),
     );
   }, [openId]);
 
@@ -310,11 +313,12 @@ export function BudgetApprovalScreen({
     return rows.filter((r) => {
       if (!facetMatch(r)) return false;
       if (!q) return true;
-      return [r.code, r.description]
+      const c = cards[r.id];
+      return [r.code, r.description, ...(c?.reNos ?? []), c?.customer, c?.styles, c?.merchandiser]
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q));
     });
-  }, [rows, facetMatch, search]);
+  }, [rows, cards, facetMatch, search]);
   const quick = useQuickStatus(approvalWord, {
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
@@ -429,55 +433,123 @@ export function BudgetApprovalScreen({
 
   const filtered = useMemo(() => base.filter(quickMatches), [base, quickMatches]);
 
+  /* THE ROWS ARE ORDERS (client 2026-09-29, "the approval screen … connected
+     with budget, which is wrong"). An approver knows an order by its RE No,
+     customer and style — never by "Budget 3", a Group or a line count — so the
+     list leads with the order, from its card (`loadOrderApprovalCards`, the
+     same one the phone inbox draws). The budget number rides under the RE No:
+     it is still the record being decided, and the reference Budgeting uses.
+     Group, Date, Orders and Lines are gone (1 budget = 1 order since 09-19). */
+  const cardOf = (r: BudgetApprovalRow) => cards[r.id];
   const columns: Column<BudgetApprovalRow>[] = [
     {
-      header: "Budget",
+      header: "RE No",
       className: HUG,
       cell: (r) => (
         <button
           type="button"
-          className="font-mono text-xs font-medium text-primary hover:underline"
+          className="text-left"
           onClick={() => {
             setOpenId(r.id);
             setRemark("");
           }}
         >
-          {r.code ?? r.id.slice(0, 8)}
+          <span className="block font-mono text-xs font-semibold text-primary hover:underline">
+            {cardOf(r)?.reNos.join(", ") || `Budget ${r.code ?? r.id.slice(0, 8)}`}
+          </span>
+          {cardOf(r)?.reNos.length ? (
+            <span className="block text-[11px] text-muted-foreground">Budget {r.code ?? ""}</span>
+          ) : null}
         </button>
       ),
     },
-    /* THE ONE UNSIZED COLUMN (erp-table-fit: a list with no Name leaves the
-       column that varies most). It is under `Truncated`, which cannot wrap, so
-       it is CAPPED at 18rem instead — the rest is on hover. */
+    /* CUSTOMER OVER STYLE, one column — the RE No / Budget pattern beside it.
+       As two columns the row ran past the 1,155px pane and pushed Status and
+       the decision icons off-screen (2026-09-30). */
     {
-      header: "Group",
-      cell: (r) => <Truncated className="block max-w-[18rem]">{r.description ?? "—"}</Truncated>,
+      header: "Customer / Style",
+      cell: (r) => (
+        <span className="block max-w-[13rem]">
+          <Truncated className="block text-sm">{cardOf(r)?.customer ?? "—"}</Truncated>
+          {cardOf(r)?.styles ? (
+            <Truncated className="block text-[11px] text-muted-foreground">{cardOf(r)!.styles!}</Truncated>
+          ) : null}
+        </span>
+      ),
     },
     {
-      header: "Date",
-      className: HUG,
-      cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.budget_date)}</span>,
-    },
-    {
-      header: "Orders",
+      header: "Qty",
       align: "right",
       className: HUG,
-      cell: (r) => <span className="tabular-nums text-sm">{r.order_count}</span>,
+      cell: (r) => {
+        const q = cardOf(r)?.orderQty;
+        return <span className="tabular-nums text-sm">{typeof q === "number" ? fmtNumber(q) : "—"}</span>;
+      },
     },
     {
-      header: "Lines",
-      align: "right",
+      header: "Ship",
       className: HUG,
-      cell: (r) => <span className="tabular-nums text-sm">{r.line_count}</span>,
+      cell: (r) => {
+        const d = cardOf(r)?.earliestShipment;
+        return <span className="tabular-nums text-sm">{d ? fmtDate(d) : "—"}</span>;
+      },
+    },
+    {
+      header: "Merchandiser",
+      cell: (r) => <Truncated className="block max-w-[8rem] text-sm">{cardOf(r)?.merchandiser ?? "—"}</Truncated>,
+    },
+    {
+      header: "Version",
+      className: HUG,
+      cell: (r) => {
+        const rev = cardOf(r)?.revision;
+        return rev ? (
+          <span className="text-xs">
+            <span className="font-mono">{rev.entryNo ?? "Revision"}</span>
+            {rev.revNo ? <span className="text-muted-foreground"> · Rev #{rev.revNo}</span> : null}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">V0</span>
+        );
+      },
     },
     {
       header: "Submitted",
       className: HUG,
       cell: (r) => (
-        <span className="tabular-nums text-sm">
-          {r.submitted_at ? fmtDate(r.submitted_at) : "—"}
+        <span className="block text-sm">
+          <span className="tabular-nums">{r.submitted_at ? fmtDate(r.submitted_at) : "—"}</span>
+          {cardOf(r)?.submittedBy ? (
+            <span className="block text-[11px] text-muted-foreground">by {cardOf(r)!.submittedBy}</span>
+          ) : null}
         </span>
       ),
+    },
+    /* MARGIN AGAINST THE 15% LINE — the number, and below the line the words,
+       so the amber is never the only thing saying it (`MARGIN_TARGET_PCT`). */
+    {
+      header: "Margin %",
+      align: "right",
+      className: HUG,
+      cell: (r) => {
+        const c = cardOf(r);
+        const m = c?.breakdown.ok ? c.breakdown.current.profitPct : (c?.kpis?.profit_pct ?? null);
+        if (m == null) return <span className="text-sm text-muted-foreground">—</span>;
+        if (isRefusal(m)) {
+          return (
+            <Tooltip label={m.refused}>
+              <span className="text-xs text-warning">Suppressed</span>
+            </Tooltip>
+          );
+        }
+        const low = m < MARGIN_TARGET_PCT;
+        return (
+          <span className={cn("block text-right tabular-nums text-sm font-semibold", low ? "text-warning" : "text-success")}>
+            {m.toFixed(1)}%
+            {low && <span className="block text-[10px] font-normal">below {MARGIN_TARGET_PCT}%</span>}
+          </span>
+        );
+      },
     },
     {
       header: "Status",
@@ -587,7 +659,7 @@ export function BudgetApprovalScreen({
         <FilterBar
           search={search}
           onSearch={setSearch}
-          searchPlaceholder="Search budget or group…"
+          searchPlaceholder="Search RE No, customer, style or merchandiser…"
           leading={quick.segment}
           activeCount={facets.activeCount}
           onReset={facets.activeCount ? facets.reset : undefined}
@@ -605,7 +677,7 @@ export function BudgetApprovalScreen({
           empty={
             quick.value === "pending" && facets.activeCount === 0
               ? "Nothing is waiting for approval."
-              : "No budget matches these filters."
+              : "No order matches these filters."
           }
         />
         </div>
@@ -696,6 +768,16 @@ export function BudgetApprovalScreen({
       >
         {budget && totals && (
           <>
+            {/* THE ORDER FIRST (client 2026-09-29) — the same card the phone
+                queue draws: the order's facts, where the sales go, the margin
+                against the 15% line and, on a revision, V0 vs the proposal per
+                piece. The decision stays in the Approval section below. */}
+            {cards[budget.id] && (
+              /* 36rem, not the sheet's 55rem: the card is laid out for a phone,
+                 and stretched to 880px its legend bars ran a hand's width from
+                 their figures (2026-09-30). */
+              <OrderApprovalCard card={cards[budget.id]} className="mb-4 max-w-[36rem]" />
+            )}
             <DetailSection label="Budget" cols={1} className={BUDGET_BOX_W}>
               <FieldRow>
                 <Field label="Date" w="range">
@@ -789,23 +871,6 @@ export function BudgetApprovalScreen({
                   suffix="%"
                 />
               </dl>
-
-              {/* WHERE THE SALES GO, and on a revision how that moved since V0
-                  (client 2026-09-29) — the phone sheet's chart, from the SAME
-                  loader (`breakdownOfBudget`), so the two cannot disagree. It
-                  is loaded with the panel rather than built here from `totals`:
-                  V0 needs its frozen lines, which only the server holds.
-                  Capped: legend rows run label · % · amount, and 880px would
-                  strand the figures a hand's width from their labels. */}
-              <div className="mt-4 max-w-[34rem]">
-                {!panel ? (
-                  <p className="text-sm text-muted-foreground">Working out the cost breakdown…</p>
-                ) : !panel.breakdown ? null : !panel.breakdown.ok ? (
-                  <p className="text-sm text-warning">Breakdown unavailable — {panel.breakdown.refused}</p>
-                ) : (
-                  <BudgetBreakdownChart current={panel.breakdown.current} original={panel.breakdown.original} />
-                )}
-              </div>
 
               {/* COST BY SOURCE, the same cells one tier down. A SOURCE CAN
                   REFUSE since 0575 — a percent line whose sales base is

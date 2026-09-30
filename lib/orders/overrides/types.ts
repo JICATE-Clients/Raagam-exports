@@ -59,6 +59,38 @@ export interface OverrideGrantee {
   can_edit_orders: boolean;
 }
 
+/**
+ * One field changed under an override — a row of the MD's Override Edit Report
+ * (R-18): `override_audit_trail` with its commit's outcome and the RE No.
+ */
+export interface OverrideEditRow {
+  id: string;
+  commit_id: string;
+  commit_status: "open" | "committed" | "failed" | "expired";
+  /** When the save closed (or started, if it never closed). ISO, UTC. */
+  committed_at: string;
+  direction_breach: boolean;
+  sales_order_id: string;
+  garment_order_id: string;
+  re_no: string | null;
+  order_version: string | null;
+  user_email: string;
+  module_key: string | null;
+  entity_table: string;
+  entity_row_id: string | null;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  reason: string;
+}
+
+/** How many override edits an order's RE carries — the report footer's note. */
+export interface OrderOverrideEditCount {
+  commits: number;
+  fields: number;
+  lastAt: string | null;
+}
+
 /** One of the CALLER's live keys (`my_active_overrides()`). */
 export interface ActiveOverride {
   key: string;

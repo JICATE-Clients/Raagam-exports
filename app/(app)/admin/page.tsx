@@ -35,15 +35,13 @@ export default async function AdminPage() {
             </CardBody>
           </Card>
         </Link>
-        <Link href="/admin/roles">
+        <Link href="/admin/access-control">
           <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
             <CardBody>
-              <div className="font-semibold text-foreground">
-                Roles &amp; Permissions
-              </div>
+              <div className="font-semibold text-foreground">Access Control</div>
               <p className="mt-1 text-sm text-muted-foreground">
-                Define roles and configure the module-level permission matrix
-                for each role.
+                Which screens each role, and each person by email, can open and
+                change — plus approved-order corrections.
               </p>
             </CardBody>
           </Card>
@@ -55,17 +53,6 @@ export default async function AdminPage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Full change history — who created or edited each record, when,
                 and the previous &rarr; new values.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
-        <Link href="/admin/permission-overrides">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Permission Overrides</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Give a named user time-limited access to correct an approved
-                order in place, with every edit audited.
               </p>
             </CardBody>
           </Card>

@@ -238,6 +238,22 @@
   --viz-3: #1baf7a;
   --viz-4: #eda100;
   --viz-5: #e87ba4;
+
+  /* THE GLASS CHART (approved 2026-09-30, canvas "Glass Approval Chart"). A
+     frosted panel over three soft colour glows drawn from the series palette
+     — glass reads as glass only over colour. Tokens, so .dark restyles it. */
+  --glass-ground: #eef3f8;
+  --glass-blob-a: rgba(42, 120, 214, 0.35);
+  --glass-blob-b: rgba(232, 123, 164, 0.35);
+  --glass-blob-c: rgba(27, 175, 122, 0.3);
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.85);
+  --glass-row: rgba(255, 255, 255, 0.45);
+  --glass-edge: rgba(255, 255, 255, 0.85);
+  --glass-shadow: 0 24px 60px -28px rgba(11, 111, 179, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --glass-disc: rgba(255, 255, 255, 0.7);
+  --glass-disc-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 8px 24px -12px rgba(11, 111, 179, 0.35);
+  --glass-track: rgba(22, 32, 43, 0.07);
 }
 
 .dark {
@@ -246,6 +262,18 @@
   --viz-3: #199e70;
   --viz-4: #c98500;
   --viz-5: #d55181;
+  --glass-ground: #0b1119;
+  --glass-blob-a: rgba(57, 135, 229, 0.45);
+  --glass-blob-b: rgba(213, 81, 129, 0.35);
+  --glass-blob-c: rgba(25, 158, 112, 0.35);
+  --glass: rgba(22, 29, 37, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.1);
+  --glass-row: rgba(255, 255, 255, 0.04);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-disc: rgba(15, 20, 26, 0.55);
+  --glass-disc-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --glass-track: rgba(255, 255, 255, 0.08);
   --background: #0b0d12;
   --surface: #14171d;
   --surface-muted: #1b1f27;
@@ -1970,4 +1998,20 @@ html[data-type-scale="compact"].dark .ty-badge {
 }
 html[data-type-scale="compact"] .ty-badge-icon {
   display: inline-block;
+}
+
+/* THE APPROVAL CHART'S ARRIVAL (2026-09-30, "ultra modern … it should attract").
+   The ring's slices sweep in and the legend's share bars grow, once, on mount.
+   Both animate FROM a hidden start TO the element's own value, so the resting
+   frame is the real chart; reduced motion skips straight to it. */
+@keyframes viz-draw {
+  from { stroke-dasharray: 0 600; }
+}
+@keyframes viz-grow {
+  from { transform: scaleX(0); }
+}
+.viz-slice { animation: viz-draw 0.9s cubic-bezier(0.22, 0.8, 0.26, 1) both; }
+.viz-grow { transform-origin: left center; animation: viz-grow 0.8s cubic-bezier(0.22, 0.8, 0.26, 1) 0.15s both; }
+@media (prefers-reduced-motion: reduce) {
+  .viz-slice, .viz-grow { animation: none; }
 }

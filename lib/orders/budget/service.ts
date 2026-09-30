@@ -1748,7 +1748,7 @@ export async function fabricProcessBreakdown(
 
 const BUDGET_SELECT =
   "*, " +
-  "orders:order_budget_orders(*, garment_order:garment_order_amendments(id, code, po_no, delivery_date, " +
+  "orders:order_budget_orders(*, garment_order:garment_order_amendments(id, code, po_no, delivery_date, sales_order_id, " +
   "customer:customers(id,name), sales_order:sales_orders(order_number))), " +
   "lines:order_budget_lines(*), " +
   // The Amendment Protocol history (0576). One FK to order_budgets, so bare.
