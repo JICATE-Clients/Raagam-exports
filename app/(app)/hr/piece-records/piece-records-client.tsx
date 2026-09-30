@@ -219,8 +219,8 @@ export default function PieceRecordsClient({
       {showForm && (
         <Card>
           <CardBody>
-            <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 text-sm font-semibold text-foreground">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2 text-sm font-semibold text-foreground">
                 {editId ? "Edit Piece Record" : "New Piece Record"}
               </div>
 
@@ -282,7 +282,7 @@ export default function PieceRecordsClient({
                 </Select>
               </div>
 
-              <div className="col-span-2 flex justify-end gap-2 pt-1">
+              <div className="sm:col-span-2 flex justify-end gap-2 pt-1">
                 <Button type="button" variant="outline" size="sm" onClick={cancel}>
                   Cancel
                 </Button>

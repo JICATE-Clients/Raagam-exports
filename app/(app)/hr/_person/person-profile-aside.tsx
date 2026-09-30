@@ -6,6 +6,7 @@ import { PhotoUpload } from "@/components/ui/photo-upload";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /** "MIA TORRES" -> "MT"; one word -> its first letter; blank -> "". */
 export function initials(name: string): string {
@@ -38,6 +39,10 @@ export type PersonProfileAsideProps = {
   phone: string | null;
   address: string | null;
   bloodGroup: string | null;
+  /** Merged over the column classes — `person-client` renders the card
+   *  twice: the right-hand column from `xl`, and full width at the END of
+   *  the pane below it. */
+  className?: string;
   /** The record cannot be saved without a photograph (client 2026-09-18). */
   photoRequired?: boolean;
 };
@@ -79,7 +84,10 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
   return (
     <aside
       data-focus-region="header"
-      className="scrollbar-none w-72 shrink-0 space-y-4 overflow-y-auto"
+      className={cn(
+        "scrollbar-none w-72 shrink-0 space-y-4 overflow-y-auto",
+        p.className,
+      )}
     >
       {/*
         A PROFILE CARD THAT POPS, AND STAYS NEAT (client 2026-09-16: "top card

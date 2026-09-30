@@ -146,23 +146,25 @@ export default function MusterClient({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
-        <div>
+        {/* On a phone the two filters share the row and Load wraps under
+            them; from `sm` up they keep their fixed widths. */}
+        <div className="min-w-0 flex-1 sm:flex-none">
           <Label htmlFor="mus-month">Month</Label>
           <Input
             id="mus-month"
             type="month"
             value={monthVal}
             onChange={(e) => setMonthVal(e.target.value)}
-            className="w-40"
+            className="w-full sm:w-40"
           />
         </div>
-        <div>
+        <div className="min-w-0 flex-1 sm:flex-none">
           <Label htmlFor="mus-loc">Location</Label>
           <Select
             id="mus-loc"
             value={locationVal}
             onChange={(e) => setLocationVal(e.target.value)}
-            className="w-48"
+            className="w-full sm:w-48"
           >
             <option value="">All Locations</option>
             {locations.map((l) => (
@@ -183,7 +185,9 @@ export default function MusterClient({
         </p>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* 2x2 on a phone: four one-number tiles, one per line, pushed the
+              register itself below the fold. */}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Workers" value={workers.length} />
             <Stat
               label="Man-days present"
@@ -199,6 +203,12 @@ export default function MusterClient({
             />
           </div>
 
+          {/* The register scrolls sideways below `md` (see the table note
+              below), and a phone gives no hint that days 10-31 exist. */}
+          <p className="text-xs text-muted-foreground md:hidden">
+            Swipe sideways for every day and the P · A · L · OT · Hrs totals.
+            The Worker column stays in place.
+          </p>
           <div className="overflow-x-auto rounded-lg border border-border bg-surface">
             {/* EVERY DAY COLUMN THE SAME WIDTH, declared rather than hinted.
                 `w-full` with the browser's automatic table layout sizes each
@@ -210,6 +220,7 @@ export default function MusterClient({
                 left unsized so it absorbs whatever is spare, and the table's
                 own min-width is what makes the wrapper scroll on a phone
                 instead of squeezing 31 columns into 360px. */}
+            {/* responsive: exempt -- read-only month register; 31 day columns scroll inside their overflow-x-auto wrapper by design (see note above) */}
             <table className="w-full min-w-[68rem] table-fixed border-collapse text-xs">
               <colgroup>
                 <col />

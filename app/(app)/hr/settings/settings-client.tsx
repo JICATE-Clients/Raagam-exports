@@ -77,7 +77,7 @@ export default function SettingsClient({
         <CardTitle>Payroll Configuration</CardTitle>
       </CardHeader>
       <CardBody>
-        <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4 max-w-lg">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
           {/* OT */}
           <div>
             <Label htmlFor="ps-ot-mult">OT Multiplier</Label>
@@ -198,7 +198,7 @@ export default function SettingsClient({
           </div>
 
           {canEdit && (
-            <div className="col-span-2 flex justify-end pt-1">
+            <div className="sm:col-span-2 flex justify-end pt-1">
               <Button type="submit" variant="primary" size="sm" disabled={isPending}>
                 {isPending ? "Saving…" : "Save Settings"}
               </Button>
