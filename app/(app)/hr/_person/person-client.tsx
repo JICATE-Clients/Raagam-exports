@@ -8,6 +8,7 @@ import {
 } from "react";
 import { UserRound as UserRoundIcon } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { usePathname, useRouter } from "next/navigation";
@@ -3632,18 +3633,48 @@ export default function PersonClient({
                     >
                       {i + 1}
                     </span>
-                    <FieldGrid className="min-w-0 flex-1">
-                      {languageColumns.map((c, ci) => (
-                        <Field
-                          key={ci}
-                          label={c.header}
-                          required={c.required}
-                          size="sm"
-                        >
-                          {c.cell(row, i)}
-                        </Field>
-                      ))}
-                    </FieldGrid>
+                    <div className="min-w-0 flex-1 space-y-3 md:space-y-0">
+                      <FieldGrid>
+                        {languageColumns.map((c, ci) => (
+                          // Below `md` the three switches leave the field track
+                          // for the one row beneath it. The hide sits on a
+                          // WRAPPER: the lines style gives `[data-field]` an
+                          // unlayered `display: grid`, which would beat a
+                          // `max-md:hidden` on the Field itself.
+                          <div key={ci} className={ci > 0 ? "max-md:hidden" : undefined}>
+                            <Field
+                              label={c.header}
+                              required={c.required}
+                              size="sm"
+                            >
+                              {c.cell(row, i)}
+                            </Field>
+                          </div>
+                        ))}
+                      </FieldGrid>
+                      {/* PHONE: SPEAK · READ · WRITE ON ONE ROW (client
+                          2026-09-30). Stacked one per line they spent three
+                          lines on three yes/no answers. Each switch carries its
+                          own word, so no label column is needed; from `md` the
+                          field track above shows them as before. */}
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 md:hidden">
+                        <Toggle
+                          checked={row.can_speak}
+                          onChange={(v) => setLanguageAt(row.key, { can_speak: v })}
+                          label="Speak"
+                        />
+                        <Toggle
+                          checked={row.can_read}
+                          onChange={(v) => setLanguageAt(row.key, { can_read: v })}
+                          label="Read"
+                        />
+                        <Toggle
+                          checked={row.can_write}
+                          onChange={(v) => setLanguageAt(row.key, { can_write: v })}
+                          label="Write"
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
                 rows={languages}
@@ -3667,28 +3698,79 @@ export default function PersonClient({
             touched(["interview_date", "through_advertisement", "through_knowledge", "through_voluntarily"]),
           content: (
             <div className="space-y-6">
+              {/* PHONE: THE THREE AS CHIPS ON ONE ROW (client 2026-09-30,
+                  option 3 of the "How They Joined" mock-up: "compact, tight,
+                  orey row"). Stacked label-over-switch they took six lines for
+                  three yes/no answers. "Through" is said once above; each chip
+                  is still its own boolean, so nothing about what is saved
+                  changes. `aria-pressed` + the full wording as the name keep it
+                  a toggle to a screen reader. From `md` the switches below are
+                  shown instead, exactly as before. */}
+              <div className="space-y-1.5 md:hidden">
+                <span className="block text-sm text-muted-foreground">
+                  Through
+                </span>
+                <div className="flex gap-1.5">
+                  {(
+                    [
+                      ["through_advertisement", "Advertisement", "Through Our Advertisement"],
+                      ["through_voluntarily", "Voluntarily", "Through Voluntarily"],
+                      ["through_knowledge", "Knowledge", "Through Knowledge"],
+                    ] as const
+                  ).map(([key, short, full]) => {
+                    const on = !!form[key];
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={on}
+                        aria-label={full}
+                        onClick={() => set({ [key]: !on })}
+                        className={cn(
+                          // truncate-reveal: exempt -- a fixed three-word vocabulary; the full wording is the accessible name
+                          "h-9 min-w-0 flex-1 truncate rounded-full border-[1.5px] px-2 text-sm font-semibold transition-colors",
+                          on
+                            ? "border-primary bg-primary-soft text-primary"
+                            : "border-border bg-surface text-muted-foreground",
+                        )}
+                      >
+                        {short}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <FieldGrid>
-                <Field label="Through Our Advertisement" size="sm">
-                  <Toggle
-                    checked={form.through_advertisement}
-                    onChange={(v) => set({ through_advertisement: v })}
-                    ariaLabel="Through Our Advertisement"
-                  />
-                </Field>
-                <Field label="Through Voluntarily" size="sm">
-                  <Toggle
-                    checked={form.through_voluntarily}
-                    onChange={(v) => set({ through_voluntarily: v })}
-                    ariaLabel="Through Voluntarily"
-                  />
-                </Field>
-                <Field label="Through Knowledge" size="sm">
-                  <Toggle
-                    checked={form.through_knowledge}
-                    onChange={(v) => set({ through_knowledge: v })}
-                    ariaLabel="Through Knowledge"
-                  />
-                </Field>
+                {/* The hides sit on WRAPPERS: the lines style gives
+                    `[data-field]` an unlayered `display: grid`, which would
+                    beat a `max-md:hidden` on the Field itself. */}
+                <div className="max-md:hidden">
+                  <Field label="Through Our Advertisement" size="sm">
+                    <Toggle
+                      checked={form.through_advertisement}
+                      onChange={(v) => set({ through_advertisement: v })}
+                      ariaLabel="Through Our Advertisement"
+                    />
+                  </Field>
+                </div>
+                <div className="max-md:hidden">
+                  <Field label="Through Voluntarily" size="sm">
+                    <Toggle
+                      checked={form.through_voluntarily}
+                      onChange={(v) => set({ through_voluntarily: v })}
+                      ariaLabel="Through Voluntarily"
+                    />
+                  </Field>
+                </div>
+                <div className="max-md:hidden">
+                  <Field label="Through Knowledge" size="sm">
+                    <Toggle
+                      checked={form.through_knowledge}
+                      onChange={(v) => set({ through_knowledge: v })}
+                      ariaLabel="Through Knowledge"
+                    />
+                  </Field>
+                </div>
                 <DateField
                   label="Interview Dt"
                   value={form.interview_date}
