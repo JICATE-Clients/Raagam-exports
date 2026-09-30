@@ -1549,6 +1549,25 @@ body {
   }
 }
 
+/* A GRID OF SWITCHES IS NOT A GRID OF LINES (client 2026-09-30: Documents ▸
+   Copies Collected on a phone — DL, Vote ID, Ration Card … PAN Card, Others
+   were nine full-width rows, each holding one small switch). A switch is
+   ~40px wide, so on a phone three sit to a row with their labels above them,
+   and the text box after them (Others Specify) takes the whole row.
+   Opt-in by `data-toggle-grid` around the FieldGrid; phone only, so the
+   laptop's two columns do not move. Three attributes beat the container
+   query's two, so this wins at every pane width under 768px. */
+@media (max-width: 767px) {
+  [data-field-style="lines"] [data-toggle-grid] [data-field-grid] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 0.75rem;
+    row-gap: 1rem;
+  }
+  [data-field-style="lines"] [data-toggle-grid] [data-field-grid] > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
 /* THE FOCUSED FIELD IS THE BLUE. `--ring` is already the brand blue, so this
    only widens the halo so a curved field shows it — at 0.75rem radius a 1px
    ring disappears into the corner. */
