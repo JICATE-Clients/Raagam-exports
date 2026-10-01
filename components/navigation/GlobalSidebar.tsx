@@ -77,19 +77,24 @@ export function GlobalSidebar() {
           expanded ? "w-52 rounded-r-2xl border-r border-border bg-surface shadow-elev-hi" : "w-14 bg-canvas",
         )}
       >
-        {/* `h-14`, the top bar's height, so the logo is centred on the same
-            line as the bar's controls and the module heading beside it. */}
+        {/* THE ROUND MARK, NOT THE WORDMARK (user 2026-10-01, screenshot 3169:
+            "the logo now looks squeezed"). The wordmark sat here at 40px wide,
+            unreadable; it now heads the module menu beside this rail, and this
+            square slot takes the roundel, the one logo that fits a square. It
+            is also the only logo on a screen with no module menu (Dashboard).
+            NO "+ NEW" BUTTON IN THE NAVIGATION — the menu's full-width one was
+            removed the same day and briefly became a "+" here; the user had
+            that taken out too ("no need, totally remove it"). Every screen
+            already carries its own New button in its page header.
+            `h-14`, the top bar's height, so it sits on the bar's centre line. */}
         <div className="flex h-14 shrink-0 items-center justify-center px-2">
           <Image
-            src="/brand/raagam-wordmark.png"
+            src="/brand/raagam-mark.png"
             alt="Raagam Exports"
-            width={431}
-            height={184}
+            width={1024}
+            height={1024}
             priority
-            className={cn(
-              "transition-all duration-[220ms] ease-out",
-              expanded ? "h-10 w-auto max-w-full" : "h-auto w-10",
-            )}
+            className="h-9 w-9"
           />
         </div>
 

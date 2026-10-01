@@ -1,16 +1,12 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Plus } from "lucide-react";
 import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
 import { useAppUser } from "@/lib/auth/permission-context";
 import type { StoreNavLink } from "@/components/shell/sidebar-types";
-import { SECTION_ACTIONS } from "@/components/shell/nav";
-import { createHref } from "@/components/shell/nav-search";
 import { useRecent } from "@/lib/use-recent";
-import { buttonClasses } from "@/components/ui/button";
 import {
   activeChildHref,
   activeModule,
@@ -94,14 +90,6 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   const blocks = toBlocks(children);
   const leaves = blocks.flatMap((b) => b.rows);
   const activeHref = activeChildHref(pathname, leaves);
-  const ModIcon = mod.icon;
-
-  // The create action of the screen in view — "New Garment Order" on Order
-  // Entry. Only a "New …" action: Import/Export are list operations, not the
-  // one thing this button promises. No action, no button.
-  const newAction = activeHref
-    ? SECTION_ACTIONS[activeHref]?.find((a) => /^new\b/i.test(a))
-    : undefined;
 
   // Records only (an order, a PO) — a screen is already listed above, so
   // repeating it here would be the menu twice.
@@ -132,44 +120,26 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       // separates it from the page.
       className="scrollbar-reveal flex h-full w-48 shrink-0 flex-col overflow-y-auto"
     >
-      {/* SIDEBAR REFRESH (client 2026-09-17, option A): the module's own icon
-          in a brand tile, and how many screens it holds. The ONE icon this
-          column carries — a header, not a row, so the 09-16 "much icons"
-          decision about the list below stands.
-          `h-14` with no rule beneath (2026-10-01): it used to be `h-12` with a
-          border-b, 8px above the top bar's own line, so the one horizontal line
-          across the screen had a step in it. Same height as the top bar now,
-          and nothing to line up. */}
-      <div className="flex h-14 shrink-0 items-center gap-2.5 px-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-primary-soft text-primary">
-          <ModIcon className="h-4 w-4" />
-        </span>
-        <div className="min-w-0">
-          <h2 className="ty-subsection truncate text-sm font-bold leading-[18px] text-foreground">
-            {mod.label}
-          </h2>
-          <p className="text-[11px] leading-[14px] text-muted-foreground tabular-nums">
-            {leaves.length} {leaves.length === 1 ? "screen" : "screens"}
-          </p>
-        </div>
+      {/* THE LOGO LIVES HERE (user 2026-10-01, screenshot 3169: "the logo now
+          looks squeezed, so move it to the module name listing section").
+          The 56px rail could only hold the wordmark at 40px wide, unreadable;
+          this 192px column holds it at its natural height. It REPLACES the
+          module's icon tile and "N screens" caption (client 2026-09-17), which
+          repeated what the rail's selected icon and the list beneath it say.
+          The column's full-width "+ New …" button was removed the same day
+          (user: "no need, totally remove it"); each screen's own page header
+          carries its New button.
+          `h-14`, the top bar's height, no rule beneath (frame option A). */}
+      <div className="flex h-14 shrink-0 items-center px-3">
+        <Image
+          src="/brand/raagam-wordmark.png"
+          alt="Raagam Exports"
+          width={431}
+          height={184}
+          priority
+          className="h-10 w-auto"
+        />
       </div>
-
-      {newAction && activeHref && (
-        /* `mt-3` (12px) matches the gap BELOW the button — the nav's `p-2`
-           plus the first section label's `pt-1` — so it sits evenly between
-           the header rule and the list (operator, 2026-09-17). `mt-1` since
-           the header lost its rule (2026-10-01): with nothing to clear, 12px
-           left the button floating away from the heading it belongs to. */
-        <div className="mt-1 px-1.5">
-          <Link
-            href={createHref(activeHref, newAction)}
-            className={buttonClasses({ size: "sm", className: "w-full rounded-[10px] shadow-elev" })}
-          >
-            <Plus />
-            {newAction}
-          </Link>
-        </div>
-      )}
 
       {/* THE "HOME" ROW IS HIDDEN (operator, 2026-09-15) — it only ever
           reopened the module's own root/hub page, and that page's card grid

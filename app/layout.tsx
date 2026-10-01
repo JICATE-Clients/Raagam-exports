@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
 import { InstallPrompt } from "@/components/pwa/install-prompt";
+import { InlineScript } from "@/components/shell/inline-script";
 import { SilentUpdater } from "@/components/pwa/silent-updater";
 import { APPEARANCE_INIT_SCRIPT, appearanceCss } from "@/lib/appearance";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
@@ -97,13 +98,15 @@ export default function RootLayout({
          * not next/script — because only inline-in-head is guaranteed to run
          * synchronously ahead of paint, which is the entire point: anything
          * later means a white flash on every load for dark-mode users.
+         * Through `InlineScript` so a client render emits it inert instead of
+         * tripping React's "Encountered a script tag" console error.
          */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <InlineScript html={THEME_INIT_SCRIPT} />
         {/* Compact text, applied pre-paint for the same no-flash reason. */}
-        <script dangerouslySetInnerHTML={{ __html: TYPE_SCALE_INIT_SCRIPT }} />
+        <InlineScript html={TYPE_SCALE_INIT_SCRIPT} />
         {/* Appearance theme (font + blue), same pre-paint reason; its
             stylesheet is generated from the one registry in lib/appearance.ts. */}
-        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_INIT_SCRIPT }} />
+        <InlineScript html={APPEARANCE_INIT_SCRIPT} />
         <style dangerouslySetInnerHTML={{ __html: appearanceCss() }} />
       </head>
       <body className="min-h-full flex flex-col">

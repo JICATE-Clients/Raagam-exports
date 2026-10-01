@@ -2915,15 +2915,43 @@ export function BudgetScreen({
      `rate`, which IS the flat charge — 0573), and Value shows it back,
      computed like every other line. It also gives Other Incomes' Flat basis a
      box: that grid's Value was always computed, so a Flat income had none. */
+  /* …AND BACK TO VALUE FOR A FLAT LINE (client 2026-09-30,
+     doc/order/budgetupdate.md §7B: "Flat/lump-sum charges — Bank Charges,
+     Testing Charges, Special Freight — allow direct numeric entry in the VALUE
+     column, bypassing unit rate multipliers"; confirmed by the user the same
+     day, knowing it reverses 09-24). A Flat line has no rate to multiply, so
+     its box stands in the Value column — where the lump sum is read — and its
+     Rate cell is a dash. Per-unit and percentage lines keep their box in Rate,
+     as 09-24 asked. The box still binds `rate` (0573: a flat line's amount IS
+     its rate), so nothing moves in the schema or the engine, and its required
+     hold moves with it (`requiredFor` on each column). */
+  const baseRateCol = rateCol("Rate");
   const otherRateCol: CostCol = {
-    ...rateCol("Rate"),
-    labelFor: (r) => (r.rate_type === "percent" ? "%" : r.rate_type === "flat" ? "Amount" : "Rate"),
+    ...baseRateCol,
+    labelFor: (r) => (r.rate_type === "percent" ? "%" : "Rate"),
+    requiredFor: (r) => r.rate_type !== "flat" && (baseRateCol.requiredFor?.(r) ?? false),
+    cell: (...args: Parameters<NonNullable<CostCol["cell"]>>) =>
+      args[0].rate_type === "flat" ? (
+        <span className="text-sm text-muted-foreground" aria-label="No rate — a lump sum">
+          —
+        </span>
+      ) : (
+        baseRateCol.cell(...args)
+      ),
   };
 
-  /** Value: always computed — Qty x Rate, Sales x % / 100, or the Flat sum. */
-  const otherValueCol: CostCol = { ...amountCol, header: "Value (INR)" };
+  /** Value: computed — Qty x Rate, Sales x % / 100 — or, on a Flat line, TYPED. */
+  const flatValueCol = (header: string): CostCol => ({
+    ...amountCol,
+    header,
+    labelFor: (r) => (r.rate_type === "flat" ? "Amount" : header),
+    requiredFor: (r) => r.rate_type === "flat" && (baseRateCol.requiredFor?.(r) ?? false),
+    cell: (...args: Parameters<NonNullable<CostCol["cell"]>>) =>
+      args[0].rate_type === "flat" ? baseRateCol.cell(...args) : amountCol.cell(...args),
+  });
+  const otherValueCol: CostCol = flatValueCol("Value (INR)");
 
-  const valueCol: CostCol = { ...amountCol, header: "Value (INR)" };
+  const valueCol: CostCol = flatValueCol("Value (INR)");
 
   /* Other Expenses — 144 + 112 + 112 + 112 + 112 + 112 + 72 + 72 + 72 + 112
      = 1032, + 72 = 1104 <= 1155 -> 5xl. Re-cut from 1,312: Order and Style are

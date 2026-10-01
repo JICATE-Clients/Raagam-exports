@@ -78,6 +78,12 @@ export async function saveUserAccess(input: {
   active: boolean;
   note?: string | null;
   tree: PermissionTree;
+  /**
+   * 0665: the units this access reaches. OMITTED = leave them as they are —
+   * the one-click Status switch and the bulk on/off save only the flag, and
+   * must not wipe a person's units by not mentioning them.
+   */
+  locations?: { all: boolean; ids: string[] };
 }): Promise<Result> {
   if (!(await can("system_admin", "edit"))) return { ok: false, error: "Forbidden" };
   const email = input.email.trim().toLowerCase();
@@ -91,6 +97,17 @@ export async function saveUserAccess(input: {
     p_note: input.note?.trim() || null,
   });
   if (error) return { ok: false, error: error.message };
+
+  // After `save_user_permissions`, which creates the `user_access` row the
+  // locations hang off. One wholesale replace: the ticks ARE the stored set.
+  if (input.locations) {
+    const { error: locErr } = await s.rpc("save_user_access_locations", {
+      p_email: email,
+      p_all: input.locations.all,
+      p_locations: input.locations.all ? [] : input.locations.ids,
+    });
+    if (locErr) return { ok: false, error: locErr.message };
+  }
 
   await writeAudit({
     action: input.active ? "user_access.saved" : "user_access.deactivated",
