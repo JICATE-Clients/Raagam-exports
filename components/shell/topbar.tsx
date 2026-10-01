@@ -400,13 +400,13 @@ export function Topbar({
                 </div>
                 {/* MY PROFILE (user 2026-10-01) — the signed-in person's own
                     HR staff record, for every login and with no permission
-                    needed (app/(app)/me). `router.push` rather than a bare
+                    needed (app/(app)/my-profile). `router.push` rather than a bare
                     link so the menu closes the same way the rows below do. */}
                 <button
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
-                    router.push("/me");
+                    router.push("/my-profile");
                   }}
                   className={cn(
                     "flex w-full items-center gap-2 rounded px-3 py-2 text-sm",

@@ -259,6 +259,8 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // An append-only trail, not an inventory. "Audit Log: 148,203" is noise, and
   // counting it is a full scan of one of the largest tables in the schema.
   "/admin/audit": null,
+  // Same reason as the Audit Log: a dispatch log grows by a row per alert.
+  "/admin/notifications": null,
 };
 
 /** The table a card counts, or `null` when it has none. */

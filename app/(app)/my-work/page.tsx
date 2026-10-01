@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Bell, ClipboardCheck, ClipboardList, GitPullRequestArrow, PencilRuler, ShoppingBag, type LucideIcon } from "lucide-react";
 import { requireUser } from "@/lib/auth/server";
-import { getMyWork, type Section } from "@/lib/my-work/service";
+import { getMyWork, type Section, type TeamOverview } from "@/lib/my-work/service";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,6 +125,9 @@ export default async function MyWorkPage() {
         </p>
       )}
 
+      {w.team && <TeamBand team={w.team} />}
+
+      {w.team && <h2 className="ty-subsection pt-2 text-sm font-semibold">On you</h2>}
       {cards.length === 0 ? (
         <Card>
           <CardBody className="py-10 text-center text-sm text-muted-foreground">Nothing is waiting on you right now.</CardBody>
@@ -204,4 +207,59 @@ function Due({ date, daysLate }: { date: string; daysLate: number }) {
   if (daysLate > 0) return <StatusPill tone="danger">{daysLate}d late</StatusPill>;
   if (daysLate === 0) return <StatusPill tone="warning">Today</StatusPill>;
   return <span className="text-xs text-muted-foreground">{fmtDate(date)}</span>;
+}
+
+/**
+ * The manager's band: counts to chase, each a link to the screen that lists
+ * them. A count of 0 is drawn muted rather than hidden, so "nothing overdue"
+ * reads as an answer and not as a missing tile.
+ */
+function TeamBand({ team }: { team: TeamOverview }) {
+  type Tile = { label: string; value: number; href: string; tone: "danger" | "warning" | "neutral" };
+  const tiles: Tile[] = [];
+  const errors: string[] = [];
+  if ("error" in team.ta) errors.push(`T&A: ${team.ta.error}`);
+  else
+    tiles.push(
+      { label: "T&A overdue", value: team.ta.overdue, href: "/orders/ta-worklist?bucket=backlog", tone: "danger" },
+      { label: "T&A due today", value: team.ta.dueToday, href: "/orders/ta-worklist?bucket=today", tone: "warning" },
+      { label: "T&A escalated", value: team.ta.escalated, href: "/orders/ta-worklist?bucket=backlog", tone: "danger" },
+      { label: "T&A with no owner", value: team.ta.unowned, href: "/orders/ta-worklist", tone: "warning" },
+    );
+  if ("error" in team.orders) errors.push(`Orders: ${team.orders.error}`);
+  else
+    tiles.push(
+      { label: "Orders open", value: team.orders.open, href: "/orders/all", tone: "neutral" },
+      { label: "In revision", value: team.orders.amending, href: "/orders/order-amendments", tone: "neutral" },
+      { label: "Shipping in 14 days", value: team.orders.shipSoon, href: "/orders/all", tone: "warning" },
+      { label: "No merchandiser", value: team.orders.noMerchandiser, href: "/orders/all", tone: "warning" },
+    );
+  if ("error" in team.cad) errors.push(`CAD: ${team.cad.error}`);
+  else
+    tiles.push(
+      { label: "CAD unassigned", value: team.cad.unassigned, href: "/orders/cad-lifecycle", tone: "warning" },
+      { label: "CAD past target", value: team.cad.overdue, href: "/orders/cad-lifecycle", tone: "danger" },
+    );
+
+  const toneText = { danger: "text-danger", warning: "text-warning", neutral: "text-foreground" } as const;
+  return (
+    <section className="space-y-2">
+      <h2 className="ty-subsection text-sm font-semibold">
+        Team overview <span className="font-normal text-muted-foreground">· {team.scope}</span>
+      </h2>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {tiles.map((t) => (
+          <Link key={t.label} href={t.href}>
+            <Card interactive className="px-3 py-2">
+              <p className="text-xs text-muted-foreground">{t.label}</p>
+              <p className={`text-xl font-semibold tabular-nums ${t.value === 0 ? "text-muted-foreground" : toneText[t.tone]}`}>
+                {t.value}
+              </p>
+            </Card>
+          </Link>
+        ))}
+      </div>
+      {errors.length > 0 && <p className="text-sm text-danger">Could not load: {errors.join(" · ")}</p>}
+    </section>
+  );
 }

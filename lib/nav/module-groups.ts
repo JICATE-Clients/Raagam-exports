@@ -1365,6 +1365,22 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/admin/couriers", label: "Courier", description: "Courier partners and tracking" },
         ],
       },
+      {
+        kind: "group",
+        slug: "system",
+        label: "System",
+        description: "Notifications, and the plumbing behind them",
+        // doc/admin/notification-management-plan.md §5. Scheduled Jobs joins
+        // this group in Phase 3 — it is not listed until its page exists, so
+        // check:nav's "a real route per leaf" never has to be waived for it.
+        children: [
+          {
+            href: "/admin/notifications",
+            label: "Notifications",
+            description: "Every alert the app sends — who it reached, what failed, and the devices alerts go to",
+          },
+        ],
+      },
     ],
   },
 };

@@ -27,6 +27,8 @@ import { myStaff } from "@/lib/people/order-people";
  * the same reason `lib/hr/my-profile.ts` gives, and the same safety: nothing in
  * the request names whose roles to read.
  */
+const SELF_PAGES = new Set(["/my-profile", "/me", "/my-work"]);
+
 export default async function StartPage() {
   const user = await requireUser();
 
@@ -42,14 +44,15 @@ export default async function StartPage() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   for (const h of homes) {
-    // `/me` and `/my-work` need no permission; any other home must be one they may open.
-    if (h.home_path === "/me" || h.home_path === "/my-work" || (await canViewHref(h.home_path))) redirect(h.home_path);
+    // My Profile and My Work need no permission (every login has one); any
+    // other home must be one they may open. `/me` is My Profile's old address.
+    if (SELF_PAGES.has(h.home_path) || (await canViewHref(h.home_path))) redirect(h.home_path);
   }
 
   const opensAModule =
     user.isSuperAdmin ||
     NAV.some((n) => n.href !== "/" && hasPermission(user, n.module as Module, "view"));
 
-  if (!opensAModule) redirect("/me");
+  if (!opensAModule) redirect("/my-profile");
   redirect((await myStaff(user.id)) ? "/my-work" : "/");
 }

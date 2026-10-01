@@ -65,6 +65,23 @@ export type MyRevision = { id: string; entryNo: string | null; reNo: string | nu
 
 export type MyAlert = { id: string; title: string; body: string | null; href: string | null; createdAt: string };
 
+/**
+ * THE TEAM OVERVIEW (Phase 2) — what a manager needs to chase, not what is on
+ * them. Shown to an Orders APPROVER (the MD, a manager) or a Super Admin. The
+ * T&A half is `getWorklist()` without "Mine", which already scopes to the
+ * caller's own department when they have one — so a department head sees their
+ * department and the MD, who has none, sees the factory. Every figure links to
+ * the screen that lists it.
+ */
+export type TeamOverview = {
+  scope: string;
+  ta: { overdue: number; dueToday: number; escalated: number; unowned: number } | { error: string };
+  orders:
+    | { open: number; amending: number; approved: number; shipSoon: number; noMerchandiser: number }
+    | { error: string };
+  cad: { unassigned: number; overdue: number } | { error: string };
+};
+
 export type MyWork = {
   today: string;
   me: MyStaff | null;
@@ -74,7 +91,11 @@ export type MyWork = {
   cad: Section<MyCad>;
   revisions: Section<MyRevision>;
   alerts: Section<MyAlert>;
+  team: TeamOverview | null;
 };
+
+/** Ship-soon window for the team's order count, in days. */
+const SHIP_SOON_DAYS = 14;
 
 const SHOWN = 5;
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -239,6 +260,69 @@ export async function getMyWork(user: AppUser): Promise<MyWork> {
     }
   };
 
-  const [o, t, a, c, r, al] = await Promise.all([orders(), ta(), approvals(), cad(), revisions(), alerts()]);
-  return { today: today(), me, orders: o, ta: t, approvals: a, cad: c, revisions: r, alerts: al };
+  const isManager = user.isSuperAdmin || (canOrders && (await can("orders", "approve")));
+
+  const team = async (): Promise<TeamOverview | null> => {
+    if (!isManager) return null;
+    const t = today();
+    const soon = new Date(`${t}T00:00:00Z`);
+    soon.setUTCDate(soon.getUTCDate() + SHIP_SOON_DAYS);
+    const soonIso = soon.toISOString().slice(0, 10);
+
+    const taPart = getWorklist().then(
+      (wl) => ({
+        scope: wl.scope.kind === "own_department" ? (wl.scope.departmentName ?? "Your department") : "All departments",
+        v: {
+          overdue: wl.counts.backlog,
+          dueToday: wl.counts.today,
+          escalated: wl.counts.escalated,
+          unowned: wl.rows.filter((r) => !r.assignedStaffId && r.bucket !== "upcoming").length,
+        },
+      }),
+      (e) => ({ scope: "All departments", v: { error: msg(e) } }),
+    );
+
+    const ordersPart = (async (): Promise<TeamOverview["orders"]> => {
+      const { data, error } = await s
+        .from("garment_order_amendments")
+        .select("sales_order_id, re_status, delivery_date, merchandiser_id, created_at")
+        .eq("is_draft", false)
+        .not("sales_order_id", "is", null)
+        .order("created_at", { ascending: false });
+      if (error) return { error: error.message };
+      type Row = { sales_order_id: string; re_status: string | null; delivery_date: string | null; merchandiser_id: string | null };
+      const seen = new Set<string>();
+      const out = { open: 0, amending: 0, approved: 0, shipSoon: 0, noMerchandiser: 0 };
+      for (const r of (data ?? []) as Row[]) {
+        if (seen.has(r.sales_order_id)) continue; // newest version stands for the order
+        seen.add(r.sales_order_id);
+        const st = r.re_status ?? "open";
+        if (st === "amending") out.amending++;
+        else if (st === "approved") out.approved++;
+        else out.open++;
+        if (r.delivery_date && r.delivery_date >= t && r.delivery_date <= soonIso) out.shipSoon++;
+        if (!r.merchandiser_id) out.noMerchandiser++;
+      }
+      return out;
+    })();
+
+    const cadPart = (async (): Promise<TeamOverview["cad"]> => {
+      const { data, error } = await s
+        .from("order_cad_allocations")
+        .select("id, pattern_maker_id, target_date, dispatch:order_cad_dispatches(id)");
+      if (error) return { error: error.message };
+      type Row = { pattern_maker_id: string | null; target_date: string | null; dispatch: One<{ id: string }> };
+      const live = ((data ?? []) as unknown as Row[]).filter((r) => !one(r.dispatch));
+      return {
+        unassigned: live.filter((r) => !r.pattern_maker_id).length,
+        overdue: live.filter((r) => r.target_date != null && r.target_date < t).length,
+      };
+    })();
+
+    const [taRes, ordersRes, cadRes] = await Promise.all([taPart, ordersPart, cadPart]);
+    return { scope: taRes.scope, ta: taRes.v, orders: ordersRes, cad: cadRes };
+  };
+
+  const [o, t, a, c, r, al, tm] = await Promise.all([orders(), ta(), approvals(), cad(), revisions(), alerts(), team()]);
+  return { today: today(), me, orders: o, ta: t, approvals: a, cad: c, revisions: r, alerts: al, team: tm };
 }

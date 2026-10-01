@@ -535,7 +535,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
                         onChange={(e) => { setRoleHome(e.target.value); setRoleDirty(true); }}
                       >
                         <option value="">Default (Dashboard)</option>
-                        <option value="/me">My Profile</option>
+                        <option value="/my-profile">My Profile</option>
                         <option value="/my-work">My Work</option>
                         {NAV.filter((n) => n.href !== "/").map((n) => (
                           <option key={n.href} value={n.href}>
