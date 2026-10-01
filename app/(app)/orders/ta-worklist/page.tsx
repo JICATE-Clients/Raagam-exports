@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { AlertTriangle, Info, ListChecks, OctagonAlert, Package, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Bell, ClipboardCheck, Info, ListChecks, OctagonAlert, Package, type LucideIcon } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { getWorklist, type WorklistNote, type WorklistRow } from "@/lib/ta/worklist";
 import { getMyStaffTaKpi } from "@/lib/ta/kpi";
+import { getMyQueue } from "@/lib/approvals/service";
+import { getUnreadCount } from "@/lib/notifications/service";
 import { endOfMonth, startOfMonth, today } from "@/lib/calendar";
 import { PageHeader } from "@/components/ui/page-header";
 import { StaticFilterDrawer, StaticFilterSelect, StaticFilterText } from "@/components/ui/filter-drawer-static";
@@ -103,7 +105,21 @@ export default async function TaWorklistPage({
   const sp = await searchParams;
   const { scope, bucket } = sp;
   const mineOnly = scope === "mine";
-  const wl = await getWorklist({ mineOnly });
+  /* THE PERSON'S OTHER WAITING WORK, read beside the worklist rather than
+     after it (one round trip, not three). The My Work page this replaces
+     (user 2026-10-01) carried these two counts; every other card it had
+     already lived on its own screen. A failure blanks the strip, never the
+     worklist — it is a pointer, not the page's job. */
+  const [wl, waiting] = await Promise.all([
+    getWorklist({ mineOnly }),
+    Promise.all([
+      getMyQueue({ limit: 200 }).catch(() => null),
+      getUnreadCount().catch(() => 0),
+    ]),
+  ]);
+  const [queue, unreadAlerts] = waiting;
+  const approvalsWaiting = queue?.total ?? 0;
+  const approvalsOverdue = queue ? queue.items.filter((i) => i.is_overdue).length : 0;
 
   // THIS MONTH, ALWAYS THE VIEWER'S OWN FIGURE (0547) — `getMyStaffTaKpi`
   // pins `p_staff_id` to `wl.viewerEmployeeId` explicitly rather than letting
@@ -221,6 +237,29 @@ export default async function TaWorklistPage({
           icon size-3.5 vs size-4) despite meaning the same "info/warn/danger"
           tone. */}
       <div className="space-y-3">
+        {(approvalsWaiting > 0 || unreadAlerts > 0) && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm">
+            {approvalsWaiting > 0 && (
+              <Link href="/approvals" className="inline-flex items-center gap-1.5 hover:underline">
+                <ClipboardCheck className="h-4 w-4 text-primary" />
+                <span className="font-semibold tabular-nums">{approvalsWaiting}</span>
+                {approvalsWaiting === 1 ? "approval" : "approvals"} waiting on you
+                {approvalsOverdue > 0 && (
+                  <StatusPill tone="danger" className="ml-1">
+                    {approvalsOverdue} overdue
+                  </StatusPill>
+                )}
+              </Link>
+            )}
+            {unreadAlerts > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <Bell className="h-4 w-4" />
+                <span className="font-semibold tabular-nums text-foreground">{unreadAlerts}</span>
+                unread {unreadAlerts === 1 ? "alert" : "alerts"} — open the bell, top right
+              </span>
+            )}
+          </div>
+        )}
         {/* The tiles. `Scanned` earns its place by being the number that makes
             an empty list legible: 0 of 0 is a quiet day, 0 of 43 is a scope. */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">

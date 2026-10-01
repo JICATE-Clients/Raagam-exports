@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { notify } from "@/lib/notifications/notify";
 import { notifyCurrentApprovers } from "./notify";
 import { WORKFLOWS, workflowLabel, type WorkflowKey } from "./workflows";
+import { runJob } from "@/lib/jobs/run";
 
 /**
  * THE SLA SWEEP — the TypeScript half of 0601.
@@ -158,7 +159,11 @@ export async function sweepSlaOpportunistically(): Promise<void> {
   const now = Date.now();
   if (now - lastOpportunisticSweep < OPPORTUNISTIC_GAP_MS) return;
   lastOpportunisticSweep = now;
-  await sweepSla(50);
+  // Logged only when it found something or failed: this net can fire once a
+  // minute per instance, and empty passes would bury the cron's own rows.
+  await runJob("approval-sla", "opportunistic", () => sweepSla(50), {
+    recordIfQuiet: (r) => r.breached > 0 || r.escalated > 0,
+  });
 }
 
 /**

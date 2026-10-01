@@ -388,7 +388,8 @@ export default function UsersClient({
   const base = rows.filter((r) => facets.matches(r) && (!q || userSearchText(r, userRoles).includes(q)));
   /* THE PENDING · UPDATED BOX, exactly as Order Entry draws it (user
      2026-09-30) — `userWord` says what each word means here. */
-  const quick = useQuickStatus(userWord, { draft: false, countRows: base });
+  // Updated first and opened on (user 2026-10-01: "the updated tab first, next pending").
+  const quick = useQuickStatus(userWord, { draft: false, countRows: base, updatedFirst: true });
   const filtered = base.filter(quick.matches);
   const selectedRows = rows.filter((r) => sel.selectedKeys.has(r.key));
 

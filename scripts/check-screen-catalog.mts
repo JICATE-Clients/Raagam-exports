@@ -74,9 +74,11 @@ const UNREGISTERED: Record<string, string> = {
   "/admin/permission-overrides": "redirect() to Access Control ▸ By User (merged 2026-09-30)",
   "/orders/profitability": "redirect() to /orders/profit-check — Order Profit Check moved 2026-10-01",
   "/orders/po-import": "entry page opened from Order Entry's Upload Buyer PO button — takes the Orders grant (requirePermission in the page)",
-  "/me": "every login's own profile (requireUser) — not a permission-gated screen",
+  "/me": "redirect() to /my-profile — My Profile's first address (moved 2026-10-01)",
+  "/my-profile": "every login's own profile (requireUser) — not a permission-gated screen",
+  "/my-calendar": "every login's own calendar (requireUser), opened from the Dashboard banner; what it lists needs Orders access and says so",
   "/start": "post-sign-in landing that only redirects to the person's home page — never rendered",
-  "/my-work": "every login's own work queue (requireUser); each card checks its own module grant",
+  "/my-work": "redirect() to the TA Worklist (mine) — My Work retired into it 2026-10-01",
 };
 
 const catalog = buildScreenCatalog();

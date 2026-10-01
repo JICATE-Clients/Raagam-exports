@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { CalendarDays, Plus } from "lucide-react";
 import { can, requireUser } from "@/lib/auth/server";
 import { getCaps, getPulse } from "@/lib/dashboard/service";
 import { parseRange } from "@/lib/dashboard/range";
@@ -84,15 +84,26 @@ export default async function DashboardPage({
         range={filters.range}
         carry={carry}
         action={
-          canCreateOrder ? (
+          <div className="flex items-center gap-2">
+            {/* MY CALENDAR is its own page (user 2026-10-01: it "took one page
+                content, so create it as a separate page") — this is its door. */}
             <Link
-              href="/orders/order-booking"
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-[13px] font-medium text-primary-foreground shadow-elev transition-colors hover:bg-primary-hover"
+              href="/my-calendar"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border-strong bg-surface px-4 text-[13px] font-medium text-foreground transition-colors hover:bg-surface-muted"
             >
-              <Plus className="h-4 w-4" />
-              New order
+              <CalendarDays className="h-4 w-4" />
+              My calendar
             </Link>
-          ) : undefined
+            {canCreateOrder && (
+              <Link
+                href="/orders/order-booking"
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-[13px] font-medium text-primary-foreground shadow-elev transition-colors hover:bg-primary-hover"
+              >
+                <Plus className="h-4 w-4" />
+                New order
+              </Link>
+            )}
+          </div>
         }
       />
 

@@ -555,6 +555,11 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
              (user 2026-10-01). Moved to /orders/profit-check the same day;
              /orders/profitability redirects, so no link breaks. CMT & other costs are typed in by hand on the order. */
           { href: "/orders/profit-check", label: "Order Profit Check", description: "Did each order make the money we planned? The approved budget beside what was really spent and shipped" },
+          /* SCORECARDS (user 2026-10-01: "as separate child"): merchandisers'
+             T&A on time, buyers' revisions / approval replies / shipping /
+             payment days, suppliers' on-time delivery and rejects — counted on
+             read. Managers see all three; anyone else only their own row. */
+          { href: "/orders/scorecards", label: "Scorecards", description: "How merchandisers, buyers and suppliers perform — on-time T&A, revisions, shipping, payment and delivery" },
         ],
       },
       // TIME & ACTION — A SUB-MODULE ROW OF ITS OWN (user 2026-09-24: "move
@@ -1314,6 +1319,41 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Administration",
     module: "system_admin",
     entries: [
+      // USERS & ACCESS LEADS THE MODULE (user 2026-10-01, "struggling to find
+      // the user and access control" — https://claude.ai/artifact/TMbj3C6rLF8NSMsenKf6J2).
+      // The sidebar folds groups to one open at a time, and as the SECOND group
+      // this one was shut on every other Admin screen, hiding Users and Access
+      // Control behind a heading that also repeated a screen's own name
+      // ("ACCESS CONTROL › Access Control"). First, and renamed; the slug,
+      // routes and screens are unchanged.
+      {
+        kind: "group",
+        slug: "access",
+        label: "Users & Access",
+        description: "Users, roles and the audit trail",
+        children: [
+          { href: "/admin/users", label: "Users", description: "User accounts and their roles" },
+          // ONE ROW FOR ROLES, EMAIL ACCESS AND APPROVED-ORDER CORRECTIONS (user
+          // 2026-09-30: "role and permission and permission override need to
+          // merge"). /admin/roles and /admin/permission-overrides redirect here
+          // (declared in REDIRECTED, scripts/check-module-groups.mts).
+          // TWO SCREENS FROM ONE (user 2026-10-01: "list the by user as
+          // separate with a better label"). The roles half keeps the route
+          // (so bookmarks land) under the name of what is left on it; the
+          // person half is its own row. One component renders both.
+          {
+            href: "/admin/access-control",
+            label: "Roles & Permissions",
+            description: "Screen access by role — everyone holding a role gets its access",
+          },
+          {
+            href: "/admin/user-permissions",
+            label: "User Permissions",
+            description: "Access given to one person by email, on top of their roles",
+          },
+          { href: "/admin/audit", label: "Audit Log", description: "Who changed what, and when" },
+        ],
+      },
       {
         kind: "group",
         slug: "organisation",
@@ -1338,31 +1378,33 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       },
       {
         kind: "group",
-        slug: "access",
-        label: "Access Control",
-        description: "Users, roles and the audit trail",
-        children: [
-          { href: "/admin/users", label: "Users", description: "User accounts and their roles" },
-          // ONE ROW FOR ROLES, EMAIL ACCESS AND APPROVED-ORDER CORRECTIONS (user
-          // 2026-09-30: "role and permission and permission override need to
-          // merge"). /admin/roles and /admin/permission-overrides redirect here
-          // (declared in REDIRECTED, scripts/check-module-groups.mts).
-          {
-            href: "/admin/access-control",
-            label: "Access Control",
-            description: "Screen access by role and by person (email), and approved-order corrections",
-          },
-          { href: "/admin/audit", label: "Audit Log", description: "Who changed what, and when" },
-        ],
-      },
-      {
-        kind: "group",
         slug: "resources",
         label: "Resources",
         description: "Assets and couriers",
         children: [
           { href: "/admin/assets", label: "Assets", description: "Asset register" },
           { href: "/admin/couriers", label: "Courier", description: "Courier partners and tracking" },
+        ],
+      },
+      {
+        kind: "group",
+        slug: "system",
+        label: "System",
+        description: "Notifications, and the scheduled jobs behind them",
+        // doc/admin/notification-management-plan.md §5. Scheduled Jobs is its
+        // own row, not a Notifications tab: the jobs advance approvals and
+        // raise order alerts, not only notifications.
+        children: [
+          {
+            href: "/admin/notifications",
+            label: "Notifications",
+            description: "Every alert the app sends — who it reached, what failed, and the devices alerts go to",
+          },
+          {
+            href: "/admin/jobs",
+            label: "Scheduled Jobs",
+            description: "The automatic jobs — when each last ran, whether it is late, and Run now",
+          },
         ],
       },
     ],

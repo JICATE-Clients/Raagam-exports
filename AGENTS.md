@@ -1579,3 +1579,34 @@ order links delete policies require it while the saves ask only `orders:edit`, s
 role without delete RLS turns each DELETE into 0 rows SILENTLY and the INSERTs duplicate
 every line. Pre-existing, independent of overrides — and it means an override grantee
 needs `orders:delete` for any grid a key rewrites.
+
+## Every alert has a name; every job leaves a run (STANDING)
+
+**`notify()` takes an event key first** — `notify("cad.new_order", target, payload)`
+(0673, 2026-10-01). The key is declared in `lib/notifications/events.ts` and nowhere
+else, and a new alert does not compile until it is. Before this an alert's only identity
+was its title text, so Administration ▸ System ▸ Notifications had nothing to switch,
+copy or count. A new alert is three edits: the registry entry, a seed row for it in
+`notification_event_settings` in a migration, and the call. `npm run
+check:notification-events` (inside `build:check`) fails if the three disagree, or if a
+declared alert is raised nowhere — verified by being made to FAIL first.
+
+- **`mandatory: true` is for an alert that moves work** — an approval waiting on someone.
+  An admin cannot switch it off (the screen locks it AND 0673's check constraint refuses
+  it); switching one off strands the document with nobody told.
+- **The admin can ADD recipients (CC), never remove the code's own.** "The merchandiser
+  of this order" is per-record knowledge a role picker cannot express.
+- **Admin reads go through 0675's `SECURITY DEFINER` readers, never a wider policy on
+  `notifications`** — Realtime enforces that table's SELECT policy row by row, so
+  loosening it would stream every user's alerts into every admin's open tab.
+- `notify()` never throws and logs EVERY call to `notification_dispatches`, including
+  the ones it suppressed (switched off, reached nobody) — "why didn't I get it?" must
+  have an answer on screen.
+
+**Every `/api/cron/<key>/route.ts` calls its sweep through `runJob("<key>", "cron", …)`**
+(`lib/jobs/run.ts`, 0677), which writes a `job_runs` row. A route that calls its sweep
+directly works and records nothing, so Scheduled Jobs reports a healthy job as never
+having run. A job is declared in `lib/jobs/registry.ts`, scheduled in `vercel.json`, and
+routed under `app/api/cron/` — `npm run check:jobs` (inside `build:check`) holds the
+three together, including the schedule string, since "late" is measured against it.
+Plan and phases: `doc/admin/notification-management-plan.md`.

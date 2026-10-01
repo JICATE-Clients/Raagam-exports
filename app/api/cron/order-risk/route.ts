@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { sweepOrderRisk } from "@/lib/orders/progress/sweep";
+import { runJob } from "@/lib/jobs/run";
 
 /**
  * GET /api/cron/order-risk — the daily tick behind Orders ▸ Order Progress's
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await sweepOrderRisk();
+  const result = await runJob("order-risk", "cron", sweepOrderRisk);
   // 200 even on error, with the error in the body — see approval-sla's route.
   return NextResponse.json({ ok: !result.error, ...result });
 }

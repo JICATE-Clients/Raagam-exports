@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bug, ChevronDown, ClipboardList, LogOut, Search, UserRound } from "lucide-react";
+import { Bug, ChevronDown, LogOut, Search, UserRound } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
 import { setCurrentLocation } from "@/lib/auth/location-actions";
 import { setRolePreview } from "@/lib/auth/role-simulation-actions";
@@ -400,13 +400,13 @@ export function Topbar({
                 </div>
                 {/* MY PROFILE (user 2026-10-01) — the signed-in person's own
                     HR staff record, for every login and with no permission
-                    needed (app/(app)/me). `router.push` rather than a bare
+                    needed (app/(app)/my-profile). `router.push` rather than a bare
                     link so the menu closes the same way the rows below do. */}
                 <button
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
-                    router.push("/me");
+                    router.push("/my-profile");
                   }}
                   className={cn(
                     "flex w-full items-center gap-2 rounded px-3 py-2 text-sm",
@@ -415,19 +415,9 @@ export function Topbar({
                 >
                   <UserRound className="h-4 w-4" /> My Profile
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    router.push("/my-work");
-                  }}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded px-3 py-2 text-sm",
-                    "text-foreground hover:bg-surface-muted",
-                  )}
-                >
-                  <ClipboardList className="h-4 w-4" /> My Work
-                </button>
+                {/* No "My Work" row (user 2026-10-01: "not in profile"). A
+                    person's work lives in its module — T&A tasks on Orders ▸
+                    TA Worklist — not under their name in the profile menu. */}
                 {/* WHAT HAPPENED TO THE BUG I REPORTED. The widget takes
                     reports and says nothing back; this is the vendor's
                     reporter-facing portal, keyed on the same email the SDK

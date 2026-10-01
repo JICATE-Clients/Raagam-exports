@@ -17,16 +17,29 @@ import { myStaff } from "@/lib/people/order-people";
  *      skipped rather than followed into the "denied" bounce.
  *   2. Otherwise MY PROFILE, when none of their roles opens any module: a
  *      staff login given no module access used to land on an empty Dashboard.
- *   3. Otherwise MY WORK when the login is a staff member (2026-10-01): the
- *      person's own orders, T&A tasks, approvals and CAD work, rather than the
- *      company-wide Dashboard. A login linked to no staff record — an
- *      administrator, a test account — has no "mine" to show.
+ *   3. Otherwise THE TA WORKLIST, NARROWED TO "MINE", when the login is a
+ *      staff member who may open it (2026-10-01). That replaced a separate
+ *      My Work page: its T&A card was this worklist, and every other card
+ *      already had a screen of its own — the worklist now carries the two
+ *      that did not (approvals waiting, unread alerts). A login linked to no
+ *      staff record — an administrator, a test account — has no "mine".
  *   4. Otherwise the Dashboard, exactly as before.
  *
  * The roles are read with the service role, pinned to the session's own id —
  * the same reason `lib/hr/my-profile.ts` gives, and the same safety: nothing in
  * the request names whose roles to read.
  */
+const SELF_PAGES = new Set(["/my-profile", "/me"]);
+const MY_WORKLIST = "/orders/ta-worklist?scope=mine";
+/** A role saved with the retired My Work page as its home lands where it went. */
+const RENAMED: Record<string, string> = { "/my-work": MY_WORKLIST };
+/**
+ * `canViewHref` matches a PATH: handed `?scope=mine` it finds no screen and
+ * answers "yes" for everyone, which would send a login without Orders access
+ * straight into the denied bounce. So the query comes off before asking.
+ */
+const mayOpen = (href: string) => canViewHref(href.split("?")[0]);
+
 export default async function StartPage() {
   const user = await requireUser();
 
@@ -42,14 +55,16 @@ export default async function StartPage() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   for (const h of homes) {
-    // `/me` and `/my-work` need no permission; any other home must be one they may open.
-    if (h.home_path === "/me" || h.home_path === "/my-work" || (await canViewHref(h.home_path))) redirect(h.home_path);
+    // My Profile needs no permission (every login has one); any other home
+    // must be one they may open. `/me` is My Profile's old address.
+    const home = RENAMED[h.home_path] ?? h.home_path;
+    if (SELF_PAGES.has(home) || (await mayOpen(home))) redirect(home);
   }
 
   const opensAModule =
     user.isSuperAdmin ||
     NAV.some((n) => n.href !== "/" && hasPermission(user, n.module as Module, "view"));
 
-  if (!opensAModule) redirect("/me");
-  redirect((await myStaff(user.id)) ? "/my-work" : "/");
+  if (!opensAModule) redirect("/my-profile");
+  redirect((await myStaff(user.id)) && (await mayOpen(MY_WORKLIST)) ? MY_WORKLIST : "/");
 }

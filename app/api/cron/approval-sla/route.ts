@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { sweepSla } from "@/lib/approvals/sla";
+import { runJob } from "@/lib/jobs/run";
 
 /**
  * GET /api/cron/approval-sla — the tick behind `doc/order/newfeature.md` §3.
@@ -53,7 +54,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await sweepSla();
+  // Logged to job_runs (0677) so Administration ▸ System ▸ Scheduled Jobs can say when it last ran.
+  const result = await runJob("approval-sla", "cron", () => sweepSla());
 
   /* 200 EVEN WHEN THE SWEEP ERRORED, with the error in the body. A 500 makes
      Vercel retry a job that is idempotent but pointless to repeat, and buries

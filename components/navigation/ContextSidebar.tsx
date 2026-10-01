@@ -131,7 +131,11 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       // `scrollbar-none` (was `scrollbar-reveal`): no bar, same as the rail
       // beside it (user 2026-10-01, sub-module menu suggestion 3). With the
       // groups folded the list rarely needs to scroll; the wheel still does.
-      className="scrollbar-none flex h-full w-46 shrink-0 flex-col overflow-y-auto"
+      // THE DIVIDER (user 2026-10-01, sidebar-lines option B): a hairline on
+      // the column's left edge separates the module icons from this menu.
+      // It belongs to this column, so a module with no menu (Dashboard)
+      // draws none — the rail then stands alone beside the page.
+      className="scrollbar-none flex h-full w-46 shrink-0 flex-col overflow-y-auto border-l border-panel-edge"
     >
       {/* THE MODULE'S NAME (user 2026-10-01, sub-module menu suggestion 1):
           the column started straight at its first group caption, so nothing

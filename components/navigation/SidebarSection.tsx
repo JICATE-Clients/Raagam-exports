@@ -7,15 +7,16 @@ import { cn } from "@/lib/utils";
  * nested-navigation spec (module → section → items). The space BETWEEN
  * sections is the parent's `space-y-*`.
  *
- * NO LINES (user 2026-10-01, sidebar option B). The caption used to trail a
- * hairline to the column's edge and the rows hung off a vertical tree line
- * (client 2026-09-17) — with the column border and its scrollbar that was four
- * kinds of line in 192px. Groups are told apart by SPACE and the grey capitals.
+ * THE GUIDE LINE IS BACK (user 2026-10-01, sidebar-lines option B,
+ * https://claude.ai/artifact/6enaeYNyQwMCHoYgDUhu38): the rows of an open
+ * group hang off a thin vertical line — the client's 2026-09-17 listing. The
+ * caption's trailing hairline came back with it and went again the same hour
+ * (screenshot 3201); the caption stands on its own.
  *
  * FOLDABLE (user 2026-10-01, sub-module menu suggestion 2). Pass `fold` and the
- * caption becomes a button that shows or hides the rows, with a chevron.
- * Which section is open is the caller's `useAccordion` — this component holds
- * no state of its own.
+ * caption becomes a button that shows or hides the rows, with a chevron after
+ * the hairline. Which section is open is the caller's `useAccordion` — this
+ * component holds no state of its own.
  */
 export function SidebarSection({
   label,
@@ -34,10 +35,14 @@ export function SidebarSection({
   // medium, and in capitals with letter-spacing 11px read as large as the
   // 13px screen names beneath it, in the same grey — the menu had no levels.
   const caption = (
-    <span className="min-w-0 truncate whitespace-nowrap text-[10px] font-semibold uppercase tracking-wider text-caption">
+    <span className="min-w-0 shrink truncate whitespace-nowrap text-[10px] font-semibold uppercase tracking-wider text-caption">
       {label}
     </span>
   );
+  // NO HAIRLINE AFTER THE CAPTION (user 2026-10-01, screenshot 3201: "near
+  // that line remove it"). It came back with the one-line listing an hour
+  // earlier, and in the 184px column it squeezed "ORDER MANAGEMENT" to
+  // "ORDER MANAGEM…". The vertical guide line under an open group stays.
   return (
     <div className="space-y-1">
       {label &&
@@ -61,9 +66,13 @@ export function SidebarSection({
             />
           </button>
         ) : (
-          <div className="px-2 pt-1">{caption}</div>
+          <div className="flex items-center gap-1.5 px-2 pt-1">{caption}</div>
         ))}
-      {(!fold || fold.open) && <div className="space-y-px">{children}</div>}
+      {(!fold || fold.open) && (
+        // The vertical guide line the rows hang off — only under a caption;
+        // a module's loose, uncaptioned rows have nothing to hang from.
+        <div className={cn("space-y-px", label && "ml-2.5 border-l border-border pl-1")}>{children}</div>
+      )}
     </div>
   );
 }

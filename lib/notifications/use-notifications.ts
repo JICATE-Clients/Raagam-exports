@@ -66,6 +66,23 @@ export function useNotifications() {
           setItems((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
         },
       )
+      /*
+       * AN ANNOUNCEMENT TAKEN BACK LEAVES THE OPEN BELL TOO (0676,
+       * Administration ▸ System ▸ Notifications ▸ Log ▸ Take back). Without
+       * this the row vanished from the table and stayed in every open tab
+       * until the next refocus refetch. Realtime cannot filter a DELETE by
+       * column and sends only the primary key under RLS, so this listens
+       * unfiltered and drops the id if it is one of ours — any other id is
+       * simply not in the list.
+       */
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "notifications" },
+        (payload) => {
+          const gone = (payload.old as { id?: string } | null)?.id;
+          if (gone) setItems((prev) => prev.filter((n) => n.id !== gone));
+        },
+      )
       .subscribe();
 
     /*
