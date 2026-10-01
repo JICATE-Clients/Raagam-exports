@@ -34,6 +34,29 @@ import { getPersonChildren } from "@/lib/hr/masters-service";
 export type MyStaffRecord = { kind: "staff"; row: Record<string, unknown> & { id: string } };
 
 export async function getMyStaffRecord(): Promise<MyStaffRecord | null> {
+  const row = await findMyStaff("*, locations(name), designations(name)");
+  return row ? { kind: "staff", row: row as MyStaffRecord["row"] } : null;
+}
+
+/**
+ * The caller's staff PHOTO, for the sidebar dock's avatar (user 2026-10-01:
+ * "the profile should use the user's staff profile photo"). Same match as
+ * the record above, one column. Null when no record or no photo — the dock
+ * then draws the initial. Never throws: a missing photo must not take the
+ * app shell down with it.
+ */
+export async function getMyStaffPhotoUrl(): Promise<string | null> {
+  try {
+    const row = await findMyStaff("photo_url");
+    const url = (row as { photo_url?: string | null } | null)?.photo_url?.trim();
+    return url || null;
+  } catch {
+    return null;
+  }
+}
+
+/** THE one "which staff row is mine" rule — email first, then employee code. */
+async function findMyStaff(cols: string): Promise<Record<string, unknown> | null> {
   const user = await requireUser();
   const s = await createClient();
   const { data: me } = await s
@@ -46,18 +69,17 @@ export async function getMyStaffRecord(): Promise<MyStaffRecord | null> {
   if (!email && !code) return null;
 
   const admin = createAdminClient();
-  const cols = "*, locations(name), designations(name)";
   if (email) {
     // `ilike` for the case-fold, with its wildcards ESCAPED: an email may hold
     // `_`, and an unescaped `_` matches any character — `a_b@x` would find
     // `axb@x`, which is somebody else's record.
     const exact = email.replace(/[\\%_]/g, (c) => `\\${c}`);
     const { data } = await admin.from("staff").select(cols).ilike("email", exact).limit(1).maybeSingle();
-    if (data) return { kind: "staff", row: data as MyStaffRecord["row"] };
+    if (data) return data as unknown as Record<string, unknown>;
   }
   if (code) {
     const { data } = await admin.from("staff").select(cols).eq("code", code).limit(1).maybeSingle();
-    if (data) return { kind: "staff", row: data as MyStaffRecord["row"] };
+    if (data) return data as unknown as Record<string, unknown>;
   }
   return null;
 }

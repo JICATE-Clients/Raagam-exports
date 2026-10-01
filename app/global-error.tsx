@@ -1,6 +1,7 @@
 "use client";
 
 import "./globals.css";
+import { InlineScript } from "@/components/shell/inline-script";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
 /**
@@ -32,7 +33,10 @@ export default function GlobalError({
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
       <head>
         <title>Something went wrong — Raagam ERP</title>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* Through `InlineScript`, as `app/layout.tsx` does: this boundary
+            usually renders on the CLIENT, where a raw `<script>` never runs and
+            React logs "Encountered a script tag while rendering". */}
+        <InlineScript html={THEME_INIT_SCRIPT} />
       </head>
       <body className="min-h-full">
         <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-5 bg-background px-6 text-center">

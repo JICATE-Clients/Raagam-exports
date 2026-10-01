@@ -259,7 +259,19 @@ export function DataPicker({
   triggerVariant = "field",
   addLabel,
   className,
+  fit = false,
 }: {
+  /**
+   * THE BOX IS AS WIDE AS ITS VALUE (client 2026-10-01, Order Info ▸ Customer:
+   * "auto-size based on content … remove unnecessary empty space").
+   * `field-sizing: content` on the trigger: the selected name plus the input's
+   * own padding and the ▼/✕ slot, floored at `hug` (88px) so an empty box keeps
+   * a target and capped at `name` (288px) so a long party name ellipses and
+   * reveals through the tooltip instead of pushing the row apart. Only
+   * meaningful in a cell that shrink-wraps — a `FieldRow` field with no `w`.
+   * Opt-in: every picker without it is unchanged.
+   */
+  fit?: boolean;
   /** Field label. Rendered unless `compact`; also the dialog title and toast noun. */
   label: string;
   /** Overrides `label` for the panel title / toasts — for grid cells whose column
@@ -1249,6 +1261,7 @@ export function DataPicker({
         className="relative block w-full"
       >
         <input
+          data-input=""
           id={id}
           ref={(el) => {
             triggerRef.current = el;
@@ -1375,6 +1388,7 @@ export function DataPicker({
             // CONTAINER query, so a picker inside a ~440px nested panel or on a
             // phone keeps the full 36px touch target.
             "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-2.5 text-base md:text-sm",
+            fit && "w-auto min-w-[5.5rem] max-w-[18rem] field-sizing-content max-sm:w-full max-sm:max-w-none",
             // Reserves the trailing slot; stated beside its width, not here.
             // A dense grid cell reserves less: see AFFORDANCE_PAD_COMPACT.
             compact ? AFFORDANCE_PAD_COMPACT : AFFORDANCE_PAD,

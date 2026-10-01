@@ -1,5 +1,5 @@
 /**
- * Order Entry ▸ T&A ▸ Work Flow — the eight pre-production OFFICE milestones
+ * Order Entry ▸ T&A ▸ Work Flow — the six pre-production OFFICE milestones
  * (doc/order/orderentry workflow feature.md; plan in
  * doc/order/orderentry-workflow-plan.md; table + triggers in 0607).
  *
@@ -20,13 +20,13 @@ import { addWorkingDays, isRefusal } from "@/lib/ta/schedule";
 import { daysBetween } from "@/lib/calendar";
 
 // ============================================================================
-// THE EIGHT (six from 0607; Pattern Sent / Pattern Approval from 0628)
+// THE SIX (0607's six; 0628 added Pattern Sent / Pattern Approval, 0679
+// removed them again — user 2026-10-01: "remove these two approvals from the
+// T&A tab")
 // ============================================================================
 
 export const WORK_FLOW_CODES = [
   "ORDER_ENTRY",
-  "PATTERN_SENT",
-  "PATTERN_APPROVAL",
   "CAD_COMPLETION",
   "MATERIAL_BOM",
   "FABRIC_BOM",
@@ -39,7 +39,7 @@ export type WorkFlowMilestoneDef = {
   code: WorkFlowCode;
   sn: number;
   label: string;
-  /** Default working days after Day 0. MUST equal `work_flow_milestone_defaults()` (0628, was 0607). */
+  /** Default working days after Day 0. MUST equal `work_flow_milestone_defaults()` (0679; was 0628, 0607). */
   days: number;
   /** What finishing it means, in the operator's words — the row's sub-line. */
   doneWhen: string;
@@ -74,37 +74,9 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
     alerts: true,
     href: "/orders/garment-orders",
   },
-  /* PATTERN SENT / PATTERN APPROVAL (0628; re-pointed by 0642, user
-     2026-09-25: no Send CAD step — assigning the pattern maker IS the send,
-     the Pattern Master's Ready IS the receive). Stamped by
-     `cad_work_flow_sync`, run by a trigger on order_cad_allocations, with the
-     EVENT's date — the last allocation date, the last Ready date — not the
-     day someone happened to record it. */
-  {
-    code: "PATTERN_SENT",
-    sn: 2,
-    label: "Pattern Sent",
-    days: 2,
-    doneWhen: "Pattern maker assigned for every style",
-    ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "PATTERN MASTER", "CAD TECHNICIAN"],
-    ownerTagsLabel: "CAD / Sampling / Pattern Maker",
-    alerts: true,
-    href: "/orders/cad-lifecycle",
-  },
-  {
-    code: "PATTERN_APPROVAL",
-    sn: 3,
-    label: "Pattern Approval",
-    days: 2,
-    doneWhen: "Pattern Ready for every style",
-    ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "PATTERN MASTER", "CAD TECHNICIAN", "MERCHANDISER", "MERCHANDISING"],
-    ownerTagsLabel: "CAD / Sampling / Merchandiser",
-    alerts: true,
-    href: "/orders/cad-lifecycle",
-  },
   {
     code: "CAD_COMPLETION",
-    sn: 4,
+    sn: 2,
     label: "CAD Completion",
     days: 2,
     doneWhen: "CAD sheet submitted",
@@ -115,7 +87,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   },
   {
     code: "MATERIAL_BOM",
-    sn: 5,
+    sn: 3,
     label: "Material BOM",
     days: 3,
     doneWhen: "Material BOM saved (not as a draft)",
@@ -126,7 +98,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   },
   {
     code: "FABRIC_BOM",
-    sn: 6,
+    sn: 4,
     label: "Fabric BOM",
     days: 3,
     doneWhen: "Fabric BOM saved (not as a draft)",
@@ -137,7 +109,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   },
   {
     code: "BUDGETING",
-    sn: 7,
+    sn: 5,
     label: "Budgeting",
     days: 4,
     doneWhen: "Budget submitted for approval",
@@ -148,7 +120,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   },
   {
     code: "BUDGET_APPROVAL",
-    sn: 8,
+    sn: 6,
     label: "Budget Approval",
     days: 4,
     doneWhen: "Budget approved",
@@ -271,32 +243,30 @@ export type WorkFlowEmployee = {
 export type WorkFlowOwnerOptions<T> = { items: T[]; hint: string | null; shortHint: string | null };
 
 /**
- * Employees who may own this milestone. EMPTY-AND-EXPLAIN, never a fallback to
- * every employee (AGENTS.md "Nominated vendors", the shape `merchandiserOptions`
- * copies) — a silent fallback would let a CAD milestone be owned by a packer
- * and nobody would learn the master needs tagging. The held owner always
- * survives ("Disabled rows").
+ * Staff who may own this milestone — since 2026-10-01, ALL of them (user:
+ * "list all staff master data directly"). It used to be the staff whose
+ * Designation or Department matched `ownerTags`, empty-and-explain otherwise;
+ * that reasoning (a CAD milestone owned by a packer) was the user's to
+ * overrule, and was. The held owner always survives ("Disabled rows").
  */
 export function workFlowOwnerOptions<T extends WorkFlowEmployee>(
   employees: readonly T[],
   code: WorkFlowCode,
   currentValue: string | null,
 ): WorkFlowOwnerOptions<T> {
-  const def = BY_CODE.get(code);
-  const tags = new Set((def?.ownerTags ?? []).map((t) => t.toUpperCase()));
-  const tagged = (e: T) =>
-    [e.designation, e.department].some((v) => !!v && tags.has(v.trim().toUpperCase()));
-  const items = employees.filter(tagged);
+  /* NO DESIGNATION / DEPARTMENT FILTER (user 2026-10-01: "remove the
+     condition, list all staff master data directly"). Every HR ▸ Staff member
+     is offered; the picker itself hides a switched-off one (`inactive`), and the
+     held owner survives below. `ownerTags` stays on each milestone as a note of
+     who USUALLY owns it — nothing reads it to filter any more. */
+  void code;
+  const items = [...employees];
 
   let hint: string | null = null;
   let shortHint: string | null = null;
   if (items.length === 0) {
-    hint =
-      employees.length === 0
-        ? "No staff have been entered yet. Add them on HR & Payroll ▸ People ▸ Staff."
-        : `No staff member has a Designation or Department of ${def?.ownerTagsLabel ?? "this team"}. ` +
-          "Set one on HR & Payroll ▸ People ▸ Staff.";
-    shortHint = employees.length === 0 ? "No staff entered" : "Nobody tagged";
+    hint = "No staff have been entered yet. Add them on HR & Payroll ▸ People ▸ Staff.";
+    shortHint = "No staff entered";
   }
 
   if (!currentValue || items.some((r) => r.id === currentValue)) return { items, hint, shortHint };

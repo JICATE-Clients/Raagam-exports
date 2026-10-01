@@ -13,8 +13,12 @@ import {
   FONTS,
   FONT_ATTR,
   FONT_STORAGE_KEY,
+  STYLES,
+  STYLE_ATTR,
+  STYLE_STORAGE_KEY,
   isAccentId,
   isFontId,
+  isStyleId,
 } from "@/lib/appearance";
 
 /**
@@ -70,6 +74,7 @@ function createPreference(key: string, attr: string, fallback: string, valid: (v
 
 const fontPref = createPreference(FONT_STORAGE_KEY, FONT_ATTR, FONTS[0].id, isFontId);
 const accentPref = createPreference(ACCENT_STORAGE_KEY, ACCENT_ATTR, ACCENTS[0].id, isAccentId);
+const stylePref = createPreference(STYLE_STORAGE_KEY, STYLE_ATTR, STYLES[0].id, isStyleId);
 
 function usePreference(pref: ReturnType<typeof createPreference>) {
   const value = useSyncExternalStore(pref.subscribe, pref.read, pref.server);
@@ -98,16 +103,31 @@ function usePreference(pref: ReturnType<typeof createPreference>) {
  * Built on `DropdownMenu`, so ↑/↓/Enter/Esc behave as in every other menu. The
  * button stays tinted while New look is on, as the old toggle was.
  */
-export function AppearanceMenu() {
+/**
+ * The appearance choices as menu items — ONE list, read by `AppearanceMenu`
+ * (the phone's top bar) and by the sidebar dock's Appearance section on a
+ * desktop (user 2026-10-01: "move the theme and appearance to the bottom
+ * area"), so the two can never offer different options.
+ */
+export function useAppearanceItems() {
   const { scale, setScale } = useTypeScale();
   const [font, setFont] = usePreference(fontPref);
   const [accent, setAccent] = usePreference(accentPref);
+  const [style, setStyle] = usePreference(stylePref);
   const [pageSize, setPageSize] = usePageSize();
   const compact = scale === "compact";
 
   const items: DropdownItem[] = [
     { label: "New look", section: "Look", checked: compact, onClick: () => setScale("compact") },
     { label: "Classic", section: "Look", checked: !compact, onClick: () => setScale("standard") },
+    ...STYLES.map(
+      (st): DropdownItem => ({
+        label: st.label,
+        section: "Style",
+        checked: style === st.id,
+        onClick: () => setStyle(st.id),
+      }),
+    ),
     ...FONTS.map(
       (f): DropdownItem => ({
         label: f.label,
@@ -138,7 +158,14 @@ export function AppearanceMenu() {
 
   const fontLabel = FONTS.find((f) => f.id === font)?.label ?? FONTS[0].label;
   const accentLabel = ACCENTS.find((a) => a.id === accent)?.label ?? ACCENTS[0].label;
-  const summary = `${compact ? "New look" : "Classic"} · ${fontLabel} · ${accentLabel} · ${pageSize} rows`;
+  const styleLabel = STYLES.find((st) => st.id === style)?.label ?? STYLES[0].label;
+  const summary = `${compact ? "New look" : "Classic"} · ${styleLabel} · ${fontLabel} · ${accentLabel} · ${pageSize} rows`;
+
+  return { items, summary, compact, styleLabel };
+}
+
+export function AppearanceMenu() {
+  const { items, summary, compact } = useAppearanceItems();
 
   return (
     <span title={`Appearance: ${summary}`}>

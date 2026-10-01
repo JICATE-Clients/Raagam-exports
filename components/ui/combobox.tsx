@@ -304,6 +304,7 @@ export function Combobox({
         className="block w-full"
       >
       <input
+        data-input=""
         id={id}
         ref={(el) => {
           inputRef.current = el;

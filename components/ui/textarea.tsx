@@ -46,6 +46,7 @@ export const Textarea = forwardRef<
   });
   return (
   <textarea
+    data-input=""
     ref={ref}
     {...hold}
     // Same rule as input.tsx: the browser's memory of past typing is not a

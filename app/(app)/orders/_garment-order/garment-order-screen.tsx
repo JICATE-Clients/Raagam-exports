@@ -147,7 +147,7 @@ import { sectionValidity, type Problem } from "@/lib/screens/validity";
 // The two flags a field the APP fills in has to carry, derived from one boolean
 // so a bypassed field can never also hold the cursor. See the note there.
 import { autoFilledField, focusField, focusFirstField } from "@/lib/focus";
-import { Field, FieldGrid, FieldRow, FIELD_SPAN, RequiredScope, UnlockScope, useLocked } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, FIELD_SPAN, FIELD_WIDTH_CSS, RequiredScope, UnlockScope, useLocked } from "@/components/ui/field";
 import { openAreasOf, type OrderAmendmentState } from "@/lib/orders/amendments/amendment-entry";
 import { MultiSelect } from "@/components/ui/multi-select";
 // `sortBySize` / `sizeFamily`: the Style master orders and bands its Sizes
@@ -794,8 +794,9 @@ type TaRow = {
   days_required: string;
   /** Who owns this row (0547, operator request 2026-09-10) — typed here, not
    *  on the T&A Worklist; see `TaRowCore`'s own note in lib/orders/amendments/
-   *  types.ts for the reversal this is. Scoped to the Activity's department
-   *  by `taOwnerOptions()` (lib/ta/task-owners.ts). */
+   *  types.ts for the reversal this is. Offered from ALL active staff by
+   *  `taOwnerOptions()` (lib/ta/task-owners.ts) — the department scope was
+   *  withdrawn 2026-10-01. */
   assigned_staff_id: string | null;
 };
 /**
@@ -1854,7 +1855,12 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
   "Style Category": "code",
   "Article No.": "code",
   "Order Unit": "num",
-  "PO Qty": "range",
+  /* `num` (72px), not `range` (client 2026-10-01: "style tab po qty field
+     compact it"). A piece count is digits only and the number spinners are
+     hidden (`Input`), so 72px holds six digits — 999,999 pieces — beside the
+     same-width Order Unit. Description, the row's one growing cell, takes the
+     40px back. */
+  "PO Qty": "num",
   /* `Process` AND `Sizes` ARE NOT ON THIS ROW. Both live on the composition
      line below it — Sizes beside Coordinate, and the Process [Click] button as
      that line's fourth section (client 2026-08-29: "just that process single
@@ -8751,7 +8757,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       // A combo with no name is not a colourway — it is what the Prices and
       // Quantities tabs count against, and "" counts against nothing.
       required: true,
-      width: "14rem",
+      /* `code` (144px), down from a literal 14rem / 224px (user 2026-10-01,
+         Combos tab: "Combo field — compact"). A combo is a colourway name —
+         NAVY, BLACK/WHITE, MELANGE GREY — ~12 capitals at most, ~100px. A
+         longer one scrolls inside its box; nothing is cut from the value. */
+      width: FIELD_WIDTH_CSS.code,
       cell: (r) => (
         <Input
           uppercase
@@ -8778,7 +8788,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          is a button, not a `<Field>`, so there is no cursor to hold) — the
          actual gate stays `comboProblems`, one declaration for both. */
       required: true,
-      width: "8rem",
+      /* `num` (72px), down from 8rem / 128px (user 2026-10-01, screenshot 3220:
+         "see the close option and field gap — fix it", then "still a little
+         extra padding" at `hug` 88). The button is `size="sm"` — `px-3
+         text-xs`, ~60px for "Detail" — and carries no count (see below), so
+         72px is the button plus one small margin; "Detail *" in the header
+         (~45px) fits too. The screenshots are at 125% display scale, which is
+         why the button measures ~75px in them. */
+      width: FIELD_WIDTH_CSS.num,
       /**
        * The legacy [Detail] button (screenshot 2261) — it opens the Structure
        * Details screen for THIS combo.
@@ -10703,16 +10720,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           />
         </div>
       </div>
-      {/* WHAT THE BACKWARD SCHEDULE HANGS OFF, in one sentence — the anchor the
-          ladder actually used (`taLadder.anchor`), never a re-derivation. Said
-          only while the ladder resolves; a refusal already says why it cannot. */}
-      {!isRefusal(taLadder) && (
-        <p className="basis-full text-[11px] leading-tight text-muted-foreground">
-          Automated backward schedule — triggered from{" "}
-          {taLadder.anchor.source === "earlier_shipment" ? "Earlier Shipment Date" : "Delivery Date"}:{" "}
-          <span className="font-semibold tabular-nums text-foreground">{fmtDate(taLadder.anchor.date)}</span>
-        </p>
-      )}
+      {/* The "Automated backward schedule — triggered from <Earlier Shipment
+          Date / Delivery Date>: <date>" line was removed (user 2026-10-01).
+          The ladder still anchors the same way (`taLadder.anchor`); only the
+          sentence saying so is gone. */}
     </div>
   );
 
@@ -14469,8 +14480,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * On this track a span of n is roughly n x 29px + (n-1) x 12px of gap:
    * 3 -> ~112px, 4 -> ~153px, 5 -> ~194px, 6 -> ~236px.
    *
-   *   Country 5   Ref No 3   Consignee 6   PO Qty 3
-   *   Delivery 4   Earlier Shipment 4   Assortment 5   Details 2   = 32
+   *   Country 4   Ref No 2   Consignee 6   PO Qty 2
+   *   Delivery 4   Earlier Shipment 4   Assortment 5   Details 2   = 29 of 32
+   *   (Country 5 · Ref No 3 · PO Qty 3 = 32 until 2026-10-01, when all three
+   *   were compacted and the spare columns left at the end — see the map.)
    *
    * THE RUN ABOVE IS `QTY_PRIMARY`'S ORDER, NOT `quantityColumns`', and the two
    * differ — this is the list an operator actually reads left to right, because
@@ -14494,21 +14507,33 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    */
   const QTY_SPAN: Readonly<Record<string, number>> = form.multi_order
     ? {
+        /* COMPACTED 2026-10-01 (user, three asks in a row: "quantities tab …
+           po qty", then "country and reference number field also"). PO Qty
+           3 → 2, Ref No 3 → 2, Country → 4 (it took PO Qty's column for one
+           turn, then was compacted itself). On the operator's ~1,600px pane a
+           column is ~42px, so 2 ≈ 92px (an 8-character ref such as "35555/1")
+           and 4 ≈ 192px (a country name; a longer one ellipses with the
+           picker's own hover reveal).
+           THE ROW NO LONGER SUMS TO 32, DELIBERATELY: 30 here, 29 below. The
+           freed columns are left at the line's end rather than handed to
+           another cell, because the ask was "compact", and growing Consignee
+           or a date would undo it one cell along. Trailing space on a
+           fractional track reads as the row ending, which is what it is. */
         Country: 4,
-        "Ref No": 3,
+        "Ref No": 2,
         "PO No": 3,
         Consignee: 5,
-        "PO Qty": 3,
+        "PO Qty": 2,
         "Delivery Dt": 4,
         "Assortment Type": 4,
         "Earlier Shipment Dt": 4,
         Details: 2,
       }
     : {
-        Country: 5,
-        "Ref No": 3,
+        Country: 4,
+        "Ref No": 2,
         Consignee: 6,
-        "PO Qty": 3,
+        "PO Qty": 2,
         "Delivery Dt": 4,
         "Assortment Type": 5,
         "Earlier Shipment Dt": 4,
@@ -16497,7 +16522,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   }
                 />
               </Field>
-              <Field label={j === 0 ? "Component" : undefined} required w="term" className="w-full sm:max-w-[7.5rem]">
+              {/* 7.5 → 6.5rem / 104px (user 2026-10-01, "Component — compact"):
+                  "ALL BODY" ≈ 66px + padding + the ▼/✕ slot; a longer name
+                  ellipses and reveals on hover (DataPicker's own tooltip). */}
+              <Field label={j === 0 ? "Component" : undefined} required w="term" className="w-full sm:max-w-[6.5rem]">
                 {/* Narrowed by the coordinate beside it: the style declares the
                     PAIR (FRONT BODY *of* PIECES), so an unscoped list would
                     offer a collar under a coordinate that has none. */}
@@ -17483,7 +17511,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 300px — the worst mobile break in this module. Below `lg` the five
                 stack one per line at full width, which is the same answer the
                 outer track at `min-[1250px]` gives the two halves. */}
-            <div className="grid items-start gap-x-2.5 gap-y-2 lg:grid-cols-[9.5rem_11rem_4.5rem_4.5rem_5.5rem_7.5rem]">
+            {/* COMPACTED 2026-10-01 (user, Combos ▸ Detail: "GSM, Tolerance, Fabric
+                Type … compact the fields"): GSM 4.5 → 3.5rem (56px, four digits
+                + padding), Tolerance 4.5 → 4.25rem (68px — its 12px semibold
+                label "Tolerance *" is ~65px, the floor), Fabric Type 7.5 →
+                6.75rem (108px with the compact ▼ slot; "YARN DYED" ≈ 72px + 34).
+                Structure, Composition and the Range figure are unchanged. */}
+            <div className="grid items-start gap-x-2.5 gap-y-2 lg:grid-cols-[9.5rem_11rem_3.5rem_4.25rem_5.5rem_6.75rem]">
               {/* `term` (176px), NOT `name` (288px) — client 2026-08-19, asking for
                   Structure and Composition "as xs(2) size" like the part row below.
 
@@ -17856,6 +17890,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 <RequiredScope required={need.item_sub_type} label="Fabric Type">
                 <Select
                   aria-label="Fabric Type"
+                  compact
                   required={need.item_sub_type}
                   value={st.item_sub_type}
                   onChange={(e) => {
@@ -19001,7 +19036,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           /* THREE TO A LINE, STRICTLY (operator, 2026-09-17: "strictly display
              3 items per row"). The auto-fill track settled on three only while
              the widest label stayed short; a fixed count does not depend on it. */
-          gridColumns={3}
+          /* SIX, DENSE, SINCE 2026-10-01 — see the panel-width note below. */
+          gridColumns={6}
+          gridDense
           /* BANDS, DERIVED FROM THE NAMES. At fifty-plus sizes one label stops
              meaning one thing — `M` is Medium AND `3M` is three months — and a
              flat list has nothing to tell them apart however well it is sorted.
@@ -19030,7 +19067,28 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              three to a line (XXS · XS · S) under their band headings. The
              same-day 22rem panel is withdrawn: it spread past the Sizes column
              over the Components grid. The panel is portaled and fixed, so
-             opening it still pushes nothing. */
+             opening it still pushes nothing.
+             REVERSED 2026-10-01 (client, screenshot 3218: "make this size
+             listing area wider for using more easier"), and the same day the
+             user said what "easier" means: "the field size same compacted, only
+             expand the width, because the narrowed screen took too much
+             scrolling … if it is wider it can list much data". So the width
+             goes into MORE ticks, not bigger ones — which also withdraws
+             2026-09-17's "strictly 3 per row", deliberately.
+             THE ARITHMETIC: at the old 272px panel three ticks were ~71px each
+             with ~10px gaps and ~38px of padding + scrollbar. Five at that same
+             71px is 5·71 + 4·10 + 38 = 433px → `w-[27rem]` (432px). Nine
+             letter sizes now take two lines instead of three, the five month
+             sizes one. Change the count and the width together, or the ticks
+             change size.
+             THEN SMALLER STILL, THE SAME DAY (user: "compact the field size
+             more in size dropdown"): `gridDense` (11px type, `px-1.5 py-0.5`,
+             6px gaps) and SIX to a line in the same 432px — 432 − 24 padding −
+             6 scrollbar − 5·6 gaps = 372 / 6 = 62px a tick, ~20px tall. In 11px
+             mono "12/18M" is ~40px + 12px padding, so it no longer ellipses. It floats over the Components grid while open — the
+             client's chosen trade; `placePanel` pulls it in from the right edge
+             and the primitive caps it at the viewport on a narrow window. */
+          panelClassName="w-[27rem]"
           options={sizeOpts.map((o) => ({
             id: o.id,
             label: o.name,
@@ -21358,20 +21416,26 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             * every other derived field in the app. Still readable, still
             * selectable with the mouse.
             */}
+          {/* SIZED TO THEIR VALUES (user 2026-10-01: "quantities tab INR
+              Value, po qty, Avg Rate, Gross value" — compact). No `w`: each cell
+              shrink-wraps, and `field-sizing: content` makes the box the figure
+              plus its padding. `min-w-full` floors the box at its own label's
+              width, so a blank (an unpriced order, no Ex-Rate yet) still reads
+              as a box under "INR Value" rather than a sliver. */}
           <FieldRow className="mt-3">
-            <Field label="Avg Rate" w="num" htmlFor="qt-avgrate">
+            <Field label="Avg Rate" htmlFor="qt-avgrate" className="max-sm:w-full">
               <Input
                 id="qt-avgrate"
                 readOnly
-                className="text-right"
+                className="w-auto min-w-full field-sizing-content text-right"
                 value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
               />
             </Field>
-            <Field label="Gross Value" w="code" htmlFor="qt-gross">
+            <Field label="Gross Value" htmlFor="qt-gross" className="max-sm:w-full">
               <Input
                 id="qt-gross"
                 readOnly
-                className="text-right"
+                className="w-auto min-w-full field-sizing-content text-right"
                 value={
                   orderVal.grossValue == null
                     ? ""
@@ -21379,13 +21443,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 }
               />
             </Field>
-            {/* `term` (176px), the widest of the three: lakh grouping
-                ("74,28,153.60") runs longer than the buyer-currency figure. */}
-            <Field label="INR Value" w="term" htmlFor="qt-inr">
+            {/* Lakh grouping ("₹74,28,153.60") runs longer than the
+                buyer-currency figure — content sizing gives it exactly that. */}
+            <Field label="INR Value" htmlFor="qt-inr" className="max-sm:w-full">
               <Input
                 id="qt-inr"
                 readOnly
-                className="text-right"
+                className="w-auto min-w-full field-sizing-content text-right"
                 value={inrVal == null ? "" : fmtMoney(inrVal, "INR")}
               />
             </Field>
@@ -22143,10 +22207,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-3 py-2">
               <CheckCheck className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
               <div>
+                {/* The sub-line "Which milestones this order tracks, and their
+                    computed review windows" was removed (user 2026-10-01). */}
                 <div className="text-sm font-semibold text-foreground">Declare approvals</div>
-                <div className="text-xs text-muted-foreground">
-                  Which milestones this order tracks, and their computed review windows
-                </div>
               </div>
             </div>
             {/* `TA_APPROVAL_FIELDS` sits HERE, on the panel that holds nothing
@@ -22457,7 +22520,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             a column. */}
         <div className="flex items-start gap-x-3">
         <div className="min-w-0 flex-1 space-y-2 @2xl/editor:space-y-1.5">
-          <FieldGrid>
+          {/* A WIDTH ROW, NOT THE TWELFTHS (client 2026-10-01, screenshot 3216:
+              RE No and Unit "auto-size based on their content … remove
+              unnecessary empty space after the displayed value").
+              On the 12-track every cell was `xs`, a sixth of the pane — ~250px
+              for "HO" and for a 17-character number alike. `w` cannot fix that
+              inside a `FieldGrid`: the cell keeps its column and the box floats
+              in a hole (`Field`'s own note). So this line is a `FieldRow`, the
+              same shape LINE 2 below already is. RE No, Customer and PO No size
+              to their values (Customer and PO No asked for the same day); Unit
+              is `hug`, Date the `code` floor Deli.Dt shares, Merchand. `party`. */}
+          <FieldRow>
             {/* AUTO, NOT PICKED (client 2026-08-11).
                 This was a dropdown of orders that already existed — amendment
                 behaviour on the screen an order is ENTERED on. The SC No is now
@@ -22480,10 +22553,19 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 in `validity` (see the note on the Unit entry there), which is
                 where the record — rather than any box — is judged. The chain is
                 the same shape it always was, one link longer. */}
-            <Field label="RE No" size="xs" htmlFor="hd-scno">
+            {/* SIZED TO ITS VALUE, NOT TO A STEP. `field-sizing: content` makes
+                the box exactly the text plus the input's own `px-2.5`, so an
+                HO/RE/26-27/0003 and a longer unit prefix both fit with nothing
+                trailing. No `w` on the Field: in a `FieldRow` an unsized cell
+                shrink-wraps its control. `min-w` is the `hug` floor, so a blank
+                preview (no unit yet) does not collapse under its label. A
+                browser without `field-sizing` falls back to the input's native
+                ~20-character width — wider, never clipped. */}
+            <Field label="RE No" htmlFor="hd-scno" className="max-sm:w-full">
               <Input
                 id="hd-scno"
                 readOnly
+                className="w-auto min-w-[5.5rem] field-sizing-content max-sm:w-full"
                 value={savedOrderNo ?? previewNo ?? ""}
               />
             </Field>
@@ -22506,7 +22588,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 has been told off for once already. It appears the day the first
                 SQ exists. */}
             {sqOptions.length > 0 && (
-              <Field label="Copy from SQ No" size="xs" htmlFor="hd-sqno">
+              <Field label="Copy from SQ No" w="name" htmlFor="hd-sqno">
                 <div className="flex items-center gap-2">
                   <RecordPicker
                     id="hd-sqno"
@@ -22602,7 +22684,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               label="Unit"
               required={unitAuto.required && !editId}
               offTabPath={unitAuto.offTabPath}
-              size="xs"
+              /* `hug` (88px): a unit is a short CODE ("HO"), shown by
+                 `identity="code"` — room for it and the picker's ✕, no more. */
+              w="hug"
             >
               <RecordPicker
                 label="Unit"
@@ -22681,7 +22765,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               label="Date"
               required={dateAuto.required}
               offTabPath={dateAuto.offTabPath}
-              size="xs"
+              w="code"
               htmlFor="hd-date"
             >
               {/*
@@ -22743,10 +22827,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 into one entry (client 2026-08-31) and the row this order already
                 holds always survives the fold. The whole argument, and why the
                 fold cannot live in the service, is on `customerFold` above. */}
-            <Field label="Customer" required size="xs">
+            {/* SIZED TO ITS VALUE (client 2026-10-01) — `fit`, the picker's
+                `field-sizing: content`, 88–288px. No `w`: the cell shrink-wraps. */}
+            <Field label="Customer" required className="max-sm:w-full">
               <RecordPicker
                 label="Customer"
                 compact
+                fit
                 items={customerFold.rows}
                 value={form.customer_id}
                 onChange={(id) => {
@@ -22867,10 +22954,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * and the hold — two statements of one fact, and the second one
               * appears only after a blur. `<Field required>` is the declaration.
               */}
-            <Field label="PO No" required size="xs" htmlFor="hd-pono">
+            {/* SIZED TO ITS VALUE (client 2026-10-01), as RE No above: 88px
+                floor for a blank PO, `name` (288px) cap for a long multi-PO
+                string, which then scrolls inside its own box. */}
+            <Field label="PO No" required htmlFor="hd-pono" className="max-sm:w-full">
               <ValidatedInput
                 id="hd-pono"
                 format="po_ref"
+                className="w-auto min-w-[5.5rem] max-w-[18rem] field-sizing-content max-sm:w-full max-sm:max-w-none"
                 value={form.po_no}
                 onChange={(e) => set({ po_no: e.target.value })}
               />
@@ -22921,7 +23012,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * only option is the held row — so it can never overwrite the
               * ordinary empty box on a working field.
               */}
-            <Field label="Merchand." required size="xs">
+            <Field label="Merchand." required w="party">
               <RecordPicker
                 label="Merchand."
                 compact
@@ -22948,59 +23039,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onChange={(id) => set({ merchandiser_id: id })}
               />
             </Field>
-          </FieldGrid>
-
-          {/* LINE 2 — THE ORDER'S TERMS. The break is where it has always been:
-              line 1 is who the order is and who it is for, line 2 is what it is
-              worth. Two declared rows rather than one wrapping one, because the
-              wrap point of a single row moves with the pane and these two groups
-              do not. */}
-          {/* THE ATTACHMENTS CONTROL RODE THIS ROW FOR FIVE DAYS AND HAS MOVED
-              ONTO THE STYLE ROWS (client 2026-08-26 put it here: "move that
-              attachment field near the rejection field"; client 2026-08-31 moved
-              it on, because a document belongs to a STYLE and is mandatory
-              before that style can be saved). It is the Files cell on the
-              Style(s) tab now.
-
-              SO THIS ROW IS SIX CELLS AGAIN, AND THE ARITHMETIC MOVED WITH IT:
-              144 + 112 + 72 + 74 + 112 + 288 = 802px plus five gaps = **862px**,
-              against a ~1,229px pane. It was 978px plus six gaps = 1,050px while
-              the 176px Attachments cell was the seventh, which is the figure the
-              sketch column's own note was measured against — that note has been
-              corrected and says what changed.
-
-              ORDER-LEVEL FILES DID NOT MOVE AND COULD NOT. A file stored before
-              the column existed names no style and nothing can invent one, so
-              the corner column beside these rows is where they are seen and
-              removed (`orderLevelFiles`), and it is the only place they appear.
-              Dropping it with the field would have stranded them.
-
-              THE PANEL SAT BESIDE THE ROW FOR ONE TURN AND THAT SHAPE IS GONE.
-              It needed a flex wrapper, `flex-1` on the row and a basis on the
-              panel, and it carried a live trap worth remembering if anything
-              like it comes back: `FieldRow`'s outer div is `@container/section`,
-              and `container-type: inline-size` applies SIZE CONTAINMENT, so a
-              shrink-to-fit flex item wrapping it measures 0 and collapses. A
-              field in the row needs none of that. */}
-          {/* THIS ROW WAS DECLARED A `FieldRow` BY THE COMMENT BELOW ON
-              2026-08-26 AND STAYED A `FieldGrid` (col-span-2 `xs` on a
-              twelve-column track) UNTIL NOW — the "SUPERSEDED 2026-08-26"
-              note a few lines down has been describing this tag as changed
-              since the day it was written. Fixed 2026-09-09 alongside adding
-              Received Date, which is what surfaced the mismatch: a new field
-              at `xs` would have pushed the row to fourteen columns and wrapped
-              one cell onto its own line rather than tightening anything, and
-              `w` (the fix) only shrinks a cell inside a `FieldRow` — inside a
-              `FieldGrid` the surrounding column stays the same width and the
-              control just floats in dead space (`Field`'s own note). So the
-              tag now matches what the comment already claimed. */}
-          <FieldRow>
             {/* DELI.DT SITS HERE, NOT BELOW Yr (client 2026-08-11). The dictated
                 entry run is SCNo → Date → Customer → PO No → Merchandiser →
                 Deli.Dt, and Season/Yr standing between Merchand. and Deli.Dt broke
                 it in the middle. They stay in the header — the client was explicit
                 that they belong here and not on the style rows, where they have
-                never been. */}
+                never been.
+                ON LINE 1 SINCE 2026-10-01 (client: "move the delivery date,
+                received date to the first row, there was space") — once RE No,
+                Customer and PO No sized to their values, line 1 ended ~600px
+                short of the pane. Still straight after Merchand., so the
+                dictated run above is unchanged. */}
             {/* REQUIRED SINCE 2026-08-31 (client). Deli.Dt used to be the
                 header's one deliberately-unblocking date — the `sectionValidity`
                 comment said so by name ("Deli.Dt is not here at all because it
@@ -23038,6 +23087,56 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             <Field label="Received Date" w="code" htmlFor="hd-received">
               <Input id="hd-received" type="date" value={form.received_date} onChange={(e) => set({ received_date: e.target.value })} />
             </Field>
+          </FieldRow>
+
+          {/* LINE 2 — THE ORDER'S TERMS. The break is where it has always been:
+              line 1 is who the order is and who it is for, line 2 is what it is
+              worth. Two declared rows rather than one wrapping one, because the
+              wrap point of a single row moves with the pane and these two groups
+              do not. */}
+          {/* THE ATTACHMENTS CONTROL RODE THIS ROW FOR FIVE DAYS AND HAS MOVED
+              ONTO THE STYLE ROWS (client 2026-08-26 put it here: "move that
+              attachment field near the rejection field"; client 2026-08-31 moved
+              it on, because a document belongs to a STYLE and is mandatory
+              before that style can be saved). It is the Files cell on the
+              Style(s) tab now.
+
+              (SUPERSEDED 2026-10-01: Deli.Dt and Received Date moved up to
+              line 1, so this row is now Season · Excess % · Pack · Multi Style ·
+              Rejection Rule. The figures below are the six-cell row's.)
+              SO THIS ROW IS SIX CELLS AGAIN, AND THE ARITHMETIC MOVED WITH IT:
+              144 + 112 + 72 + 74 + 112 + 288 = 802px plus five gaps = **862px**,
+              against a ~1,229px pane. It was 978px plus six gaps = 1,050px while
+              the 176px Attachments cell was the seventh, which is the figure the
+              sketch column's own note was measured against — that note has been
+              corrected and says what changed.
+
+              ORDER-LEVEL FILES DID NOT MOVE AND COULD NOT. A file stored before
+              the column existed names no style and nothing can invent one, so
+              the corner column beside these rows is where they are seen and
+              removed (`orderLevelFiles`), and it is the only place they appear.
+              Dropping it with the field would have stranded them.
+
+              THE PANEL SAT BESIDE THE ROW FOR ONE TURN AND THAT SHAPE IS GONE.
+              It needed a flex wrapper, `flex-1` on the row and a basis on the
+              panel, and it carried a live trap worth remembering if anything
+              like it comes back: `FieldRow`'s outer div is `@container/section`,
+              and `container-type: inline-size` applies SIZE CONTAINMENT, so a
+              shrink-to-fit flex item wrapping it measures 0 and collapses. A
+              field in the row needs none of that. */}
+          {/* THIS ROW WAS DECLARED A `FieldRow` BY THE COMMENT BELOW ON
+              2026-08-26 AND STAYED A `FieldGrid` (col-span-2 `xs` on a
+              twelve-column track) UNTIL NOW — the "SUPERSEDED 2026-08-26"
+              note a few lines down has been describing this tag as changed
+              since the day it was written. Fixed 2026-09-09 alongside adding
+              Received Date, which is what surfaced the mismatch: a new field
+              at `xs` would have pushed the row to fourteen columns and wrapped
+              one cell onto its own line rather than tightening anything, and
+              `w` (the fix) only shrinks a cell inside a `FieldRow` — inside a
+              `FieldGrid` the surrounding column stays the same width and the
+              control just floats in dead space (`Field`'s own note). So the
+              tag now matches what the comment already claimed. */}
+          <FieldRow>
             <Field label="Season" w="range" htmlFor="hd-season" required>
               <Select id="hd-season" required value={form.season} onChange={(e) => set({ season: e.target.value })}>
                 <option value=""></option>
@@ -23093,10 +23192,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * is a live FACET, the second one narrowing the Style picker
               * (`styleOptionsFor`). Yr narrowed nothing and fed nothing.
               */}
-            <Field label="Excess %" w="num" htmlFor="hd-excess">
+            {/* SIZED TO ITS VALUE (client 2026-10-01). `min-w-full` rather than
+                a fixed floor: the cell is at least as wide as its own label
+                ("Excess %"), and the box never draws narrower than that label. */}
+            <Field label="Excess %" htmlFor="hd-excess" className="max-sm:w-full">
               {/* A quantity amendment opens the header's `excess_pct` (0604). */}
               <UnlockScope area="excess_pct">
-                <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
+                <Input id="hd-excess" type="number" className="w-auto min-w-full field-sizing-content" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
               </UnlockScope>
             </Field>
             {/**

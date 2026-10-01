@@ -15,6 +15,7 @@ import { SearchProvider } from "@/components/search/search-provider";
 import { ShortcutsProvider } from "@/components/shell/shortcuts-provider";
 import { KeyboardNavProvider } from "@/components/shell/keyboard-nav-provider";
 import { listStoreNavLinks } from "@/lib/stores/service";
+import { getMyStaffPhotoUrl } from "@/lib/hr/my-profile";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await requireUser();
@@ -32,7 +33,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // one rule.
   const { location, allowed, source } = await getCurrentLocation();
 
-  const stores = await listStoreNavLinks();
+  // In PARALLEL: the dock's photo is one more lookup, and a serial await
+  // here would add a round trip to every page load.
+  const [stores, photoUrl] = await Promise.all([listStoreNavLinks(), getMyStaffPhotoUrl()]);
 
   // Only fetched for a real Super Admin — `realIsSuperAdmin`, not
   // `isSuperAdmin`, so the switcher stays reachable while already previewing.
@@ -54,7 +57,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   screen again — no gutter, no corners — because the sidebars are
                   hidden there and MobileNav owns the bottom edge. */}
               <div data-app-shell className="flex h-screen overflow-hidden bg-canvas">
-                <Sidebar stores={stores} />
+                <Sidebar stores={stores} previewableRoles={previewableRoles} photoUrl={photoUrl} />
                 <div className="flex min-w-0 flex-1 flex-col">
                   {/* FULL-HEIGHT CARD (user 2026-10-01, screenshot 3171, split
                       option A). The top bar used to sit on the canvas ABOVE the
@@ -74,6 +77,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                     data-work-panel
                     className="flex min-h-0 flex-1 flex-col bg-panel md:border-l md:border-panel-edge md:shadow-[-8px_0_24px_-16px_rgb(15_23_42/0.25)]"
                   >
+                  {/* PHONE ONLY since the sidebar dock (user 2026-10-01): on a
+                      desktop the unit, role preview and account live at the foot
+                      of the sidebar, and search / bell / appearance at the end of
+                      the tab strip — so the strip is the panel's first row. */}
                   <Topbar previewableRoles={previewableRoles} />
                   <RolePreviewBanner />
                   <WorkspaceTabsBar />

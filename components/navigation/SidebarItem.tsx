@@ -51,6 +51,9 @@ export function SidebarItem({
       href={href}
       title={collapsed ? label : undefined}
       onClick={handleClick}
+      // Surface-style hook (lib/appearance.ts STYLES): Pearl / Frost gloss the
+      // active pill like a solid button.
+      data-active={active ? "" : undefined}
       className={cn(
         // `text-[13px]`, not `text-sm` (14px) — matches the workspace tab
         // bar's own label size (workspace-tabs-bar.tsx) exactly, client

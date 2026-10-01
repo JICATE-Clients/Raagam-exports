@@ -171,12 +171,12 @@ export function Topbar({
   }
 
   return (
-    // From md up the bar is the FIRST ROW OF THE WORK PANEL (split option A,
-    // 2026-10-01): transparent, so the panel's white and rounded corners show
-    // through, `h-12`, and no rule beneath — it and the tab strip read as one
-    // header, closed off by the strip's single hairline. On a phone there is
-    // no panel around the page, so it keeps its white fill and its line.
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:h-12 md:border-b-0 md:bg-transparent">
+    // PHONE ONLY (`md:hidden`, user 2026-10-01). From md up its three jobs
+    // moved: unit, role preview and account to `SidebarDock` at the foot of
+    // the sidebar; search, appearance and the bell to the end of
+    // `WorkspaceTabsBar`, which is now the work panel's first row. The
+    // Location row above the tabs was the "orphaned" strip the user reported.
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:hidden">
       {/* `BAR_CONTROL` (top of file) is the ONE size every control in this bar
           takes — Location, the role preview, Search. See its own note. */}
       {/* Location switcher (two GST entities) */}

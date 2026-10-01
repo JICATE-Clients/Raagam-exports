@@ -29,9 +29,9 @@ const variants: Record<Variant, string> = {
   approve: `ty-btn-solid ty-btn-approve ${PRIMARY}`,
   outline:
     "ty-btn-outline border border-border bg-surface text-foreground hover:bg-surface-muted font-semibold",
-  ghost: "text-foreground hover:bg-surface-muted",
+  ghost: "ty-btn-ghost text-foreground hover:bg-surface-muted",
   danger: "ty-btn-solid ty-btn-danger bg-danger text-white hover:opacity-90 shadow-sm font-bold",
-  subtle: "bg-surface-muted text-foreground hover:bg-border",
+  subtle: "ty-btn-subtle bg-surface-muted text-foreground hover:bg-border",
 };
 
 // `@2xl/editor:h-8` joins `md`/`icon` to the compact density scale (see

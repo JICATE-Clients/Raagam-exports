@@ -84,27 +84,27 @@ export function taOwnerOptions({
       : items;
   };
 
-  if (!activityId) {
-    return {
-      items: keep([]),
-      hint: "Pick an Activity first — Task Owner is scoped to its department.",
-      shortHint: "Pick Activity first",
-    };
-  }
-
-  const deptIds = departmentsByActivity[activityId] ?? [];
-  if (!deptIds.length) {
-    return {
-      items: keep([]),
-      hint: "This activity has no department assigned yet — set one on T&A ▸ Department Assign.",
-      shortHint: "No department assigned",
-    };
-  }
-
-  const deptSet = new Set(deptIds);
+  /* THE DEPARTMENT SCOPE IS WITHDRAWN (user 2026-10-01: "now it lists based on
+     department — remove the condition, list all staff master data directly").
+     Every ACTIVE HR ▸ Staff member is offered for every line, Activity picked or
+     not. The table and "The rule" above describe what this USED to do; they are
+     kept because 0551/0553 and `getTaOwnerDepartments()` still cite them.
+     `activityId` and `departmentsByActivity` stay in the signature so the call
+     site and its loader are unchanged — restoring the scope is this function
+     alone. The held owner still survives (`keep`), and an empty master still
+     explains itself rather than showing a silent empty list. */
+  void activityId;
+  void departmentsByActivity;
   const items = employees
-    .filter((e) => !isInactive(e) && !!e.department_id && deptSet.has(e.department_id))
+    .filter((e) => !isInactive(e))
     .map((e) => ({ id: e.id, code: e.code, name: e.name, inactive: e.inactive }));
 
+  if (!items.length) {
+    return {
+      items: keep([]),
+      hint: "No staff have been entered yet. Add them on HR & Payroll ▸ People ▸ Staff.",
+      shortHint: "No staff entered",
+    };
+  }
   return { items: keep(items), hint: null, shortHint: null };
 }

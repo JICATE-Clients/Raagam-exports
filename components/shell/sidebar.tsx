@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEditorOpen } from "@/lib/editor-presence";
@@ -11,6 +12,8 @@ import {
   hasModuleMenu,
   visibleModules,
 } from "@/components/navigation/navigation-config";
+import type { PreviewableRole } from "@/lib/auth/role-simulation";
+import { DOCK_HEIGHT, SidebarDock } from "./sidebar-dock";
 import type { StoreNavLink } from "./sidebar-types";
 
 export type { StoreNavLink };
@@ -24,7 +27,17 @@ export type { StoreNavLink };
  * sync: `components/shell/nav.ts` and `lib/nav/module-groups.ts` stay the one
  * source of truth this just renders.
  */
-export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
+export function Sidebar({
+  stores = [],
+  previewableRoles = [],
+  photoUrl = null,
+}: {
+  stores?: StoreNavLink[];
+  /** Every role a Super Admin may preview — feeds the dock's preview list. */
+  previewableRoles?: PreviewableRole[];
+  /** The operator's HR staff photo, for the dock's avatar. */
+  photoUrl?: string | null;
+}) {
   /**
    * A full-page record editor takes the whole width.
    *
@@ -47,7 +60,12 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   const withMenu = hasModuleMenu(activeModule(pathname, visibleModules(user)), stores.length);
 
   return (
-    <div className="hidden h-full shrink-0 flex-col md:flex">
+    <div
+      className="hidden h-full shrink-0 flex-col md:flex"
+      // The dock's height, read by the rail (`GlobalSidebar`), whose fixed
+      // panel must end above it — see `SidebarDock`'s DOCK_HEIGHT.
+      style={{ "--dock-h": `${withMenu ? DOCK_HEIGHT.full : DOCK_HEIGHT.compact}px` } as CSSProperties}
+    >
       {/* THE BRAND ROW SPANS THE WHOLE SIDEBAR (user 2026-10-01: "raagam logo
           looks squeezed"). The wordmark sat in the module menu's own 48px
           header at 36px tall, and before that in the 56px rail at 40px wide;
@@ -82,6 +100,10 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
         <GlobalSidebar wide={withMenu} />
         <ContextSidebar stores={stores} />
       </div>
+      {/* THE DOCK (user 2026-10-01): unit, role preview and account, spanning
+          rail + menu the way the brand row spans the top. Rail-only pages
+          (Dashboard) get the badge alone. */}
+      <SidebarDock previewableRoles={previewableRoles} photoUrl={photoUrl} compact={!withMenu} />
     </div>
   );
 }

@@ -54,9 +54,9 @@ check("2026-10-18 really is a Sunday", dayOfWeek("2026-10-18"), 0);
 // ---------------------------------------------------------------------------
 const day0 = "2026-10-12";
 check(
-  "QA-WP-01: received 12-10-2026 → targets 13, 14, 14, 14, 15, 15, 16, 16 (Pattern Sent / Approval at +2, 0628)",
+  "QA-WP-01: received 12-10-2026 → targets 13, 14, 15, 15, 16, 16 (Pattern Sent / Approval removed, 0679)",
   WORK_FLOW_MILESTONES.map((m) => workFlowTarget(day0, m.days)),
-  ["2026-10-13", "2026-10-14", "2026-10-14", "2026-10-14", "2026-10-15", "2026-10-15", "2026-10-16", "2026-10-16"],
+  ["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-15", "2026-10-16", "2026-10-16"],
 );
 check("a Saturday Day 0 + 1 skips Sunday → Monday", workFlowTarget("2026-10-17", 1), "2026-10-19");
 check("Thursday + 3 crosses Sunday → Tuesday, not Sunday", workFlowTarget("2026-10-15", 3), "2026-10-19");
@@ -113,9 +113,10 @@ check(
 // ---------------------------------------------------------------------------
 // 4. The SQL mirror — 0607's work_flow_milestone_defaults() must equal the list.
 // ---------------------------------------------------------------------------
-// 0628 re-declared the list (Pattern Sent / Pattern Approval); the LATEST
-// definition is the one the database runs, so that is the file parsed.
-const sql = readFileSync(new URL("../supabase/migrations/0628_cad_lifecycle.sql", import.meta.url), "utf8");
+// 0628 re-declared the list (Pattern Sent / Pattern Approval) and 0679 took
+// them out again; the LATEST definition is the one the database runs, so that
+// is the file parsed.
+const sql = readFileSync(new URL("../supabase/migrations/0679_work_flow_drop_pattern_milestones.sql", import.meta.url), "utf8");
 const block = sql.match(/work_flow_milestone_defaults\(\)[\s\S]*?\$\$([\s\S]*?)\$\$/)?.[1] ?? "";
 const sqlRows = [...block.matchAll(/\('([A-Z_]+)',\s*(\d+),\s*(\d+)\)/g)].map((m) => ({
   code: m[1],
@@ -135,7 +136,8 @@ check(
 );
 
 // ---------------------------------------------------------------------------
-// 5. Owner options — empty-and-explain, held owner survives.
+// 5. Owner options — EVERY staff member since 2026-10-01 (user: "remove the
+//    condition, list all staff master data directly"); held owner survives.
 // ---------------------------------------------------------------------------
 const emp = (id: string, designation: string | null, department: string | null): WorkFlowEmployee => ({
   id, code: id, name: id.toUpperCase(), inactive: false, designation, department,
@@ -143,20 +145,21 @@ const emp = (id: string, designation: string | null, department: string | null):
 const staff = [
   emp("merch", "MERCHANDISER", null),
   emp("cadguy", null, "CAD"),
-  emp("sampler", null, " sampling "),
   emp("packer", null, "PACKING"),
+  emp("untagged", null, null),
 ];
-check("CAD row offers CAD + Sampling (case/space-insensitive), not the packer",
-  workFlowOwnerOptions(staff, "CAD_COMPLETION", null).items.map((e) => e.id), ["cadguy", "sampler"]);
-check("Order Entry row offers the merchandiser",
-  workFlowOwnerOptions(staff, "ORDER_ENTRY", null).items.map((e) => e.id), ["merch"]);
-const mdEmpty = workFlowOwnerOptions(staff, "BUDGET_APPROVAL", null);
-check("nobody tagged MD → empty, NOT a fallback to everyone", mdEmpty.items.length, 0);
-check("...and it says why", mdEmpty.shortHint, "Nobody tagged");
-check("empty master → the other message",
+const everyone = ["merch", "cadguy", "packer", "untagged"];
+check("CAD row offers every staff member, tagged or not",
+  workFlowOwnerOptions(staff, "CAD_COMPLETION", null).items.map((e) => e.id), everyone);
+check("Budget Approval offers everyone too — no 'Nobody tagged' dead end",
+  workFlowOwnerOptions(staff, "BUDGET_APPROVAL", null).items.map((e) => e.id), everyone);
+check("...with no hint while there is anyone to offer",
+  workFlowOwnerOptions(staff, "BUDGET_APPROVAL", null).shortHint, null);
+check("empty master → says so",
   workFlowOwnerOptions([], "BUDGETING", null).shortHint, "No staff entered");
-const held = workFlowOwnerOptions(staff, "CAD_COMPLETION", "packer");
-check("a held owner who no longer qualifies survives, last", held.items.map((e) => e.id), ["cadguy", "sampler", "packer"]);
+check("a held id the master no longer has is not invented as an option",
+  workFlowOwnerOptions(staff.slice(0, 2), "CAD_COMPLETION", "packer").items.map((e) => e.id),
+  ["merch", "cadguy"]);
 
 console.log(failed === 0 ? "\nOK — every Work Flow vector holds." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

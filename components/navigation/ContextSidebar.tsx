@@ -147,9 +147,13 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       {/* 16px bold, and NOT `ty-subsection`: the compact type scale sets that
           class to 600 14px, one pixel above the 13px screen names, so the
           module and its screens read as one size (screenshot 3188). */}
-      <h2 className="shrink-0 truncate px-3.5 pb-2 pt-1 text-base font-bold leading-6 text-foreground">
-        {mod.label}
-      </h2>
+      {/* REMOVED FROM SIGHT THE SAME DAY (user 2026-10-01: "the sidebar
+          sub-module listing — the module label, no need, remove it"). The
+          rail's lit icon already says which module is open. Kept as a
+          screen-reader-only heading so the menu still has a name; `pt-1`
+          moves to the column so the first group caption doesn't touch the top. */}
+      <h2 className="sr-only">{mod.label}</h2>
+      <div aria-hidden className="h-1 shrink-0" />
 
       {/* THE "HOME" ROW IS HIDDEN (operator, 2026-09-15) — it only ever
           reopened the module's own root/hub page, and that page's card grid
