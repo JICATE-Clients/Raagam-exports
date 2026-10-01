@@ -18,7 +18,7 @@ export interface AccessRole {
   description: string | null;
   is_system: boolean;
   created_at: string | null;
-  /** 0666: where holders land after signing in; null = no preference. */
+  /** 0670: where holders land after signing in; null = no preference. */
   home_path: string | null;
   tree: PermissionTree;
   /** How many users hold it (any location). */

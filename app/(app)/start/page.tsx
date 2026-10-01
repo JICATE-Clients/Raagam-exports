@@ -11,7 +11,7 @@ import { NAV } from "@/components/shell/nav";
  * here instead of straight to the Dashboard; a link that already names a page
  * (`?redirect=` on the login screen) never comes here at all.
  *
- *   1. The person's roles that name a Home page (0666), in role-name order —
+ *   1. The person's roles that name a Home page (0670), in role-name order —
  *      the first one they may actually OPEN. A home page they cannot view is
  *      skipped rather than followed into the "denied" bounce.
  *   2. Otherwise MY PROFILE, when none of their roles opens any module: a

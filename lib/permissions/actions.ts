@@ -32,7 +32,7 @@ export async function saveRoleAccess(input: {
   name: string;
   description?: string | null;
   tree: PermissionTree;
-  /** 0666: where this role's holders land after signing in; null = no preference. */
+  /** 0670: where this role's holders land after signing in; null = no preference. */
   homePath?: string | null;
 }): Promise<Result<{ roleId: string }>> {
   const creating = !input.roleId;
@@ -40,7 +40,7 @@ export async function saveRoleAccess(input: {
   const name = input.name.trim();
   if (!name) return { ok: false, error: "Give the role a name." };
 
-  // The DB refuses anything but an app path (0666's CHECK); trimming here only
+  // The DB refuses anything but an app path (0670's CHECK); trimming here only
   // turns a blank choice into "no preference".
   const home_path = input.homePath?.trim() || null;
 

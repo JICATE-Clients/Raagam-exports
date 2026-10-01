@@ -74,7 +74,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   const [roleSystem, setRoleSystem] = useState(false);
   const [roleName, setRoleName] = useState("");
   const [roleDesc, setRoleDesc] = useState("");
-  /** 0666: the page this role's holders land on after signing in ("" = none). */
+  /** 0670: the page this role's holders land on after signing in ("" = none). */
   const [roleHome, setRoleHome] = useState("");
   const [roleTree, setRoleTree] = useState<Tree>({});
   const [roleTab, setRoleTab] = useState<string>("details");
@@ -521,7 +521,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
                         onChange={(e) => { setRoleName(e.target.value); setRoleDirty(true); }}
                       />
                     </Field>
-                    {/* HOME PAGE (0666, user 2026-10-01): where this role's
+                    {/* HOME PAGE (0670, user 2026-10-01): where this role's
                         holders land after signing in — `/start` reads it. Blank
                         is no preference (Dashboard, or My Profile for someone
                         whose roles open no module). The top-level modules of the

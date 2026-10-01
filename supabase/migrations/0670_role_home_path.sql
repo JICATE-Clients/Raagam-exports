@@ -1,4 +1,4 @@
--- 0666 — A ROLE'S HOME PAGE: where a person lands after signing in
+-- 0670 — A ROLE'S HOME PAGE: where a person lands after signing in
 -- (user 2026-10-01: "plan the dynamic routing … it should open as my profile").
 --
 -- Until now every login landed on the Dashboard (`/`). A role may now name a
