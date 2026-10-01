@@ -8,7 +8,7 @@ import { Field } from "@/components/ui/field";
 import { Card, CardBody } from "@/components/ui/card";
 import { setOwnPassword } from "@/lib/users/actions";
 
-export function SetPasswordForm({ email }: { email: string | null }) {
+export function SetPasswordForm({ email, reset = false }: { email: string | null; reset?: boolean }) {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -34,10 +34,14 @@ export function SetPasswordForm({ email }: { email: string | null }) {
       <CardBody>
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <h2 className="text-base font-semibold text-foreground">Choose your password</h2>
+            <h2 className="text-base font-semibold text-foreground">
+              {reset ? "Reset your password" : "Choose your password"}
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {email ? <>Signed in as {email}. </> : null}
-              The password you were emailed was temporary — set your own to continue.
+              {reset
+                ? "Choose a new password to continue."
+                : "The password you were emailed was temporary — set your own to continue."}
             </p>
           </div>
           <Field label="New password" required>

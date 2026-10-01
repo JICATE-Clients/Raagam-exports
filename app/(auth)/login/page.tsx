@@ -3,14 +3,12 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
-
-type Method = "password" | "otp";
 
 function LoginForm() {
   const router = useRouter();
@@ -19,12 +17,9 @@ function LoginForm() {
   // a link that already names a page goes straight there.
   const redirectTo = params.get("redirect") || "/start";
 
-  const [method, setMethod] = useState<Method>("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -44,138 +39,76 @@ function LoginForm() {
     router.refresh();
   }
 
-  async function sendOtp(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    const { error } = await supabase.auth.signInWithOtp({ phone });
-    setLoading(false);
-    if (error) return setError(error.message);
-    setOtpSent(true);
-  }
-
-  async function verifyOtp(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    const { error } = await supabase.auth.verifyOtp({
-      phone,
-      token: otp,
-      type: "sms",
-    });
-    setLoading(false);
-    if (error) return setError(error.message);
-    router.replace(redirectTo);
-    router.refresh();
-  }
-
   return (
     <Card>
       <CardBody className="space-y-4">
-        {/* method switch */}
-        <div className="grid grid-cols-2 gap-1 rounded-md bg-surface-muted p-1">
-          {(["password", "otp"] as Method[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => {
-                setMethod(m);
-                setError(null);
-              }}
-              className={cn(
-                "rounded px-3 py-1.5 text-xs font-medium transition-colors",
-                method === m
-                  ? "bg-surface text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {m === "password" ? "Email & Password" : "Phone OTP"}
-            </button>
-          ))}
-        </div>
-
         {error && (
           <p className="rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">
             {error}
           </p>
         )}
 
-        {method === "password" ? (
-          <form onSubmit={signInPassword} className="space-y-3">
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div>
+        <form onSubmit={signInPassword} className="space-y-3">
+          <div>
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between">
               <Label htmlFor="password">Password</Label>
+              <Link
+                href="/forgot-password"
+                tabIndex={-1}
+                className="text-xs text-primary hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
+            <div className="relative">
               <Input
                 id="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
+                // caps-input: exempt -- a password is case-sensitive; the reveal toggle turns this into type="text"
+                uppercase={false}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                // Edge draws its own reveal eye inside a password box; hide it so
+                // only this toggle shows (two eyes, each flipping a different state).
+                className="pr-9 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden"
                 required
               />
+              <button
+                type="button"
+                tabIndex={-1}
+                // Keep focus (and the caret) in the password box while toggling.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground hover:text-foreground"
+              >
+                {/* The icon shows the CURRENT state: crossed-out while masked,
+                    open while visible (user 2026-10-01). */}
+                {showPassword ? (
+                  <Eye className="h-4 w-4" />
+                ) : (
+                  <EyeOff className="h-4 w-4" />
+                )}
+              </button>
             </div>
-            <Button type="submit" size="lg" className="w-full" disabled={loading}>
-              {loading ? "Signing in…" : "Sign in"}
-            </Button>
-          </form>
-        ) : !otpSent ? (
-          <form onSubmit={sendOtp} className="space-y-3">
-            <div>
-              <Label htmlFor="phone">Phone (with country code)</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="+9198XXXXXXXX"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" size="lg" className="w-full" disabled={loading}>
-              {loading ? "Sending…" : "Send OTP"}
-            </Button>
-          </form>
-        ) : (
-          <form onSubmit={verifyOtp} className="space-y-3">
-            <div>
-              <Label htmlFor="otp">Enter the 6-digit code</Label>
-              <Input
-                id="otp"
-                inputMode="numeric"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" size="lg" className="w-full" disabled={loading}>
-              {loading ? "Verifying…" : "Verify & sign in"}
-            </Button>
-            <button
-              type="button"
-              className="w-full text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setOtpSent(false)}
-            >
-              Use a different number
-            </button>
-          </form>
-        )}
-
-        <p className="text-center text-xs text-muted-foreground">
-          Need an account?{" "}
-          <Link href="/register" className="text-primary hover:underline">
-            Register
-          </Link>
-        </p>
+          </div>
+          <Button type="submit" size="lg" className="w-full" disabled={loading}>
+            {loading ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
       </CardBody>
     </Card>
   );
