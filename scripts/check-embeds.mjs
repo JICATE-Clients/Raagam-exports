@@ -89,6 +89,8 @@ const AMBIGUOUS = {
   // 0673's CC table points at `profiles` twice from birth — the person copied
   // (`user_id`) and who added them (`created_by`). Declared the day it lands.
   notification_event_cc: { profiles: ["user_id", "created_by"] },
+  // 0676 gave the dispatch log `recalled_by` beside 0673's `actor_id`.
+  notification_dispatches: { profiles: ["actor_id", "recalled_by"] },
 };
 
 /* KNOWN GAP, MEASURED 2026-09-11 AND DELIBERATELY NOT CLOSED HERE.

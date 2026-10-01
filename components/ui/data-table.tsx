@@ -190,6 +190,7 @@ export function DataTable<T>({
               // that keeps this bold at 12px rather than clotting).
               pad,
               vRule,
+              "whitespace-nowrap",
               tight
                 ? "text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
                 : "text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
@@ -265,7 +266,15 @@ export function DataTable<T>({
             className={cn(
               pad,
               vRule,
-              "align-middle",
+              /* ONE LINE PER ROW AT ANY ZOOM (user 2026-10-01). Zooming in
+                 narrows the page in CSS pixels; with wrapping cells the rows
+                 re-flowed — "HO/RE/26-" over "27/0001", a customer over three
+                 lines — so the list changed shape instead of just growing.
+                 The wrapper already scrolls sideways (`overflow-x-auto`), so
+                 a narrow window now scrolls rather than reflows. A column of
+                 genuinely long prose opts back in with `whitespace-normal`
+                 in its `className` (applied after this, so it wins). */
+              "whitespace-nowrap align-middle",
               align[c.align ?? "left"],
               c.className,
             )}

@@ -261,6 +261,8 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/admin/audit": null,
   // Same reason as the Audit Log: a dispatch log grows by a row per alert.
   "/admin/notifications": null,
+  // Five fixed jobs — a count of them says nothing.
+  "/admin/jobs": null,
 };
 
 /** The table a card counts, or `null` when it has none. */

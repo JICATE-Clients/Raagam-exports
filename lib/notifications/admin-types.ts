@@ -2,7 +2,14 @@ import type { NotificationEventDef, NotificationEventKey } from "./events";
 
 /** Client-safe shapes for Administration ▸ System ▸ Notifications. */
 
-export type DispatchStatus = "delivered" | "fell_back" | "no_recipients" | "disabled" | "push_failed" | "error";
+export type DispatchStatus =
+  | "delivered"
+  | "fell_back"
+  | "no_recipients"
+  | "disabled"
+  | "push_failed"
+  | "recalled"
+  | "error";
 
 export const DISPATCH_STATUS_LABEL: Record<DispatchStatus, string> = {
   delivered: "Delivered",
@@ -10,6 +17,7 @@ export const DISPATCH_STATUS_LABEL: Record<DispatchStatus, string> = {
   no_recipients: "Reached nobody",
   disabled: "Switched off",
   push_failed: "Push failed",
+  recalled: "Taken back",
   error: "Error",
 };
 
@@ -20,6 +28,7 @@ export const DISPATCH_STATUS_FILTERS: DispatchStatus[] = [
   "no_recipients",
   "disabled",
   "push_failed",
+  "recalled",
 ];
 
 export type DispatchFilters = {
@@ -50,6 +59,7 @@ export type DispatchRow = {
   error: string | null;
   source: "action" | "cron" | "admin";
   created_at: string;
+  recalled_at: string | null;
   status: DispatchStatus;
 };
 
@@ -97,6 +107,10 @@ export type EventOverview = {
   disabled30: number;
   pushFailed30: number;
   lastSentAt: string | null;
+  /** The administrator's CC (0673) — ADDED to "Goes to", never replacing it. */
+  ccRoleIds: string[];
+  ccUserIds: string[];
+  updatedAt: string | null;
 };
 
 export type NotificationOverview = {
@@ -105,7 +119,11 @@ export type NotificationOverview = {
   activeLogins: number;
   withDevice: number;
   events: EventOverview[];
+  roles: { id: string; name: string }[];
 };
+
+/** How long alerts and the logs are kept (0677 `notification_settings`). */
+export type Retention = { readDays: number; unreadDays: number; logDays: number; jobRunDays: number };
 
 /** "Chrome on Windows" from a user-agent string — enough to tell two devices apart. */
 export function deviceName(ua: string | null): string {

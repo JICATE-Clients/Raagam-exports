@@ -2,6 +2,7 @@ import { requirePermission, can } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import {
   getNotificationOverview,
+  getRetention,
   isEventKey,
   listDispatches,
   listNotificationDevices,
@@ -11,10 +12,13 @@ import { NotificationsScreen, type NotificationsTab } from "./notifications-scre
 
 /**
  * Administration ▸ System ▸ Notifications (doc/admin/notification-management-
- * plan.md §5). Phase 1 is READ-ONLY: Overview (is the plumbing set up, who can
- * be reached, which alerts reach nobody), the dispatch Log, and Devices.
+ * plan.md §5): Overview (is the plumbing set up, who can be reached, which
+ * alerts reach nobody — and each alert's switches and CC), Send (Test,
+ * Announcement), the dispatch Log, and Devices. Each change is gated by its
+ * own Administration action: Edit (switches, devices), Create (send), Delete
+ * (take an announcement back).
  *
- * The three reads run in parallel — one round trip, not three — and the Log's
+ * Everything loads in parallel — one round trip, not several — and the Log's
  * filters arrive as GET params so a filtered log is a link an admin can share.
  */
 export default async function NotificationsPage({
@@ -22,7 +26,7 @@ export default async function NotificationsPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  await requirePermission("system_admin", "view");
+  const me = await requirePermission("system_admin", "view");
   const sp = await searchParams;
 
   const status = DISPATCH_STATUS_FILTERS.includes(sp.status as DispatchStatus)
@@ -36,15 +40,22 @@ export default async function NotificationsPage({
     page: Math.max(1, Number(sp.page ?? "1") || 1),
   };
 
-  const showBody = await can("system_admin", "edit");
-  const [overview, log, devices] = await Promise.all([
+  // ONE round trip for the permissions and the three reads together; the
+  // Log's bodies are fetched and then stripped unless the viewer may edit.
+  const [canEdit, canCreate, canDelete, overview, fullLog, devices, retention] = await Promise.all([
+    can("system_admin", "edit"),
+    can("system_admin", "create"),
+    can("system_admin", "delete"),
     getNotificationOverview(),
-    listDispatches(filters, { showBody }),
+    listDispatches(filters, { showBody: true }),
     listNotificationDevices(),
+    getRetention(),
   ]);
+  const showBody = canEdit;
+  const log = showBody ? fullLog : { ...fullLog, rows: fullLog.rows.map((r) => ({ ...r, body: null })) };
 
   const tab: NotificationsTab =
-    sp.tab === "log" || sp.tab === "devices" ? sp.tab : "overview";
+    sp.tab === "send" || sp.tab === "log" || sp.tab === "devices" || sp.tab === "settings" ? sp.tab : "overview";
 
   return (
     <div className="space-y-4">
@@ -64,6 +75,9 @@ export default async function NotificationsPage({
         }}
         devices={devices}
         showBody={showBody}
+        meId={me.id}
+        perms={{ canEdit, canCreate, canDelete }}
+        retention={retention}
       />
     </div>
   );

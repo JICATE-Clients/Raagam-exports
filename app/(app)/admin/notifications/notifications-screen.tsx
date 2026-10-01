@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2, Users, XCircle } from "lucide-react";
+import { CheckCircle2, Pencil, Trash2, Undo2, Users, XCircle } from "lucide-react";
 import { Tabs } from "@/components/ui/tabs";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Stat } from "@/components/ui/stat";
@@ -16,7 +16,12 @@ import { Sheet } from "@/components/ui/sheet";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { EVENT_MODULE_LABEL, NOTIFICATION_EVENTS, notificationEvent } from "@/lib/notifications/events";
-import { loadDispatchRecipients } from "@/lib/notifications/admin-actions";
+import { loadDispatchRecipients, recallDispatch, revokeDevice } from "@/lib/notifications/admin-actions";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
+import { EventSettingsSheet } from "./event-settings-sheet";
+import { SendTab } from "./send-tab";
+import { SettingsTab } from "./settings-tab";
 import {
   DISPATCH_STATUS_FILTERS,
   DISPATCH_STATUS_LABEL,
@@ -27,9 +32,13 @@ import {
   type EventOverview,
   type NotificationDevice,
   type NotificationOverview,
+  type ReachablePerson,
+  type Retention,
 } from "@/lib/notifications/admin-types";
 
-export type NotificationsTab = "overview" | "log" | "devices";
+export type NotificationsTab = "overview" | "send" | "log" | "devices" | "settings";
+
+type Perms = { canEdit: boolean; canCreate: boolean; canDelete: boolean };
 
 type LogFilters = { event: string; status: string; from: string; to: string };
 
@@ -39,8 +48,12 @@ const STATUS_TONE: Record<DispatchStatus, StatusTone> = {
   no_recipients: "danger",
   disabled: "neutral",
   push_failed: "warning",
+  recalled: "neutral",
   error: "danger",
 };
+
+/** Only an administrator's own sends can be taken back (0676 enforces it too). */
+const RECALLABLE = new Set(["admin.broadcast", "admin.test"]);
 
 const SOURCE_LABEL: Record<DispatchRow["source"], string> = {
   action: "Someone's action",
@@ -49,12 +62,13 @@ const SOURCE_LABEL: Record<DispatchRow["source"], string> = {
 };
 
 /**
- * Administration ▸ System ▸ Notifications — Phase 1, read-only.
+ * Administration ▸ System ▸ Notifications.
  *
  * Overview answers the three questions an admin cannot answer from their own
- * bell: is the plumbing set up, can people be reached, and which alerts are
- * going nowhere. The Log is every dispatch; Devices is every registered phone
- * or browser. Switching events on/off, CC, Test and Broadcast arrive in Phase 2.
+ * bell — is the plumbing set up, can people be reached, which alerts are going
+ * nowhere — and each alert's pencil opens its switches and CC (Phase 2). Send
+ * is a Test and an Announcement; the Log is every dispatch (an announcement
+ * can be taken back there); Devices is every registered phone or browser.
  */
 export function NotificationsScreen({
   initialTab,
@@ -63,6 +77,9 @@ export function NotificationsScreen({
   logFilters,
   devices,
   showBody,
+  meId,
+  perms,
+  retention,
 }: {
   initialTab: NotificationsTab;
   overview: NotificationOverview;
@@ -70,6 +87,9 @@ export function NotificationsScreen({
   logFilters: LogFilters;
   devices: NotificationDevice[];
   showBody: boolean;
+  meId: string;
+  perms: Perms;
+  retention: Retention;
 }) {
   const [tab, setTab] = useState<string>(initialTab);
 
@@ -94,13 +114,27 @@ export function NotificationsScreen({
       value={tab}
       onChange={changeTab}
       items={[
-        { key: "overview", label: "Overview", content: <OverviewTab overview={overview} /> },
-        { key: "log", label: "Log", content: <LogTab log={log} filters={logFilters} showBody={showBody} /> },
+        { key: "overview", label: "Overview", content: <OverviewTab overview={overview} perms={perms} /> },
+        {
+          key: "send",
+          label: "Send",
+          content: <SendTab people={overview.people} roles={overview.roles} meId={meId} canCreate={perms.canCreate} />,
+        },
+        {
+          key: "log",
+          label: "Log",
+          content: <LogTab log={log} filters={logFilters} showBody={showBody} canDelete={perms.canDelete} />,
+        },
         {
           key: "devices",
           label: `Devices (${devices.length})`,
           problems: failing || undefined,
-          content: <DevicesTab devices={devices} />,
+          content: <DevicesTab devices={devices} canEdit={perms.canEdit} />,
+        },
+        {
+          key: "settings",
+          label: "Settings",
+          content: <SettingsTab retention={retention} canEdit={perms.canEdit} canDelete={perms.canDelete} />,
         },
       ]}
     />
@@ -109,8 +143,9 @@ export function NotificationsScreen({
 
 // ─── Overview ────────────────────────────────────────────────────────────────
 
-function OverviewTab({ overview }: { overview: NotificationOverview }) {
-  const { plumbing, events, activeLogins, withDevice, people } = overview;
+function OverviewTab({ overview, perms }: { overview: NotificationOverview; perms: Perms }) {
+  const { plumbing, events, activeLogins, withDevice, people, roles } = overview;
+  const [editing, setEditing] = useState<EventOverview | null>(null);
   const sent = events.reduce((n, e) => n + e.sent30, 0);
   const fellBack = events.reduce((n, e) => n + e.fellBack30, 0);
   const nobody = events.reduce((n, e) => n + e.reachedNobody30, 0);
@@ -175,7 +210,9 @@ function OverviewTab({ overview }: { overview: NotificationOverview }) {
               {gaps.map((g) => (
                 <li key={g.key + g.kind} className="flex items-start gap-2">
                   <span className="mt-0.5">
-                    <StatusPill tone={g.tone}>{g.kind === "role" ? "Empty role" : g.kind === "nobody" ? "Lost" : "To admins"}</StatusPill>
+                    <StatusPill tone={g.tone} className="whitespace-nowrap">
+                      {g.kind === "role" ? "Empty role" : g.kind === "nobody" ? "Lost" : "To admins"}
+                    </StatusPill>
                   </span>
                   <span>
                     <span className="font-medium text-foreground">{g.label}</span>{" "}
@@ -190,7 +227,7 @@ function OverviewTab({ overview }: { overview: NotificationOverview }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Every alert</CardTitle>
+          <CardTitle>Every alert · last 30 days</CardTitle>
         </CardHeader>
         <DataTable
           bare
@@ -203,9 +240,38 @@ function OverviewTab({ overview }: { overview: NotificationOverview }) {
              "Turned on"): a dispatch is mostly raised by a scheduled job and a
              device by its own owner, so a Created User column would be a
              column of dashes (see the exemptions in admin-service.ts). */
-          columns={withCreatedColumns(eventColumns, events)}
+          columns={withCreatedColumns(
+            [
+              ...eventColumns(people),
+              {
+                header: "",
+                align: "right",
+                cell: (e) => (
+                  <RowIconAction
+                    label="Settings"
+                    name={e.label}
+                    icon={Pencil}
+                    onClick={() => setEditing(e)}
+                    disabledReason={perms.canEdit ? null : "Changing alerts needs the Edit permission on Administration"}
+                  />
+                ),
+              },
+            ],
+            events,
+          )}
         />
       </Card>
+
+      {editing && (
+        <EventSettingsSheet
+          key={editing.key}
+          event={editing}
+          roles={roles}
+          people={people}
+          canEdit={perms.canEdit}
+          onClose={() => setEditing(null)}
+        />
+      )}
 
       {noDevice.length > 0 && (
         <Card>
@@ -278,7 +344,7 @@ function routingGaps(events: EventOverview[]): Gap[] {
   return out;
 }
 
-const eventColumns: Column<EventOverview>[] = [
+const eventColumns = (people: ReachablePerson[]): Column<EventOverview>[] => [
   {
     header: "Alert",
     cell: (e) => (
@@ -288,20 +354,40 @@ const eventColumns: Column<EventOverview>[] = [
       </div>
     ),
   },
-  { header: "Goes to", cell: (e) => <span className="text-xs text-muted-foreground">{e.audience}</span> },
+  {
+    header: "Goes to",
+    cell: (e) => {
+      const names = e.ccUserIds
+        .map((id) => people.find((p) => p.user_id === id))
+        .map((p) => p?.full_name || p?.email)
+        .filter(Boolean);
+      const extra = [
+        e.ccRoleIds.length ? `${e.ccRoleIds.length} role${e.ccRoleIds.length === 1 ? "" : "s"}` : "",
+        ...names,
+      ].filter(Boolean);
+      return (
+        // Capped and wrapping: unwrapped, the longest audience pushed the
+        // Settings pencil past the pane's right edge.
+        <div className="max-w-[20rem] whitespace-normal text-xs">
+          <span className="text-muted-foreground">{e.audience}</span>
+          {extra.length > 0 && <div className="text-foreground">+ {extra.join(", ")}</div>}
+        </div>
+      );
+    },
+  },
   {
     header: "State",
     cell: (e) =>
       e.mandatory ? (
-        <StatusPill tone="info">Always on</StatusPill>
+        <StatusPill tone="success" className="whitespace-nowrap">Always on</StatusPill>
       ) : e.enabled ? (
         <StatusPill tone="success">On</StatusPill>
       ) : (
         <StatusPill tone="neutral">Off</StatusPill>
       ),
   },
-  { header: "Phone alert", cell: (e) => (e.push ? "Yes" : "No") },
-  { header: "Sent (30 d)", align: "right", cell: (e) => <span className="tabular-nums">{e.sent30}</span> },
+  { header: "Push", cell: (e) => (e.push ? "Yes" : "No") },
+  { header: "Sent", align: "right", cell: (e) => <span className="tabular-nums">{e.sent30}</span> },
   {
     header: "To admins",
     align: "right",
@@ -322,13 +408,36 @@ function buildLogHref(f: LogFilters, page: number): string {
   return `/admin/notifications?${p.toString()}`;
 }
 
-function LogTab({ log, filters, showBody }: { log: DispatchPage; filters: LogFilters; showBody: boolean }) {
+function LogTab({
+  log,
+  filters,
+  showBody,
+  canDelete,
+}: {
+  log: DispatchPage;
+  filters: LogFilters;
+  showBody: boolean;
+  canDelete: boolean;
+}) {
+  const { success, error } = useToast();
+  const [recalling, setRecalling] = useState<DispatchRow | null>(null);
   const [event, setEvent] = useState(filters.event);
   const [status, setStatus] = useState(filters.status);
   const [open, setOpen] = useState<DispatchRow | null>(null);
   const [recipients, setRecipients] = useState<Recipient[] | null>(null);
   const [recipientsError, setRecipientsError] = useState<string | null>(null);
-  const [, start] = useTransition();
+  const [isPending, start] = useTransition();
+
+  const recall = () => {
+    const d = recalling;
+    if (!d) return;
+    start(async () => {
+      const res = await recallDispatch(d.id);
+      setRecalling(null);
+      if (res.ok) success(`Taken back from ${res.removed} bell${res.removed === 1 ? "" : "s"}`);
+      else error(res.error);
+    });
+  };
 
   const openRecipients = (r: DispatchRow) => {
     setOpen(r);
@@ -354,7 +463,14 @@ function LogTab({ log, filters, showBody }: { log: DispatchPage; filters: LogFil
         </div>
       ),
     },
-    { header: "Result", cell: (r) => <StatusPill tone={STATUS_TONE[r.status]}>{DISPATCH_STATUS_LABEL[r.status]}</StatusPill> },
+    {
+      header: "Result",
+      cell: (r) => (
+        <StatusPill tone={STATUS_TONE[r.status]} className="whitespace-nowrap">
+          {DISPATCH_STATUS_LABEL[r.status]}
+        </StatusPill>
+      ),
+    },
     {
       header: "Reached",
       align: "right",
@@ -366,7 +482,7 @@ function LogTab({ log, filters, showBody }: { log: DispatchPage; filters: LogFil
       ),
     },
     {
-      header: "Phone alerts",
+      header: "Push",
       align: "right",
       cell: (r) =>
         r.push_attempted === 0 ? (
@@ -382,13 +498,33 @@ function LogTab({ log, filters, showBody }: { log: DispatchPage; filters: LogFil
       header: "",
       align: "right",
       cell: (r) => (
-        <RowIconAction
-          label="Who got it"
-          name={r.title}
-          icon={Users}
-          onClick={() => openRecipients(r)}
-          disabledReason={r.recipient_count === 0 ? "Nobody received this one" : null}
-        />
+        <div className="flex justify-end gap-1">
+          <RowIconAction
+            label="Who got it"
+            name={r.title}
+            icon={Users}
+            onClick={() => openRecipients(r)}
+            disabledReason={r.recipient_count === 0 || r.recalled_at ? "Nobody has this one in their bell" : null}
+          />
+          {RECALLABLE.has(r.event_key) && (
+            <RowIconAction
+              label="Take back"
+              name={r.title}
+              icon={Undo2}
+              danger
+              onClick={() => setRecalling(r)}
+              disabledReason={
+                r.recalled_at
+                  ? "Already taken back"
+                  : r.recipient_count === 0
+                    ? "Nobody received this one"
+                    : canDelete
+                      ? null
+                      : "Taking an announcement back needs the Delete permission on Administration"
+              }
+            />
+          )}
+        </div>
       ),
     },
   ];
@@ -468,6 +604,16 @@ function LogTab({ log, filters, showBody }: { log: DispatchPage; filters: LogFil
         </div>
       </div>
 
+      <ConfirmDialog
+        open={!!recalling}
+        title={`Take back "${recalling?.title ?? ""}"?`}
+        body="It is removed from every bell it reached. A phone or browser that already showed it keeps that alert — push cannot be recalled."
+        confirmLabel="Take back"
+        isPending={isPending}
+        onConfirm={recall}
+        onCancel={() => setRecalling(null)}
+      />
+
       <RecipientsSheet
         dispatch={open}
         rows={recipients}
@@ -535,7 +681,10 @@ function RecipientsSheet({
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
 
-const deviceColumns: Column<NotificationDevice>[] = [
+const deviceColumns = (
+  canEdit: boolean,
+  onRemove: (d: NotificationDevice) => void,
+): Column<NotificationDevice>[] => [
   {
     header: "Person",
     cell: (d) => (
@@ -567,27 +716,66 @@ const deviceColumns: Column<NotificationDevice>[] = [
     header: "State",
     cell: (d) =>
       d.failure_count > 0 ? (
-        <StatusPill tone="danger">Failing</StatusPill>
+        <StatusPill tone="danger" className="whitespace-nowrap">Failing</StatusPill>
       ) : d.last_success_at ? (
-        <StatusPill tone="success">Working</StatusPill>
+        <StatusPill tone="success" className="whitespace-nowrap">Working</StatusPill>
       ) : (
-        <StatusPill tone="neutral">Not used yet</StatusPill>
+        <StatusPill tone="neutral" className="whitespace-nowrap">No delivery recorded</StatusPill>
       ),
+  },
+  {
+    header: "",
+    align: "right",
+    cell: (d) => (
+      <RowIconAction
+        label="Remove device"
+        name={`${d.full_name || d.email || ""} · ${deviceName(d.user_agent)}`}
+        icon={Trash2}
+        danger
+        onClick={() => onRemove(d)}
+        disabledReason={canEdit ? null : "Removing a device needs the Edit permission on Administration"}
+      />
+    ),
   },
 ];
 
-function DevicesTab({ devices }: { devices: NotificationDevice[] }) {
+function DevicesTab({ devices, canEdit }: { devices: NotificationDevice[]; canEdit: boolean }) {
+  const { success, error } = useToast();
+  const [isPending, start] = useTransition();
+  const [removing, setRemoving] = useState<NotificationDevice | null>(null);
+
+  const remove = () => {
+    const d = removing;
+    if (!d) return;
+    start(async () => {
+      const res = await revokeDevice(d.id);
+      setRemoving(null);
+      if (res.ok) success("Device removed");
+      else error(res.error);
+    });
+  };
+
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
         A device appears here when someone turns alerts on. One that stops accepting alerts (uninstalled, alerts
-        blocked) is removed automatically the next time an alert is sent to it.
+        blocked) is removed automatically the next time an alert is sent to it. Deliveries are recorded from
+        1 October 2026.
       </p>
       <DataTable
         rows={devices}
         getKey={(d) => d.id}
-        columns={deviceColumns}
+        columns={deviceColumns(canEdit, setRemoving)}
         empty="No device has alerts turned on yet."
+      />
+      <ConfirmDialog
+        open={!!removing}
+        title={`Remove ${removing ? deviceName(removing.user_agent) : ""} for ${removing?.full_name || removing?.email || ""}?`}
+        body="Alerts stop going to this device. Use it for a lost or handed-over phone. If the person still uses it, they can turn alerts back on from the bell."
+        confirmLabel="Remove"
+        isPending={isPending}
+        onConfirm={remove}
+        onCancel={() => setRemoving(null)}
       />
     </div>
   );

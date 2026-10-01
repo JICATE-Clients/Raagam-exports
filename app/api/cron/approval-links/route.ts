@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { sweepApprovalLinks } from "@/lib/ta/approval-links-sweep";
+import { runJob } from "@/lib/jobs/run";
 
 /**
  * GET /api/cron/approval-links — the daily tick behind buyer approval links
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await sweepApprovalLinks();
+  const result = await runJob("approval-links", "cron", sweepApprovalLinks);
   // 200 even on error, with the error in the body — see approval-sla's route.
   return NextResponse.json({ ok: !result.error, ...result });
 }

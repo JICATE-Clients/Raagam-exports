@@ -26,10 +26,7 @@ import { join, extname } from "node:path";
 import { NOTIFICATION_EVENTS } from "../lib/notifications/events";
 
 /** Declared ahead of the code that raises them — each names its phase. */
-const RESERVED: Record<string, string> = {
-  "admin.test": "Phase 2 — Administration ▸ Notifications ▸ Send",
-  "admin.broadcast": "Phase 2 — Administration ▸ Notifications ▸ Send",
-};
+const RESERVED: Record<string, string> = {};
 
 const ROOT = process.cwd();
 const fail: string[] = [];

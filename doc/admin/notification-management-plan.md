@@ -1,7 +1,26 @@
 # Administration ▸ System ▸ Notifications — plan
 
-Status: **Phase 0 BUILT 2026-10-01** (0673, registry, `notify(key, …)`, dispatch log,
-`check:notification-events`). Phases 1–4 pending. Ask: "notification management child inside
+Status: **Phases 0–3 BUILT 2026-10-01.** Phase 3: 0677 `job_runs`, retention
+singleton + `notification_purge()`; every cron route records through `runJob`;
+Administration ▸ System ▸ Scheduled Jobs (late/failed/never, Run now); a nightly
+`housekeeping` cron (03:00 IST); Notifications ▸ Settings (retention, count-then-clean);
+`check:jobs`; AGENTS.md STANDING section. Phase 4 pending.
+Earlier: Phase 0: 0673, registry,
+`notify(key, …)`, dispatch log, `check:notification-events`. Phase 1: 0675's four
+admin readers, Administration ▸ System ▸ Notifications (Overview · Log · Devices).
+Phase 2: 0676 writers — each alert's switches + CC (pencil on Overview), Send
+(Test, Announcement), Take back (Log), Remove device. Phases 3–4 pending.
+
+Built differently from §5, on purpose:
+- **No separate Events tab** — the pencil is on the Overview's "Every alert"
+  table, which already listed every alert. One list, not two.
+- **CC is Roles + People only.** A permission CC is supported by the table and
+  left untouched by a save, but not offered: two pickers an admin understands
+  beat a third that needs the permission model explained.
+- **Push on an announcement follows the `admin.broadcast` switch**, not a
+  per-send toggle — one place decides, the same as every other alert.
+- **A taken-back alert leaves open bells live**: the bell hook now listens for
+  DELETE (Realtime sends only the id under RLS, so it is harmless unfiltered). Ask: "notification management child inside
 the administrator module — the administrator can do everything regarding notifications."
 
 ---
@@ -246,9 +265,9 @@ schedule turns red: that is the "nothing escalates and nothing looks wrong" dete
 | Phase | Builds | Visible result | Gate |
 |---|---|---|---|
 | **0 — Name every alert** ✅ | registry, `notify(key, …)` across the 9 files, 0673 tables, dispatch logging, push stats | nothing changes for operators | `check:notification-events` made to fail first (3 faults), then passes; in `build:check` |
-| **1 — See** | System group + hub, Overview, Log, Devices (all read-only) | admin sees every alert and every gap | `check:nav`, `check:screen-catalog`, `check:grid-budget` |
-| **2 — Control** | Events tab + sheet, CC, Test, Broadcast, recall | admin changes behaviour without a deploy | mandatory lock asserted in a vector script |
-| **3 — Clocks & cleanup** | `job_runs` in each cron route, Scheduled Jobs screen, Run now, housekeeping cron (retention purge) | stale cron is red; table stops growing | Function-grants check (`check-anon-grants.sql` = 0 rows) |
+| **1 — See** ✅ | System group + hub, Overview, Log, Devices (all read-only); 0675 readers | admin sees every alert and every gap — on day one it flagged CAD Technician as an empty role | `check:nav`, `check:screen-catalog`, layout audits; seen in the browser, one real test alert end to end (push 1 of 1) |
+| **2 — Control** ✅ | alert sheet (switches + CC), Test, Announcement, take back, remove device; 0676 | admin changes behaviour without a deploy | mandatory lock asserted in a vector script |
+| **3 — Clocks & cleanup** ✅ | `job_runs` via `runJob` in each cron route, Scheduled Jobs screen, Run now, housekeeping cron, retention settings | stale cron is red; table stops growing | `check:jobs` made to fail first (2 faults); anon has no execute on any `notification_*` function |
 | **4 — Reach** | email channel in `notify()` (per event, default OFF), `email_log` written by `sendEmail` (welcome + buyer links included), per-user mute of non-mandatory events on My Profile + admin view of it | alerts can email; "did the welcome mail go?" answered | — |
 
 Deliberately **not** planned: SMS / WhatsApp (no provider, cost per message), quiet

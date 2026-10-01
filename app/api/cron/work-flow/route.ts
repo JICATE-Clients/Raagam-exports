@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { sweepWorkFlow } from "@/lib/orders/work-flow/sweep";
+import { runJob } from "@/lib/jobs/run";
 
 /**
  * GET /api/cron/work-flow — the tick behind Order Entry ▸ T&A ▸ Work Flow's
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await sweepWorkFlow();
+  const result = await runJob("work-flow", "cron", sweepWorkFlow);
   // 200 even on error, with the error in the body — see approval-sla's route.
   return NextResponse.json({ ok: !result.error, ...result });
 }

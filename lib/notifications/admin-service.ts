@@ -14,6 +14,7 @@ import type {
   NotificationDevice,
   NotificationOverview,
   ReachablePerson,
+  Retention,
 } from "./admin-types";
 
 /**
@@ -63,15 +64,26 @@ export async function getNotificationOverview(): Promise<NotificationOverview> {
     ),
   ];
 
-  const [people, stats, settings, ...roleHolders] = await Promise.all([
+  const [people, stats, settings, cc, roles, ...roleHolders] = await Promise.all([
     s.rpc("notification_admin_people"),
     s.rpc("notification_event_stats", { p_since: since }),
-    s.from("notification_event_settings").select("event_key, enabled, push, fallback_to_admins"),
+    s.from("notification_event_settings").select("event_key, enabled, push, fallback_to_admins, updated_by, updated_at"),
+    s.from("notification_event_cc").select("event_key, kind, role_id, user_id"),
+    s.from("roles").select("id, name").order("name"),
     ...staticRoles.map((role) => s.rpc("users_with_role", { p_name: role })),
   ]);
   if (people.error) throw new Error(people.error.message);
   if (stats.error) throw new Error(stats.error.message);
   if (settings.error) throw new Error(settings.error.message);
+  if (cc.error) throw new Error(cc.error.message);
+  if (roles.error) throw new Error(roles.error.message);
+  const ccBy = new Map<string, { roles: string[]; users: string[] }>();
+  for (const c of (cc.data ?? []) as { event_key: string; kind: string; role_id: string | null; user_id: string | null }[]) {
+    const e = ccBy.get(c.event_key) ?? { roles: [], users: [] };
+    if (c.kind === "role" && c.role_id) e.roles.push(c.role_id);
+    if (c.kind === "user" && c.user_id) e.users.push(c.user_id);
+    ccBy.set(c.event_key, e);
+  }
   const holders = new Map<string, number>();
   staticRoles.forEach((role, i) => {
     const r = roleHolders[i];
@@ -93,7 +105,14 @@ export async function getNotificationOverview(): Promise<NotificationOverview> {
     }[]).map((r) => [r.event_key, r]),
   );
   const setBy = new Map(
-    ((settings.data ?? []) as { event_key: string; enabled: boolean; push: boolean; fallback_to_admins: boolean }[]).map(
+    ((settings.data ?? []) as {
+      event_key: string;
+      enabled: boolean;
+      push: boolean;
+      fallback_to_admins: boolean;
+      updated_by: string | null;
+      updated_at: string | null;
+    }[]).map(
       (r) => [r.event_key, r],
     ),
   );
@@ -134,8 +153,13 @@ export async function getNotificationOverview(): Promise<NotificationOverview> {
         disabled30: st?.disabled ?? 0,
         pushFailed30: st?.push_failed ?? 0,
         lastSentAt: st?.last_sent_at ?? null,
+        ccRoleIds: ccBy.get(key)?.roles ?? [],
+        ccUserIds: ccBy.get(key)?.users ?? [],
+        // Seeded rows carry the migration's time; only a person's change counts.
+        updatedAt: set?.updated_by ? set.updated_at : null,
       };
     }),
+    roles: (roles.data ?? []) as { id: string; name: string }[],
   };
 }
 
@@ -159,7 +183,7 @@ export async function listDispatches(
     .from("notification_dispatches")
     .select(
       "id, event_key, title, body, href, type, target, primary_count, cc_count, recipient_count, " +
-        "fallback_used, suppressed, push_attempted, push_sent, push_failed, push_pruned, error, source, created_at",
+        "fallback_used, suppressed, push_attempted, push_sent, push_failed, push_pruned, error, source, created_at, recalled_at",
     )
     .order("created_at", { ascending: false })
     .range((page - 1) * DISPATCH_PAGE_SIZE, page * DISPATCH_PAGE_SIZE); // one extra row = "is there a next page"
@@ -169,7 +193,7 @@ export async function listDispatches(
   if (f.to) q = q.lte("created_at", `${f.to}T23:59:59.999`);
   switch (f.status) {
     case "delivered":
-      q = q.is("suppressed", null).eq("fallback_used", false);
+      q = q.is("suppressed", null).eq("fallback_used", false).is("recalled_at", null);
       break;
     case "fell_back":
       q = q.eq("fallback_used", true);
@@ -182,6 +206,9 @@ export async function listDispatches(
       break;
     case "push_failed":
       q = q.gt("push_failed", 0);
+      break;
+    case "recalled":
+      q = q.not("recalled_at", "is", null);
       break;
   }
 
@@ -201,7 +228,10 @@ export async function listDispatches(
   };
 }
 
-export function dispatchStatus(r: Pick<DispatchRow, "suppressed" | "fallback_used" | "push_failed" | "error">): DispatchStatus {
+export function dispatchStatus(
+  r: Pick<DispatchRow, "suppressed" | "fallback_used" | "push_failed" | "error" | "recalled_at">,
+): DispatchStatus {
+  if (r.recalled_at) return "recalled";
   if (r.error) return "error";
   if (r.suppressed === "disabled") return "disabled";
   if (r.suppressed === "no_recipients") return "no_recipients";
@@ -226,6 +256,23 @@ export async function listNotificationDevices(): Promise<NotificationDevice[]> {
   const { data, error } = await s.rpc("notification_admin_devices");
   if (error) throw new Error(error.message);
   return (data ?? []) as NotificationDevice[];
+}
+
+/** The retention singleton (0677) — what the housekeeping job deletes by. */
+export async function getRetention(): Promise<Retention> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("notification_settings")
+    .select("read_retention_days, unread_retention_days, dispatch_retention_days, job_run_retention_days")
+    .eq("id", true)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return {
+    readDays: data?.read_retention_days ?? 90,
+    unreadDays: data?.unread_retention_days ?? 365,
+    logDays: data?.dispatch_retention_days ?? 180,
+    jobRunDays: data?.job_run_retention_days ?? 90,
+  };
 }
 
 export function isEventKey(v: string | undefined): v is NotificationEventKey {

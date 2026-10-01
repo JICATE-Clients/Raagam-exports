@@ -264,6 +264,7 @@ export function StatusSegment({
   onChange,
   draft = false,
   counts,
+  updatedFirst = false,
 }: {
   /* A plain string, not `BomStatus`: the Budgets queue draws this same box
      over its own vocabulary (2026-09-21, "update and pending options … like
@@ -287,8 +288,13 @@ export function StatusSegment({
    *  next — so a disabled stop in that cycle is a dead press with nothing on
    *  screen to explain it. */
   counts?: QuickCounts;
+  /** UPDATED BEFORE PENDING (user 2026-10-01, Admin ▸ Users and User
+   *  Permissions: "the updated tab first, next pending"). Opt-in, so every
+   *  Orders queue keeps Pending first — there Pending is the work to do. */
+  updatedFirst?: boolean;
 }) {
-  const words: QuickWord[] = draft ? ["pending", "updated", "draft"] : ["pending", "updated"];
+  const base: QuickWord[] = updatedFirst ? ["updated", "pending"] : ["pending", "updated"];
+  const words: QuickWord[] = draft ? [...base, "draft"] : base;
   const current = words.includes(value as QuickWord) ? (value as QuickWord) : null;
   const label = current ? QUICK[current].text : "all";
   return (
@@ -385,15 +391,20 @@ export function useQuickStatus<R>(
      * does the narrowing and the refetch IS the point.
      */
     param?: string;
+    /** Updated drawn first AND opened on (user 2026-10-01, the Admin user
+     *  lists) — see `StatusSegment`'s `updatedFirst`. */
+    updatedFirst?: boolean;
   } = {},
 ) {
-  const { draft = true, standDown = false, onPick, countRows, param = QUICK_PARAM } = opts;
+  const { draft = true, standDown = false, onPick, countRows, param = QUICK_PARAM, updatedFirst = false } = opts;
   const sp = useSearchParams();
   /* SEEDED FROM THE URL, THEN OWNED HERE. The seed is what makes a shared link
      open on its own pile; the state is what makes a click instant. A Back that
      changes ONLY the query does not move the box — the price of not re-reading
      `sp` every render, and cheap next to a chip click that refetched the list. */
-  const [quick, setQuick] = useState<"" | QuickWord>(() => readQuickParam(sp, param) ?? "pending");
+  const [quick, setQuick] = useState<"" | QuickWord>(
+    () => readQuickParam(sp, param) ?? (updatedFirst ? "updated" : "pending"),
+  );
   const value = standDown ? "" : quick;
   const matches = useCallback((r: R) => !value || wordOf(r) === value, [value, wordOf]);
   const counts = useMemo<QuickCounts | undefined>(() => {
@@ -415,6 +426,7 @@ export function useQuickStatus<R>(
       }}
       draft={draft}
       counts={counts}
+      updatedFirst={updatedFirst}
     />
   );
   return { value, matches, segment, counts };

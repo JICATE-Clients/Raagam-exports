@@ -175,6 +175,9 @@ function ccTarget(c: CcRow): NotifyTarget | null {
  * that triggered it (modeled on lib/audit.ts writeAudit). The log is written
  * best-effort around the alert, never in front of it.
  *
+ * Returns the dispatch's log id (null if nothing could be logged) so an
+ * administrator's Test can read back what happened; every other caller ignores it.
+ *
  * @example
  *   await notify("cad.weights_ready", { userId }, { title: "…", href: "/orders/fabric-bom", type: "success" });
  *   await notify("order.risk", { role: "Managing Director" }, payload, { source: "cron" });
@@ -184,10 +187,10 @@ export async function notify(
   target: NotifyTarget,
   payload: NotificationInput,
   options: NotifyOptions = {},
-): Promise<void> {
+): Promise<string | null> {
   try {
     const parsed = notificationInput.safeParse(payload);
-    if (!parsed.success) return;
+    if (!parsed.success) return null;
     const { title, href } = parsed.data;
     const type = parsed.data.type ?? "info";
     let body = parsed.data.body;
@@ -209,8 +212,8 @@ export async function notify(
 
     // A disabled event still leaves its row: suppressed, and why.
     if (!policy.enabled) {
-      await admin.from("notification_dispatches").insert({ ...log, suppressed: "disabled" });
-      return;
+      const { error } = await admin.from("notification_dispatches").insert({ ...log, suppressed: "disabled" });
+      return error ? null : dispatchId;
     }
 
     const primary = [...new Set(await resolveRecipients(admin, target))].filter(Boolean);
@@ -242,9 +245,9 @@ export async function notify(
       fallback_used: fallbackUsed,
       suppressed: recipients.length === 0 ? "no_recipients" : null,
     });
-    if (recipients.length === 0) return;
     // A log that could not be written must not cost the alert its link to it.
     const linkId = logErr ? null : dispatchId;
+    if (recipients.length === 0) return linkId;
 
     // 1) In-app rows (service role bypasses RLS for the fan-out insert).
     const { error: rowErr } = await admin.from("notifications").insert(
@@ -263,12 +266,12 @@ export async function notify(
     }
 
     // 2) Web push to each recipient's devices (best-effort).
-    if (!policy.push || !configureVapid()) return;
+    if (!policy.push || !configureVapid()) return linkId;
     const { data: subs } = await admin
       .from("push_subscriptions")
       .select("id, endpoint, p256dh, auth")
       .in("user_id", recipients);
-    if (!subs?.length) return;
+    if (!subs?.length) return linkId;
 
     const message = JSON.stringify({ title, body: body ?? "", url: href ?? "/" });
     const ok: string[] = [];
@@ -305,7 +308,9 @@ export async function notify(
       p_pruned: pruned,
       p_error: lastError,
     });
+    return linkId;
   } catch {
     // notifications must never break the triggering operation
+    return null;
   }
 }

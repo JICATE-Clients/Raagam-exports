@@ -1,22 +1,21 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import { ConfirmBulkButton } from "@/components/ui/selection-bar";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
-import { Tabs } from "@/components/ui/tabs";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { useFacetFilter } from "@/components/ui/filter-drawer";
 import { useQuickStatus } from "@/components/orders/bom-queue";
-import { roleFacets, roleWord, userAccessFacets, userAccessWord } from "./access-control-filters";
+import { roleFacets, userAccessFacets, userAccessWord } from "./access-control-filters";
 import type { Column } from "@/components/ui/data-table";
 import { PermissionTree } from "@/components/permissions/permission-tree";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -25,9 +24,6 @@ import type { PermissionTree as Tree } from "@/lib/permissions/effective";
 import { deleteRole, removeUserAccess, saveRoleAccess, saveUserAccess } from "@/lib/permissions/actions";
 import { Combobox } from "@/components/ui/combobox";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { Toggle } from "@/components/ui/toggle";
-import { Select } from "@/components/ui/select";
-import { NAV } from "@/components/shell/nav";
 import { deleteUserLogin } from "@/lib/users/actions";
 import type { AccessControlData, AccessRole, AccessUser } from "@/lib/permissions/service";
 
@@ -48,7 +44,8 @@ type Props = {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
-  initialTab: "roles" | "users";
+  /** Which list this page is (2026-10-01): Roles & Permissions or User Permissions. */
+  view: "roles" | "users";
   initialUser: string | null;
 };
 
@@ -60,13 +57,12 @@ function treeSummary(tree: Tree): string {
   return `${settings.length} module${settings.length === 1 ? "" : "s"}${perScreen ? ` · ${perScreen} per screen` : ""}`;
 }
 
-export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete, initialTab, initialUser }: Props) {
+export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete, view, initialUser }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
   const catalog = screenCatalog();
 
-  const [tab, setTab] = useState<string>(initialTab);
 
   // ── Role sheet ──────────────────────────────────────────────────────────────
   const [roleOpen, setRoleOpen] = useState(false);
@@ -77,7 +73,6 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   /** 0670: the page this role's holders land on after signing in ("" = none). */
   const [roleHome, setRoleHome] = useState("");
   const [roleTree, setRoleTree] = useState<Tree>({});
-  const [roleTab, setRoleTab] = useState<string>("details");
   const [roleDirty, setRoleDirty] = useState(false);
   const [roleTried, setRoleTried] = useState(false);
 
@@ -87,10 +82,6 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   const [userActive, setUserActive] = useState(openFromUrl?.access?.is_active ?? true);
   const [userNote, setUserNote] = useState(openFromUrl?.access?.note ?? "");
   const [userTree, setUserTree] = useState<Tree>(openFromUrl?.tree ?? {});
-  /* 0665: the units this email access reaches — "all units", or the ticked
-     ones. Held as two values so switching "all" off brings the old ticks back. */
-  const [userAllLoc, setUserAllLoc] = useState(openFromUrl?.access?.all_locations ?? false);
-  const [userLocIds, setUserLocIds] = useState<string[]>(openFromUrl?.access?.location_ids ?? []);
   const [userDirty, setUserDirty] = useState(false);
   /* "+ GIVE EMAIL ACCESS" (user 2026-09-30, screenshot 3158: "there is no
      option for allocation email access"). Pick a staff member from HR ▸ Staff,
@@ -112,7 +103,6 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
     setRoleDesc(r?.description ?? "");
     setRoleHome(r?.home_path ?? "");
     setRoleTree(r?.tree ?? {});
-    setRoleTab(r ? "permissions" : "details");
     setRoleDirty(false);
     setRoleTried(false);
     setRoleOpen(true);
@@ -121,7 +111,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   function saveRole() {
     setRoleTried(true);
     if (!roleName.trim()) {
-      setRoleTab("details");
+      document.getElementById("ac-role-name")?.focus();
       return;
     }
     start(async () => {
@@ -145,8 +135,6 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
     setUserActive(u.access?.is_active ?? true);
     setUserNote(u.access?.note ?? "");
     setUserTree(u.tree);
-    setUserAllLoc(u.access?.all_locations ?? false);
-    setUserLocIds(u.access?.location_ids ?? []);
     setUserDirty(false);
   }
 
@@ -192,7 +180,8 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
         active: userActive,
         note: userNote,
         tree: userTree,
-        locations: { all: userAllLoc, ids: userLocIds },
+        // No `locations`: they are set in the list's Units column now, and an
+        // absent `locations` leaves the stored units exactly as they are.
       });
       if (res.ok) {
         success(userActive ? "Access saved" : "Access saved — switched off");
@@ -245,7 +234,21 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
 
   const roleColumns: Column<AccessRole>[] = [
     { header: "Role", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
-    { header: "Description", cell: (r) => <span className="text-sm">{r.description ?? "—"}</span> },
+    // CAPPED AT 20rem, ONE LINE (user 2026-10-01, screenshots 3211/3212: the
+    // roles list scrolled sideways). Cells never wrap (data-table.tsx, "one
+    // line per row at any zoom"), so the longest description set the table's
+    // width and pushed Created User and the row icons off a 1080p screen. A
+    // longer one now ends in "…" and shows whole on hover (`Truncated`).
+    {
+      header: "Description",
+      className: "max-w-[20rem]",
+      cell: (r) =>
+        r.description ? (
+          <Truncated text={r.description} className="block max-w-[20rem] text-sm" />
+        ) : (
+          <span className="text-sm">—</span>
+        ),
+    },
     { header: "Type", cell: (r) => <StatusPill tone={r.is_system ? "info" : "neutral"}>{r.is_system ? "System" : "Custom"}</StatusPill> },
     { header: "Users", cell: (r) => <span className="text-sm tabular-nums">{r.holders}</span> },
     { header: "Access", cell: (r) => <span className="text-sm">{treeSummary(r.tree)}</span> },
@@ -328,16 +331,34 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
      share one route, and one `status` param would have them overwrite each
      other. Counts run over the drawer-filtered rows, so a figure is what
      clicking it shows. */
+  // BY ROLE HAS NO PENDING · UPDATED BOX (user 2026-10-01, screenshot 3205:
+  // "for the roles no need pending tab and updated tab, remove it, directly
+  // list the role"). A role list is short and is read whole; By User keeps
+  // its box, where "no access yet" is the people still waiting.
   const rolesFaceted = data.roles.filter(roleFilter.matches);
   const usersFaceted = userRows.filter(userFilter.matches);
-  const roleQuick = useQuickStatus(roleWord, { draft: false, countRows: rolesFaceted, param: "role_status" });
-  const userQuick = useQuickStatus(userAccessWord, { draft: false, countRows: usersFaceted, param: "user_status" });
+  // Updated first and opened on (user 2026-10-01: "the updated tab first, next pending").
+  const userQuick = useQuickStatus(userAccessWord, { draft: false, countRows: usersFaceted, param: "user_status", updatedFirst: true });
 
   const userColumns: Column<UserRowT>[] = [
     { header: "Name", cell: (u) => <span className="text-sm font-medium">{u.full_name ?? "—"}</span> },
     { header: "Email", cell: (u) => <span className="text-sm">{u.email}</span> },
     { header: "Roles", cell: (u) => <span className="text-sm">{u.is_super_admin ? "Super admin" : u.roles.join(", ") || "—"}</span> },
     { header: "Grants", cell: (u) => <span className="text-sm">{treeSummary(u.tree)}</span> },
+    {
+      /* UNITS IN THE LIST, NOT IN THE EDITOR (user 2026-10-01: "unit field
+         move to the front table … can allocate per person multiple
+         location"). Several units per person, saved from the row. */
+      header: "Units",
+      cell: (u) => (
+        <UnitsCell
+          key={`${u.id}:${u.access?.all_locations ? "all" : (u.access?.location_ids ?? []).join(",")}`}
+          user={data.users.find((x) => x.id === u.id)!}
+          locations={data.locations}
+          readOnly={!canEdit || u.id === meId}
+        />
+      ),
+    },
     {
       header: "Login",
       cell: (u) =>
@@ -351,8 +372,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
 
   const rolesTab = (
     <MasterListShell<AccessRole>
-      rows={rolesFaceted.filter(roleQuick.matches)}
-      filterLeading={roleQuick.segment}
+      rows={rolesFaceted}
       filterPanel={roleFilter.panel}
       panelActiveCount={roleFilter.activeCount}
       onPanelReset={roleFilter.reset}
@@ -478,16 +498,13 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
 
   return (
     <>
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { key: "roles", label: `By Role (${data.roles.length})`, content: rolesTab },
-          { key: "users", label: `By User (${data.users.length})`, content: usersTab },
-        ]}
-      />
+      {/* TWO SCREENS, NOT TWO TABS (user 2026-10-01): Users & Access ▸ Roles &
+          Permissions (/admin/access-control) and ▸ User Permissions
+          (/admin/user-permissions) each render ONE of these lists. Same tree,
+          same sheets, same saves — only which list leads the page. */}
+      {view === "users" ? usersTab : rolesTab}
 
-      {/* ── A role: Details | Permissions (MyJKKN's shape) ─────────────────── */}
+      {/* ── A role: name + description, then its permissions ──────────────── */}
       <Sheet
         open={roleOpen}
         onClose={() => setRoleOpen(false)}
@@ -501,83 +518,52 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
           </>
         }
       >
-        <Tabs
-          value={roleTab}
-          onChange={setRoleTab}
-          items={[
-            {
-              key: "details",
-              label: "Details",
-              content: (
-                /* name 288 + 2 × 10px padding → 20rem cap for the row; the
-                   description takes the section's full width. */
-                <DetailSection label="Role" cols={1} className="max-w-[40rem]">
-                  <FieldRow>
-                    <Field label="Role Name" required w="name" htmlFor="ac-role-name" error={roleTried && !roleName.trim() ? "Give the role a name." : undefined}>
-                      <Input
-                        id="ac-role-name"
-                        value={roleName}
-                        readOnly={roleSystem}
-                        onChange={(e) => { setRoleName(e.target.value); setRoleDirty(true); }}
-                      />
-                    </Field>
-                    {/* HOME PAGE (0670, user 2026-10-01): where this role's
-                        holders land after signing in — `/start` reads it. Blank
-                        is no preference (Dashboard, or My Profile for someone
-                        whose roles open no module). The top-level modules of the
-                        sidebar plus My Profile: a deep screen is reached from its
-                        module, and a list that grew with every screen would be
-                        unreadable. */}
-                    <Field label="Home page" w="term" htmlFor="ac-role-home">
-                      <Select
-                        id="ac-role-home"
-                        value={roleHome}
-                        onChange={(e) => { setRoleHome(e.target.value); setRoleDirty(true); }}
-                      >
-                        <option value="">Default (Dashboard)</option>
-                        <option value="/my-profile">My Profile</option>
-                        <option value="/my-work">My Work</option>
-                        {NAV.filter((n) => n.href !== "/").map((n) => (
-                          <option key={n.href} value={n.href}>
-                            {n.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                  </FieldRow>
-                  <Field label="Description" htmlFor="ac-role-desc">
-                    <Textarea id="ac-role-desc" rows={3} value={roleDesc} onChange={(e) => { setRoleDesc(e.target.value); setRoleDirty(true); }} />
-                  </Field>
-                  {roleSystem && <p className="text-xs text-muted-foreground">A system role keeps its name; its permissions can still be changed.</p>}
-                </DetailSection>
-              ),
-            },
-            {
-              key: "permissions",
-              label: "Permissions",
-              content: (
-                <div className="space-y-2">
-                  {/* 0662: Super Admin passes every check through the login's
-                      flag, whatever this tree says — so the tree is shown, never
-                      edited, rather than inviting an edit that changes nothing. */}
-                  {roleName === "Super Admin" && (
-                    <p className="text-sm text-muted-foreground">
-                      Super Admin always has full access to every module and screen. Only a super admin can give or remove
-                      this role (Users ▸ Roles).
-                    </p>
-                  )}
-                  <PermissionTree
-                    catalog={catalog}
-                    offered={data.offered}
-                    value={roleTree}
-                    readOnly={(!canEdit && !!roleId) || (roleSystem && roleName === "Super Admin")}
-                    onChange={(t) => { setRoleTree(t); setRoleDirty(true); }}
-                  />
-                </div>
-              ),
-            },
-          ]}
-        />
+        {/* ONE PAGE, NOT TWO TABS (user 2026-10-01, screenshot 3208): the
+            role's name and description on ONE row, the permission tree right
+            beneath — Details was two fields behind a tab of its own.
+            Row arithmetic: two `name` fields (2 × 288px) + one gap → 37rem,
+            capped at 40rem like the section before it.
+            NO HOME PAGE FIELD (same instruction: "remove the home page field").
+            0670's `home_path` is not touched: a role that has one keeps it —
+            `openRole` still loads it and `saveRole` sends it back unchanged —
+            the form just no longer offers to change it. */}
+        <div className="space-y-4">
+          <DetailSection label="Role" cols={1} className="max-w-[40rem]">
+            <FieldRow>
+              <Field label="Role Name" required w="name" htmlFor="ac-role-name" error={roleTried && !roleName.trim() ? "Give the role a name." : undefined}>
+                <Input
+                  id="ac-role-name"
+                  value={roleName}
+                  readOnly={roleSystem}
+                  onChange={(e) => { setRoleName(e.target.value); setRoleDirty(true); }}
+                />
+              </Field>
+              <Field label="Description" w="name" htmlFor="ac-role-desc">
+                <Input id="ac-role-desc" value={roleDesc} onChange={(e) => { setRoleDesc(e.target.value); setRoleDirty(true); }} />
+              </Field>
+            </FieldRow>
+            {roleSystem && <p className="text-xs text-muted-foreground">A system role keeps its name; its permissions can still be changed.</p>}
+          </DetailSection>
+
+          <div className="space-y-2">
+            {/* 0662: Super Admin passes every check through the login's
+                flag, whatever this tree says — so the tree is shown, never
+                edited, rather than inviting an edit that changes nothing. */}
+            {roleName === "Super Admin" && (
+              <p className="text-sm text-muted-foreground">
+                Super Admin always has full access to every module and screen. Only a super admin can give or remove
+                this role (Users ▸ Roles).
+              </p>
+            )}
+            <PermissionTree
+              catalog={catalog}
+              offered={data.offered}
+              value={roleTree}
+              readOnly={(!canEdit && !!roleId) || (roleSystem && roleName === "Super Admin")}
+              onChange={(t) => { setRoleTree(t); setRoleDirty(true); }}
+            />
+          </div>
+        </div>
       </Sheet>
 
       {/* ── A person: email-based access + approved-order corrections ─────── */}
@@ -596,69 +582,16 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
       >
         {user && (
           <div className="space-y-4">
-            <DetailSection label="Email-based access" cols={1}>
+            {/* NO "EMAIL-BASED ACCESS" BOX AND NO LOCATIONS HERE (user
+                2026-10-01: "remove it"; units moved to the list's Units
+                column). The two facts the box carried that change what Save
+                does stay, as one line each, only when they apply. */}
+            {!user.has_login && (
               <p className="text-sm text-muted-foreground">
-                {user.email} · roles: {user.is_super_admin ? "Super admin (already holds everything)" : user.roles.join(", ") || "none"}.
-                What you tick here is added to what their roles give — for this person only.
+                No login yet — this access starts working the first time they sign in with this email.
               </p>
-              {!user.has_login && (
-                <p className="text-sm text-muted-foreground">
-                  No login yet — this access starts working the first time they sign in with this email (Users ▸ Send
-                  welcome mail creates the login).
-                </p>
-              )}
-              {isMe && <p className="text-sm text-warning">Your own access is set by another administrator.</p>}
-              {/* No Status switch and no Note here (user 2026-09-30, screenshots
-                  3147 / 3152): status lives in the list's Status column, and the
-                  save below carries both the current status and any note already
-                  stored through unchanged. */}
-            </DetailSection>
-
-            {/* LOCATIONS (client 2026-09-30, budgetupdate.md §1; 0665). Which
-                units this person may switch to in the top bar — they still
-                work in ONE unit at a time (the client's decision). Added to
-                whatever their roles' locations already give; a super admin
-                reaches every unit regardless. A unit switched off since it was
-                given stays listed, tagged, so saving does not silently drop it. */}
-            <DetailSection label="Locations" cols={1}>
-              <Toggle
-                label="All units"
-                checked={userAllLoc}
-                disabled={!canEdit || isMe}
-                onChange={(v) => {
-                  setUserAllLoc(v);
-                  setUserDirty(true);
-                }}
-              />
-              {!userAllLoc && (
-                <div className="max-w-[28rem]">
-                  <MultiSelect
-                    label="Units"
-                    options={[
-                      ...data.locations.map((l) => ({ id: l.id, label: l.name })),
-                      ...userLocIds
-                        .filter((id) => !data.locations.some((l) => l.id === id))
-                        .map((id) => ({ id, label: "(inactive unit)", inactive: true })),
-                    ]}
-                    values={userLocIds}
-                    disabled={!canEdit || isMe}
-                    onChange={(next) => {
-                      setUserLocIds(next);
-                      setUserDirty(true);
-                    }}
-                  />
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {user.is_super_admin
-                  ? "A super admin reaches every unit already."
-                  : userAllLoc
-                    ? "Every unit appears in their location switcher."
-                    : userLocIds.length
-                      ? `These ${userLocIds.length === 1 ? "unit appears" : "units appear"} in their location switcher, beside any their roles give.`
-                      : "No units from email access — only the units their roles give."}
-              </p>
-            </DetailSection>
+            )}
+            {isMe && <p className="text-sm text-warning">Your own access is set by another administrator.</p>}
 
             <PermissionTree
               catalog={catalog}
@@ -719,5 +652,108 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
         </div>
       </Sheet>
     </>
+  );
+}
+
+const ALL_UNITS = "__all_units__";
+/** How long the Units cell waits after the last tick before it saves. */
+const UNITS_SAVE_DELAY_MS = 900;
+
+/**
+ * ONE PERSON'S UNITS, EDITED IN THEIR ROW (0665; user 2026-10-01). Which units
+ * they may switch to in the top bar — still ONE unit at a time (the client's
+ * decision) — on top of whatever their roles' locations give.
+ *
+ * "All units" is the first option rather than a separate switch, so the row
+ * stays one control. Ticks save on their own a moment after the last one, so
+ * picking three units is one save, not three; the same `saveUserAccess` the
+ * editor uses, carrying the person's tree, note and status through unchanged.
+ * A unit switched off since it was given stays listed, tagged, so a save never
+ * silently drops it.
+ */
+function UnitsCell({
+  user,
+  locations,
+  readOnly,
+}: {
+  user: AccessUser;
+  locations: { id: string; name: string }[];
+  readOnly: boolean;
+}) {
+  const router = useRouter();
+  const { success, error: toastError } = useToast();
+  const [saving, start] = useTransition();
+  const stored = user.access?.all_locations ? [ALL_UNITS] : (user.access?.location_ids ?? []);
+  const [values, setValues] = useState<string[]>(stored);
+  const [dirty, setDirty] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useUnsavedGuard(dirty || saving);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  if (user.is_super_admin) return <span className="text-sm text-muted-foreground">Every unit</span>;
+
+  const unitIds = values.filter((v) => v !== ALL_UNITS);
+  const options = [
+    { id: ALL_UNITS, label: "All units" },
+    ...locations.map((l) => ({ id: l.id, label: l.name })),
+    ...unitIds
+      .filter((id) => !locations.some((l) => l.id === id))
+      .map((id) => ({ id, label: "(inactive unit)", inactive: true })),
+  ];
+
+  function save(next: string[]) {
+    const all = next.includes(ALL_UNITS);
+    start(async () => {
+      const res = await saveUserAccess({
+        email: user.email,
+        active: user.access?.is_active ?? true,
+        note: user.access?.note ?? null,
+        tree: user.tree,
+        locations: { all, ids: all ? [] : next },
+      });
+      setDirty(false);
+      if (res.ok) {
+        success(`Units saved for ${user.full_name ?? user.email}`);
+        router.refresh();
+      } else toastError(res.error);
+    });
+  }
+
+  function change(next: string[]) {
+    // Ticking "All units" replaces the list; ticking a unit while "All" is on
+    // narrows to that unit.
+    const tickedAll = next.includes(ALL_UNITS) && !values.includes(ALL_UNITS);
+    const resolved = tickedAll ? [ALL_UNITS] : next.filter((v) => v !== ALL_UNITS);
+    setValues(resolved);
+    setDirty(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => save(resolved), UNITS_SAVE_DELAY_MS);
+  }
+
+  return (
+    // COMPACT (user 2026-10-01: "compact the unit field, now look larger"):
+    // a dense-row trigger — the top bar's h-8 / text-xs rhythm — sized to
+    // "2 units selected"; the open list keeps its own wider panel.
+    <div className="w-36" onClick={(e) => e.stopPropagation()}>
+      <MultiSelect
+        id={`ac-units-${user.id}`}
+        label={`Units for ${user.full_name ?? user.email}`}
+        compact
+        // A COUNT ("2 units selected"), NEVER `summarizeLabels` here: inside a
+        // table row that option froze the page (2026-10-01, reproduced and
+        // isolated in Chrome — the trigger's overflow measurement never
+        // settles in an auto-width cell). The open list names every unit.
+        hideChips
+        summaryNoun="units"
+        inputClassName="h-8 text-xs"
+        panelClassName="w-48"
+        options={options}
+        values={values}
+        disabled={readOnly || saving}
+        onChange={change}
+      />
+    </div>
   );
 }

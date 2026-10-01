@@ -63,7 +63,16 @@ export function PageHeader({
          the footer's, applied here rather than per screen. */
       className="mb-3 flex flex-wrap items-start justify-between gap-3"
     >
-      <div>
+      {/* THE TITLE GIVES WAY, NOT THE BUTTONS (user 2026-10-01, browser zoom):
+          a bare `<div>` here sized to its subtitle's full length, so zooming in
+          — which narrows the page in CSS pixels — wrapped the whole action row
+          under the subtitle and the header changed shape. The title block now
+          shrinks first (its subtitle wraps) and the actions keep their place;
+          only when the title would get under 12rem (a phone, or a very deep
+          zoom) do they drop to the next line. 12rem, not more: Garment Orders'
+          three buttons are ~534px, and at 150% zoom on a 1920 screen the
+          content is ~766px, so an 18rem floor still wrapped them. */}
+      <div className="min-w-0 flex-1 basis-48">
         {/* 800/24px, slight negative tracking — the typography system's one
            "major page title" tier (client 2026-09-07, Archivo weight spec).
            Every page in the app renders its title through this component, so
