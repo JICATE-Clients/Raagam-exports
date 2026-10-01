@@ -144,7 +144,14 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
           }
         }}
         className={cn(
-          "fixed bottom-0 left-0 z-40 flex flex-col overflow-hidden",
+          // FULL HEIGHT, WITH ROOM LEFT FOR THE SIDEBAR DOCK (2026-10-01).
+          // The dock (`SidebarDock`, z-40, later in the DOM) sits ON this
+          // panel's foot, so open it reads as the sidebar's footer; the
+          // panel only pads `--dock-h` (set in `components/shell/sidebar.tsx`)
+          // so no row hides beneath it. Ending the panel ABOVE the dock was
+          // tried first and left it cut short, page showing under it and its
+          // last rows clipped (user, screenshot 3219).
+          "fixed bottom-0 left-0 z-40 flex flex-col overflow-hidden pb-[var(--dock-h,0px)]",
           "transition-[width,box-shadow,background-color] duration-[220ms] ease-out",
           // Closed, it sits ON the canvas below the brand row (`top-14`) with
           // no edge of its own. OPEN, IT IS THE SIDEBAR GROWN WIDER, not a card
@@ -248,7 +255,10 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                       // compact control height (`h-8`). `w-full` makes the
                       // active pill a whole row instead of a tag hugging its
                       // label.
-                      className={cn("h-8 rounded-xl", expanded && "w-full gap-3")}
+                      // 28px since the sidebar dock (2026-10-01): the dock takes
+                      // ~64px off the bottom, and 16 rows × 4px is what gives it
+                      // back without bringing the scrollbar (3181) back.
+                      className={cn("h-7 rounded-xl", expanded && "w-full gap-3")}
                       onClick={(e) => {
                         e.preventDefault();
                         openTab({ href: item.href, title: item.label });

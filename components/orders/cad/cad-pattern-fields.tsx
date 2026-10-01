@@ -104,9 +104,16 @@ export function PatternDetailsFields({
      one box for the order would be a different fact, not a smaller one. */
   const toolbar = (
         <FieldRow align="start" gap="tight">
-          <Field label="Bit Wash" w="hug" htmlFor="cad-fit-wash">
+          {/* LABEL-WIDE, NOT A STEP (user 2026-10-01: "Bit Wash · L. Shrink % ·
+              W. Shrink % — compact the field size"). `hug` (88) was the floor
+              for a FIXED box; with no `w` the cell shrink-wraps to its label
+              (~55-75px) and `min-w-full` makes the box exactly that wide, while
+              `field-sizing: content` still lets a longer value widen it. */}
+          <Field label="Bit Wash" htmlFor="cad-fit-wash" className="max-sm:w-full">
             <Select
               id="cad-fit-wash"
+              compact
+              inputClassName="w-auto min-w-full field-sizing-content"
               value={value.fit_wash ? "yes" : "no"}
               onChange={(e) => {
                 const yes = e.target.value === "yes";
@@ -121,9 +128,10 @@ export function PatternDetailsFields({
           </Field>
           {value.fit_wash && (
             <>
-              <Field label="L. Shrink %" required w="hug" htmlFor="cad-len-shrink" error={errors?.length}>
+              <Field label="L. Shrink %" required htmlFor="cad-len-shrink" error={errors?.length} className="max-sm:w-full">
                 <Input
                   id="cad-len-shrink"
+                  className="w-auto min-w-full field-sizing-content"
                   type="number"
                   inputMode="decimal"
                   step="0.01"
@@ -133,9 +141,10 @@ export function PatternDetailsFields({
                   onChange={(e) => set({ length_shrink_pct: e.target.value })}
                 />
               </Field>
-              <Field label="W. Shrink %" required w="hug" htmlFor="cad-wid-shrink" error={errors?.width}>
+              <Field label="W. Shrink %" required htmlFor="cad-wid-shrink" error={errors?.width} className="max-sm:w-full">
                 <Input
                   id="cad-wid-shrink"
+                  className="w-auto min-w-full field-sizing-content"
                   type="number"
                   inputMode="decimal"
                   step="0.01"
@@ -147,8 +156,11 @@ export function PatternDetailsFields({
               </Field>
             </>
           )}
-          <Field label="Cut Type" w="term" htmlFor="cad-cut-type">
-            <Select id="cad-cut-type" value={value.cut_type} onChange={(e) => set({ cut_type: e.target.value as CutType | "" })}>
+          {/* `code` (144), not `term` (user 2026-10-01: "compact the fields").
+              Longest value "Two-Way Cutting" ≈ 102px + `px-2.5` + the compact
+              ▼ slot (`pr-6`) ≈ 136px. */}
+          <Field label="Cut Type" w="code" htmlFor="cad-cut-type">
+            <Select id="cad-cut-type" compact value={value.cut_type} onChange={(e) => set({ cut_type: e.target.value as CutType | "" })}>
               <option value="" />
               {CUT_TYPES.map((c) => (
                 <option key={c.value} value={c.value}>
@@ -266,7 +278,12 @@ export function OrderSheetSection({
   // 2026-09-29 (client, "compact Cut Method"): term 176 -> code 144. Its
   // longest value is "Direct Shape" (the "Bit Form Cutting" this note used to
   // size for was renamed "Bit Cutting"), which fits 144 with the chevron.
-  // 144 × 3 + 72 + 288 = 792, 832 with chrome ≤ 1,155 (check:grid-budget).
+  // 2026-10-01 (user, "Cut Type, GSM, Cut Method — compact the fields"):
+  // Cut Method code 144 -> range 112 with the compact ▼ slot (`pr-6`) —
+  // "Direct Shape" ≈ 80px + 10 + 24 ≈ 114, so a wide-glyph font may end it
+  // in "…", revealed on hover by the Select trigger. GSM stays `num` (72),
+  // already the narrowest step in the vocabulary.
+  // 144 × 2 + 112 + 72 + 288 = 760, 800 with chrome ≤ 1,155 (check:grid-budget).
   const orderSheetColumns: ChildGridColumn<GridRow>[] = [
     {
       header: "Component",
@@ -293,9 +310,10 @@ export function OrderSheetSection({
     },
     {
       header: "Cut Method",
-      width: FIELD_WIDTH_CSS.code,
+      width: FIELD_WIDTH_CSS.range,
       cell: (c) => (
         <Select
+          compact
           aria-label={`Cut Method — ${c.coordinate_name ? `${c.coordinate_name} ` : ""}${c.name}`}
           value={heldFor(c)?.method ?? ""}
           onChange={(e) => patch(c, { method: (e.target.value || null) as CutMethod | null })}

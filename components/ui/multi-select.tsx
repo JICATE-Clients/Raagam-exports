@@ -106,6 +106,10 @@ const FIXED_COLS: Record<number, string> = {
   2: "grid-cols-2",
   3: "grid-cols-3",
   4: "grid-cols-4",
+  /* Order Entry ▸ Styles ▸ Sizes since 2026-10-01: a wider panel showing MORE
+     ticks at the same width, rather than the same three ticks bigger. */
+  5: "grid-cols-5",
+  6: "grid-cols-6",
 };
 
 export type MultiSelectOption = {
@@ -140,6 +144,7 @@ export function MultiSelect({
   panelClassName,
   groupBy,
   gridColumns,
+  gridDense = false,
   gridded,
   framed,
   hideChips = false,
@@ -223,7 +228,15 @@ export function MultiSelect({
    * data-measured auto-fill track. ↑/↓ still step one line — `columnCount()`
    * reads the resolved track either way.
    */
-  gridColumns?: 2 | 3 | 4;
+  gridColumns?: 2 | 3 | 4 | 5 | 6;
+  /**
+   * `gridded` only: SMALLER TICKS (user 2026-10-01, Order Entry ▸ Styles ▸
+   * Sizes: "compact the field size more in size dropdown"). 11px type, `px-1.5`
+   * `py-0.5` and 6px gaps instead of 12px / `px-2` `py-1` / 8px — about 20px tall
+   * instead of 26, and a 6-character label ("12/18M") in ~52px. Opt-in, so the
+   * Style master's grid keeps the pills the operator approved on 2026-09-17.
+   */
+  gridDense?: boolean;
   /**
    * LAY THE OPTIONS OUT AS A WRAPPING GRID instead of one per line.
    *
@@ -936,9 +949,10 @@ export function MultiSelect({
                     // what the pills are set in — the `ch` rule above.
                     cn(
                       gridColumns
-                        ? cn("grid gap-2", FIXED_COLS[gridColumns])
-                        : cn(OPTION_GRID, "gap-y-2"),
-                      "max-h-64 overflow-y-auto scrollbar-slim px-3 pb-2 font-mono text-xs",
+                        ? cn("grid", gridDense ? "gap-1.5" : "gap-2", FIXED_COLS[gridColumns])
+                        : cn(OPTION_GRID, gridDense ? "gap-y-1.5" : "gap-y-2"),
+                      "max-h-64 overflow-y-auto scrollbar-slim px-3 pb-2 font-mono",
+                      gridDense ? "text-[11px]" : "text-xs",
                     )
                   : "max-h-64",
               )}
@@ -1047,7 +1061,8 @@ export function MultiSelect({
                                  115610): green outline when free, light blue
                                  when ticked. `px-2` so three fit a 220px
                                  panel — see `CELL_CHROME`. */
-                              "justify-center rounded-full border px-2 py-1 text-center text-xs font-mono tabular-nums",
+                              "justify-center rounded-full border text-center font-mono tabular-nums",
+                              gridDense ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-1 text-xs",
                               on
                                 ? "border-blue-500 bg-blue-300 text-gray-800 dark:border-blue-500 dark:bg-blue-900/60 dark:text-blue-100"
                                 : "border-green-400 bg-white text-gray-700 dark:border-green-600 dark:bg-transparent dark:text-gray-200",

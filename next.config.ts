@@ -89,6 +89,9 @@ const withSerwist = withSerwistInit({
  * `config.js` throws when `deploymentId` disagrees with `NEXT_DEPLOYMENT_ID`.
  */
 const nextConfig: NextConfig = {
+  // The dev-only "N" badge defaults to bottom-left, exactly where the sidebar
+  // dock's unit badge sits (2026-10-01) — it covered the badge on every page.
+  devIndicators: { position: "bottom-right" },
   // Where the build output goes. Overridable so a VERIFICATION build can be sent
   // somewhere the running dev server isn't reading from.
   //

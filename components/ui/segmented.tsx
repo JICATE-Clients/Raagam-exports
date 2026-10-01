@@ -74,6 +74,7 @@ export function Segmented<T extends string>({
       // already announce as a group through their shared `name`, and adding the
       // role without also managing `aria-checked` and roving focus by hand is
       // how a control ends up describing itself twice.
+      data-segmented=""
       className={cn(
         /**
          * THE SAME HEIGHT AS THE FIELD BESIDE IT, IN BOTH DENSITIES
@@ -154,6 +155,7 @@ export function Segmented<T extends string>({
                 a white track did — see the wrapper's own comment. */}
             <span
               aria-hidden
+              data-seg-pill=""
               className={cn(
                 "pointer-events-none absolute inset-0 rounded transition-colors",
                 "peer-checked:bg-surface peer-checked:shadow-sm",

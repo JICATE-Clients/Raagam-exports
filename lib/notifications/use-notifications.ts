@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAppUser } from "@/lib/auth/permission-context";
 import type { Notification } from "./types";
@@ -16,6 +16,14 @@ const LIMIT = 30;
 export function useNotifications() {
   const { id: userId } = useAppUser();
   const supabase = useMemo(() => createClient(), []);
+  /**
+   * ONE CHANNEL PER CALLER, NOT PER USER (2026-10-01). supabase-js hands back
+   * the SAME channel object for a repeated name, so a second mounted bell (the
+   * phone's `Topbar`, CSS-hidden on a desktop, beside the tab strip's own)
+   * added its `.on()` to a channel already subscribed and threw "cannot add
+   * `postgres_changes` callbacks … after `subscribe()`", taking the route down.
+   */
+  const instance = useId().replace(/[^A-Za-z0-9]/g, "");
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,7 +59,7 @@ export function useNotifications() {
   useEffect(() => {
     void load();
     const channel = supabase
-      .channel(`notif:${userId}`)
+      .channel(`notif:${userId}:${instance}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
@@ -132,7 +140,7 @@ export function useNotifications() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
     };
-  }, [supabase, userId, load]);
+  }, [supabase, userId, instance, load]);
 
   const unreadCount = items.reduce((n, i) => (i.read_at ? n : n + 1), 0);
 

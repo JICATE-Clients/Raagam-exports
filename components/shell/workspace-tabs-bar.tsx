@@ -44,6 +44,7 @@ import {
   ChevronRight,
   LayoutDashboard,
   MoreHorizontal,
+  Search,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -51,6 +52,8 @@ import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useWorkspaceTabs } from "@/
 import { NAV } from "@/components/shell/nav";
 import { isHubRoute } from "@/lib/nav/module-groups";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
+import { useSearch } from "@/components/search/search-provider";
+import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { isPlainLeftClick, navLabel, visibleModules } from "@/components/navigation/navigation-config";
 import { cn } from "@/lib/utils";
 
@@ -134,6 +137,7 @@ export function WorkspaceTabsBar() {
   const pathname = usePathname();
   const user = useAppUser();
   const openTab = useOpenWorkspaceTab();
+  const search = useSearch();
 
   // Keep the CURRENT route present as a tab — but only when it's a real
   // destination. A hub page (a module root or a group's own card index)
@@ -194,6 +198,7 @@ export function WorkspaceTabsBar() {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
+  const overflowing = canLeft || canRight;
   const measure = useCallback(() => {
     const el = stripRef.current;
     if (!el) return;
@@ -269,7 +274,10 @@ export function WorkspaceTabsBar() {
     // `ty-chrome` and `bg-primary` both GONE (2026-10-01): the strip is now the
     // white work panel's first row, ruled off from the page beneath it, and a
     // gradient colour option no longer paints it — see the TAB constants.
-    <div className="flex h-10 flex-none items-center gap-1 border-b border-border px-2">
+    // `h-11` since the sidebar dock (2026-10-01): this strip is now the panel's
+    // FIRST row on a desktop, carrying search / appearance / bell at its end,
+    // whose h-8 controls need the extra 4px of air a bare tab row did not.
+    <div data-tab-strip="" className="flex h-10 flex-none items-center gap-1 border-b border-border px-2 md:h-11">
       {showHome && (
         <button
           type="button"
@@ -315,8 +323,11 @@ export function WorkspaceTabsBar() {
       {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-border" />}
 
       {/* Scroll left. Chrome, not a field: off the Tab path like every
-          control here. */}
-      {openTabs.length > 0 && (
+          control here. The pair renders only while the strip OVERFLOWS — two
+          disabled arrows around a single tab read as an unfinished bar
+          (user 2026-10-01). Stable: showing them only narrows a strip that
+          already overflows, hiding them only widens one that already fits. */}
+      {overflowing && (
         <button
           type="button"
           tabIndex={-1}
@@ -383,7 +394,7 @@ export function WorkspaceTabsBar() {
       </div>
 
       {/* Scroll right. */}
-      {openTabs.length > 0 && (
+      {overflowing && (
         <button
           type="button"
           tabIndex={-1}
@@ -407,6 +418,27 @@ export function WorkspaceTabsBar() {
           align="right"
         />
       )}
+
+      {/* THE TOOLS THE TOP BAR USED TO CARRY (desktop; the phone keeps
+          `Topbar`). Unit, role preview, account, theme and appearance went to
+          `SidebarDock`; what stays up here is what is glanced at or reached
+          for mid-task — search and the bell. */}
+      <div className="ml-1 hidden flex-none items-center gap-0.5 border-l border-border pl-2 md:flex">
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={search.open}
+          aria-label="Search everywhere"
+          className="flex h-8 w-52 items-center gap-2 rounded-lg bg-surface-muted px-2.5 text-xs text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] transition-colors hover:text-foreground lg:w-60"
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">Search…</span>
+          <kbd className="shrink-0 rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-[10px]">
+            ⌘K
+          </kbd>
+        </button>
+        <NotificationsBell />
+      </div>
     </div>
   );
 }

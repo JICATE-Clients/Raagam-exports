@@ -265,10 +265,10 @@ function InlineStep({
   if (editable && v && !v.dispatch) {
     return (
       <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
-          {ps && <StatusPill tone={ps.tone}>{`Pattern: ${ps.label}`}</StatusPill>}
-        </div>
+        {/* NO STATUS LINE ABOVE THE FORM (user 2026-10-01: "Assigned ·
+            Pattern: Ready — remove this from CAD tab"). The filled-in form
+            already says it is assigned; the pattern room's progress is the CAD
+            Queue's to show. */}
         <AllocationSheet inline withOrderSave={withOrderSave} row={row} mode="edit" employees={employees} onClose={onDone} />
         {/* NO SEND CAD FORM HERE (user 2026-09-25, screenshot 3084: "Send CAD
             … no need, remove it from here"). It appeared under the assignment

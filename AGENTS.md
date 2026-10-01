@@ -1574,11 +1574,17 @@ in `raise exception`, impersonating the `*.audit@raagam.test` logins; run each b
 read `0 FAIL` from the message. Blocks that need a real DELETE run with merch's claims but
 without `set local role authenticated`, because of the finding below.
 
-**KNOWN, NOT FIXED: delete-and-reinsert saves need `orders:delete`.** The budget lines /
-order links delete policies require it while the saves ask only `orders:edit`, so for a
-role without delete RLS turns each DELETE into 0 rows SILENTLY and the INSERTs duplicate
-every line. Pre-existing, independent of overrides — and it means an override grantee
-needs `orders:delete` for any grid a key rewrites.
+**FIXED 2026-10-01 (0678): a LINE of an order document is deletable by `orders:edit`.**
+Every order editor saves a grid by deleting its lines and inserting the new set; the
+delete policies asked `orders:delete`, so for an edit-only role (Merchandiser) RLS turned
+each DELETE into 0 rows SILENTLY and the INSERTs duplicated every line. 0678 rewrote the
+96 line tables' delete policies to `edit OR delete`, keeping each one's row scoping; the
+38 DOCUMENT tables (order, BOMs, budgets, plans, advices …) still need `orders:delete`,
+which is what the Delete button means. The lock triggers are untouched, so an approved
+order's lines are refused exactly as before. **A new order line table copies the line
+shape** — a delete policy on `orders:delete` alone brings the doubling back. The same
+pattern is still live in other modules (masters 43 child tables, sales 42, purchase 18,
+hr 15, stores 13 …) and is NOT fixed there.
 
 ## Every alert has a name; every job leaves a run (STANDING)
 

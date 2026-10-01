@@ -38,6 +38,28 @@ export function PageHeader({
   back?: boolean;
 }) {
   const backLink = back ? <BackLink /> : null;
+  /**
+   * NO VISIBLE TITLE OR DESCRIPTION, ON ANY PAGE (user 2026-10-01, quoting
+   * "Garment Orders — styles, colours, prices, packing, quantities &
+   * logistics": "remove the page heading from everywhere totally", and asked to
+   * confirm, "every page in the app").
+   *
+   * Removed HERE, once, rather than at 233 call sites — the sidebar row and the
+   * workspace tab already name the screen, so the heading was a third copy of
+   * the name and a sentence nobody read, costing ~60px above every list.
+   *
+   * `title` IS STILL RENDERED, as a screen-reader-only `<h1>`: a page with no
+   * heading at all leaves assistive tech nothing to land on, and the prop
+   * stays required so the name is still declared at every call site — putting
+   * the visible heading back is this one component. `description` is accepted
+   * and ignored for the same reason (no call site has to change).
+   *
+   * With no Back link and no actions the header renders NOTHING visible and
+   * takes no margin, so a page's content starts at the top.
+   */
+  void description;
+  const heading = <h1 className="sr-only">{title}</h1>;
+  if (!backLink && !actions) return heading;
   return (
     <div
       /**
@@ -61,29 +83,21 @@ export function PageHeader({
       /* `mb-3`, down from `mb-4` (client 2026-09-05: "compact it" — this
          component sits above every page in the app, so a smaller step than
          the footer's, applied here rather than per screen. */
-      className="mb-3 flex flex-wrap items-start justify-between gap-3"
+      /* FLOATED RIGHT, SO THE NEXT ROW COMES UP BESIDE IT (user 2026-10-01,
+         screenshot 3221: "see the gap?"). With the title gone a block header
+         was a whole line holding three buttons on the right and nothing on the
+         left, above a toolbar holding nothing on ITS right. A float lets the
+         following content rise into that line, and a flex/grid toolbar
+         (`FilterBar`'s row, `MasterListShell`'s, `DataIoToolbar`'s) is a
+         block formatting context, so it NARROWS to sit beside the float rather
+         than running underneath it. `mb-2` keeps a row's gap below the
+         buttons when what follows is taller than the toolbar line.
+         Phone: a full-width block again (`max-sm:`), as before. */
+      className="float-right mb-2 ml-3 flex flex-wrap items-start justify-end gap-3 max-sm:float-none max-sm:mb-3 max-sm:ml-0"
     >
-      {/* THE TITLE GIVES WAY, NOT THE BUTTONS (user 2026-10-01, browser zoom):
-          a bare `<div>` here sized to its subtitle's full length, so zooming in
-          — which narrows the page in CSS pixels — wrapped the whole action row
-          under the subtitle and the header changed shape. The title block now
-          shrinks first (its subtitle wraps) and the actions keep their place;
-          only when the title would get under 12rem (a phone, or a very deep
-          zoom) do they drop to the next line. 12rem, not more: Garment Orders'
-          three buttons are ~534px, and at 150% zoom on a 1920 screen the
-          content is ~766px, so an 18rem floor still wrapped them. */}
-      <div className="min-w-0 flex-1 basis-48">
-        {/* 800/24px, slight negative tracking — the typography system's one
-           "major page title" tier (client 2026-09-07, Archivo weight spec).
-           Every page in the app renders its title through this component, so
-           this is the single place that tier is stated. */}
-        <h1 className="ty-page-title text-2xl font-extrabold tracking-[-0.01em] text-foreground">
-          {title}
-        </h1>
-        {description && (
-          <p className="ty-body mt-0.5 text-sm text-muted-foreground">{description}</p>
-        )}
-      </div>
+      {/* The visible title block (24px extrabold `ty-page-title` + its
+          description) lived here until 2026-10-01 — see the note above. */}
+      {heading}
       {/* Back leads the row, then the screen's own actions. Rendered whenever
           EITHER exists — a listing that passes no `actions` (its toolbar lives
           in `MasterListShell` below the header) must still get its way out. */}

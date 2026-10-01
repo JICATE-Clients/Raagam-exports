@@ -28,16 +28,16 @@ export default function LoginLayout({ children }: { children: ReactNode }) {
       className={`${urbanist.className} grid flex-1 grid-rows-[auto_1fr] bg-[#f1f8e6] text-[#1b2a12] antialiased [color-scheme:light] md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:grid-rows-1`}
     >
       <section
-        aria-label="Raagam Exports warehouse"
+        aria-label="Raagam Exports factory"
         className="relative aspect-[16/10] max-h-[300px] overflow-hidden bg-[#22322a] [clip-path:ellipse(140%_100%_at_50%_0%)] md:aspect-auto md:max-h-none md:min-h-dvh md:[clip-path:ellipse(100%_120%_at_0%_50%)]"
       >
         <Image
           src="/brand/login-hero.jpg"
-          alt="Workers loading yarn cones and fabric bales onto a Raagam Exports truck at the warehouse dock"
+          alt="Aerial view of the Raagam Exports factory building and its front gate"
           fill
           priority
           sizes="(min-width: 768px) 55vw, 100vw"
-          className="object-cover object-[42%_center]"
+          className="object-cover object-[center_40%] md:object-[66%_center]"
         />
       </section>
       <main className="flex items-start justify-center px-4 pt-5 pb-8 md:items-center md:px-6 md:py-12">

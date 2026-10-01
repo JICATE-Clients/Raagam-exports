@@ -65,7 +65,8 @@ export function DataTableFrame({
 
   return (
     <>
-      <div className={wrapperClassName}>
+      {/* `data-table-frame`: the surface-style hook (lib/appearance.ts STYLES). */}
+      <div className={wrapperClassName} data-table-frame="">
         <table className={tableClassName} data-density={density}>
           {head}
           <tbody>{rows.length === 0 ? emptyRow : visibleRows}</tbody>

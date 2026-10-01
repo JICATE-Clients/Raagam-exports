@@ -318,6 +318,7 @@ export const Input = forwardRef<
   });
   return (
   <input
+    data-input=""
     ref={ref}
     readOnly={readOnly}
     {...hold}

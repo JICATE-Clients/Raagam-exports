@@ -307,6 +307,9 @@ export function StatusSegment({
     <div
       role="group"
       aria-label={`Status: ${label}`}
+      // Surface-style hook (lib/appearance.ts STYLES): a recessed track with
+      // the lit word raised, the same as `Segmented`.
+      data-segmented=""
       className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 text-xs font-medium"
     >
       {words.map((s, i) => {

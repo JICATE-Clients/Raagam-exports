@@ -16,6 +16,31 @@ Four independent preferences, each stored in localStorage and applied to
 | New look / Classic | `lib/type-scale.ts` | T menu ▸ Look | `data-type-scale` |
 | **Font** | `lib/appearance.ts` `FONTS` | T menu ▸ Font | `data-font` → `--font-app` |
 | **Colour** | `lib/appearance.ts` `ACCENTS` | T menu ▸ Colour | `data-accent` → `--primary*` |
+| **Style** | `lib/appearance.ts` `STYLES` | dock ▸ Appearance ▸ Style | `data-style` → frame + primitives |
+
+**Style (2026-10-01, "missing that glossy look").** The fifth axis. Flat
+(first, no CSS), Soft, **Pearl** and **Frost** ship. Glass and Aurora (blue
+grounds) were replaced the same day: the user wants WHITE. Pearl puts a white
+gloss on the shared primitives through hooks they carry, so every screen
+changes at once: `.ty-btn-outline` / `.ty-btn-solid` / `.ty-btn-subtle` /
+`.ty-btn-ghost` (every Button variant), raw `<a>`/`<Link>`/`<button>` matched
+by exact class token (`[class~="bg-primary"]` for solid, `[class~="border"]` +
+`rounded-md|lg` for outline, with field affordances, tabs, options and grid ✕
+excluded), `.ty-sidebar[data-active]` (rail and module menu), `[data-input]`
+(Input, Textarea, Combobox, DataPicker), `[data-segmented]` +
+`[data-seg-pill]`, `.ty-badge`, `[data-card]` (Card, Stat),
+`[data-table-frame]` (DataTable), `[data-work-panel] thead>tr` (DataTable and
+ChildGrid headers), `[data-tab-strip]`, `[data-dock-card]`, menus and
+listboxes, plus the frame (`[data-app-shell]`, `[data-work-panel]`, the
+Modules rail). Frost is Pearl plus frosted see-through surfaces, made solid
+again under `prefers-reduced-transparency`. Rules: white and neutral only,
+never a green or brand tint on a surface (refused five times, see
+`--background` in `globals.css`); gloss on controls and headers, never behind
+a table body cell; a field's shadow stands down while focused, invalid, held
+or inside a grid row, so states look as before; style CSS sits inside
+`@media screen`, so print stays flat. Each style's CSS lives in its registry
+entry, never in `globals.css`. A screen that hand-rolls its own buttons (the
+Dashboard's hero does) is not reached; move it onto `Button` to pick it up.
 
 **Why font and colour are separate (client 2026-09-17).** The first cut
 bundled each design system's face with that system's own blue. Five blues side

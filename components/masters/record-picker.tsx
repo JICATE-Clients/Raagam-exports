@@ -63,8 +63,11 @@ export function RecordPicker({
   placeholder,
   clearable,
   onAddOverride,
+  fit,
 }: {
   label: string;
+  /** The box sizes to its value — straight through to `DataPicker`'s `fit`. */
+  fit?: boolean;
   items: PickerItem[];
   /** Shown in the open panel instead of "No <noun> found." when the master
    *  itself is empty — see `emptyHint` on `DataPicker`. */
@@ -185,6 +188,7 @@ export function RecordPicker({
       placeholder={placeholder}
       clearable={clearable}
       onAddOverride={onAddOverride}
+      fit={fit}
     />
   );
 }

@@ -674,7 +674,9 @@ export function PatternWorkForm({
         </FieldRow>
         {status !== "ready" && (
           <p className="text-xs text-muted-foreground">
-            Ready dates Pattern Approval on the T&amp;A. The Fabric BOM ▸ Manual tab fills from this sheet.
+            {/* "Ready dates Pattern Approval on the T&A" dropped with that
+                milestone (0679). */}
+            The Fabric BOM ▸ Manual tab fills from this sheet.
           </p>
         )}
       </DetailSection>
