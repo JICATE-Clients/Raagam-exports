@@ -128,6 +128,8 @@ export async function listContractors(): Promise<ContractorRow[]> {
 export async function getPersonChildren(
   kind: PersonKind,
   id: string,
+  /** The service-role client, for a person reading their OWN record (My Profile). */
+  client?: Awaited<ReturnType<typeof createClient>>,
 ): Promise<{
   family: StaffFamilyMember[];
   experience: StaffWorkExperience[];
@@ -141,7 +143,7 @@ export async function getPersonChildren(
   technical: Record<string, unknown>[];
   languages: Record<string, unknown>[];
 }> {
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
   // ONE COLUMN NAME, DECIDED ONCE. The seven `hr_*` tables take either a
   // `staff_id` or a `worker_id` (0553) — spelling that choice at each of the
   // seven queries is seven chances to use the wrong one.

@@ -293,9 +293,9 @@ export function workFlowOwnerOptions<T extends WorkFlowEmployee>(
   if (items.length === 0) {
     hint =
       employees.length === 0
-        ? "No employees have been entered yet. Add them on Master Data ▸ Associates ▸ Employee."
+        ? "No employees have been entered yet."
         : `No employee has a Designation or Department of ${def?.ownerTagsLabel ?? "this team"}. ` +
-          "Tag one on Master Data ▸ Associates ▸ Employee.";
+          "Ask an administrator to tag one.";
     shortHint = employees.length === 0 ? "No employees entered" : "Nobody tagged";
   }
 

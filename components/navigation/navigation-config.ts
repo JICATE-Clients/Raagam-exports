@@ -57,7 +57,35 @@ export function activeChildFor(
   return owningNavHref(moduleHref, pathname) ?? activeChildHref(pathname, children);
 }
 
-type NavUser = Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants"> | null;
+type NavUser = Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants" | "myStaffId"> | null;
+
+/**
+ * THE HR "STAFF" ROW IS "MY PROFILE" FOR A REGULAR STAFF MEMBER (user
+ * 2026-10-01). An Admin or HR — by role — keeps "Staff" → /hr/staff, the whole
+ * list; anyone else with a staff record (`myStaffId`, lib/auth/self-service.ts)
+ * gets "My Profile" → /hr/staff/<their id>, and never sees the list row. Every
+ * nav surface reads it here — both sidebars, the tab bar, mobile nav, search —
+ * so none of them can still say "Staff" to that person.
+ */
+const STAFF_LIST = "/hr/staff";
+export const MY_PROFILE_LABEL = "My Profile";
+
+/** The row a nav surface should draw for `{href, label}` for this user. */
+export function navEntry<T extends { href: string; label: string }>(user: NavUser, row: T): T {
+  if (row.href !== STAFF_LIST || !user?.myStaffId) return row;
+  return { ...row, href: `${STAFF_LIST}/${user.myStaffId}`, label: MY_PROFILE_LABEL };
+}
+
+/**
+ * A tab title for `pathname` — "My Profile" on the user's own record, and on a
+ * tab still pointing at the list (remembered from before; the list redirects
+ * them to their record), so no tab ever says "Staff" to a regular staff member.
+ * Admin / HR (no `myStaffId`) keep "Staff".
+ */
+export function navLabel(user: NavUser, pathname: string, label: string): string {
+  if (!user?.myStaffId) return label;
+  return pathname === STAFF_LIST || pathname.startsWith(`${STAFF_LIST}/`) ? MY_PROFILE_LABEL : label;
+}
 
 /** May the user open this href — its screen's View (0658)? A hub / group row
  *  is not a screen and answers true; its children decide whether it shows. */
@@ -74,10 +102,12 @@ function visibleChildren(user: NavUser, children: SubNavItem[] | undefined): Sub
   const out: SubNavItem[] = [];
   for (const c of children) {
     if (c.children?.length) {
-      const rows = c.children.filter((g) => screenVisible(user, g.href));
+      const rows = c.children
+        .filter((g) => screenVisible(user, g.href))
+        .map((g) => navEntry(user, g));
       if (rows.length) out.push({ ...c, children: rows });
     } else if (screenVisible(user, c.href)) {
-      out.push(c);
+      out.push(navEntry(user, c));
     }
   }
   return out;

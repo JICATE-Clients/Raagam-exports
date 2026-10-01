@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { can } from "@/lib/auth/server";
+import { isOwnProfileOnly } from "@/lib/hr/own-profile";
 import { createClient } from "@/lib/supabase/server";
 import {
   PARENT_COLUMN,
@@ -72,7 +73,7 @@ export async function saveSalaryRegistry(
   id: string,
   data: SalaryPatch,
 ): Promise<Result> {
-  if (!(await can("hr_payroll", "edit"))) return { ok: false, error: "Forbidden" };
+  if (!(await can("hr_payroll", "edit")) || (await isOwnProfileOnly())) return { ok: false, error: "Forbidden" };
   const parsed = salaryPatch.safeParse(data);
   if (!parsed.success) {
     return {
@@ -111,7 +112,7 @@ export async function saveBankDetails(
   person: BankPatch,
   account: BankAccountPatch,
 ): Promise<Result> {
-  if (!(await can("hr_payroll", "edit"))) return { ok: false, error: "Forbidden" };
+  if (!(await can("hr_payroll", "edit")) || (await isOwnProfileOnly())) return { ok: false, error: "Forbidden" };
   const p = bankPatch.safeParse(person);
   if (!p.success) {
     return { ok: false, error: p.error.issues[0]?.message ?? "Validation failed" };

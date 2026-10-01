@@ -54,8 +54,8 @@ export const layoutLabel = (t: string | null | undefined) =>
 
 /**
  * The designations a Pattern Maker may hold (spec §2.1). Seeded as words by
- * 0628 into `config_lookups` kind 'designation'; a person tags the people on
- * Master Data ▸ Associates ▸ Employee. The database trigger checks the same
+ * 0628 into `config_lookups` kind 'designation'; an employee carries one as
+ * their Designation. The database trigger checks the same
  * two names.
  */
 export const PATTERN_MAKER_DESIGNATIONS = ["PATTERN MAKER", "CAD TECHNICIAN", "CAD DESIGNER"] as const;
@@ -472,8 +472,8 @@ export function patternMakerOptions(
   if (items.length === 0) {
     hint =
       rows.length === 0
-        ? "No employees have been entered yet. Add the pattern makers on Master Data ▸ Associates ▸ Employee first."
-        : "No employee has the Designation PATTERN MAKER, CAD TECHNICIAN or CAD DESIGNER, so there is nobody to assign it to. Set it on Master Data ▸ Associates ▸ Employee.";
+        ? "No employees have been entered yet, so there is no pattern maker to assign."
+        : "No employee has the Designation PATTERN MAKER, CAD TECHNICIAN or CAD DESIGNER, so there is nobody to assign it to.";
   }
   if (currentValue && !items.some((r) => r.id === currentValue)) {
     const held = rows.find((r) => r.id === currentValue);
