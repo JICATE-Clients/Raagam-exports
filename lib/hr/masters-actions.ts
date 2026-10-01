@@ -2,6 +2,10 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+// A regular staff member (My Profile) writes only through `updateMyProfile`.
+import { isOwnProfileOnly, myStaffId } from "@/lib/hr/own-profile";
+import { SELF_CHILDREN, SELF_COLUMNS } from "@/lib/hr/self-profile";
+import { createAdminClient } from "@/lib/supabase/server";
 import {
   contractorInput,
   workerInput,
@@ -228,7 +232,9 @@ export async function createStaff(
   data: StaffInput,
   children?: StaffChildren,
 ): Promise<Result> {
-  if (!(await can("hr_payroll", "create"))) return { ok: false, error: "Forbidden" };
+  if (!(await can("hr_payroll", "create")) || (await isOwnProfileOnly())) {
+    return { ok: false, error: "Forbidden" };
+  }
   const parsed = staffInput.safeParse(data);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
@@ -255,7 +261,9 @@ export async function updateStaff(
   data: StaffInput,
   children?: StaffChildren,
 ): Promise<Result> {
-  if (!(await can("hr_payroll", "edit"))) return { ok: false, error: "Forbidden" };
+  if (!(await can("hr_payroll", "edit")) || (await isOwnProfileOnly())) {
+    return { ok: false, error: "Forbidden" };
+  }
   const parsed = staffInput.safeParse(data);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
@@ -273,6 +281,78 @@ export async function updateStaff(
     if (childErr) return { ok: false, error: childErr };
   }
   revalidatePath("/hr/staff");
+  return { ok: true };
+}
+
+/* ---- My Profile ---- */
+
+/** Where each self-editable child list lives. */
+const SELF_CHILD_TABLE: Record<(typeof SELF_CHILDREN)[number], string> = {
+  family: "hr_family_members",
+  emergencyContacts: "hr_emergency_contacts",
+  education: "hr_education",
+  technical: "hr_technical_details",
+  languages: "hr_languages",
+};
+
+/**
+ * A REGULAR STAFF MEMBER SAVES THEIR OWN PERSONAL DETAILS (user 2026-10-01).
+ *
+ * The record is NEVER taken from the browser: it is the caller's own
+ * `myStaffId`, resolved on the server from their login (lib/auth/self-service.ts).
+ * Of what is sent, only `SELF_COLUMNS` and the `SELF_CHILDREN` lists are
+ * written (lib/hr/self-profile.ts) — salary, bank, statutory, posting, name and
+ * email are dropped however the request was built, so a hand-made POST can
+ * change nothing the screen does not offer.
+ *
+ * Service role, after that match: such a login usually holds no unit, so the
+ * unit-scoped RLS that guards `staff` for operators would refuse the row. The
+ * same applies to the child tables, which are scoped through it.
+ *
+ * Validation is the operators' schema (`staffInput`), so a value that would be
+ * refused on the Staff screen is refused here, and the photo rule holds.
+ */
+export async function updateMyProfile(
+  data: StaffInput,
+  children: Partial<StaffChildren>,
+): Promise<Result> {
+  const id = await myStaffId();
+  if (!id || !(await can("hr_payroll", "view"))) return { ok: false, error: "Forbidden" };
+  const parsed = staffInput.safeParse(data);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
+  }
+  const noPhoto = missingPhoto(parsed.data);
+  if (noPhoto) return noPhoto;
+
+  const src = parsed.data as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  for (const c of SELF_COLUMNS) if (c in src) patch[c] = src[c];
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("staff").update(patch).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  // REPLACE, as `replacePersonChildren` does — but only these lists, and a row
+  // can never name another parent: any id / staff_id / worker_id it carries is
+  // stripped before `staff_id` is set to the caller's own.
+  for (const key of SELF_CHILDREN) {
+    const rows = children[key];
+    if (!Array.isArray(rows)) continue; // not sent → left exactly as it was
+    const table = SELF_CHILD_TABLE[key];
+    const { error: delErr } = await admin.from(table).delete().eq("staff_id", id);
+    if (delErr) return { ok: false, error: delErr.message };
+    if (!rows.length) continue;
+    const payload = rows.map((r, i) => {
+      const { id: _id, staff_id: _s, worker_id: _w, ...rest } = r as Record<string, unknown>;
+      void _id; void _s; void _w;
+      return { ...rest, staff_id: id, sno: i + 1 };
+    });
+    const { error: insErr } = await admin.from(table).insert(payload);
+    if (insErr) return { ok: false, error: insErr.message };
+  }
+
+  revalidatePath(`/hr/staff/${id}`);
   return { ok: true };
 }
 

@@ -25,8 +25,7 @@ import { getCourierOptions } from "@/lib/admin/extras-service";
 import { getCompanyProfile } from "@/lib/admin/company-service";
 import { listNotifies } from "@/lib/masters/notify-service";
 import { NotifyMasterScreen } from "@/components/masters/notify-master-screen";
-import { listEmployeeLocations, listEmployees } from "@/lib/masters/employee-service";
-import { EmployeeMasterScreen } from "@/components/masters/employee-master-screen";
+import { listEmployeeLocations } from "@/lib/masters/employee-service";
 import { listWorkTimings } from "@/lib/masters/work-timing-service";
 import { WorkTimingMasterScreen } from "@/components/masters/work-timing-master-screen";
 import { listWorkingHours } from "@/lib/masters/working-hour-service";
@@ -84,8 +83,8 @@ import { TaApprovalMasterScreen } from "@/components/masters/ta-approval-master-
  * `departmentsAsLookups` / `designationsAsLookups` ARE DELIBERATELY NOT IMPORTED
  * HERE (2026-08-31). Every `department_id` / `designation_id` column in this
  * schema is `references public.config_lookups(id)`, so these four party screens
- * feed those pickers from `all.filter(l => l.kind === …)` instead. See the note
- * on the `employee` branch below, and the warning on the shims themselves.
+ * feed those pickers from `all.filter(l => l.kind === …)` instead. See the warning
+ * on the shims themselves.
  *
  * `statesAsLookups` and `paymentTermsAsLookups` are the opposite case and must
  * STAY — 0355 and 0375 repointed those FKs at the dedicated masters, so feeding
@@ -352,68 +351,6 @@ export default async function SubEntityPage({
         <HsnDetailMasterScreen
           rows={hsnDetails}
           itemClasses={all.filter((l) => l.kind === "item_class")}
-          perms={perms}
-        />
-      );
-    } else if (child.custom === "employee") {
-      /**
-       * RESTORED 2026-08-31 — and NOT a copy of the branch that was removed on
-       * 08-01, because that one would have rejected every save.
-       *
-       * ## ALL FOUR LOOKUPS COME FROM `config_lookups`. THE OLD BRANCH FED
-       * ## THREE OF THEM FROM THE DEDICATED MASTERS INSTEAD.
-       *
-       * It passed `categories={employeeCategoriesAsLookups(ecRows)}`,
-       * `departments={departmentsAsLookups(deptRows)}` and
-       * `designations={designationsAsLookups(desigRows)}` — rows of
-       * `public.employee_categories` / `departments` / `designations`, dressed
-       * in ConfigLookup clothing by `lookup-compat.ts`. But 0243 declares all
-       * four columns as `references public.config_lookups(id)`, so picking any
-       * of those three wrote a uuid from the wrong table and the insert failed
-       * on the FK. Only `teams` was right.
-       *
-       * `LookupDialogPicker` — which is what the screen renders for all four —
-       * says so in its own comments: *"if the field's options come from
-       * lookup-compat.ts rather than config_lookups, this component is the
-       * wrong one"*, because its inline Add CREATES a `config_lookups` row.
-       * The old branch handed it options from one table and let it write to
-       * another.
-       *
-       * This is the `lookup-compat` FK-mismatch class — the same shape as the
-       * `state` (0355) and `payment_term` (0375) landmines, where a same-named
-       * column pointed at a different target. Diff the FK TARGET, never the
-       * column name or the master's label; "the Designation master" names two
-       * different tables in this codebase.
-       *
-       * It also means the historical branch is NOT a safe template even though
-       * it is the best record of the intended slug and sub-module. Restoring it
-       * verbatim would have reinstated a broken screen and, this time, one that
-       * an operator actually reaches.
-       *
-       * ## AND IT IS WHAT MAKES 0482 PAY OFF
-       *
-       * 0482 seeds MERCHANDISER into `config_lookups` with `kind='designation'`
-       * — exactly the list this feeds the Designation picker from. So the row
-       * that migration adds is the row this screen offers, and tagging an
-       * employee with it satisfies `getMerchandiserRows()`, which joins
-       * `employees.designation_id`/`department_id` against the same table.
-       * Feeding this picker from `public.designations` instead would have left
-       * 0482's row unreachable and the Merchandiser dropdown empty with no
-       * error anywhere.
-       */
-      const [employees, all, locations] = await Promise.all([
-        listEmployees(),
-        listConfigLookups(),
-        listEmployeeLocations(),
-      ]);
-      screen = (
-        <EmployeeMasterScreen
-          rows={employees}
-          categories={all.filter((l) => l.kind === "employee_category")}
-          departments={all.filter((l) => l.kind === "department")}
-          designations={all.filter((l) => l.kind === "designation")}
-          teams={all.filter((l) => l.kind === "team")}
-          locations={locations}
           perms={perms}
         />
       );

@@ -32,7 +32,9 @@ import {
   updateStaff,
   createWorker,
   updateWorker,
+  updateMyProfile,
 } from "@/lib/hr/masters-actions";
+import { SELF_SECTION_KEYS } from "@/lib/hr/self-profile";
 import { getPersonChildren } from "./person-children";
 import { fmtMoney } from "@/lib/format";
 import { DataTable } from "@/components/ui/data-table";
@@ -619,6 +621,7 @@ export default function PersonClient({
   canCreate = false,
   canExport = false,
   canDelete = false,
+  selfRow,
 }: {
   kind: PersonKind;
   rows: PersonRow[];
@@ -636,6 +639,13 @@ export default function PersonClient({
   canCreate?: boolean;
   canExport?: boolean;
   canDelete?: boolean;
+  /**
+   * MY PROFILE (user 2026-10-01): a regular staff member's OWN record. The
+   * screen opens on its read-only page; Edit offers only the personal sections
+   * (`SELF_SECTION_KEYS`) and saves through `updateMyProfile`, which writes
+   * only those fields to the caller's own row — no list, no New, no Delete.
+   */
+  selfRow?: PersonRow;
 }) {
   const isWorker = kind === "worker";
   const copy = COPY[kind];
@@ -948,7 +958,9 @@ export default function PersonClient({
        * a worker's payload carries four more keys and goes to a different pair
        * of actions, each with its own Zod schema and its own permission check.
        */
-      const result = isWorker
+      const result = selfRow
+        ? await updateMyProfile(form, children)
+        : isWorker
         ? editId
           ? await updateWorker(editId, form as WorkerInput, children)
           : await createWorker(form as WorkerInput, children)
@@ -956,7 +968,7 @@ export default function PersonClient({
           ? await updateStaff(editId, form, children)
           : await createStaff(form, children);
       if (result.ok) {
-        success(`${copy.entity} ${editId ? "updated" : "created"}.`);
+        success(selfRow ? "Profile updated." : `${copy.entity} ${editId ? "updated" : "created"}.`);
         cancel();
         router.refresh();
       } else {
@@ -1814,7 +1826,10 @@ export default function PersonClient({
    */
   useCreateIntent(openAdd);
 
-  const railSections = personSections(kind);
+  // My Profile shows only the personal rows; HR's sections are not offered.
+  const railSections = selfRow
+    ? personSections(kind).filter((s) => SELF_SECTION_KEYS.has(s.key))
+    : personSections(kind);
 
   const validity = sectionValidity({
     sections: railSections.map((s) => ({ key: s.key })),
@@ -3091,6 +3106,9 @@ export default function PersonClient({
                     id="st-email"
                     type="email"
                     value={form.email ?? ""}
+                    // On My Profile the email is how the login finds this
+                    // record, so it is HR's to change (lib/hr/self-profile.ts).
+                    readOnly={!!selfRow}
                     onChange={(e) => set({ email: e.target.value || null })}
                   />
                 </Field>
@@ -4544,6 +4562,27 @@ export default function PersonClient({
    * one now, and a hook added below it would run on one render and be skipped
    * on the next. `npm run check:hooks` is the gate.
    */
+  // MY PROFILE: the person's own record, read-only, with Edit into the
+  // personal sections above. No Back — there is no list behind it.
+  if (selfRow && !showForm) {
+    return (
+      <PersonProfileView
+        key={selfRow.id}
+        kind={kind}
+        entity={copy.entity}
+        title="My Profile"
+        row={selfRow as unknown as Record<string, unknown> & { id: string }}
+        designations={designations}
+        departments={departments}
+        locations={locations}
+        categories={categories}
+        divisions={divisions}
+        banks={banks}
+        onEdit={() => openEdit(selfRow)}
+      />
+    );
+  }
+
   if (viewing && !showForm) {
     return (
       <PersonProfileView
@@ -4648,7 +4687,7 @@ export default function PersonClient({
         >
           <div className="flex shrink-0 items-baseline gap-2">
             <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-              {editId ? `Edit ${copy.entity}` : `New ${copy.entity}`}
+              {selfRow ? "Edit Profile" : editId ? `Edit ${copy.entity}` : `New ${copy.entity}`}
             </dt>
             <dd className="m-0 text-sm font-semibold text-foreground">
               {(editId && form.name) || "—"}

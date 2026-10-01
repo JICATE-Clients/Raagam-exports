@@ -144,6 +144,7 @@ export function PersonProfileView({
   banks,
   onBack,
   onEdit,
+  title,
 }: {
   kind: PersonKind;
   entity: string;
@@ -154,8 +155,12 @@ export function PersonProfileView({
   categories: Named[];
   divisions: Named[];
   banks: Named[];
-  onBack: () => void;
-  onEdit: () => void;
+  /** Each button is drawn only when given. My Profile passes `onEdit` but no
+   *  `onBack` — there is no list behind a person's own record. */
+  onBack?: () => void;
+  onEdit?: () => void;
+  /** Heading override — "My Profile" on a staff member's own record. */
+  title?: string;
 }) {
   /**
    * The child lists load when the page opens, as they do for the editor.
@@ -374,27 +379,40 @@ export function PersonProfileView({
     <div className="space-y-4">
       {/* ── page header: back, title, breadcrumb, edit ─────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onBack}
-          aria-label="Back to list"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+        {onBack && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onBack}
+            aria-label="Back to list"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        )}
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold tracking-tight text-foreground">
-            {entity} Details
+            {title ?? `${entity} Details`}
           </h1>
           <p className="text-xs text-muted-foreground">
-            HR &amp; Payroll / {entity === "Staff" ? "Staff" : "Workers"} /{" "}
-            <span className="text-foreground">{entity} Details</span>
+            {title ? (
+              <>
+                HR &amp; Payroll / <span className="text-foreground">{title}</span>
+              </>
+            ) : (
+              <>
+                HR &amp; Payroll / {entity === "Staff" ? "Staff" : "Workers"} /{" "}
+                <span className="text-foreground">{entity} Details</span>
+              </>
+            )}
           </p>
         </div>
-        <Button size="md" onClick={onEdit}>
-          <Pencil className="mr-1.5 h-4 w-4" />
-          Edit {entity.toLowerCase()}
-        </Button>
+        {onEdit && (
+          <Button size="md" onClick={onEdit}>
+            <Pencil className="mr-1.5 h-4 w-4" />
+            {/* My Profile's button names the person's own record, not the master. */}
+            {title ? "Edit profile" : `Edit ${entity.toLowerCase()}`}
+          </Button>
+        )}
       </div>
 
       {loadError && (

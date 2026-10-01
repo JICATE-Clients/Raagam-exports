@@ -3,6 +3,7 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolveMyStaffId } from "./self-service";
 import { getPreviewedRoleIds, getRolesPreview } from "./role-simulation";
 import { screenOfPath, type CatalogScreen } from "@/lib/permissions/screen-catalog";
 import {
@@ -100,6 +101,15 @@ async function loadAppUser(): Promise<AppUser | null> {
     phone: profile?.phone ?? user.phone ?? null,
     fullName: profile?.full_name ?? null,
     mustChangePassword: profile?.must_change_password === true,
+    /* "My Profile" (user 2026-10-01): a regular staff member — HR access but
+       no HR role — gets their own record instead of the Staff list. Only
+       looked up for a login that can open HR at all (lib/auth/self-service.ts). */
+    myStaffId: await resolveMyStaffId({
+      userId: user.id,
+      email: profile?.email ?? user.email ?? null,
+      isSuperAdmin: realIsSuperAdmin,
+      permissions,
+    }),
     isSuperAdmin: realIsSuperAdmin,
     realIsSuperAdmin,
     simulatedRoleIds: [],

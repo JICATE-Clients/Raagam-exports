@@ -7,7 +7,7 @@ import { Plus } from "lucide-react";
 import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
 import { useAppUser } from "@/lib/auth/permission-context";
 import type { StoreNavLink } from "@/components/shell/sidebar-types";
-import { SECTION_ACTIONS } from "@/components/shell/nav";
+import { allowedSectionActions } from "@/lib/nav/section-action-access";
 import { createHref } from "@/components/shell/nav-search";
 import { useRecent } from "@/lib/use-recent";
 import { buttonClasses } from "@/components/ui/button";
@@ -98,9 +98,10 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
 
   // The create action of the screen in view — "New Garment Order" on Order
   // Entry. Only a "New …" action: Import/Export are list operations, not the
-  // one thing this button promises. No action, no button.
+  // one thing this button promises. No action, no button — and no permission,
+  // no button: "+ New Staff" for a login holding only View + Edit (2026-10-01).
   const newAction = activeHref
-    ? SECTION_ACTIONS[activeHref]?.find((a) => /^new\b/i.test(a))
+    ? allowedSectionActions(user, activeHref).find((a) => /^new\b/i.test(a))
     : undefined;
 
   // Records only (an order, a PO) — a screen is already listed above, so
