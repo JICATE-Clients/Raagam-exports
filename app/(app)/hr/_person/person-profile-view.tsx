@@ -144,6 +144,9 @@ export function PersonProfileView({
   banks,
   onBack,
   onEdit,
+  loadChildren,
+  title,
+  breadcrumb,
 }: {
   kind: PersonKind;
   entity: string;
@@ -154,8 +157,18 @@ export function PersonProfileView({
   categories: Named[];
   divisions: Named[];
   banks: Named[];
-  onBack: () => void;
-  onEdit: () => void;
+  /** Omitted on My Profile: there is no list to go back to and nothing to edit. */
+  onBack?: () => void;
+  onEdit?: () => void;
+  /**
+   * Where the child lists come from. Defaults to the HR action, which needs
+   * hr_payroll:view; My Profile passes `loadMyStaffChildren`, which reads the
+   * caller's OWN record and takes no id (lib/hr/my-profile.ts).
+   */
+  loadChildren?: () => Promise<Children>;
+  /** Heading and breadcrumb, when the page is not HR ▸ Staff / Workers. */
+  title?: string;
+  breadcrumb?: string;
 }) {
   /**
    * The child lists load when the page opens, as they do for the editor.
@@ -167,7 +180,7 @@ export function PersonProfileView({
   const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    getPersonChildren(kind, row.id)
+    (loadChildren ? loadChildren() : getPersonChildren(kind, row.id))
       .then((c) => {
         if (live) setChildren(c);
       })
@@ -180,7 +193,7 @@ export function PersonProfileView({
     return () => {
       live = false;
     };
-  }, [kind, row.id]);
+  }, [kind, row.id, loadChildren]);
 
   const name = str(row, "name") ?? "";
   const photo = str(row, "photo_url");
@@ -374,27 +387,35 @@ export function PersonProfileView({
     <div className="space-y-4">
       {/* ── page header: back, title, breadcrumb, edit ─────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onBack}
-          aria-label="Back to list"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+        {onBack && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onBack}
+            aria-label="Back to list"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        )}
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold tracking-tight text-foreground">
-            {entity} Details
+            {title ?? `${entity} Details`}
           </h1>
           <p className="text-xs text-muted-foreground">
-            HR &amp; Payroll / {entity === "Staff" ? "Staff" : "Workers"} /{" "}
-            <span className="text-foreground">{entity} Details</span>
+            {breadcrumb ?? (
+              <>
+                HR &amp; Payroll / {entity === "Staff" ? "Staff" : "Workers"} /{" "}
+                <span className="text-foreground">{entity} Details</span>
+              </>
+            )}
           </p>
         </div>
-        <Button size="md" onClick={onEdit}>
-          <Pencil className="mr-1.5 h-4 w-4" />
-          Edit {entity.toLowerCase()}
-        </Button>
+        {onEdit && (
+          <Button size="md" onClick={onEdit}>
+            <Pencil className="mr-1.5 h-4 w-4" />
+            Edit {entity.toLowerCase()}
+          </Button>
+        )}
       </div>
 
       {loadError && (

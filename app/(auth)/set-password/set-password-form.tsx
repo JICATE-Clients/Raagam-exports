@@ -24,7 +24,7 @@ export function SetPasswordForm({ email }: { email: string | null }) {
         setError(res.error);
         return;
       }
-      router.replace("/");
+      router.replace("/start");
       router.refresh();
     });
   }

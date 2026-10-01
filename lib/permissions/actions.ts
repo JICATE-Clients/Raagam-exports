@@ -32,18 +32,24 @@ export async function saveRoleAccess(input: {
   name: string;
   description?: string | null;
   tree: PermissionTree;
+  /** 0666: where this role's holders land after signing in; null = no preference. */
+  homePath?: string | null;
 }): Promise<Result<{ roleId: string }>> {
   const creating = !input.roleId;
   if (!(await can("system_admin", creating ? "create" : "edit"))) return { ok: false, error: "Forbidden" };
   const name = input.name.trim();
   if (!name) return { ok: false, error: "Give the role a name." };
 
+  // The DB refuses anything but an app path (0666's CHECK); trimming here only
+  // turns a blank choice into "no preference".
+  const home_path = input.homePath?.trim() || null;
+
   const s = await createClient();
   let roleId = input.roleId ?? null;
   if (creating) {
     const { data, error } = await s
       .from("roles")
-      .insert({ name, description: input.description?.trim() || null, is_system: false })
+      .insert({ name, description: input.description?.trim() || null, is_system: false, home_path })
       .select("id")
       .single();
     if (error) return { ok: false, error: error.code === "23505" ? `A role named ${name} already exists.` : error.message };
@@ -51,7 +57,7 @@ export async function saveRoleAccess(input: {
   } else {
     const { error } = await s
       .from("roles")
-      .update({ name, description: input.description?.trim() || null })
+      .update({ name, description: input.description?.trim() || null, home_path })
       .eq("id", roleId as string);
     if (error) return { ok: false, error: error.code === "23505" ? `A role named ${name} already exists.` : error.message };
   }

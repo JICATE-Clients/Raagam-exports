@@ -18,6 +18,8 @@ export interface AccessRole {
   description: string | null;
   is_system: boolean;
   created_at: string | null;
+  /** 0666: where holders land after signing in; null = no preference. */
+  home_path: string | null;
   tree: PermissionTree;
   /** How many users hold it (any location). */
   holders: number;
@@ -76,7 +78,7 @@ export interface AccessControlData {
 export async function loadAccessControl(): Promise<AccessControlData> {
   const s = await createClient();
   const [rolesR, permsR, rpR, rspR, profR, urR, uaR, upR, uspR, ualR, locR] = await Promise.all([
-    s.from("roles").select("id, name, description, is_system, created_at").order("name"),
+    s.from("roles").select("id, name, description, is_system, created_at, home_path").order("name"),
     s.from("permissions").select("id, module, action"),
     s.from("role_permissions").select("role_id, permission_id"),
     s.from("role_screen_permissions").select("role_id, module, screen_key, action"),

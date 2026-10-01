@@ -15,7 +15,9 @@ type Method = "password" | "otp";
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const redirectTo = params.get("redirect") || "/";
+  // "/start" decides the landing page (role Home page / My Profile / Dashboard);
+  // a link that already names a page goes straight there.
+  const redirectTo = params.get("redirect") || "/start";
 
   const [method, setMethod] = useState<Method>("password");
   const [email, setEmail] = useState("");

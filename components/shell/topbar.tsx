@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bug, ChevronDown, LogOut, Search } from "lucide-react";
+import { Bug, ChevronDown, LogOut, Search, UserRound } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
 import { setCurrentLocation } from "@/lib/auth/location-actions";
 import { setRolePreview } from "@/lib/auth/role-simulation-actions";
@@ -397,6 +397,23 @@ export function Topbar({
                       : user.roleNames.join(", ") || "No roles assigned"}
                   </p>
                 </div>
+                {/* MY PROFILE (user 2026-10-01) — the signed-in person's own
+                    HR staff record, for every login and with no permission
+                    needed (app/(app)/me). `router.push` rather than a bare
+                    link so the menu closes the same way the rows below do. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/me");
+                  }}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded px-3 py-2 text-sm",
+                    "text-foreground hover:bg-surface-muted",
+                  )}
+                >
+                  <UserRound className="h-4 w-4" /> My Profile
+                </button>
                 {/* WHAT HAPPENED TO THE BUG I REPORTED. The widget takes
                     reports and says nothing back; this is the vendor's
                     reporter-facing portal, keyed on the same email the SDK

@@ -26,6 +26,8 @@ import { deleteRole, removeUserAccess, saveRoleAccess, saveUserAccess } from "@/
 import { Combobox } from "@/components/ui/combobox";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Toggle } from "@/components/ui/toggle";
+import { Select } from "@/components/ui/select";
+import { NAV } from "@/components/shell/nav";
 import { deleteUserLogin } from "@/lib/users/actions";
 import type { AccessControlData, AccessRole, AccessUser } from "@/lib/permissions/service";
 
@@ -72,6 +74,8 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   const [roleSystem, setRoleSystem] = useState(false);
   const [roleName, setRoleName] = useState("");
   const [roleDesc, setRoleDesc] = useState("");
+  /** 0666: the page this role's holders land on after signing in ("" = none). */
+  const [roleHome, setRoleHome] = useState("");
   const [roleTree, setRoleTree] = useState<Tree>({});
   const [roleTab, setRoleTab] = useState<string>("details");
   const [roleDirty, setRoleDirty] = useState(false);
@@ -106,6 +110,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
     setRoleSystem(r?.is_system ?? false);
     setRoleName(r?.name ?? "");
     setRoleDesc(r?.description ?? "");
+    setRoleHome(r?.home_path ?? "");
     setRoleTree(r?.tree ?? {});
     setRoleTab(r ? "permissions" : "details");
     setRoleDirty(false);
@@ -120,7 +125,13 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
       return;
     }
     start(async () => {
-      const res = await saveRoleAccess({ roleId, name: roleName, description: roleDesc, tree: roleTree });
+      const res = await saveRoleAccess({
+        roleId,
+        name: roleName,
+        description: roleDesc,
+        tree: roleTree,
+        homePath: roleHome || null,
+      });
       if (res.ok) {
         success(roleId ? "Role saved" : "Role created");
         setRoleOpen(false);
@@ -509,6 +520,28 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
                         readOnly={roleSystem}
                         onChange={(e) => { setRoleName(e.target.value); setRoleDirty(true); }}
                       />
+                    </Field>
+                    {/* HOME PAGE (0666, user 2026-10-01): where this role's
+                        holders land after signing in — `/start` reads it. Blank
+                        is no preference (Dashboard, or My Profile for someone
+                        whose roles open no module). The top-level modules of the
+                        sidebar plus My Profile: a deep screen is reached from its
+                        module, and a list that grew with every screen would be
+                        unreadable. */}
+                    <Field label="Home page" w="term" htmlFor="ac-role-home">
+                      <Select
+                        id="ac-role-home"
+                        value={roleHome}
+                        onChange={(e) => { setRoleHome(e.target.value); setRoleDirty(true); }}
+                      >
+                        <option value="">Default (Dashboard)</option>
+                        <option value="/me">My Profile</option>
+                        {NAV.filter((n) => n.href !== "/").map((n) => (
+                          <option key={n.href} value={n.href}>
+                            {n.label}
+                          </option>
+                        ))}
+                      </Select>
                     </Field>
                   </FieldRow>
                   <Field label="Description" htmlFor="ac-role-desc">
