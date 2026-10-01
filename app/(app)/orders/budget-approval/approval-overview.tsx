@@ -27,7 +27,8 @@ import {
   type BudgetTotals,
   type Refusal,
 } from "@/lib/orders/budget/totals";
-import { MARGIN_TARGET_PCT, bucketLabelOfSource, perPiece } from "@/lib/orders/budget/breakdown";
+import { MARGIN_TARGET_PCT, bucketLabelOfSource, perPiece, varianceRows } from "@/lib/orders/budget/breakdown";
+import { VarianceTable } from "@/components/approvals/order-approval-card";
 import { budgetStatusText, budgetStatusTone, type BudgetStatus } from "@/lib/orders/budget/types";
 import type { OrderApprovalCard } from "@/lib/approvals/order-approval-cards";
 import type { EventAction, TimelineRow } from "@/lib/approvals/types";
@@ -198,6 +199,16 @@ export function ApprovalOverview({
 
       {/* ═══ MIDDLE — tiles, the ring, the cost lines ═══ */}
       <div className="min-w-0 space-y-3 xl:col-span-6">
+        {/* CLICK ANYWHERE ON THE BUDGET OPENS THE ORDER'S FULL DATA
+            (budgetupdate.md §7D) — tiles, ring and cost lines, as the phone
+            card's budget block does. The pointer's way in only: the real
+            <button> in the left card ("View full order data") is the
+            keyboard's and the screen reader's, so this is never mouse-only.
+            A tap on a ring colour stops at the chart (it picks the colour). */}
+        <div
+          className={cn("space-y-3", soId && "cursor-pointer")}
+          onClick={soId ? () => setFullOpen(true) : undefined}
+        >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Tile label="Sales value" value={figText(totals.sales)} sub={perPcText(perPiece(totals.sales, qty))} tone="text-primary" />
           <Tile label="Total cost" value={figText(totals.cost)} sub={perPcText(perPiece(totals.cost, qty))} />
@@ -264,6 +275,8 @@ export function ApprovalOverview({
           </CardBody>
         </Card>
 
+        </div>
+
         {children}
       </div>
 
@@ -306,6 +319,19 @@ export function ApprovalOverview({
             <p className="text-[11px] text-muted-foreground">Per piece sold — the order quantity.</p>
           </CardBody>
         </Card>
+
+        {/* V0 vs PROPOSED, BY BUCKET (budgetupdate.md §7C: "a right-aligned
+            financial matrix comparing the baseline approved budget (V0)
+            against the proposed budget") — the phone card's own table, per
+            piece sold, on a revision only. The desktop page dropped it when
+            the card went; the by-cost-head comparison below the cost lines
+            answers a different question (which lines moved). */}
+        {bd?.ok && bd.original && (
+          <VarianceTable
+            rows={varianceRows(bd.original, bd.current, card?.v0Qty ?? null, qty)}
+            revNo={card?.revision?.revNo ?? null}
+          />
+        )}
 
         {/* THE OVERRIDE, SAID BEFORE THE CLICK — moved here from the action
             bar, which now sits in the page header (`overrideNote={false}`). */}

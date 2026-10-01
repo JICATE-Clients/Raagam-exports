@@ -1451,13 +1451,47 @@ function sliceRequirement(
   // `applied = 0`, but a Wastage of 150 still has to refuse there — two columns
   // side by side, one answering and one refusing the same row, reads as the
   // BEFORE figure being fine and only the AFTER one being broken.
-  if (wastage < 0 || wastage > 100) return { refused: "Wastage must be between 0 and 100" };
+  //
+  // SIGNED SINCE 0663 (client 2026-09-30, budgetupdate.md §6: "+5.00% or
+  // -5.00%"). The floor is -50: a deeper cut is a typo far more often than an
+  // allowance, and it is the database's floor too.
+  if (wastage < EXCESS_MIN_PCT || wastage > EXCESS_MAX_PCT) {
+    return { refused: `Excess must be between ${EXCESS_MIN_PCT} and ${EXCESS_MAX_PCT}` };
+  }
 
   const qty = num(slice.qty) ?? 0;
-  return ceilToPrecision(
-    ((qty * items) / pieces) * (1 + applied / 100),
-    uomPrecision(line.decimals),
-  );
+  return roundForUom(((qty * items) / pieces) * (1 + applied / 100), line.decimals);
+}
+
+/** The Excess % a line or slice may carry — 0663's CHECK, stated once. */
+export const EXCESS_MIN_PCT = -50;
+export const EXCESS_MAX_PCT = 100;
+
+/**
+ * ROUND A MATERIAL QUANTITY FOR ITS UOM (client 2026-09-30,
+ * budgetupdate.md §6: "Whole-unit UOMs (Pcs, Gross, Pack, Box, Cone, Roll)
+ * — standard rounding `Math.round()`; measured UOMs (Mtrs, Yds, Kgs) keep 2
+ * decimals").
+ *
+ * A UOM whose `decimal_places_allowed` is 0 is WHOLE — 0663/0664 set it on
+ * exactly the codes `WHOLE_UNIT_UOM_CODES` (process-loss.ts) lists, and the
+ * Stock Units master edits it — so 16.67 Gross is 17 and 16.2 is 16. HALF-UP,
+ * not up: the same rounding `roundRequirement` has applied to a line with a
+ * process loss since the client's 2026-08-29 example, so a line reads the
+ * same whether or not it carries a process. Before this a line WITHOUT a
+ * process kept "16.67 Gross", which is the gap the spec names.
+ *
+ * Everything else keeps `ceilToPrecision` at `uomPrecision`'s floor of 2 —
+ * UP, because short is the failure a buffer exists to prevent. That floor is
+ * why a 0 must be honoured at a call site that means it (lib/uom/convert.ts);
+ * this is that call site, and it never reaches the Fabric BOM or a display.
+ */
+export function roundForUom(value: number, decimals: number | null | undefined): number {
+  if (!Number.isFinite(value)) return value;
+  // `toFixed(6)` first: 5321.5 reached through a multiplication can arrive as
+  // 5321.499999999999, and a bare Math.round would take it DOWN.
+  if (decimals === 0) return Math.round(Number(value.toFixed(6)));
+  return ceilToPrecision(value, uomPrecision(decimals));
 }
 
 export function requirementFor(line: BomLineInput, slice: ProductionSlice): number | Refusal {
@@ -1679,6 +1713,14 @@ export function toPurchaseSlices(
   return quantities.map((q) => {
     const v = num(q);
     if (v == null) return null;
+    /* A WHOLE purchase unit (Box, Cone, … — `decimal_places_allowed` 0) is
+       bought whole (`roundForUom`: half-up, the one rule for whole units); a
+       measured one keeps `toPurchaseQty`'s own rounding. MOQ and Round To
+       still apply after this, as before. */
+    if (decimals === 0) {
+      const exact = toPurchaseQty(v, conversion, 6);
+      return exact == null ? null : roundForUom(exact, 0);
+    }
     return toPurchaseQty(v, conversion, uomPrecision(decimals));
   });
 }

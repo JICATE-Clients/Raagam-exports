@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { staffNames } from "@/lib/people/order-people";
 import { buildGosSheet, type GosSource } from "./sheet";
 import type { GosSheet, Refusal } from "./types";
 
@@ -342,12 +343,6 @@ async function sizeNameMap(): Promise<Record<string, string>> {
  */
 async function merchandiserName(id: string | null): Promise<string | null> {
   if (!id) return null;
-  const s = await createClient();
-  const { data, error } = await s
-    .from("employees")
-    .select("name")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw new Error(`Could not load the merchandiser: ${error.message}`);
-  return (data as { name: string | null } | null)?.name ?? null;
+  // HR ▸ Staff since 0674, read through the narrow people reader.
+  return (await staffNames([id])).get(id) ?? null;
 }

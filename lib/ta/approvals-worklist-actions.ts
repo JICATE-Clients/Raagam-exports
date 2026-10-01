@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { today, addDays } from "@/lib/calendar";
+import { approvalFacts, chainOnSent, issueApprovalLink } from "./approval-links-service";
+import type { MarkSentLinkChoice } from "./approval-links-types";
 
 /**
  * Writes for the Approvals Worklist (doc/approval.md §4). Same shape as
@@ -15,7 +17,8 @@ import { today, addDays } from "@/lib/calendar";
  * that — see its own header.
  */
 
-type Result = { ok: true; warning?: string } | { ok: false; error: string };
+/** `linkNote` (0672): what happened to the buyer link Mark Sent sent, for the toast. */
+type Result = { ok: true; warning?: string; linkNote?: string } | { ok: false; error: string };
 
 const LIST_PATH = "/orders/ta-followup";
 const TABLE = "garment_order_amendment_ta_approvals";
@@ -65,11 +68,15 @@ export async function markApprovalSent(
   sentTime?: string,
   proofReference?: string,
   proof?: { path: string; mimeType: string | null; sizeBytes: number | null },
+  link?: MarkSentLinkChoice,
 ): Promise<Result> {
   if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
   if (!id) return { ok: false, error: "No approval given" };
   const date = sentDate?.trim() || today();
   const reference = proofReference?.trim() || null;
+  if (link && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(link.email.trim())) {
+    return { ok: false, error: "Enter a valid buyer email, or untick “Email approval link to buyer”." };
+  }
 
   const s = await createClient();
 
@@ -126,13 +133,51 @@ export async function markApprovalSent(
   }
   const { error } = await s.from(TABLE).update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };
+
+  // THE BUYER LINK, IN THE SAME STEP (user 2026-10-01, screenshot 3195: "where
+  // is email … fetch directly from master"). The dialog prefills the buyer
+  // from the Customer master's contacts; ticking it here marks Sent AND emails
+  // the approval link — the dispatch proof just saved is shown on the buyer's
+  // page. With no explicit choice, a CHAIN from the previous approval (its
+  // link approved with "send the next automatically") sends this one's link.
+  // Best-effort: the row is already Sent, so a link failure is reported, never
+  // allowed to undo it.
+  let linkNote: string | undefined;
+  try {
+    const facts = await approvalFacts(s, id);
+    if (link && facts) {
+      const res = await issueApprovalLink(s, facts, {
+        email: link.email.trim(),
+        name: link.name.trim() || null,
+        message: null,
+        files: [],
+        autoNext: link.autoNext,
+      });
+      linkNote = !res.ok
+        ? `Marked sent, but the buyer link failed: ${res.error}`
+        : res.emailed
+          ? `Approval link emailed to ${link.email.trim()}`
+          : (res.emailNote ?? undefined);
+    } else if (!link) {
+      const chained = await chainOnSent(s, id);
+      if (chained) {
+        linkNote = chained.emailed
+          ? `Approval link emailed to ${chained.sentTo} (continuing the buyer's approvals)`
+          : `Approval link created for ${chained.sentTo} — email is not set up, send it from "Email buyer link".`;
+      }
+    }
+  } catch (e) {
+    linkNote = `Marked sent, but the buyer link failed: ${e instanceof Error ? e.message : "unknown error"}`;
+  }
+
   revalidatePath(LIST_PATH);
   return leadDays === null
     ? {
         ok: true,
         warning: `${appr?.name ?? "This approval"} has no Review Lead Days set for this customer — its Expected Approval Date was not updated. Set it on the customer's own Approvals tab.`,
+        linkNote,
       }
-    : { ok: true };
+    : { ok: true, linkNote };
 }
 
 export async function markApprovalApproved(id: string, receivedDate?: string): Promise<Result> {
@@ -143,7 +188,9 @@ export async function markApprovalApproved(id: string, receivedDate?: string): P
   const s = await createClient();
   const { error } = await s
     .from(TABLE)
-    .update({ actual_received_date: date, status: "approved" })
+    // decided_via (0668): a buyer's email-link answer stamps 'link'; a staff
+    // member marking it here stamps 'staff', so the row says which it was.
+    .update({ actual_received_date: date, status: "approved", decided_via: "staff", decided_at: new Date().toISOString() })
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath(LIST_PATH);

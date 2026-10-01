@@ -254,8 +254,13 @@ export function AllocationSheet({
     remarks,
     ...patternDetailsPayload(pattern),
   });
-  const commit = () =>
-    mode === "edit" && latest ? updateCadAllocation(latest.id, payload()) : allocateCad(payload());
+  // The order id arrives at WRITE time (cad-pending.ts): on a NEW order the
+  // step is parked before the order exists, and the order's first Save hands
+  // this the id it just got back. The sheet's own Save uses the row's.
+  const commit = (orderId: string = row.garment_order_id) =>
+    mode === "edit" && latest
+      ? updateCadAllocation(latest.id, payload())
+      : allocateCad({ ...payload(), garment_order_id: orderId });
 
   // INLINE, THE ORDER'S SAVE WRITES THIS (user 2026-09-30, screenshot 3136).
   // Parked only once something was changed: an untouched Assign form is not a
@@ -513,7 +518,7 @@ export function DispatchSheet({
         row={row}
         extra={
           <Fact label="Pattern Maker">
-            {version.pattern_maker_name ?? "—"} · {cadTypeLabel(version.cad_type)}
+            {version.pattern_maker_name ?? "Not assigned"} · {cadTypeLabel(version.cad_type)}
           </Fact>
         }
       />
@@ -837,7 +842,7 @@ function VersionCard({ v, onError }: { v: CadVersion; onError: (e: string | null
         {/* No CAD Type suffix ("Initial Fit Pattern") — removed from the View
             (spec 2026-09-26); the type is still stored and still on the
             Assign form. */}
-        <Fact label="Pattern Maker">{v.pattern_maker_name ?? "—"}</Fact>
+        <Fact label="Pattern Maker">{v.pattern_maker_name ?? "Not assigned"}</Fact>
         <Fact label="Assigned">
           {fmtDate(v.allocation_date)} · target {fmtDate(v.target_date)}
         </Fact>

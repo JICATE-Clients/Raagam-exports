@@ -32,18 +32,24 @@ export async function saveRoleAccess(input: {
   name: string;
   description?: string | null;
   tree: PermissionTree;
+  /** 0670: where this role's holders land after signing in; null = no preference. */
+  homePath?: string | null;
 }): Promise<Result<{ roleId: string }>> {
   const creating = !input.roleId;
   if (!(await can("system_admin", creating ? "create" : "edit"))) return { ok: false, error: "Forbidden" };
   const name = input.name.trim();
   if (!name) return { ok: false, error: "Give the role a name." };
 
+  // The DB refuses anything but an app path (0670's CHECK); trimming here only
+  // turns a blank choice into "no preference".
+  const home_path = input.homePath?.trim() || null;
+
   const s = await createClient();
   let roleId = input.roleId ?? null;
   if (creating) {
     const { data, error } = await s
       .from("roles")
-      .insert({ name, description: input.description?.trim() || null, is_system: false })
+      .insert({ name, description: input.description?.trim() || null, is_system: false, home_path })
       .select("id")
       .single();
     if (error) return { ok: false, error: error.code === "23505" ? `A role named ${name} already exists.` : error.message };
@@ -51,7 +57,7 @@ export async function saveRoleAccess(input: {
   } else {
     const { error } = await s
       .from("roles")
-      .update({ name, description: input.description?.trim() || null })
+      .update({ name, description: input.description?.trim() || null, home_path })
       .eq("id", roleId as string);
     if (error) return { ok: false, error: error.code === "23505" ? `A role named ${name} already exists.` : error.message };
   }
@@ -78,6 +84,12 @@ export async function saveUserAccess(input: {
   active: boolean;
   note?: string | null;
   tree: PermissionTree;
+  /**
+   * 0665: the units this access reaches. OMITTED = leave them as they are —
+   * the one-click Status switch and the bulk on/off save only the flag, and
+   * must not wipe a person's units by not mentioning them.
+   */
+  locations?: { all: boolean; ids: string[] };
 }): Promise<Result> {
   if (!(await can("system_admin", "edit"))) return { ok: false, error: "Forbidden" };
   const email = input.email.trim().toLowerCase();
@@ -91,6 +103,17 @@ export async function saveUserAccess(input: {
     p_note: input.note?.trim() || null,
   });
   if (error) return { ok: false, error: error.message };
+
+  // After `save_user_permissions`, which creates the `user_access` row the
+  // locations hang off. One wholesale replace: the ticks ARE the stored set.
+  if (input.locations) {
+    const { error: locErr } = await s.rpc("save_user_access_locations", {
+      p_email: email,
+      p_all: input.locations.all,
+      p_locations: input.locations.all ? [] : input.locations.ids,
+    });
+    if (locErr) return { ok: false, error: locErr.message };
+  }
 
   await writeAudit({
     action: input.active ? "user_access.saved" : "user_access.deactivated",

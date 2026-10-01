@@ -17,6 +17,8 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { StatusToggle } from "@/components/ui/status-toggle";
+import { Toggle } from "@/components/ui/toggle";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -90,36 +92,49 @@ function RolePanel({
   /* No pre-filled role (users 2026-09-30 redesign): the old default picked the
      first role in the list, so "Assign" on an untouched form granted it. */
   const [roleId, setRoleId] = useState("");
-  const [locationId, setLocationId] = useState("");
+  /* LOCATIONS, PLURAL (client 2026-09-30, budgetupdate.md §1). "All
+     locations" is the NULL grant; otherwise one grant per ticked unit. */
+  const [allLocations, setAllLocations] = useState(true);
+  const [locationIds, setLocationIds] = useState<string[]>([]);
   /** The held role whose bin is asking "remove it?" — an inline confirm. */
   const [removingId, setRemovingId] = useState<string | null>(null);
   const locationName = (id: string | null) =>
     id ? (locations.find((l) => l.id === id)?.name ?? "Unknown location") : "Any location";
 
-  /* LOCATION FIRST, THEN ROLE: the role list leaves out what this person
-     already holds AT the chosen location, so the form cannot offer a grant
-     that would only duplicate one. The same role elsewhere stays offered —
-     Merchandiser at Head Office and at Unit 2 are two real grants. */
-  const heldHere = new Set(
-    userRoles.filter((ur) => (ur.location_id ?? "") === locationId).map((ur) => ur.role_id),
-  );
-  const offered = roles.filter((r) => !heldHere.has(r.id));
+  /* LOCATIONS FIRST, THEN ROLE: a role is offered unless this person already
+     holds it at EVERY chosen unit — the form never offers a grant that would
+     only duplicate what is there. The same role elsewhere stays offered:
+     Merchandiser at Head Office and at Unit 2 are two real grants.
+     `targets` are the location keys a submit writes ("" = all locations). */
+  const targets = allLocations ? [""] : locationIds;
+  const holds = (rid: string, loc: string) =>
+    userRoles.some((ur) => ur.role_id === rid && (ur.location_id ?? "") === loc);
+  const offered = roles.filter((r) => targets.length > 0 && !targets.every((loc) => holds(r.id, loc)));
 
   function handleAssign(e: React.FormEvent) {
     e.preventDefault();
-    if (!roleId || heldHere.has(roleId)) return;
+    if (!roleId) return;
+    const todo = targets.filter((loc) => !holds(roleId, loc));
+    if (todo.length === 0) return;
     startTransition(async () => {
-      const result = await assignRole(
-        userId,
-        roleId,
-        locationId || null,
-      );
-      if (result.ok) {
-        success("Role assigned.");
+      // One grant per unit, through the same action a single grant always used.
+      let done = 0;
+      let firstError: string | null = null;
+      for (const loc of todo) {
+        const result = await assignRole(userId, roleId, loc || null);
+        if (result.ok) done++;
+        else firstError ??= result.error;
+      }
+      const skipped = targets.length - todo.length;
+      if (done) {
+        success(
+          `Role assigned${targets.length > 1 || !allLocations ? ` at ${done} ${done === 1 ? "unit" : "units"}` : ""}` +
+            `${skipped ? ` (${skipped} already held)` : ""}${firstError ? ` — ${todo.length - done} failed: ${firstError}` : ""}.`,
+        );
         setRoleId("");
         router.refresh();
       } else {
-        toastError(result.error);
+        toastError(firstError ?? "Nothing was assigned.");
       }
     });
   }
@@ -207,23 +222,26 @@ function RolePanel({
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Assign another
         </p>
-        <div>
-          <Label htmlFor="ar-loc">Location</Label>
-          <Select
-            id="ar-loc"
-            value={locationId}
-            onChange={(e) => {
-              setLocationId(e.target.value);
+        <div className="space-y-2">
+          <Toggle
+            label="All locations"
+            checked={allLocations}
+            onChange={(v) => {
+              setAllLocations(v);
               setRoleId("");
             }}
-          >
-            <option value="">Any location</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </Select>
+          />
+          {!allLocations && (
+            <MultiSelect
+              label="Locations *"
+              options={locations.map((l) => ({ id: l.id, label: l.name }))}
+              values={locationIds}
+              onChange={(next) => {
+                setLocationIds(next);
+                setRoleId("");
+              }}
+            />
+          )}
         </div>
         <div>
           <Label htmlFor="ar-role">Role *</Label>
@@ -233,20 +251,23 @@ function RolePanel({
             onChange={(e) => setRoleId(e.target.value)}
             required
           >
-            <option value="">{offered.length ? "Pick a role" : "Holds every role here"}</option>
+            <option value="">
+              {targets.length === 0 ? "Pick a location first" : offered.length ? "Pick a role" : "Holds every role here"}
+            </option>
             {offered.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
               </option>
             ))}
           </Select>
-          {heldHere.size > 0 && (
+          {roleId && targets.some((loc) => holds(roleId, loc)) && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Already held at {locationName(locationId || null)}:{" "}
-              {userRoles
-                .filter((ur) => (ur.location_id ?? "") === locationId)
-                .map((ur) => ur.role_name)
-                .join(", ")}
+              Already held at{" "}
+              {targets
+                .filter((loc) => holds(roleId, loc))
+                .map((loc) => locationName(loc || null))
+                .join(", ")}{" "}
+              — those are skipped.
             </p>
           )}
         </div>
@@ -255,7 +276,7 @@ function RolePanel({
             type="submit"
             variant="primary"
             size="sm"
-            disabled={isPending || !roleId}
+            disabled={isPending || !roleId || targets.length === 0}
           >
             {isPending ? "Assigning…" : "Assign Role"}
           </Button>
@@ -295,7 +316,10 @@ export default function UsersClient({
   const sel = useRowSelection();
   const [bulkRoleOpen, setBulkRoleOpen] = useState(false);
   const [bulkRoleId, setBulkRoleId] = useState("");
-  const [bulkLocationId, setBulkLocationId] = useState("");
+  /* Locations, plural (budgetupdate.md §1) — as in the Roles sheet. */
+  const [bulkAllLoc, setBulkAllLoc] = useState(true);
+  const [bulkLocIds, setBulkLocIds] = useState<string[]>([]);
+  const bulkTargets = bulkAllLoc ? [""] : bulkLocIds;
   const [managing, setManaging] = useState<ProfileRow | null>(null);
   const [origin, setOrigin] = useState<DOMRect | null>(null);
 
@@ -442,13 +466,14 @@ export default function UsersClient({
   const bulkAssignSkip = (r: UserRow): string | null => {
     if (!r.profile) return r.email ? null : "no email in HR";
     if (r.profile.is_super_admin) return "super admin";
-    const has = (rolesByUser[r.profile.id] ?? []).some(
-      (ur) => ur.role_id === bulkRoleId && (ur.location_id ?? "") === bulkLocationId,
+    const mine = rolesByUser[r.profile.id] ?? [];
+    const has = bulkTargets.every((loc) =>
+      mine.some((ur) => ur.role_id === bulkRoleId && (ur.location_id ?? "") === loc),
     );
     return has ? "already has this role" : null;
   };
   const bulkAssign = () => {
-    if (!bulkRoleId) return;
+    if (!bulkRoleId || bulkTargets.length === 0) return;
     let created = 0;
     const why = selectedRows.map(bulkAssignSkip).filter((w): w is string => !!w);
     if (why.length === selectedRows.length) {
@@ -471,7 +496,15 @@ export default function UsersClient({
           created++;
           if (!userId) return { ok: false, error: "The login was created but its id did not come back — reload and assign again." };
         }
-        return assignRole(userId, bulkRoleId, bulkLocationId || null);
+        // One grant per chosen unit, skipping the ones this person already holds.
+        const mine = rolesByUser[userId] ?? [];
+        let firstError: string | null = null;
+        for (const loc of bulkTargets) {
+          if (mine.some((ur) => ur.role_id === bulkRoleId && (ur.location_id ?? "") === loc)) continue;
+          const res = await assignRole(userId, bulkRoleId, loc || null);
+          if (!res.ok) firstError ??= res.error;
+        }
+        return firstError ? { ok: false, error: firstError } : { ok: true };
       },
       // A login made here has a password nobody was told — say so, or the admin
       // reads "assigned" as "they can sign in now".
@@ -772,23 +805,23 @@ export default function UsersClient({
             <Button type="button" variant="ghost" size="sm" onClick={() => setBulkRoleOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" variant="primary" size="sm" disabled={busy || !bulkRoleId} onClick={bulkAssign}>
+            <Button type="button" variant="primary" size="sm" disabled={busy || !bulkRoleId || bulkTargets.length === 0} onClick={bulkAssign}>
               {busy ? "Assigning…" : "Assign role"}
             </Button>
           </>
         }
       >
         <div className="space-y-3">
-          <div>
-            <Label htmlFor="bulk-loc">Location</Label>
-            <Select id="bulk-loc" value={bulkLocationId} onChange={(e) => setBulkLocationId(e.target.value)}>
-              <option value="">Any location</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </Select>
+          <div className="space-y-2">
+            <Toggle label="All locations" checked={bulkAllLoc} onChange={setBulkAllLoc} />
+            {!bulkAllLoc && (
+              <MultiSelect
+                label="Locations *"
+                options={locations.map((l) => ({ id: l.id, label: l.name }))}
+                values={bulkLocIds}
+                onChange={setBulkLocIds}
+              />
+            )}
           </div>
           <div>
             <Label htmlFor="bulk-role">Role *</Label>
@@ -801,11 +834,6 @@ export default function UsersClient({
               ))}
             </Select>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Anyone without a login yet gets one first (no mail is sent — use Send welcome mail when they should sign
-            in). Skipped: super admins, people with no email in HR, and anyone who already holds this role at this
-            location.
-          </p>
         </div>
       </Sheet>
     </div>

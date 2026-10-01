@@ -54,11 +54,13 @@ export const layoutLabel = (t: string | null | undefined) =>
 
 /**
  * The designations a Pattern Maker may hold (spec §2.1). Seeded as words by
- * 0628 into `config_lookups` kind 'designation'; an employee carries one as
- * their Designation. The database trigger checks the same
- * two names.
+ * 0628; since 0671 they are matched against the Designation a staff member
+ * holds on the HR staff master. The database trigger checks the same names.
  */
-export const PATTERN_MAKER_DESIGNATIONS = ["PATTERN MAKER", "CAD TECHNICIAN", "CAD DESIGNER"] as const;
+/* PATTERN MASTER is what HR ▸ Staff calls the role (0671, user 2026-10-01) —
+   the pattern makers now come from Staff, not the Employee master. The same
+   four words `cad_allocation_before_write` accepts. */
+export const PATTERN_MAKER_DESIGNATIONS = ["PATTERN MAKER", "PATTERN MASTER", "CAD TECHNICIAN", "CAD DESIGNER"] as const;
 
 // ============================================================================
 // PATTERN DETAILS (0632) — the spec's "Compact CAD Entry Details", on the version
@@ -269,7 +271,8 @@ export type CadDecision = {
 export type CadVersion = {
   id: string;
   version_no: number;
-  pattern_maker_id: string;
+  /** Null only on a version 0671 left unassigned (its test maker had no staff row). */
+  pattern_maker_id: string | null;
   pattern_maker_name: string | null;
   cad_type: CadType;
   allocation_date: string;
@@ -472,8 +475,8 @@ export function patternMakerOptions(
   if (items.length === 0) {
     hint =
       rows.length === 0
-        ? "No employees have been entered yet, so there is no pattern maker to assign."
-        : "No employee has the Designation PATTERN MAKER, CAD TECHNICIAN or CAD DESIGNER, so there is nobody to assign it to.";
+        ? "No staff have been entered yet. Add the pattern makers on HR & Payroll ▸ People ▸ Staff first."
+        : "No staff member has the Designation PATTERN MASTER, PATTERN MAKER, CAD TECHNICIAN or CAD DESIGNER, so there is nobody to assign it to. Set it on HR & Payroll ▸ People ▸ Staff.";
   }
   if (currentValue && !items.some((r) => r.id === currentValue)) {
     const held = rows.find((r) => r.id === currentValue);

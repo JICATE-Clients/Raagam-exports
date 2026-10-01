@@ -8,15 +8,13 @@ import { TaDepartmentAssignScreen } from "./ta-department-assign-screen";
 export default async function TaDepartmentAssignPage() {
   await requirePermission("orders", "view");
 
-  const [rows, data, canCreate, canEdit, canDelete, mCreate, mEdit] =
+  const [rows, data, canCreate, canEdit, canDelete] =
     await Promise.all([
       getTaDepartmentAssigns(),
       getTaDeptAssignFormData(),
       can("orders", "create"),
       can("orders", "edit"),
       can("orders", "delete"),
-      can("masters", "create"),
-      can("masters", "edit"),
     ]);
 
   return (
@@ -24,7 +22,6 @@ export default async function TaDepartmentAssignPage() {
       rows={rows}
       data={data}
       perms={{ canCreate, canEdit, canDelete }}
-      masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
     />
   );
 }

@@ -114,17 +114,21 @@ function iconForPath(pathname: string, modules: { href: string; icon: LucideIcon
  * the flag (the reload guard reads dirtiness on its own, not from here), so
  * nothing but the mark is removed.
  */
+/* THE STRIP IS THE WORK PANEL'S FIRST ROW (frame option A, 2026-10-01), not a
+   coloured band across the screen. It was solid `bg-primary` (client
+   2026-09-08) with white tab text; inside the white panel the colour moves to
+   the ONE place it means something — the open tab's blue text and underline. */
 const TAB =
-  "ty-tab group relative flex h-8 flex-none items-center gap-2 self-end whitespace-nowrap rounded-t-md text-[13px] transition-colors duration-150";
-const TAB_ACTIVE = "bg-surface font-bold text-foreground";
-const TAB_IDLE = "font-medium text-white/90 hover:bg-white/10";
+  "ty-tab group relative flex h-full flex-none items-center gap-2 whitespace-nowrap text-[13px] transition-colors duration-150";
+const TAB_ACTIVE = "font-bold text-primary shadow-[inset_0_-2px_0_var(--primary)]";
+const TAB_IDLE = "font-medium text-muted-foreground hover:bg-surface-muted hover:text-foreground";
 /** The hairline on a tab's right edge. */
 const TAB_DIVIDER =
-  "after:absolute after:right-0 after:top-1/2 after:h-4 after:w-px after:-translate-y-1/2 after:bg-white/30";
+  "after:absolute after:right-0 after:top-1/2 after:h-4 after:w-px after:-translate-y-1/2 after:bg-border";
 /** How far one scroll-arrow press moves the strip, roughly one tab. */
 const SCROLL_STEP = 180;
 const ARROW =
-  "flex h-7 w-6 flex-none items-center justify-center rounded text-white transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent";
+  "flex h-7 w-6 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent";
 
 export function WorkspaceTabsBar() {
   const pathname = usePathname();
@@ -262,9 +266,10 @@ export function WorkspaceTabsBar() {
     // asked for. `border-b border-border` dropped: a neutral grey edge
     // doesn't read against a saturated fill, same as the original gradient
     // bar never carried one either.
-    // `ty-chrome`: a gradient colour option (lib/appearance.ts) paints this
-    // bar; every solid option leaves it `bg-primary`.
-    <div className="ty-chrome flex h-9 flex-none items-center gap-1 bg-primary px-2">
+    // `ty-chrome` and `bg-primary` both GONE (2026-10-01): the strip is now the
+    // white work panel's first row, ruled off from the page beneath it, and a
+    // gradient colour option no longer paints it — see the TAB constants.
+    <div className="flex h-10 flex-none items-center gap-1 border-b border-border px-2">
       {showHome && (
         <button
           type="button"
@@ -307,7 +312,7 @@ export function WorkspaceTabsBar() {
       )}
       */}
 
-      {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-white/30" />}
+      {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-border" />}
 
       {/* Scroll left. Chrome, not a field: off the Tab path like every
           control here. */}
@@ -367,7 +372,7 @@ export function WorkspaceTabsBar() {
                 }}
                 className={cn(
                   "flex h-5 w-5 flex-none items-center justify-center rounded transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100",
-                  active ? "opacity-100 hover:bg-foreground/10" : "opacity-0 hover:bg-white/15",
+                  active ? "opacity-100 hover:bg-foreground/10" : "opacity-0 hover:bg-foreground/10",
                 )}
               >
                 <X className="h-3.5 w-3.5" />
@@ -396,10 +401,9 @@ export function WorkspaceTabsBar() {
           items={overflowItems}
           label="More open screens"
           trigger={<MoreHorizontal className="h-3.5 w-3.5" />}
-          // Now that the whole BAR is solid `bg-primary` (below), a same-fill
-          // button here would disappear into it — light overlay instead, so
-          // it still reads as a control against the saturated background.
-          triggerClassName="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-white transition-colors duration-150 hover:bg-white/25"
+          // A plain icon button now that the strip is white (2026-10-01); it
+          // was a white overlay while the bar was solid `bg-primary`.
+          triggerClassName="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-surface-muted hover:text-foreground"
           align="right"
         />
       )}

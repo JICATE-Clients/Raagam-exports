@@ -222,7 +222,7 @@ function MarginLine({ pct, perPc }: { pct: number | Refusal; perPc: number | Ref
  * and its value are always printed, so the colour is never the only signal,
  * and the status colours are used for exactly that meaning here.
  */
-function VarianceTable({ rows, revNo }: { rows: VarianceRow[]; revNo: number | null }) {
+export function VarianceTable({ rows, revNo }: { rows: VarianceRow[]; revNo: number | null }) {
   const fmt = (r: VarianceRow, v: number | Refusal) =>
     isRefusal(v) ? "—" : r.kind === "margin" ? `${v.toFixed(1)}%` : fmtMoney(v);
   return (

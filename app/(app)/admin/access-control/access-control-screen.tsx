@@ -24,6 +24,10 @@ import { screenCatalog } from "@/lib/permissions/screen-catalog";
 import type { PermissionTree as Tree } from "@/lib/permissions/effective";
 import { deleteRole, removeUserAccess, saveRoleAccess, saveUserAccess } from "@/lib/permissions/actions";
 import { Combobox } from "@/components/ui/combobox";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { Toggle } from "@/components/ui/toggle";
+import { Select } from "@/components/ui/select";
+import { NAV } from "@/components/shell/nav";
 import { deleteUserLogin } from "@/lib/users/actions";
 import type { AccessControlData, AccessRole, AccessUser } from "@/lib/permissions/service";
 
@@ -70,6 +74,8 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   const [roleSystem, setRoleSystem] = useState(false);
   const [roleName, setRoleName] = useState("");
   const [roleDesc, setRoleDesc] = useState("");
+  /** 0670: the page this role's holders land on after signing in ("" = none). */
+  const [roleHome, setRoleHome] = useState("");
   const [roleTree, setRoleTree] = useState<Tree>({});
   const [roleTab, setRoleTab] = useState<string>("details");
   const [roleDirty, setRoleDirty] = useState(false);
@@ -81,6 +87,10 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   const [userActive, setUserActive] = useState(openFromUrl?.access?.is_active ?? true);
   const [userNote, setUserNote] = useState(openFromUrl?.access?.note ?? "");
   const [userTree, setUserTree] = useState<Tree>(openFromUrl?.tree ?? {});
+  /* 0665: the units this email access reaches — "all units", or the ticked
+     ones. Held as two values so switching "all" off brings the old ticks back. */
+  const [userAllLoc, setUserAllLoc] = useState(openFromUrl?.access?.all_locations ?? false);
+  const [userLocIds, setUserLocIds] = useState<string[]>(openFromUrl?.access?.location_ids ?? []);
   const [userDirty, setUserDirty] = useState(false);
   /* "+ GIVE EMAIL ACCESS" (user 2026-09-30, screenshot 3158: "there is no
      option for allocation email access"). Pick a staff member from HR ▸ Staff,
@@ -100,6 +110,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
     setRoleSystem(r?.is_system ?? false);
     setRoleName(r?.name ?? "");
     setRoleDesc(r?.description ?? "");
+    setRoleHome(r?.home_path ?? "");
     setRoleTree(r?.tree ?? {});
     setRoleTab(r ? "permissions" : "details");
     setRoleDirty(false);
@@ -114,7 +125,13 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
       return;
     }
     start(async () => {
-      const res = await saveRoleAccess({ roleId, name: roleName, description: roleDesc, tree: roleTree });
+      const res = await saveRoleAccess({
+        roleId,
+        name: roleName,
+        description: roleDesc,
+        tree: roleTree,
+        homePath: roleHome || null,
+      });
       if (res.ok) {
         success(roleId ? "Role saved" : "Role created");
         setRoleOpen(false);
@@ -128,6 +145,8 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
     setUserActive(u.access?.is_active ?? true);
     setUserNote(u.access?.note ?? "");
     setUserTree(u.tree);
+    setUserAllLoc(u.access?.all_locations ?? false);
+    setUserLocIds(u.access?.location_ids ?? []);
     setUserDirty(false);
   }
 
@@ -168,7 +187,13 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
     if (!user) return;
     const email = user.email;
     start(async () => {
-      const res = await saveUserAccess({ email, active: userActive, note: userNote, tree: userTree });
+      const res = await saveUserAccess({
+        email,
+        active: userActive,
+        note: userNote,
+        tree: userTree,
+        locations: { all: userAllLoc, ids: userLocIds },
+      });
       if (res.ok) {
         success(userActive ? "Access saved" : "Access saved — switched off");
         setUser(null);
@@ -496,6 +521,29 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
                         onChange={(e) => { setRoleName(e.target.value); setRoleDirty(true); }}
                       />
                     </Field>
+                    {/* HOME PAGE (0670, user 2026-10-01): where this role's
+                        holders land after signing in — `/start` reads it. Blank
+                        is no preference (Dashboard, or My Profile for someone
+                        whose roles open no module). The top-level modules of the
+                        sidebar plus My Profile: a deep screen is reached from its
+                        module, and a list that grew with every screen would be
+                        unreadable. */}
+                    <Field label="Home page" w="term" htmlFor="ac-role-home">
+                      <Select
+                        id="ac-role-home"
+                        value={roleHome}
+                        onChange={(e) => { setRoleHome(e.target.value); setRoleDirty(true); }}
+                      >
+                        <option value="">Default (Dashboard)</option>
+                        <option value="/me">My Profile</option>
+                        <option value="/my-work">My Work</option>
+                        {NAV.filter((n) => n.href !== "/").map((n) => (
+                          <option key={n.href} value={n.href}>
+                            {n.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
                   </FieldRow>
                   <Field label="Description" htmlFor="ac-role-desc">
                     <Textarea id="ac-role-desc" rows={3} value={roleDesc} onChange={(e) => { setRoleDesc(e.target.value); setRoleDirty(true); }} />
@@ -508,13 +556,24 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
               key: "permissions",
               label: "Permissions",
               content: (
-                <PermissionTree
-                  catalog={catalog}
-                  offered={data.offered}
-                  value={roleTree}
-                  readOnly={!canEdit && !!roleId}
-                  onChange={(t) => { setRoleTree(t); setRoleDirty(true); }}
-                />
+                <div className="space-y-2">
+                  {/* 0662: Super Admin passes every check through the login's
+                      flag, whatever this tree says — so the tree is shown, never
+                      edited, rather than inviting an edit that changes nothing. */}
+                  {roleName === "Super Admin" && (
+                    <p className="text-sm text-muted-foreground">
+                      Super Admin always has full access to every module and screen. Only a super admin can give or remove
+                      this role (Users ▸ Roles).
+                    </p>
+                  )}
+                  <PermissionTree
+                    catalog={catalog}
+                    offered={data.offered}
+                    value={roleTree}
+                    readOnly={(!canEdit && !!roleId) || (roleSystem && roleName === "Super Admin")}
+                    onChange={(t) => { setRoleTree(t); setRoleDirty(true); }}
+                  />
+                </div>
               ),
             },
           ]}
@@ -553,6 +612,52 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
                   3147 / 3152): status lives in the list's Status column, and the
                   save below carries both the current status and any note already
                   stored through unchanged. */}
+            </DetailSection>
+
+            {/* LOCATIONS (client 2026-09-30, budgetupdate.md §1; 0665). Which
+                units this person may switch to in the top bar — they still
+                work in ONE unit at a time (the client's decision). Added to
+                whatever their roles' locations already give; a super admin
+                reaches every unit regardless. A unit switched off since it was
+                given stays listed, tagged, so saving does not silently drop it. */}
+            <DetailSection label="Locations" cols={1}>
+              <Toggle
+                label="All units"
+                checked={userAllLoc}
+                disabled={!canEdit || isMe}
+                onChange={(v) => {
+                  setUserAllLoc(v);
+                  setUserDirty(true);
+                }}
+              />
+              {!userAllLoc && (
+                <div className="max-w-[28rem]">
+                  <MultiSelect
+                    label="Units"
+                    options={[
+                      ...data.locations.map((l) => ({ id: l.id, label: l.name })),
+                      ...userLocIds
+                        .filter((id) => !data.locations.some((l) => l.id === id))
+                        .map((id) => ({ id, label: "(inactive unit)", inactive: true })),
+                    ]}
+                    values={userLocIds}
+                    disabled={!canEdit || isMe}
+                    onChange={(next) => {
+                      setUserLocIds(next);
+                      setUserDirty(true);
+                    }}
+                  />
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {user.is_super_admin
+                  ? "A super admin reaches every unit already."
+                  : userAllLoc
+                    ? "Every unit appears in their location switcher."
+                    : userLocIds.length
+                      ? `These ${userLocIds.length === 1 ? "unit appears" : "units appear"} in their location switcher, beside any their roles give.`
+                      : "No units from email access — only the units their roles give."}
+              </p>
             </DetailSection>
 
             <PermissionTree

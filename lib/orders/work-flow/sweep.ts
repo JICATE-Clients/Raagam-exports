@@ -116,6 +116,7 @@ export async function sweepWorkFlow(): Promise<WorkFlowSweepResult> {
         if (!userId) out.unrouted++;
         const late = target ? daysBetween(target, now) : 0;
         await notify(
+          "workflow.milestone_overdue",
           userId ? { userId } : { userIds: [] },
           {
             title: `Action required: ${def?.label ?? r.code} overdue for ${re}`,
@@ -123,6 +124,7 @@ export async function sweepWorkFlow(): Promise<WorkFlowSweepResult> {
             href: def?.href,
             type: "danger",
           },
+          { source: "cron" },
         );
         if (userId) out.overdue++;
       }
@@ -151,6 +153,7 @@ export async function sweepWorkFlow(): Promise<WorkFlowSweepResult> {
         .slice(0, 8);
       const more = escalated.length > lines.length ? ` +${escalated.length - lines.length} more` : "";
       await notify(
+        "workflow.milestones_escalated",
         { role: "Managing Director" },
         {
           title: `${escalated.length} pre-production milestone${escalated.length === 1 ? "" : "s"} over ${WORK_FLOW_ESCALATE_AFTER_DAYS} days late`,
@@ -158,6 +161,7 @@ export async function sweepWorkFlow(): Promise<WorkFlowSweepResult> {
           href: "/",
           type: "danger",
         },
+        { source: "cron" },
       );
       out.escalated = escalated.length;
     }

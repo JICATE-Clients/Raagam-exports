@@ -22,7 +22,7 @@ import { ORDER_QUICK_WHERE } from "./types";
    and a screen cannot import a `server-only` module. */
 import { caseFoldKey } from "./types";
 import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
-import { listEmployees } from "@/lib/masters/employee-service";
+import { listOrderPeople } from "@/lib/people/order-people";
 import type { TaOwnerEmployee } from "@/lib/ta/task-owners";
 import type { ComponentScopeRow } from "@/lib/masters/component-coordinates";
 /* TYPE ONLY — erased at compile time, so naming it here does not pull the
@@ -623,52 +623,24 @@ async function getPortRows(): Promise<PickerRow[]> {
  * counting, and the symptom would again be a dropdown that is merely short.
  */
 async function getMerchandiserRows(): Promise<MerchandiserRow[]> {
-  const s = await createClient();
-
-  const { data: lookupData, error: lookupErr } = await s
-    .from("config_lookups")
-    .select("id, name");
-  if (lookupErr) {
-    throw new Error(
-      `Could not load the designation/department list: ${lookupErr.message}`,
-    );
-  }
-  const merchandiserLookupIds = new Set(
-    ((lookupData ?? []) as { id: string; name: string | null }[])
-      .filter((l) => (l.name ?? "").trim().toLowerCase() === "merchandiser")
-      .map((l) => l.id),
-  );
-
-  const { data, error } = await s
-    .from("employees")
-    .select("id, code, name, inactive, designation_id, department_id")
-    .order("name");
-  /**
-   * THROW RATHER THAN HAND BACK AN EMPTY LIST. `getRejectionRuleRows()` below
-   * carries the full argument; this is the field it now matters most on,
-   * because Merchandiser became mandatory in the same change — a silently
-   * broken query would leave the operator unable to save an order at all, with
-   * nothing on screen saying why.
-   */
-  if (error) {
-    throw new Error(`Could not load merchandisers: ${error.message}`);
-  }
-
-  return ((data ?? []) as {
-    id: string;
-    code: string | null;
-    name: string | null;
-    inactive: boolean | null;
-    designation_id: string | null;
-    department_id: string | null;
-  }[]).map((r) => ({
+  /* HR ▸ STAFF SINCE 0674 (user 2026-10-01). The merchandiser was an
+     `employees` row — the Employee master, all test data; it is now the staff
+     member, read through `listOrderPeople` (the one reader of people for the
+     Orders module, past the payroll-gated `staff_read`).
+     WHO COUNTS: a designation that names the role (HR ▸ Staff uses JUNIOR /
+     SENIOR MERCHANDISER, so a CONTAINS test, not the old exact match) or the
+     MERCHANDISING department. Everyone else is still returned — a held,
+     since-moved merchandiser must stay named — and `merchandiserOptions`
+     decides who is offered. */
+  const people = await listOrderPeople();
+  return people.map((r) => ({
     id: r.id,
     code: r.code,
-    name: r.name ?? "(unnamed)",
-    inactive: r.inactive ?? false,
+    name: r.name,
+    inactive: r.inactive,
     is_merchandiser:
-      (!!r.designation_id && merchandiserLookupIds.has(r.designation_id)) ||
-      (!!r.department_id && merchandiserLookupIds.has(r.department_id)),
+      (r.designation ?? "").toUpperCase().includes("MERCHANDISER") ||
+      ["MERCHANDISING", "MERCHANDISER"].includes((r.department_name ?? "").trim().toUpperCase()),
   }));
 }
 
@@ -1767,7 +1739,8 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getTaApprovalRows(),
     getAllCustomerApprovalDefaults(),
     getTaOwnerDepartments(),
-    listEmployees(),
+    // The T&A Task Owner list — HR ▸ Staff with their HR department (0674).
+    listOrderPeople(),
   ]);
   return {
     /**

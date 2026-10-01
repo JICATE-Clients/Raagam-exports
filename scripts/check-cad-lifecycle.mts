@@ -275,8 +275,12 @@ check("SQL pattern extensions = TS", extsOf("pattern"), [...PATTERN_FILE_EXTENSI
 check("SQL proof extensions = TS", extsOf("proof"), [...PROOF_FILE_EXTENSIONS]);
 const rpcCad = sql632.match(/if v_ext <> 'pdf' then v_cad/) !== null;
 check("SQL counts every non-PDF pattern file as the real CAD file (TS: CAD_FILE_EXTENSIONS)", [rpcCad, [...CAD_FILE_EXTENSIONS]], [true, PATTERN_FILE_EXTENSIONS.filter((e) => e !== "pdf")]);
-const desigCheck = sql632.match(/v_desig not in \(([^)]*)\)/)?.[1] ?? "";
+// The designation list was last redefined by 0671 (pattern makers from HR ▸
+// Staff, PATTERN MASTER added) — the LATEST definition is the one that runs.
+const sql671 = readFileSync(new URL("../supabase/migrations/0671_cad_pattern_maker_from_staff.sql", import.meta.url), "utf8");
+const desigCheck = sql671.match(/v_desig not in \(([^)]*)\)/)?.[1] ?? "";
 check("SQL Pattern Maker designations = TS", [...desigCheck.matchAll(/'([A-Z ]+)'/g)].map((m) => m[1]), [...PATTERN_MAKER_DESIGNATIONS]);
+check("PATTERN MASTER qualifies (0671)", patternMakerOptions([{ id: "x", code: null, name: "MOHANRAJ.R", inactive: false, designation: "PATTERN MASTER" }], null).items.length, 1);
 
 // --- Cut Method → roll form (Task 1) and merged Pattern Sheet lines (0643) -----
 check("Direct Shape is Open Width", layoutForPart("direct_shape", "SINGLE JERSEY"), "open_width");

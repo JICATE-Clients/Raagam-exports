@@ -10,6 +10,7 @@ import {
   type ReqRow,
 } from "@/lib/purchase/bom-ceiling-service";
 import { myDepartment } from "@/lib/ta/worklist";
+import { staffNameRows } from "@/lib/people/order-people";
 import {
   inHouseTarget,
   trimClassOf,
@@ -259,7 +260,7 @@ async function loadTrimTaInto(sb: SB, result: TrimTaResult, opts: { salesOrderId
           .select("delivery_challan_id, mba_amendment_id, item_id, sent_qty, returned_qty, returned_on")
           .in("mba_amendment_id", allBomRows.map((b) => b.id))
       : Promise.resolve({ data: [], error: null }),
-    staffIds.size ? sb.from("employees").select("id, name").in("id", [...staffIds]) : Promise.resolve({ data: [], error: null }),
+    staffNameRows(staffIds), // owners are HR ▸ Staff (0674)
     currentIds.length
       ? sb.from("garment_order_amendments").select("id, sales_order_id, customer:customers(name)").in("id", currentIds)
       : Promise.resolve({ data: [], error: null }),
@@ -272,7 +273,7 @@ async function loadTrimTaInto(sb: SB, result: TrimTaResult, opts: { salesOrderId
   fail("The order T&A schedule", ladderQ.error);
   fail("Purchase order lines", poLineQ.error);
   fail("Delivery challan lines", dcLineQ.error);
-  fail("Employees", staffQ.error);
+  fail("Staff", staffQ.error);
   fail("Buyers", buyerQ.error);
 
   const classCode = new Map(((classQ.data ?? []) as { id: string; code: string }[]).map((c) => [c.id, c.code]));

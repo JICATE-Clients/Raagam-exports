@@ -289,6 +289,10 @@ export const WHOLE_UNIT_UOM_CODES: readonly string[] = [
   "CONE",
   "ROLL",
   "ROLLS",
+  /* budgetupdate.md §6 (client 2026-09-30) names Box and Pack as well. */
+  "BOX",
+  "PACK",
+  "PACKET",
 ];
 
 export function isWholeUnitUom(code: string | null | undefined): boolean {
@@ -339,7 +343,11 @@ export function roundRequirement(
   decimals: number | null | undefined,
 ): number {
   if (!Number.isFinite(value)) return value;
-  if (isWholeUnitUom(uomCode)) {
+  /* THE MASTER CAN ANSWER NOW, TOO (0663/0664): the listed units carry
+     `decimal_places_allowed = 0`, and a unit the client marks 0 on Masters ▸
+     Stock Units counts as whole without a code change. Either says "whole";
+     `wholeUnitRound` is the one rounding both paths use. */
+  if (isWholeUnitUom(uomCode) || decimals === 0) {
     /**
      * `ceilToPrecision(value, 0)` DOES NOT WORK HERE, and the reason is the
      * clamp documented two paragraphs up: that helper runs its `dp` through

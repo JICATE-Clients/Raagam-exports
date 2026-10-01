@@ -7,6 +7,7 @@ import { currentFabricBom } from "@/lib/orders/fabric-requirement/service";
 import { yarnFabricRequirementReport } from "@/lib/orders/fabric-bom/reports";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import { myDepartment } from "@/lib/ta/worklist";
+import { staffNameRows } from "@/lib/people/order-people";
 import {
   fabricTaSchedule,
   fabricTaTargets,
@@ -311,7 +312,7 @@ async function loadFabricTaInto(sb: SB, result: FabricTaResult, opts: { salesOrd
       currentIds.length
         ? sb.from("garment_order_amendments").select("id, sales_order_id, customer:customers(name)").in("id", currentIds)
         : Promise.resolve({ data: [], error: null }),
-      staffIds.size ? sb.from("employees").select("id, name").in("id", [...staffIds]) : Promise.resolve({ data: [], error: null }),
+      staffNameRows(staffIds), // owners are HR ▸ Staff (0674)
       procIds.length
         ? sb.from("process_material_issues").select("id, code, process_order_id, issue_date, status").in("process_order_id", procIds)
         : Promise.resolve({ data: [], error: null }),
@@ -321,7 +322,7 @@ async function loadFabricTaInto(sb: SB, result: FabricTaResult, opts: { salesOrd
     ]);
     fail("The order T&A schedule", ladderQ.error);
     fail("Buyers", buyerQ.error);
-    fail("Employees", staffQ.error);
+    fail("Staff", staffQ.error);
     fail("Process issues", issueQ.error);
     fail("Process receipts", receiptQ.error);
 

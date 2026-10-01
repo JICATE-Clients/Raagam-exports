@@ -128,7 +128,9 @@ export async function listContractors(): Promise<ContractorRow[]> {
 export async function getPersonChildren(
   kind: PersonKind,
   id: string,
-  /** The service-role client, for a person reading their OWN record (My Profile). */
+  /** A client other than the caller's own — `lib/hr/my-profile.ts` passes the
+   *  service role for the ONE record it has already resolved to the caller.
+   *  Omitted, every read goes through the caller's RLS, as before. */
   client?: Awaited<ReturnType<typeof createClient>>,
 ): Promise<{
   family: StaffFamilyMember[];

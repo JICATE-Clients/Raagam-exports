@@ -21,13 +21,26 @@
 
 type Result = { ok: true } | { ok: false; error: string };
 
+/**
+ * THE KEY A NEW, UNSAVED ORDER'S CAD STEPS ARE PARKED UNDER (user 2026-09-30:
+ * the CAD tab must work "while order entry also", not only after the order's
+ * first Save). There is no order id yet, so the steps wait here; the editor's
+ * first Save creates the order and then `savePendingCad(NEW_ORDER_CAD, id)`
+ * writes them against the id it got back.
+ */
+export const NEW_ORDER_CAD = "new-order";
+
 export type CadPending = {
   /** The form's title, so a refusal names the style it is about. */
   label: string;
   /** The form's own validation, read at Save time — null when it is clean. */
   problem: () => string | null;
-  /** The form's own server action. Touches no React state (it may run unmounted). */
-  commit: () => Promise<Result>;
+  /**
+   * The form's own server action. Touches no React state (it may run unmounted).
+   * Handed the order id at WRITE time — for a new order it did not exist when
+   * the step was parked.
+   */
+  commit: (orderId: string) => Promise<Result>;
   /** What the form re-seeds from when the tab remounts. */
   draft: unknown;
 };
@@ -62,17 +75,27 @@ export function pendingCadProblem(orderId: string): string | null {
 /**
  * Write every parked step. A step that saves leaves the store; one that fails
  * stays, so the operator can correct it and press Save again.
+ *
+ * `parkedUnder` is where the steps wait, `orderId` what they are written
+ * against — the same id for a saved order, `NEW_ORDER_CAD` → the fresh id on a
+ * new order's first Save. A step that fails there moves under the new id, so
+ * the editor (which now has that id) can retry it.
  */
-export async function savePendingCad(orderId: string): Promise<{ saved: number; errors: string[] }> {
-  const forms = byOrder.get(orderId);
+export async function savePendingCad(
+  parkedUnder: string,
+  orderId: string = parkedUnder,
+): Promise<{ saved: number; errors: string[] }> {
+  const forms = byOrder.get(parkedUnder);
   let saved = 0;
   const errors: string[] = [];
   for (const [key, p] of [...(forms ?? [])]) {
-    const r = await p.commit();
-    if (r.ok) {
-      saved++;
-      setPendingCad(orderId, key, null);
-    } else errors.push(`${p.label}: ${r.error}`);
+    const r = await p.commit(orderId);
+    setPendingCad(parkedUnder, key, null);
+    if (r.ok) saved++;
+    else {
+      setPendingCad(orderId, key, p);
+      errors.push(`${p.label}: ${r.error}`);
+    }
   }
   return { saved, errors };
 }

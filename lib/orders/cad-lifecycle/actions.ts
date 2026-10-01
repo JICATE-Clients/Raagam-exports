@@ -378,6 +378,24 @@ export async function getOrderCad(garmentOrderId: string): Promise<OrderCadData>
   }
 }
 
+/**
+ * The Pattern Maker list alone — what Order Entry's CAD tab needs on a NEW
+ * order (user 2026-09-30), where there is no saved order for `getOrderCad` to
+ * read styles from: the tab builds its rows from the styles typed on Order
+ * Info and only needs who may be assigned.
+ */
+export async function getCadPatternMakers(): Promise<
+  { ok: true; employees: PatternMakerRow[]; canEdit: boolean } | { ok: false; error: string }
+> {
+  try {
+    const [canView, form, canEdit] = await Promise.all([can("orders", "view"), getCadLifecycleFormData(), can("orders", "edit")]);
+    if (!canView) return { ok: false, error: "Forbidden" };
+    return { ok: true, employees: form.employees, canEdit };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not read the pattern makers." };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Fabric BOM ▸ Manual reads the Pattern Sheet through this (user 2026-09-26):
 // each style's newest version that HAS a sheet, flattened to what the Manual

@@ -1,16 +1,12 @@
 "use client";
 
-import type { MouseEvent } from "react";
-import Link from "next/link";
+import type { MouseEvent, ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { Plus } from "lucide-react";
 import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
 import { useAppUser } from "@/lib/auth/permission-context";
 import type { StoreNavLink } from "@/components/shell/sidebar-types";
-import { allowedSectionActions } from "@/lib/nav/section-action-access";
-import { createHref } from "@/components/shell/nav-search";
 import { useRecent } from "@/lib/use-recent";
-import { buttonClasses } from "@/components/ui/button";
+import { useAccordion } from "@/lib/ui/use-accordion";
 import {
   activeChildHref,
   activeModule,
@@ -94,15 +90,12 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   const blocks = toBlocks(children);
   const leaves = blocks.flatMap((b) => b.rows);
   const activeHref = activeChildHref(pathname, leaves);
-  const ModIcon = mod.icon;
-
-  // The create action of the screen in view — "New Garment Order" on Order
-  // Entry. Only a "New …" action: Import/Export are list operations, not the
-  // one thing this button promises. No action, no button — and no permission,
-  // no button: "+ New Staff" for a login holding only View + Edit (2026-10-01).
-  const newAction = activeHref
-    ? allowedSectionActions(user, activeHref).find((a) => /^new\b/i.test(a))
-    : undefined;
+  // The group to open: the one holding the screen in view, else the first
+  // captioned group (a module's root page sits in no group).
+  const openOnArrival =
+    blocks.find((b) => b.label && b.rows.some((r) => r.href === activeHref))?.key ??
+    blocks.find((b) => b.label)?.key ??
+    null;
 
   // Records only (an order, a PO) — a screen is already listed above, so
   // repeating it here would be the menu twice.
@@ -128,40 +121,31 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       // silently swapping. The rise sits on the <nav>, not here, so the
       // column's own border never moves.
       key={mod.href}
-      className="scrollbar-slim flex h-full w-48 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      // No border, no fill (frame option A, 2026-10-01): the column sits on the
+      // shell's canvas beside the rail, and the work panel's edge is what
+      // separates it from the page.
+      // `w-46` (184px) — 192 → 208 (user 2026-10-01, "cramped") → 184 the same day
+      // ("reduce the width … this also making some issue"); rows truncate.
+      // The rail's open flyout is sized to rail + this column (236px) so it
+      // covers it exactly; change the two together.
+      // `scrollbar-none` (was `scrollbar-reveal`): no bar, same as the rail
+      // beside it (user 2026-10-01, sub-module menu suggestion 3). With the
+      // groups folded the list rarely needs to scroll; the wheel still does.
+      className="scrollbar-none flex h-full w-46 shrink-0 flex-col overflow-y-auto"
     >
-      {/* SIDEBAR REFRESH (client 2026-09-17, option A): the module's own icon
-          in a brand tile, and how many screens it holds. The ONE icon this
-          column carries — a header, not a row, so the 09-16 "much icons"
-          decision about the list below stands. */}
-      <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-primary-soft text-primary">
-          <ModIcon className="h-4 w-4" />
-        </span>
-        <div className="min-w-0">
-          <h2 className="ty-subsection truncate text-sm font-bold leading-[18px] text-foreground">
-            {mod.label}
-          </h2>
-          <p className="text-[11px] leading-[14px] text-muted-foreground tabular-nums">
-            {leaves.length} {leaves.length === 1 ? "screen" : "screens"}
-          </p>
-        </div>
-      </div>
-
-      {newAction && activeHref && (
-        /* `mt-3` (12px) matches the gap BELOW the button — the nav's `p-2`
-           plus the first section label's `pt-1` — so it sits evenly between
-           the header rule and the list (operator, 2026-09-17). */
-        <div className="mt-3 px-1.5">
-          <Link
-            href={createHref(activeHref, newAction)}
-            className={buttonClasses({ size: "sm", className: "w-full rounded-[10px] shadow-elev" })}
-          >
-            <Plus />
-            {newAction}
-          </Link>
-        </div>
-      )}
+      {/* THE MODULE'S NAME (user 2026-10-01, sub-module menu suggestion 1):
+          the column started straight at its first group caption, so nothing
+          named the module the screens belong to. Name ONLY — the "N screens"
+          count went the same morning at the user's request ("remove the
+          module and screen count label"), and the logo heads the whole
+          sidebar (components/shell/sidebar.tsx). The column's "+ New …"
+          button is gone too; each screen's page header carries its own. */}
+      {/* 16px bold, and NOT `ty-subsection`: the compact type scale sets that
+          class to 600 14px, one pixel above the 13px screen names, so the
+          module and its screens read as one size (screenshot 3188). */}
+      <h2 className="shrink-0 truncate px-3.5 pb-2 pt-1 text-base font-bold leading-6 text-foreground">
+        {mod.label}
+      </h2>
 
       {/* THE "HOME" ROW IS HIDDEN (operator, 2026-09-15) — it only ever
           reopened the module's own root/hub page, and that page's card grid
@@ -176,25 +160,34 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
           user ("text size should be like in this screenshot … remove the
           extra space at the side"): the ask was the SPACE, never the type.
           Row labels `truncate`, so a long screen name ellipsises. */}
-      <nav className="flex-1 animate-rise space-y-2 px-1.5 py-2">
-        {blocks.map((block) => (
-          <SidebarSection key={block.key} label={block.label} guide>
-            {/* TEXT ONLY (client 2026-09-16: "it looks much icons") — the
-                level-1 rail beside this column is already a column of icons,
-                so a second one read as clutter. The captions and the single
-                highlight carry the structure. */}
-            {block.rows.map((row) => (
-              <SidebarItem
-                key={row.href}
-                href={row.href}
-                label={row.label}
-                active={row.href === activeHref}
-                className="w-full rounded-lg px-2 py-1"
-                onClick={navigate(row.href, row.label)}
-              />
-            ))}
-          </SidebarSection>
-        ))}
+      {/* `space-y-2.5` (was `space-y-4`, user 2026-10-01 suggestion 4): with
+          captions now fold buttons the groups read apart on their own, and
+          16px between them made the column one long loose list. */}
+      <nav className="flex-1 animate-rise space-y-2.5 px-1.5 pb-3">
+        {/* Keyed by the group holding the current screen, so arriving on a
+            screen in another group (a tab, search, a link) re-opens THAT
+            group — the accordion re-seeds instead of an effect chasing the
+            route. */}
+        <FoldingGroups
+          key={openOnArrival ?? "none"}
+          blocks={blocks}
+          initialOpen={openOnArrival}
+          renderRow={(row) => (
+            /* TEXT ONLY (client 2026-09-16: "it looks much icons") — the
+               level-1 rail beside this column is already a column of icons. */
+            <SidebarItem
+              key={row.href}
+              href={row.href}
+              label={row.label}
+              active={row.href === activeHref}
+              // 28px rows (`py-[5px]`; 30px before — suggestion 4). Text
+              // size and colour unchanged: the client asked for DARKER menu
+              // text on 2026-08-27, so only the spacing tightened.
+              className="w-full rounded-lg px-2 py-[5px]"
+              onClick={navigate(row.href, row.label)}
+            />
+          )}
+        />
       </nav>
 
       {recentHere.length > 0 && (
@@ -215,5 +208,48 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * FOLDS ARE ACCORDIONS (AGENTS.md): one captioned group open at a time, held
+ * by `useAccordion` — one key or null, so "two open" cannot be written. It
+ * starts on the group holding the screen in view (the parent re-keys this on
+ * arrival in another group), and a click on any caption opens that group and
+ * folds the rest, or folds the open one. Uncaptioned rows — a module's loose
+ * screens between groups — are always shown: there is no header to fold them.
+ * User 2026-10-01, sub-module menu suggestion 2: 18 rows in Orders became a
+ * column that ran off a laptop screen; folded, it is the open group plus one
+ * line per other group.
+ */
+function FoldingGroups({
+  blocks,
+  initialOpen,
+  renderRow,
+}: {
+  blocks: SidebarBlock[];
+  initialOpen: string | null;
+  renderRow: (row: { href: string; label: string }) => ReactNode;
+}) {
+  const fold = useAccordion(initialOpen);
+  return (
+    <>
+      {blocks.map((block) => (
+        <SidebarSection
+          key={block.key}
+          label={block.label}
+          fold={
+            block.label
+              ? {
+                  open: fold.isOpen(block.key),
+                  onToggle: () => fold.toggle(block.key),
+                }
+              : undefined
+          }
+        >
+          {block.rows.map(renderRow)}
+        </SidebarSection>
+      ))}
+    </>
   );
 }

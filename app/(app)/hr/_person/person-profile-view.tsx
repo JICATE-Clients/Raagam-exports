@@ -144,7 +144,9 @@ export function PersonProfileView({
   banks,
   onBack,
   onEdit,
+  loadChildren,
   title,
+  breadcrumb,
 }: {
   kind: PersonKind;
   entity: string;
@@ -155,12 +157,18 @@ export function PersonProfileView({
   categories: Named[];
   divisions: Named[];
   banks: Named[];
-  /** Each button is drawn only when given. My Profile passes `onEdit` but no
-   *  `onBack` — there is no list behind a person's own record. */
+  /** Omitted on My Profile: there is no list to go back to and nothing to edit. */
   onBack?: () => void;
   onEdit?: () => void;
-  /** Heading override — "My Profile" on a staff member's own record. */
+  /**
+   * Where the child lists come from. Defaults to the HR action, which needs
+   * hr_payroll:view; My Profile passes `loadMyStaffChildren`, which reads the
+   * caller's OWN record and takes no id (lib/hr/my-profile.ts).
+   */
+  loadChildren?: () => Promise<Children>;
+  /** Heading and breadcrumb, when the page is not HR ▸ Staff / Workers. */
   title?: string;
+  breadcrumb?: string;
 }) {
   /**
    * The child lists load when the page opens, as they do for the editor.
@@ -172,7 +180,7 @@ export function PersonProfileView({
   const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    getPersonChildren(kind, row.id)
+    (loadChildren ? loadChildren() : getPersonChildren(kind, row.id))
       .then((c) => {
         if (live) setChildren(c);
       })
@@ -185,7 +193,7 @@ export function PersonProfileView({
     return () => {
       live = false;
     };
-  }, [kind, row.id]);
+  }, [kind, row.id, loadChildren]);
 
   const name = str(row, "name") ?? "";
   const photo = str(row, "photo_url");
@@ -394,16 +402,17 @@ export function PersonProfileView({
             {title ?? `${entity} Details`}
           </h1>
           <p className="text-xs text-muted-foreground">
-            {title ? (
-              <>
-                HR &amp; Payroll / <span className="text-foreground">{title}</span>
-              </>
-            ) : (
-              <>
-                HR &amp; Payroll / {entity === "Staff" ? "Staff" : "Workers"} /{" "}
-                <span className="text-foreground">{entity} Details</span>
-              </>
-            )}
+            {breadcrumb ??
+              (title ? (
+                <>
+                  HR &amp; Payroll / <span className="text-foreground">{title}</span>
+                </>
+              ) : (
+                <>
+                  HR &amp; Payroll / {entity === "Staff" ? "Staff" : "Workers"} /{" "}
+                  <span className="text-foreground">{entity} Details</span>
+                </>
+              ))}
           </p>
         </div>
         {onEdit && (

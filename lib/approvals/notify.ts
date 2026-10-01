@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { notify } from "@/lib/notifications/notify";
 import type { NotificationInput } from "@/lib/notifications/types";
+import type { NotificationEventKey } from "@/lib/notifications/events";
 import { kpiNotificationBody, kpisFromJson } from "@/lib/orders/budget/amendment";
 import { WORKFLOWS, workflowLabel, type WorkflowKey } from "./workflows";
 import type { ApprovalRun } from "./types";
@@ -43,7 +44,14 @@ export type NotifyReason = "started" | "advanced" | "returned";
 
 export async function notifyCurrentApprovers(
   runId: string,
-  opts?: { reason?: NotifyReason; payload?: NotificationInput },
+  opts?: {
+    reason?: NotifyReason;
+    payload?: NotificationInput;
+    /** The SLA sweep's reminder names its own event; a custom payload is
+     *  otherwise still "approval needed" (an escalation landing on a new step). */
+    event?: NotificationEventKey;
+    source?: "action" | "cron";
+  },
 ): Promise<void> {
   try {
     const s = await createClient();
@@ -92,7 +100,12 @@ export async function notifyCurrentApprovers(
     if (userIds.length === 0) return;
 
     const payload = opts?.payload ?? (await noticeFor(s, run, opts?.reason ?? "started"));
-    await notify({ userIds }, payload);
+    const isRevision =
+      run.workflow_key === "order_budget" &&
+      !!amendmentOf((run.context as Record<string, unknown> | null)?.amendment);
+    const event: NotificationEventKey =
+      opts?.event ?? (isRevision ? "approval.revision_pending" : "approval.pending");
+    await notify(event, { userIds }, payload, { source: opts?.source ?? "action" });
   } catch {
     // Never fail the approval action over a notification — see the header.
   }
@@ -240,7 +253,7 @@ export async function notifyRequesterOfDecision(
       if (mErr) console.error("[approvals/notify] merchandiser lookup:", mErr.message);
       userIds = [...new Set([...userIds, ...((merch ?? []) as string[])])];
     }
-    await notify({ userIds }, payload);
+    await notify("approval.decided", { userIds }, payload);
   } catch {
     // Never fail the decision over a notification.
   }

@@ -6476,7 +6476,10 @@ export function MbaMasterScreen({
                 row.no_of_items.trim() && row.per_pieces.trim()
                   ? `${row.no_of_items.trim()} / ${row.per_pieces.trim()} pcs`
                   : null,
-                row.excess_pct.trim() ? `+${row.excess_pct.trim()}%` : null,
+                /* SIGNED (0663): "+5%" / "-5%", never "+-5%". */
+                row.excess_pct.trim()
+                  ? `${row.excess_pct.trim().startsWith("-") ? "" : "+"}${row.excess_pct.trim()}%`
+                  : null,
               ]
                 .filter(Boolean)
                 .join("  ·  ");

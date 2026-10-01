@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { myStaff, staffNames } from "@/lib/people/order-people";
 import { getAppUser, can } from "@/lib/auth/server";
 import { addDays, daysBetween, today } from "@/lib/calendar";
 import { currentAmendmentsBySalesOrder } from "@/lib/orders/amendments/current";
@@ -302,36 +303,19 @@ function isMissingTable(error: { code?: string; message?: string } | null): bool
  * empty, rather than falling through to the overall `null`.
  */
 export async function myDepartment(
-  sb: Awaited<ReturnType<typeof createClient>>,
+  _sb: Awaited<ReturnType<typeof createClient>>,
   userId: string,
 ): Promise<{ id: string | null; name: string | null; employeeId: string | null } | null> {
-  const { data: profile } = await sb
-    .from("profiles")
-    .select("employee_code")
-    .eq("id", userId)
-    .maybeSingle();
-
-  const code = str((profile as Row | null)?.employee_code);
-  if (!code) return null;
-
-  const { data: emp } = await sb
-    .from("employees")
-    .select("id, department_id")
-    .eq("code", code)
-    .limit(1)
-    .maybeSingle();
-
-  const employeeId = str((emp as Row | null)?.id);
-  const deptId = str((emp as Row | null)?.department_id);
-  if (!deptId) return { id: null, name: null, employeeId };
-
-  const { data: dept } = await sb
-    .from("config_lookups")
-    .select("id, name")
-    .eq("id", deptId)
-    .maybeSingle();
-
-  return { id: deptId, name: str((dept as Row | null)?.name), employeeId };
+  /* HR ▸ STAFF SINCE 0674 (user 2026-10-01). A login is resolved to its
+     STAFF record — `profiles.employee_code` = `staff.code`, then the e-mail —
+     by `myStaff`, the same rule `employee_login_ids()` uses in SQL, and the
+     department is the staff member's HR department (`departments`), which is
+     what T&A Department Assign now points at too. `employeeId` keeps its name
+     for the callers; it is the STAFF id `assigned_staff_id` now holds.
+     `_sb` stays in the signature so the three callers are unchanged. */
+  const me = await myStaff(userId);
+  if (!me) return null;
+  return { id: me.department_id, name: me.department_name, employeeId: me.id };
 }
 
 /**
@@ -591,12 +575,10 @@ export async function getWorklist(
     .select(
       "id, row_uid, amendment_id, activity_id, days_required, target_date, actual_date, status, notes, " +
         "assigned_staff_id, delay_attribution, " +
-        // `!assigned_staff_id` names the FK explicitly (0547) — this table has
-        // only the one FK to `employees` today, so it is not yet required for
-        // the "second FK breaks every embed" reason (AGENTS.md), but naming it
-        // is what keeps this embed alive the day a second one is added, rather
-        // than becoming the next PGRST201.
-        "assignee:employees!assigned_staff_id(id, name), " +
+        // The OWNER'S NAME is not embedded (0674): `assigned_staff_id` points at
+        // `staff`, whose RLS needs hr_payroll:view, so for the T&A owner using
+        // this screen the embed would come back null. Names are resolved below
+        // through `staffNames`, for the ids on these rows only.
         "activity:ta_activities(id, short_name, name, department, sequence, anchor_activity_id), " +
         "amendment:garment_order_amendments!inner(" +
         "id, code, is_draft, amend_date, created_at, sales_order_id, " +
@@ -633,6 +615,7 @@ export async function getWorklist(
 
   const raw = arr(data);
   counts.scanned = raw.length;
+  const ownerNames = await staffNames(raw.map((r) => str((r as Row).assigned_staff_id)));
 
   /* ---- 2. Also count what sits OUTSIDE the backlog floor. ------------------ */
   const { count: older } = await sb
@@ -923,7 +906,10 @@ export async function getWorklist(
       departmentName: deptName,
       departmentSource: src,
       assignedStaffId: str(r.assigned_staff_id),
-      assignedStaffName: str(one(r, "assignee")?.name),
+      assignedStaffName: (() => {
+        const id = str((r as Row).assigned_staff_id);
+        return id ? (ownerNames.get(id) ?? null) : null;
+      })(),
       delayAttribution: str(r.delay_attribution) ?? "none",
       targetDate,
       endDate,

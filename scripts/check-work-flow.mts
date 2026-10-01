@@ -154,7 +154,7 @@ const mdEmpty = workFlowOwnerOptions(staff, "BUDGET_APPROVAL", null);
 check("nobody tagged MD → empty, NOT a fallback to everyone", mdEmpty.items.length, 0);
 check("...and it says why", mdEmpty.shortHint, "Nobody tagged");
 check("empty master → the other message",
-  workFlowOwnerOptions([], "BUDGETING", null).shortHint, "No employees entered");
+  workFlowOwnerOptions([], "BUDGETING", null).shortHint, "No staff entered");
 const held = workFlowOwnerOptions(staff, "CAD_COMPLETION", "packer");
 check("a held owner who no longer qualifies survives, last", held.items.map((e) => e.id), ["cadguy", "sampler", "packer"]);
 

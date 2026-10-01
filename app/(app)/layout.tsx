@@ -46,9 +46,34 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         <SearchProvider>
           <ShortcutsProvider>
             <KeyboardNavProvider>
-              <div data-app-shell className="flex h-screen overflow-hidden">
+              {/* THE FLOATING WORK PANEL (2026-10-01, frame option A). Rail, module
+                  menu and top bar sit on `bg-canvas` with no lines between them;
+                  the tab strip and the page live in ONE white panel laid on it,
+                  whose edge is the only divider the frame draws. Rationale on
+                  `--canvas` in globals.css. Below md the panel is the whole
+                  screen again — no gutter, no corners — because the sidebars are
+                  hidden there and MobileNav owns the bottom edge. */}
+              <div data-app-shell className="flex h-screen overflow-hidden bg-canvas">
                 <Sidebar stores={stores} />
                 <div className="flex min-w-0 flex-1 flex-col">
+                  {/* FULL-HEIGHT CARD (user 2026-10-01, screenshot 3171, split
+                      option A). The top bar used to sit on the canvas ABOVE the
+                      panel, so the panel's edge turned a corner under it and the
+                      split between menu and page was L-shaped. Now the panel
+                      runs the full height and holds the top bar, the tabs and
+                      the page — one unbroken edge.
+                      FLUSH TO THE WINDOW (user 2026-10-01: "no need that gap
+                      floating near the end of the screen"). A 10px gap with
+                      rounded corners was tried first; the panel now meets the
+                      top, right and bottom of the window and keeps only its
+                      LEFT edge — a hairline plus a soft shadow cast onto the
+                      navigation — which is the split itself.
+                      NO `overflow-hidden`: the top bar's dropdowns open from
+                      inside this box and must not be clipped by it. */}
+                  <div
+                    data-work-panel
+                    className="flex min-h-0 flex-1 flex-col bg-panel md:border-l md:border-panel-edge md:shadow-[-8px_0_24px_-16px_rgb(15_23_42/0.25)]"
+                  >
                   <Topbar previewableRoles={previewableRoles} />
                   <RolePreviewBanner />
                   <WorkspaceTabsBar />
@@ -88,6 +113,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] *:w-full md:pb-6">
                     {children}
                   </main>
+                  </div>
                   <MobileNav stores={stores} />
                   <PushPrompt userId={user.id} />
                 </div>

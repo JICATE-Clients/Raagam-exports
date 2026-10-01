@@ -145,6 +145,8 @@ type Parsed = {
   suffix: string;
   /** Bands 1 and 2: the first number in the label. */
   num: number;
+  /** Band 2 only: the label is a RANGE (`3/6M`, `0-3M`), not a single size. */
+  range: boolean;
   /** Every band: the normalised label, for a stable final tiebreak. */
   text: string;
 };
@@ -153,12 +155,18 @@ type Parsed = {
  * `^([A-Z]*)` alphabetic head, then the first number (which may be a range's
  * lower bound, `0-3M`), then `([A-Z]*)$` alphabetic tail.
  *
+ * A range may be written with `-` OR `/` — `0-3M`, `3/6M`, `1.5/2YRS` — the
+ * slash being how the live master spells every one of its ranges (2026-09-30).
+ * Before it was accepted, all of them fell to band 3 and sorted to the END,
+ * after every single size, which is the "irregular sorting" budgetupdate.md §3
+ * reports.
+ *
  * The middle is non-greedy about the rest of a range on purpose: `0-3M` sorts on
  * its LOWER bound, because that is what makes `0-3M · 3-6M · 6-9M` come out in
  * order. Sorting on the upper bound gives the same answer here and a wrong one
  * the moment a range overlaps.
  */
-const SHAPE = /^([A-Z]*)\s*(\d+(?:\.\d+)?)(?:\s*-\s*\d+(?:\.\d+)?)?\s*([A-Z]*)$/;
+const SHAPE = /^([A-Z]*)\s*(\d+(?:\.\d+)?)(\s*[-/]\s*\d+(?:\.\d+)?)?\s*([A-Z]*)$/;
 
 /**
  * ONE SIZE, SPELLED SEVERAL WAYS — folded to a canonical suffix.
@@ -185,7 +193,7 @@ function canonSuffix(s: string): string {
 
 function parse(raw: string): Parsed {
   const text = normalise(raw);
-  const base: Omit<Parsed, "band"> = { rank: 0, prefix: "", suffix: "", num: 0, text };
+  const base: Omit<Parsed, "band"> = { rank: 0, prefix: "", suffix: "", num: 0, range: false, text };
 
   if (text === "") return { ...base, band: 3 };
   if (ONE_SIZE.has(text)) return { ...base, band: 4 };
@@ -195,18 +203,24 @@ function parse(raw: string): Parsed {
 
   const m = SHAPE.exec(text);
   if (m) {
-    const [, prefix, digits, suffix] = m;
+    const [, prefix, digits, rangeTail, suffix] = m;
     const num = Number(digits);
     if (Number.isFinite(num)) {
       // A bare number is its own band: `32` must not sort among `W32` / `EU32`,
       // because a list holding both is a list where the bare one is ambiguous
       // and needs to be seen as a block.
       const band = prefix === "" && suffix === "" ? 1 : 2;
-      return { ...base, band, prefix, suffix: canonSuffix(suffix), num };
+      return { ...base, band, prefix, suffix: canonSuffix(suffix), num, range: !!rangeTail };
     }
   }
 
   return { ...base, band: 3 };
+}
+
+/** Months, then years, then every other suffix (alphabetically after). */
+const SUFFIX_RANK: Readonly<Record<string, number>> = { M: 0, Y: 1 };
+function suffixRank(s: string): number {
+  return SUFFIX_RANK[s] ?? 2;
 }
 
 function cmp(a: number, b: number): number {
@@ -237,10 +251,19 @@ export function naturalSizeOrder(a: string, b: string): number {
       // Family before magnitude: every W together, then every EU, then the
       // suffixed ones. A list mixing families is a list where seeing the family
       // is the point — `38` in two families is the ambiguity groups exist to fix.
+      //
+      // THE AGE FAMILIES FIRST, MONTHS BEFORE YEARS (client 2026-09-30,
+      // doc/order/budgetupdate.md §3: "irregular sorting"). Alphabetical
+      // suffixes put plus sizes (1X · 2X · 3X) between a baby's months and a
+      // child's years; `SUFFIX_RANK` keeps the age ladder unbroken. Within a
+      // family a SINGLE size precedes the range starting at it — 2YR, then
+      // 2/3YRS, then 3YRS — which is how a size sheet reads.
       return (
         x.prefix.localeCompare(y.prefix) ||
+        cmp(suffixRank(x.suffix), suffixRank(y.suffix)) ||
         x.suffix.localeCompare(y.suffix) ||
         cmp(x.num, y.num) ||
+        cmp(Number(x.range), Number(y.range)) ||
         x.text.localeCompare(y.text)
       );
     default:

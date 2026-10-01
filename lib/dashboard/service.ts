@@ -1105,7 +1105,7 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
   const sb = await createClient();
   const t = today();
 
-  const [coreData, latePos, failedQc, lateShipments, overdueAr, workFlowLate] = await Promise.all([
+  const [coreData, latePos, failedQc, lateShipments, overdueAr, workFlowLate, ordersAtRisk] = await Promise.all([
     caps.orders ? core() : Promise.resolve(null),
     cell(caps.materials, async () =>
       rows(
@@ -1165,6 +1165,20 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
           .limit(200),
       ),
     ),
+    /* ORDER PROGRESS (doc/order/digitalisation-plan.md §1, 0666) — orders the
+       nightly risk sweep found at risk of missing delivery, or already late.
+       Read from the sweep's own table rather than recomputed here: the full
+       timeline is three rounds of reads per visit, and the dashboard is the
+       one screen everybody opens. */
+    cell(caps.orders, async () =>
+      rows(
+        await sb
+          .from("order_risk_alerts")
+          .select("level, projected_date, so:sales_orders!sales_order_id(order_number)")
+          .order("notified_at", { ascending: true })
+          .limit(200),
+      ),
+    ),
   ]);
 
   const out: AlertItem[] = [];
@@ -1180,6 +1194,20 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
       body: `${firsts.join(" · ")}${late.length > 3 ? " …" : ""} — open the order's T&A ▸ Work Flow.`,
       href: "/orders/garment-orders",
       tone: "danger",
+      icon: "triangle-alert",
+    });
+  }
+
+  if (ordersAtRisk.ok && ordersAtRisk.value.length > 0) {
+    const risky = ordersAtRisk.value;
+    const late = risky.filter((r) => s(r.level) === "late").length;
+    const names = risky.slice(0, 3).map((r) => s(embed(r, "so")?.order_number) || "?");
+    out.push({
+      key: "orders-at-risk",
+      title: `${risky.length} order(s) may miss delivery`,
+      body: `${late ? `${late} already late. ` : ""}${names.join(" · ")}${risky.length > 3 ? " …" : ""} — open Order Progress.`,
+      href: "/orders/progress?risk=all",
+      tone: late ? "danger" : "warning",
       icon: "triangle-alert",
     });
   }

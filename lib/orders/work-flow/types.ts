@@ -86,7 +86,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
     label: "Pattern Sent",
     days: 2,
     doneWhen: "Pattern maker assigned for every style",
-    ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "CAD TECHNICIAN"],
+    ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "PATTERN MASTER", "CAD TECHNICIAN"],
     ownerTagsLabel: "CAD / Sampling / Pattern Maker",
     alerts: true,
     href: "/orders/cad-lifecycle",
@@ -97,7 +97,7 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
     label: "Pattern Approval",
     days: 2,
     doneWhen: "Pattern Ready for every style",
-    ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "CAD TECHNICIAN", "MERCHANDISER", "MERCHANDISING"],
+    ownerTags: ["CAD", "SAMPLING", "PATTERN MAKER", "PATTERN MASTER", "CAD TECHNICIAN", "MERCHANDISER", "MERCHANDISING"],
     ownerTagsLabel: "CAD / Sampling / Merchandiser",
     alerts: true,
     href: "/orders/cad-lifecycle",
@@ -293,10 +293,10 @@ export function workFlowOwnerOptions<T extends WorkFlowEmployee>(
   if (items.length === 0) {
     hint =
       employees.length === 0
-        ? "No employees have been entered yet."
-        : `No employee has a Designation or Department of ${def?.ownerTagsLabel ?? "this team"}. ` +
-          "Ask an administrator to tag one.";
-    shortHint = employees.length === 0 ? "No employees entered" : "Nobody tagged";
+        ? "No staff have been entered yet. Add them on HR & Payroll ▸ People ▸ Staff."
+        : `No staff member has a Designation or Department of ${def?.ownerTagsLabel ?? "this team"}. ` +
+          "Set one on HR & Payroll ▸ People ▸ Staff.";
+    shortHint = employees.length === 0 ? "No staff entered" : "Nobody tagged";
   }
 
   if (!currentValue || items.some((r) => r.id === currentValue)) return { items, hint, shortHint };

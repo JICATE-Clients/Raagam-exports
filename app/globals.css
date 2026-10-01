@@ -11,6 +11,28 @@
   --background: #f6f7f9; /* app canvas */
   --surface: #ffffff; /* cards, tables */
   --surface-muted: #f1f3f5; /* table headers, subtle fills */
+  /* THE FLOATING WORK PANEL (2026-10-01, frame option A). The frame used to be
+   * five strips — rail, module menu, top bar, tab band, page — each drawing its
+   * own borders, and the lines never met (the menu's at 48px, the top bar's at
+   * 56px). Now the navigation sits on one `--canvas` with NO lines between its
+   * regions, and the page is a single `--panel` laid on it; the panel's own
+   * edge is the only divider the frame draws, so nothing is left to line up.
+   *
+   * NEUTRAL, NOT A TINT. The client has refused a tinted ground five times
+   * (see `raagam-brand-colours` and the skin's `--background` note below):
+   * this grey carries no hue, the same family as `--background` one step down,
+   * and the panel is plain white. */
+  /* WHITE SINCE 2026-10-01 (user, screenshot 3180: "that grey bg also update
+   * as same white, no more grey"). It was #eef1f4; the sidebar now sits on the
+   * same white as the page, and the panel's left hairline + soft shadow is
+   * what divides them. Kept as its own token so the frame still has one place
+   * to change. */
+  --canvas: #ffffff;
+  --panel: #ffffff;
+  /* #d6dce3, darker than the first cut's #dde2e8 (user 2026-10-01, screenshot
+   * 3171): pale on pale, the panel did not lift off the canvas and read as
+   * unfinished. The panel's soft drop shadow (app layout) does the rest. */
+  --panel-edge: #d6dce3;
   --foreground: #0d0f13; /* primary text */
   /* DARKENED FROM #5b6472 ON 2026-08-27 (client: "just add some dark tone to the
    * font"), replacing the app-wide bold withdrawn the same day.
@@ -29,6 +51,13 @@
    * subordinate, or a form becomes a wall of equal-weight words — which is the
    * failure the bold experiment produced by another route this morning. */
   --muted-foreground: #414a57; /* secondary text */
+  /* A CAPTION over a list, one step quieter than --muted-foreground
+   * (user 2026-10-01, screenshot 3188: the sidebar's group captions and the
+   * screens under them read at the same size and the same grey, so the menu
+   * had no levels). #6b7785 on white is 4.6:1 — still AA for small text. For
+   * labels that name a group, never for a value or anything to be read
+   * closely; --muted-foreground stays the secondary-text colour. */
+  --caption: #6b7785;
   /* RAISED FROM #e3e6ea ON 2026-08-27 (client: "the table borders and toggles
    * also not visible that much, add some extra tone").
    *
@@ -277,6 +306,13 @@
   --background: #0b0d12;
   --surface: #14171d;
   --surface-muted: #1b1f27;
+  /* Dark twins of the frame tokens: the canvas sinks below the old page
+   * ground, and the panel IS the old page ground, so every screen inside it
+   * draws on exactly the colour it always did. */
+  /* The dark twin of "same as the page": the panel's own ground. */
+  --canvas: #0b0d12;
+  --panel: #0b0d12;
+  --panel-edge: #232934;
   --foreground: #f2f4f8;
   /* Raised with the light-mode value (2026-08-27). "Darker tone" means MORE
    * CONTRAST AGAINST THE SURFACE, and on a #14171d ground that is LIGHTER — the
@@ -284,6 +320,9 @@
    * is how muted text disappears in the dark theme. Still clearly below
    * --foreground, so the hierarchy survives here too. */
   --muted-foreground: #b3bdcb;
+  /* Dark twin of --caption: one step quieter than #b3bdcb, ~6:1 on the
+   * dark panel. */
+  --caption: #8b96a5;
   /* Raised from #262b34 with the light-mode value (2026-08-27). STRONGER MEANS
    * MORE CONTRAST AGAINST THE SURFACE, so here that is LIGHTER — the rule the
    * --border-strong note below states, applied to the token beside it. Written
@@ -352,6 +391,10 @@
 
 @theme inline {
   --color-background: var(--background);
+  --color-canvas: var(--canvas);
+  --color-caption: var(--caption);
+  --color-panel: var(--panel);
+  --color-panel-edge: var(--panel-edge);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
@@ -562,6 +605,42 @@
   @supports not selector(::-webkit-scrollbar) {
     scrollbar-width: thin;
     scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+/*
+ * THE SLIM BAR, SHOWN ONLY WHILE THE POINTER IS OVER THE COLUMN (2026-10-01,
+ * frame option A). For the two navigation columns only: on the canvas their
+ * always-on 6px thumbs read as two thick grey dividers beside a frame that now
+ * draws no dividers at all. Hovering the column — which is what a mouse user
+ * does before scrolling it — brings the bar back, so the "there is more below"
+ * cue the note above protects is still there when it is wanted. A list that is
+ * not navigation (multi-select) keeps `scrollbar-slim` and its visible bar.
+ */
+@utility scrollbar-reveal {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 9999px;
+  }
+  &:hover::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    &:hover {
+      scrollbar-color: var(--border-strong) transparent;
+    }
   }
 }
 
@@ -1003,9 +1082,16 @@ body {
      two different things: the box an operator types into, and the seams between
      regions. Turning it up made every seam shout; turning it down had made the
      boxes vanish ("too smooth almost can't see them"). So the token stays quiet
-     and the FIELDS are lifted on their own, below. */
-  --border: #dde5d3;
-  --border-strong: #b9c9a6;
+     and the FIELDS are lifted on their own, below.
+     NEUTRAL SINCE 2026-10-01 (frame option A): these were #dde5d3 / #b9c9a6,
+     a green-tinted grey, so inside Orders, Masters and HR every table row and
+     card edge was drawn in a different ink from the frame around it — two line
+     colours on one screen. Same lightness, hue removed (the luminance-matched
+     re-hue the brand-colour note records), so every seam stays exactly as
+     quiet as the client asked and only the green goes. The FIELDS keep their
+     green edge below; that is brand on a control, which was approved. */
+  --border: #dee2e7;
+  --border-strong: #bcc4ce;
 
   /* The shadow now does the separating, so it has to be visible. Tinted with
      the green's hue rather than neutral black, so the lift reads warm. */
@@ -1206,8 +1292,11 @@ body {
      two halves of one token, and fixing one is how a colour comes back. The
      dark default (#1b1f27) is neutral and is what every screen outside Orders
      already draws. */
-  --border: #252d20;
-  --border-strong: #5d7049;
+  /* Neutral twins of the light values above (2026-10-01) — #252d20 / #5d7049
+     were the green-tinted pair, and fixing only the light one is how a colour
+     comes back on half the app. */
+  --border: #262b33;
+  --border-strong: #59626f;
   --elev: 0 1px 2px rgb(0 0 0 / 0.45);
   --elev-hi: 0 14px 34px rgb(0 0 0 / 0.6);
 }

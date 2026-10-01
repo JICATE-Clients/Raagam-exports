@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { daysBetween, today } from "@/lib/calendar";
 import { BACKLOG_FLOOR_DAYS, ESCALATE_AFTER_DAYS } from "./worklist";
+import { staffNames } from "@/lib/people/order-people";
 
 /**
  * The Approvals Worklist — the transaction-entry half of doc/approval.md's
@@ -47,7 +48,7 @@ export interface ApprovalWorklistRow {
   actualSentTime: string | null;
   /** A typed courier/waybill/tracking reference, independent of proofPath. */
   proofReference: string | null;
-  /** `garment_order_amendments.merchandiser_id` → `employees` — the order's own merchandiser, for the Merchandiser filter. */
+  /** `garment_order_amendments.merchandiser_id` → `staff` (0674) — the order's own merchandiser, for the Merchandiser filter. */
   merchandiserId: string | null;
   merchandiserName: string | null;
   daysLate: number;
@@ -151,8 +152,7 @@ export async function getApprovalsWorklist(): Promise<ApprovalWorklist> {
         "approval:ta_approvals(id, short_name, name, department, requires_proof, standard_days), " +
         "amendment:garment_order_amendments!inner(" +
         "id, code, is_draft, customer_id, merchandiser_id, " +
-        "customer:customers(id, name), sales_order:sales_orders(id, order_number), " +
-        "merchandiser:employees(id, name))",
+        "customer:customers(id, name), sales_order:sales_orders(id, order_number))",
     )
     .order("target_date", { ascending: true });
 
@@ -192,6 +192,10 @@ export async function getApprovalsWorklist(): Promise<ApprovalWorklist> {
    * writer's own `getCustomerApprovalDefaults` call, one query instead of
    * one per row. A pair with no override falls back to the approval's own
    * `standard_days`, read straight off the embed above. */
+  // The merchandiser is an HR ▸ Staff member (0674); `staff_read` needs
+  // payroll access, so the name comes from the narrow people reader.
+  const merchNames = await staffNames(kept.map((r) => str(one(r, "amendment")?.merchandiser_id)));
+
   const customerIds = [...new Set(kept.map((r) => str(one(r, "amendment")?.customer_id)).filter((v): v is string => !!v))];
   const leadOverrides = new Map<string, number>();
   if (customerIds.length) {
@@ -269,7 +273,7 @@ export async function getApprovalsWorklist(): Promise<ApprovalWorklist> {
       actualSentTime: str(r.actual_sent_time),
       proofReference: str(r.proof_reference),
       merchandiserId: str(a?.merchandiser_id),
-      merchandiserName: str(one(a ?? {}, "merchandiser")?.name),
+      merchandiserName: merchNames.get(str(a?.merchandiser_id) ?? "") ?? null,
       daysLate,
       bucket,
       escalated: !resolved && daysLate >= ESCALATE_AFTER_DAYS,

@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { today } from "@/lib/calendar";
+import { listOrderPeople } from "@/lib/people/order-people";
 import {
   WORK_FLOW_CODES,
   workFlowDay0,
@@ -85,21 +86,16 @@ export async function loadWorkFlow(amendmentId: string): Promise<WorkFlowLoad> {
     s
       .from("order_work_flow_milestones")
       .select(
-        "id, code, sn, days, target_date, actual_date, status, actual_source, owner_id, remarks, " +
-          "owner:employees!owner_id(name)",
+        "id, code, sn, days, target_date, actual_date, status, actual_source, owner_id, remarks",
       )
       .eq("sales_order_id", salesOrderId)
       .order("sn", { ascending: true }),
-    s
-      .from("employees")
-      // `designation_id` and `department_id` BOTH point at config_lookups, so a
-      // bare embed is ambiguous (AGENTS.md "A SECOND FK BREAKS EVERY EXISTING
-      // EMBED") — each names its column.
-      .select(
-        "id, code, name, inactive, " +
-          "designation:config_lookups!designation_id(name), department:config_lookups!department_id(name)",
-      )
-      .order("name", { ascending: true }),
+    // The owner is an HR ▸ Staff member (0674) — read past `staff_read`,
+    // which needs payroll access the Orders operator does not hold.
+    listOrderPeople().then(
+      (data) => ({ data, error: null }),
+      (e: Error) => ({ data: null, error: { message: e.message } }),
+    ),
   ]);
   if (first.error) return { ok: false, error: first.error.message };
   if (rowsRes.error) return { ok: false, error: rowsRes.error.message };
@@ -108,6 +104,7 @@ export async function loadWorkFlow(amendmentId: string): Promise<WorkFlowLoad> {
   const f = first.data as Row | null;
   const day0 = workFlowDay0(str(f?.received_date), str(f?.amend_date));
 
+  const people = new Map((empRes.data ?? []).map((p) => [p.id, p]));
   const codes = new Set<string>(WORK_FLOW_CODES);
   const rows: WorkFlowRow[] = ((rowsRes.data ?? []) as unknown as Row[])
     .filter((r) => codes.has(String(r.code)))
@@ -121,17 +118,17 @@ export async function loadWorkFlow(amendmentId: string): Promise<WorkFlowLoad> {
       status: (r.status as WorkFlowRow["status"]) ?? "pending",
       actual_source: (str(r.actual_source) as WorkFlowRow["actual_source"]) ?? null,
       owner_id: str(r.owner_id),
-      owner_name: str((r.owner as Row | null)?.name),
+      owner_name: people.get(String(r.owner_id ?? ""))?.name ?? null,
       remarks: str(r.remarks),
     }));
 
-  const employees: WorkFlowEmployee[] = ((empRes.data ?? []) as unknown as Row[]).map((e) => ({
-    id: String(e.id),
-    code: str(e.code),
-    name: String(e.name ?? ""),
-    inactive: e.inactive === true,
-    designation: str((e.designation as Row | null)?.name),
-    department: str((e.department as Row | null)?.name),
+  const employees: WorkFlowEmployee[] = (empRes.data ?? []).map((e) => ({
+    id: e.id,
+    code: e.code,
+    name: e.name,
+    inactive: e.inactive,
+    designation: e.designation,
+    department: e.department_name,
   }));
 
   return { ok: true, salesOrderId, day0, today: today(), rows, employees };

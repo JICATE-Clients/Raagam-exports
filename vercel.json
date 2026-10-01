@@ -9,6 +9,14 @@
     {
       "path": "/api/cron/work-flow",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/order-risk",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/approval-links",
+      "schedule": "0 4 * * *"
     }
   ]
 }

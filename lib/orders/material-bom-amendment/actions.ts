@@ -23,6 +23,7 @@ import {
   panelConsumption,
   productionSlices,
   requirementFor,
+  toPurchaseSlices,
   totalProductionOf,
   type ColourSplit,
   type OrderProductionInput,
@@ -43,7 +44,6 @@ import {
   sliceKey,
   type SliceKey,
 } from "@/lib/orders/material-bom/slice-consumption";
-import { toPurchaseQty, uomPrecision } from "@/lib/uom/convert";
 import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
 /* The purchase stage every raw line starts in, and the loss rule that inflates
    a line carrying processes (0476, client 2026-08-29). Imported rather than
@@ -1062,15 +1062,18 @@ function requirementRows(
           per_pieces: ratio.per_pieces ?? 0,
           required_qty: qty,
           refusal_reason: refused ? value.refused : null,
+          /* THE SAME RULE THE GRID DRAWS (`toPurchaseSlices`): a WHOLE
+             purchase unit (0663, `decimal_places_allowed` 0) rounds to a
+             whole number (half-up); a measured one keeps `toPurchaseQty`'s rounding. A
+             stored figure that disagreed with the screen by the ceil would be
+             the one the PO copies. */
           purchase_qty:
             qty != null && packUsable && conv
-              ? toPurchaseQty(
-                  qty,
+              ? toPurchaseSlices(
+                  [qty],
                   conv,
-                  uomPrecision(
-                    conv.alt_uom_id ? (packs.uomDecimals.get(conv.alt_uom_id) ?? null) : null,
-                  ),
-                )
+                  conv.alt_uom_id ? (packs.uomDecimals.get(conv.alt_uom_id) ?? null) : null,
+                )[0] ?? null
               : null,
         });
       }

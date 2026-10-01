@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import {
@@ -71,7 +71,7 @@ const VERSION_SELECT =
   // 0644 — the line's colours and sizes. One FK each (catalog, 2026-09-25).
   "colours:order_cad_pattern_line_colours(sno, colour), " +
   "sizes:order_cad_pattern_line_sizes(sno, size_id, table_dia, avg_pcs_weight_g, size:config_lookups!size_id(name))), " +
-  "pattern_maker:employees!pattern_maker_id(name), " +
+  "pattern_maker:staff!pattern_maker_id(name), " +
   "dispatch:order_cad_dispatches(id, dispatch_date, courier_tracking_no, email_sent_at, layout_type, " +
   "expected_approval_date, remarks, " +
   "files:order_cad_dispatch_files(id, kind, file_name, storage_path, extension, size_bytes), " +
@@ -122,7 +122,7 @@ type VersionLite = {
   garment_order_id: string;
   style_ref_no: string;
   version_no: number;
-  pattern_maker_id: string;
+  pattern_maker_id: string | null;
   cad_type: CadType;
   allocation_date: string;
   target_date: string;
@@ -190,7 +190,7 @@ type VersionLite = {
   }>;
 };
 
-function toVersion(v: VersionLite): CadVersion {
+function toVersion(v: VersionLite, makerNames?: ReadonlyMap<string, string>): CadVersion {
   const d = one(v.dispatch);
   const dispatch: CadDispatch | null = d
     ? {
@@ -208,7 +208,8 @@ function toVersion(v: VersionLite): CadVersion {
     id: v.id,
     version_no: v.version_no,
     pattern_maker_id: v.pattern_maker_id,
-    pattern_maker_name: one(v.pattern_maker)?.name ?? null,
+    pattern_maker_name:
+      (v.pattern_maker_id ? makerNames?.get(v.pattern_maker_id) : undefined) ?? one(v.pattern_maker)?.name ?? null,
     cad_type: v.cad_type,
     allocation_date: v.allocation_date,
     target_date: v.target_date,
@@ -315,12 +316,26 @@ export async function listCadStyles(orderIds?: readonly string[]): Promise<CadSt
   if (ordersRes.error) throw new Error(`CAD lifecycle: reading orders failed — ${ordersRes.error.message}`);
   if (versionsRes.error) throw new Error(`CAD lifecycle: reading CAD versions failed — ${versionsRes.error.message}`);
 
+  /* THE PATTERN MAKERS' NAMES, READ PAST STAFF RLS (0671). The embed above
+     goes through the caller's own access, and `staff_read` needs
+     hr_payroll:view — so for the merchandiser who actually uses this screen
+     every name came back null. These ids are the ones on the versions the
+     caller may already read, and only the name is fetched. */
+  const versionRows = (versionsRes.data ?? []) as unknown as VersionLite[];
+  const makerIds = [...new Set(versionRows.map((v) => v.pattern_maker_id).filter((id): id is string => !!id))];
+  const makerNames = new Map<string, string>();
+  if (makerIds.length) {
+    const { data: makers, error: makerErr } = await createAdminClient().from("staff").select("id, name").in("id", makerIds);
+    if (makerErr) throw new Error(`CAD lifecycle: reading pattern makers failed — ${makerErr.message}`);
+    for (const m of (makers ?? []) as { id: string; name: string }[]) makerNames.set(m.id, m.name);
+  }
+
   const versionsBy = new Map<string, CadVersion[]>();
   const refBy = new Map<string, string>();
-  for (const v of (versionsRes.data ?? []) as unknown as VersionLite[]) {
+  for (const v of versionRows) {
     const k = `${v.garment_order_id}|${styleKey(v.style_ref_no)}`;
     const list = versionsBy.get(k) ?? [];
-    list.push(toVersion(v));
+    list.push(toVersion(v, makerNames));
     versionsBy.set(k, list);
     if (!refBy.has(k)) refBy.set(k, v.style_ref_no);
   }
@@ -452,25 +467,44 @@ export async function listCadStyles(orderIds?: readonly string[]): Promise<CadSt
   return withCreators(rows);
 }
 
-/** The form data: who may be a Pattern Maker (filtered on screen by `patternMakerOptions`). */
+/**
+ * WHO MAY BE A PATTERN MAKER — LIVE FROM HR ▸ STAFF (0671, user 2026-10-01:
+ * "totally unwire from that table and wire the staff"). It read `employees`,
+ * the Employee master, whose only pattern makers were the test rows "PATTERN
+ * MAKER 1/2"; the real people are on HR ▸ Staff (designation PATTERN MASTER).
+ *
+ * Read with the SERVICE ROLE, deliberately and narrowly: `staff_read` needs
+ * hr_payroll:view, and the merchandiser assigning CAD has no business holding
+ * that — without it this list came back empty, which reads as "nobody". So it
+ * asks for five columns only (no pay, no personal data), and the callers gate
+ * on orders:view first (`getOrderCad`, `getCadPatternMakers`, the CAD page).
+ *
+ * Every staff row comes back — inactive and blocked ones flagged, not dropped —
+ * so a version already holding a since-retired maker still shows the name
+ * (AGENTS.md ▸ Disabled rows); `patternMakerOptions` decides who is OFFERED.
+ * Live on every open: a pattern master added on HR ▸ Staff is offered on the
+ * next CAD screen opened, with nothing to sync.
+ *
+ * The key stays `employees` so its three callers are unchanged.
+ */
 export async function getCadLifecycleFormData(): Promise<{ employees: PatternMakerRow[] }> {
-  const s = await createClient();
-  const { data, error } = await s
-    .from("employees")
-    .select("id, code, name, inactive, designation:config_lookups!designation_id(name)")
+  const { data, error } = await createAdminClient()
+    .from("staff")
+    .select("id, code, name, is_active, blocked, designation:designations!designation_id(name)")
     .order("name");
-  if (error) throw new Error(`CAD lifecycle: reading employees failed — ${error.message}`);
+  if (error) throw new Error(`CAD lifecycle: reading staff failed — ${error.message}`);
   const employees = ((data ?? []) as unknown as {
     id: string;
     code: string | null;
     name: string;
-    inactive: boolean | null;
+    is_active: boolean | null;
+    blocked: boolean | null;
     designation: One<{ name: string }>;
   }[]).map((e) => ({
     id: e.id,
     code: e.code,
     name: e.name,
-    inactive: !!e.inactive,
+    inactive: e.is_active === false || !!e.blocked,
     designation: one(e.designation)?.name ?? null,
   }));
   return { employees };

@@ -74,6 +74,7 @@ export async function postBotAlert(input: BotAlertInput): Promise<BotAlertResult
     const recipients = Array.from(new Set(rows.map((r) => r.recipient_id))).filter(Boolean);
 
     await notify(
+      "order.community_message",
       { userIds: recipients },
       {
         title: title ?? "Order update",

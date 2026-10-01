@@ -84,8 +84,12 @@ check("§1 100 NOS, no loss, no pack = 100", q(line({})), { required: 100, purch
 check("§2 100 NOS at 5% = 105 (× 1.05)", q(line({}), [5]), { required: 105, purchase: 105 });
 refute("§2 …and never the fabric divide's 106", q(line({}), [5]), { required: 106, purchase: 106 });
 
-// §3 — two losses compound, and NOS rounds UP to whole units.
-check("§3 5% then 3% = 100 × 1.05 × 1.03 = 108.15 → 109 NOS", q(line({}), [5, 3]), { required: 109, purchase: 109 });
+// §3 — two losses compound, and NOS rounds to a WHOLE unit, HALF-UP.
+// This vector said "rounds UP … → 109" and was already failing at fd1691b:
+// `roundRequirement` has rounded whole units half-up since the client's
+// 2026-08-29 example ("5321.5"), and budgetupdate.md §6 (2026-09-30) states
+// the same rule ("standard rounding Math.round()"). 108.15 → 108.
+check("§3 5% then 3% = 100 × 1.05 × 1.03 = 108.15 → 108 NOS (half-up)", q(line({}), [5, 3]), { required: 108, purchase: 108 });
 
 // §4 — the pack: 500 NOS in boxes of 144 = 3.47 BOX (exact, the client's
 // choice), then Round To 1 → 4 BOX.

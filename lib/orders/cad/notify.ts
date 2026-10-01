@@ -116,6 +116,7 @@ export async function notifyCadOfNewOrder(garmentOrderId: string): Promise<void>
     const { reNo, buyer } = await orderNames(garmentOrderId);
     const name = reNo ? `Order ${reNo}` : "A new order";
     await notify(
+      "cad.new_order",
       { role: CAD_ROLE },
       {
         title: `${name} needs marker weights`,
@@ -164,6 +165,7 @@ export async function notifyMerchandiserOfCadSubmit(garmentOrderId: string): Pro
        imported or created by a script has none, and "nobody owns it" must not
        mean "nobody is told". `orders:edit` is the merchandising desk. */
     await notify(
+      "cad.weights_ready",
       merchandiserId
         ? { userId: merchandiserId }
         : { permission: { module: "orders", action: "edit" } },

@@ -189,6 +189,11 @@ function row(p: Partial<ProcessLossRow> = {}): ProcessLossRow {
   // when the UOM master grows (see `WHOLE_UNIT_UOM_CODES`), and an entry no
   // vector reads is one an edit can drop without anything failing.
   check("NBR is a whole unit", isWholeUnitUom("NBR"), true);
+  // budgetupdate.md §6 (2026-09-30) names Box and Pack too.
+  check("BOX is a whole unit", isWholeUnitUom("BOX"), true);
+  check("PACKET is a whole unit", isWholeUnitUom("packet"), true);
+  check("a unit whose master says 0 decimals rounds whole", roundRequirement(30.6, "XYZ", 0), 31);
+  check("a unit off the list with 2 decimals keeps them", roundRequirement(30.61, "XYZ", 2), 30.61);
   check("ROLLS is named though the master has none yet", isWholeUnitUom("ROLLS"), true);
   check("MTR is measured", isWholeUnitUom("MTR"), false);
   check("KGS is measured", isWholeUnitUom("KGS"), false);
