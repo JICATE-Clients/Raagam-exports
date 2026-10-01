@@ -41,19 +41,31 @@ import {
   type PatternMakerRow,
 } from "@/lib/orders/cad-lifecycle/types";
 import { useCadActions } from "./use-cad-actions";
+import { getCadPatternMakers } from "@/lib/orders/cad-lifecycle/actions";
+import { NEW_ORDER_CAD } from "./cad-pending";
 import { SectionBody } from "@/components/masters/master-full-screen";
 import { DetailSection } from "@/components/masters/detail-section";
 import { AllocationSheet, DecisionSheet } from "./cad-sheets";
+
+/** A style as the order editor holds it before the order is saved. */
+export type DraftCadStyle = { style_ref_no: string; style_description: string; layout_type: string | null };
 
 export function OrderCadTab({
   orderId,
   canEdit,
   withOrderSave = false,
+  draftStyles = [],
 }: {
   orderId: string | null;
   canEdit: boolean;
   /** The order's Save writes the CAD step (cad-pending.ts); false on a locked order. */
   withOrderSave?: boolean;
+  /**
+   * A NEW ORDER'S STYLES, straight from Order Info (user 2026-09-30: the CAD
+   * tab must work "while order entry also", not only after the first Save).
+   * Read only while `orderId` is null.
+   */
+  draftStyles?: DraftCadStyle[];
 }) {
   const [data, setData] = useState<{
     forOrder: string;
@@ -62,6 +74,8 @@ export function OrderCadTab({
     canEdit: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A new order has no saved styles to read — only who may be assigned.
+  const [makers, setMakers] = useState<{ employees: PatternMakerRow[]; canEdit: boolean } | null>(null);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
@@ -82,13 +96,42 @@ export function OrderCadTab({
     };
   }, [orderId, tick]);
 
+  useEffect(() => {
+    if (orderId || makers) return;
+    let cancelled = false;
+    void getCadPatternMakers().then((r) => {
+      if (cancelled) return;
+      if (r.ok) setMakers({ employees: r.employees, canEdit: r.canEdit });
+      else setError(r.error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, makers]);
+
   // Until this mount's own read lands, paint the last answer remembered for
   // the order, so a return to the tab (it remounts each time) is immediate.
   const remembered = orderId ? recallOrderCad(orderId) : undefined;
-  const current =
-    data && data.forOrder === orderId
+  /* A NEW ORDER: one row per style typed on Order Info, nothing assigned yet.
+     Its assignments park under NEW_ORDER_CAD and are written by the order's
+     first Save, against the id that Save returns (cad-pending.ts). */
+  const draftRows: CadStyleRow[] = [];
+  if (!orderId) {
+    const seen = new Set<string>();
+    for (const d of draftStyles) {
+      const ref = d.style_ref_no.trim();
+      if (!ref || seen.has(ref.toUpperCase())) continue;
+      seen.add(ref.toUpperCase());
+      draftRows.push(draftCadRow(d, ref));
+    }
+  }
+  const current = !orderId
+    ? makers
+      ? { forOrder: NEW_ORDER_CAD, rows: draftRows, employees: makers.employees, canEdit: makers.canEdit }
+      : null
+    : data && data.forOrder === orderId
       ? data
-      : remembered?.ok && orderId
+      : remembered?.ok
         ? { forOrder: orderId, rows: remembered.rows, employees: remembered.employees, canEdit: remembered.canEdit }
         : null;
   const editable = canEdit && !!current?.canEdit;
@@ -101,13 +144,6 @@ export function OrderCadTab({
   // Assign → Send → Approval follow one another without a click in between.
   const [formNonce, setFormNonce] = useState(0);
 
-  if (!orderId) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Save the order first — the CAD is allocated per style of a saved order.
-      </p>
-    );
-  }
   if (error) {
     return (
       <p role="alert" className="text-sm text-danger">
@@ -274,4 +310,32 @@ function InlineStep({
       )}
     </DetailSection>
   );
+}
+
+/** A new order's style as a CAD row: on the order, nothing assigned, no history. */
+function draftCadRow(d: DraftCadStyle, ref: string): CadStyleRow {
+  return {
+    key: `${NEW_ORDER_CAD}|${ref.toUpperCase()}`,
+    garment_order_id: NEW_ORDER_CAD,
+    order_code: null,
+    re_no: null,
+    sales_order_id: null,
+    po_no: null,
+    customer_id: null,
+    customer_name: null,
+    customer_review_days: null,
+    delivery_date: null,
+    style_ref_no: ref,
+    style_description: d.style_description || null,
+    layout_type: (d.layout_type as CadStyleRow["layout_type"]) ?? null,
+    components: [],
+    sizes: [],
+    size_options: [],
+    colours: [],
+    on_order: true,
+    versions: [],
+    state: "not_allocated",
+    created_at: null,
+    created_by: null,
+  };
 }

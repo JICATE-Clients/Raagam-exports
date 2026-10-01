@@ -94,7 +94,7 @@ export function OrderFullDataSheet({
             : "These are the figures submitted for your approval."}
         </p>
         <Tabs
-          items={ORDER_REPORTS.map((r) => ({
+          items={POPUP_ORDER.map((r) => ({
             key: r.key,
             label: r.label,
             content: <ReportTab report={r} salesOrderId={salesOrderId} loaded={loaded} load={load} />,
@@ -104,6 +104,24 @@ export function OrderFullDataSheet({
     </Sheet>
   );
 }
+
+/**
+ * THE POP-UP'S TAB ORDER (client 2026-09-30, doc/order/budgetupdate.md §7D):
+ * Order Info & Size Assortment → Fabric BOM & Yarn Sourcing → Accessories BOM
+ * → Itemized Budget Sheet — the order an MD reads an order in, fabric before
+ * trims. The registry's own order (Order · Material · Fabric · Budget) is the
+ * report strip's and stays as it is; only this pop-up re-ranks it, by SOURCE,
+ * keeping the registry's order within each source.
+ */
+const SOURCE_RANK: Record<OrderReportDef["source"], number> = {
+  order: 0,
+  "fabric-bom": 1,
+  "material-bom": 2,
+  budget: 3,
+};
+const POPUP_ORDER = ORDER_REPORTS.map((r, i) => ({ r, i }))
+  .sort((a, b) => SOURCE_RANK[a.r.source] - SOURCE_RANK[b.r.source] || a.i - b.i)
+  .map((x) => x.r);
 
 /** Which loaded part renders this report — null for a report that is a page only. */
 function partOf(r: OrderReportDef): OrderFullDataPart | null {

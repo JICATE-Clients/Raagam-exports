@@ -171,7 +171,11 @@ export function Topbar({
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
+    // From md up the bar sits on the shell's canvas with no rule beneath it
+    // (frame option A, 2026-10-01): the work panel below draws the only edge.
+    // On a phone there is no canvas around the page, so it keeps its white
+    // fill and its line.
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:border-b-0 md:bg-transparent md:pl-2">
       {/* `BAR_CONTROL` (top of file) is the ONE size every control in this bar
           takes — Location, the role preview, Search. See its own note. */}
       {/* Location switcher (two GST entities) */}

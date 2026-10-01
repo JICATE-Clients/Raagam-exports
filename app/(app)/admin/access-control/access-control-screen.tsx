@@ -508,13 +508,24 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
               key: "permissions",
               label: "Permissions",
               content: (
-                <PermissionTree
-                  catalog={catalog}
-                  offered={data.offered}
-                  value={roleTree}
-                  readOnly={!canEdit && !!roleId}
-                  onChange={(t) => { setRoleTree(t); setRoleDirty(true); }}
-                />
+                <div className="space-y-2">
+                  {/* 0662: Super Admin passes every check through the login's
+                      flag, whatever this tree says — so the tree is shown, never
+                      edited, rather than inviting an edit that changes nothing. */}
+                  {roleName === "Super Admin" && (
+                    <p className="text-sm text-muted-foreground">
+                      Super Admin always has full access to every module and screen. Only a super admin can give or remove
+                      this role (Users ▸ Roles).
+                    </p>
+                  )}
+                  <PermissionTree
+                    catalog={catalog}
+                    offered={data.offered}
+                    value={roleTree}
+                    readOnly={(!canEdit && !!roleId) || (roleSystem && roleName === "Super Admin")}
+                    onChange={(t) => { setRoleTree(t); setRoleDirty(true); }}
+                  />
+                </div>
               ),
             },
           ]}

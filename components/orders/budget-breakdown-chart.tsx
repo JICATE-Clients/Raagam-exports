@@ -243,7 +243,13 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
                       filter: `drop-shadow(0 0 ${active === a.key ? 10 : 4}px ${COLOR[a.key]})`,
                     }}
                     onPointerEnter={(e) => e.pointerType === "mouse" && setHover(a.key)}
-                    onClick={() => pick(a.key)}
+                    /* The pick is the chart's own: a card that opens on click
+                       (the approval card, the desktop page) must not ALSO
+                       open when a colour is tapped. */
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      pick(a.key);
+                    }}
                   />
                 ))}
               </svg>
@@ -350,7 +356,14 @@ function LegendRow({
       style={{ background: lifted ? "var(--glass-strong)" : "var(--glass-row)", border: "1px solid var(--glass-edge)" }}
       onPointerEnter={(e) => e.pointerType === "mouse" && onPoint?.(true)}
       onPointerLeave={(e) => e.pointerType === "mouse" && onPoint?.(false)}
-      onClick={onPick}
+      onClick={
+        onPick
+          ? (e) => {
+              e.stopPropagation();
+              onPick();
+            }
+          : undefined
+      }
     >
       <span
         className={cn("size-2.5 rounded-full", inline && "col-start-1 row-start-1")}

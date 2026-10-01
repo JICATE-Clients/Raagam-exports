@@ -68,14 +68,18 @@ export function GlobalSidebar() {
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex flex-col overflow-hidden border-r border-border bg-surface",
-          "transition-[width,border-radius,box-shadow] duration-[220ms] ease-out",
-          // Open, it FLOATS: rounded trailing edge and a real lift, so it
+          "fixed inset-y-0 left-0 z-40 flex flex-col overflow-hidden",
+          "transition-[width,border-radius,box-shadow,background-color] duration-[220ms] ease-out",
+          // Closed, it sits ON the canvas with no edge of its own (frame option
+          // A, 2026-10-01 — the panel's edge is the frame's only divider).
+          // Open, it FLOATS: white, rounded trailing edge and a real lift, so it
           // reads as a panel over the page rather than a wider column.
-          expanded ? "w-52 rounded-r-2xl shadow-elev-hi" : "w-14",
+          expanded ? "w-52 rounded-r-2xl border-r border-border bg-surface shadow-elev-hi" : "w-14 bg-canvas",
         )}
       >
-        <div className="flex h-12 shrink-0 items-center justify-center border-b border-border px-2">
+        {/* `h-14`, the top bar's height, so the logo is centred on the same
+            line as the bar's controls and the module heading beside it. */}
+        <div className="flex h-14 shrink-0 items-center justify-center px-2">
           <Image
             src="/brand/raagam-wordmark.png"
             alt="Raagam Exports"
@@ -89,7 +93,7 @@ export function GlobalSidebar() {
           />
         </div>
 
-        <nav className="scrollbar-slim flex-1 space-y-1 overflow-y-auto overflow-x-hidden p-1.5">
+        <nav className="scrollbar-reveal flex-1 space-y-1 overflow-y-auto overflow-x-hidden p-1.5">
           {bands.map((band, bi) => (
             <div key={band.label ?? bi} className="space-y-0.5">
               {/* One fixed `h-5` either way: open it is the caption and its

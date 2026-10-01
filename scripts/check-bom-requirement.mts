@@ -185,13 +185,28 @@ refute("600 / 7 is not whole-unit rounding (86) — the decimal_places trap", se
   { label: "Whole order", value: 86 },
 ]);
 
-// The trap in production is a service that selects `decimal_places` (0 on every
-// live row) instead of `decimal_places_allowed`. That reaches the engine as a 0,
-// so the vector feeds a 0 and asserts the clamp in `uomPrecision` absorbs it.
-// Without the floor of 2 this reads 86 and the client's rejected round-up is back.
+// A 0 IS NOW MEANT (0663/0664, client 2026-09-30, budgetupdate.md §6): a UOM
+// whose `decimal_places_allowed` is 0 is a WHOLE unit (Pcs, Gross, Box …), and
+// its requirement rounds HALF-UP to a whole number — `roundForUom`, the same
+// rounding `roundRequirement` gives a line with a process loss. This vector
+// used to assert the opposite ("the clamp is load-bearing"): the trap it
+// guarded was a service selecting `decimal_places` (0 on every live row)
+// instead of `decimal_places_allowed`, which would now round a METRE line
+// whole. Both Material BOM services select `decimal_places_allowed`
+// (material-bom-amendment/actions.ts, requirement-report.ts) — keep it so.
 check(
-  "a UOM reporting 0 decimals still gets 2 — the clamp is load-bearing",
+  "a whole-unit UOM (0 decimals) rounds half-up: 85.71 → 86",
   required("order", order(), line({ no_of_items: 1, per_pieces: 7, decimals: 0 })),
+  [{ label: "Whole order", value: 86 }],
+);
+check(
+  "a whole-unit UOM rounds DOWN below .5: 600 / 8 × 1.002 = 75.15 → 75",
+  required("order", order(), line({ no_of_items: 1, per_pieces: 8, decimals: 0, excess_pct: 0.2 })),
+  [{ label: "Whole order", value: 75 }],
+);
+check(
+  "a measured UOM (2 decimals) still ceils: 85.72",
+  required("order", order(), line({ no_of_items: 1, per_pieces: 7, decimals: 2 })),
   [{ label: "Whole order", value: 85.72 }],
 );
 
@@ -744,9 +759,16 @@ check(
 refute("no_of_items 0 is not 0", requirementFor(line({ no_of_items: 0 }), s600), 0);
 
 check(
-  "wastage over 100 refuses",
+  "excess over 100 refuses",
   refusalOf(requirementFor(line({ excess_pct: 120 }), s600)),
-  "Wastage must be between 0 and 100",
+  "Excess must be between -50 and 100",
+);
+// SIGNED SINCE 0663 (client 2026-09-30, budgetupdate.md §6: "+5.00% or -5.00%").
+check("a negative excess reduces the figure: 1,200 at -5% = 1,140", requirementFor(line({ excess_pct: -5 }), s600), 1140);
+check(
+  "an excess below -50 refuses",
+  refusalOf(requirementFor(line({ excess_pct: -60 }), s600)),
+  "Excess must be between -50 and 100",
 );
 
 check(
@@ -1068,9 +1090,9 @@ check(
 // A wastage the line cannot honour refuses in BOTH columns. One answering while
 // the other refuses reads as the before-figure being fine.
 check(
-  "an out-of-range wastage refuses the base column too",
+  "an out-of-range excess refuses the base column too",
   refusalOf(baseRequirementFor(line({ excess_pct: 120 }), s600)),
-  "Wastage must be between 0 and 100",
+  "Excess must be between -50 and 100",
 );
 check(
   "and a bad divisor refuses it as well",

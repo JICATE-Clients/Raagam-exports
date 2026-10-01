@@ -554,7 +554,10 @@ query is not a stored value — including the one in `data-picker.tsx`, which si
 pickers), and **LC / PO terms**, the client's own carve-out: those clauses are read by a
 bank and by suppliers, where capitals change how the text reads rather than how a value is
 stored. Addresses and the company document footer were offered the same carve-out and the
-client declined it.
+client declined it. **The buyer's PO number** joined it on 2026-09-30 (client,
+`doc/order/budgetupdate.md` §2: "accept all cases without auto-converting"): the header's
+PO No is `format="po_ref"` (kept as typed, any visible character) and the multi-PO row's
+is `uppercase={false}` with its exemption comment. POs saved before then stay in capitals.
 
 Full rules and reasoning in `doc/ui/LAYOUT.md` §11; checked by
 `python scripts/audit_layout.py . --check caps-input`, which since the flip asks the

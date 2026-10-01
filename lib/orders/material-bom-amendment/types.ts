@@ -762,7 +762,8 @@ export const mbaItemSliceInput = z.object({
   size_spec: capsTextNullable(),
   /** The wastage buffer for this row (0450). NULL inherits the line's, the same
    *  contract the two figures have carried since 0442. */
-  excess_pct: z.coerce.number().min(0).max(100).nullable().default(null),
+  /* Signed since 0663 (client 2026-09-30): -50..100 — `EXCESS_MIN_PCT`. */
+  excess_pct: z.coerce.number().min(-50, "Excess must be at least -50%").max(100).nullable().default(null),
   /** The supplier minimum and rounding step for this row (0451). NULL inherits
    *  the line's — see the column comments for why per-row is a risk. */
   moq: z.coerce.number().nonnegative().nullable().default(null),
@@ -974,7 +975,9 @@ export const mbaItemInput = z
     round_to: numN,
     no_of_items: numN,
     per_pieces: numN,
-    excess_pct: z.coerce.number().min(0).max(100).nullable().default(0),
+    /* Signed since 0663 (client 2026-09-30, budgetupdate.md §6): -50..100,
+       the same bounds as `EXCESS_MIN_PCT` / `EXCESS_MAX_PCT` and the CHECK. */
+    excess_pct: z.coerce.number().min(-50, "Excess must be at least -50%").max(100).nullable().default(0),
     required_by: nullableText,
     /** The Combination sheet's rows (0436). Defaulted to `[]`, never required:
      *  the opt-in is what keeps every line written before 0436 valid. */

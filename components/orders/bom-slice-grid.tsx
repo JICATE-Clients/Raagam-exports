@@ -575,7 +575,8 @@ export function BomSliceGrid({
                   <div className="flex min-h-9 items-center border-l border-border">
                     <Input
                       type="number"
-                      min="0"
+                      /* Signed since 0663: -50..100 (`EXCESS_MIN_PCT`). */
+                      min="-50"
                       max="100"
                       step="0.01"
                       value={row.cell.excess}
@@ -668,7 +669,7 @@ export function BomSliceGrid({
                       />
                       <Input
                         type="number"
-                        min="0"
+                        min="-50"
                         max="100"
                         step="0.01"
                         value={c.excess}

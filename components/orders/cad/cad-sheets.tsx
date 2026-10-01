@@ -254,8 +254,13 @@ export function AllocationSheet({
     remarks,
     ...patternDetailsPayload(pattern),
   });
-  const commit = () =>
-    mode === "edit" && latest ? updateCadAllocation(latest.id, payload()) : allocateCad(payload());
+  // The order id arrives at WRITE time (cad-pending.ts): on a NEW order the
+  // step is parked before the order exists, and the order's first Save hands
+  // this the id it just got back. The sheet's own Save uses the row's.
+  const commit = (orderId: string = row.garment_order_id) =>
+    mode === "edit" && latest
+      ? updateCadAllocation(latest.id, payload())
+      : allocateCad({ ...payload(), garment_order_id: orderId });
 
   // INLINE, THE ORDER'S SAVE WRITES THIS (user 2026-09-30, screenshot 3136).
   // Parked only once something was changed: an untouched Assign form is not a

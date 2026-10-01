@@ -2,7 +2,7 @@
 
 import { PenTool } from "lucide-react";
 import { OrderCadTab } from "@/components/orders/cad/order-cad-tab";
-import { clearPendingCad, pendingCadProblem, savePendingCad } from "@/components/orders/cad/cad-pending";
+import { clearPendingCad, NEW_ORDER_CAD, pendingCadProblem, savePendingCad } from "@/components/orders/cad/cad-pending";
 import { prefetchOrderTabs } from "@/lib/orders/order-tab-reads";
 import { LAYOUT_TYPES } from "@/lib/orders/cad-lifecycle/types";
 import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
@@ -49,8 +49,8 @@ import {
 // picker.
 import { FieldAffordance } from "@/components/ui/field-affordance";
 import { Input } from "@/components/ui/input";
-// PO No is `format="doc_ref"` — the kind declares the regex, the message AND
-// the uppercase keystroke transform, so the screen and the server cannot
+// PO No is `format="po_ref"` — the kind declares the rule, the message AND
+// the (absent) keystroke transform, so the screen and the server cannot
 // disagree about any of the three. See the field.
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
@@ -4227,6 +4227,8 @@ export function GarmentOrderScreen({
     // leave two routes into a create that mints a brand-new `sales_orders` row
     // from a screen headed "Order Amendment".
     if (amending) return;
+    // A new order starts with no CAD typed (cad-pending.ts, NEW_ORDER_CAD).
+    clearPendingCad(NEW_ORDER_CAD);
     setEditId(null);
     setSavedOrderNo(null);
     setPreviewNo(null);
@@ -4949,7 +4951,8 @@ export function GarmentOrderScreen({
        forms have no buttons now; a changed one is parked in `cad-pending.ts`.
        Refused HERE, before the order is written, so an incomplete CAD step
        never leaves a saved order and an unsaved CAD behind one click. */
-    const cadProblem = editId ? pendingCadProblem(editId) : null;
+    // A new order's CAD steps wait under NEW_ORDER_CAD (cad-pending.ts).
+    const cadProblem = pendingCadProblem(editId ?? NEW_ORDER_CAD);
     if (cadProblem) {
       toastError(cadProblem);
       return;
@@ -4969,7 +4972,13 @@ export function GarmentOrderScreen({
         /* The order FIRST — a CAD is allocated against its saved styles. A
            CAD write that fails keeps the editor open with the step still
            parked, so pressing Save again retries only what did not land. */
-        const cad = editId ? await savePendingCad(editId) : { saved: 0, errors: [] };
+        /* A NEW order's CAD (user 2026-09-30: the tab works before the first
+           Save) is written now, against the id the create just returned. */
+        const cad = editId
+          ? await savePendingCad(editId)
+          : "id" in res && res.id
+            ? await savePendingCad(NEW_ORDER_CAD, res.id)
+            : { saved: 0, errors: [] };
         if (cad.errors.length) {
           toastError(`The order was saved, but the CAD was not — ${cad.errors.join("; ")}`);
           router.refresh();
@@ -13569,7 +13578,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         label: "PO No",
         required: true,
         empty: (f) => !f.po_no.trim(),
-        format: "doc_ref",
+        /* `po_ref` since 2026-09-30 (client, budgetupdate.md §2): kept exactly
+           as typed, any case, any visible character — the server's
+           `requiredKind("po_ref", …)` is the same declaration. */
+        format: "po_ref",
         text: (f) => f.po_no,
       },
       /* MERCHANDISER — mandatory since 2026-08-31, and now an `employees` row.
@@ -14557,8 +14569,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           {
             header: "PO No",
             cell: (r: QuantityRow) => (
+              /* caps-input: exempt -- the buyer's PO number, kept exactly as
+                 typed (client 2026-09-30, budgetupdate.md §2); the header's
+                 PO No is `po_ref` for the same reason. */
               <Input
-                      value={r.po_no}
+                uppercase={false}
+                value={r.po_no}
                 onChange={(e) => setQty(r.key, { po_no: e.target.value })}
               />
             ),
@@ -22745,12 +22761,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * with the widening the user asked for invisible. Two one-word edits
               * closed it. Three declarations, one spec.
               *
-              * It brings the keystroke transform with it: `doc_ref`'s `transform`
-              * is `"upper"`, so this field capitalises as it is typed AND carries
-              * the CSS transform for a value loaded from a row saved before the
-              * rule — which is the same two halves the CAPITALS rule requires of a
-              * plain `<Input>`, arriving through the format spec instead of
-              * through the primitive's default.
+              * AS TYPED SINCE 2026-09-30 (client, budgetupdate.md §2: "accept
+              * all cases without auto-converting or throwing validation
+              * errors", e.g. `po-2026/88a-ROJA`). The kind is now `po_ref`,
+              * whose `transform` is `"none"` — so no keystroke upper-casing and
+              * no CSS transform — and whose rule is only "a line of visible
+              * text". It was `doc_ref` (capitals, `A–Z 0–9 / -`) until then; the
+              * history below is why it was, and the client reversed it.
               *
               * THE FORMAT ERROR DOES NOT BLOCK SAVE, deliberately, and that is
               * the app-wide rule rather than a decision taken here:
@@ -22770,7 +22787,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             <Field label="PO No" required size="xs" htmlFor="hd-pono">
               <ValidatedInput
                 id="hd-pono"
-                format="doc_ref"
+                format="po_ref"
                 value={form.po_no}
                 onChange={(e) => set({ po_no: e.target.value })}
               />
@@ -23424,6 +23441,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       content: (
         <OrderCadTab
           orderId={editId}
+          /* A new order's styles, so the tab works before the first Save. */
+          draftStyles={editId ? undefined : styles.map((st) => ({
+            style_ref_no: st.style_ref_no,
+            style_description: st.style_description,
+            layout_type: st.layout_type,
+          }))}
           canEdit={perms.canEdit && !viewOnly}
           withOrderSave={!(editId && (orderLocks[editId] || (orderAmendments[editId] && !embed)))}
         />
@@ -23688,7 +23711,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 ? "Editing garment order"
                 : "New garment order",
           onCancel: () => {
-            clearPendingCad(editId);
+            clearPendingCad(editId ?? NEW_ORDER_CAD);
             setMode("list");
           },
           onSave: () => submit(false),

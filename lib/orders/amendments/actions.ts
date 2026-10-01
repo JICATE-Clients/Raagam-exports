@@ -54,7 +54,9 @@ import { orderTaLadder, isRefusal } from "@/lib/orders/ta/order-ladder";
    holiday-awareness that the unmerged branch it came from has. */
 import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
 
-type Result = { ok: true; notice?: string } | { ok: false; error: string };
+/** `id` is the document a create just minted — Order Entry's CAD tab writes
+ *  the CAD steps typed on a NEW order against it once the order exists. */
+type Result = { ok: true; notice?: string; id?: string } | { ok: false; error: string };
 
 function fail(msg: string): Result {
   return { ok: false, error: msg };
@@ -2227,7 +2229,7 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
   if (mintedOrderId) await notifyCadOfNewOrder(created.id);
 
   rev();
-  return { ok: true };
+  return { ok: true, id: created.id };
 }
 
 /**

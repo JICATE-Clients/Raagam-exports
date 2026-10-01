@@ -2388,8 +2388,11 @@ export const amendmentQuantityInput = z.object({
      — it inherits the header's PO (`lib/orders/po-no.ts`) — and applying the
      alphanumeric rule here would refuse values already stored in this grid for a
      requirement the client stated about the header field. See the header's own
-     `po_no` for the open question that leaves. */
-  po_no: capsTextNullable(),
+     `po_no` for the open question that leaves.
+     AS TYPED SINCE 2026-09-30 (client, doc/order/budgetupdate.md §2): the
+     header became `po_ref`, which keeps the buyer's casing, so this one drops
+     its caps in the same change — the reason above, one switch the other way. */
+  po_no: nullableText,
   po_qty: num,
   // Dates are plain ISO strings here, as everywhere in this module — the input
   // is `<input type="date">`, whose value is always ISO regardless of the
@@ -2496,7 +2499,11 @@ export const amendmentInput = z.object({
    * remains is that the row would still accept a space or a comma. Left as an
    * open question for the client rather than decided here.
    */
-  po_no: requiredKind("doc_ref", "PO No is required"),
+  /* `po_ref`, not `doc_ref` (client 2026-09-30, budgetupdate.md §2): the
+     buyer's PO number is stored exactly as typed — any case, any visible
+     character. Values saved before then stay in the capitals they were saved
+     in; nothing rewrites them. */
+  po_no: requiredKind("po_ref", "PO No is required"),
   po_date: nullableText,
   /**
    * MANDATORY, and an `employees` row rather than a login since 0478.

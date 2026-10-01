@@ -127,13 +127,20 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       // silently swapping. The rise sits on the <nav>, not here, so the
       // column's own border never moves.
       key={mod.href}
-      className="scrollbar-slim flex h-full w-48 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      // No border, no fill (frame option A, 2026-10-01): the column sits on the
+      // shell's canvas beside the rail, and the work panel's edge is what
+      // separates it from the page.
+      className="scrollbar-reveal flex h-full w-48 shrink-0 flex-col overflow-y-auto"
     >
       {/* SIDEBAR REFRESH (client 2026-09-17, option A): the module's own icon
           in a brand tile, and how many screens it holds. The ONE icon this
           column carries — a header, not a row, so the 09-16 "much icons"
-          decision about the list below stands. */}
-      <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-2.5">
+          decision about the list below stands.
+          `h-14` with no rule beneath (2026-10-01): it used to be `h-12` with a
+          border-b, 8px above the top bar's own line, so the one horizontal line
+          across the screen had a step in it. Same height as the top bar now,
+          and nothing to line up. */}
+      <div className="flex h-14 shrink-0 items-center gap-2.5 px-2.5">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-primary-soft text-primary">
           <ModIcon className="h-4 w-4" />
         </span>
@@ -150,8 +157,10 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       {newAction && activeHref && (
         /* `mt-3` (12px) matches the gap BELOW the button — the nav's `p-2`
            plus the first section label's `pt-1` — so it sits evenly between
-           the header rule and the list (operator, 2026-09-17). */
-        <div className="mt-3 px-1.5">
+           the header rule and the list (operator, 2026-09-17). `mt-1` since
+           the header lost its rule (2026-10-01): with nothing to clear, 12px
+           left the button floating away from the heading it belongs to. */
+        <div className="mt-1 px-1.5">
           <Link
             href={createHref(activeHref, newAction)}
             className={buttonClasses({ size: "sm", className: "w-full rounded-[10px] shadow-elev" })}

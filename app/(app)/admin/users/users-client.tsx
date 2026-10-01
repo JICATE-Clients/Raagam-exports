@@ -801,11 +801,6 @@ export default function UsersClient({
               ))}
             </Select>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Anyone without a login yet gets one first (no mail is sent — use Send welcome mail when they should sign
-            in). Skipped: super admins, people with no email in HR, and anyone who already holds this role at this
-            location.
-          </p>
         </div>
       </Sheet>
     </div>

@@ -46,11 +46,22 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         <SearchProvider>
           <ShortcutsProvider>
             <KeyboardNavProvider>
-              <div data-app-shell className="flex h-screen overflow-hidden">
+              {/* THE FLOATING WORK PANEL (2026-10-01, frame option A). Rail, module
+                  menu and top bar sit on `bg-canvas` with no lines between them;
+                  the tab strip and the page live in ONE white panel laid on it,
+                  whose edge is the only divider the frame draws. Rationale on
+                  `--canvas` in globals.css. Below md the panel is the whole
+                  screen again — no gutter, no corners — because the sidebars are
+                  hidden there and MobileNav owns the bottom edge. */}
+              <div data-app-shell className="flex h-screen overflow-hidden bg-canvas">
                 <Sidebar stores={stores} />
                 <div className="flex min-w-0 flex-1 flex-col">
                   <Topbar previewableRoles={previewableRoles} />
                   <RolePreviewBanner />
+                  <div
+                    data-work-panel
+                    className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel md:mb-2 md:mr-2 md:rounded-xl md:border md:border-panel-edge md:shadow-[0_1px_2px_rgb(15_23_42/0.05)]"
+                  >
                   <WorkspaceTabsBar />
                   {/* Below md the bottom padding clears MobileNav's docked tab bar —
                   56px plus the iOS home-indicator inset, plus the usual 16px;
@@ -88,6 +99,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] *:w-full md:pb-6">
                     {children}
                   </main>
+                  </div>
                   <MobileNav stores={stores} />
                   <PushPrompt userId={user.id} />
                 </div>

@@ -126,6 +126,26 @@ export const CURRENCY_RE = /^[A-Z]{3}$/;
  */
 export const DOC_REF_RE = /^[A-Z0-9][A-Z0-9/-]*$/;
 
+/**
+ * A BUYER'S PO NUMBER, KEPT EXACTLY AS TYPED (client 2026-09-30,
+ * doc/order/budgetupdate.md §2: "PO numbers contain varying alphanumeric
+ * formats, slashes and mixed-case letters — accept all cases without
+ * auto-converting or throwing validation errors", e.g. `po-2026/88a-ROJA`).
+ *
+ * `doc_ref` above was the PO No's kind until then, and it was wrong for it in
+ * two ways the client hit: it CAPITALISED the value (a buyer's system that
+ * mints lower-case references then did not match our paperwork), and its
+ * `A–Z 0–9 / -` set refused the dots, underscores and spaces real POs carry.
+ * The PO is the BUYER'S string, so the one rule left is that it is a line of
+ * visible text — no control characters, no tab or newline pasted in with it.
+ * Leading/trailing blanks are trimmed by the schema, never by this pattern.
+ *
+ * This is a carve-out from AGENTS.md "CAPITALS" in the same family as LC / PO
+ * TERMS: a value read by someone outside the business, where re-casing it
+ * changes what it says.
+ */
+export const PO_REF_RE = /^[^\x00-\x1F\x7F]+$/;
+
 // Yarn count: 10'S | 2/10'S | 40 DINER (integer counts only; apostrophe-S required).
 export const YARN_COUNT_RE = /^(\d+(\/\d+)?'S|\d+ DINER)$/;
 
@@ -161,7 +181,8 @@ export type FormatKind =
   | "gst_state"
   | "currency"
   | "yarn_count"
-  | "doc_ref";
+  | "doc_ref"
+  | "po_ref";
 
 /** How the client input should coerce keystrokes before storing/validating. */
 export type Transform = "upper" | "digits" | "none" | "phone";
@@ -315,6 +336,15 @@ export const FORMATS: Record<FormatKind, FormatSpec> = {
     message:
       "Use letters, digits, hyphens and slashes, starting with a letter or digit",
     transform: "upper",
+    inputMode: "text",
+  },
+  /* The buyer's PO number, as typed — see PO_REF_RE. `transform: "none"`
+     is also what makes `ValidatedInput` pass `uppercase={false}`, so neither
+     the keystroke nor the display re-cases it. */
+  po_ref: {
+    re: PO_REF_RE,
+    message: "Enter the PO number as it appears on the buyer's order",
+    transform: "none",
     inputMode: "text",
   },
 };

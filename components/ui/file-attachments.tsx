@@ -326,6 +326,24 @@ export function FileAttachments({
   const accepted = accept.split(",").map((s) => s.trim());
   const maxBytes = maxSizeMb * 1024 * 1024;
 
+  /**
+   * OPEN THE FILE DIALOG — unless an upload is already running.
+   *
+   * THE BUTTON IS NEVER `disabled` WHILE BUSY (client 2026-09-30,
+   * doc/order/budgetupdate.md §4: "uploading … caused active cursor focus to
+   * jump unexpectedly to the next form row"). It used to be: the operator
+   * picks a file, the dialog closes with focus back on this button, and
+   * `busy` then DISABLED the focused button — a browser drops focus from a
+   * disabled element to `<body>`, so the next Tab or Enter started from
+   * wherever `restoreFocusIfLost` guessed, usually the next row. Refusing the
+   * click here keeps the same "one upload at a time" rule without ever
+   * taking focus away; `aria-busy` tells a screen reader why nothing happens.
+   */
+  function pickFiles() {
+    if (busy) return;
+    inputRef.current?.click();
+  }
+
   async function handleFiles(files: FileList) {
     setError(null);
     const supabase = createClient();
@@ -520,11 +538,13 @@ export function FileAttachments({
         variant="outline"
         size={variant === "control" ? "md" : "sm"}
         data-row-add
-        disabled={disabled || busy}
+        /* BUSY IS NOT DISABLED — see `pickFiles`. */
+        disabled={disabled}
+        aria-busy={busy || undefined}
         /* The drop zone IS the add button — see `dropProps`. */
         {...dropProps}
         className={cn(variant === "control" && "w-full", dropRing)}
-        onClick={() => inputRef.current?.click()}
+        onClick={pickFiles}
       >
         {busy ? (
           <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
@@ -663,11 +683,13 @@ export function FileAttachments({
              field answered" off the DOM reads one attribute across the app. */
           data-field-empty={rows.length ? "false" : "true"}
           {...hold}
-          disabled={disabled || busy}
+          /* BUSY IS NOT DISABLED — see `pickFiles`. */
+          disabled={disabled}
+          aria-busy={busy || undefined}
           title={disabled ? disabledReason : undefined}
           aria-label={label}
           className="w-full"
-          onClick={() => inputRef.current?.click()}
+          onClick={pickFiles}
         >
           {busy ? (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" />

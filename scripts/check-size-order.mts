@@ -208,6 +208,24 @@ check(
 check("comparator is reflexive", naturalSizeOrder("M", "M"), 0);
 check("comparator is antisymmetric", Math.sign(naturalSizeOrder("S", "M")), -Math.sign(naturalSizeOrder("M", "S")));
 
+// THE LIVE MASTER'S SPELLINGS (client 2026-09-30, budgetupdate.md §3). Every
+// range in it is written with "/", which used to fall to "Other" and sort last.
+order(
+  "slash ranges are ranges: months in age order",
+  ["12/18M", "9/12M", "1M", "6/9M", "3/6M"],
+  ["1M", "3/6M", "6/9M", "9/12M", "12/18M"],
+);
+order(
+  "a single size precedes the range starting at it, years interleaved",
+  ["3/4YRS", "2/3YRS", "3YRS", "1.5/2YRS", "2YR"],
+  ["1.5/2YRS", "2YR", "2/3YRS", "3YRS", "3/4YRS"],
+);
+order(
+  "months, then years, then plus sizes — the age ladder is unbroken",
+  ["2X", "3YRS", "1X", "6/9M", "2YR"],
+  ["6/9M", "2YR", "3YRS", "1X", "2X"],
+);
+
 // `sortBySize` is what the screens actually call; it must not mutate its input.
 const rows = [{ name: "XL" }, { name: "S" }, { name: "M" }];
 const sorted = sortBySize(rows, (r) => r.name);

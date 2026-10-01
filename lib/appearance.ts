@@ -389,7 +389,12 @@ function gradientCss(sel: string, p: AccentPalette): string {
   const b = p.gradientTo;
   return (
     `${sel} .ty-chrome{background-image:linear-gradient(90deg,${a},${b})}` +
-    `${sel} .ty-btn-primary{background-image:linear-gradient(135deg,${a},${b})}` +
+    // WHITE TEXT, STATED HERE (2026-10-01). The Raagam skin repaints primary
+    // buttons as a LIGHT blue with dark #0b3a56 text, and this image out-ranks
+    // that fill but not its text colour — so on every skinned screen the main
+    // button came out dark-on-dark and read as disabled. The gradient is dark,
+    // so it owns the text that goes on it.
+    `${sel} .ty-btn-primary{background-image:linear-gradient(135deg,${a},${b});color:#fff;border-color:transparent}` +
     `${sel} .ty-btn-primary:hover:not(:disabled){filter:brightness(.92)}` +
     `${sel} .ty-btn-primary:active:not(:disabled){filter:brightness(.84)}`
   );
