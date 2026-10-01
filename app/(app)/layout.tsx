@@ -56,12 +56,26 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               <div data-app-shell className="flex h-screen overflow-hidden bg-canvas">
                 <Sidebar stores={stores} />
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <Topbar previewableRoles={previewableRoles} />
-                  <RolePreviewBanner />
+                  {/* FULL-HEIGHT CARD (user 2026-10-01, screenshot 3171, split
+                      option A). The top bar used to sit on the canvas ABOVE the
+                      panel, so the panel's edge turned a corner under it and the
+                      split between menu and page was L-shaped. Now the panel
+                      runs the full height and holds the top bar, the tabs and
+                      the page — one unbroken edge.
+                      FLUSH TO THE WINDOW (user 2026-10-01: "no need that gap
+                      floating near the end of the screen"). A 10px gap with
+                      rounded corners was tried first; the panel now meets the
+                      top, right and bottom of the window and keeps only its
+                      LEFT edge — a hairline plus a soft shadow cast onto the
+                      navigation — which is the split itself.
+                      NO `overflow-hidden`: the top bar's dropdowns open from
+                      inside this box and must not be clipped by it. */}
                   <div
                     data-work-panel
-                    className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel md:mb-2 md:mr-2 md:rounded-xl md:border md:border-panel-edge md:shadow-[0_1px_2px_rgb(15_23_42/0.05)]"
+                    className="flex min-h-0 flex-1 flex-col bg-panel md:border-l md:border-panel-edge md:shadow-[-8px_0_24px_-16px_rgb(15_23_42/0.25)]"
                   >
+                  <Topbar previewableRoles={previewableRoles} />
+                  <RolePreviewBanner />
                   <WorkspaceTabsBar />
                   {/* Below md the bottom padding clears MobileNav's docked tab bar —
                   56px plus the iOS home-indicator inset, plus the usual 16px;

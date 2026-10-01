@@ -299,7 +299,7 @@ function InlineStep({
       </div>
       {v && (
         <p className="text-sm text-muted-foreground">
-          {v.pattern_maker_name ?? "—"} · target {fmtDate(v.target_date)}
+          {v.pattern_maker_name ?? "Not assigned"} · target {fmtDate(v.target_date)}
           {v.decision?.decided_on ? ` · decided ${fmtDate(v.decision.decided_on)}` : ""}
         </p>
       )}

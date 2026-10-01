@@ -536,6 +536,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
                       >
                         <option value="">Default (Dashboard)</option>
                         <option value="/me">My Profile</option>
+                        <option value="/my-work">My Work</option>
                         {NAV.filter((n) => n.href !== "/").map((n) => (
                           <option key={n.href} value={n.href}>
                             {n.label}

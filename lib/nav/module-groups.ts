@@ -545,6 +545,16 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
              would be one card on a hub in front of one screen (the register;
              Raise and the workspace are pages beneath it, not rows). */
           { href: "/orders/order-amendments", label: "Order Revisions", description: "Change an approved order — raise a revision, make the change, send it to the MD" },
+          /* ORDER PROGRESS (doc/order/digitalisation-plan.md §1, 2026-10-01):
+             every live RE from entry to shipment, and whether it will make its
+             delivery date. Derived on read; the risk alert links here. */
+          { href: "/orders/progress", label: "Order Progress", description: "Where every order stands, from entry to shipment, and which will miss delivery" },
+          /* ORDER PROFIT CHECK (doc/order/digitalisation-plan.md §3, 0667): the
+             approved budget against what was actually bought, processed and
+             shipped. Named "Profitability", then "Budget vs Actual", then this
+             (user 2026-10-01). Moved to /orders/profit-check the same day;
+             /orders/profitability redirects, so no link breaks. CMT & other costs are typed in by hand on the order. */
+          { href: "/orders/profit-check", label: "Order Profit Check", description: "Did each order make the money we planned? The approved budget beside what was really spent and shipped" },
         ],
       },
       // TIME & ACTION — A SUB-MODULE ROW OF ITS OWN (user 2026-09-24: "move

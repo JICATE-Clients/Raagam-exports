@@ -1,8 +1,16 @@
 "use client";
 
+import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { useEditorOpen } from "@/lib/editor-presence";
+import { useAppUser } from "@/lib/auth/permission-context";
 import { GlobalSidebar } from "@/components/navigation/GlobalSidebar";
 import { ContextSidebar } from "@/components/navigation/ContextSidebar";
+import {
+  activeModule,
+  hasModuleMenu,
+  visibleModules,
+} from "@/components/navigation/navigation-config";
 import type { StoreNavLink } from "./sidebar-types";
 
 export type { StoreNavLink };
@@ -31,12 +39,49 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
    * `MobileNav` is the nav there.
    */
   const editorOpen = useEditorOpen();
+  // ABOVE THE EARLY RETURN — see "Hooks above every early return" in AGENTS.md.
+  const pathname = usePathname();
+  const user = useAppUser();
   if (editorOpen) return null;
 
+  const withMenu = hasModuleMenu(activeModule(pathname, visibleModules(user)), stores.length);
+
   return (
-    <div className="hidden h-full shrink-0 md:flex">
-      <GlobalSidebar />
-      <ContextSidebar stores={stores} />
+    <div className="hidden h-full shrink-0 flex-col md:flex">
+      {/* THE BRAND ROW SPANS THE WHOLE SIDEBAR (user 2026-10-01: "raagam logo
+          looks squeezed"). The wordmark sat in the module menu's own 48px
+          header at 36px tall, and before that in the 56px rail at 40px wide;
+          across rail + menu (236px) it gets the room to read. Where there is
+          no module menu (Dashboard) the sidebar is only the rail, so the row
+          shows the round mark instead. `h-14` is what the rail's `top-14`
+          flyout opens beneath — change both together. */}
+      {/* CENTRED (user 2026-10-01, screenshot 3181), in both states — the
+          rail's open panel draws a centred twin at the same width. */}
+      <div className="flex h-14 shrink-0 items-center justify-center">
+        {withMenu ? (
+          <Image
+            src="/brand/raagam-wordmark.png"
+            alt="Raagam Exports"
+            width={431}
+            height={184}
+            priority
+            className="h-11 w-auto"
+          />
+        ) : (
+          <Image
+            src="/brand/raagam-mark.png"
+            alt="Raagam Exports"
+            width={1024}
+            height={1024}
+            priority
+            className="h-9 w-9"
+          />
+        )}
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <GlobalSidebar wide={withMenu} />
+        <ContextSidebar stores={stores} />
+      </div>
     </div>
   );
 }

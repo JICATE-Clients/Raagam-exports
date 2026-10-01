@@ -46,7 +46,7 @@ export async function notifyPatternReady(allocationId: string): Promise<void> {
     const reNo = so?.order_number ?? order?.code ?? null;
     const who = row.created_by ?? so?.merchandiser_id ?? null;
 
-    await notify(who ? { userId: who } : { permission: { module: "orders", action: "edit" } }, {
+    await notify("cad.pattern_ready", who ? { userId: who } : { permission: { module: "orders", action: "edit" } }, {
       title: `${reNo ? `Order ${reNo}` : "An order"} · ${row.style_ref_no} — pattern is Ready`,
       body:
         row.version_no > 1

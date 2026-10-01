@@ -160,7 +160,7 @@ export default async function ApprovalsWorklistPage({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Approvals Worklist"
         description={`Technical approvals awaiting action, across every order, as of ${fmtDate(wl.today)}.`}
@@ -198,8 +198,14 @@ export default async function ApprovalsWorklistPage({
         )}
       </div>
 
-      <QuickStatusLinks filters={filters} bucket={activeBucket} />
-      <FilterBar buyers={buyerOptions} owners={ownerOptions} filters={filters} bucket={activeBucket} />
+      {/* ONE TOOLBAR ROW (user 2026-10-01, screenshot 3198: "align the
+          page"): the Pending / Updated box and the Filters button side by
+          side, the filter panel opening over the list instead of standing
+          ~240px tall between them and it. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <QuickStatusLinks filters={filters} bucket={activeBucket} />
+        <FilterBar buyers={buyerOptions} owners={ownerOptions} filters={filters} bucket={activeBucket} />
+      </div>
 
       {filtering && filteredRows.length === 0 && wl.rows.length > 0 && (
         <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
@@ -231,11 +237,17 @@ export default async function ApprovalsWorklistPage({
             </Link>
           );
         })}
+        {/* The active bucket's one-line description, at the END OF THE TAB
+            ROW — it used to be a row of its own between the tabs and the
+            list (2026-10-01, "align the page"). Hidden on narrow screens,
+            where the tabs need the whole width. */}
+        <span className="ml-auto hidden truncate pb-1 text-xs text-muted-foreground md:block">
+          {sections[activeBucket].subtitle}
+        </span>
       </nav>
 
       <Section
         title={sections[activeBucket].title}
-        subtitle={sections[activeBucket].subtitle}
         rows={sections[activeBucket].rows}
         empty={sections[activeBucket].empty}
         canComplete={wl.canComplete}
@@ -257,22 +269,19 @@ export default async function ApprovalsWorklistPage({
 
 function Section({
   title,
-  subtitle,
   rows,
   canComplete,
   empty,
 }: {
   title: string;
-  subtitle: string;
   rows: ApprovalWorklistRow[];
   canComplete: boolean;
   empty: string;
 }) {
+  // The bucket's description now ends the tab row above; the section keeps
+  // only its accessible name.
   return (
-    <section className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        {subtitle} <span className="sr-only">— {title}</span>
-      </p>
+    <section aria-label={title} className="space-y-3">
       {rows.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
           {empty}

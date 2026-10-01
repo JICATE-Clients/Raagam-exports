@@ -66,6 +66,19 @@ export function fmtDate(value: string | null | undefined): string {
 }
 
 /**
+ * A stored time of day ("HH:MM" or "HH:MM:SS", 24-hour, as Postgres `time`
+ * columns hand it over) in the app's 12-hour form, e.g. "1:05 pm" — the same
+ * clock `fmtDateTime` prints (user 2026-10-01: "not railway format").
+ */
+export function fmtTime(value: string | null | undefined): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec(value?.trim() ?? "");
+  if (!m) return "—";
+  const H = Number(m[1]);
+  if (H > 23) return "—";
+  return `${H % 12 || 12}:${m[2]} ${H >= 12 ? "pm" : "am"}`;
+}
+
+/**
  * Date + time, e.g. "29/07/2026, 3:45 pm" — for audit trails / timestamps.
  *
  * The clock stays 12-hour with am/pm, which is what the screens showed before

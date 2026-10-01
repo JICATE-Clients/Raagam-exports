@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getOrderBudgetsByIds } from "@/lib/orders/budget/service";
 import { kpisFromJson, type BudgetBaseline, type BudgetKpis } from "@/lib/orders/budget/amendment";
 import type { Refusal } from "@/lib/orders/budget/totals";
+import { staffNames } from "@/lib/people/order-people";
 import { breakdownOfBudget, type BudgetBreakdownPair } from "./budget-breakdown";
 
 /**
@@ -49,7 +50,7 @@ export type OrderApprovalCard = {
   customer: string | null;
   /** "REF / DESCRIPTION", in style order, comma-joined. */
   styles: string | null;
-  /** `garment_order_amendments.merchandiser_id` → `employees.name`. */
+  /** `garment_order_amendments.merchandiser_id` → `staff.name` (0674). */
   merchandiser: string | null;
   /** From the submitted KPIs — a refusal says why there is no figure. */
   orderQty: number | Refusal | null;
@@ -103,15 +104,14 @@ export async function loadOrderApprovalCards(
   type Facts = {
     id: string;
     styles: Style[] | null;
-    merchandiser: { name: string | null } | { name: string | null }[] | null;
+    merchandiser_id: string | null;
   };
   const [factsRes, revRes] = await Promise.all([
     allOrderIds.length
       ? s
           .from("garment_order_amendments")
           .select(
-            "id, styles:garment_order_amendment_styles(sno, style_ref_no, style_description), " +
-              "merchandiser:employees!merchandiser_id(name)",
+            "id, merchandiser_id, styles:garment_order_amendment_styles(sno, style_ref_no, style_description)",
           )
           .in("id", allOrderIds)
       : Promise.resolve({ data: [], error: null }),
@@ -128,6 +128,12 @@ export async function loadOrderApprovalCards(
   if (revRes.error) console.error("[approval-cards] revisions:", revRes.error.message);
   const factsOf = new Map(((factsRes.data ?? []) as unknown as Facts[]).map((f) => [f.id, f]));
   const revisions = (revRes.data ?? []) as unknown as Entry[];
+  // Merchandisers are HR ▸ Staff (0674): names via the narrow people reader,
+  // and — like the facts above — a failure costs the card a name, not the card.
+  const merchNames = await staffNames([...factsOf.values()].map((f) => f.merchandiser_id)).catch((e: Error) => {
+    console.error("[approval-cards] merchandisers:", e.message);
+    return new Map<string, string>();
+  });
 
   // V0 per order: its FIRST frozen baseline (the `firstBaselineOf` rule).
   const v0Of = new Map<string, BudgetBaseline>();
@@ -175,10 +181,7 @@ export async function loadOrderApprovalCards(
       const merch = [
         ...new Set(
           orderIds
-            .map((id) => {
-              const m = factsOf.get(id)?.merchandiser;
-              return ((Array.isArray(m) ? m[0] : m)?.name ?? "").trim();
-            })
+            .map((id) => (merchNames.get(factsOf.get(id)?.merchandiser_id ?? "") ?? "").trim())
             .filter(Boolean),
         ),
       ];

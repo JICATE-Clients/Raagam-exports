@@ -148,7 +148,7 @@ export function CadLifecycleScreen({
         const v = latestVersion(r.versions);
         return v ? (
           <div className="min-w-0 leading-tight">
-            <Truncated className="text-sm">{v.pattern_maker_name ?? "—"}</Truncated>
+            <Truncated className="text-sm">{v.pattern_maker_name ?? "Not assigned"}</Truncated>
             <span className="text-xs text-muted-foreground">{cadTypeLabel(v.cad_type)}</span>
           </div>
         ) : (
@@ -216,7 +216,7 @@ export function CadLifecycleScreen({
           pill: (r) => <StatusPill tone={CAD_STATE_META[r.state].tone}>{CAD_STATE_META[r.state].label}</StatusPill>,
           meta: (r) => {
             const v = latestVersion(r.versions);
-            return v ? `V${v.version_no} · ${v.pattern_maker_name ?? "—"} · target ${fmtDate(v.target_date)}` : "Not assigned";
+            return v ? `V${v.version_no} · ${v.pattern_maker_name ?? "Not assigned"} · target ${fmtDate(v.target_date)}` : "Not assigned";
           },
           onView: (r) => cad.showHistory(r),
           onEdit: canEdit ? (r) => cad.startStep(r, null) : undefined,

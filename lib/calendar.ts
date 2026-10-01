@@ -45,6 +45,24 @@ export function today(now: Date = new Date()): string {
   return ISO_IN_TZ.format(now);
 }
 
+// en-GB with hour12 off formats as HH:MM — the value an <input type="time"> takes.
+const HM_IN_TZ = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/**
+ * The time of day at the factory, as HH:MM (24-hour) — the companion of
+ * `today()`, in the same zone, so a "sent now" date and time always agree
+ * whatever zone the browser's clock is set to.
+ */
+export function nowTime(now: Date = new Date()): string {
+  // Some engines print midnight as "24:00" with hour12 off; a time input wants "00:00".
+  return HM_IN_TZ.format(now).replace(/^24:/, "00:");
+}
+
 /**
  * The calendar date a TIMESTAMP fell on, at the factory. `null` when unparseable.
  *

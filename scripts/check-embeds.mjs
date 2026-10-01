@@ -86,6 +86,9 @@ const AMBIGUOUS = {
   // are read as `order_budget_lines(*)`); declared the day the second FK lands,
   // the same rule the `workers` entry above follows.
   order_budget_lines: { config_lookups: ["cost_head_id", "stage_id"] },
+  // 0673's CC table points at `profiles` twice from birth — the person copied
+  // (`user_id`) and who added them (`created_by`). Declared the day it lands.
+  notification_event_cc: { profiles: ["user_id", "created_by"] },
 };
 
 /* KNOWN GAP, MEASURED 2026-09-11 AND DELIBERATELY NOT CLOSED HERE.

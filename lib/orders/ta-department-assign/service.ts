@@ -2,7 +2,6 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { listEmployeeLocations } from "@/lib/masters/employee-service";
 import type { EmployeeLocation } from "@/lib/masters/employee-types";
-import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { PickerItem } from "@/components/masters/record-picker";
 import type { TaDepartmentAssign } from "./types";
 import { withCreators } from "@/lib/created-by";
@@ -12,7 +11,7 @@ export async function getTaDepartmentAssigns(): Promise<TaDepartmentAssign[]> {
   const { data } = await s
     .from("ta_department_assigns")
     .select(
-      "*, location:locations(id, code, name), department:config_lookups(id, code, name), " +
+      "*, location:locations(id, code, name), department:departments!department_id(id, code:short_name, name), " +
         "lines:ta_department_assign_lines(*, activity:ta_activities(id, short_name, name))",
     )
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
@@ -26,7 +25,9 @@ export async function getTaDepartmentAssigns(): Promise<TaDepartmentAssign[]> {
 
 export type TaDeptAssignFormData = {
   locations: EmployeeLocation[];
-  departments: ConfigLookup[];
+  /** HR ▸ Departments (0674) — the same master a staff member's department is,
+   *  so "my department's T&A tasks" matches a person to an activity. */
+  departments: PickerItem[];
   activities: PickerItem[];
 };
 
@@ -37,7 +38,7 @@ export async function getTaDeptAssignFormData(): Promise<TaDeptAssignFormData> {
     listEmployeeLocations(),
     // Neither list filters on its flag in SQL — both back an editor of existing
     // assignments, and the picker hides what it must (AGENTS.md, "Disabled rows").
-    s.from("config_lookups").select("*").eq("kind", "department").order("name"),
+    s.from("departments").select("id, short_name, name, inactive").order("name"),
     s.from("ta_activities").select("id, short_name, name, is_active").order("name"),
   ]);
 
@@ -47,7 +48,9 @@ export async function getTaDeptAssignFormData(): Promise<TaDeptAssignFormData> {
 
   return {
     locations,
-    departments: (deptRes.data ?? []) as ConfigLookup[],
+    departments: ((deptRes.data ?? []) as { id: string; short_name: string | null; name: string; inactive: boolean | null }[]).map(
+      (d) => ({ id: d.id, code: d.short_name ?? "", name: d.name, inactive: !!d.inactive }),
+    ),
     activities,
   };
 }

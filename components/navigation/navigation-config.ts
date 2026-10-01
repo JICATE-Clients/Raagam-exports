@@ -43,6 +43,17 @@ export function activeModule(pathname: string, items: NavItem[]): NavItem | unde
     .sort((a, b) => b.href.length - a.href.length)[0];
 }
 
+/**
+ * Whether the module menu (ContextSidebar) draws anything for this module —
+ * the same test it applies before rendering: a module with no sub-navigation
+ * gets no menu, and Stores counts its live store links as rows. The sidebar
+ * shell reads it to size the brand row and the rail's flyout.
+ */
+export function hasModuleMenu(mod: NavItem | undefined, storeCount: number): boolean {
+  if (!mod) return false;
+  return (mod.children?.length ?? 0) > 0 || (mod.href === "/stores" && storeCount > 0);
+}
+
 /** The child row that should read as active for a module — group-aware.
  *  A grouped module (Orders, Purchase, …) answers from its registry, because
  *  its leaf routes are NOT paths beneath the group they belong to. Ungrouped

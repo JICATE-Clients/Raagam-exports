@@ -17,7 +17,6 @@ import { useCreateIntent } from "@/lib/use-create-intent";
 import { fmtDate } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { LocationPicker } from "@/components/masters/location-picker";
-import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
 import {
   createTaDepartmentAssign,
@@ -41,7 +40,6 @@ interface Props {
   rows: TaDepartmentAssign[];
   data: TaDeptAssignFormData;
   perms: Perms;
-  masterPerms: { canCreate: boolean; canEdit: boolean };
 }
 
 type LineRow = { key: string; activity_id: string | null; is_owner: boolean };
@@ -76,7 +74,7 @@ const ASSIGN_FACETS: FacetGroup<TaDepartmentAssign>[] = [
   },
 ];
 
-export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Props) {
+export function TaDepartmentAssignScreen({ rows, data, perms }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
@@ -318,14 +316,13 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
               <LocationPicker locations={data.locations} value={locationId} onChange={setLocationId} />
             </Field>
             <Field size="sm">
-              <LookupDialogPicker
-                kind="department"
+              {/* HR ▸ Departments (0674): the master a staff member's own
+                  department comes from, so a T&A task reaches its people. */}
+              <RecordPicker
                 label="Department"
-                options={data.departments}
+                items={data.departments}
                 value={departmentId}
                 onChange={setDepartmentId}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
               />
             </Field>
           </FieldGrid>

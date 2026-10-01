@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -63,12 +63,36 @@ export function StaticFilterDrawer({
   clearHref: string;
 }) {
   const across = Math.min(groups.length, 3);
+  /*
+   * BEHIND A "FILTERS" BUTTON (user 2026-10-01, screenshot 3198: "align the
+   * page"). Always open, the panel stacked ~240px between the page's header
+   * and its list, so the first approval row began at the bottom of a 1080p
+   * screen. A native `<details>` keeps it server-safe — no JS, no state — and
+   * opens it as a floating panel under the button, the shape of the client
+   * Orders lists' Filters button. A dot on the button says filters are set,
+   * since a closed panel can no longer show it.
+   */
   return (
+    <details className="group relative w-fit">
+      <summary
+        className={cn(
+          "inline-flex h-9 cursor-pointer list-none items-center gap-1.5 rounded-lg border bg-surface px-3 text-sm font-medium",
+          "transition-colors hover:bg-surface-muted [&::-webkit-details-marker]:hidden",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          active ? "border-primary text-primary" : "border-border text-foreground",
+        )}
+      >
+        <SlidersHorizontal className="h-4 w-4" aria-hidden />
+        Filters
+        {active && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label="filters set" />}
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+      <div className="absolute left-0 top-full z-30 mt-1.5 w-[min(40rem,calc(100vw-2rem))]">
     <form
       method="get"
       action={action}
       aria-label="Filters"
-      className={cn("rounded-lg border border-border bg-surface shadow-xs", CAP[across])}
+      className={cn("rounded-lg border border-border bg-surface shadow-elev-hi", CAP[across])}
     >
       {Object.entries(hidden ?? {}).map(([k, v]) =>
         v ? <input key={k} type="hidden" name={k} value={v} /> : null,
@@ -101,6 +125,8 @@ export function StaticFilterDrawer({
         </button>
       </div>
     </form>
+      </div>
+    </details>
   );
 }
 

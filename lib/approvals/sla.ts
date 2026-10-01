@@ -189,6 +189,7 @@ async function announce(run: SweptRun): Promise<boolean> {
     /* The NEW step's approvers, resolved by the engine. `notifyCurrentApprovers`
        re-reads the run, so it sees the step the sweeper just advanced to. */
     await notifyCurrentApprovers(run.run_id, {
+      source: "cron",
       payload: {
         title: `Escalated to you — ${label}`,
         body: `${missed} did not act within the agreed time, so this has come up to you.`,
@@ -203,6 +204,8 @@ async function announce(run: SweptRun): Promise<boolean> {
 
   // Not moved: the same approvers are being reminded.
   await notifyCurrentApprovers(run.run_id, {
+    event: "approval.sla_reminder",
+    source: "cron",
     payload: {
       title: `Overdue — ${label} is waiting on you`,
       body: `${missed} passed its agreed response time.`,
@@ -222,6 +225,7 @@ async function announce(run: SweptRun): Promise<boolean> {
  */
 async function tellTheRequester(run: SweptRun, label: string, href: string): Promise<void> {
   await notify(
+    "approval.sla_escalated",
     { userId: run.requested_by },
     {
       title: `Your ${label.toLowerCase()} was escalated`,
@@ -229,6 +233,7 @@ async function tellTheRequester(run: SweptRun, label: string, href: string): Pro
       href,
       type: "info",
     },
+    { source: "cron" },
   );
 }
 
@@ -275,6 +280,7 @@ async function tellTheMissedApprover(
   const userIds = run.missed_approvers ?? [];
   if (userIds.length === 0) return; // the step did not ask, or nothing moved
   await notify(
+    "approval.sla_missed",
     { userIds },
     {
       title: `No longer waiting on you — ${label}`,
@@ -282,5 +288,6 @@ async function tellTheMissedApprover(
       href,
       type: "info",
     },
+    { source: "cron" },
   );
 }

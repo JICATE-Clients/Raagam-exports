@@ -28,8 +28,16 @@ export async function proxy(request: NextRequest) {
    */
   const isCronJob = pathname.startsWith("/api/cron/");
 
+  /**
+   * A BUYER'S APPROVAL LINK (0668) — `/p/approve/<token>` is opened by someone
+   * with no login. Not unprotected either: the page and its decide action
+   * look the token up by its sha-256, and the decision runs only through a
+   * service_role function. The token is the authorisation; this gate is not.
+   */
+  const isPublicLink = pathname.startsWith("/p/");
+
   // Unauthenticated → push to login (preserve intended destination)
-  if (!user && !isAuthPage && !isAuthCallback && !isCronJob) {
+  if (!user && !isAuthPage && !isAuthCallback && !isCronJob && !isPublicLink) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", pathname);

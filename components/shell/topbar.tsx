@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bug, ChevronDown, LogOut, Search, UserRound } from "lucide-react";
+import { Bug, ChevronDown, ClipboardList, LogOut, Search, UserRound } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
 import { setCurrentLocation } from "@/lib/auth/location-actions";
 import { setRolePreview } from "@/lib/auth/role-simulation-actions";
@@ -171,11 +171,12 @@ export function Topbar({
   }
 
   return (
-    // From md up the bar sits on the shell's canvas with no rule beneath it
-    // (frame option A, 2026-10-01): the work panel below draws the only edge.
-    // On a phone there is no canvas around the page, so it keeps its white
-    // fill and its line.
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:border-b-0 md:bg-transparent md:pl-2">
+    // From md up the bar is the FIRST ROW OF THE WORK PANEL (split option A,
+    // 2026-10-01): transparent, so the panel's white and rounded corners show
+    // through, `h-12`, and no rule beneath — it and the tab strip read as one
+    // header, closed off by the strip's single hairline. On a phone there is
+    // no panel around the page, so it keeps its white fill and its line.
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:h-12 md:border-b-0 md:bg-transparent">
       {/* `BAR_CONTROL` (top of file) is the ONE size every control in this bar
           takes — Location, the role preview, Search. See its own note. */}
       {/* Location switcher (two GST entities) */}
@@ -413,6 +414,19 @@ export function Topbar({
                   )}
                 >
                   <UserRound className="h-4 w-4" /> My Profile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/my-work");
+                  }}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded px-3 py-2 text-sm",
+                    "text-foreground hover:bg-surface-muted",
+                  )}
+                >
+                  <ClipboardList className="h-4 w-4" /> My Work
                 </button>
                 {/* WHAT HAPPENED TO THE BUG I REPORTED. The widget takes
                     reports and says nothing back; this is the vendor's

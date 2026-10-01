@@ -186,6 +186,9 @@ import { useOpenIntent } from "@/lib/use-open-intent";
 import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
 import { EmbeddedEditorWait } from "@/components/orders/embedded-editor-wait";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useDraftIntent } from "@/lib/orders/po-import/use-draft-intent";
+import { loadPoDraftForOrder } from "@/lib/orders/po-import/actions";
+import { autoMatch, buildPoSeed, type PoMasters } from "@/lib/orders/po-import/seed";
 import { isInactive } from "@/lib/masters/inactive";
 // The Style master's own rules, imported rather than re-derived: Order Info now
 // writes the same two children that screen does (0457), and a second copy of
@@ -4309,6 +4312,78 @@ export function GarmentOrderScreen({
   });
 
   /**
+   * UPLOAD BUYER PO → A PRE-FILLED NEW ORDER (doc/order/digitalisation-plan.md
+   * §2). `/orders/po-import` hands over `?draft=<import id>`; this opens a NEW
+   * order exactly as "New Garment Order" does, then fills it from the reviewed
+   * draft through the SAME `applyRows` a saved document goes through — so a
+   * draft opens the way a saved order would and no grid is mapped twice.
+   *
+   * IT SAVES NOTHING. The merchandiser checks every tab and presses Save, and
+   * every required-field hold and Save check applies as it always does.
+   *
+   * DECLARED HERE FOR `useCreateIntent`'S REASON (read its note above): it
+   * closes over `openAdd` and `applyRows`, so it sits after them — and, like
+   * every hook in this component, ABOVE the `if (mode === "list")` return.
+   *
+   * The Customer is set through `set`, so the Customer picker's own onChange
+   * does not run; its two side effects (approval defaults, task owners) are
+   * repeated here for the same new-order case, exactly as that handler does.
+   */
+  useDraftIntent((draftId) => {
+    if (!perms.canCreate) return;
+    openAdd();
+    void loadPoDraftForOrder(draftId).then((r) => {
+      if (!r.ok) {
+        toastError(r.error);
+        return;
+      }
+      const masters: PoMasters = {
+        customers: customerFold.rows,
+        sizes: data.lookups.filter((l) => l.kind === "size"),
+        currencies: data.currencies,
+        countries: data.countries,
+        styles: data.styles,
+      };
+      const { header, seed } = buildPoSeed(autoMatch(r.data.stored, masters), masters);
+      set({
+        customer_id: header.customer_id,
+        po_no: header.po_no,
+        po_date: header.po_date,
+        delivery_date: header.delivery_date,
+        currency_code: header.currency_code || null,
+        season: header.season,
+        country_id: header.country_id,
+      });
+      applyRows(seed);
+      const customerId = header.customer_id;
+      if (customerId) {
+        setTaApprovalRows((xs) =>
+          xs.length
+            ? xs
+            : data.customerApprovalDefaults
+                .filter((d) => d.customer_id === customerId)
+                .map((d) => ({ key: newKey(), row_uid: crypto.randomUUID(), approval_id: d.approval_id })),
+        );
+        void fetchDefaultTaskOwners(customerId).then(applyDefaultTaskOwners);
+      }
+      // The buyer's PO itself, attached to the order as its order sheet.
+      setAttachments((all) => [
+        ...all,
+        {
+          key: newKey(),
+          doc_kind: "order_sheet",
+          file_name: r.data.file.file_name,
+          storage_path: r.data.file.storage_path,
+          mime_type: r.data.file.mime_type,
+          size_bytes: r.data.file.size_bytes,
+          style_ref_no: null,
+        },
+      ]);
+      success("Filled from the buyer PO. Check every tab, then Save.");
+    });
+  });
+
+  /**
    * THE EYE OPENS THE ORDER ITSELF, READ ONLY (client 2026-09-19). It used to
    * open `RowActions`' automatic record sheet — the amendment row's raw
    * columns as label/value pairs, no names resolved, none of the styles,
@@ -5870,7 +5945,15 @@ export function GarmentOrderScreen({
           }
           actions={
             perms.canCreate && !amending ? (
-              <Button onClick={openAdd}>New Garment Order</Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Upload Buyer PO (doc/order/digitalisation-plan.md §2): read
+                    the buyer's PO into a draft, review it, then come back here
+                    with `?draft=` — see `useDraftIntent` above. */}
+                <Button variant="outline" onClick={() => router.push("/orders/po-import")}>
+                  Upload Buyer PO
+                </Button>
+                <Button onClick={openAdd}>New Garment Order</Button>
+              </div>
             ) : undefined
           }
         />

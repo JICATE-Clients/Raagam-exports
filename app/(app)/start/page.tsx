@@ -3,6 +3,7 @@ import { canViewHref, requireUser } from "@/lib/auth/server";
 import { hasPermission, type Module } from "@/lib/auth/types";
 import { createAdminClient } from "@/lib/supabase/server";
 import { NAV } from "@/components/shell/nav";
+import { myStaff } from "@/lib/people/order-people";
 
 /**
  * WHERE A PERSON LANDS AFTER SIGNING IN (user 2026-10-01: "plan the dynamic
@@ -16,7 +17,11 @@ import { NAV } from "@/components/shell/nav";
  *      skipped rather than followed into the "denied" bounce.
  *   2. Otherwise MY PROFILE, when none of their roles opens any module: a
  *      staff login given no module access used to land on an empty Dashboard.
- *   3. Otherwise the Dashboard, exactly as before.
+ *   3. Otherwise MY WORK when the login is a staff member (2026-10-01): the
+ *      person's own orders, T&A tasks, approvals and CAD work, rather than the
+ *      company-wide Dashboard. A login linked to no staff record — an
+ *      administrator, a test account — has no "mine" to show.
+ *   4. Otherwise the Dashboard, exactly as before.
  *
  * The roles are read with the service role, pinned to the session's own id —
  * the same reason `lib/hr/my-profile.ts` gives, and the same safety: nothing in
@@ -37,13 +42,14 @@ export default async function StartPage() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   for (const h of homes) {
-    // `/me` needs no permission; any other home must be one they may open.
-    if (h.home_path === "/me" || (await canViewHref(h.home_path))) redirect(h.home_path);
+    // `/me` and `/my-work` need no permission; any other home must be one they may open.
+    if (h.home_path === "/me" || h.home_path === "/my-work" || (await canViewHref(h.home_path))) redirect(h.home_path);
   }
 
   const opensAModule =
     user.isSuperAdmin ||
     NAV.some((n) => n.href !== "/" && hasPermission(user, n.module as Module, "view"));
 
-  redirect(opensAModule ? "/" : "/me");
+  if (!opensAModule) redirect("/me");
+  redirect((await myStaff(user.id)) ? "/my-work" : "/");
 }

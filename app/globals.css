@@ -22,9 +22,17 @@
    * (see `raagam-brand-colours` and the skin's `--background` note below):
    * this grey carries no hue, the same family as `--background` one step down,
    * and the panel is plain white. */
-  --canvas: #eef1f4;
+  /* WHITE SINCE 2026-10-01 (user, screenshot 3180: "that grey bg also update
+   * as same white, no more grey"). It was #eef1f4; the sidebar now sits on the
+   * same white as the page, and the panel's left hairline + soft shadow is
+   * what divides them. Kept as its own token so the frame still has one place
+   * to change. */
+  --canvas: #ffffff;
   --panel: #ffffff;
-  --panel-edge: #dde2e8;
+  /* #d6dce3, darker than the first cut's #dde2e8 (user 2026-10-01, screenshot
+   * 3171): pale on pale, the panel did not lift off the canvas and read as
+   * unfinished. The panel's soft drop shadow (app layout) does the rest. */
+  --panel-edge: #d6dce3;
   --foreground: #0d0f13; /* primary text */
   /* DARKENED FROM #5b6472 ON 2026-08-27 (client: "just add some dark tone to the
    * font"), replacing the app-wide bold withdrawn the same day.
@@ -43,6 +51,13 @@
    * subordinate, or a form becomes a wall of equal-weight words — which is the
    * failure the bold experiment produced by another route this morning. */
   --muted-foreground: #414a57; /* secondary text */
+  /* A CAPTION over a list, one step quieter than --muted-foreground
+   * (user 2026-10-01, screenshot 3188: the sidebar's group captions and the
+   * screens under them read at the same size and the same grey, so the menu
+   * had no levels). #6b7785 on white is 4.6:1 — still AA for small text. For
+   * labels that name a group, never for a value or anything to be read
+   * closely; --muted-foreground stays the secondary-text colour. */
+  --caption: #6b7785;
   /* RAISED FROM #e3e6ea ON 2026-08-27 (client: "the table borders and toggles
    * also not visible that much, add some extra tone").
    *
@@ -294,7 +309,8 @@
   /* Dark twins of the frame tokens: the canvas sinks below the old page
    * ground, and the panel IS the old page ground, so every screen inside it
    * draws on exactly the colour it always did. */
-  --canvas: #07090c;
+  /* The dark twin of "same as the page": the panel's own ground. */
+  --canvas: #0b0d12;
   --panel: #0b0d12;
   --panel-edge: #232934;
   --foreground: #f2f4f8;
@@ -304,6 +320,9 @@
    * is how muted text disappears in the dark theme. Still clearly below
    * --foreground, so the hierarchy survives here too. */
   --muted-foreground: #b3bdcb;
+  /* Dark twin of --caption: one step quieter than #b3bdcb, ~6:1 on the
+   * dark panel. */
+  --caption: #8b96a5;
   /* Raised from #262b34 with the light-mode value (2026-08-27). STRONGER MEANS
    * MORE CONTRAST AGAINST THE SURFACE, so here that is LIGHTER — the rule the
    * --border-strong note below states, applied to the token beside it. Written
@@ -373,6 +392,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-canvas: var(--canvas);
+  --color-caption: var(--caption);
   --color-panel: var(--panel);
   --color-panel-edge: var(--panel-edge);
   --color-surface: var(--surface);
