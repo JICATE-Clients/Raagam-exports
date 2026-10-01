@@ -80,23 +80,6 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "consignee", label: "Consignee", singular: "Consignee", description: "Export consignees", type: "custom", custom: "consignee", icon: "consignee" },
       { slug: "payment-term", label: "Payment Term", singular: "Payment Term", description: "Payment terms", type: "custom", custom: "payment_term", icon: "payment-term" },
       { slug: "vendor", label: "Vendor", singular: "Vendor", description: "Suppliers / vendors", type: "custom", custom: "vendor", icon: "vendor" },
-      /**
-       * RESTORED 2026-08-31 (user), after being removed on 08-01 — see the
-       * note below, from which Employee has been struck.
-       *
-       * The 08-01 removal called this "not part of this business process", and
-       * that was true of the master ON ITS OWN. It stopped being true the same
-       * month: the client made Merchandiser mandatory on Order Entry and
-       * sourced it from the HR staff master (0478), so `employees` rows are now
-       * a dependency of entering an order. Nobody could create one — this row
-       * is the only door to the screen — which is why the live table holds a
-       * single test employee. Restoring it was put to the user against the two
-       * alternatives (hold 0478, or ship a mandatory field nothing can satisfy)
-       * and this is the one they chose.
-       *
-       * Position is the legacy one: Associates ▸ Employee sits after Vendor.
-       */
-      { slug: "employee", label: "Employee", singular: "Employee", description: "Employee master", type: "custom", custom: "employee", icon: "employee" },
       // A test bench, not a master: type a GSTIN and every detail the system can
       // derive is listed, including the ones it CANNOT (those need the paid
       // lookup). Saves nothing, owns no table.
@@ -112,23 +95,22 @@ export const SUBMODULES: SubmoduleDef[] = [
       // from git if the decision reverses. Do not re-add one of these without
       // asking.
       //
-      // **EMPLOYEE WAS ON THIS LIST AND CAME BACK** (user, 2026-08-31) — it is
-      // registered above. Struck from here rather than left in, because an
-      // entity that is both listed as removed and present in the array is a
-      // file arguing with itself, and the next reader has no way to tell which
-      // half is current.
+      // **EMPLOYEE — REMOVED FULLY 2026-10-01 (user: "fully remove").** Removed
+      // on 08-01, restored on 08-31 because Order Entry's Merchandiser and CAD
+      // Lifecycle's pattern-maker pickers read `employees`, and removed again
+      // here. This time the registry entry, the route branch,
+      // `employee-master-screen.tsx`, `employee-actions.ts` and the
+      // active-registry entry all went; `employee-{service,types}.ts` stay
+      // because other screens read locations / employees through them. The
+      // `employees` TABLE and its rows are kept. Nothing in the app creates an
+      // employee now — the pickers offer only the rows that already exist. Do
+      // not re-add it without asking.
       //
-      // TWO THINGS THIS EPISODE PROVED, both worth more than the entry itself:
-      //
-      // The sentence "screens, services, actions and types are gone" was NEVER
-      // TRUE. Only the registry entry and the route branch were removed;
-      // `employee-master-screen.tsx` and `employee-{service,actions,types}.ts`
-      // stayed, and so did the screens for Account Group, Account Head,
-      // Merchandising Team and Courier Delivery Address. That is why the code
-      // reads as live and why `tsc` never noticed — an unimported component is
-      // an ABSENCE, and absences do not fail type checks. Corrected here rather
-      // than deleted, because the claim is what made this look like an accident
-      // to three separate readers.
+      // The 08-01 removal also proved that the sentence "screens, services,
+      // actions and types are gone" was NEVER TRUE for the other entries above:
+      // the screens for Account Group, Account Head, Merchandising Team and
+      // Courier Delivery Address stayed. An unimported component is an ABSENCE,
+      // and absences do not fail type checks.
       //
       // And a REMOVAL LEAVES A COMMENT, NOT A SYMBOL. Three of us grepped for
       // `custom: "employee"`, found nothing, read commit 918815a's message

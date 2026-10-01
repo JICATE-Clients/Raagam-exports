@@ -1,100 +1,14 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardBody } from "@/components/ui/card";
 
+/* ADMINISTRATION OPENS ON USERS (user 2026-10-01). The module row used to land
+   on a hand-maintained card grid that duplicated the sidebar's own children —
+   every other screen here is one click away in the rail, so the landing page
+   was a stop on the way to Users, the screen this module is opened for. Same
+   permission as /admin/users, so the redirect cannot send anyone somewhere the
+   gate would refuse; the gate stays here so an unpermitted caller is refused
+   at the module root rather than one hop later. */
 export default async function AdminPage() {
   await requirePermission("system_admin", "view");
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="System Administration"
-        description="Manage users, roles, system configuration and maintenance utilities."
-      />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 max-w-2xl">
-        <Link href="/admin/company">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Company Profile</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Legal entity details, registration numbers and export
-                certifications.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
-        <Link href="/admin/users">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Users</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Create and manage user accounts, assign roles and work
-                locations.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
-        <Link href="/admin/access-control">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Access Control</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Which screens each role, and each person by email, can open and
-                change — plus approved-order corrections.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
-        <Link href="/admin/audit">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Audit Log</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Full change history — who created or edited each record, when,
-                and the previous &rarr; new values.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
-        <Link href="/admin/divisions">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Divisions</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Business units / divisions with document prefix configuration.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
-        {/* Document No Format's card is gone from here (client 2026-08-12): the
-            screen moved to Master Data ▸ System. Leaving the tile would have sent
-            the operator through a `redirect()` into another module without
-            warning — a card that silently teleports is worse than no card. This
-            grid is hand-maintained rather than rendered from
-            `lib/nav/module-groups.ts`, which is why removing the registry entry
-            did not remove this. */}
-        <Link href="/admin/assets">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Assets</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Fixed-asset register with assignment (delivery/return) tracking.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
-        <Link href="/admin/couriers">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Courier</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Courier companies, despatches, invoices and proof-of-delivery.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
-      </div>
-    </div>
-  );
+  redirect("/admin/users");
 }

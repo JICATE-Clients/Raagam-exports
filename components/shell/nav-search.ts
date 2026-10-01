@@ -5,7 +5,10 @@ import {
   RefreshCw,
   type LucideIcon,
 } from "lucide-react";
-import { NAV, SECTION_ACTIONS, type NavItem, type SubNavItem } from "./nav";
+import { NAV, type NavItem, type SubNavItem } from "./nav";
+import { allowedSectionActions } from "@/lib/nav/section-action-access";
+import { navEntry } from "@/components/navigation/navigation-config";
+import type { AppUser } from "@/lib/auth/types";
 import { moduleLeafItems } from "@/lib/nav/module-groups";
 
 /**
@@ -56,6 +59,8 @@ export function searchNav(
   query: string,
   modules: NavItem[] = NAV,
   childrenFor: ChildrenResolver = defaultChildren,
+  /** Whose quick actions to offer — only those this login may perform. */
+  user: AppUser | null = null,
 ): NavSearchRow[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
@@ -95,7 +100,9 @@ export function searchNav(
         })),
     ];
 
-    for (const c of searchable) {
+    for (const raw of searchable) {
+      // A regular staff member's "Staff" is "My Profile" → their own record.
+      const c = navEntry(user, raw);
       if (c.label.toLowerCase().includes(q))
         rows.push({
           key: "s:" + c.href,
@@ -104,20 +111,20 @@ export function searchNav(
           sub: c.sub,
           href: c.href,
         });
-      for (const a of SECTION_ACTIONS[c.href] ?? []) {
+      for (const a of allowedSectionActions(user, raw.href)) {
         if (a.toLowerCase().includes(q))
           rows.push({
             key: "a:" + c.href + a,
             icon: actionIcon(a),
             title: a,
             sub: m.label + " · " + c.label,
-            href: createHref(c.href, a),
+            href: createHref(raw.href, a),
             isAction: true,
           });
       }
     }
 
-    for (const a of SECTION_ACTIONS[m.href] ?? []) {
+    for (const a of allowedSectionActions(user, m.href)) {
       if (a.toLowerCase().includes(q))
         rows.push({
           key: "a:" + m.href + a,

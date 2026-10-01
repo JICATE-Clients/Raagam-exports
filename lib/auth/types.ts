@@ -137,6 +137,13 @@ export interface AppUser {
    * unions a real user's `user_roles` rows.
    */
   simulatedRoleIds: string[];
+  /**
+   * A regular staff member's OWN `staff.id` (user 2026-10-01): they hold HR
+   * access but no HR role, so the HR sidebar's Staff row reads "My Profile"
+   * and opens /hr/staff/<this>, read-only. Null/absent = Admin or HR (the
+   * list), or no staff record. Decided in `lib/auth/self-service.ts`.
+   */
+  myStaffId?: string | null;
   /** Where this person USUALLY works — an administrator's statement. Fallback only. */
   defaultLocationId: string | null;
   /**

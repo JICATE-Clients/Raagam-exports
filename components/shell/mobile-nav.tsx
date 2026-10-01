@@ -17,7 +17,8 @@ import {
   FileText,
   type LucideIcon,
 } from "lucide-react";
-import { SECTION_ACTIONS, type NavItem, type SubNavItem } from "./nav";
+import { type NavItem, type SubNavItem } from "./nav";
+import { allowedSectionActions } from "@/lib/nav/section-action-access";
 import { actionIcon, createHref, searchNav, type NavSearchRow } from "./nav-search";
 import { type StoreNavLink } from "./sidebar";
 import { mastersFabSections } from "@/lib/masters/masters-nav";
@@ -288,8 +289,10 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
           ];
     const seen = new Set<string>();
     const groups = candidates
-      .filter((c) => SECTION_ACTIONS[c.href] && !seen.has(c.href) && seen.add(c.href))
-      .map((c) => ({ ...c, actions: SECTION_ACTIONS[c.href], here: onRoute(pathname, c.href) }));
+      // Only the actions this login may perform there (2026-10-01).
+      .map((c) => ({ ...c, actions: allowedSectionActions(user, c.href) }))
+      .filter((c) => c.actions.length > 0 && !seen.has(c.href) && seen.add(c.href))
+      .map((c) => ({ ...c, here: onRoute(pathname, c.href) }));
     // The screen you are on first — the deepest match, so /orders/all beats /orders.
     const here = groups
       .filter((g) => g.here)
@@ -306,7 +309,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const q = query.trim();
   const results: NavSearchRow[] = q
     ? [
-        ...searchNav(query, modules, childrenFor),
+        ...searchNav(query, modules, childrenFor, user),
         ...(q.length >= 2 ? records : []).map((r) => ({
           key: `${r.type}:${r.id}`,
           icon: ENTITY_ICON[r.type],

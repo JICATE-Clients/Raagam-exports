@@ -51,7 +51,7 @@ import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useWorkspaceTabs } from "@/
 import { NAV } from "@/components/shell/nav";
 import { isHubRoute } from "@/lib/nav/module-groups";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
-import { isPlainLeftClick, visibleModules } from "@/components/navigation/navigation-config";
+import { isPlainLeftClick, navLabel, visibleModules } from "@/components/navigation/navigation-config";
 import { cn } from "@/lib/utils";
 
 /** Last-resort title for a route NAV doesn't know about (a dynamic `[id]`
@@ -144,7 +144,7 @@ export function WorkspaceTabsBar() {
   // useRegisterWorkspaceTab) — only fills one in when creating the tab fresh.
   useEnsureWorkspaceTab({
     href: pathname,
-    title: titleForPath(pathname),
+    title: navLabel(user, pathname, titleForPath(pathname)),
     skip: pathname === "/" || isHubRoute(pathname),
   });
 
@@ -355,12 +355,16 @@ export function WorkspaceTabsBar() {
               )}
             >
               {Icon && <Icon className={cn("h-3.5 w-3.5 flex-none", active && "text-primary")} />}
-              <span className="max-w-[160px] flex-1 truncate text-left">{tab.title}</span>
+              {/* Titles are STORED per browser, so one saved as "Staff" before
+                  My Profile existed is renamed here, as it is drawn. */}
+              <span className="max-w-[160px] flex-1 truncate text-left">
+                {navLabel(user, tab.href, tab.title)}
+              </span>
               {/* The close X shows on the active tab always and on the others
                   on hover: Notepad's arrangement, less its unsaved dot. */}
               <span
                 role="button"
-                aria-label={`Close ${tab.title}`}
+                aria-label={`Close ${navLabel(user, tab.href, tab.title)}`}
                 tabIndex={-1}
                 onClick={(e) => {
                   e.stopPropagation();

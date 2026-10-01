@@ -181,13 +181,6 @@ export const ACTIVE_ENTITIES: Record<string, ActiveEntity> = {
     label: "Vendor",
     revalidate: ["/masters", "/masters/associates", "/masters/associates/vendor"],
   },
-  employee: {
-    table: "employees",
-    column: "inactive",
-    module: "masters",
-    label: "Employee",
-    revalidate: ["/masters", "/masters/associates", "/masters/associates/employee"],
-  },
   our_bank: {
     table: "our_banks",
     column: "inactive",

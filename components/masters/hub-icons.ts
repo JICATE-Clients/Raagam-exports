@@ -13,7 +13,6 @@ import {
   Globe2,
   HandCoins,
   Handshake,
-  IdCard,
   Landmark,
   Map,
   MapPin,
@@ -155,7 +154,6 @@ export const MASTER_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   consignee: { icon: PackageCheck, tone: "accent" },
   "payment-term": { icon: CreditCard, tone: "danger" },
   vendor: { icon: Truck, tone: "primary" },
-  employee: { icon: IdCard, tone: "info" },
   // A test bench, not a master — it saves nothing and owns no table, so it gets
   // a magnifying glass rather than a document.
   "gst-number-check": { icon: ScanSearch, tone: "accent" },

@@ -198,7 +198,7 @@ export function SearchPalette({
       return out;
     }
 
-    const navRows = searchNav(query, modules);
+    const navRows = searchNav(query, modules, undefined, user);
     if (navRows.length)
       out.push({
         label: "Navigation",
@@ -229,7 +229,7 @@ export function SearchPalette({
     }
 
     return out;
-  }, [query, modules, records, recent, favorites]);
+  }, [query, modules, records, recent, favorites, user]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 

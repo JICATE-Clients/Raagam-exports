@@ -402,18 +402,24 @@ export function PersonProfileView({
             {title ?? `${entity} Details`}
           </h1>
           <p className="text-xs text-muted-foreground">
-            {breadcrumb ?? (
-              <>
-                HR &amp; Payroll / {entity === "Staff" ? "Staff" : "Workers"} /{" "}
-                <span className="text-foreground">{entity} Details</span>
-              </>
-            )}
+            {breadcrumb ??
+              (title ? (
+                <>
+                  HR &amp; Payroll / <span className="text-foreground">{title}</span>
+                </>
+              ) : (
+                <>
+                  HR &amp; Payroll / {entity === "Staff" ? "Staff" : "Workers"} /{" "}
+                  <span className="text-foreground">{entity} Details</span>
+                </>
+              ))}
           </p>
         </div>
         {onEdit && (
           <Button size="md" onClick={onEdit}>
             <Pencil className="mr-1.5 h-4 w-4" />
-            Edit {entity.toLowerCase()}
+            {/* My Profile's button names the person's own record, not the master. */}
+            {title ? "Edit profile" : `Edit ${entity.toLowerCase()}`}
           </Button>
         )}
       </div>

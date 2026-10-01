@@ -1,13 +1,9 @@
 "use client";
 
-import {
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { UserRound as UserRoundIcon } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { usePathname, useRouter } from "next/navigation";
@@ -36,7 +32,9 @@ import {
   updateStaff,
   createWorker,
   updateWorker,
+  updateMyProfile,
 } from "@/lib/hr/masters-actions";
+import { SELF_SECTION_KEYS } from "@/lib/hr/self-profile";
 import { getPersonChildren } from "./person-children";
 import { fmtMoney } from "@/lib/format";
 import { DataTable } from "@/components/ui/data-table";
@@ -623,6 +621,7 @@ export default function PersonClient({
   canCreate = false,
   canExport = false,
   canDelete = false,
+  selfRow,
 }: {
   kind: PersonKind;
   rows: PersonRow[];
@@ -640,6 +639,13 @@ export default function PersonClient({
   canCreate?: boolean;
   canExport?: boolean;
   canDelete?: boolean;
+  /**
+   * MY PROFILE (user 2026-10-01): a regular staff member's OWN record. The
+   * screen opens on its read-only page; Edit offers only the personal sections
+   * (`SELF_SECTION_KEYS`) and saves through `updateMyProfile`, which writes
+   * only those fields to the caller's own row — no list, no New, no Delete.
+   */
+  selfRow?: PersonRow;
 }) {
   const isWorker = kind === "worker";
   const copy = COPY[kind];
@@ -952,7 +958,9 @@ export default function PersonClient({
        * a worker's payload carries four more keys and goes to a different pair
        * of actions, each with its own Zod schema and its own permission check.
        */
-      const result = isWorker
+      const result = selfRow
+        ? await updateMyProfile(form, children)
+        : isWorker
         ? editId
           ? await updateWorker(editId, form as WorkerInput, children)
           : await createWorker(form as WorkerInput, children)
@@ -960,7 +968,7 @@ export default function PersonClient({
           ? await updateStaff(editId, form, children)
           : await createStaff(form, children);
       if (result.ok) {
-        success(`${copy.entity} ${editId ? "updated" : "created"}.`);
+        success(selfRow ? "Profile updated." : `${copy.entity} ${editId ? "updated" : "created"}.`);
         cancel();
         router.refresh();
       } else {
@@ -1818,7 +1826,10 @@ export default function PersonClient({
    */
   useCreateIntent(openAdd);
 
-  const railSections = personSections(kind);
+  // My Profile shows only the personal rows; HR's sections are not offered.
+  const railSections = selfRow
+    ? personSections(kind).filter((s) => SELF_SECTION_KEYS.has(s.key))
+    : personSections(kind);
 
   const validity = sectionValidity({
     sections: railSections.map((s) => ({ key: s.key })),
@@ -1894,8 +1905,12 @@ export default function PersonClient({
       case "detail-person":
         return {
           ...base,
-          done:
-            touched(["blocked", "guardian_name", "guardian_relation", "is_active", "mother_name", "name"]),
+          done: touched([
+            "guardian_name",
+            "guardian_relation",
+            "mother_name",
+            "name",
+          ]),
           content: (
             <div className="space-y-6">
               {/*
@@ -1986,7 +2001,6 @@ export default function PersonClient({
                 by hand against every group in this file.
               */}
               <FieldGrid>
-
                 {/* Row 1 — who this person is */}
                 <Field label="ID No" size="xs" htmlFor="st-code" skipTab>
                   {/*
@@ -2082,37 +2096,11 @@ export default function PersonClient({
                   />
                 </Field>
 
-
-                {/* NOT A ROW OF THEIR OWN (client 2026-09-22: "remove the
-                    record status"). They stay on the editor because nothing
-                    else can retire or bar a person — the list has no such
-                    action — so they close the identity pane instead. */}
-                {/* Reads INACTIVE like every other master in HR; the column
-                    is `is_active`, so the switch inverts it. */}
-                <Field label="Status" size="sm">
-                  <div className="flex h-8 items-center">
-                    <Toggle
-                      checked={!form.is_active}
-                      onChange={(v) => set({ is_active: !v })}
-                      label="Inactive"
-                    />
-                  </div>
-                </Field>
-
-                {/*
-                  A BAR ON A CURRENT EMPLOYEE, which is not the same question
-                  as Status. 0534 keeps them separate so that un-blocking
-                  someone is not indistinguishable from re-hiring them.
-                */}
-                <Field label="Blocked" size="sm">
-                  <div className="flex h-8 items-center">
-                    <Toggle
-                      checked={form.blocked}
-                      onChange={(v) => set({ blocked: v })}
-                      label="Blocked"
-                    />
-                  </div>
-                </Field>
+                {/* NO STATUS / BLOCKED SWITCHES (client 2026-09-30: removed
+                    from the form, then from the profile card as well —
+                    "inactive and blocked button remove pannidu"). The record
+                    still carries both; the profile card and the list SHOW
+                    them as badges. */}
               </FieldGrid>
             </div>
           ),
@@ -2121,8 +2109,13 @@ export default function PersonClient({
       case "detail-posting":
         return {
           ...base,
-          done:
-            touched(["category_id", "department_id", "designation_id", "division_id", "location_id"]),
+          done: touched([
+            "category_id",
+            "department_id",
+            "designation_id",
+            "division_id",
+            "location_id",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
@@ -2196,22 +2189,26 @@ export default function PersonClient({
                     }
                   />
                 </Field>
-
               </FieldGrid>
             </div>
           ),
         };
 
-
       case "employment-engagement":
         return {
           ...base,
-          done:
-            touched(["card_no", "employee_classification", "employment_type", "grade", "manager_id", "pay_frequency", "week_off"]),
+          done: touched([
+            "card_no",
+            "employee_classification",
+            "employment_type",
+            "grade",
+            "manager_id",
+            "pay_frequency",
+            "week_off",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
-
                 <Field label="Type" size="sm" htmlFor="st-type">
                   <Select
                     id="st-type"
@@ -2300,7 +2297,6 @@ export default function PersonClient({
                   </Select>
                 </Field>
 
-
                 <Field label="Card No" size="sm" htmlFor="st-card">
                   <Input
                     id="st-card"
@@ -2309,7 +2305,6 @@ export default function PersonClient({
                     onChange={(e) => set({ card_no: e.target.value || null })}
                   />
                 </Field>
-
 
                 <TextField
                   label="Grade"
@@ -2333,8 +2328,16 @@ export default function PersonClient({
       case "employment-worker-terms-and-wages":
         return {
           ...base,
-          done:
-            touched(["biometric_id", "contractor_id", "ctc_per_shift", "hourly_wage", "piece_rate", "prod_dept_id", "shift_wage_per_day", "worker_type"]),
+          done: touched([
+            "biometric_id",
+            "contractor_id",
+            "ctc_per_shift",
+            "hourly_wage",
+            "piece_rate",
+            "prod_dept_id",
+            "shift_wage_per_day",
+            "worker_type",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
@@ -2428,11 +2431,7 @@ export default function PersonClient({
                   }
                 />
 
-                <Field
-                  label="Biometric ID"
-                  size="sm"
-                  htmlFor="wk-biometric"
-                >
+                <Field label="Biometric ID" size="sm" htmlFor="wk-biometric">
                   <Input
                     id="wk-biometric"
                     uppercase
@@ -2444,7 +2443,6 @@ export default function PersonClient({
                     }
                   />
                 </Field>
-            
               </FieldGrid>
             </div>
           ),
@@ -2453,8 +2451,7 @@ export default function PersonClient({
       case "employment-card-and-facilities":
         return {
           ...base,
-          done:
-            touched(["bus_no", "hostel_category_id", "vehicle_no"]),
+          done: touched(["bus_no", "hostel_category_id", "vehicle_no"]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
@@ -2477,24 +2474,26 @@ export default function PersonClient({
                     }
                   />
                 </Field>
-                  <TextField
-                    label="Bus No"
-                    value={form.bus_no}
-                    onChange={(v) => set({ bus_no: v })}
-                    id="bg-bus"
-                  />
+                <TextField
+                  label="Bus No"
+                  value={form.bus_no}
+                  onChange={(v) => set({ bus_no: v })}
+                  id="bg-bus"
+                />
               </FieldGrid>
             </div>
           ),
         };
 
-
-
       case "employment-service-dates":
         return {
           ...base,
-          done:
-            touched(["date_of_confirmation", "date_of_leaving", "date_of_probation", "joined_date"]),
+          done: touched([
+            "date_of_confirmation",
+            "date_of_leaving",
+            "date_of_probation",
+            "joined_date",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
@@ -2532,12 +2531,10 @@ export default function PersonClient({
       case "statutory-tax":
         return {
           ...base,
-          done:
-            touched(["pan_no", "tds_applicable"]),
+          done: touched(["pan_no", "tds_applicable"]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
-
                 {/*
                   ESI AND PF ARE NOT HERE ANY MORE. They were two booleans on
                   this tab; legacy puts them on NOMINATION as a three-state
@@ -2576,7 +2573,6 @@ export default function PersonClient({
                     />
                   </div>
                 </Field>
-
               </FieldGrid>
             </div>
           ),
@@ -2585,8 +2581,12 @@ export default function PersonClient({
       case "statutory-worker-category":
         return {
           ...base,
-          done:
-            touched(["disability_pct", "disability_type", "international_worker", "migrant_worker"]),
+          done: touched([
+            "disability_pct",
+            "disability_type",
+            "international_worker",
+            "migrant_worker",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
@@ -2943,13 +2943,20 @@ export default function PersonClient({
       case "personal-basics":
         return {
           ...base,
-          done:
-            touched(["date_of_birth", "email", "gender", "marital_status", "mother_tongue", "nationality", "place_of_birth", "religion", "stated_age"]),
+          done: touched([
+            "date_of_birth",
+            "email",
+            "gender",
+            "marital_status",
+            "mother_tongue",
+            "nationality",
+            "place_of_birth",
+            "religion",
+            "stated_age",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
-
-
                 <DateField
                   id="st-dob"
                   label="Date of Birth"
@@ -3012,7 +3019,7 @@ export default function PersonClient({
                     }
                   />
                 </Field>
-              
+
                 {/*
                   GENDER, not "Sex" (client 2026-09-09). The column followed
                   the label in 0550 rather than staying behind: the list's
@@ -3080,7 +3087,6 @@ export default function PersonClient({
                   />
                 </Field>
 
-
                 <TextField
                   label="Mother Tongue / Languages"
                   value={form.mother_tongue}
@@ -3100,10 +3106,12 @@ export default function PersonClient({
                     id="st-email"
                     type="email"
                     value={form.email ?? ""}
+                    // On My Profile the email is how the login finds this
+                    // record, so it is HR's to change (lib/hr/self-profile.ts).
+                    readOnly={!!selfRow}
                     onChange={(e) => set({ email: e.target.value || null })}
                   />
                 </Field>
-
               </FieldGrid>
             </div>
           ),
@@ -3112,8 +3120,14 @@ export default function PersonClient({
       case "personal-physical":
         return {
           ...base,
-          done:
-            touched(["blood_group", "eye_sight", "height_cm", "identification_mark_1", "identification_mark_2", "weight_kg"]),
+          done: touched([
+            "blood_group",
+            "eye_sight",
+            "height_cm",
+            "identification_mark_1",
+            "identification_mark_2",
+            "weight_kg",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
@@ -3200,39 +3214,108 @@ export default function PersonClient({
       case "personal-medical":
         return {
           ...base,
-          done:
-            touched(["handicap_details", "major_operation", "operation_details", "physique_illness", "willing_donate_blood"]),
+          done: touched([
+            "handicap_details",
+            "major_operation",
+            "operation_details",
+            "physique_illness",
+            "willing_donate_blood",
+          ]),
           content: (
             <div className="space-y-6">
+              {/* PHONE: THE TWO YES/NO ANSWERS AS CHIPS ON ONE ROW (client
+                  2026-09-30, the "Medical" mock-up, option 2 — the How They
+                  Joined pattern). Each chip is still its own boolean; the full
+                  wording is the accessible name. From `md` the switches in the
+                  track below are shown instead, exactly as before. */}
+              <div className="space-y-1.5 md:hidden">
+                <span className="block text-sm text-muted-foreground">
+                  Has / is
+                </span>
+                <div className="flex gap-1.5">
+                  {(
+                    [
+                      ["major_operation", "Major Operation", "Major Operation"],
+                      [
+                        "willing_donate_blood",
+                        "Blood Donor",
+                        "Willing To Donate Blood",
+                      ],
+                    ] as const
+                  ).map(([key, short, full]) => {
+                    const on = !!form[key];
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={on}
+                        aria-label={full}
+                        onClick={() => set({ [key]: !on })}
+                        className={cn(
+                          // truncate-reveal: exempt -- a fixed two-phrase vocabulary; the full wording is the accessible name
+                          "h-9 min-w-0 flex-1 truncate rounded-full border-[1.5px] px-2 text-sm font-semibold transition-colors",
+                          on
+                            ? "border-primary bg-primary-soft text-primary"
+                            : "border-border bg-surface text-muted-foreground",
+                        )}
+                      >
+                        {short}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <FieldGrid>
-                <TextField
-                  label="Handicap Details"
-                  value={form.handicap_details}
-                  onChange={(v) => set({ handicap_details: v })}
-                  id="od-handicap"
-                  size="md"
-                />
-                <Field label="Major Operation" size="sm">
-                  <Toggle
-                    checked={form.major_operation}
-                    onChange={(v) => set({ major_operation: v })}
-                    ariaLabel="Major Operation"
+                {/* Phone order: Operation Details (when it applies), Physique /
+                    Illness, then Handicap Details — `order` on the wrappers, so
+                    the desktop order is untouched. The hides sit on WRAPPERS:
+                    the lines style gives `[data-field]` an unlayered
+                    `display: grid`, which would beat a class on the Field. */}
+                <div className="max-md:order-last">
+                  <TextField
+                    label="Handicap Details"
+                    value={form.handicap_details}
+                    onChange={(v) => set({ handicap_details: v })}
+                    id="od-handicap"
+                    size="md"
                   />
-                </Field>
-                <TextField
-                  label="Operation Details"
-                  value={form.operation_details}
-                  onChange={(v) => set({ operation_details: v })}
-                  id="od-operation"
-                  size="md"
-                />
-                <Field label="Willing To Donate Blood" size="sm">
-                  <Toggle
-                    checked={form.willing_donate_blood}
-                    onChange={(v) => set({ willing_donate_blood: v })}
-                    ariaLabel="Willing To Donate Blood"
+                </div>
+                <div className="max-md:hidden">
+                  <Field label="Major Operation" size="sm">
+                    <Toggle
+                      checked={form.major_operation}
+                      onChange={(v) => set({ major_operation: v })}
+                      ariaLabel="Major Operation"
+                    />
+                  </Field>
+                </div>
+                {/* Only when it applies, on a phone: Major Operation is on, or
+                    details were already typed — a value on file is never
+                    hidden just because the chip is off. */}
+                <div
+                  className={
+                    form.major_operation || form.operation_details
+                      ? undefined
+                      : "max-md:hidden"
+                  }
+                >
+                  <TextField
+                    label="Operation Details"
+                    value={form.operation_details}
+                    onChange={(v) => set({ operation_details: v })}
+                    id="od-operation"
+                    size="md"
                   />
-                </Field>
+                </div>
+                <div className="max-md:hidden">
+                  <Field label="Willing To Donate Blood" size="sm">
+                    <Toggle
+                      checked={form.willing_donate_blood}
+                      onChange={(v) => set({ willing_donate_blood: v })}
+                      ariaLabel="Willing To Donate Blood"
+                    />
+                  </Field>
+                </div>
                 <TextField
                   label="Physique / Illness"
                   value={form.physique_illness}
@@ -3248,8 +3331,18 @@ export default function PersonClient({
       case "documents-document-numbers":
         return {
           ...base,
-          done:
-            touched(["aadhaar_no", "driving_licence_no", "driving_licence_valid_upto", "election_card_no", "insurance_policy_no", "passbook_no", "passport_no", "passport_valid_upto", "ration_card_no", "uan_no"]),
+          done: touched([
+            "aadhaar_no",
+            "driving_licence_no",
+            "driving_licence_valid_upto",
+            "election_card_no",
+            "insurance_policy_no",
+            "passbook_no",
+            "passport_no",
+            "passport_valid_upto",
+            "ration_card_no",
+            "uan_no",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
@@ -3265,7 +3358,9 @@ export default function PersonClient({
                     inputMode="numeric"
                     maxLength={12}
                     value={form.aadhaar_no ?? ""}
-                    onChange={(e) => set({ aadhaar_no: e.target.value || null })}
+                    onChange={(e) =>
+                      set({ aadhaar_no: e.target.value || null })
+                    }
                   />
                 </Field>
                 <Field label="Driving Lic. No" size="sm" htmlFor="st-dl">
@@ -3338,85 +3433,101 @@ export default function PersonClient({
       case "documents-copies-collected":
         return {
           ...base,
-          done:
-            touched(["id_submitted_aadhaar", "id_submitted_dl", "id_submitted_mark_sheet", "id_submitted_others", "id_submitted_pan", "id_submitted_passport", "id_submitted_ration", "id_submitted_specify", "id_submitted_tc", "id_submitted_vote_id"]),
+          done: touched([
+            "id_submitted_aadhaar",
+            "id_submitted_dl",
+            "id_submitted_mark_sheet",
+            "id_submitted_others",
+            "id_submitted_pan",
+            "id_submitted_passport",
+            "id_submitted_ration",
+            "id_submitted_specify",
+            "id_submitted_tc",
+            "id_submitted_vote_id",
+          ]),
           content: (
             <div className="space-y-6">
               {/* WHAT WAS ACTUALLY COLLECTED, beside the numbers rather than on
                   a pane of its own. A tick here and the number above are two
-                  halves of one question and were three rail rows apart. */}
-              <FieldGrid>
-                <Field label="DL" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_dl}
-                    onChange={(v) => set({ id_submitted_dl: v })}
-                    ariaLabel="DL"
+                  halves of one question and were three rail rows apart.
+                  `data-toggle-grid`: on a phone these nine switches sit three
+                  to a row instead of one per line, and Others Specify takes
+                  the full row (client 2026-09-30) — globals.css, beside the
+                  rest of the lines layout. */}
+              <div data-toggle-grid>
+                <FieldGrid>
+                  <Field label="DL" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_dl}
+                      onChange={(v) => set({ id_submitted_dl: v })}
+                      ariaLabel="DL"
+                    />
+                  </Field>
+                  <Field label="Vote ID" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_vote_id}
+                      onChange={(v) => set({ id_submitted_vote_id: v })}
+                      ariaLabel="Vote ID"
+                    />
+                  </Field>
+                  <Field label="Ration Card" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_ration}
+                      onChange={(v) => set({ id_submitted_ration: v })}
+                      ariaLabel="Ration Card"
+                    />
+                  </Field>
+                  <Field label="Passport" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_passport}
+                      onChange={(v) => set({ id_submitted_passport: v })}
+                      ariaLabel="Passport"
+                    />
+                  </Field>
+                  <Field label="TC" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_tc}
+                      onChange={(v) => set({ id_submitted_tc: v })}
+                      ariaLabel="TC"
+                    />
+                  </Field>
+                  <Field label="Mark Sheet" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_mark_sheet}
+                      onChange={(v) => set({ id_submitted_mark_sheet: v })}
+                      ariaLabel="Mark Sheet"
+                    />
+                  </Field>
+                  <Field label="Aadhaar" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_aadhaar}
+                      onChange={(v) => set({ id_submitted_aadhaar: v })}
+                      ariaLabel="Aadhaar"
+                    />
+                  </Field>
+                  <Field label="PAN Card" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_pan}
+                      onChange={(v) => set({ id_submitted_pan: v })}
+                      ariaLabel="PAN Card"
+                    />
+                  </Field>
+                  <Field label="Others" size="sm">
+                    <Toggle
+                      checked={form.id_submitted_others}
+                      onChange={(v) => set({ id_submitted_others: v })}
+                      ariaLabel="Others"
+                    />
+                  </Field>
+                  <TextField
+                    label="Others Specify"
+                    value={form.id_submitted_specify}
+                    onChange={(v) => set({ id_submitted_specify: v })}
+                    id="od-specify"
+                    size="md"
                   />
-                </Field>
-                <Field label="Vote ID" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_vote_id}
-                    onChange={(v) => set({ id_submitted_vote_id: v })}
-                    ariaLabel="Vote ID"
-                  />
-                </Field>
-                <Field label="Ration Card" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_ration}
-                    onChange={(v) => set({ id_submitted_ration: v })}
-                    ariaLabel="Ration Card"
-                  />
-                </Field>
-                <Field label="Passport" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_passport}
-                    onChange={(v) => set({ id_submitted_passport: v })}
-                    ariaLabel="Passport"
-                  />
-                </Field>
-                <Field label="TC" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_tc}
-                    onChange={(v) => set({ id_submitted_tc: v })}
-                    ariaLabel="TC"
-                  />
-                </Field>
-                <Field label="Mark Sheet" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_mark_sheet}
-                    onChange={(v) => set({ id_submitted_mark_sheet: v })}
-                    ariaLabel="Mark Sheet"
-                  />
-                </Field>
-                <Field label="Aadhaar" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_aadhaar}
-                    onChange={(v) => set({ id_submitted_aadhaar: v })}
-                    ariaLabel="Aadhaar"
-                  />
-                </Field>
-                <Field label="PAN Card" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_pan}
-                    onChange={(v) => set({ id_submitted_pan: v })}
-                    ariaLabel="PAN Card"
-                  />
-                </Field>
-                <Field label="Others" size="sm">
-                  <Toggle
-                    checked={form.id_submitted_others}
-                    onChange={(v) => set({ id_submitted_others: v })}
-                    ariaLabel="Others"
-                  />
-                </Field>
-                <TextField
-                  label="Others Specify"
-                  value={form.id_submitted_specify}
-                  onChange={(v) => set({ id_submitted_specify: v })}
-                  id="od-specify"
-                  size="md"
-                />
-              </FieldGrid>
+                </FieldGrid>
+              </div>
             </div>
           ),
         };
@@ -3424,35 +3535,50 @@ export default function PersonClient({
       case "documents-licences-held":
         return {
           ...base,
-          done:
-            touched(["four_wheeler_licence", "has_passport", "two_wheeler_licence"]),
+          done: touched([
+            "four_wheeler_licence",
+            "has_passport",
+            "two_wheeler_licence",
+          ]),
           content: (
             <div className="space-y-6">
               {/* HELD, not handed in — a licence the person owns rather than a
-                  copy in the file, which is why it is its own question. */}
-              <FieldGrid>
-                <Field label="Passport Held" size="sm">
+                  copy in the file, which is why it is its own question.
+
+                  ONE ROW OF THREE TILES (client 2026-09-30, from the approved
+                  mock-up: "wheeler nu pothuva vai, two four nu separate
+                  pannidu, passport aa apdiye vachi, 1 row la 3 ayum"). The word
+                  both licences share is said once, as a heading over Two and
+                  Four; Passport keeps its own. The whole tile is the switch —
+                  `Toggle`'s root is a <label> — so a phone taps a 44px box, not
+                  a 36×20 pill. Tile text comes first and the switch sits on the
+                  right (`flex-row-reverse`); Tab order is unchanged.
+                  Cap: 3 tiles × ~7rem + 2 × 6px gaps ≈ 22rem — wide enough for
+                  "Four" plus the switch, and no wider on a laptop. */}
+              <div className="grid max-w-[22rem] grid-cols-3 gap-x-1.5 gap-y-1">
+                <span className="col-span-2 border-b-[1.5px] border-border pb-1 text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+                  Wheeler Licence
+                </span>
+                <span className="pb-1 text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+                  Passport
+                </span>
+                {(
+                  [
+                    ["two_wheeler_licence", "Two", "Two Wheeler Licence"],
+                    ["four_wheeler_licence", "Four", "Four Wheeler Licence"],
+                    ["has_passport", "Held", "Passport Held"],
+                  ] as const
+                ).map(([key, label, full]) => (
                   <Toggle
-                    checked={form.has_passport}
-                    onChange={(v) => set({ has_passport: v })}
-                    ariaLabel="Passport Held"
+                    key={key}
+                    checked={form[key]}
+                    onChange={(v) => set({ [key]: v })}
+                    label={label}
+                    ariaLabel={full}
+                    className="flex h-11 w-full flex-row-reverse justify-between rounded-[10px] border-[1.5px] border-border px-2.5 font-semibold has-[:checked]:border-primary has-[:checked]:bg-primary-soft"
                   />
-                </Field>
-                <Field label="Two Wheeler Licence" size="sm">
-                  <Toggle
-                    checked={form.two_wheeler_licence}
-                    onChange={(v) => set({ two_wheeler_licence: v })}
-                    ariaLabel="Two Wheeler Licence"
-                  />
-                </Field>
-                <Field label="Four Wheeler Licence" size="sm">
-                  <Toggle
-                    checked={form.four_wheeler_licence}
-                    onChange={(v) => set({ four_wheeler_licence: v })}
-                    ariaLabel="Four Wheeler Licence"
-                  />
-                </Field>
-              </FieldGrid>
+                ))}
+              </div>
             </div>
           ),
         };
@@ -3460,8 +3586,7 @@ export default function PersonClient({
       case "documents-verification":
         return {
           ...base,
-          done:
-            touched(["general_flag", "police_station"]),
+          done: touched(["general_flag", "police_station"]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
@@ -3504,11 +3629,10 @@ export default function PersonClient({
       case "education-schooling":
         return {
           ...base,
-          done:
-            touched(["qualification"]),
+          done: touched(["qualification"]),
           content: (
             <div className="space-y-6">
-                            {/* The one qualification field stands above the two grids: it is the summary of what they hold, and the grids are how they got it. It was on Personal, three rail rows from the rest of the schooling. */}
+              {/* The one qualification field stands above the two grids: it is the summary of what they hold, and the grids are how they got it. It was on Personal, three rail rows from the rest of the schooling. */}
               <FieldGrid>
                 <Field label="Qualification" size="sm" htmlFor="st-qual">
                   <Input
@@ -3520,7 +3644,6 @@ export default function PersonClient({
                     }
                   />
                 </Field>
-
               </FieldGrid>
               {/* TWO GRIDS ON ONE PANE, as legacy draws them: schooling above,
                   trade training below. Each names itself because the rail row
@@ -3578,8 +3701,7 @@ export default function PersonClient({
       case "education-technical-training":
         return {
           ...base,
-          done:
-            false,
+          done: false,
           content: (
             <div className="space-y-6">
               <ChildGrid<TechnicalRow>
@@ -3658,18 +3780,49 @@ export default function PersonClient({
                     >
                       {i + 1}
                     </span>
-                    <FieldGrid className="min-w-0 flex-1">
-                      {languageColumns.map((c, ci) => (
+                    <div className="min-w-0 flex-1 space-y-3">
+                      {/* Only the Language cell rides the field track; the
+                          three switches are the one row beneath it. */}
+                      <FieldGrid>
                         <Field
-                          key={ci}
-                          label={c.header}
-                          required={c.required}
+                          label={languageColumns[0].header}
+                          required={languageColumns[0].required}
                           size="sm"
                         >
-                          {c.cell(row, i)}
+                          {languageColumns[0].cell(row, i)}
                         </Field>
-                      ))}
-                    </FieldGrid>
+                      </FieldGrid>
+                      {/* SPEAK · READ · WRITE ON ONE ROW, AT EVERY WIDTH
+                          (client 2026-09-30: "read speak write in one row").
+                          Stacked they spent three lines on three yes/no
+                          answers on a phone, and the lines layout's two
+                          columns split them across two rows on a laptop.
+                          Each switch carries its own word, so no label column
+                          is needed. */}
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                        <Toggle
+                          checked={row.can_speak}
+                          onChange={(v) =>
+                            setLanguageAt(row.key, { can_speak: v })
+                          }
+                          label="Speak"
+                        />
+                        <Toggle
+                          checked={row.can_read}
+                          onChange={(v) =>
+                            setLanguageAt(row.key, { can_read: v })
+                          }
+                          label="Read"
+                        />
+                        <Toggle
+                          checked={row.can_write}
+                          onChange={(v) =>
+                            setLanguageAt(row.key, { can_write: v })
+                          }
+                          label="Write"
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
                 rows={languages}
@@ -3689,32 +3842,95 @@ export default function PersonClient({
       case "background-how-they-joined":
         return {
           ...base,
-          done:
-            touched(["interview_date", "through_advertisement", "through_knowledge", "through_voluntarily"]),
+          done: touched([
+            "interview_date",
+            "through_advertisement",
+            "through_knowledge",
+            "through_voluntarily",
+          ]),
           content: (
             <div className="space-y-6">
+              {/* PHONE: THE THREE AS CHIPS ON ONE ROW (client 2026-09-30,
+                  option 3 of the "How They Joined" mock-up: "compact, tight,
+                  orey row"). Stacked label-over-switch they took six lines for
+                  three yes/no answers. "Through" is said once above; each chip
+                  is still its own boolean, so nothing about what is saved
+                  changes. `aria-pressed` + the full wording as the name keep it
+                  a toggle to a screen reader. From `md` the switches below are
+                  shown instead, exactly as before. */}
+              <div className="space-y-1.5 md:hidden">
+                <span className="block text-sm text-muted-foreground">
+                  Through
+                </span>
+                <div className="flex gap-1.5">
+                  {(
+                    [
+                      [
+                        "through_advertisement",
+                        "Advertisement",
+                        "Through Our Advertisement",
+                      ],
+                      [
+                        "through_voluntarily",
+                        "Voluntarily",
+                        "Through Voluntarily",
+                      ],
+                      ["through_knowledge", "Knowledge", "Through Knowledge"],
+                    ] as const
+                  ).map(([key, short, full]) => {
+                    const on = !!form[key];
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={on}
+                        aria-label={full}
+                        onClick={() => set({ [key]: !on })}
+                        className={cn(
+                          // truncate-reveal: exempt -- a fixed three-word vocabulary; the full wording is the accessible name
+                          "h-9 min-w-0 flex-1 truncate rounded-full border-[1.5px] px-2 text-sm font-semibold transition-colors",
+                          on
+                            ? "border-primary bg-primary-soft text-primary"
+                            : "border-border bg-surface text-muted-foreground",
+                        )}
+                      >
+                        {short}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <FieldGrid>
-                <Field label="Through Our Advertisement" size="sm">
-                  <Toggle
-                    checked={form.through_advertisement}
-                    onChange={(v) => set({ through_advertisement: v })}
-                    ariaLabel="Through Our Advertisement"
-                  />
-                </Field>
-                <Field label="Through Voluntarily" size="sm">
-                  <Toggle
-                    checked={form.through_voluntarily}
-                    onChange={(v) => set({ through_voluntarily: v })}
-                    ariaLabel="Through Voluntarily"
-                  />
-                </Field>
-                <Field label="Through Knowledge" size="sm">
-                  <Toggle
-                    checked={form.through_knowledge}
-                    onChange={(v) => set({ through_knowledge: v })}
-                    ariaLabel="Through Knowledge"
-                  />
-                </Field>
+                {/* The hides sit on WRAPPERS: the lines style gives
+                    `[data-field]` an unlayered `display: grid`, which would
+                    beat a `max-md:hidden` on the Field itself. */}
+                <div className="max-md:hidden">
+                  <Field label="Through Our Advertisement" size="sm">
+                    <Toggle
+                      checked={form.through_advertisement}
+                      onChange={(v) => set({ through_advertisement: v })}
+                      ariaLabel="Through Our Advertisement"
+                    />
+                  </Field>
+                </div>
+                <div className="max-md:hidden">
+                  <Field label="Through Voluntarily" size="sm">
+                    <Toggle
+                      checked={form.through_voluntarily}
+                      onChange={(v) => set({ through_voluntarily: v })}
+                      ariaLabel="Through Voluntarily"
+                    />
+                  </Field>
+                </div>
+                <div className="max-md:hidden">
+                  <Field label="Through Knowledge" size="sm">
+                    <Toggle
+                      checked={form.through_knowledge}
+                      onChange={(v) => set({ through_knowledge: v })}
+                      ariaLabel="Through Knowledge"
+                    />
+                  </Field>
+                </div>
                 <DateField
                   label="Interview Dt"
                   value={form.interview_date}
@@ -3729,12 +3945,18 @@ export default function PersonClient({
       case "background-home-and-family":
         return {
           ...base,
-          done:
-            touched(["dependants", "earning_members", "house_type", "no_of_children", "occupation", "only_earning_member", "properties_owned"]),
+          done: touched([
+            "dependants",
+            "earning_members",
+            "house_type",
+            "no_of_children",
+            "occupation",
+            "only_earning_member",
+            "properties_owned",
+          ]),
           content: (
             <div className="space-y-6">
               <FieldGrid>
-
                 <TextField
                   label="Occupation"
                   value={form.occupation}
@@ -3787,8 +4009,12 @@ export default function PersonClient({
       case "background-conduct-and-achievements":
         return {
           ...base,
-          done:
-            touched(["achievement_details", "disciplinary_actions", "extra_curricular", "professional_membership"]),
+          done: touched([
+            "achievement_details",
+            "disciplinary_actions",
+            "extra_curricular",
+            "professional_membership",
+          ]),
           content: (
             <div className="space-y-6">
               {/* Conduct and standing — what the company knows about them, not what their home looks like. These four sat under Household, where a disciplinary action read as a family detail. */}
@@ -3907,7 +4133,7 @@ export default function PersonClient({
             <LoadingRows />
           ) : (
             <div className="space-y-6">
-                            {/* YEARS SERVED BEFORE JOINING, above the companies that
+              {/* YEARS SERVED BEFORE JOINING, above the companies that
                   account for them. It was on Other Details, two rail rows
                   from the grid it summarises. */}
               <FieldGrid>
@@ -4246,7 +4472,6 @@ export default function PersonClient({
     }
   });
 
-
   /**
    * THE LIST DIFFERS BY TWO COLUMNS, and only two.
    *
@@ -4292,9 +4517,14 @@ export default function PersonClient({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.is_active ? "success" : "neutral"}>
-          {r.is_active ? "Active" : "Inactive"}
-        </StatusPill>
+        <span className="inline-flex flex-wrap gap-1">
+          <StatusPill tone={r.is_active ? "success" : "neutral"}>
+            {r.is_active ? "Active" : "Inactive"}
+          </StatusPill>
+          {"blocked" in r && r.blocked && (
+            <StatusPill tone="danger">Blocked</StatusPill>
+          )}
+        </span>
       ),
     },
     rowActionsColumn((r) => (
@@ -4332,6 +4562,27 @@ export default function PersonClient({
    * one now, and a hook added below it would run on one render and be skipped
    * on the next. `npm run check:hooks` is the gate.
    */
+  // MY PROFILE: the person's own record, read-only, with Edit into the
+  // personal sections above. No Back — there is no list behind it.
+  if (selfRow && !showForm) {
+    return (
+      <PersonProfileView
+        key={selfRow.id}
+        kind={kind}
+        entity={copy.entity}
+        title="My Profile"
+        row={selfRow as unknown as Record<string, unknown> & { id: string }}
+        designations={designations}
+        departments={departments}
+        locations={locations}
+        categories={categories}
+        divisions={divisions}
+        banks={banks}
+        onEdit={() => openEdit(selfRow)}
+      />
+    );
+  }
+
   if (viewing && !showForm) {
     return (
       <PersonProfileView
@@ -4384,6 +4635,7 @@ export default function PersonClient({
         code={editCode}
         name={form.name}
         isActive={form.is_active}
+        blocked={form.blocked}
         photoRequired
         photoUrl={form.photo_url ?? null}
         onPhotoChange={(url) => set({ photo_url: url })}
@@ -4435,7 +4687,7 @@ export default function PersonClient({
         >
           <div className="flex shrink-0 items-baseline gap-2">
             <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-              {editId ? `Edit ${copy.entity}` : `New ${copy.entity}`}
+              {selfRow ? "Edit Profile" : editId ? `Edit ${copy.entity}` : `New ${copy.entity}`}
             </dt>
             <dd className="m-0 text-sm font-semibold text-foreground">
               {(editId && form.name) || "—"}
@@ -4458,7 +4710,9 @@ export default function PersonClient({
               variant="outline"
               size="sm"
               onClick={() => setProfileOpen(true)}
-              aria-label={form.photo_url ? "View profile" : "View profile — photo missing"}
+              aria-label={
+                form.photo_url ? "View profile" : "View profile — photo missing"
+              }
               className="relative xl:hidden max-md:h-11 max-md:w-11 max-md:px-0"
             >
               <UserRoundIcon aria-hidden className="h-4 w-4" />
@@ -4539,7 +4793,9 @@ export default function PersonClient({
                 toastError(reason);
                 const p = validity.blocking.find((b) => b.message === reason);
                 if (p?.fieldId) {
-                  shellRef.current?.goToSection(p.section, { fieldId: p.fieldId });
+                  shellRef.current?.goToSection(p.section, {
+                    fieldId: p.fieldId,
+                  });
                 }
               },
             }}
@@ -4630,7 +4886,6 @@ export default function PersonClient({
     </div>
   );
 }
-
 
 /**
  * A `<Select>` over a master, which keeps the row a record ALREADY HOLDS even

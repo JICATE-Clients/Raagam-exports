@@ -9,9 +9,21 @@ import { listDesignations } from "@/lib/masters/designation-service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
 import { isInactive } from "@/lib/masters/inactive";
 import PersonClient from "../_person/person-client";
+import { redirect } from "next/navigation";
+import { myStaffId } from "@/lib/hr/own-profile";
+
+// The browser tab. A regular staff member never sees this page — they are
+// redirected to /hr/staff/<id>, titled "My Profile".
+export const metadata = { title: "Staff" };
 
 export default async function StaffPage() {
   await requirePermission("hr_payroll", "view");
+
+  /* "MY PROFILE" (user 2026-10-01): a regular staff member — HR access but no
+     HR role (lib/auth/self-service.ts) — never sees the list. Their own record
+     lives at /hr/staff/<id>, which is where the sidebar's "My Profile" points. */
+  const mine = await myStaffId();
+  if (mine) redirect(`/hr/staff/${mine}`);
 
   const [
     staff,

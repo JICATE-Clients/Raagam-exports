@@ -2,6 +2,8 @@
 
 import { can } from "@/lib/auth/server";
 import { getPersonChildren as read } from "@/lib/hr/masters-service";
+import { getOwnStaffRow, isOwnProfileOnly } from "@/lib/hr/own-profile";
+import { createAdminClient } from "@/lib/supabase/server";
 import type { PersonKind } from "@/lib/hr/types";
 import type {
   StaffFamilyMember,
@@ -43,20 +45,27 @@ export async function getPersonChildren(kind: PersonKind, id: string): Promise<{
   technical: Record<string, unknown>[];
   languages: Record<string, unknown>[];
 }> {
-  if (!(await can("hr_payroll", "view"))) {
-    return {
-      family: [],
-      experience: [],
-      internalRefs: [],
-      nominations: [],
-      bankAccounts: [],
-      externalRefs: [],
-      emergencyContacts: [],
-      shifts: [],
-      education: [],
-      technical: [],
-      languages: [],
-    };
+  const none = {
+    family: [],
+    experience: [],
+    internalRefs: [],
+    nominations: [],
+    bankAccounts: [],
+    externalRefs: [],
+    emergencyContacts: [],
+    shifts: [],
+    education: [],
+    technical: [],
+    languages: [],
+  };
+  if (!(await can("hr_payroll", "view"))) return none;
+  /* MY PROFILE (lib/auth/self-service.ts): only the caller's own staff record, read with the
+     service role — `staff_read` wants a unit such a login usually lacks. Any
+     other id answers with the same empty lists as a refused permission. */
+  if (await isOwnProfileOnly()) {
+    const own = kind === "staff" ? await getOwnStaffRow() : null;
+    if (!own || own.id !== id) return none;
+    return read(kind, id, createAdminClient());
   }
   return read(kind, id);
 }
