@@ -40,6 +40,58 @@ export const FOCUSABLE_SELECTOR =
   'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
 
 /**
+ * ON A PHONE, THE APP NEVER OPENS THE KEYBOARD BY ITSELF (user 2026-10-01,
+ * Staff details on mobile: "keyboard ovvuru field aa touch pannumbothum mela
+ * varuthu, athu disturbance aa irukku").
+ *
+ * Every programmatic landing in this file — an editor opening on its first
+ * field, a section switch, the cursor put back after a picker closes — is a
+ * keyboard convenience. On a desktop it saves a click. On a touch screen,
+ * focusing a text box IS opening the on-screen keyboard, so each of those
+ * landings threw a keyboard over half the form the operator had not asked to
+ * type into: tap a section chip, keyboard; flip a Yes/No, keyboard; pick a
+ * dropdown value, keyboard.
+ *
+ * So on a touch-primary device a programmatic move onto a TEXT box is refused
+ * unless the keyboard is already in use. Two ways it is in use, and both still
+ * move: the focused element is itself a text box (the keyboard is already up,
+ * so its Next / Enter carries on to the next field), or the last thing the
+ * operator did was press a key (a tablet with a hardware keyboard keeps the
+ * whole Tab / Enter contract). A tap on a field still focuses it natively —
+ * this only stops the app from doing it on the operator's behalf.
+ *
+ * ONE PLACE, because every mover goes through `focusField` (its own note
+ * below), so the editor shells, `Sheet`, the grids and the provider all
+ * inherit it — the per-screen fix AGENTS.md says never to write.
+ */
+const TOUCH_PRIMARY = "(hover: none) and (pointer: coarse)";
+let lastInputWasKey = false;
+if (typeof document !== "undefined") {
+  document.addEventListener("keydown", () => (lastInputWasKey = true), true);
+  document.addEventListener("pointerdown", () => (lastInputWasKey = false), true);
+}
+
+/** A control that brings up the on-screen keyboard when it takes focus. */
+function opensKeyboard(el: Element | null): boolean {
+  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled;
+  if (el instanceof HTMLInputElement) {
+    if (el.readOnly || el.disabled) return false;
+    return !/^(button|submit|reset|checkbox|radio|hidden|range|color|file|date|datetime-local|month|week|time)$/.test(
+      el.type,
+    );
+  }
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
+function wouldPopKeyboard(el: HTMLElement): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  if (!window.matchMedia(TOUCH_PRIMARY).matches) return false;
+  if (lastInputWasKey) return false;
+  if (opensKeyboard(document.activeElement)) return false;
+  return opensKeyboard(el);
+}
+
+/**
  * Focus a field and put the caret at the END of its text.
  *
  * The caret position is not cosmetic: `atCaretEdge` gates ←/→ on it, so a field
@@ -55,6 +107,7 @@ export const FOCUSABLE_SELECTOR =
  * one every masters editor tabs through.
  */
 export function focusField(el: HTMLElement): boolean {
+  if (wouldPopKeyboard(el)) return false;
   el.focus();
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
     const len = el.value.length;
