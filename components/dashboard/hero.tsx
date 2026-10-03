@@ -158,7 +158,9 @@ export function HeroBanner({
         )}
       </div>
 
-      <div className="relative flex items-center gap-2.5">
+      {/* Wraps on a phone: the range tabs + actions are wider than a ~360px
+          card, and the section's overflow-hidden clipped "My calendar". */}
+      <div className="relative flex flex-wrap items-center gap-2.5">
         <RangeTabs current={range} carry={carry} />
         {action}
       </div>

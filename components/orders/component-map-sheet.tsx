@@ -1170,7 +1170,17 @@ export function ComponentMapBody({
          and Fabric Allocation's own Fabric cell). */
       width: "10rem",
       cell: (l) => (
-        <div className="flex min-w-0 flex-col gap-0.5">
+        /* ONE LINE PER ROW (user 2026-10-03, screenshot 152345: "this field
+           compact fitted properly"). The GSM reference used to sit on a second
+           line UNDER the picker, which made every colourway row twice the
+           height of its fields and floated the other cells' values in the
+           middle. It is now a muted suffix on the picker's own line, at the
+           right, so a row is one field high. It hides while the cell is hovered
+           or focused — that is when the picker's ✕/▼ show in the same spot and
+           the operator is reading the fabric name rather than the GSM — and
+           `pr-24` keeps a long fabric name from running under it at rest. */
+        <div className="group/fab relative flex min-w-0 flex-col">
+        <div className={cn(factsFor(l).gsm && "[&_input]:pr-24")}>
         <RecordPicker
           label="Fabric"
           compact
@@ -1197,10 +1207,17 @@ export function ComponentMapBody({
         />
         {/* THE READ-ONLY GSM REFERENCE — see the panel row's own note above;
             this is the per-colourway line's own value, not a roll-up. */}
+        </div>
         {factsFor(l).gsm && (
-          <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+          /* Absolute over the picker's first line (`top-0 h-8` = the sheet's
+             2rem field), never a second line. `pointer-events-none` so a click
+             on it still lands in the picker. A GSM range is short and fixed in
+             shape ("240 - 250 GSM"), so it never needs truncating. */
+          <span
+            className="pointer-events-none absolute right-2 top-0 flex h-8 items-center whitespace-nowrap text-[10px] tabular-nums text-muted-foreground transition-opacity group-focus-within/fab:opacity-0 group-hover/fab:opacity-0"
+          >
             {factsFor(l).gsm} GSM
-          </Truncated>
+          </span>
         )}
         {/* WHICH YD PART THIS COLOURWAY IS CUT FROM (0596) — see `ydPartsFor`.
             A part this line holds that Fabric Allocation no longer lists
@@ -1210,7 +1227,7 @@ export function ComponentMapBody({
           if (parts.length < 2) return null;
           const held = (l.yd_part ?? "").trim().toUpperCase();
           return (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 border-t border-border pl-2.5">
               <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 YD Part
               </span>
@@ -1756,6 +1773,17 @@ export function ComponentMapBody({
                   before this line is reached: the selected entry in the rail,
                   and the Component field at the top of the pane. A third naming
                   is what the client is looking at when they call it noise. */}
+            {/* A SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid` on Fabric
+                BOM ▸ Components). `sheet` draws the gridlines, the grey header
+                and the borderless in-cell controls; `data-grid-fit="fill"`
+                because the declared widths (~66rem) are wider than the ~867px
+                detail pane on a 1366 laptop — `sheet` alone makes the wrapper
+                `overflow: visible`, so the table would run past the pane
+                instead of scrolling, and `fill` lets the columns shrink with it
+                instead. No "Actions" header: this grid has no ✕ column
+                (`hideRemove`, see below), and no `#` (`hideIndex`). Only THIS
+                table is marked — the rail beside it is cards, not a table. */}
+            <div data-grid-style="sheet" data-grid-fit="fill">
             <ChildGrid<MapLine>
               /* `fill` — THE SAME LOAD-BEARING PROP THE OUTER GRID CARRIES, AND
                  ITS ABSENCE HERE IS WHAT LEFT THE ✕ STRANDED AT THE PANE'S RIGHT
@@ -1915,6 +1943,7 @@ export function ComponentMapBody({
                 </FieldGrid>
               )}
             />
+            </div>
               </div>
             </div>
           </div>

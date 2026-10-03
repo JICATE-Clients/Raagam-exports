@@ -814,33 +814,35 @@ function PaletteTable<T extends { key: string }>({
       <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      <div className="overflow-hidden rounded-lg border border-border">
-        <table className="w-full table-fixed border-collapse text-sm">
+      {/* A SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid` on Fabric BOM ▸
+          Fabric Colour / Yarn Colour / Roll Form Prints / Dia). The marker is
+          the whole look — gridlines on every cell, grey header, the input
+          borderless and square IN the cell with a blue inset on focus and a
+          red one on error. So the cells carry no padding or border classes of
+          their own any more, the frame lost its rounded border, and the ✕
+          column is headed "Actions" like every other sheet grid. */}
+      <div data-grid-style="sheet">
+        <table className="w-full table-fixed text-sm">
           <colgroup>
-            {/* 36px, as asked. The data columns share what is left EQUALLY
-                rather than taking their declared `width`: those were sized for
-                a half-pane cell and total more than a 210px panel holds, so
-                honouring them here would overflow the frame. */}
+            {/* 36px of ordinal and 56px of Actions — the 3.5rem "Actions"
+                fits in sentence case. The data columns share what is left
+                EQUALLY rather than taking their declared `width`: those were
+                sized for a half-pane cell and total more than a panel holds. */}
             <col className="w-9" />
             {columns.map((c) => (
               <col key={c.header} />
             ))}
-            <col className="w-8" />
+            <col className="w-14" />
           </colgroup>
           <thead>
-            <tr className="border-b border-border">
-              <th className="px-1.5 py-1.5 text-center text-[12.5px] font-semibold text-foreground">
-                #
-              </th>
+            <tr>
+              <th className="text-center text-[12.5px] font-semibold text-foreground">#</th>
               {columns.map((c) => (
-                <th
-                  key={c.header}
-                  className="truncate border-l border-border px-1.5 py-1.5 text-left text-[12.5px] font-semibold text-foreground"
-                >
+                <th key={c.header} className="text-left text-[12.5px] font-semibold text-foreground">
                   {c.header}
                 </th>
               ))}
-              <th className="border-l border-border" />
+              <th className="text-center text-[12.5px] font-semibold text-foreground">Actions</th>
             </tr>
           </thead>
           {/* THE TWO MARKERS THAT MAKE THIS A GRID TO THE KEYBOARD. `gridKeyNav`
@@ -849,23 +851,21 @@ function PaletteTable<T extends { key: string }>({
               the arrows walk as plain fields. */}
           <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
             {rows.map((row, i) => (
-              <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
-                <td className="px-1.5 py-1 text-center text-xs tabular-nums text-muted-foreground">
+              <tr key={row.key} data-grid-row>
+                <td className="text-center text-xs tabular-nums text-muted-foreground">
                   {i + 1}
                 </td>
                 {columns.map((c, ci) => (
-                  <td key={c.header} className="border-l border-border/50 px-1.5 py-1">
-                    {c.cell(row, ci)}
-                  </td>
+                  <td key={c.header}>{c.cell(row, ci)}</td>
                 ))}
-                <td className="border-l border-border/50 px-0.5 py-1 text-center">
+                <td className="text-center">
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     data-row-remove
                     aria-label={`Remove ${label.toLowerCase()} row ${i + 1}`}
-                    className="px-1 text-danger hover:text-danger"
+                    className="h-7 px-1 text-danger hover:text-danger"
                     onClick={() => onRemove(row)}
                   >
                     {"✕"}
@@ -5705,8 +5705,10 @@ export function FabricBomScreen({
     Components: "minmax(6.75rem,1.1fr)",
     "Assort Color": "minmax(4.5rem,0.9fr)",
   };
-  /** The ✕ track: a 32px chip box plus `px-1`. */
-  const MANUAL_REMOVE_TRACK = "2.5rem";
+  /** The ✕ track, headed "Actions" since 2026-10-03 (`erp-sheet-grid`):
+   *  the word at 12px plus the sheet cell's 8px insets needs 4rem, and the
+   *  32px chip box sits centred in it. The floors above now sum to 50.75rem. */
+  const MANUAL_REMOVE_TRACK = "4rem";
   const manualGridCols = (withRemove: boolean) =>
     [
       ...manualEntryColumns.map((c) => MANUAL_TRACK[c.header] ?? "minmax(6rem,1fr)"),
@@ -6246,12 +6248,25 @@ export function FabricBomScreen({
                   heading from `data-label` above its control. CSS only — the
                   controls are rendered ONCE, so focus order, ids and Ctrl+Del
                   are exactly the desktop ones. Nothing at 640px+ moves. */}
+              {/* THE SPREADSHEET LOOK (user 2026-10-03, `erp-sheet-grid` on
+                  Fabric BOM ▸ Manual). The bar is a two-band CSS grid, not a
+                  `<table>`, so it takes the FLEX-LADDER marker `sheet-rows`
+                  rather than `sheet`: `data-sheet-row="head"` / `data-sheet-row`
+                  on the two bands draw the grey header, the vertical rule
+                  between cells and the borderless fields with the blue / red
+                  insets. So the bands' own `border-l` / `px-1.5` / `py-2` came
+                  off, the card went square on the plain gridline colour, and the
+                  ✕ column is headed "Actions" (`MANUAL_REMOVE_TRACK`, 4rem).
+                  `data-sheet-stack` is the phone half — below `sm` the cells
+                  stack, and globals.css drops the rule and the field bleed
+                  there so each cell's own `data-label` heading stays clear. */}
               <div className="max-w-full overflow-x-auto">
-              <div className="w-full min-w-fit overflow-hidden rounded-lg border border-border-strong bg-surface max-sm:min-w-0">
+              <div data-grid-style="sheet-rows" className="w-full min-w-fit overflow-hidden border border-border bg-surface max-sm:min-w-0">
                 {/* THE HEADER BAND. Plain text, not a second `<Field>` — a
                     label has nothing to hold a cursor or a value, so it needs
                     none of what `Field` provides beyond the words themselves. */}
                 <div
+                  data-sheet-row="head"
                   className="grid bg-surface-muted max-sm:hidden"
                   style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
                 >
@@ -6261,18 +6276,20 @@ export function FabricBomScreen({
                       /* `flex items-end` so a heading that wraps grows UPWARD
                          and its last line stays on the band's baseline. */
                       className={cn(
-                        "flex min-w-0 items-end break-words px-1.5 py-1.5 leading-tight",
+                        "flex min-w-0 items-end break-words leading-tight",
                         GRID_HEADER_TEXT,
-                        ci > 0 && "border-l border-border-strong",
                       )}
                     >
                       {c.cardLabel ?? c.header}
                     </div>
                   ))}
                   {manualEntries.length > 1 && (
-                    /* The ✕ column's header: blank, the same width as the
-                       cell below it, so the two bands stay the same width. */
-                    <div aria-hidden />
+                    /* The ✕ column's header — "Actions", as on every sheet
+                       grid (`erp-sheet-grid`: a named header for EVERY
+                       column). Same track as the cell below it. */
+                    <div className={cn("flex min-w-0 items-end leading-tight", GRID_HEADER_TEXT)}>
+                      Actions
+                    </div>
                   )}
                 </div>
                 {/* THE BODY BAND — one control per column, `RequiredScope`
@@ -6292,7 +6309,9 @@ export function FabricBomScreen({
                     room survives as `py-2`, which cannot desync anything
                     horizontal. */}
                 <div
-                  className="grid items-center border-t border-border-strong py-2 max-sm:grid-cols-1! max-sm:gap-y-2.5 max-sm:border-t-0 max-sm:px-1.5"
+                  data-sheet-row
+                  data-sheet-stack
+                  className="grid items-center border-t border-border max-sm:grid-cols-1! max-sm:gap-y-2.5 max-sm:border-t-0"
                   style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
                 >
                   {manualEntryColumns.map((c, ci) => (
@@ -6302,8 +6321,7 @@ export function FabricBomScreen({
                       /* `min-w-0` lets the control shrink to its track instead
                          of pushing the track wider than its floor. */
                       className={cn(
-                        "min-w-0 px-1.5",
-                        ci > 0 && "border-l border-border-strong max-sm:border-l-0",
+                        "min-w-0",
                         "max-sm:before:mb-1 max-sm:before:block max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:uppercase max-sm:before:tracking-wide max-sm:before:text-muted-foreground max-sm:before:content-[attr(data-label)]",
                       )}
                     >
@@ -6327,9 +6345,9 @@ export function FabricBomScreen({
                       longer apply for us since it draws no ✕ here: the last
                       fabric cannot be removed. */}
                   {manualEntries.length > 1 && (
-                    /* `MANUAL_REMOVE_TRACK` (40px) sizes this cell now; `px-1`
-                       leaves the 32px box that holds the 28px chip. */
-                    <div className="flex items-center justify-center px-1">
+                    /* `MANUAL_REMOVE_TRACK` (4rem) sizes this cell; the sheet's
+                       cell inset centres the 32px box that holds the 28px chip. */
+                    <div className="flex items-center justify-center">
                       <div className="flex h-8 w-8 items-center justify-center">
                         <RowRemoveChip
                           inFlow
@@ -6373,6 +6391,15 @@ export function FabricBomScreen({
               {/* LEVEL 3 — THE SIZES, still this fabric's own nested grid,
                  unchanged in content: only its container moved, from a
                  `<td colSpan>` spanning the whole pane to this card. */}
+              {/* A SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid` on
+                  Fabric BOM ▸ Manual). `sheet` draws the gridlines, grey header
+                  and borderless in-cell inputs; the computed figures (Length,
+                  Calculated Wt, Cons Wt) keep the sheet's text inset. `fill`
+                  because this sits two rails deep — style, then fabric — so the
+                  pane can be narrower than the columns' 47.5rem, and `sheet`
+                  alone would let the table run past it instead of shrinking. No
+                  "Actions": the rows are the order's sizes (`hideRemove`). */}
+              <div data-grid-style="sheet" data-grid-fit="fill">
               <ChildGrid<ManualDisplayRow>
                 /* grid-caption: exempt -- the fabric card above is the
                    caption; a second heading here would name the same thing
@@ -6428,6 +6455,7 @@ export function FabricBomScreen({
                   </FieldGrid>
                 )}
               />
+              </div>
               {manualSizeRows(e).length === 0 && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   This style states no sizes yet — size quantities are entered on
@@ -6813,7 +6841,10 @@ export function FabricBomScreen({
             order); a blank line here draws nothing rather than a dash with
             nothing to point at. */}
         {descriptorFor(r).gsm && (
-          <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+          /* `px-2.5 pb-1`: a sheet cell has no padding of its own (the picker
+             above IS the cell), so a line of text under it needs its own inset
+             to stay off the gridline — the sheet's `td p` rule, by hand. */
+          <Truncated className="block px-2.5 pb-1 text-[10px] leading-tight text-muted-foreground">
             {descriptorFor(r).gsm} GSM
           </Truncated>
         )}
@@ -6827,7 +6858,7 @@ export function FabricBomScreen({
             (`renameAllocPart`); a name another allocation of the same cloth
             already has is refused, since the two would merge into one row. */}
         {isYdFabric(r.item_id) && (r.yd_part || partsOfFabric(r.item_id, r.style_ref_no).length > 1) && (
-          <div className="mt-1 flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 border-t border-border pl-2.5">
             <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               YD Part
             </span>
@@ -7151,7 +7182,12 @@ export function FabricBomScreen({
        * NARROWER THAN `CELL`: 4.5rem fits "Detail" at `text-xs` with room, and
        * widening it would only spend slack the row does not need.
        */
-      header: "",
+      /* "Detail", NOT "" SINCE 2026-10-03 (`erp-sheet-grid`: a named header
+         for EVERY column). The blank heading the 09-04 note above describes
+         read as a column that failed to render; with the ✕ now headed
+         "Actions" beside it, an empty one would be the only unnamed cell in
+         the header band. */
+      header: "Detail",
       width: "4.5rem",
       cell: (r) => {
         /* YARN-DYED ONLY (client field spec, 2026-09-02). The popup behind this
@@ -7195,7 +7231,11 @@ export function FabricBomScreen({
            * would not: the sentence is also the button's `aria-describedby`
            * text, read out where the button itself announces only "dimmed".
            */
-          <span title={reason ?? undefined} className="inline-block">
+          /* `block`, not `inline-block`: the sheet draws a `data-row-open`
+             button as the whole cell (width 100%), which needs a wrapper as
+             wide as the cell to fill. */
+          <span title={reason ?? undefined} className="block">
+
             <Button
               type="button"
               variant="outline"
@@ -8598,10 +8638,9 @@ export function FabricBomScreen({
       width: "15rem",
       cell: (r) => (
         <Input
-          /* 200px in a 240px cell, left-aligned. A `<td>` is left-aligned by
-             default and this column declares no `align`, so the box needs
-             nothing else to sit where it should. */
-          className="max-w-[200px]"
+          /* NO `max-w-[200px]` SINCE 2026-10-03 (`erp-sheet-grid`): the
+             panel is a sheet grid now, where the cell IS the box, so the
+             input fills it rather than sitting as a box inside it. */
           value={r.value}
           onChange={(e) => setPaletteCell(panel, r.key, e.target.value)}
           aria-label={header}
@@ -9495,10 +9534,10 @@ export function FabricBomScreen({
               carry their own `px-1.5 py-1` and the controls their own 32px
               from the app's editor density.
 
-              `flex-nowrap` HOLDS THE LINE, and the trade is that below ~900px
-              of pane the four overflow rather than stacking. 210 + 210 + 210 +
-              280 + 3 gaps = 946px, so that is outside this editor's normal
-              width.
+              `flex-nowrap` HOLDS THE LINE; the panels are `flex-1` under their
+              caps, so a narrower pane shrinks them. 240 + 240 + 240 + 320 + 3
+              gaps = 1076px at full cap (widened 2026-10-03 from 210/280 for
+              the sheet grid's 56px "Actions" column).
 
               ON A PHONE THE FOUR STACK (2026-09-24, 390px): held on one line
               they were ~85px each — a "#" column and a squashed box, nothing
@@ -9513,7 +9552,7 @@ export function FabricBomScreen({
               label="Fabric Colour"
               columns={editableColourColumns("Fabric Colour", "fabric")}
               rows={paletteEdit?.fabric ?? blankPalette()}
-              width="max-w-[210px]"
+              width="max-w-[240px]"
               onAdd={() => mutPalette("fabric", (xs) => [...xs, { key: newKey(), value: "" }])}
               /* THE LAST ROW COMES BACK BLANK, which is what `ChildGrid`'s
                  `seedRow` did for these panels before. A panel with no row at
@@ -9531,7 +9570,7 @@ export function FabricBomScreen({
               label="Yarn Colour"
               columns={editableColourColumns("Yarn colour", "yarn")}
               rows={paletteEdit?.yarn ?? blankPalette()}
-              width="max-w-[210px]"
+              width="max-w-[240px]"
               onAdd={() => mutPalette("yarn", (xs) => [...xs, { key: newKey(), value: "" }])}
               onRemove={(r) =>
                 mutPalette("yarn", (xs) => {
@@ -9549,7 +9588,7 @@ export function FabricBomScreen({
                  and by nothing else. */
               columns={editableColourColumns("Roll form print", "prints")}
               rows={paletteEdit?.prints ?? blankPalette()}
-              width="max-w-[210px]"
+              width="max-w-[240px]"
               onAdd={() => mutPalette("prints", (xs) => [...xs, { key: newKey(), value: "" }])}
               onRemove={(r) =>
                 mutPalette("prints", (xs) => {
@@ -9570,7 +9609,7 @@ export function FabricBomScreen({
               label="Dia / Size Width Details"
               columns={diaColumns}
               rows={dias}
-              width="max-w-[280px]"
+              width="max-w-[320px]"
               onAdd={() => mutDias((xs) => [...xs, blankDia(newKey())])}
               onRemove={(r) =>
                 mutDias((xs) => {
@@ -9672,22 +9711,24 @@ export function FabricBomScreen({
               `mb-3` band, and the fetch-and-toast wrapper around `applySeed`
               that used to be `seedFromOrder` (removed with it rather than
               left dead — see the note above `applySeed`). */}
-          {/* `py-1.5 px-2` ON THE DATA CELLS (client 2026-09-03).
-              `ChildGrid` renders them at `px-1.5 py-1` while its own ordinal
-              and remove cells are already `py-1.5`, so one row carried two
-              vertical paddings. A descendant selector out-specifies the
-              cell's own class without `!important`; it is the only way to
-              reach a primitive's `<td>` from a call site. The same pair is
-              on the Colour/Print section — if a third screen needs it, it
-              belongs in `ChildGrid` rather than being copied again. */}
+          {/* A SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid` on Fabric
+              Allocation). `data-grid-style="sheet"` draws the gridlines, the
+              grey header and the borderless in-cell controls, so the
+              `[&_td]:px-2 [&_td]:py-1.5` cell padding that stood here
+              (2026-09-03) came off — the sheet's cell IS the box and pads
+              only a cell holding text. The ✕ column is headed "Actions" and
+              the [Detail] column "Detail"; every column is named. All six
+              columns declare a width, so `table-fixed` just keeps them from
+              re-splitting as values are typed. */}
           {(() => {
           /* ONE GRID DEFINITION, DRAWN ONCE PER STYLE on a multi-style order
              (`allocationStyleGroups`) and once in all on a single-style one.
              `styleRef` is what "+ Add fabric" stamps on the new row. */
           const allocationGrid = (rows: LineRow[], styleRef: string) => (
-          <div className="[&_td]:px-2 [&_td]:py-1.5">
+          <div data-grid-style="sheet" className="[&_table]:table-fixed">
           <ChildGrid<LineRow>
             columns={lineColumns}
+            removeHeader="Actions"
             /* ONE ROW PER ALLOCATION, not per panel — see `allocationRows`.
                `lines` is still what Save writes and what Components reads; this
                tab asks a different question of the same array. On a
