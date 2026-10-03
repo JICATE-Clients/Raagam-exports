@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 /**
  * MOBILE BOTTOM TAB BAR (below `md`; the sidebar owns ≥md and is untouched).
  *
- *   Home · Orders · Approvals · Menu
+ *   Home · <the login's modules, Orders and Approvals first> · Menu
  *
  * Replaced the floating "Peek Sheet" pill + separate ＋ FAB (user, 2026-09-24:
  * "bottom navigation with 4–5 primary items … feel native on iOS and
@@ -73,11 +73,22 @@ const ENTITY_ICON: Record<SearchEntity, LucideIcon> = {
   employee: Users,
 };
 
-/** Modules with a tab of their own, in bar order. */
-const PINNED_LEFT = ["/", "/orders"] as const;
-const PINNED_RIGHT = ["/approvals"] as const;
-const PINNED: readonly string[] = [...PINNED_LEFT, ...PINNED_RIGHT];
-/** A pinned module's bar label when it differs from its sidebar label. */
+/**
+ * THE BAR FOLLOWS THE LOGIN'S ALLOCATION (user 2026-10-03, screenshot 3237).
+ * It was a fixed Home · Orders · Approvals · Menu, so a login without
+ * Approvals simply lost that slot and kept its OWN module behind the Menu —
+ * a staff member allocated Orders saw Home · Orders · Menu, with My Profile
+ * two levels down a sheet.
+ *
+ * Now: Home, then `MODULE_SLOTS` module tabs, then Menu. `PREFERRED` modules
+ * take the slots first when the login holds them (Orders and Approvals — the
+ * old bar, unchanged for anyone who has both); a slot they leave empty goes
+ * to the login's next module in sidebar order. A module holding ONE screen is
+ * that screen on the bar ("My Profile", not "HR & Payroll").
+ */
+const PREFERRED: readonly string[] = ["/orders", "/approvals"];
+const MODULE_SLOTS = 2;
+/** A module's bar label when it differs from its sidebar label. */
 const TAB_LABEL: Record<string, string> = { "/": "Home" };
 
 const MEMORY_KEY = "raagam.mobile-tab-memory";
@@ -349,12 +360,21 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   }
 
   const activeModule = moduleOf(pathname, modules);
-  const pinnedTabs = PINNED.map((href) => modules.find((m) => m.href === href)).filter(
-    (m): m is NavItem => !!m,
-  );
-  const leftTabs = pinnedTabs.filter((m) => (PINNED_LEFT as readonly string[]).includes(m.href));
-  const rightTabs = pinnedTabs.filter((m) => (PINNED_RIGHT as readonly string[]).includes(m.href));
-  const inPinned = !!activeModule && PINNED.includes(activeModule.href);
+  const homeModule = modules.find((m) => m.href === "/");
+  const others = modules.filter((m) => m.href !== "/");
+  const moduleTabs = [
+    ...PREFERRED.map((href) => others.find((m) => m.href === href)).filter((m): m is NavItem => !!m),
+    ...others.filter((m) => !PREFERRED.includes(m.href)),
+  ]
+    .slice(0, MODULE_SLOTS)
+    .map((m) => {
+      // One screen in the module → the tab IS that screen.
+      const leaves = childrenFor(m.href, m.children).flatMap((c) => (c.children?.length ? c.children : [c]));
+      const only = leaves.length === 1 ? leaves[0] : undefined;
+      return { mod: m, href: only?.href ?? m.href, label: only?.label ?? TAB_LABEL[m.href] ?? m.label };
+    });
+  const tabbed = new Set<string>(["/", ...moduleTabs.map((t) => t.mod.href)]);
+  const inPinned = !!activeModule && tabbed.has(activeModule.href);
   // The Menu tab stands in for whichever module has no tab of its own.
   const menuModule = !inPinned ? activeModule : undefined;
 
@@ -400,12 +420,14 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
     setSheet(next);
   }
 
-  function onTab(e: MouseEvent<HTMLAnchorElement>, mod: NavItem) {
+  function onTab(e: MouseEvent<HTMLAnchorElement>, mod: NavItem, rootHref: string = mod.href) {
     if (!isPlainClick(e)) return; // long-press / new tab keeps the plain href
     e.preventDefault();
     if (!confirmDiscard()) return;
     rememberHere(modules); // capture this screen's latest filters before leaving
-    const target = tabTarget(mod.href, activeModule?.href, readMemory());
+    // A one-screen module's tab goes to that screen; memory cannot improve on it.
+    const target =
+      rootHref !== mod.href ? rootHref : tabTarget(mod.href, activeModule?.href, readMemory());
     if (target !== pathname + window.location.search) router.push(target);
   }
 
@@ -429,24 +451,23 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
       >
         <div className="mx-auto flex h-14 max-w-xl items-stretch">
-          {leftTabs.map((m) => (
+          {homeModule && (
             <TabLink
-              key={m.href}
-              href={m.href}
-              icon={m.icon}
-              label={TAB_LABEL[m.href] ?? m.label}
-              active={sheet === null && activeModule?.href === m.href}
-              onClick={(e) => onTab(e, m)}
+              href="/"
+              icon={homeModule.icon}
+              label={TAB_LABEL["/"]}
+              active={sheet === null && activeModule?.href === "/"}
+              onClick={(e) => onTab(e, homeModule)}
             />
-          ))}
-          {rightTabs.map((m) => (
+          )}
+          {moduleTabs.map((t) => (
             <TabLink
-              key={m.href}
-              href={m.href}
-              icon={m.icon}
-              label={TAB_LABEL[m.href] ?? m.label}
-              active={sheet === null && activeModule?.href === m.href}
-              onClick={(e) => onTab(e, m)}
+              key={t.mod.href}
+              href={t.href}
+              icon={t.mod.icon}
+              label={t.label}
+              active={sheet === null && activeModule?.href === t.mod.href}
+              onClick={(e) => onTab(e, t.mod, t.href)}
             />
           ))}
           <TabButton
