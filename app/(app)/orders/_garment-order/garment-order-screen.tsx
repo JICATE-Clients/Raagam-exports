@@ -10694,11 +10694,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">RE No</span>
+          {/* SIZED TO ITS VALUE (2026-10-03). A fixed `w-32` (128px) clipped
+              "HO/RE/26-27/0003" to "…/000" at every pane width — the same
+              `field-sizing: content` the Order Info RE No uses, with `w-24`'s
+              96px as the floor so an unnumbered order keeps its box. */}
           <Input
             id="ta-refno"
             readOnly
             value={savedOrderNo ?? previewNo ?? ""}
-            className="h-7 w-32 px-2 text-xs"
+            className="h-7 w-auto min-w-24 px-2 text-xs field-sizing-content"
           />
         </div>
         <div className="flex items-center gap-1.5">
@@ -19813,7 +19817,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * the fault `FIELD_TRACK_32` got `items-end` for on 2026-08-19.
               */}
             <div className="space-y-2 @2xl/editor:space-y-1.5">
-            <FieldRow>
+            {/* `nowrap` (client 2026-10-03): the arrangement must not change
+                with browser zoom — see the note on Order Info's first row. */}
+            <FieldRow nowrap gap="row">
               {/* A FOLDED ROW SHOWS ONLY ITS STYLE. Anchored on the header, not
                   on index 0 — these columns have been reordered more than once,
                   and `filter` fails loudly if Style is renamed where `slice(0,1)`
@@ -22530,7 +22536,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               same shape LINE 2 below already is. RE No, Customer and PO No size
               to their values (Customer and PO No asked for the same day); Unit
               is `hug`, Date the `code` floor Deli.Dt shares, Merchand. `party`. */}
-          <FieldRow>
+          {/* `nowrap` — THE ARRANGEMENT HOLDS AT ANY ZOOM (client 2026-10-03:
+              zooming in moved fields down a line, 5 per row → 4 → 3, and the
+              client wants the same rows whatever the zoom). A wrapping row fits
+              as many fixed-width fields as the pane allows, and zooming in
+              shrinks the pane in CSS pixels, so the fold point moved. `nowrap`
+              (`FIELD_ROW_NOWRAP`, the Customer ▸ Identity row the client signed
+              off on 2026-09-09) keeps every field on its line at its stated
+              width; past the point it fits, the ROW scrolls sideways inside its
+              own box rather than folding or clipping a value. Safe here because
+              every popup on these rows portals out (DataPicker, Combobox).
+              At 100% on a 1366 screen both rows fit, so nothing scrolls there. */}
+          <FieldRow nowrap gap="row">
             {/* AUTO, NOT PICKED (client 2026-08-11).
                 This was a dropdown of orders that already existed — amendment
                 behaviour on the screen an order is ENTERED on. The SC No is now
@@ -23039,17 +23056,34 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onChange={(id) => set({ merchandiser_id: id })}
               />
             </Field>
+          </FieldRow>
+
+          {/* LINE 2 OPENS WITH THE ORDER'S TWO DATES (2026-10-03, the client's
+              1366px laptop), and that MOVES THEM BACK DOWN from line 1.
+
+              On 2026-10-01 the client asked for Deli.Dt and Received Date on the
+              first row — "there was space" — and on a 1536px pane there was:
+              eight fields measure 1,207px against ~1,278. On the client's own
+              1366 × 768 screen at 100% the pane is **1,108px**, so line 1 came up
+              99px short and Received Date wrapped onto a line of its own. Customer
+              and PO No size to their values (`field-sizing: content`), so a longer
+              customer name only widens the shortfall; no tightening of gaps or
+              steps closes 99px reliably.
+
+              So the break moved to the boundary that fits everywhere: line 1 is
+              the six identity fields (~895px, leaving ~210px for a long customer
+              name), line 2 is the two dates then the terms (~878px). Two rows at
+              every width from 1366 up. The DOM order is unchanged — Merchand. →
+              Deli.Dt → Received Date → Season — so the dictated entry run below
+              and every Tab/Enter step stay exactly as they were.
+              `nowrap` for the same reason as line 1: same rows at any zoom. */}
+          <FieldRow nowrap gap="row">
             {/* DELI.DT SITS HERE, NOT BELOW Yr (client 2026-08-11). The dictated
                 entry run is SCNo → Date → Customer → PO No → Merchandiser →
                 Deli.Dt, and Season/Yr standing between Merchand. and Deli.Dt broke
                 it in the middle. They stay in the header — the client was explicit
                 that they belong here and not on the style rows, where they have
-                never been.
-                ON LINE 1 SINCE 2026-10-01 (client: "move the delivery date,
-                received date to the first row, there was space") — once RE No,
-                Customer and PO No sized to their values, line 1 ended ~600px
-                short of the pane. Still straight after Merchand., so the
-                dictated run above is unchanged. */}
+                never been. Still straight after Merchand. in the entry run. */}
             {/* REQUIRED SINCE 2026-08-31 (client). Deli.Dt used to be the
                 header's one deliberately-unblocking date — the `sectionValidity`
                 comment said so by name ("Deli.Dt is not here at all because it
@@ -23087,7 +23121,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             <Field label="Received Date" w="code" htmlFor="hd-received">
               <Input id="hd-received" type="date" value={form.received_date} onChange={(e) => set({ received_date: e.target.value })} />
             </Field>
-          </FieldRow>
 
           {/* LINE 2 — THE ORDER'S TERMS. The break is where it has always been:
               line 1 is who the order is and who it is for, line 2 is what it is
@@ -23101,9 +23134,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               before that style can be saved). It is the Files cell on the
               Style(s) tab now.
 
-              (SUPERSEDED 2026-10-01: Deli.Dt and Received Date moved up to
-              line 1, so this row is now Season · Excess % · Pack · Multi Style ·
-              Rejection Rule. The figures below are the six-cell row's.)
+              (SUPERSEDED 2026-10-01, then 2026-10-03: the dates went up to line
+              1 and came back down to LEAD this row — see the note above Deli.Dt —
+              so it is Deli.Dt · Received Date · Season · Excess % · Pack · Multi
+              Style · Rejection Rule, ~878px at 1366. The figures below are the
+              six-cell row's.)
               SO THIS ROW IS SIX CELLS AGAIN, AND THE ARITHMETIC MOVED WITH IT:
               144 + 112 + 72 + 74 + 112 + 288 = 802px plus five gaps = **862px**,
               against a ~1,229px pane. It was 978px plus six gaps = 1,050px while
@@ -23136,7 +23171,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               `FieldGrid` the surrounding column stays the same width and the
               control just floats in dead space (`Field`'s own note). So the
               tag now matches what the comment already claimed. */}
-          <FieldRow>
             <Field label="Season" w="range" htmlFor="hd-season" required>
               <Select id="hd-season" required value={form.season} onChange={(e) => set({ season: e.target.value })}>
                 <option value=""></option>
@@ -23687,8 +23721,20 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         * next section — the exact bug `PageHeader`'s own comment documents
         * for every OTHER screen's actions row.
         */}
-      <div data-focus-region="header" className="mb-3 flex w-full flex-wrap items-baseline gap-x-6 gap-y-2">
-        <div className="flex shrink-0 items-baseline gap-2">
+      <div data-focus-region="header" className="mb-3 flex w-full flex-wrap items-baseline gap-x-6 gap-y-2 max-md:gap-x-2">
+        {/* ← on the left on a phone, where the band is the top bar while
+            editing (globals.css "PHONE EDITOR"); the labelled button on the
+            right takes over from `md`. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setMode("list")}
+          aria-label="Back to list"
+          className="h-10 w-10 shrink-0 px-0 text-lg md:hidden"
+        >
+          ←
+        </Button>
+        <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-col max-md:items-start max-md:gap-0">
           <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
             {viewOnly
               ? "View Garment Order"
@@ -23741,7 +23787,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              rule is about matching a LIST toolbar's search box; there is no
              toolbar here), so shrinking it to match this compact band is not
              the drift that rule exists to prevent. */}
-          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+          <Button variant="outline" size="sm" onClick={() => setMode("list")} className="max-md:hidden">
             ← Back to list
           </Button>
         </div>

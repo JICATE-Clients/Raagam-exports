@@ -20,7 +20,10 @@
  */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { CalendarRange, Check, Layers, RotateCcw, Users, X, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CalendarRange, Check, FileText, Layers, RotateCcw, Users, X, Undo2 } from "lucide-react";
+import { RowIconAction } from "@/components/ui/row-actions";
+import { findOrderReport, orderReportHref } from "@/lib/orders/order-reports";
 import { Button } from "@/components/ui/button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdGroup, flagFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
@@ -136,6 +139,20 @@ const APPROVAL_WORD: Record<BudgetStatus, QuickWord> = {
 };
 const approvalWord = (r: BudgetApprovalRow): QuickWord => APPROVAL_WORD[r.status];
 
+/**
+ * THE APPROVER'S WORDS FOR A BUDGET'S STATE (client 2026-10-03, the register
+ * spec: Pending · Approved · Rework Requested · Draft). This queue only —
+ * `budgetStatusText` is shared with Budgeting, where "Awaiting approval" is
+ * the merchandiser's view of the same state. `rejected` is what the engine's
+ * Request Rework leaves behind (2026-09-29), so on the screen that pressed it
+ * the word is the button's.
+ */
+const approvalStatusText = (s: BudgetStatus): string =>
+  s === "submitted" ? "Pending" : s === "rejected" ? "Rework Requested" : budgetStatusText(s);
+
+/** The order's Budget report — `ORDER_REPORTS`' entry, never a hand-typed path. */
+const BUDGET_REPORT = findOrderReport("budget");
+
 function approvalFacets(rows: BudgetApprovalRow[]): FacetGroup<BudgetApprovalRow>[] {
   return [
     {
@@ -148,7 +165,7 @@ function approvalFacets(rows: BudgetApprovalRow[]): FacetGroup<BudgetApprovalRow
           all: "All",
           wide: true,
           counted: true,
-          options: BUDGET_STATUSES.map((s) => ({ value: s, label: budgetStatusText(s) })),
+          options: BUDGET_STATUSES.map((s) => ({ value: s, label: approvalStatusText(s) })),
           match: (r, v) => r.status === v,
         },
         { key: "budgetDate", label: "Budget Date", all: "Any date", date: (r) => r.budget_date },
@@ -206,6 +223,7 @@ export function BudgetApprovalScreen({
   initialOpenId?: string | null;
 }) {
   const { success, error: toastError } = useToast();
+  const router = useRouter();
   const [isPending, start] = useTransition();
 
   /* ONE WAY IN, AND IT IS THE FULL PAGE (user 2026-09-30, screenshots 3160 /
@@ -413,7 +431,16 @@ export function BudgetApprovalScreen({
       className: HUG,
       cell: (r) => {
         const q = cardOf(r)?.orderQty;
-        return <span className="tabular-nums text-sm">{typeof q === "number" ? fmtNumber(q) : "—"}</span>;
+        // The order's own unit (PCS, SETS…), never a hard-coded "Pcs".
+        const u = cardOf(r)?.orderUnit;
+        return (
+          <span className="whitespace-nowrap tabular-nums text-sm">
+            {typeof q === "number" ? fmtNumber(q) : "—"}
+            {typeof q === "number" && typeof u === "string" && u ? (
+              <span className="text-xs text-muted-foreground"> {u}</span>
+            ) : null}
+          </span>
+        );
       },
     },
     {
@@ -448,7 +475,10 @@ export function BudgetApprovalScreen({
       className: HUG,
       cell: (r) => (
         <span className="block text-sm">
-          <span className="tabular-nums">{r.submitted_at ? fmtDate(r.submitted_at) : "—"}</span>
+          {/* DATE AND TIME, NEVER "10 mins ago": an age needs `Date.now()` in
+              the render, which the React Compiler refuses and a phone with a
+              wrong clock would get wrong (same reason as `is_overdue`). */}
+          <span className="whitespace-nowrap tabular-nums">{r.submitted_at ? fmtDateTime(r.submitted_at) : "—"}</span>
           {cardOf(r)?.submittedBy ? (
             <span className="block text-[11px] text-muted-foreground">by {cardOf(r)!.submittedBy}</span>
           ) : null}
@@ -485,7 +515,7 @@ export function BudgetApprovalScreen({
       header: "Status",
       className: HUG,
       cell: (r) => (
-        <StatusPill tone={budgetStatusTone(r.status)}>{budgetStatusText(r.status)}</StatusPill>
+        <StatusPill tone={budgetStatusTone(r.status)}>{approvalStatusText(r.status)}</StatusPill>
       ),
     },
     /* THE TWO DECISIONS, each in its own colour: Request Rework amber,
@@ -497,8 +527,20 @@ export function BudgetApprovalScreen({
       (r) => {
         const decidable = canApprove && r.status === "submitted";
         const label = r.code ?? r.id.slice(0, 8);
+        const soId = cardOf(r)?.salesOrderIds[0];
         return (
           <div className="flex items-center justify-end gap-1">
+            {/* REPORT FIRST — the eye's slot ("Row actions" in AGENTS.md):
+                the order's Budget report, whose strip reaches the rest. Greyed
+                and saying why when the budget has no order to key it on. */}
+            <RowIconAction
+              label="Budget report"
+              name={cardOf(r)?.reNos[0] ?? label}
+              icon={FileText}
+              className="text-primary"
+              onClick={soId && BUDGET_REPORT ? () => router.push(orderReportHref(soId, BUDGET_REPORT)) : undefined}
+              disabledReason={soId && BUDGET_REPORT ? null : "No order on this budget yet"}
+            />
             {/* NO EDIT ICON (user 2026-09-30): this is the approver's queue, and
                 the budget is edited on Budgeting — a pencil here led away from
                 the decision the row exists for. */}
@@ -533,7 +575,7 @@ export function BudgetApprovalScreen({
           </div>
         );
       },
-      "w-24",
+      "w-32",
     ),
   ];
 

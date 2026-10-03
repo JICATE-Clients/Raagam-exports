@@ -303,7 +303,7 @@ export async function lockPayroll(runId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: runRaw } = await supabase
     .from("payroll_runs")
-    .select("id, status, code, run_kind, period_start, period_end")
+    .select("id, status, code, run_kind, period_start, period_end, location_id")
     .eq("id", runId)
     .maybeSingle();
 
@@ -314,6 +314,7 @@ export async function lockPayroll(runId: string): Promise<ActionResult> {
     run_kind: string;
     period_start: string;
     period_end: string;
+    location_id: string;
   } | null;
 
   if (!run) return { ok: false, error: "Run not found" };
@@ -407,6 +408,10 @@ export async function lockPayroll(runId: string): Promise<ActionResult> {
           posted_at: new Date().toISOString(),
           total_debit: totalDebit,
           total_credit: totalCredit,
+          // The run's unit, stated. The column defaults to current_location(),
+          // which the privileged client has no session for — so before this the
+          // insert was refused (NOT NULL) and the journal silently never posted.
+          location_id: run.location_id,
           created_by: user?.id ?? null,
         })
         .select("id")

@@ -427,7 +427,7 @@ export async function markShipped(shipmentId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: shipment } = await supabase
     .from("shipments")
-    .select("status, buyer_id, currency_code, total_value, invoice_no, invoice_date")
+    .select("status, buyer_id, currency_code, total_value, invoice_no, invoice_date, location_id")
     .eq("id", shipmentId)
     .single();
 
@@ -464,6 +464,7 @@ export async function markShipped(shipmentId: string): Promise<ActionResult> {
       total_value: number | null;
       invoice_no: string | null;
       invoice_date: string | null;
+      location_id: string;
     };
     const admin = createAdminClient();
     const { data: existing } = await admin
@@ -487,6 +488,10 @@ export async function markShipped(shipmentId: string): Promise<ActionResult> {
         exchange_rate: 1,
         amount_inr: amount,
         status: "open",
+        // The shipment's unit, stated. The column defaults to current_location(),
+        // which the privileged client has no session for — so before this every
+        // receivable insert was refused (NOT NULL) and swallowed by the catch.
+        location_id: s.location_id,
         created_by: user?.id ?? null,
       });
       revalidatePath("/finance/receivables");

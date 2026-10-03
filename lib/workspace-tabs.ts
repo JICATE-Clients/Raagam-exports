@@ -172,6 +172,34 @@ function pruneToOne(keepId: string): void {
   setState({ tabs: [keep], activeId: keep.id });
 }
 
+/**
+ * Fold tabs that open the SAME screen into one. Two hrefs can be one screen
+ * for a given user: a regular staff member's `/hr/staff` redirects to their
+ * own `/hr/staff/<id>`, so a tab for each read "My Profile · My Profile" side
+ * by side (user 2026-10-03, screenshot 3231). `canonical` says where an href
+ * really lands; the tab already AT that href is kept (else the first), moved
+ * onto the canonical href, and the rest are dropped. Pure — never navigates.
+ */
+function mergeSameScreen(canonical: (href: string) => string): void {
+  const keepFor = new Map<string, WorkspaceTab>();
+  for (const t of state.tabs) {
+    const c = canonical(t.href);
+    const held = keepFor.get(c);
+    if (!held || (held.href !== c && t.href === c)) keepFor.set(c, t);
+  }
+  const kept = new Set([...keepFor.values()].map((t) => t.id));
+  const changed =
+    kept.size !== state.tabs.length || state.tabs.some((t) => canonical(t.href) !== t.href);
+  if (!changed) return;
+  const byId = new Map(state.tabs.map((t) => [t.id, canonical(t.href)]));
+  const active = state.tabs.find((t) => t.id === state.activeId);
+  const activeId = active ? (keepFor.get(canonical(active.href))?.id ?? null) : state.activeId;
+  setState({
+    tabs: state.tabs.filter((t) => kept.has(t.id)).map((t) => ({ ...t, href: byId.get(t.id)! })),
+    activeId,
+  });
+}
+
 function clearAll(): void {
   setState(EMPTY_STATE);
 }
@@ -207,6 +235,8 @@ export function useWorkspaceTabs() {
       clearAll();
       router.push("/");
     },
+    /** See `mergeSameScreen`. */
+    mergeSameScreen,
   };
 }
 

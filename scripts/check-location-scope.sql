@@ -9,6 +9,7 @@
 -- stops it rotting back.
 --
 -- Reads the catalog, never a migration. Every check must return ZERO ROWS.
+-- (CHECKS 7-8 added by 0680: detail tables, and the one source of unit access.)
 --
 --   psql "$DATABASE_URL" -f scripts/check-location-scope.sql
 --
@@ -60,8 +61,8 @@ where n.nspname = 'public' and c.relkind = 'r'
   and not exists (
     select 1 from pg_policy p
     where p.polrelid = c.oid
-      and (coalesce(pg_get_expr(p.polqual, p.polrelid), '')      like '%is_current_location%'
-        or coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') like '%is_current_location%')
+      and (coalesce(pg_get_expr(p.polqual, p.polrelid), '') || coalesce(pg_get_expr(p.polwithcheck, p.polrelid), ''))
+          ~ '(is_current_location|has_order_access|has_amendment_access)'   -- direct, or through its order (packing_advices)
   )
 order by c.relname;
 
@@ -86,8 +87,8 @@ join pg_attribute a
  and a.attnum > 0 and not a.attisdropped
 where n.nspname = 'public' and c.relkind = 'r'
   and coalesce(obj_description(c.oid, 'pg_class'), '') not like '%location-scope: exempt%'
-  and coalesce(pg_get_expr(p.polqual, p.polrelid), '')      not like '%is_current_location%'
-  and coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') not like '%is_current_location%'
+  and (coalesce(pg_get_expr(p.polqual, p.polrelid), '') || coalesce(pg_get_expr(p.polwithcheck, p.polrelid), ''))
+      !~ '(is_current_location|has_order_access|has_amendment_access)'
 order by c.relname, p.polname;
 
 -- ==========================================================================
@@ -180,3 +181,53 @@ select 'CHECK 6: my_locations() narrowed to the current unit' as failure,
        'the switcher could never leave the unit it is on' as detail
 where pg_get_functiondef('public.my_locations()'::regprocedure)
         not like '%has_location_access%';
+
+-- ==========================================================================
+-- CHECK 7 — a DETAIL table whose document is unit-scoped, but which is not.
+--
+-- CHECKS 1-2 only see tables that carry `location_id`. The tables BELOW them —
+-- BOM lines, PO/GRN lines, payroll lines, staff sub-records — carry none, so
+-- they were invisible to this script while ~150 of them leaked across units
+-- (RBAC audit 2026-09-22; fixed by 0680, which narrows each one through a
+-- generated `lv_<parent>()` predicate). A new child table copied from an old
+-- migration arrives with module-permission policies only; this names it.
+-- Fix: AND `public.lv_<owner>(<fk>)` into each of its policies, as 0680 does,
+-- or mark it `location-scope: exempt -- <reason>`.
+-- ==========================================================================
+with recursive
+t as (
+  select c.oid, c.relname,
+         exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'location_id'
+                  and a.attnum > 0 and not a.attisdropped) as has_loc,
+         coalesce(obj_description(c.oid, 'pg_class'), '') like '%location-scope: exempt%' as exempt
+    from pg_class c
+   where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
+),
+fk as (select conrelid as child, confrelid as parent from pg_constraint
+        where contype = 'f' and array_length(conkey, 1) = 1 and conrelid <> confrelid),
+tree(oid) as (
+  select oid from t where has_loc and not exempt
+  union
+  select f.child from fk f join tree on tree.oid = f.parent
+    join t on t.oid = f.child where not t.has_loc and not t.exempt
+)
+select 'CHECK 7: detail table not narrowed to current unit' as failure,
+       t.relname as table_name, p.polname as policy_name
+from tree join t using (oid)
+join pg_policy p on p.polrelid = t.oid
+where not t.has_loc
+  and coalesce(pg_get_expr(p.polqual, p.polrelid), '') || coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '')
+      !~ '(is_current_location|has_order_access|has_amendment_access|lv_)'
+order by t.relname, p.polname;
+
+-- ==========================================================================
+-- CHECK 8 — "which units may I open" has ONE source (0680).
+--
+-- Super admin, or the person's Units allocation on Users & Access ▸ User
+-- Permissions. A role's location used to answer it too, and a role given "at
+-- any location" silently opened every unit. If `user_roles` ever comes back
+-- into `has_location_access`, this fires.
+-- ==========================================================================
+select 'CHECK 8: has_location_access reads user_roles again' as failure,
+       'a role''s location must not grant a unit — the allocation is the only source' as detail
+where pg_get_functiondef('public.has_location_access(uuid,uuid)'::regprocedure) like '%user_roles%';

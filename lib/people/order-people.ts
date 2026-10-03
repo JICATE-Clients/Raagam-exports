@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { getCurrentLocation } from "@/lib/auth/location";
 
 /**
  * THE PEOPLE THE ORDERS MODULE NAMES — HR ▸ STAFF, AND ONLY HR ▸ STAFF
@@ -47,12 +48,15 @@ const one = <T,>(v: One<T>): T | null => (Array.isArray(v) ? (v[0] ?? null) : v)
  * holds must still be named).
  */
 export async function listOrderPeople(): Promise<OrderPerson[]> {
-  const { data, error } = await createAdminClient()
-    .from("staff")
-    .select(
-      "id, code, name, is_active, blocked, department_id, department:departments!department_id(name), designation:designations!designation_id(name)",
-    )
-    .order("name");
+  const [{ data, error }, { location }] = await Promise.all([
+    createAdminClient()
+      .from("staff")
+      .select(
+        "id, code, name, is_active, blocked, location_id, department_id, department:departments!department_id(name), designation:designations!designation_id(name)",
+      )
+      .order("name"),
+    getCurrentLocation(),
+  ]);
   if (error) throw new Error(`Could not read staff: ${error.message}`);
   return ((data ?? []) as unknown as {
     id: string;
@@ -60,6 +64,7 @@ export async function listOrderPeople(): Promise<OrderPerson[]> {
     name: string | null;
     is_active: boolean | null;
     blocked: boolean | null;
+    location_id: string | null;
     department_id: string | null;
     department: One<{ name: string | null }>;
     designation: One<{ name: string | null }>;
@@ -67,7 +72,10 @@ export async function listOrderPeople(): Promise<OrderPerson[]> {
     id: s.id,
     code: s.code,
     name: s.name ?? "(unnamed)",
-    inactive: s.is_active === false || !!s.blocked,
+    // ANOTHER UNIT'S STAFF ARE NOT OFFERED (0680, client 2026-10-03: staff are
+    // per unit). Flagged like an inactive person rather than dropped, so a
+    // record that already names them still shows the name (Disabled rows).
+    inactive: s.is_active === false || !!s.blocked || s.location_id !== (location?.id ?? null),
     department_id: s.department_id,
     department_name: one(s.department)?.name ?? null,
     designation: one(s.designation)?.name ?? null,

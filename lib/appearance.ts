@@ -432,14 +432,24 @@ function pearlCss(sel: string): string {
     // skin's light-blue Save) without replacing it; and outline selectors
     // tripled (`${ob}`) to out-rank the skin. The skin's green border and
     // text on outline buttons are left alone: brand on a control, approved.
+    // NO HARD EDGE AT THE MIDDLE (user 2026-10-03, screenshot 3229: "why the
+    // button top went half white, fix the color issue"). The band went from
+    // 14% white to clear between 49% and 51%, a crisp line that on a blue
+    // button read as the top half bleached. It now fades from 24% at the top
+    // to nothing by 70%: the same light from above, no seam.
+    // AND THE SEGMENTED PILL BELOW SKIPS A SOLID ONE. Its gloss is 95% white
+    // to clear at 51%, made for a WHITE pill on a grey track; the Orders
+    // Pending/Updated box (and every `[data-segmented]` group whose lit word
+    // is `ty-btn-solid`) is BLUE, so that gloss bleached its top half — the
+    // actual "half white" in 3229. A solid pill keeps the sheen above instead.
     `${sel} :is(.ty-btn-solid,.ty-btn-outline){position:relative;isolation:isolate}` +
-    `${sel} .ty-btn-solid::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgb(255 255 255/.38) 0%,rgb(255 255 255/.14) 49%,rgb(255 255 255/0) 51%,rgb(0 0 0/.07) 100%)}` +
+    `${sel} .ty-btn-solid::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgb(255 255 255/.24) 0%,rgb(255 255 255/.07) 50%,rgb(255 255 255/0) 70%,rgb(0 0 0/.06) 100%)}` +
     // The sidebar's active item is a solid pill too (`SidebarItem`, which
     // backs the rail, the module menu and its sub-rows): same glass band,
     // same lift (user 2026-10-01: "see the sidebar button?"). An idle row
     // gets a white raised sheen on hover only — never a tinted column.
     `${sel} .ty-sidebar[data-active]{position:relative;isolation:isolate;box-shadow:inset 0 1px 0 rgb(255 255 255/.4),inset 0 -1px 0 rgb(0 0 0/.12),0 2px 4px -1px rgb(15 20 30/.22),0 6px 14px -6px rgb(15 20 30/.3)}` +
-    `${sel} .ty-sidebar[data-active]::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgb(255 255 255/.36) 0%,rgb(255 255 255/.12) 49%,rgb(255 255 255/0) 51%,rgb(0 0 0/.06) 100%)}` +
+    `${sel} .ty-sidebar[data-active]::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgb(255 255 255/.22) 0%,rgb(255 255 255/.06) 50%,rgb(255 255 255/0) 70%,rgb(0 0 0/.05) 100%)}` +
     `${sel} .ty-sidebar:not([data-active]):hover{background-color:transparent;background-image:linear-gradient(180deg,#fff,#f1f3f6);box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgb(15 20 30/.06),0 2px 6px -3px rgb(15 20 30/.18)}` +
     `${d} .ty-sidebar:not([data-active]):hover{background-image:linear-gradient(180deg,#262b34,#1d2129);box-shadow:inset 0 1px 0 rgb(255 255 255/.06),0 2px 6px -3px rgb(0 0 0/.6)}` +
     `${sel} .ty-btn-solid{box-shadow:inset 0 1px 0 rgb(255 255 255/.45),inset 0 -1px 0 rgb(0 0 0/.14),0 2px 4px -1px rgb(15 20 30/.25),0 6px 14px -6px rgb(15 20 30/.35)}` +
@@ -457,7 +467,7 @@ function pearlCss(sel: string): string {
     // class TOKENS they use (`[class~=…]`), never by a substring, so
     // `bg-primary-soft` or `bg-primary/10` (tints, not buttons) stay out.
     `${sel} ${rawSolid}{position:relative;isolation:isolate;box-shadow:inset 0 1px 0 rgb(255 255 255/.45),inset 0 -1px 0 rgb(0 0 0/.14),0 2px 4px -1px rgb(15 20 30/.25),0 6px 14px -6px rgb(15 20 30/.35)}` +
-    `${sel} ${rawSolid}::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgb(255 255 255/.38) 0%,rgb(255 255 255/.14) 49%,rgb(255 255 255/0) 51%,rgb(0 0 0/.07) 100%)}` +
+    `${sel} ${rawSolid}::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgb(255 255 255/.24) 0%,rgb(255 255 255/.07) 50%,rgb(255 255 255/0) 70%,rgb(0 0 0/.06) 100%)}` +
     `${sel} :is(.ty-btn-subtle,${rawOutline}){background-color:#fff;background-image:linear-gradient(180deg,#fff 0%,#fbfcfd 46%,#edf0f3 54%,#e6e9ed 100%);box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgb(15 20 30/.07),0 1px 2px rgb(15 20 30/.12),0 4px 10px -5px rgb(15 20 30/.18)}` +
     `${sel} :is(.ty-btn-subtle,${rawOutline}):hover:not(:disabled){background-image:linear-gradient(180deg,#fff 0%,#f6f8fa 46%,#e6eaee 54%,#dde2e7 100%)}` +
     `${d} :is(.ty-btn-subtle,${rawOutline}){background-color:#1c2028;background-image:linear-gradient(180deg,#2a3039 0%,#232830 48%,#1b1f26 52%,#181c22 100%);box-shadow:inset 0 1px 0 rgb(255 255 255/.08),0 1px 2px rgb(0 0 0/.5),0 4px 10px -5px rgb(0 0 0/.6)}` +
@@ -468,9 +478,9 @@ function pearlCss(sel: string): string {
     `${sel} ${field}{box-shadow:inset 0 1px 2px rgb(15 20 30/.07)}` +
     `${d} ${field}{box-shadow:inset 0 1px 2px rgb(0 0 0/.45)}` +
     `${sel} [data-segmented]{background-image:linear-gradient(180deg,#eceef1,#f3f4f6);box-shadow:inset 0 1px 2px rgb(15 20 30/.07)}` +
-    `${sel} [data-segmented] input:checked+[data-seg-pill],${sel} [data-segmented] button[aria-pressed="true"]{background-image:linear-gradient(180deg,rgb(255 255 255/.95),rgb(255 255 255/.55) 50%,rgb(255 255 255/0) 51%);box-shadow:inset 0 1px 0 #fff,0 1px 2px rgb(15 20 30/.14),0 3px 8px -3px rgb(15 20 30/.22)}` +
+    `${sel} [data-segmented] input:checked+[data-seg-pill],${sel} [data-segmented] button[aria-pressed="true"]:not(.ty-btn-solid){background-image:linear-gradient(180deg,rgb(255 255 255/.95),rgb(255 255 255/.55) 50%,rgb(255 255 255/0) 51%);box-shadow:inset 0 1px 0 #fff,0 1px 2px rgb(15 20 30/.14),0 3px 8px -3px rgb(15 20 30/.22)}` +
     `${d} [data-segmented]{background-image:none;box-shadow:inset 0 1px 2px rgb(0 0 0/.5)}` +
-    `${d} [data-segmented] input:checked+[data-seg-pill],${d} [data-segmented] button[aria-pressed="true"]{background-image:linear-gradient(180deg,#262b34,#1e232b);box-shadow:inset 0 1px 0 rgb(255 255 255/.07),0 1px 3px rgb(0 0 0/.5)}` +
+    `${d} [data-segmented] input:checked+[data-seg-pill],${d} [data-segmented] button[aria-pressed="true"]:not(.ty-btn-solid){background-image:linear-gradient(180deg,#262b34,#1e232b);box-shadow:inset 0 1px 0 rgb(255 255 255/.07),0 1px 3px rgb(0 0 0/.5)}` +
     `${sel} .ty-badge{box-shadow:inset 0 1px 0 rgb(255 255 255/.6),0 0 0 1px rgb(15 20 30/.05)}` +
     `${d} .ty-badge{box-shadow:inset 0 1px 0 rgb(255 255 255/.06)}` +
     // ── surfaces

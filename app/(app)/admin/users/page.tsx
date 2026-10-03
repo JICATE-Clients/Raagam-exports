@@ -30,12 +30,6 @@ export interface RoleOption {
   description: string | null;
 }
 
-export interface LocationOption {
-  id: string;
-  code: string;
-  name: string;
-}
-
 /**
  * ONE ROW PER PERSON — HR & Payroll ▸ People ▸ Staff (the `staff` table; user 2026-09-30: "user
  * data need to fetch from hr module staff child"), joined to the login it has
@@ -75,7 +69,6 @@ export default async function UsersPage() {
     { data: profilesData },
     { data: userRolesRaw },
     { data: rolesData },
-    { data: locationsData },
     { data: employeesData },
   ] = await Promise.all([
     supabase
@@ -88,10 +81,6 @@ export default async function UsersPage() {
     supabase
       .from("roles")
       .select("id, name, description")
-      .order("name"),
-    supabase
-      .from("locations")
-      .select("id, code, name")
       .order("name"),
     // Inactive / blocked staff are not listed (Disabled rows rule) — a login
     // for someone who has left is exactly what should not be creatable.
@@ -127,7 +116,6 @@ export default async function UsersPage() {
   }));
 
   const roles = (rolesData ?? []) as RoleOption[];
-  const locations = (locationsData ?? []) as LocationOption[];
 
   const norm = (e: string | null | undefined) => e?.trim().toLowerCase() || null;
   const byEmail = new Map(profiles.filter((p) => norm(p.email)).map((p) => [norm(p.email)!, p]));
@@ -153,7 +141,7 @@ export default async function UsersPage() {
         title="Users"
         description="Everyone in HR & Payroll ▸ People ▸ Staff. Send welcome mail creates their login and emails the sign-in details."
       />
-      <UsersClient rows={rows} userRoles={userRoles} roles={roles} locations={locations} meId={me.id} />
+      <UsersClient rows={rows} userRoles={userRoles} roles={roles} meId={me.id} />
     </div>
   );
 }

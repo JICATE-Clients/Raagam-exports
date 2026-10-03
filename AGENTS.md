@@ -1616,3 +1616,35 @@ having run. A job is declared in `lib/jobs/registry.ts`, scheduled in `vercel.js
 routed under `app/api/cron/` — `npm run check:jobs` (inside `build:check`) holds the
 three together, including the schedule string, since "late" is measured against it.
 Plan and phases: `doc/admin/notification-management-plan.md`.
+
+## Locations: allocated units only (STANDING)
+
+**Normal user = allocated units only. Super Admin = every unit. Master Data =
+shared** (client 2026-10-03). Three units: Head Office, Unit 1, Unit 2. Head
+Office is ONE unit, not a consolidation — anyone who needs more is allocated
+more. Work still happens in one unit at a time (the topbar switcher); the
+allocation is the set a person may switch between.
+
+- **One source.** Users & Access ▸ User Permissions ▸ **Units** (`user_access` +
+  `user_access_locations`) is the only thing that gives a normal user a unit.
+  A role's location no longer does (0680): `has_permission` never read it, so it
+  only ever competed with the allocation, and a role given "at any location"
+  silently opened every unit. The Users screen no longer asks for one.
+- **A detail table follows its document.** A table without `location_id` under
+  a unit-scoped parent ANDs `public.lv_<owner>(<fk>)` into every policy — the
+  owner being the document it belongs to, never a reference (staff, workers,
+  stores …) it merely names. 0680 generated the predicates and narrowed ~143
+  tables at once; a new child table must do the same or be marked
+  `location-scope: exempt -- <reason>`.
+- **A SECURITY DEFINER report reads past RLS**, so it must take its unit from
+  `current_location()` itself — never from a `p_location` the screen passes,
+  where NULL means "every unit". 0681 wrapped the 17 that existed; no unit →
+  no rows, never all rows.
+- **The privileged client has no current unit.** A `createAdminClient()` insert
+  into a table whose `location_id` defaults to `current_location()` is refused
+  (NOT NULL) — state the parent document's unit explicitly. Receivables from
+  shipments and payroll journals were silently failing exactly this way.
+
+Checked by `scripts/check-location-scope.sql` (CHECK 7: detail tables, CHECK 8:
+the one source); every check returns zero rows. Open follow-up: approval runs
+(`approval_runs` is subject-polymorphic and exempt for now).

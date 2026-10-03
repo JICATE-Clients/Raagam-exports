@@ -662,7 +662,9 @@ const UNITS_SAVE_DELAY_MS = 900;
 /**
  * ONE PERSON'S UNITS, EDITED IN THEIR ROW (0665; user 2026-10-01). Which units
  * they may switch to in the top bar — still ONE unit at a time (the client's
- * decision) — on top of whatever their roles' locations give.
+ * decision). Since 0680 this is the ONLY thing that grants a normal user a
+ * unit (client 2026-10-03): a role's location no longer opens one, and a super
+ * admin reaches every unit regardless. Nothing ticked = no unit = no data.
  *
  * "All units" is the first option rather than a separate switch, so the row
  * stays one control. Ticks save on their own a moment after the last one, so
