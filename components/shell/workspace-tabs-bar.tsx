@@ -54,7 +54,7 @@ import { isHubRoute } from "@/lib/nav/module-groups";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
-import { isPlainLeftClick, navLabel, visibleModules } from "@/components/navigation/navigation-config";
+import { isPlainLeftClick, navEntry, navLabel, visibleModules } from "@/components/navigation/navigation-config";
 import { cn } from "@/lib/utils";
 
 /** Last-resort title for a route NAV doesn't know about (a dynamic `[id]`
@@ -152,7 +152,14 @@ export function WorkspaceTabsBar() {
     skip: pathname === "/" || isHubRoute(pathname),
   });
 
-  const { tabs, activate, close, closeOthers, closeAll } = useWorkspaceTabs();
+  const { tabs, activate, close, closeOthers, closeAll, mergeSameScreen } = useWorkspaceTabs();
+
+  // One screen, one tab: a staff member's `/hr/staff` IS their own record
+  // (`navEntry`), so a tab left on the list and the record's own tab are
+  // folded together rather than both reading "My Profile".
+  useEffect(() => {
+    mergeSameScreen((href) => navEntry(user, { href, label: "" }).href);
+  }, [user, tabs, mergeSameScreen]);
 
   /* 0658: the shared filter — modules AND their screens (navigation-config). */
   const modules = visibleModules(user);

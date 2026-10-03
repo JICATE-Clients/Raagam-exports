@@ -4685,17 +4685,29 @@ export default function PersonClient({
           data-focus-region="header"
           className="flex w-full flex-wrap items-center gap-x-6 gap-y-2 max-md:gap-x-2 md:items-baseline"
         >
-          <div className="flex shrink-0 items-baseline gap-2">
+          {/* ← ON THE LEFT ON A PHONE, where every phone app puts Back — the
+              band is the top bar while editing there (globals.css "PHONE
+              EDITOR"). From `md` the labelled button on the right is the one. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={cancel}
+            aria-label="Back to list"
+            className="h-10 w-10 shrink-0 px-0 text-lg md:hidden"
+          >
+            ←
+          </Button>
+          <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-col max-md:items-start max-md:gap-0">
             <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {selfRow ? "Edit Profile" : editId ? `Edit ${copy.entity}` : `New ${copy.entity}`}
             </dt>
-            <dd className="m-0 text-sm font-semibold text-foreground">
+            <dd className="m-0 text-sm font-semibold text-foreground max-md:max-w-full max-md:truncate">
               {(editId && form.name) || "—"}
             </dd>
           </div>
           <div
             aria-hidden
-            className="h-px min-w-[2rem] flex-1 self-center bg-border"
+            className="h-px min-w-[2rem] flex-1 self-center bg-border max-md:min-w-0 max-md:bg-transparent"
           />
           <div className="flex shrink-0 items-center gap-3 max-md:gap-2">
             {dirty && (
@@ -4729,9 +4741,9 @@ export default function PersonClient({
               size="sm"
               onClick={cancel}
               aria-label="Back to list"
-              className="max-md:h-11 max-md:w-11 max-md:px-0"
+              className="max-md:hidden"
             >
-              ←<span className="max-md:hidden"> Back to list</span>
+              ← Back to list
             </Button>
           </div>
         </div>

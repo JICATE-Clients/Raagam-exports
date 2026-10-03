@@ -145,6 +145,12 @@ export function resolveCurrentLocation(
   const house = allowed.find((l) => l.isDefault) ?? null;
   if (house) return { location: house, source: "fallback" };
 
+  // ONE ALLOCATED UNIT IS NOT A GUESS (0681). A Unit-1-only operator whose
+  // home unit was left at Head Office used to land on nothing and have to pick
+  // the only unit they can open. Several units and no stored choice still land
+  // on nothing — that one IS a guess. Mirrors `current_location()` step 4.
+  if (allowed.length === 1) return { location: allowed[0], source: "fallback" };
+
   return { location: null, source: "none" };
 }
 

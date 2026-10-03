@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { getCurrentLocation } from "@/lib/auth/location";
 import { withCreators } from "@/lib/created-by";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import {
@@ -488,10 +489,13 @@ export async function listCadStyles(orderIds?: readonly string[]): Promise<CadSt
  * The key stays `employees` so its three callers are unchanged.
  */
 export async function getCadLifecycleFormData(): Promise<{ employees: PatternMakerRow[] }> {
-  const { data, error } = await createAdminClient()
-    .from("staff")
-    .select("id, code, name, is_active, blocked, designation:designations!designation_id(name)")
-    .order("name");
+  const [{ data, error }, { location }] = await Promise.all([
+    createAdminClient()
+      .from("staff")
+      .select("id, code, name, is_active, blocked, location_id, designation:designations!designation_id(name)")
+      .order("name"),
+    getCurrentLocation(),
+  ]);
   if (error) throw new Error(`CAD lifecycle: reading staff failed — ${error.message}`);
   const employees = ((data ?? []) as unknown as {
     id: string;
@@ -499,12 +503,14 @@ export async function getCadLifecycleFormData(): Promise<{ employees: PatternMak
     name: string;
     is_active: boolean | null;
     blocked: boolean | null;
+    location_id: string | null;
     designation: One<{ name: string }>;
   }[]).map((e) => ({
     id: e.id,
     code: e.code,
     name: e.name,
-    inactive: e.is_active === false || !!e.blocked,
+    // Another unit's staff: named, never offered (0680 — see listOrderPeople).
+    inactive: e.is_active === false || !!e.blocked || e.location_id !== (location?.id ?? null),
     designation: one(e.designation)?.name ?? null,
   }));
   return { employees };

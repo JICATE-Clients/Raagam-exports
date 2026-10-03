@@ -176,7 +176,7 @@ export function Topbar({
     // the sidebar; search, appearance and the bell to the end of
     // `WorkspaceTabsBar`, which is now the work panel's first row. The
     // Location row above the tabs was the "orphaned" strip the user reported.
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:hidden">
+    <header data-topbar="" className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:hidden">
       {/* `BAR_CONTROL` (top of file) is the ONE size every control in this bar
           takes — Location, the role preview, Search. See its own note. */}
       {/* Location switcher (two GST entities) */}

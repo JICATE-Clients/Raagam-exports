@@ -1325,6 +1325,11 @@ export function MasterFullScreen({
   return (
     <div
       ref={rootRef}
+      // Read by the app layout's `<main>` (CSS `:has`) to give back the bottom
+      // padding the phone tab bar reserved — the bar stands down while a page
+      // editor is open (`useEditorOpen` in mobile-nav.tsx). Same condition as
+      // `useEditorPresence` above, so the two cannot disagree.
+      data-editor-page={overlay ? undefined : ""}
       className={cn(
         "flex flex-col bg-background",
         overlay
@@ -1374,7 +1379,7 @@ export function MasterFullScreen({
              * back: it is that the card is not filling its scrollport, which
              * `flex-1 min-h-0` above is what guarantees.
              */
-            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border",
+            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border max-md:rounded-none max-md:border-0",
       )}
     >
       {/* topbar — OVERLAY ONLY, and only when NOTHING ELSE NAMES THE RECORD.
@@ -1612,7 +1617,7 @@ export function MasterFullScreen({
                   "md:static md:z-auto md:w-auto md:max-w-none md:translate-x-0 md:rounded-none md:bg-surface-muted md:shadow-none md:transition-none md:visible md:min-h-0 md:border-r md:border-border",
                   navOpen ? "translate-x-0" : "invisible -translate-x-full",
                 )
-              : "scrollbar-none flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:min-h-0 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r md:p-3",
+              : "scrollbar-none flex gap-1.5 overflow-x-auto border-b border-border bg-surface-muted p-2 max-md:items-center max-md:bg-surface max-md:px-3 max-md:py-1.5 md:min-h-0 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r md:p-3",
             /* `md:hidden`, NOT `hidden`: the horizontal chip strip below the
                breakpoint is the only section nav a phone has, and collapsing is
                a desktop answer to a desktop problem. */
@@ -1721,6 +1726,9 @@ export function MasterFullScreen({
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
                   "ty-sidebar flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13.5px] transition-colors md:w-full",
+                  // Phone chip strip: a pill, 32px tall (user 2026-10-03, more
+                  // room for the form). `drawer` rows keep their 44px below.
+                  !drawer && "max-md:rounded-full max-md:py-1.5",
                   // A menu row is a thumb target: full width, 44px tall.
                   drawer && "min-h-11 w-full md:min-h-0",
                   // `min-w-0` so the row — and its active fill — is bounded by
@@ -1787,6 +1795,10 @@ export function MasterFullScreen({
               </button>
             );
           })}
+          {/* No "n / total" counter here. One was tried on the phone strip
+              (2026-10-03) and taken out the same day: `sections` counts every
+              sub-pane, so Staff read "2 / 35" against the dozen chips the
+              operator can see, and it sat over the last visible chip. */}
         </nav>
 
         <div
@@ -1895,8 +1907,13 @@ export function MasterFullScreen({
                 {locked.action}
               </div>
             )}
+            {/* `hidden md:block`: below `md` the rail is the horizontal chip
+                strip, which shows the active section's name whole — so the
+                heading only repeated it right under the chip (user 2026-10-03,
+                Staff ▸ Address read "Address" then "ADDRESS"). The truncation
+                `paneHeading` answers is the desktop rail's alone. */}
             {paneHeading && active && (
-              <h2 className="ty-subsection mb-4 text-[13px] font-bold uppercase tracking-wide text-foreground">
+              <h2 className="ty-subsection mb-4 hidden text-[13px] font-bold uppercase tracking-wide text-foreground md:block">
                 {active.label}
               </h2>
             )}

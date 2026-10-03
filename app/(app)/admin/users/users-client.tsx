@@ -12,13 +12,11 @@ import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import { useRouter } from "next/navigation";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { ProfileRow, UserRoleEntry, RoleOption, LocationOption, UserRow } from "./page";
+import type { ProfileRow, UserRoleEntry, RoleOption, UserRow } from "./page";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { StatusToggle } from "@/components/ui/status-toggle";
-import { Toggle } from "@/components/ui/toggle";
-import { MultiSelect } from "@/components/ui/multi-select";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -75,16 +73,21 @@ function DeliveryNote({ result, onClose }: { result: Delivery; onClose: () => vo
 /* Role Management Panel                                               */
 /* ------------------------------------------------------------------ */
 
+/* A ROLE NO LONGER CARRIES A LOCATION (0680, client 2026-10-03: "Users &
+   Access ▸ Location Allocation is the single source of truth"). A role says
+   what a person may DO; which units they may OPEN is their Units allocation
+   on User Permissions. The role's location used to open units too — a role
+   given "at any location" silently opened every unit — so it is no longer
+   asked for, written, or shown. Old rows keep their stored location_id, which
+   nothing reads any more. */
 function RolePanel({
   userId,
   userRoles,
   roles,
-  locations,
 }: {
   userId: string;
   userRoles: UserRoleEntry[];
   roles: RoleOption[];
-  locations: LocationOption[];
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -92,49 +95,23 @@ function RolePanel({
   /* No pre-filled role (users 2026-09-30 redesign): the old default picked the
      first role in the list, so "Assign" on an untouched form granted it. */
   const [roleId, setRoleId] = useState("");
-  /* LOCATIONS, PLURAL (client 2026-09-30, budgetupdate.md §1). "All
-     locations" is the NULL grant; otherwise one grant per ticked unit. */
-  const [allLocations, setAllLocations] = useState(true);
-  const [locationIds, setLocationIds] = useState<string[]>([]);
   /** The held role whose bin is asking "remove it?" — an inline confirm. */
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const locationName = (id: string | null) =>
-    id ? (locations.find((l) => l.id === id)?.name ?? "Unknown location") : "Any location";
 
-  /* LOCATIONS FIRST, THEN ROLE: a role is offered unless this person already
-     holds it at EVERY chosen unit — the form never offers a grant that would
-     only duplicate what is there. The same role elsewhere stays offered:
-     Merchandiser at Head Office and at Unit 2 are two real grants.
-     `targets` are the location keys a submit writes ("" = all locations). */
-  const targets = allLocations ? [""] : locationIds;
-  const holds = (rid: string, loc: string) =>
-    userRoles.some((ur) => ur.role_id === rid && (ur.location_id ?? "") === loc);
-  const offered = roles.filter((r) => targets.length > 0 && !targets.every((loc) => holds(r.id, loc)));
+  const holds = (rid: string) => userRoles.some((ur) => ur.role_id === rid);
+  const offered = roles.filter((r) => !holds(r.id));
 
   function handleAssign(e: React.FormEvent) {
     e.preventDefault();
-    if (!roleId) return;
-    const todo = targets.filter((loc) => !holds(roleId, loc));
-    if (todo.length === 0) return;
+    if (!roleId || holds(roleId)) return;
     startTransition(async () => {
-      // One grant per unit, through the same action a single grant always used.
-      let done = 0;
-      let firstError: string | null = null;
-      for (const loc of todo) {
-        const result = await assignRole(userId, roleId, loc || null);
-        if (result.ok) done++;
-        else firstError ??= result.error;
-      }
-      const skipped = targets.length - todo.length;
-      if (done) {
-        success(
-          `Role assigned${targets.length > 1 || !allLocations ? ` at ${done} ${done === 1 ? "unit" : "units"}` : ""}` +
-            `${skipped ? ` (${skipped} already held)` : ""}${firstError ? ` — ${todo.length - done} failed: ${firstError}` : ""}.`,
-        );
+      const result = await assignRole(userId, roleId, null);
+      if (result.ok) {
+        success("Role assigned.");
         setRoleId("");
         router.refresh();
       } else {
-        toastError(firstError ?? "Nothing was assigned.");
+        toastError(result.error);
       }
     });
   }
@@ -168,14 +145,9 @@ function RolePanel({
                 /* INLINE CONFIRM — a removed grant takes screens away from
                    someone at once, so the bin asks before it acts. */
                 <div key={ur.id} className="space-y-2 rounded-md border border-danger/40 bg-danger/5 px-3 py-2">
-                  <div className="flex flex-col">
-                    <span className="text-sm font-semibold text-foreground">{ur.role_name}</span>
-                    <span className="text-xs text-muted-foreground">{locationName(ur.location_id)}</span>
-                  </div>
+                  <span className="text-sm font-semibold text-foreground">{ur.role_name}</span>
                   <div className="flex items-center gap-2">
-                    <span className="mr-auto text-sm text-danger">
-                      Remove this role{ur.location_id ? ` at ${locationName(ur.location_id)}` : ""}?
-                    </span>
+                    <span className="mr-auto text-sm text-danger">Remove this role?</span>
                     <Button type="button" variant="outline" size="sm" onClick={() => setRemovingId(null)}>
                       Keep
                     </Button>
@@ -195,13 +167,10 @@ function RolePanel({
                   key={ur.id}
                   className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5"
                 >
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-sm font-semibold text-foreground">{ur.role_name}</span>
-                    <span className="text-xs text-muted-foreground">{locationName(ur.location_id)}</span>
-                  </div>
+                  <span className="min-w-0 flex-1 text-sm font-semibold text-foreground">{ur.role_name}</span>
                   <RowIconAction
                     label="Remove role"
-                    name={`${ur.role_name} · ${locationName(ur.location_id)}`}
+                    name={ur.role_name}
                     icon={Trash2}
                     danger
                     onClick={() => setRemovingId(ur.id)}
@@ -213,36 +182,10 @@ function RolePanel({
         )}
       </div>
 
-      {/* Assign role form — stacked, not the old 2-column grid: a "sm" Sheet's
-          ~368px of content splits into two ~175px <Select>s that badly crowd a
-          location name, and the mockup this replaces (approved by the operator)
-          showed both fields stacked full-width instead. LOCATION comes first
-          (redesign 2026-09-30): it decides which roles are still offered. */}
       <form onSubmit={handleAssign} className="space-y-3 border-t border-border pt-3">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Assign another
         </p>
-        <div className="space-y-2">
-          <Toggle
-            label="All locations"
-            checked={allLocations}
-            onChange={(v) => {
-              setAllLocations(v);
-              setRoleId("");
-            }}
-          />
-          {!allLocations && (
-            <MultiSelect
-              label="Locations *"
-              options={locations.map((l) => ({ id: l.id, label: l.name }))}
-              values={locationIds}
-              onChange={(next) => {
-                setLocationIds(next);
-                setRoleId("");
-              }}
-            />
-          )}
-        </div>
         <div>
           <Label htmlFor="ar-role">Role *</Label>
           <Select
@@ -251,33 +194,23 @@ function RolePanel({
             onChange={(e) => setRoleId(e.target.value)}
             required
           >
-            <option value="">
-              {targets.length === 0 ? "Pick a location first" : offered.length ? "Pick a role" : "Holds every role here"}
-            </option>
+            <option value="">{offered.length ? "Pick a role" : "Holds every role"}</option>
             {offered.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
               </option>
             ))}
           </Select>
-          {roleId && targets.some((loc) => holds(roleId, loc)) && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Already held at{" "}
-              {targets
-                .filter((loc) => holds(roleId, loc))
-                .map((loc) => locationName(loc || null))
-                .join(", ")}{" "}
-              — those are skipped.
-            </p>
-          )}
         </div>
+        <p className="text-xs text-muted-foreground">
+          Which units this person can open is set under{" "}
+          <Link href="/admin/user-permissions" className="text-primary underline-offset-2 hover:underline">
+            Users &amp; Access ▸ User Permissions ▸ Units
+          </Link>
+          , not here.
+        </p>
         <div className="flex justify-end">
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            disabled={isPending || !roleId || targets.length === 0}
-          >
+          <Button type="submit" variant="primary" size="sm" disabled={isPending || !roleId}>
             {isPending ? "Assigning…" : "Assign Role"}
           </Button>
         </div>
@@ -294,13 +227,11 @@ export default function UsersClient({
   rows,
   userRoles,
   roles,
-  locations,
   meId,
 }: {
   rows: UserRow[];
   userRoles: UserRoleEntry[];
   roles: RoleOption[];
-  locations: LocationOption[];
   meId: string;
 }) {
   const router = useRouter();
@@ -316,10 +247,6 @@ export default function UsersClient({
   const sel = useRowSelection();
   const [bulkRoleOpen, setBulkRoleOpen] = useState(false);
   const [bulkRoleId, setBulkRoleId] = useState("");
-  /* Locations, plural (budgetupdate.md §1) — as in the Roles sheet. */
-  const [bulkAllLoc, setBulkAllLoc] = useState(true);
-  const [bulkLocIds, setBulkLocIds] = useState<string[]>([]);
-  const bulkTargets = bulkAllLoc ? [""] : bulkLocIds;
   const [managing, setManaging] = useState<ProfileRow | null>(null);
   const [origin, setOrigin] = useState<DOMRect | null>(null);
 
@@ -468,13 +395,10 @@ export default function UsersClient({
     if (!r.profile) return r.email ? null : "no email in HR";
     if (r.profile.is_super_admin) return "super admin";
     const mine = rolesByUser[r.profile.id] ?? [];
-    const has = bulkTargets.every((loc) =>
-      mine.some((ur) => ur.role_id === bulkRoleId && (ur.location_id ?? "") === loc),
-    );
-    return has ? "already has this role" : null;
+    return mine.some((ur) => ur.role_id === bulkRoleId) ? "already has this role" : null;
   };
   const bulkAssign = () => {
-    if (!bulkRoleId || bulkTargets.length === 0) return;
+    if (!bulkRoleId) return;
     let created = 0;
     const why = selectedRows.map(bulkAssignSkip).filter((w): w is string => !!w);
     if (why.length === selectedRows.length) {
@@ -497,15 +421,10 @@ export default function UsersClient({
           created++;
           if (!userId) return { ok: false, error: "The login was created but its id did not come back — reload and assign again." };
         }
-        // One grant per chosen unit, skipping the ones this person already holds.
-        const mine = rolesByUser[userId] ?? [];
-        let firstError: string | null = null;
-        for (const loc of bulkTargets) {
-          if (mine.some((ur) => ur.role_id === bulkRoleId && (ur.location_id ?? "") === loc)) continue;
-          const res = await assignRole(userId, bulkRoleId, loc || null);
-          if (!res.ok) firstError ??= res.error;
-        }
-        return firstError ? { ok: false, error: firstError } : { ok: true };
+        // No location: a role says what they may DO; units are their allocation (0680).
+        if ((rolesByUser[userId] ?? []).some((ur) => ur.role_id === bulkRoleId)) return { ok: true };
+        const res = await assignRole(userId, bulkRoleId, null);
+        return res.ok ? { ok: true } : { ok: false, error: res.error };
       },
       // A login made here has a password nobody was told — say so, or the admin
       // reads "assigned" as "they can sign in now".
@@ -523,8 +442,6 @@ export default function UsersClient({
   /* THE REDESIGN (user-approved canvas, 2026-09-30) — one fixed set of columns
      on Pending, Updated and All, so switching the box never re-lays the table;
      every cell one line of height except a role list, which stacks. */
-  const locationName = (id: string | null) =>
-    id ? (locations.find((l) => l.id === id)?.name ?? "Unknown location") : "Any location";
 
   /** Why the mail icon cannot run on this row, or null when it can. */
   function mailBlocked(r: UserRow): string | null {
@@ -580,8 +497,8 @@ export default function UsersClient({
         const assigned = r.profile ? (rolesByUser[r.profile.id] ?? []) : [];
         if (assigned.length === 0)
           return <span className="text-xs text-muted-foreground">{r.profile ? "No role yet" : "—"}</span>;
-        /* ROLE · LOCATION, one chip per line — the two "Merchandiser" pills
-           were Head Office and Unit 2 with the location hidden. */
+        /* One chip per role. No location: units are the person's allocation on
+           User Permissions, not a property of a role (0680). */
         return (
           <div className="flex flex-col items-start gap-1">
             {assigned.map((ur) => (
@@ -590,7 +507,6 @@ export default function UsersClient({
                 className="inline-flex h-6 items-center whitespace-nowrap rounded-full bg-info/10 px-2 text-xs font-medium text-info"
               >
                 {ur.role_name}
-                <span className="ml-1 font-normal opacity-75">· {locationName(ur.location_id)}</span>
               </span>
             ))}
           </div>
@@ -791,7 +707,6 @@ export default function UsersClient({
             userId={managing.id}
             userRoles={rolesByUser[managing.id] ?? []}
             roles={roles}
-            locations={locations}
           />
         )}
       </Sheet>
@@ -806,24 +721,13 @@ export default function UsersClient({
             <Button type="button" variant="ghost" size="sm" onClick={() => setBulkRoleOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" variant="primary" size="sm" disabled={busy || !bulkRoleId || bulkTargets.length === 0} onClick={bulkAssign}>
+            <Button type="button" variant="primary" size="sm" disabled={busy || !bulkRoleId} onClick={bulkAssign}>
               {busy ? "Assigning…" : "Assign role"}
             </Button>
           </>
         }
       >
         <div className="space-y-3">
-          <div className="space-y-2">
-            <Toggle label="All locations" checked={bulkAllLoc} onChange={setBulkAllLoc} />
-            {!bulkAllLoc && (
-              <MultiSelect
-                label="Locations *"
-                options={locations.map((l) => ({ id: l.id, label: l.name }))}
-                values={bulkLocIds}
-                onChange={setBulkLocIds}
-              />
-            )}
-          </div>
           <div>
             <Label htmlFor="bulk-role">Role *</Label>
             <Select id="bulk-role" value={bulkRoleId} onChange={(e) => setBulkRoleId(e.target.value)} required>

@@ -502,10 +502,13 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
         .select("id, store_type, location_id")
         .eq("is_active", true)
         .in("store_type", ["material", "rejection"]);
-      // UNIT ISOLATION: goods received into a unit land in THAT unit's store.
-      // A unit with no store of the type falls back to any (the previous
-      // behaviour), so a Unit 2 receipt is not silently dropped while Unit 2
-      // has no stores set up.
+      // UNIT ISOLATION: goods received into a unit land in THAT unit's store,
+      // and only there. There used to be a fallback to ANY unit's store when
+      // the GRN's unit had none of the type — so a Unit 1 receipt went into
+      // Head Office's stock, where Unit 1 cannot see it and Head Office never
+      // received it (client 2026-10-03: every unit's data is its own). A unit
+      // with no store of the type now books no stock-in for that type; set its
+      // stores up under Stores before receiving into it.
       const storeByType = new Map<string, string>();
       const rowsTyped = (storeRows ?? []) as {
         id: string;
@@ -513,10 +516,9 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
         location_id: string | null;
       }[];
       for (const st of rowsTyped) {
-        if (st.location_id === grn.location_id) storeByType.set(st.store_type, st.id);
-      }
-      for (const st of rowsTyped) {
-        if (!storeByType.has(st.store_type)) storeByType.set(st.store_type, st.id);
+        if (st.location_id === grn.location_id && !storeByType.has(st.store_type)) {
+          storeByType.set(st.store_type, st.id);
+        }
       }
       const movements = stockIns
         .map((m) => {

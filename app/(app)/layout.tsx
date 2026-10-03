@@ -116,8 +116,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   side, where as a block it had filled the pane edge to edge
                   (client 2026-09-17, screenshot 2909). `w-full` gives every
                   page root back the width a block had; `max-w-*` still caps
-                  it and `mx-auto` still centres what is left over. */}
-                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] *:w-full md:pb-6">
+                  it and `mx-auto` still centres what is left over.
+                  The 4.5rem bottom pad is room for the phone tab bar. A page
+                  editor (`data-editor-page`) hides that bar AND runs edge to
+                  edge on a phone, so the padding goes to 0 there and the
+                  editor supplies its own 16px gutter (globals.css, "PHONE
+                  EDITOR"). */}
+                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] *:w-full max-md:has-[[data-editor-page]]:p-0 md:pb-6">
                     {children}
                   </main>
                   </div>
