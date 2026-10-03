@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { BackLink } from "@/components/ui/back-link";
+import { cn } from "@/lib/utils";
 
 export function PageHeader({
   title,
@@ -93,7 +94,12 @@ export function PageHeader({
          than running underneath it. `mb-2` keeps a row's gap below the
          buttons when what follows is taller than the toolbar line.
          Phone: a full-width block again (`max-sm:`), as before. */
-      className="float-right mb-2 ml-3 flex flex-wrap items-start justify-end gap-3 max-sm:float-none max-sm:mb-3 max-sm:ml-0"
+      className={cn(
+        "float-right mb-2 ml-3 flex flex-wrap items-start justify-end gap-3 max-sm:float-none max-sm:mb-3 max-sm:ml-0 max-sm:w-full",
+        /* A header holding ONLY the derived Back link takes no row on a phone
+           — see the link's own note below. */
+        !actions && "max-sm:hidden",
+      )}
     >
       {/* The visible title block (24px extrabold `ty-page-title` + its
           description) lived here until 2026-10-01 — see the note above. */}
@@ -106,8 +112,19 @@ export function PageHeader({
           across two lines — "← Back to Order / Management" beside "Raise /
           Revision". A button that does not fit now moves to the next line whole. */}
       {(backLink || actions) && (
-        <div className="flex flex-wrap items-center gap-2 [&_a]:whitespace-nowrap [&_button]:whitespace-nowrap">
-          {backLink}
+        /* PHONE: THE ACTIONS SHARE THE ROW EQUALLY (user 2026-10-03, "button
+           alignment is the main issue for the mobile view"). Right-aligned,
+           each list's buttons sat at their own natural widths against the edge
+           — "+ New Budget" a short pill, "Upload Buyer PO | New Garment Order"
+           two different widths — so no two screens lined up. Now one action
+           fills the line and two split it, the native pattern; an action
+           wrapped in its own div gets the same one level in. */
+        <div className="flex flex-wrap items-center gap-2 [&_a]:whitespace-nowrap [&_button]:whitespace-nowrap max-sm:w-full max-sm:[&>*]:flex-1 max-sm:[&>div>a]:flex-1 max-sm:[&>div>button]:flex-1 max-sm:[&>div]:flex max-sm:[&>div]:gap-2">
+          {/* NOT ON A PHONE (user 2026-10-03, phone audit). "← Back to Order
+              Management" was a full row above every list, and a phone already
+              has three ways up: the bottom bar's Menu, the tab strip, and the
+              system Back gesture. From `sm` up it leads the row as before. */}
+          {backLink && <span className="max-sm:hidden">{backLink}</span>}
           {actions}
         </div>
       )}

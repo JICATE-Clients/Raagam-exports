@@ -2073,6 +2073,9 @@ export function MasterFullScreen({
         <div
           className={cn(
             "mx-auto flex w-full items-center gap-2",
+            // A label never breaks inside its button: on a phone "Save as
+            // Draft" and "Save fabric BOM" each wrapped to two lines.
+            "[&_button]:whitespace-nowrap",
             active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
           )}
         >
@@ -2082,7 +2085,7 @@ export function MasterFullScreen({
               on a SOLID `bg-primary` bar would this go illegible (tried and
               reverted, see the note on the bar above). */}
           {footer.status && (
-            <span className="text-xs text-muted-foreground">{footer.status}</span>
+            <span className="min-w-0 text-xs leading-tight text-muted-foreground">{footer.status}</span>
           )}
           <div className="flex-1" />
           {/* A VIEWER'S FOOTER IS ONE BUTTON — see `viewOnly`. Filled, not
@@ -2108,7 +2111,12 @@ export function MasterFullScreen({
               Skip
             </Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={footer.onCancel}>
+            /* NOT ON A PHONE (2026-10-03, phone audit). Every surface already
+               has its way out at the top — the overlay's ✕, a page editor's ←
+               — plus Escape and the system Back, and on a 390px footer Cancel
+               was the button that pushed Save onto two lines. Same handler as
+               the ✕, so nothing is lost. */
+            <Button variant="outline" size="sm" onClick={footer.onCancel} className="max-sm:hidden">
               Cancel
             </Button>
           )}

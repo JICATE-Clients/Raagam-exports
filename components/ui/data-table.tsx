@@ -2,6 +2,13 @@ import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { DataTableFrame } from "@/components/ui/data-table-frame";
 
+/** Columns a phone card moves to its foot line — `createdColumns`' two headers
+ *  (components/ui/created-columns.tsx), spelled there and nowhere else. */
+const CARD_FOOT_HEADERS = new Set(["Created Date", "Created User"]);
+/** Picture columns a phone card floats top-right, unlabelled, so the record's
+ *  first lines sit beside it (Order Entry's style thumbnail, 2026-10-03). */
+const CARD_MEDIA_HEADERS = new Set(["Thumbnail", "Photo", "Image", "Sketch"]);
+
 export interface Column<T> {
   header: string;
   align?: "left" | "right" | "center";
@@ -332,6 +339,10 @@ export function DataTable<T>({
     <div className="px-3 py-8 text-center text-sm text-muted-foreground">{empty}</div>
   );
 
+  const footCols = columns.filter((c) => c.header && CARD_FOOT_HEADERS.has(c.header));
+  const actionCols = columns.filter((c) => !c.header);
+  const mediaCols = columns.filter((c) => c.header && CARD_MEDIA_HEADERS.has(c.header));
+
   const cards = rows.map((row, ri) => {
     const key = getKey(row, ri);
     const href = onRowHref?.(row);
@@ -355,7 +366,8 @@ export function DataTable<T>({
         key={key}
         data-href={href}
         className={cn(
-          "space-y-1.5 px-3 py-3",
+          // `flow-root` holds a floated thumbnail inside its own card.
+          "flow-root space-y-1.5 px-3 py-3",
           "[&:not(:first-child)]:border-t-2 [&:not(:first-child)]:border-border-strong",
           selected.has(key) && "bg-primary/5",
           rowClassName?.(row, ri),
@@ -373,8 +385,13 @@ export function DataTable<T>({
             Select
           </label>
         )}
+        {mediaCols.map((c, i) => (
+          <div key={`m${i}`} className="float-right mb-1 ml-3">
+            {c.cell(row)}
+          </div>
+        ))}
         {columns.map((c, ci) =>
-          c.header ? (
+          c.header && !CARD_FOOT_HEADERS.has(c.header) && !CARD_MEDIA_HEADERS.has(c.header) ? (
             <div
               key={ci}
               className="flex items-baseline justify-between gap-3"
@@ -386,11 +403,31 @@ export function DataTable<T>({
                 {c.cell(row)}
               </span>
             </div>
-          ) : (
-            <div key={ci} className="flex justify-end pt-0.5">
-              {c.cell(row)}
-            </div>
-          ),
+          ) : null,
+        )}
+        {/* THE FOOT: who made it and when, then the row's actions, on ONE line
+            (user 2026-10-03, phone audit — Order Entry's card spent three lines
+            on "Created Date", "Created User" and a lone row of icons). The
+            created pair is the muted one-liner AGENTS.md "Created Date /
+            Created User" already names for a mobile card; its cells are the
+            same `createdColumns` cells the desktop table draws, so the uuid
+            guard still applies. */}
+        {(footCols.length > 0 || actionCols.length > 0) && (
+          <div className="clear-both flex items-center justify-between gap-3 pt-1">
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground">
+              {footCols.map((c, i) => (
+                <span key={i} className="inline-flex items-baseline gap-1.5">
+                  {i > 0 && <span aria-hidden>·</span>}
+                  {c.cell(row)}
+                </span>
+              ))}
+            </span>
+            {actionCols.map((c, i) => (
+              <div key={i} className="flex shrink-0 justify-end">
+                {c.cell(row)}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     );

@@ -163,20 +163,22 @@ export function OrdersView({
             <b className="font-semibold tabular-nums text-foreground">{fmtNumber(counts[s.key])}</b>
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-2">
-          <Select value={f.group} onChange={(e) => set({ group: e.target.value as ListFilters["group"] })} aria-label="Group by" className="w-44">
+        {/* Phone: its own full line, the two selects sharing it (2026-10-03 —
+            "Most urgent first" ran off the right edge with Download beyond). */}
+        <div className="ml-auto flex items-center gap-2 max-sm:ml-0 max-sm:w-full">
+          <Select value={f.group} onChange={(e) => set({ group: e.target.value as ListFilters["group"] })} aria-label="Group by" className="w-44 max-sm:w-auto max-sm:min-w-0 max-sm:flex-1">
             <option value="">No grouping</option>
             <option value="customer">Group by customer</option>
             <option value="merchandiser">Group by merchandiser</option>
             <option value="month">Group by delivery month</option>
           </Select>
-          <Select value={f.sort} onChange={(e) => set({ sort: e.target.value as ListFilters["sort"] })} aria-label="Sort" className="w-44">
+          <Select value={f.sort} onChange={(e) => set({ sort: e.target.value as ListFilters["sort"] })} aria-label="Sort" className="w-44 max-sm:w-auto max-sm:min-w-0 max-sm:flex-1">
             <option value="urgent">Most urgent first</option>
             <option value="due">Delivery date</option>
             <option value="re">RE No</option>
           </Select>
-          <Button type="button" variant="outline" onClick={download} disabled={!list.length}>
-            <Download className="size-4" /> Download
+          <Button type="button" variant="outline" onClick={download} disabled={!list.length} aria-label="Download" className="max-sm:px-2.5">
+            <Download className="size-4" /> <span className="max-sm:sr-only">Download</span>
           </Button>
         </div>
       </div>

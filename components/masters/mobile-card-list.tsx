@@ -352,6 +352,15 @@ export function MobileCardList<Row>({
     </>
   );
 
+  /** Does this row have a button to put in the footer? `actions(r)` is always a
+   *  fragment — truthy even when every button inside it is gated off — so the
+   *  queue card drew an empty bordered strip under a pending order with
+   *  nothing to delete and no reports (2026-10-03, phone audit). */
+  const rowHasAction = (r: Row) =>
+    !!onView ||
+    (!!onReports && (canReportsRow?.(r) ?? true)) ||
+    (showDelete && (canDeleteRow?.(r) ?? true));
+
   const list = (
     <div className={grid ? cn("grid gap-3", TRACK[columns]) : "space-y-2.5"}>
       {rows.map((r) => {
@@ -369,7 +378,7 @@ export function MobileCardList<Row>({
               pill={pill?.(r)}
               stats={stats?.(r)}
               note={footerNote?.(r)}
-              actions={showFooter ? actions(r) : null}
+              actions={showFooter && rowHasAction(r) ? actions(r) : null}
               onEdit={onEdit ? () => onEdit(r) : undefined}
             />
           );
@@ -561,7 +570,7 @@ export function MobileCardList<Row>({
               </div>
             )}
           </button>
-          {showFooter && (
+          {showFooter && (rowHint || footerNote?.(r) || rowHasAction(r)) && (
             <div
               className={cn(
                 "flex items-center gap-2 px-3 py-1.5",

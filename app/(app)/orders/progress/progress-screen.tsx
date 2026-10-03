@@ -151,9 +151,9 @@ export function ProgressScreen({ rows, today, openId }: { rows: ProgressRow[]; t
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search RE No"
           aria-label="Search RE No"
-          className="w-52"
+          className="w-52 max-sm:w-full"
         />
-        <Select value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="Customer" className="w-52">
+        <Select value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="Customer" className="w-52 max-sm:w-full">
           <option value="">All customers</option>
           {customers.map((c) => (
             <option key={c} value={c}>
@@ -161,7 +161,7 @@ export function ProgressScreen({ rows, today, openId }: { rows: ProgressRow[]; t
             </option>
           ))}
         </Select>
-        <Select value={merch} onChange={(e) => setMerch(e.target.value)} aria-label="Merchandiser" className="w-52">
+        <Select value={merch} onChange={(e) => setMerch(e.target.value)} aria-label="Merchandiser" className="w-52 max-sm:w-full">
           <option value="">All merchandisers</option>
           {merchants.map((m) => (
             <option key={m} value={m}>

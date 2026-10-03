@@ -20,7 +20,7 @@ import {
 import { type NavItem, type SubNavItem } from "./nav";
 import { searchNav, type NavSearchRow } from "./nav-search";
 import { type StoreNavLink } from "./sidebar";
-import { owningNavHref } from "@/lib/nav/module-groups";
+import { isHubRoute, owningNavHref } from "@/lib/nav/module-groups";
 import { useOverlayFocus } from "@/lib/use-overlay-focus";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import { confirmDiscard, useModalGuard } from "@/lib/reload-guard";
@@ -109,6 +109,21 @@ const COMPACT_MAX = 4;
 
 type ScreenTab = { href: string; label: string; icon: LucideIcon };
 
+/**
+ * The screens a module holds for this login. Its ROOT counts as one unless it
+ * is a hub (a card index the registry declares): `/approvals` is the approval
+ * queue itself with Flows beneath it, so it is two screens, not "Approval
+ * Flows" — which is what the bar briefly read when only children counted.
+ */
+function screensOf(
+  m: NavItem,
+  childrenFor: (href: string, children?: SubNavItem[]) => SubNavItem[],
+): { href: string; label: string }[] {
+  const leaves = childrenFor(m.href, m.children).flatMap((c) => (c.children?.length ? c.children : [c]));
+  const rootIsScreen = leaves.length === 0 || !isHubRoute(m.href);
+  return rootIsScreen ? [{ href: m.href, label: m.label }, ...leaves] : leaves;
+}
+
 /** Every screen this login can open (not a module row, not a group), or null
  *  once there are more than `COMPACT_MAX` — the standard bar then applies. */
 function compactScreens(
@@ -119,12 +134,7 @@ function compactScreens(
   const seen = new Set<string>();
   for (const m of modules) {
     if (m.href === "/") continue;
-    const kids = childrenFor(m.href, m.children);
-    const leaves =
-      kids.length === 0
-        ? [{ href: m.href, label: m.label }]
-        : kids.flatMap((c) => (c.children?.length ? c.children : [c]));
-    for (const l of leaves) {
+    for (const l of screensOf(m, childrenFor)) {
       if (seen.has(l.href)) continue;
       seen.add(l.href);
       out.push({ href: l.href, label: l.label, icon: m.icon });
@@ -369,7 +379,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
     .slice(0, MODULE_SLOTS)
     .map((m) => {
       // One screen in the module → the tab IS that screen.
-      const leaves = childrenFor(m.href, m.children).flatMap((c) => (c.children?.length ? c.children : [c]));
+      const leaves = screensOf(m, childrenFor);
       const only = leaves.length === 1 ? leaves[0] : undefined;
       return { mod: m, href: only?.href ?? m.href, label: only?.label ?? TAB_LABEL[m.href] ?? m.label };
     });

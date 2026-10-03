@@ -110,8 +110,8 @@ export function BvaScreen({ rows }: { rows: ProfitOrderRow[] }) {
 
       <div className="flex flex-wrap items-center gap-2">
         {/* caps-input: exempt -- a search box filters, it never stores a value */}
-        <Input type="search" uppercase={false} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search RE No" aria-label="Search RE No" className="w-52" />
-        <Select value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="Customer" className="w-52">
+        <Input type="search" uppercase={false} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search RE No" aria-label="Search RE No" className="w-52 max-sm:w-full" />
+        <Select value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="Customer" className="w-52 max-sm:w-full">
           <option value="">All customers</option>
           {customers.map((c) => (
             <option key={c} value={c}>
@@ -119,7 +119,7 @@ export function BvaScreen({ rows }: { rows: ProfitOrderRow[] }) {
             </option>
           ))}
         </Select>
-        <Select value={merch} onChange={(e) => setMerch(e.target.value)} aria-label="Merchandiser" className="w-52">
+        <Select value={merch} onChange={(e) => setMerch(e.target.value)} aria-label="Merchandiser" className="w-52 max-sm:w-full">
           <option value="">All merchandisers</option>
           {merchants.map((m) => (
             <option key={m} value={m}>
@@ -732,7 +732,9 @@ function OrdersList({ items, stage, setStage, open }: { items: BvaItem[]; stage:
 
   return (
     <div className="space-y-3">
-      <div role="group" aria-label="Stage" className="inline-flex rounded-lg border border-border bg-surface-muted p-0.5">
+      {/* Scrolls rather than clips on a phone (2026-10-03): five stages do not
+          fit 390px and "Cancelled" was cut off at the edge. */}
+      <div role="group" aria-label="Stage" className="scrollbar-none inline-flex max-w-full overflow-x-auto rounded-lg border border-border bg-surface-muted p-0.5 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
         {STAGES.map((s) => (
           <button
             key={s}
