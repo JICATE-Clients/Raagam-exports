@@ -35,17 +35,17 @@
  * tab that ends up open is whichever real screen the operator lands on.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createElement, useEffect } from "react";
 import { useAppUser } from "@/lib/auth/permission-context";
+import { Truncated } from "@/components/ui/truncated";
 import { hasPermission } from "@/lib/auth/types";
 import { usePathname } from "next/navigation";
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   LayoutDashboard,
-  MoreHorizontal,
   Search,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useWorkspaceTabs } from "@/lib/workspace-tabs";
@@ -102,36 +102,40 @@ function iconForPath(pathname: string, modules: { href: string; icon: LucideIcon
 }
 
 /**
- * NOTEPAD-STYLE TABS (operator, 2026-09-17, a Windows Notepad screenshot:
- * "intha mari nav bar la venum but antha . mattum vendam").
+ * ONE SCREEN SWITCHER, NOT A ROW OF TABS (user 2026-10-03: option "L" of the
+ * twelve tab-strip designs on the Workspace Tabs Redesign canvas, chosen after
+ * seeing each one at 390px).
  *
- * A tab is a piece of the page showing through the bar, not a pill floating
- * on it: every tab sits on the bar's bottom edge (`self-end`), rounded on
- * top only, and the ACTIVE one takes the page's own surface so it reads as
- * joined to the screen beneath. Inactive tabs are flat text on the bar,
- * separated by a short hairline, hidden beside the active tab, where the
- * tab's own edge already separates them, exactly as Notepad draws it.
+ * The strip used to draw every open screen as a tab (Notepad-style, operator
+ * 2026-09-17). On a phone that left room for two and a half tabs, scrolled
+ * sideways; on a desktop the open tab was told apart from the rest only by a
+ * 2px underline. L names the CURRENT screen once and puts the others one
+ * click away:
  *
- * "ANTHA . MATTUM VENDAM": the unsaved dot is gone. Notepad marks a dirty
- * tab with it; this bar did the same off `tab.dirty`. The store still tracks
- * the flag (the reload guard reads dirtiness on its own, not from here), so
- * nothing but the mark is removed.
+ *   [Home] [‹] [›] [▣ Order Entry · 3 open ▾]  Recent: Fabric BOM · Material BOM
+ *
+ * - THE SWITCHER is `DropdownMenu`, so its keyboard (↑↓ Enter Esc) and its
+ *   portal are the primitive's. Its list is every open screen, the current one
+ *   ticked (`checked`), then the Close current / others / all actions the old
+ *   ⋯ menu carried. Closing lives here now: there is no per-tab ✕ any more.
+ * - ‹ › STEP THROUGH THE OPEN SCREENS in the store's own order, Home first, and
+ *   stop at either end rather than wrap — a wrap reads as a jump to a screen the
+ *   operator did not ask for.
+ * - "RECENT" is the two most recently OPENED other screens. The store appends,
+ *   so the tail of `tabs` is the newest. Desktop only (`lg`); on a phone the
+ *   switcher's list is the same thing one tap away.
+ * - ON A PHONE (below `md`) Home leaves the strip — the bottom bar's Home is the
+ *   same link — and the switcher takes the width between ‹ and ›, so the strip
+ *   is three thumb-sized controls whatever the tab count.
+ *
+ * The unsaved dot stays gone ("antha . mattum vendam", 2026-09-17); the store
+ * still tracks `dirty` for the reload guard.
+ *
+ * Every behaviour is still `lib/workspace-tabs.ts` (open, dedupe, switch,
+ * close, close others/all); only how it is drawn changed.
  */
-/* THE STRIP IS THE WORK PANEL'S FIRST ROW (frame option A, 2026-10-01), not a
-   coloured band across the screen. It was solid `bg-primary` (client
-   2026-09-08) with white tab text; inside the white panel the colour moves to
-   the ONE place it means something — the open tab's blue text and underline. */
-const TAB =
-  "ty-tab group relative flex h-full flex-none items-center gap-2 whitespace-nowrap text-[13px] transition-colors duration-150";
-const TAB_ACTIVE = "font-bold text-primary shadow-[inset_0_-2px_0_var(--primary)]";
-const TAB_IDLE = "font-medium text-muted-foreground hover:bg-surface-muted hover:text-foreground";
-/** The hairline on a tab's right edge. */
-const TAB_DIVIDER =
-  "after:absolute after:right-0 after:top-1/2 after:h-4 after:w-px after:-translate-y-1/2 after:bg-border";
-/** How far one scroll-arrow press moves the strip, roughly one tab. */
-const SCROLL_STEP = 180;
-const ARROW =
-  "flex h-7 w-6 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent";
+const NAV_BTN =
+  "flex h-10 w-10 flex-none items-center justify-center rounded-lg border border-border bg-surface text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-surface md:h-8 md:w-8";
 
 export function WorkspaceTabsBar() {
   const pathname = usePathname();
@@ -165,84 +169,46 @@ export function WorkspaceTabsBar() {
   const modules = visibleModules(user);
   const showHome = hasPermission(user, "dashboard", "view");
   const isHomeActive = pathname === "/";
-  /**
-   * THE MODULE'S OWN HOME CHIP IS HIDDEN (operator, 2026-09-15). It opened the
-   * module's own root/hub page (client 2026-09-10's reasoning below is kept
-   * for history), and that page's card grid was hidden the same day
-   * (`group-hub.tsx`) because it repeated the sidebar's own sub-module
-   * listing back at the operator. With the hub page's cards gone there is
-   * nothing left for this chip to usefully open, so it is removed alongside
-   * the sidebar's own "Home" row (`ContextSidebar.tsx`) rather than left
-   * pointing at an empty page.
-   *
-   * ORIGINAL REASONING, client 2026-09-10: "here the home is routing for main
-   * home but there is home in hr module also right, so in the multi bar this
-   * hr home also should be shown" — standing on /hr/staff, "Home" goes to the
-   * dashboard, and nothing in this bar went one level up to HR's own card
-   * index; the sidebar's module row did it, but the bar is what the operator
-   * sees while a page-mounted editor covers the sidebar. Restoring this is
-   * "un-comment", not "re-derive" — `activeModule` / `isModuleHomeActive` are
-   * untouched below.
-   *
-  const activeModule = modules.find(
-    (m) => m.href !== "/" && isUnderModule(pathname, m.href),
-  );
-  const isModuleHomeActive = !!activeModule && pathname === activeModule.href;
-   */
   // Home is drawn once, fixed, ahead of the list — see the file header.
   const openTabs = tabs.filter((t) => t.href !== "/");
-  // The store's own `activeId` can lag one route behind while the operator
-  // is standing on a hub page (nothing registers a tab for it, on purpose —
-  // see above), so which tab reads as "current" is resolved from the route
-  // actually on screen, not from that pointer.
+  // Resolved from the route on screen, not the store's `activeId`, which can
+  // lag one route behind on a hub page (nothing registers a tab there).
   const currentTab = openTabs.find((t) => t.href === pathname);
+  const label = (t: { href: string; title: string }) => navLabel(user, t.href, t.title);
+  const goHome = () => openTab({ href: "/", title: "Home" });
 
-  /**
-   * ARROWS INSTEAD OF A SCROLLBAR, Notepad's answer to more tabs than fit.
-   * Each arrow is live only while there is somewhere to go in its direction,
-   * measured off the strip on scroll and on resize.
-   */
-  const stripRef = useRef<HTMLDivElement | null>(null);
-  const [canLeft, setCanLeft] = useState(false);
-  const [canRight, setCanRight] = useState(false);
-  const overflowing = canLeft || canRight;
-  const measure = useCallback(() => {
-    const el = stripRef.current;
-    if (!el) return;
-    setCanLeft(el.scrollLeft > 1);
-    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
-  }, []);
-  useEffect(() => {
-    const el = stripRef.current;
-    if (!el) return;
-    measure();
-    el.addEventListener("scroll", measure, { passive: true });
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", measure);
-      ro.disconnect();
-    };
-  }, [measure]);
-  // A new or closed tab changes the strip's content without resizing the
-  // strip itself; and the tab on screen is scrolled into view, so navigating
-  // to one that sits past the edge never leaves it hidden.
-  useEffect(() => {
-    measure();
-    stripRef.current
-      ?.querySelector<HTMLElement>('[data-tab-active="true"]')
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [measure, openTabs.length, pathname]);
-  const scrollStrip = (dx: number) =>
-    stripRef.current?.scrollBy({ left: dx, behavior: "smooth" });
-  const activeIndex = openTabs.findIndex((t) => t.href === pathname);
+  /* THE SEQUENCE ‹ › WALK: Home (when the operator may see it), then the open
+     screens. `pos` is -1 on a route that is in neither (a hub page), so ›
+     goes to the first and ‹ has nowhere to go. */
+  const seq: { key: string; go: () => void }[] = [
+    ...(showHome ? [{ key: "/", go: goHome }] : []),
+    ...openTabs.map((t) => ({ key: t.href, go: () => activate(t.id) })),
+  ];
+  const pos = seq.findIndex((s) => s.key === pathname);
 
-  const overflowItems: DropdownItem[] = [
+  const CurrentIcon = isHomeActive ? LayoutDashboard : iconForPath(pathname, modules);
+  const currentLabel = isHomeActive
+    ? "Home"
+    : currentTab
+      ? label(currentTab)
+      : navLabel(user, pathname, titleForPath(pathname));
+
+  const recent = openTabs
+    .filter((t) => t.href !== pathname)
+    .slice(-2)
+    .reverse();
+
+  const homeItem: DropdownItem[] = showHome
+    ? [{ label: "Home", icon: LayoutDashboard, onClick: goHome, checked: isHomeActive, section: "Open screens" }]
+    : [];
+  const switcherItems: DropdownItem[] = [
+    ...homeItem,
     ...openTabs.map(
       (t): DropdownItem => ({
-        label: t.title,
+        label: label(t),
         icon: iconForPath(t.href, modules),
         onClick: () => activate(t.id),
+        checked: t.href === pathname,
         section: "Open screens",
       }),
     ),
@@ -268,163 +234,93 @@ export function WorkspaceTabsBar() {
   ];
 
   return (
-    // Went `bg-primary-soft` (4% tint, dull) → `bg-primary/10` (tint,
-    // shipped) → tried `bg-brand-green/10` (reverted, "not good fit") →
-    // SOLID `bg-primary` (client 2026-09-08, screenshot 2807: liked the
-    // dashboard "New order" button's colour, asked for the whole bar to
-    // match it, not just a tint). Solid needs its text inverted to white —
-    // same trade `raagam-brand-colours` records for the footer band trying
-    // this once before, except THERE it was rejected and HERE it's what was
-    // asked for. `border-b border-border` dropped: a neutral grey edge
-    // doesn't read against a saturated fill, same as the original gradient
-    // bar never carried one either.
-    // `ty-chrome` and `bg-primary` both GONE (2026-10-01): the strip is now the
-    // white work panel's first row, ruled off from the page beneath it, and a
-    // gradient colour option no longer paints it — see the TAB constants.
-    // `h-11` since the sidebar dock (2026-10-01): this strip is now the panel's
-    // FIRST row on a desktop, carrying search / appearance / bell at its end,
-    // whose h-8 controls need the extra 4px of air a bare tab row did not.
-    <div data-tab-strip="" className="flex h-10 flex-none items-center gap-1 border-b border-border px-2 md:h-11">
+    <div
+      data-tab-strip=""
+      className="flex h-14 flex-none items-center gap-1.5 border-b border-border px-2 md:h-11 md:gap-1"
+    >
       {showHome && (
         <button
           type="button"
-          onClick={(e) => {
-            if (!isPlainLeftClick(e)) return;
-            openTab({ href: "/", title: "Home" });
-          }}
-          className={cn(TAB, "gap-1.5 px-3", isHomeActive ? TAB_ACTIVE : TAB_IDLE)}
-        >
-          <LayoutDashboard className={cn("h-3.5 w-3.5 flex-none", isHomeActive && "text-primary")} />
-          Home
-        </button>
-      )}
-
-      {/* HIDDEN (operator, 2026-09-15) — see the comment above `activeModule`.
-      {activeModule && (
-        <button
-          type="button"
-          onClick={(e) => {
-            if (!isPlainLeftClick(e)) return;
-            // The same call the sidebar's module row makes. `openTab` sees a hub
-            // href and only NAVIGATES — see its own note — so this cannot leave
-            // a stray "HR & Payroll" tab behind.
-            openTab({ href: activeModule.href, title: activeModule.label });
-          }}
-          className={cn(
-            "ty-tab flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
-            isModuleHomeActive
-              ? "bg-surface font-bold text-foreground shadow-sm"
-              : "font-medium text-white/90 hover:bg-white/10",
-          )}
-        >
-          // The module's OWN nav icon, so the chip and the sidebar row the
-          // operator would otherwise click carry the same mark.
-          <activeModule.icon
-            className={cn("h-3.5 w-3.5 flex-none", isModuleHomeActive && "text-primary")}
-          />
-          {activeModule.label}
-        </button>
-      )}
-      */}
-
-      {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-border" />}
-
-      {/* Scroll left. Chrome, not a field: off the Tab path like every
-          control here. The pair renders only while the strip OVERFLOWS — two
-          disabled arrows around a single tab read as an unfinished bar
-          (user 2026-10-01). Stable: showing them only narrows a strip that
-          already overflows, hiding them only widens one that already fits. */}
-      {overflowing && (
-        <button
-          type="button"
           tabIndex={-1}
-          aria-label="Scroll tabs left"
-          disabled={!canLeft}
-          onClick={() => scrollStrip(-SCROLL_STEP)}
-          className={ARROW}
+          aria-label="Home"
+          aria-current={isHomeActive ? "page" : undefined}
+          onClick={(e) => {
+            if (!isPlainLeftClick(e)) return;
+            goHome();
+          }}
+          className={cn(NAV_BTN, "max-md:hidden", isHomeActive && "border-primary text-primary")}
         >
-          <ChevronLeft className="h-4 w-4" />
+          <LayoutDashboard className="h-4 w-4" />
         </button>
       )}
 
-      {/* THE STRIP. `h-full` so each tab can sit on the bar's bottom edge;
-          no scrollbar, because the arrows either side are the way along it. */}
-      <div
-        ref={stripRef}
-        className="scrollbar-none flex h-full min-w-0 flex-1 items-end overflow-x-auto"
+      {/* Chrome, not fields: off the Tab path like every control here. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Previous screen"
+        disabled={pos <= 0}
+        onClick={() => seq[pos - 1]?.go()}
+        className={NAV_BTN}
       >
-        {openTabs.map((tab, i) => {
-          const active = i === activeIndex;
-          const Icon = iconForPath(tab.href, modules);
-          /* No hairline on the active tab, nor on the one just before it:
-             the active tab's own edge is the separator there. */
-          const divider = !active && i + 1 !== activeIndex && i < openTabs.length - 1;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-tab-active={active}
-              onClick={() => activate(tab.id)}
-              className={cn(
-                TAB,
-                "min-w-[130px] pl-3 pr-1.5",
-                active ? TAB_ACTIVE : TAB_IDLE,
-                divider && TAB_DIVIDER,
-              )}
-            >
-              {Icon && <Icon className={cn("h-3.5 w-3.5 flex-none", active && "text-primary")} />}
-              {/* Titles are STORED per browser, so one saved as "Staff" before
-                  My Profile existed is renamed here, as it is drawn. */}
-              <span className="max-w-[160px] flex-1 truncate text-left">
-                {navLabel(user, tab.href, tab.title)}
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      {/* `max-md:order-last` puts › after the switcher on a phone
+          (‹ [switcher] ›); on a desktop it stays beside ‹. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Next screen"
+        disabled={pos >= seq.length - 1}
+        onClick={() => seq[pos + 1]?.go()}
+        className={cn(NAV_BTN, "max-md:order-last")}
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+
+      <DropdownMenu
+        items={switcherItems}
+        label={`Open screens, current: ${currentLabel}`}
+        align="left"
+        triggerClassName="ty-tab flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-surface-muted md:ml-1 md:h-8 md:max-w-[22rem] md:flex-none"
+        trigger={
+          <>
+            {/* `createElement`, not `<CurrentIcon />`: the icon is looked up per
+                render, and React Compiler refuses a component chosen that way
+                as JSX (react-hooks/static-components). */}
+            {CurrentIcon && createElement(CurrentIcon, { className: "h-4 w-4 flex-none text-primary" })}
+            <Truncated text={currentLabel} className="min-w-0 text-left" />
+            {openTabs.length > 0 && (
+              <span className="ml-auto flex-none rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary md:ml-1">
+                {openTabs.length} open
               </span>
-              {/* The close X shows on the active tab always and on the others
-                  on hover: Notepad's arrangement, less its unsaved dot. */}
-              <span
-                role="button"
-                aria-label={`Close ${navLabel(user, tab.href, tab.title)}`}
+            )}
+            <ChevronDown className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+          </>
+        }
+      />
+
+      {recent.length > 0 && (
+        <div className="ml-2 hidden min-w-0 items-center gap-1.5 text-xs text-muted-foreground lg:flex">
+          <span className="flex-none">Recent:</span>
+          {recent.map((t, i) => (
+            <span key={t.id} className="flex min-w-0 items-center gap-1.5">
+              {i > 0 && <span aria-hidden>·</span>}
+              <button
+                type="button"
                 tabIndex={-1}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  close(tab.id);
-                }}
-                className={cn(
-                  "flex h-5 w-5 flex-none items-center justify-center rounded transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100",
-                  active ? "opacity-100 hover:bg-foreground/10" : "opacity-0 hover:bg-foreground/10",
-                )}
+                onClick={() => activate(t.id)}
+                // truncate-reveal: exempt -- a screen name from the nav registry, and the full name is in the switcher list beside it
+                className="max-w-[10rem] truncate font-medium text-primary hover:underline"
               >
-                <X className="h-3.5 w-3.5" />
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Scroll right. */}
-      {overflowing && (
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label="Scroll tabs right"
-          disabled={!canRight}
-          onClick={() => scrollStrip(SCROLL_STEP)}
-          className={ARROW}
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
+                {label(t)}
+              </button>
+            </span>
+          ))}
+        </div>
       )}
 
-      {openTabs.length > 0 && (
-        <DropdownMenu
-          items={overflowItems}
-          label="More open screens"
-          trigger={<MoreHorizontal className="h-3.5 w-3.5" />}
-          // A plain icon button now that the strip is white (2026-10-01); it
-          // was a white overlay while the bar was solid `bg-primary`.
-          triggerClassName="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-surface-muted hover:text-foreground"
-          align="right"
-        />
-      )}
+      <div className="hidden flex-1 md:block" />
 
       {/* THE TOOLS THE TOP BAR USED TO CARRY (desktop; the phone keeps
           `Topbar`). Unit, role preview, account, theme and appearance went to

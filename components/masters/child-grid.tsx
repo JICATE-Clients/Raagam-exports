@@ -1501,6 +1501,7 @@ export function ChildGrid<T extends { key: string }>({
   centerHeaders = false,
   lockExisting = false,
   hideRemove: ownHideRemove = false,
+  removeHeader,
   keepOne = true,
   lockRow,
   inlineCards = false,
@@ -1885,6 +1886,14 @@ export function ChildGrid<T extends { key: string }>({
    * second rule.
    */
   hideRemove?: boolean;
+  /**
+   * A heading for the ✕ column ("Actions"). Blank by default — an unlabelled
+   * track reads as chrome on a dense grid. A spreadsheet-styled grid
+   * (`data-grid-style="sheet"`, globals.css) names every column, so it names
+   * this one too, and the track widens to 4rem to hold the word with room either side. Table
+   * layout only.
+   */
+  removeHeader?: string;
   /**
    * THE LAST ROW CANNOT BE DELETED — for a grid the record cannot be saved
    * without (client 2026-08-31: "every tab must retain a minimum of one active
@@ -2745,7 +2754,7 @@ export function ChildGrid<T extends { key: string }>({
    * the same literals the `<colgroup>` below states.
    */
   const hugWidth = hugsContent
-    ? `calc(${[!hideIndex && "2.5rem", ...columns.map((c) => c.width), !hideRemove && "2rem"]
+    ? `calc(${[!hideIndex && "2.5rem", ...columns.map((c) => c.width), !hideRemove && (removeHeader ? "4rem" : "2rem")]
         .filter(Boolean)
         .join(" + ")})`
     : undefined;
@@ -3014,7 +3023,7 @@ export function ChildGrid<T extends { key: string }>({
               {columns.map((c, i) => (
                 <col key={i} style={c.width ? { width: c.width } : undefined} />
               ))}
-              {removeColumn && <col style={{ width: "2rem" }} />}
+              {removeColumn && <col style={{ width: removeHeader ? "4rem" : "2rem" }} />}
             </colgroup>
             {/* `hideHeader` — a caller with several structurally-identical
                 grids stacked in a row (Fabric Process's one-grid-per-group
@@ -3083,7 +3092,11 @@ export function ChildGrid<T extends { key: string }>({
                     `table-fixed` (Order Entry ▸ Styles ▸ Components) the old
                     40px `sm` button overflowed the 32px track and hugged its
                     left line. 48px is the square plus 8px each side. */}
-                {removeColumn && <th className="w-12 min-w-12 border-l border-border" />}
+                {removeColumn && (
+                  <th className={cn("border-l border-border px-1 py-2 text-center", removeHeader ? "w-16 min-w-16" : "w-12 min-w-12", removeHeader && GRID_HEADER_TEXT, removeHeader && headerClassName)}>
+                    {removeHeader}
+                  </th>
+                )}
               </tr>
             </thead>
             )}

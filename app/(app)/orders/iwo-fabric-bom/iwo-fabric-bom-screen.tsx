@@ -353,44 +353,46 @@ function PaletteTable<T extends { key: string }>({
       <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      <div className="overflow-hidden rounded-lg border border-border">
-        <table className="w-full table-fixed border-collapse text-sm">
+      {/* A SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid`) — the same
+          change as the order Fabric BOM's `PaletteTable`, kept in step: the
+          marker draws the gridlines, header band and borderless cells, so the
+          cells carry no padding or border classes and the ✕ column is
+          headed "Actions" (56px). */}
+      <div data-grid-style="sheet">
+        <table className="w-full table-fixed text-sm">
           <colgroup>
             <col className="w-9" />
             {columns.map((c) => (
               <col key={c.header} />
             ))}
-            <col className="w-8" />
+            <col className="w-14" />
           </colgroup>
           <thead>
-            <tr className="border-b border-border">
-              <th className="px-1.5 py-1.5 text-center text-[12.5px] font-semibold text-foreground">#</th>
+            <tr>
+              <th className="text-center text-[12.5px] font-semibold text-foreground">#</th>
               {columns.map((c) => (
-                // truncate-reveal: exempt -- a column header from this file's own fixed vocabulary ("Fabric Colour", "Dia / Size / Width"), never a stored value
-                <th key={c.header} className="truncate border-l border-border px-1.5 py-1.5 text-left text-[12.5px] font-semibold text-foreground">
+                <th key={c.header} className="text-left text-[12.5px] font-semibold text-foreground">
                   {c.header}
                 </th>
               ))}
-              <th className="border-l border-border" />
+              <th className="text-center text-[12.5px] font-semibold text-foreground">Actions</th>
             </tr>
           </thead>
           <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
             {rows.map((row, i) => (
-              <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
-                <td className="px-1.5 py-1 text-center text-xs tabular-nums text-muted-foreground">{i + 1}</td>
+              <tr key={row.key} data-grid-row>
+                <td className="text-center text-xs tabular-nums text-muted-foreground">{i + 1}</td>
                 {columns.map((c, ci) => (
-                  <td key={c.header} className="border-l border-border/50 px-1.5 py-1">
-                    {c.cell(row, ci)}
-                  </td>
+                  <td key={c.header}>{c.cell(row, ci)}</td>
                 ))}
-                <td className="border-l border-border/50 px-0.5 py-1 text-center">
+                <td className="text-center">
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     data-row-remove
                     aria-label={`Remove ${label.toLowerCase()} row ${i + 1}`}
-                    className="px-1 text-danger hover:text-danger"
+                    className="h-7 px-1 text-danger hover:text-danger"
                     onClick={() => onRemove(row)}
                   >
                     {"✕"}
@@ -1484,7 +1486,7 @@ export function IwoFabricBomScreen({
       width: "15rem",
       cell: (r) => (
         <Input
-          className="max-w-[200px]"
+          /* Fills its sheet cell — the cell is the box (2026-10-03). */
           value={r.value}
           aria-label={header}
           onChange={(e) => mutPalette(section, (xs) => xs.map((x) => (x.key === r.key ? { ...x, value: e.target.value } : x)))}
@@ -2320,7 +2322,7 @@ export function IwoFabricBomScreen({
               label="Fabric Colour"
               columns={nameColumns("Fabric Colour", "fabric")}
               rows={palette.fabric}
-              width="max-w-[210px]"
+              width="max-w-[240px]"
               onAdd={() => mutPalette("fabric", (xs) => [...xs, blankPaletteRow()])}
               onRemove={removeName("fabric")}
               addLabel="+ Add fabric colour"
@@ -2330,7 +2332,7 @@ export function IwoFabricBomScreen({
               label="Yarn Colour"
               columns={nameColumns("Yarn colour", "yarn")}
               rows={palette.yarn}
-              width="max-w-[210px]"
+              width="max-w-[240px]"
               onAdd={() => mutPalette("yarn", (xs) => [...xs, blankPaletteRow()])}
               onRemove={removeName("yarn")}
               addLabel="+ Add yarn colour"
@@ -2341,7 +2343,7 @@ export function IwoFabricBomScreen({
               label="Roll form prints"
               columns={nameColumns("Roll form print", "print")}
               rows={palette.print}
-              width="max-w-[210px]"
+              width="max-w-[240px]"
               onAdd={() => mutPalette("print", (xs) => [...xs, blankPaletteRow()])}
               onRemove={removeName("print")}
               addLabel="+ Add print"
@@ -2350,7 +2352,7 @@ export function IwoFabricBomScreen({
               label="Dia / Size Width Details"
               columns={diaColumns}
               rows={dias}
-              width="max-w-[280px]"
+              width="max-w-[320px]"
               onAdd={() => mutDias((xs) => [...xs, blankDia()])}
               onRemove={(r) =>
                 mutDias((xs) => {

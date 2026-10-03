@@ -776,7 +776,8 @@ export function CadScreen({
   }, [panels, layouts]);
 
   // Widths from the vocabulary (lib/ui/sizes.ts): term 176 + range 112 +
-  // name 288 + name 288 = 864px + 72px chrome = 936 ≤ 1155 at tableFrom 5xl.
+  // name 288 + name 288 = 864px + 104px chrome (# 40 + Actions 64, since the
+  // sheet look labelled the ✕ column) = 968 ≤ 1155 at tableFrom 5xl.
   const layoutColumns: ChildGridColumn<LayoutRow>[] = [
     {
       header: "Style",
@@ -837,7 +838,7 @@ export function CadScreen({
   ];
 
   // term 176 + name 288 + range 112 + range 112 + party 200 = 888px + 72px
-  // chrome = 960 ≤ 1155 at tableFrom 5xl.
+  // chrome — 104px with the labelled Actions column — = 992 ≤ 1155 at tableFrom 5xl.
   const weightColumns: ChildGridColumn<WeightRow>[] = [
     {
       header: "Marker",
@@ -1290,9 +1291,16 @@ export function CadScreen({
         <SectionBody title="Markers">
           {/* `display: contents` — the wrapper carries the listener and the ref
               and contributes no layout, so the grid still sits directly in the
-              section body. */}
+              section body.
+
+              `data-grid-style="sheet"` (user 2026-10-03, the `erp-sheet-grid`
+              skill: "apply this skill in order module in CAD field") rides on
+              the same wrapper — a `contents` box draws nothing, but selectors
+              still match through it, so the spreadsheet rules reach the grid.
+              Same on Panel Weights below. */}
           <div
             className="contents"
+            data-grid-style="sheet"
             ref={markersRef}
             onKeyDownCapture={(e) => cadGridEdgeKeyDown(markersRef.current, e)}
           >
@@ -1325,6 +1333,7 @@ export function CadScreen({
               mutWeights((xs) => xs.filter((x) => x.layout_key !== r.key));
             }}
             addLabel="+ Add marker"
+            removeHeader="Actions"
           />
           </div>
         </SectionBody>
@@ -1353,6 +1362,7 @@ export function CadScreen({
           {/* Same wrapper, same handler, its own ref — see `cadGridEdgeKeyDown`. */}
           <div
             className="contents"
+            data-grid-style="sheet"
             ref={weightsRef}
             onKeyDownCapture={(e) => cadGridEdgeKeyDown(weightsRef.current, e)}
           >
@@ -1376,6 +1386,7 @@ export function CadScreen({
             }
             onRemove={(r) => mutWeights((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add panel"
+            removeHeader="Actions"
           />
           </div>
         </SectionBody>

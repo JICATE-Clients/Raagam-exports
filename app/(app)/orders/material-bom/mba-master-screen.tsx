@@ -23,7 +23,7 @@ import { TrimTaSection } from "@/components/orders/trim-ta/trim-ta-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldError, FieldRow, RequiredScope, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS, RequiredScope, type FieldWidth } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
@@ -6885,11 +6885,47 @@ export function MbaMasterScreen({
           )}
           {procGroups.length > 0 && (
             procGroups.map((g, gi) => (
-              <div key={g.id ?? "__orphans"} className={cn("mt-3 rounded-lg border border-border first:mt-0", PROC_CARD_MAX_W)}>
+              /* SPREADSHEET LOOK (user 2026-10-03, the `erp-sheet-grid` skill:
+                 "add this skill in material bom in process field"). Each
+                 material's processes are now a ruled TABLE under its heading
+                 band, not a stack of folding cards: the band is drawn as the
+                 table's caption bar (top/sides only — the table's own top
+                 gridline closes it), the frame around the group is gone, and
+                 the cells carry no box of their own.
+
+                 WHAT CAME OFF WITH THE CARDS: `forceCards`, `flatRows`,
+                 `foldRows` / `renderFoldedRow` and `renderMobileRow`. Folding
+                 existed because a card row was a tall stack of labelled fields;
+                 a table row is one 32px line, so a fold would hide one line to
+                 show another. The one-grid-per-material nesting (client
+                 2026-08-24) is unchanged. `tableAlways` because the widest
+                 table — the orphan bucket with Material — is 2.5 + 12.5 + 9 +
+                 12.5 + 7 + 4 = 47.5rem, inside `PROC_CARD_MAX_W` (48rem). */
+              <div
+                key={g.id ?? "__orphans"}
+                data-grid-style="sheet"
+                /* `w-fit`: the group is as wide as its table, so the heading
+                   band above ends where the last gridline does.
+
+                   THE GRID'S OWN `max-w-full` HAS TO COME OFF IN HERE (user
+                   2026-10-03, screenshot 113518: only MATERIAL showed, cut off
+                   at the heading band's width). A percentage max-width inside a
+                   shrink-to-fit parent is cyclic, and an `overflow: hidden` box
+                   with one contributes NOTHING to the parent's fit width — so
+                   the group sized itself to the band and the sheet's hidden
+                   overflow clipped Stage, Process, Loss % and Actions away. The
+                   cap still exists one level up: this wrapper's own `max-w-full`
+                   resolves against the section, which is definite. */
+                className={cn(
+                  "mt-3 w-fit max-w-full first:mt-0",
+                  "[&_[data-grid-card]]:max-w-none [&_[data-grid-card]>div]:max-w-none",
+                  PROC_CARD_MAX_W,
+                )}
+              >
                 {/* The parent row. Numbered like legacy's S No, and the count is
                     the affordance a bare heading lacks — a material with no
                     processes reads as deliberate rather than unfinished. */}
-                <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-3 py-1.5 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-2 border border-b-0 border-border bg-surface-muted px-3 py-1.5 text-[11px] text-muted-foreground">
                   <span className="tabular-nums">{gi + 1}</span>
                   <Truncated className="text-[13px] text-foreground">{g.label}</Truncated>
                   <span className="ml-auto">
@@ -6897,46 +6933,17 @@ export function MbaMasterScreen({
                   </span>
                 </div>
                 <ChildGrid<ProcRow>
-                  columns={procColumns}
+                  /* MATERIAL IS THE HEADING — except in the orphan bucket,
+                     where it is the only way to put the row back on a material
+                     that still exists. Every column takes its `PROC_ROW_W`
+                     step as a width, so the table hugs (fixed layout) at the
+                     same widths the card row used. */
+                  columns={procColumns
+                    .filter((c) => c.header !== "Material" || g.id === null)
+                    .map((c) => ({ ...c, width: FIELD_WIDTH_CSS[procFieldW(c.header)] }))}
                   rows={g.rows}
-                  forceCards
-                  flatRows
-                  foldRows
-                  canFold={(row) => !!row.process_id}
-                  renderFoldedRow={(row) => {
-                    /* The material is the heading, so the folded line spends its
-                       width on what distinguishes one process from another. */
-                    const summary = [
-                      row.stage.trim() || null,
-                      data.processes.find((pp) => pp.id === row.process_id)?.name,
-                      row.loss.trim() ? `loss ${row.loss.trim()}%` : null,
-                      /* Quantities are no longer on the row, so the folded line
-                         summarises what IS: the stage, the process and the loss. */
-                    ]
-                      .filter(Boolean)
-                      .join("  ·  ");
-                    return (
-                      <div className="flex min-h-8 min-w-0 items-center">
-                        <Truncated className="text-sm text-muted-foreground">
-                          {summary || "No process named yet"}
-                        </Truncated>
-                      </div>
-                    );
-                  }}
-                  renderMobileRow={(row, i) => (
-                    <FieldRow align="start" gap="tight">
-                      {procColumns
-                        /* MATERIAL IS THE HEADING — except in the orphan bucket,
-                           where it is the only way to put the row back on a
-                           material that still exists. */
-                        .filter((c) => c.header !== "Material" || g.id === null)
-                        .map((c, ci) => (
-                          <Field key={ci} label={c.header} required={c.required} w={procFieldW(c.header)}>
-                            {c.cell(row, i)}
-                          </Field>
-                        ))}
-                    </FieldRow>
-                  )}
+                  tableAlways
+                  removeHeader="Actions"
                   /* NO `seedRow`. One blank row per material would put a card
                      under every line the moment the tab opened — eleven
                      materials, eleven empty forms. `normalizeProcesses` drops

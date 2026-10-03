@@ -404,7 +404,16 @@ export function OrderSheetSection({
             /* NO `tableFrom`, Manual's sizes-grid call: inside the rail's detail
                pane a 5xl (1,024px) threshold is never reached on a laptop, so
                the table would fall to cards. The primitive's default (@lg,
-               512px) keeps it a table; its columns sum to 896px. */
+               512px) keeps it a table; its columns sum to 896px.
+
+               SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid` skill):
+               `data-grid-style="sheet"` rules every cell and makes the Cut
+               Method / Notes cells the editor themselves — no green box, ✕/▼
+               only on hover or focus, blue inset on the focused cell. No
+               "Actions" column: the rows are derived, there is nothing to
+               delete (`hideRemove`). `table-fixed` stops the columns
+               re-splitting as Notes are typed. */
+            <div data-grid-style="sheet" className="[&_table]:table-fixed">
             <ChildGrid<GridRow>
               /* grid-caption: exempt -- the rail item names this table. */
               columns={orderSheetColumns}
@@ -424,6 +433,7 @@ export function OrderSheetSection({
                 </FieldRow>
               )}
             />
+            </div>
           )}
         />
       )}

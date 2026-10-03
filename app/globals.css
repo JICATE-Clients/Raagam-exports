@@ -2203,3 +2203,353 @@ html[data-type-scale="compact"] .ty-badge-icon {
 @media (prefers-reduced-motion: reduce) {
   .viz-slice, .viz-grow { animation: none; }
 }
+
+/* ===========================================================================
+ * SPREADSHEET GRID — `data-grid-style="sheet"` (client 2026-10-03, Order Entry
+ * ▸ Styles ▸ Components: "convert the entire table into a clean, compact,
+ * spreadsheet-style grid … remove the individual box borders for each item").
+ *
+ * OPT-IN, PER GRID. The ChildGrid default ("borderless at rest, faint
+ * gridlines") and the raagam skin's bold green field boxes stay what every
+ * other grid gets; a wrapper carrying this marker gets the Excel shape instead:
+ * the GRIDLINE is the box, and the control inside a cell has no box of its own.
+ *
+ * UNLAYERED ON PURPOSE, for the reason the "lines" block above records: the
+ * skin's `[data-skin="raagam"] input` rule is unlayered, so ChildGrid's own
+ * `[&_input:not(:focus)]:border-transparent` utility (layered) loses to it —
+ * which is why the green boxes were still drawn inside the cells. These
+ * selectors are one element more specific than the skin's, so they win in
+ * either skin.
+ *
+ * FOCUS NEVER GOES INVISIBLE: the focused cell draws the brand-blue inset
+ * outline a spreadsheet uses for its active cell. An error (`.border-danger`,
+ * a held mandatory or duplicate) keeps a red inset, so removing the box never
+ * removes the only marking an error has.
+ *
+ * THE ✕ / ▼ INSIDE A PICKER CELL SHOWS ON HOVER AND FOCUS ONLY. At rest a cell
+ * is just its value; the clear button is still one hover away for the mouse,
+ * and the keyboard never used it (Delete/Backspace and ↓ do that job).
+ * ======================================================================== */
+[data-grid-style="sheet"] [data-grid-card] {
+  border-color: transparent;
+  padding: 0;
+}
+/* NO SCROLLBAR ON ANY SHEET GRID (user 2026-10-03, Combos: "remove scroll
+   bar" — the third time the same bar was reported, after Components on
+   09-17 and Color/Print today). `ChildGrid`'s table wrapper is
+   `overflow-x-auto`, which also computes `overflow-y` to `auto`, so a
+   sub-pixel spill either way — a focus inset, a rounded `calc()` width, a
+   1px button edge — draws a bar for content that is not really there. Every
+   sheet grid is sized to fit its pane (hugged widths, or `data-grid-fit`
+   below), so no scroll container is needed at all — see `visible` below
+   for why it is not `hidden`. THE TRADE: on a pane genuinely narrower than
+   a hugged table (a phone), the table runs past the pane instead of
+   scrolling inside it — `data-grid-fit="fill"` is the answer for a grid
+   that has to shrink. */
+[data-grid-style="sheet"] .overflow-x-auto {
+  /* VISIBLE, NOT HIDDEN (user 2026-10-03: "action field column fulla aa
+     theriyanum" — the Actions column must show whole). `hidden` removed the
+     phantom scrollbar but also cut whatever reached the wrapper's right edge,
+     and the last column is always the one that pays. With the wrapper's
+     border gone (below) and the gridlines drawn inside each cell, nothing
+     overflows at a desk any more, so `visible` draws no bar and clips no
+     column. */
+  overflow: visible;
+  /* AND NO SECOND FRAME (user 2026-10-03, screenshot 114301: a rounded
+     corner standing off the Actions column). The wrapper is `rounded-lg
+     border`; the gridlines are the frame here, so the wrapper's border would
+     be a second, rounded one a pixel outside the square grid. `border: 0`
+     rather than a transparent colour, so it gives its 2px back too. */
+  border: 0;
+  border-radius: 0;
+}
+/* SEPARATE BORDERS, NOT `collapse` (user 2026-10-03: "remove scrol bar").
+   Under `border-collapse: collapse` half of each OUTER border is drawn outside
+   the table's width, so a table sized exactly to its pane (the hug's `calc()`)
+   measures a pixel past the grid's `overflow-x-auto` wrapper and a scrollbar is
+   drawn for that sliver — the same sliver Order Entry ▸ Components hit on
+   2026-09-17. With `separate` + zero spacing every line sits INSIDE the box:
+   the table draws top/left, each cell right/bottom, so the lines are still one
+   pixel wide and nothing pokes out. A real overflow (a pane genuinely narrower
+   than the columns) still scrolls; only the phantom one is gone.
+   THE OUTER TOP/LEFT LINES ARE ON THE CELLS, not on the table: a border on the
+   table itself is added ON TOP of the column widths under `table-layout:
+   fixed`, which is the same one-pixel overflow by another route. A cell's
+   border is inside its own `border-box` width, so it costs nothing. */
+[data-grid-style="sheet"] table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 0;
+}
+[data-grid-style="sheet"] table :is(th, td) {
+  border-style: solid;
+  border-color: var(--border);
+  border-width: 0 1px 1px 0;
+}
+[data-grid-style="sheet"] table tr > :first-child {
+  border-left-width: 1px;
+}
+/* The table's first child is its `<colgroup>`, so the top row is named by
+   section: the header row, or the first body row when a grid hides its head. */
+[data-grid-style="sheet"] thead > tr:first-child > *,
+[data-grid-style="sheet"] table:not(:has(> thead)) > tbody:first-of-type > tr:first-child > * {
+  border-top-width: 1px;
+}
+[data-grid-style="sheet"] thead th {
+  background: var(--surface-muted);
+  padding: 0.375rem 0.5rem;
+  vertical-align: middle;
+  /* SENTENCE CASE, ONE LINE (screenshot 114301: "ACTIONS" ran out of its
+     56px track). `GRID_HEADER_TEXT` is capitals with wide tracking; a
+     spreadsheet heads its columns in plain case, which is what Order Entry ▸
+     Components already did through `STYLE_SECTION_HEAD`. Plain case is also
+     ~25% narrower, which is what lets "Actions" fit the 3.5rem column; a
+     heading that still does not fit ends in "…" rather than spilling over the
+     gridline. */
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-grid-style="sheet"] tbody td {
+  padding: 0;
+  vertical-align: middle;
+}
+[data-grid-style="sheet"] tbody td:focus-within {
+  background: var(--surface);
+}
+/* `select` TOO (Material BOM ▸ Processes ▸ Stage, 2026-10-03): the skin
+   paints a native <select> the same green box, and a sheet cell holding one
+   would otherwise be the one boxed value on the row. */
+[data-grid-style="sheet"] td :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  height: 2rem;
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+[data-grid-style="sheet"] td :is(input:not([type="checkbox"]):not([type="radio"]), select):focus-visible {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+[data-grid-style="sheet"] td :is(input, select).border-danger,
+[data-grid-style="sheet"] td input[data-required-empty],
+[data-grid-style="sheet"] td input[data-dup-error] {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+/* A BUTTON THAT IS A CELL'S VALUE — Combos' [Detail], marked `data-row-open`
+   — is drawn as the cell, not as a pill inside it: no border, no radius, full
+   cell, primary text. Disabled keeps its fade and its title ("Name the combo
+   first"); focus takes the same blue inset as a field. */
+[data-grid-style="sheet"] td [data-row-open] {
+  width: 100%;
+  height: 2rem;
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--primary);
+}
+[data-grid-style="sheet"] td [data-row-open]:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+[data-grid-style="sheet"] td [data-row-open]:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring);
+  outline: none;
+}
+/* A reference line under a cell's control (Combos' article no.) keeps a
+   little inset — the cell itself has no padding in this style. */
+[data-grid-style="sheet"] td p {
+  padding: 0 0.625rem 0.25rem;
+}
+[data-grid-style="sheet"] td [data-field-affordance] {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+[data-grid-style="sheet"] td:hover [data-field-affordance],
+[data-grid-style="sheet"] td:focus-within [data-field-affordance] {
+  opacity: 1;
+}
+
+/* NO SCROLLBARS, AND THE TABLE FILLS ITS PANE — `data-grid-fit="fill"` beside
+   `data-grid-style="sheet"` (user 2026-10-03, Color/Print ▸ Yarn Dyeing, Fabric
+   Dyeing, Roll Form Prints: "remove the unwanted horizontal and vertical
+   scrollbars … set the table width to 100% so that the columns stretch and fit").
+
+   THREE THINGS, AND EACH IS NEEDED:
+   - THE WRAPPER STOPS SCROLLING. `ChildGrid`'s table wrapper is
+     `overflow-x-auto`, which computes `overflow-y` to `auto` as well — so a
+     sub-pixel overflow either way (a focus inset, a rounded height) drew a
+     vertical bar as readily as a horizontal one. `hidden` draws neither.
+   - THE CARD, WRAPPER AND TABLE ARE 100%. These grids hug (`w-fit` + an inline
+     `calc()` width summed from the columns); `!important` is what beats that
+     inline style. Without it "100%" would be 100% of a fit-content box.
+   - THE LAYOUT GOES BACK TO `auto`, deliberately. Under `table-fixed` a table
+     narrower than the sum of its declared columns GROWS to that sum — so with
+     the scroll gone, a pane narrower than the columns would clip the Actions ✕
+     off the right edge instead. Under `auto` the declared widths become
+     preferences and the columns shrink with the pane. The jitter that made
+     Components choose `table-fixed` (2026-09-17) does not apply: every cell
+     here is a `w-full` input, whose width does not depend on what is typed.
+
+   OPT-IN SEPARATELY FROM `sheet`, so Components keeps its own fixed layout. */
+[data-grid-style="sheet"][data-grid-fit="fill"] [data-grid-card],
+[data-grid-style="sheet"][data-grid-fit="fill"] [data-grid-card] > div {
+  width: 100%;
+  max-width: 100%;
+}
+[data-grid-style="sheet"][data-grid-fit="fill"] table {
+  width: 100% !important;
+  table-layout: auto;
+}
+[data-grid-style="sheet"][data-grid-fit="fill"] td input:not([type="checkbox"]):not([type="radio"]) {
+  min-width: 0;
+  width: 100%;
+}
+
+/* A GRID INSIDE A SHEET CELL (Order Entry ▸ Pack type(s): each pack type's
+   Style · Combo · Qty lines live in its Packs cell, 2026-10-03).
+   - INSET 6px. The outer rule strips every grid card's padding, which here
+     would lay the inner table's left/top gridlines straight on the outer
+     cell's — two 1px lines reading as one 2px rule. The inset makes it a
+     sub-table, the way a spreadsheet shows a block inside a merged cell.
+   - THE ROW READS FROM THE TOP. A row holding a nested grid is several
+     lines tall; centred, Pack Type and the ✕ would float halfway down beside
+     the third line. The index gets the same 6px so it sits level with the
+     first value rather than on the gridline.
+   - THE TOTAL BAND KEEPS PADDING: `td { padding: 0 }` is for a cell that
+     holds a control, and a total is a figure. */
+[data-grid-style="sheet"] td [data-grid-card] {
+  padding: 0.375rem;
+}
+[data-grid-style="sheet"] tr:has(> td [data-grid-card]) > td {
+  vertical-align: top;
+}
+[data-grid-style="sheet"] tr:has(> td [data-grid-card]) > td:first-child {
+  padding-top: 0.375rem;
+}
+[data-grid-style="sheet"] tfoot td {
+  padding: 0.375rem 0.5rem;
+}
+
+/* A CELL WITH NO CONTROL IN IT KEEPS AN INSET (CAD ▸ Markers' Marker PDF,
+   Panel Weights' KG / gmt, 2026-10-03). `td { padding: 0 }` exists so an
+   input can BE the cell; text, a figure or a file name laid at padding 0
+   touches the gridline. So a cell holding no visible field gets the 8px a
+   spreadsheet cell gives its text. A file cell's hidden `<input type=file>`
+   is not a field, hence the `.hidden` / `[type=hidden]` exclusions. */
+[data-grid-style="sheet"] tbody td:not(:has(input:not([type="hidden"]):not(.hidden), select, textarea, [data-row-open], [data-grid-card])) {
+  padding: 0 0.5rem;
+}
+
+/* SPREADSHEET LOOK FOR A FLEX LADDER — `data-grid-style="sheet-rows"` (user
+   2026-10-03, the `erp-sheet-grid` skill on Order Entry ▸ T&A ▸ Activity).
+
+   The T&A ladder is not a `<table>`: it is a header row and one flex row per
+   rung (`taRenderMobileRow`), each cell a fixed-width child. The `sheet`
+   block above targets `table / th / td` and so rules nothing here. The user
+   chose the LOOK ONLY (2026-10-03): the operator's 2026-09-15 decision that a
+   filled Activity / Owner / Days reads as TEXT until clicked stands, so this
+   draws the gridlines and the header band and changes no markup's behaviour.
+
+   - `[data-sheet-row]` marks the header row ("head") and every body row.
+     Their own `gap-x-4 px-3 py-2` (`TA_ROW_GUTTER`) become the cells'
+     padding, and the row stretches its cells so each vertical rule runs the
+     full row height. `box-sizing: content-box` keeps each cell's declared
+     width for its CONTENT, so a column holds what it held before.
+   - `align-content: center` centres a cell's block content without changing
+     its `display`, so `truncate` (Department) and the Actions cell's own
+     flex wrap keep working.
+   - The card around the ladder draws the outer frame and the rows already
+     draw their hairlines between them, so only the vertical rules are new;
+     the last cell gets none (the card's edge is that line).
+   - A cell holding a picker or the Days box loses its padding so the field
+     IS the cell, borderless, with the same blue / red insets as `sheet`. */
+[data-grid-style="sheet-rows"] [data-sheet-row] {
+  column-gap: 0;
+  padding-inline: 0;
+  padding-block: 0;
+  align-items: stretch;
+  min-height: 2rem;
+}
+[data-grid-style="sheet-rows"] [data-sheet-row] > * {
+  box-sizing: content-box;
+  padding: 0.375rem 0.5rem;
+  align-content: center;
+  border-right: 1px solid var(--border);
+}
+[data-grid-style="sheet-rows"] [data-sheet-row] > :last-child {
+  border-right-width: 0;
+}
+[data-grid-style="sheet-rows"] [data-sheet-row="head"] {
+  background: var(--surface-muted);
+  /* Sentence case, as the `sheet` header does — see there. */
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.75rem;
+}
+[data-grid-style="sheet-rows"] [data-sheet-row="head"] > * {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A CELL'S WIDTH NEVER DEPENDS ON WHAT IT HOLDS (screenshot 123349, "correct
+   aa align aagala"). This first cut zeroed a field cell's padding, so a cell
+   showing a picker was 16px narrower than the same column showing text —
+   and on this ladder that is decided PER ROW (an assigned Owner is text, an
+   unassigned one a picker), so every row's columns drifted by 16px a field.
+   Every cell keeps the same padding; the field is pulled out to the
+   gridlines by negative margins instead, which change nothing about the
+   cell's box. A field followed by a line under it (Activity's Bypass caption)
+   keeps its bottom margin so the caption is not overlapped. */
+[data-grid-style="sheet-rows"] [data-sheet-row] > * > :is(:has(input:not([type="hidden"]):not(.hidden)), input:not([type="hidden"]):not(.hidden)) {
+  margin: -0.375rem -0.5rem;
+  width: calc(100% + 1rem);
+  max-width: none;
+}
+[data-grid-style="sheet-rows"] [data-sheet-row] > * > :is(:has(input), input):not(:last-child) {
+  margin-bottom: 0;
+}
+[data-grid-style="sheet-rows"] [data-sheet-row] > * :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  height: 2rem;
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+[data-grid-style="sheet-rows"] [data-sheet-row] > * :is(input:not([type="checkbox"]):not([type="radio"]), select):focus-visible {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+[data-grid-style="sheet-rows"] [data-sheet-row] > * :is(input, select).border-danger,
+[data-grid-style="sheet-rows"] [data-sheet-row] > * input[data-required-empty],
+[data-grid-style="sheet-rows"] [data-sheet-row] > * input[data-dup-error] {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+[data-grid-style="sheet-rows"] [data-sheet-row] > * [data-field-affordance] {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+[data-grid-style="sheet-rows"] [data-sheet-row] > :is(:hover, :focus-within) [data-field-affordance] {
+  opacity: 1;
+}
+/* A ROW THAT STACKS ON A PHONE — `data-sheet-stack` (Fabric BOM ▸ Manual's
+   entry bar, 2026-10-03). Below `sm` that bar drops to one column and each
+   cell prints its own heading through `::before`. The vertical rule would
+   then be a stray line down the right of every stacked field, and the
+   field's negative top margin would pull it up over that heading — so both
+   stand down there, and the field keeps a plain box. Desktop is unchanged. */
+@media (width < 40rem) {
+  [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack] > * {
+    border-right-width: 0;
+  }
+  [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack] > * > :is(:has(input:not([type="hidden"]):not(.hidden)), input:not([type="hidden"]):not(.hidden)) {
+    margin: 0;
+    width: 100%;
+  }
+  [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack] > * :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+    border-color: var(--border);
+    border-radius: var(--radius-md, 0.375rem);
+  }
+}

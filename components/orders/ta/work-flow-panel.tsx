@@ -40,21 +40,35 @@ import { readWorkFlow, recallWorkFlow, rememberWorkFlow } from "@/lib/orders/ord
  * clobber them. `useUnsavedGuard` covers the moment between typing and the
  * write landing.
  *
- * ## IT LOOKS LIKE THE ACTIVITY LADDER, ON PURPOSE (client 2026-09-21)
+ * ## IT LOOKED LIKE THE ACTIVITY LADDER (client 2026-09-21) — THE GRID NO
+ * ## LONGER DOES (user 2026-10-03)
  *
- * Same stat-tile band, same `w-fit` card with its hairline scroller, same
- * 10px uppercase header band, same flex rows with the red left stripe on a
- * late row. The class strings and column widths below are copied from
- * `garment-order-screen.tsx` (`TA_ROW_GUTTER`, `TA_ACTIVITY_COL_W`,
- * `TA_DATE_COL_W`) — change one there, change it here. Unlike the ladder,
+ * It was built as the ladder's twin: same stat-tile band, same `w-fit` card
+ * with its hairline scroller, same 10px uppercase header band, same flex rows
+ * with the red left stripe on a late row, widths copied from
+ * `garment-order-screen.tsx` (`TA_ACTIVITY_COL_W`, `TA_DATE_COL_W`).
+ *
+ * The milestone grid is now a spreadsheet (`erp-sheet-grid`): a real table,
+ * ruled cells, sentence-case headers, controls flush in their cells. That is
+ * the later instruction and it wins, but it REVERSES the 09-21 parity for the
+ * grid — the stat band above it still matches the ladder, the rows no longer
+ * do. Bringing the Activity ladder to the same look is a separate request,
+ * not something to "fix" back here. The red stripe on a late row is kept.
+ *
  * Days and Owner stay live controls at rest rather than text-until-clicked,
  * so Tab keeps landing on them (AGENTS.md "Tab lands on fields").
  */
 
-const ROW_GUTTER = "gap-x-4 px-3"; //    = TA_ROW_GUTTER
+const SN_COL_W = "2.5rem"; //             = ChildGrid's `#` track
 const MILESTONE_COL_W = "10rem"; //       = TA_ACTIVITY_COL_W
 const OWNER_COL_W = "12.5rem"; //          party step — a live picker, not text
-const DATE_COL_W = "5.25rem"; //           = TA_DATE_COL_W
+const DAYS_COL_W = "4.5rem"; //            num step — 0 to 365
+/* 6rem, not the ladder's 5.25: a sheet cell pads its text 8px each side, and
+   "03/10/2026" in `text-xs` mono is ~75px. */
+const DATE_COL_W = "6rem";
+/** The table hugs its columns — every one declares a width, so nothing
+ *  stretches across the pane. 2.5 + 10 + 12.5 + 4.5 + 6 + 6 = 41.5rem. */
+const TABLE_W = `calc(${SN_COL_W} + ${MILESTONE_COL_W} + ${OWNER_COL_W} + ${DAYS_COL_W} + ${DATE_COL_W} + ${DATE_COL_W})`;
 
 const TILE = "min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 px-3 py-1.5 last:border-r-0";
 const TILE_LABEL = "text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground";
@@ -217,98 +231,110 @@ export function WorkFlowPanel({ amendmentId }: { amendmentId: string | null }) {
           This order has no Work Flow rows. They are created when the order is saved — save it once and reopen.
         </p>
       ) : (
-        <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
-          <div className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
-            <div
-              className={cn(
-                ROW_GUTTER,
-                "flex items-center border-b border-l-[3px] border-b-border border-l-transparent py-2 text-[10px] font-semibold uppercase leading-none tracking-[0.14em] text-muted-foreground",
-              )}
-            >
-              <span className="w-6 flex-none text-center">#</span>
-              <span className="flex-none" style={{ width: MILESTONE_COL_W }}>Milestone</span>
-              <span className="flex-none" style={{ width: OWNER_COL_W }}>Owner</span>
-              <span className="w-14 flex-none text-center">Days</span>
-              <span className="flex-none" style={{ width: DATE_COL_W }}>Target</span>
-              <span className="flex-none" style={{ width: DATE_COL_W }}>Actual</span>
-            </div>
-
-            {rows.map((r, i) => {
-              const def = workFlowDef(r.code);
-              const late = views[i].state === "overdue";
-              const owners = workFlowOwnerOptions(employees, r.code, r.owner_id);
-              return (
-                <div
-                  key={r.id}
-                  className={cn(
-                    ROW_GUTTER,
-                    "flex min-h-9 items-center border-l-[3px] bg-surface py-2 leading-none",
-                    "transition-colors hover:bg-surface-muted/40",
-                    i > 0 && "border-t border-t-border",
-                    late ? "border-l-danger" : "border-l-transparent",
-                  )}
-                  title={late ? `${views[i].daysLate} day${views[i].daysLate === 1 ? "" : "s"} past target, not finished` : undefined}
-                >
-                  <span className="w-6 flex-none text-center font-mono text-xs leading-none tabular-nums text-muted-foreground">
-                    {r.sn}
-                  </span>
-                  <span
-                    className="block min-w-0 flex-none truncate text-xs font-semibold leading-none text-foreground"
-                    style={{ width: MILESTONE_COL_W }}
+        /* A SPREADSHEET, NOT THE LADDER'S FLEX ROWS (user 2026-10-03,
+           screenshot 121803, the `erp-sheet-grid` skill: "apply this skill in
+           order module in T and A field"). A real `<table>` under
+           `data-grid-style="sheet"`: ruled cells, grey header, the Owner picker
+           and Days box drawn flush in their cells with no green box, the
+           picker's ✕ and ▼ shown only on hover/focus. See the file note for
+           what this costs the ladder parity. No Actions column: the six
+           milestones are seeded by the order, not rows an operator adds or
+           deletes. */
+        <div data-grid-style="sheet" className="w-fit max-w-full">
+          <table className="table-fixed text-sm" style={{ width: TABLE_W }}>
+            <colgroup>
+              <col style={{ width: SN_COL_W }} />
+              <col style={{ width: MILESTONE_COL_W }} />
+              <col style={{ width: OWNER_COL_W }} />
+              <col style={{ width: DAYS_COL_W }} />
+              <col style={{ width: DATE_COL_W }} />
+              <col style={{ width: DATE_COL_W }} />
+            </colgroup>
+            <thead>
+              <tr className="text-xs font-semibold text-muted-foreground">
+                <th className="text-center">#</th>
+                <th className="text-left">Milestone</th>
+                <th className="text-left">Owner</th>
+                <th className="text-center">Days</th>
+                <th className="text-left">Target</th>
+                <th className="text-left">Actual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const def = workFlowDef(r.code);
+                const late = views[i].state === "overdue";
+                const owners = workFlowOwnerOptions(employees, r.code, r.owner_id);
+                return (
+                  <tr
+                    key={r.id}
+                    className="transition-colors hover:bg-surface-muted/40"
+                    title={late ? `${views[i].daysLate} day${views[i].daysLate === 1 ? "" : "s"} past target, not finished` : undefined}
                   >
-                    {def?.label ?? r.code}
-                  </span>
-                  <div className="min-w-0 flex-none" style={{ width: OWNER_COL_W }}>
-                    <RecordPicker
-                      compact
-                      label={`${def?.label} owner`}
-                      items={owners.items}
-                      emptyHint={owners.hint}
-                      placeholder={owners.shortHint ?? undefined}
-                      value={r.owner_id}
-                      onChange={(id) => {
-                        if (id === r.owner_id) return;
-                        const name = employees.find((e) => e.id === id)?.name ?? null;
-                        save(r, { owner_id: id }, { owner_id: id, owner_name: name });
-                      }}
-                    />
-                  </div>
-                  <div className="w-14 flex-none">
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={365}
-                      aria-label={`${def?.label} days`}
-                      data-focus-land={r.id === firstPendingId ? "" : undefined}
-                      className="h-7 px-1.5 text-center text-xs tabular-nums"
-                      value={drafts[r.id]?.days ?? String(r.days)}
-                      onChange={(e) => setDrafts((p) => ({ ...p, [r.id]: { days: e.target.value } }))}
-                      onBlur={() => commitDays(r)}
-                    />
-                  </div>
-                  <div
-                    className={cn(
-                      "flex-none whitespace-nowrap font-mono text-xs leading-none tabular-nums",
-                      late ? "text-danger" : "text-foreground",
-                    )}
-                    style={{ width: DATE_COL_W }}
-                  >
-                    {fmtDate(r.target_date)}
-                  </div>
-                  <div
-                    className={cn(
-                      "flex-none whitespace-nowrap font-mono text-xs leading-none tabular-nums",
-                      r.actual_date ? "text-foreground" : "text-muted-foreground",
-                    )}
-                    style={{ width: DATE_COL_W }}
-                  >
-                    {r.actual_date ? fmtDate(r.actual_date) : "—"}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                    {/* THE LATE STRIPE SURVIVES as an inset shadow: the sheet
+                        rules own every cell border, so a 3px `border-l` would
+                        be overruled to the 1px gridline. */}
+                    <td
+                      className="text-center font-mono text-xs tabular-nums text-muted-foreground"
+                      style={late ? { boxShadow: "inset 3px 0 0 var(--danger)" } : undefined}
+                    >
+                      {r.sn}
+                    </td>
+                    <td>
+                      <span className="block truncate text-xs font-semibold text-foreground">
+                        {def?.label ?? r.code}
+                      </span>
+                    </td>
+                    <td>
+                      <RecordPicker
+                        compact
+                        label={`${def?.label} owner`}
+                        items={owners.items}
+                        emptyHint={owners.hint}
+                        placeholder={owners.shortHint ?? undefined}
+                        value={r.owner_id}
+                        onChange={(id) => {
+                          if (id === r.owner_id) return;
+                          const name = employees.find((e) => e.id === id)?.name ?? null;
+                          save(r, { owner_id: id }, { owner_id: id, owner_name: name });
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={365}
+                        aria-label={`${def?.label} days`}
+                        data-focus-land={r.id === firstPendingId ? "" : undefined}
+                        className="text-center tabular-nums"
+                        value={drafts[r.id]?.days ?? String(r.days)}
+                        onChange={(e) => setDrafts((p) => ({ ...p, [r.id]: { days: e.target.value } }))}
+                        onBlur={() => commitDays(r)}
+                      />
+                    </td>
+                    <td
+                      className={cn(
+                        "whitespace-nowrap font-mono text-xs tabular-nums",
+                        late ? "text-danger" : "text-foreground",
+                      )}
+                    >
+                      {fmtDate(r.target_date)}
+                    </td>
+                    <td
+                      className={cn(
+                        "whitespace-nowrap font-mono text-xs tabular-nums",
+                        r.actual_date ? "text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      {r.actual_date ? fmtDate(r.actual_date) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

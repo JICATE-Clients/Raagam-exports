@@ -47,7 +47,6 @@ import {
 // The app's one trailing field-edge mark — see T&A ▸ Approvals ▸ Due Date, the
 // only place in this file that draws one itself rather than getting it from a
 // picker.
-import { FieldAffordance } from "@/components/ui/field-affordance";
 import { Input } from "@/components/ui/input";
 // PO No is `format="po_ref"` — the kind declares the rule, the message AND
 // the (absent) keystroke transform, so the screen and the server cannot
@@ -2079,9 +2078,9 @@ export function GarmentOrderScreen({
    * other side, and the reason those are not memos is the reason this is here.
    */
   const [openStyleKey, setOpenStyleKey] = useState<string | null>(null);
-  /** The same fold, on the Quantities grid — see `openStyleKey` for the whole
-   *  reasoning, which is identical down to why a folded row keeps one field. */
-  const [openQtyKey, setOpenQtyKey] = useState<string | null>(null);
+  /* The Quantities grid's fold (`openQtyKey`) is gone: since 2026-10-03 that
+     grid is a spreadsheet table (`erp-sheet-grid`), one row per line, nothing
+     folded. */
   /**
    * WHICH STYLE'S PRICES ARE OPEN, keyed by `styleKey` rather than by row key —
    * the Prices tab groups its rows by style, so the thing that folds is a GROUP
@@ -9645,7 +9644,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       // one therefore takes the entire section. `hugsContent` is
       // `columns.every((c) => c.width)`, so with one column this single key is
       // the whole condition — drop it and the field spans the row again.
-      width: "16rem",
+      // `party` (200px) since 2026-10-03 (`erp-form-compact`), down from a
+      // hand-typed 16rem: a method name the length of "ASSORT COLOUR / SOLID
+      // SIZE" still fits, and a longer one ellipses with the hover reveal.
+      width: FIELD_WIDTH_CSS.party,
       cell: (r) => {
         const dup = packTypeIsDuplicate(r);
         return (
@@ -9686,6 +9688,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          place it would be the SECOND one, a few pixels off the real one, which
          is the doubling the note itself warned about. */
       header: "Packs",
+      /* SIZED TO THE NESTED TABLE (2026-10-03, "text field-ku set aagara
+         maari"). Style 112 + Combo 144 + Qty 72 + `#` 40 + Actions 64 = 432px,
+         plus the sheet's 6px inset each side = 444px; 28rem (448px) leaves
+         the cell's own 1px gridline room so the sub-table never crosses it.
+         With this column sized too, every column declares a width and the
+         Pack type(s) table HUGS: `#` 40 + Pack Type 200 + Packs 448 + Actions
+         64 = 752px, instead of filling a hand-set cap. Change a nested width
+         and this one moves with it. */
+      width: "28rem",
       cell: (r) => packTypeLinesGrid(r),
     },
   ];
@@ -10276,89 +10287,24 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * T&A ▸ Approvals ▸ the grid's own columns — one field on screen
    * (`approval_id`); Due Date is derived, never typed.
    *
-   * THREE DECLARED COLUMNS ON `inlineCards` (2026-09-16: "restructure it
-   * into a clean 3-column grid: 'Item #', 'Approval Name', and 'Due Date'").
-   * The grid used to be `forceCards` + `flatRows` + a hand-rolled
-   * `renderMobileRow` — a flex row with its own `py-1.5`, an unlabelled
-   * `flex-1` picker and a `w-24` date, no header, and the ✕ arriving as the
-   * cards layout's CORNER chip. That chip's `top-[22px]` is derived for a
-   * card whose first row is a LABELLED field (see `RowRemoveChip`'s own
-   * note, "KNOWN REMAINDER"), and this row had no label: the chip hung 14px
-   * below the picker's centre-line and read as a stray ✕ half inside the
-   * green-skin field border. `inlineCards` is the layout that already
-   * answers every half of the request — one shared header band, each
-   * column's declared `width` honoured, every cell centred within one
-   * control's height, the ✕ in its own reserved `w-8` track level with the
-   * row, and the "+ Add" beneath the grid — so the hand-rolled row went
-   * rather than gaining a fourth alignment patch.
+   * A SPREADSHEET GRID since 2026-10-03 (`erp-sheet-grid`): `tableAlways`
+   * inside a `data-grid-style="sheet"` wrapper, with ChildGrid's own `#`
+   * column and an "Actions" column for the row's ✕. Before that it was
+   * `inlineCards` with a declared "Item #" column and the ✕ inside the Due
+   * Date box — a layout with no `<table>`, which the sheet marker cannot reach.
    *
-   * `#` IS A DECLARED COLUMN, NOT THE GRID'S OWN INDEX. The inline band draws
-   * a blank `w-4` spacer over its built-in ordinal, so the header could not
-   * say "Item #" through it; the grid passes `hideIndex` and this column
-   * prints the same number under its own title instead.
+   * TRACKS: 12.5rem (Approval Name) + 7rem (Due Date, `range` in
+   * `lib/ui/sizes.ts`), both fixed — each track holds its own value and
+   * nothing holds the surplus (operator, 2026-09-16). The card around the
+   * grid is capped at a width DERIVED from these plus `#` (2.5rem) and
+   * Actions (4rem); change the cap in the same edit as any track here.
    *
-   * THE TRACKS ARE `40px 12.5rem 7rem`, ALL THREE DECLARED, AND EVERY ONE OF
-   * THEM HAS MOVED IN ONE DAY (2026-09-16). Due Date went `1fr` in the morning,
-   * `9rem` in the afternoon on "around 150px, just enough to hold the date",
-   * then `7rem` on "constrain the 'Due Date' column to be as narrow as possible
-   * ... so it exactly fits the DD/MM/YYYY format without extra blank space";
-   * Approval Name was `18rem`, then the `1fr` that absorbed the remainder, then
-   * `18rem` again on "much more compact in width so they don't stretch across
-   * the empty space ... instead of 1fr", and is now `12.5rem` on
-   * "grid-cols-[40px_200px_110px]".
-   *
-   * THE DIRECTION HAS BEEN THE SAME EVERY TIME, so the direction is the thing
-   * to preserve rather than any one of the three numbers: each track holds its
-   * own value and nothing holds the surplus. There is no flexible track left
-   * here — the panel's cap absorbs what the tracks do not, which is why that
-   * cap is now derived from their sum rather than chosen a step above it. The
-   * first version's own note called `1fr` on the DATE a "KNOWN DEPARTURE FROM
-   * `erp-form-compact`" — a dd/mm/yyyy value given half the panel; with the
-   * last fraction gone there is no departure left to record on either.
-   *
-   * `7rem` IS `range` FROM `lib/ui/sizes.ts`, NOT A HAND-TYPED 110px, and the
-   * request's own "e.g." is what licenses the 2px. `erp-form-compact` is
-   * explicit that a screen wanting a width the vocabulary does not have makes
-   * the case for a NEW step rather than "a local map of `w-[110px]`" (there is
-   * one such map in this app, `IDENTITY_W`, and it says not to copy itself).
-   * `range` is described there as "a derived pair or short code" — and this
-   * value is derived, by `computeApprovalSchedule`, which is the same fact that
-   * makes it `readOnly`. At `text-xs` "31/12/2026" measures ~61px and the
-   * box spends 16px on `px-2`, so 112px holds it with ~35px to spare — which is
-   * exactly what the row's ✕ then moved in and took: a 20px slot plus its 4px
-   * gutter, leaving the date ~11px of clearance. The step below would not have
-   * fitted it, which is the next paragraph.
-   *
-   * WHY NOT SMALLER STILL, since "as narrow as possible" invites it: the next
-   * step down is `hug` (85px), and `hug` is documented as LABEL-bound — a field
-   * takes it when its own label, not its value, is what stops it going further.
-   * "Due Date" is a short header and the value is fixed-width, so nothing here
-   * is label-bound; 85px would leave the date ~11px of slack and no room for a
-   * slot at all.
-   *
-   * THE PANEL IS CAPPED TOO, AND THAT IS THE OTHER HALF. Narrowing a track
-   * does not narrow the card — `erp-form-compact` rule 3 — so the surplus a
-   * `1fr` name column used to eat does not disappear when the column is fixed:
-   * it moves into the card as trailing blank. The wrapper therefore carries
-   * `max-w-[394px]`, DERIVED from the three tracks above plus the gaps and the
-   * padding — there is no ✕ track in the sum any more, because the row's ✕ now
-   * sits inside the Due Date box. See the cap for the arithmetic, and change it
-   * in the same edit as any track here.
+   * The longest approval name (~262px) is wider than 12.5rem, so it
+   * ellipsises and the picker's Tooltip reveals the whole value on hover.
    */
   const taApprovalColumns: ChildGridColumn<TaApprovalRow>[] = [
-    {
-      /* THE 40px ORDINAL TRACK — the first track of `40px 1fr 1fr` (operator,
-         2026-09-16). The cell is a bare `<span>` in a `flex-col justify-center`
-         slot, so it stretches the track and its text sits on the track's own
-         left edge; the header cell above declares the identical width and the
-         same default `align: "left"`, which is what makes "01" land exactly
-         under the "I" of ITEM #. Never centre one of the two. */
-      header: "Item #",
-      width: "40px",
-      cell: (_r, i) => (
-        <span className="text-xs text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
-      ),
-    },
+    /* The ordinal is the grid's own `#` column since the sheet conversion
+       (2026-10-03, `erp-sheet-grid`); the declared "Item #" column went. */
     {
       /* `12.5rem` — THE SIXTH WIDTH IN `lib/ui/sizes.ts`, AND THE LAST
          FLEXIBLE TRACK IN THIS GRID IS NOW FIXED AND NARROW (operator,
@@ -10483,79 +10429,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            visibly impossible rather than a plain black box that reads as
            agreed. */
         return (
-          /* `relative` IS THE WHOLE WRAPPER, and it is what `FieldAffordance`
-             needs rather than a preference: the slot is `absolute inset-y-px
-             right-px`, so it reads its box from the nearest positioned
-             ancestor. `DataPicker` gives it a `relative block w-full` label for
-             exactly this; without one here the ✕ would anchor to the row. */
-          <div className="relative">
             <Input
               readOnly
-              /* `data-conflict` IS WHAT KEEPS THE RED, and it is a marker rather
-                 than a style. `TA_APPROVAL_FIELDS` below paints this grid's boxes
-                 green through a DESCENDANT selector (`.scope input`, 0-1-1), which
-                 outranks any `border-danger` arriving on this call site's own
-                 `className` (0-1-0) — so a conflicted date would have gone green
-                 and the "SHOW AND FLAG" rule would have been broken by a skin. The
-                 green rule excludes `[data-conflict]`; the attribute is the thing
-                 it excludes by. Text colour is unaffected either way and stays on
-                 `className`. */
+              /* A conflicted date carries `border-danger`, which the sheet CSS
+                 draws as the red inset. `data-conflict` stays as the marker. */
               data-conflict={d?.isConflicted ? "" : undefined}
               className={d?.isConflicted ? "border-danger text-danger" : undefined}
               title={d?.isConflicted ? (d.errorMessage ?? undefined) : undefined}
               value={d?.target_date ? fmtDate(d.target_date) : ""}
             />
-            {/**
-              * THE ROW'S ✕, MOVED INSIDE THE LAST BOX (operator, 2026-09-16:
-              * "move the ✕ clear icon for the Due Date so it is perfectly
-              * positioned inside the green-bordered input field, just like the
-              * Approval Name input"). It is the SAME button that stood in
-              * `inlineCards`' own 32px track a moment ago, not a second one and
-              * not a new "clear the date" — this value is derived and read-only,
-              * so it has nothing of its own to clear. The grid passes
-              * `hideRemove`, which now takes that track away with it, and the
-              * 40px it frees (32px + an 8px gap) comes off the panel cap.
-              *
-              * IT LOOKS LIKE A FIELD-CLEAR AND DELETES THE ROW, WHICH IS THE
-              * TRADE THAT WAS TAKEN KNOWINGLY, not an oversight to tidy up. The
-              * blast radius is what makes it safe here: a row is one approval
-              * plus the date derived from it, so "clear this" and "delete this
-              * row" differ by an empty line. Do not copy the pattern to a grid
-              * whose row holds anything the operator typed.
-              *
-              * `FieldAffordance` RATHER THAN A HAND-DRAWN ✕. It is the app's
-              * whole answer to "a mark on a field's right edge" and the reason
-              * the picker and the combobox stopped drifting apart; drawing a
-              * second one here at `compact`'s 20px would be the third copy. It
-              * also means this box needs no `pr-*` of its own —
-              * `TA_APPROVAL_FIELDS` reserves the gutter for any input that HAS
-              * a slot next to it, which this one now does.
-              *
-              * CTRL+DEL STILL WORKS AND IS NOT A LUCKY ACCIDENT. `gridKeyNav`
-              * finds a row's remove control by `[data-row-remove], [aria-label^=
-              * "Remove" i]` — `FieldAffordance` takes no data attributes, so the
-              * LABEL is the half that carries it, and "Remove approval" has to
-              * keep starting with that word. The same prefix keeps it off the
-              * Tab path (`isFieldLike`, lib/focus.ts), as the outboard ✕ was.
-              *
-              * `length > 1` IS `keepOne`, RESTATED BECAUSE `hideRemove` SILENCED
-              * IT. `ChildGrid` locks the sole survivor's ✕ (`keepOne`, on by
-              * default) so a grid can never be emptied to a bare button; that
-              * gate lives inside `locked()`, which `hideRemove` short-circuits.
-              * Moving the button out of the primitive means bringing its
-              * condition along — or the last approval becomes deletable here and
-              * nowhere else in the app.
-              */}
-            {taApprovalRows.length > 1 && (
-              <FieldAffordance
-                compact
-                clearLabel="Remove approval"
-                onClear={() =>
-                  setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))
-                }
-              />
-            )}
-          </div>
         );
       },
     },
@@ -11044,6 +10926,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             critical ? "border-l-danger" : "border-l-transparent",
           )}
           title={slip}
+          data-sheet-row
         >
           {/* # IS THE ROW POSITION, AND THAT IS THE CONTRACT rather than a
               convenience. `order-ladder.ts` zips its dates back on BY POSITION
@@ -14201,6 +14084,27 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              printed the same string (`styleNameForRef` finds the line BY this
              ref, so it always returns it) and is gone. */
           header: "Style",
+          /* SIZED, ALL THREE (2026-10-03, `erp-form-compact`): an unsized
+             column stretched the nested table across the whole Packs cell.
+             Every column declaring a width makes the table hug (see
+             `hugsContent`), and the Pack type(s) wrapper's cap is derived
+             from it.
+
+             TIGHTER STILL THE SAME DAY (user: "pack type in style and qty
+             field compact pannu"): Style `term` 176 → `code` 144, Qty `hug`
+             88 → `num` 72. A style ref is ~10 capitals (~100px) and the ▼ is
+             hidden at rest under the sheet look, so 144 holds it; a longer
+             one ellipsises with its tooltip. With Combo also `code` since,
+             code 144 + code 144 + num 72 + 104px of `#`/Actions = 464px —
+             the Packs column's width is derived from this.
+
+             `range` (112px) SINCE, THE SAME DAY (user: "style field innum
+             compact pannu"). The sheet look draws the box flush to the
+             gridline and hides the ▼ at rest, so the cell's whole 112px is
+             text room — ~10 capitals in `text-sm`, which is a style ref. A
+             longer one ellipsises and the Combobox tooltip reveals it.
+             Table now 112 + 144 + 72 + 104 = 432px. */
+          width: FIELD_WIDTH_CSS.range,
           cell: (l) => (
             <Combobox
               options={withHeldOption(styleRefOptions, l.style_ref_no)}
@@ -14231,6 +14135,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         },
         {
           header: "Combo",
+          /* `code` (144px), down from `term` (user 2026-10-03: "innum compact
+             pannu, text field-ku set aagara maari" — fit the boxes to their
+             text). A combo is a colourway name, ~12 capitals at most, and
+             Combos' own grid already holds it at 144px. */
+          width: FIELD_WIDTH_CSS.code,
           cell: (l) => {
             const scoped = comboOptionsForStyle(l.style_ref_no).map((c) => ({
               value: c,
@@ -14266,7 +14175,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         {
           header: "Qty",
           align: "right",
-          width: "8rem",
+          /* `num` (72px) — see Style's note above. Holds four digits
+             right-aligned with the cell's own padding, and a pack's line
+             quantities and their total are single or double figures. */
+          width: FIELD_WIDTH_CSS.num,
           /* HOW MANY PIECES ONE PACK OF THIS METHOD HOLDS — the figure the grid
              exists to produce, and the one legacy never showed. It is what makes
              a method named "3 PCS PACK" whose lines sum to 13 visible as the
@@ -14293,6 +14205,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         },
       ]}
       rows={r.lines}
+      /* ALWAYS A TABLE (2026-10-03, same instruction as Combo above). The
+         512px card breakpoint is what held the whole Pack type(s) table at
+         52rem: the Packs cell had to stay over it or this grid fell to stacked
+         cards, so the outer table carried slack the text did not need. At
+         464px this table is narrower than that breakpoint by construction, so
+         the breakpoint could only ever turn it into cards; with it gone the
+         Packs cell is sized to this table and nothing else. */
+      tableAlways
       seedRow
       onAdd={() => addPackTypeLine(r.key)}
       onRemove={(l) =>
@@ -14300,266 +14220,38 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       }
       /* toolbar-size: exempt -- a ChildGrid "+ Add", not a header row. */
       addLabel="+ Add line"
+      removeHeader="Actions"
     />
   );
 
   /**
-   * Quantities Details — EIGHT columns, and therefore CARDS (see the grid below).
+   * Quantities Details — EIGHT columns (nine with Multi Order), and since
+   * 2026-10-03 a SPREADSHEET TABLE (user, the `erp-sheet-grid` skill: "apply
+   * this skill in order entry in quantities field"). It was `forceCards` with a
+   * hand-built row on a 32-column `FieldGrid` track (`QTY_PRIMARY` /
+   * `QTY_SPAN`, deleted with it); a table has one column per field, so the
+   * ARRAY ORDER BELOW IS NOW THE RENDERED ORDER and the widths live on the
+   * columns again.
    *
    * STYLE NO, WAREHOUSE AND DISCHARGE PORT WERE WITHDRAWN (client 2026-08-17,
-   * screenshot 2322), which is what let the remaining eight share one line.
-   * Style No was `readOnly` and filled by Ref No, so it printed a value the
-   * operator could already read off the field beside it; the two logistics
-   * pickers belong to the shipment, not to the quantity line.
+   * screenshot 2322). `QuantityRow` STILL CARRIES ALL THREE and `toPayload`
+   * still sends them: `writeChildren` deletes and reinserts every child row, so
+   * a field the FORM stops carrying is a field the next save NULLS.
    *
-   * `QuantityRow` STILL CARRIES ALL THREE and `toPayload` still sends them —
-   * the same treatment the withdrawn Combo Description / Material BOM columns
-   * got, and for the same hard reason: `writeChildren` deletes and reinserts
-   * every child row, so a field the FORM stops carrying is a field the next
-   * save NULLS. Style No also keeps being derived from Ref No on change, so a
-   * seeded order round-trips unchanged and `diff.ts` can still report all three.
-   * Dropping them from the state is a data change, not a layout one, and was
-   * not what was asked for.
+   * THE WIDTHS, against the 1155px pane (`npm run check:grid-budget` sums every
+   * `width` here, the conditional PO No included):
    *
-   * NO `width` ON ANY COLUMN, deliberately. They each carried one, ~100rem in
-   * total, to force `table-fixed` so the table would scroll instead of
-   * collapsing every picker to "— S…". The grid is carded now, so a per-column
-   * width is both dead and contrary to the one-width rule. Width here is the
-   * `Field` track's business, and the row states it once (`QTY_SPAN` below).
-   * Leaving them would have preserved, in code, the argument for the layout that
-   * was just removed.
+   *   Country 7 · Ref No 5.5 · PO No 7 · Consignee 9 · PO Qty 4.5
+   *   · Delivery 9 · Earlier Shipment 9 · Assortment 9 · Details 5.5
+   *   = 65.5rem + 72px chrome = 1120px (1008px without PO No).
+   *
+   * The dates take `code` (144px), not `range`: a native `<input type="date">`
+   * clips its calendar button below ~120px with the input's own `px-3`
+   * (measured 2026-08-21). Country and Consignee are the cells that pay — a long
+   * name ellipses and every picker reveals the full value on hover (`Truncated`).
+   * The two dates stay ADJACENT (client 2026-08-31) and Assortment Type stays
+   * LEFT of Details, which is gated on it (`assortGateFor`).
    */
-  /**
-   * THE ORDER A QUANTITY LINE IS READ IN (client 2026-08-14) — the six that were
-   * the open row's first line, still first. Assortment Type and Earlier Shipment
-   * Dt follow them; since 2026-08-17 all eight are on ONE line, so this list no
-   * longer decides what is VISIBLE, only what order it comes in and which single
-   * field a folded row keeps.
-   *
-   * BY HEADER, NOT BY INDEX — the same anchoring the Style column uses, and for
-   * the same reason: these columns have been reordered before, and a header that
-   * stops matching fails loudly where a slice would quietly promote the wrong
-   * field.
-   */
-  const QTY_PRIMARY = [
-    "Country",
-    "Ref No",
-    // Only rendered while Multi Order is on — `byHeader` returns undefined for a
-    // column the grid is not carrying and the `.filter(Boolean)` below drops it,
-    // so naming it here costs nothing on a single-PO order. Second, beside the
-    // style it belongs to, because the PO number is how the operator TELLS two
-    // otherwise identical destinations apart.
-    "PO No",
-    "Consignee",
-    "PO Qty",
-    /**
-     * THE TWO DATES, ADJACENT (client 2026-08-31: "the Delivery Date and
-     * Earlier Shipment Date fields must be placed directly next to each other
-     * (side-by-side) on the UI").
-     *
-     * THIS LIST IS WHERE THAT IS DECIDED. `renderMobileRow` draws
-     * `[...primary, ...secondary]`, and a column this list does not name falls
-     * into `secondary` — so before today Earlier Shipment Dt sat there beside
-     * Assortment Type, in `quantityColumns`' declaration order, and the
-     * operator read `PO Qty · Delivery Dt · Assortment Type · Earlier Shipment
-     * Dt`. The two dates were declared adjacent and rendered apart.
-     *
-     * ## THE LIST IS NOW EXHAUSTIVE, AND THAT IS THE POINT
-     *
-     * Every column `quantityColumns` declares is named here, in the order it is
-     * read, so `secondary` is empty and this run IS the row. A partial list is
-     * what let the layout drift: it expressed "these come first" and left the
-     * rest to fall out of an array whose order nothing else depended on, which
-     * is precisely why moving cells in that array to fix this would have been a
-     * no-op. The overflow branch stays — a column added later and forgotten here
-     * still renders, at the end, rather than vanishing.
-     *
-     * ASSORTMENT TYPE STAYS LEFT OF DETAILS. The Details button is gated on it
-     * (`assortGateFor`), and its own note describes it as "two cells to the
-     * LEFT of this button" — a refusal whose cause sits to the right of it is a
-     * refusal the operator reads before its reason.
-     */
-    "Delivery Dt",
-    "Earlier Shipment Dt",
-    "Assortment Type",
-    /**
-     * "Details", NOT "Assort" — the rename this list was warned about below and
-     * did not survive (client 2026-08-17: "Assort" -> "Details").
-     *
-     * The comment under this array has said since that day that leaving the old
-     * name here "would silently drop the button from the narrow set", and that
-     * is exactly what it did: `byHeader` matched no column, `.filter(Boolean)`
-     * removed it, and Details fell through to `secondary`. It still rendered, at
-     * the end, which is why nothing looked broken for a fortnight — a
-     * string-keyed list fails by QUIETLY REORDERING, not by throwing.
-     *
-     * It cost nothing while the list was advisory. It costs the client's
-     * instruction now that the list is the layout, which is the argument for
-     * making it exhaustive rather than for remembering harder.
-     */
-    "Details",
-  ] as const;
-
-  /**
-   * ALL EIGHT ON ONE LINE (client 2026-08-17), by giving the short cells a
-   * narrower one than the long ones:
-   *
-   *   4 long × 2 + 4 short × 1 = 12, exactly.
-   *
-   * Eight at the one width are 16 of 12 and had to wrap. What decides which is
-   * which is HOW MANY CHARACTERS THE VALUE HAS, not what kind of control it is:
-   * Consignee and Assortment Type hold long phrases ("Assort Colour / Solid
-   * Size"), and a native `<input type="date">` renders dd-mm-yyyy plus a
-   * calendar button and clips below ~120px — those four take two columns.
-   * A country, a ref number, a four-digit PO Qty and a button reading "Assort"
-   * fit one (~115px in this pane).
-   *
-   * Country is the cell this costs something: a long name truncates. It is the
-   * row's identity, so it is also the one field a folded row shows and the first
-   * thing in the summary line — and every picker reveals its full value on hover
-   * (`Truncated`, the truncate-reveal rule), so nothing is unreachable.
-   *
-   * NO PRIMITIVE CHANGE AND NO HAND-ROLLED GRID — the same mechanism the
-   * Approval Qty row uses for its eight (2026-08-14): `Field` merges `className`
-   * AFTER its span, so a col-span passed there wins, and `@lg/section:col-span-*`
-   * is the layout contract's own vocabulary, which `--check screen-grid` never
-   * flags. A custom track would have needed a bare `grid-cols-*`, and a seventh
-   * entry in the shared SPAN map would change every screen for this one row.
-   */
-  /**
-   * AND THE SUM HOLDS WITH MULTI ORDER ON, at nine (0427):
-   *
-   *   3 long x 2 + 6 short x 1 = 12, exactly.
-   *
-   * The ninth cell has to come from somewhere, and Consignee is what pays for
-   * it: of the four long ones it is the only cell whose value merely TRUNCATES.
-   * A native `<input type="date">` clips its calendar button below ~120px — the
-   * control stops working, not just reading short — and Assortment Type holds
-   * the longest phrase on the row ("Assort Colour / Solid Size"). A consignee
-   * name at ~115px reads its first word and reveals the rest on hover
-   * (`Truncated`, the truncate-reveal rule), which is the same trade Country
-   * already makes and the note above already accepts.
-   *
-   * NOT A SECOND LAYOUT — one line either way. Nine cells at the eight-column
-   * split would be 13 of 12 and wrap, stranding the Assort button on a line of
-   * its own with eleven empty columns beside it.
-   */
-  /* RENAMED WITH THE COLUMN (client 2026-08-17: "Assort" -> "Details"). This
-     list is matched against `c.header` by STRING, so leaving "Assort" here would
-     silently drop the button from the narrow set and re-widen the row — a rename
-     that compiles and quietly changes the layout. */
-  /**
-   * THE ROW'S COLUMN BUDGET, ON THE 32-COLUMN TRACK (client 2026-08-21, across
-   * three reports: "little increase the length of the country field", then
-   * "reduce at delivery date and earlier shipment date instead of making
-   * consignee field as length", then "that earlier ship field now went below —
-   * make it even size, make it a little large, reduce the consignee a little").
-   *
-   * ## Twelve columns could not hold this row, and that is arithmetic
-   *
-   * Eight cells, and the content wants Country 2 · Ref No 1 · Consignee 2 ·
-   * PO Qty 1 · two dates at 2 · Assortment 2 · Details 1 = THIRTEEN twelfths.
-   * Every arrangement inside 12 therefore breaks something, and each attempt
-   * broke a different thing: Consignee at one column truncated a company name,
-   * and the dates at one column CLIPPED THE YEAR off `dd-mm-yyyy`, which is a
-   * control that has stopped working rather than one reading short.
-   *
-   * `cols={32}` is the sanctioned way out and has precedent in this module
-   * (`mba-master-screen.tsx`). It is not a finer grid for its own sake: a date
-   * needs ~114px and a twelfth gives 98 while two twelfths give 211, so the
-   * granularity — not the space — was the constraint.
-   *
-   * ## It also fixes the misalignment structurally
-   *
-   * `FIELD_TRACK_32` carries `items-end`, which `FIELD_TRACK` does not. That is
-   * why "Earlier Shipment Dt" dropped its input below the row: a two-line label
-   * pushed its control down while every one-line neighbour stayed put. The
-   * wider track bottom-aligns every cell box, so the controls line up whatever
-   * the labels do — its own note calls this "fixing the wrap rather than
-   * forbidding it", which is what keeps the label readable instead of
-   * abbreviated.
-   *
-   * ## What each cell is worth
-   *
-   * On this track a span of n is roughly n x 29px + (n-1) x 12px of gap:
-   * 3 -> ~112px, 4 -> ~153px, 5 -> ~194px, 6 -> ~236px.
-   *
-   *   Country 4   Ref No 2   Consignee 6   PO Qty 2
-   *   Delivery 4   Earlier Shipment 4   Assortment 5   Details 2   = 29 of 32
-   *   (Country 5 · Ref No 3 · PO Qty 3 = 32 until 2026-10-01, when all three
-   *   were compacted and the spare columns left at the end — see the map.)
-   *
-   * THE RUN ABOVE IS `QTY_PRIMARY`'S ORDER, NOT `quantityColumns`', and the two
-   * differ — this is the list an operator actually reads left to right, because
-   * the grid is `forceCards` and `renderMobileRow` lays the row out from
-   * `QTY_PRIMARY` first and whatever it does not name second. Only Earlier
-   * Shipment and Assortment swapped on 2026-08-31, to put the two dates side by
-   * side; the SPANS are untouched and could not have moved anything on their
-   * own, since this map is read by header string rather than by position.
-   *
-   * Country nearly doubles, both dates clear ~114px with the primitive's own
-   * `px-3` restored, and Consignee comes down from 318px to 236px — reduced,
-   * as asked, without being starved. Nine cells (Multi Order) balance the same
-   * way, so the two layouts agree about how wide a country is.
-   *
-   * MEASURED, NOT ESTIMATED: the widths above come from pixel-scanning the
-   * client's screenshots for the border colour, and the date threshold from
-   * rendering `<input type="date">` across widths in Chrome. The EMPTY
-   * placeholder is the case that matters — `dd-mm-yyyy` is wider than a filled
-   * `21-08-2026`, because the letters are not tabular, and testing only a
-   * filled date is what made an earlier attempt at one column look sound.
-   */
-  const QTY_SPAN: Readonly<Record<string, number>> = form.multi_order
-    ? {
-        /* COMPACTED 2026-10-01 (user, three asks in a row: "quantities tab …
-           po qty", then "country and reference number field also"). PO Qty
-           3 → 2, Ref No 3 → 2, Country → 4 (it took PO Qty's column for one
-           turn, then was compacted itself). On the operator's ~1,600px pane a
-           column is ~42px, so 2 ≈ 92px (an 8-character ref such as "35555/1")
-           and 4 ≈ 192px (a country name; a longer one ellipses with the
-           picker's own hover reveal).
-           THE ROW NO LONGER SUMS TO 32, DELIBERATELY: 30 here, 29 below. The
-           freed columns are left at the line's end rather than handed to
-           another cell, because the ask was "compact", and growing Consignee
-           or a date would undo it one cell along. Trailing space on a
-           fractional track reads as the row ending, which is what it is. */
-        Country: 4,
-        "Ref No": 2,
-        "PO No": 3,
-        Consignee: 5,
-        "PO Qty": 2,
-        "Delivery Dt": 4,
-        "Assortment Type": 4,
-        "Earlier Shipment Dt": 4,
-        Details: 2,
-      }
-    : {
-        Country: 4,
-        "Ref No": 2,
-        Consignee: 6,
-        "PO Qty": 2,
-        "Delivery Dt": 4,
-        "Assortment Type": 5,
-        "Earlier Shipment Dt": 4,
-        Details: 2,
-      };
-  /**
-   * The span classes are WRITTEN OUT, never interpolated — an interpolated
-   * class name produces no CSS at all, which `FIELD_TRACK`'s own note warns
-   * about, and the failure is a cell that silently falls back to one column.
-   *
-   * A header this map does not name keeps `Field`'s own size, which is the
-   * honest default: a column added later should look wrong in review rather
-   * than quietly take a width nobody chose.
-   */
-  const QTY_SPAN_CLASS: Readonly<Record<number, string>> = {
-    2: "@lg/section:col-span-2",
-    3: "@lg/section:col-span-3",
-    4: "@lg/section:col-span-4",
-    5: "@lg/section:col-span-5",
-    6: "@lg/section:col-span-6",
-  };
-  const qtySpanClass = (header: string) => QTY_SPAN_CLASS[QTY_SPAN[header] ?? 0];
 
   /**
    * NO CELL SETS ITS OWN HEIGHT (client 2026-08-21: "that country one is look
@@ -14582,6 +14274,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   const quantityColumns: ChildGridColumn<QuantityRow>[] = [
     {
       header: "Country",
+      width: FIELD_WIDTH_CSS.range,
       /* THE HEADER STAR IS UNCONDITIONAL (client 2026-08-31, screenshot 2562:
          "still which field are in option"). It means "this COLUMN is mandatory",
          which is true of every row — it is not a claim that this cell is
@@ -14611,6 +14304,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     },
     {
       header: "Ref No",
+      width: FIELD_WIDTH_CSS.hug,
       required: true,
       /**
        * FREE TEXT, WITH NO LIST AT ALL (client 2026-08-17: "that Ref No field
@@ -14680,6 +14374,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       ? [
           {
             header: "PO No",
+            width: FIELD_WIDTH_CSS.range,
             cell: (r: QuantityRow) => (
               /* caps-input: exempt -- the buyer's PO number, kept exactly as
                  typed (client 2026-09-30, budgetupdate.md §2); the header's
@@ -14695,6 +14390,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       : []),
     {
       header: "Consignee",
+      width: FIELD_WIDTH_CSS.code,
       required: true,
       cell: (r) => (
         <RecordPicker
@@ -14711,23 +14407,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              (It used to say the opposite — that the FULL list was on offer —
              which is the fallback the client removed on 2026-08-29.) */
           placeholder={consigneeOptions(r.consignee_id).hint ?? undefined}
-        />
-      ),
-    },
-    {
-      header: "Assortment Type",
-      required: true,
-      cell: (r) => (
-        <LookupDialogPicker
-          kind="assortment_type"
-          label="Assortment Type"
-          options={assortmentTypes}
-          required
-          value={r.assortment_type_id}
-          onChange={(id) => setQty(r.key, { assortment_type_id: id })}
-          canCreate={masterPerms.canCreate}
-          canEdit={masterPerms.canEdit}
-          compact
         />
       ),
     },
@@ -14748,6 +14427,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
      */
     {
       header: "PO Qty",
+      width: FIELD_WIDTH_CSS.num,
       required: true,
       align: "right",
       total: { kind: "sum", of: (r) => Number(r.po_qty) || 0 },
@@ -14814,23 +14494,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
      * (side-by-side) on the UI … Placing these dates together provides
      * immediate visual confirmation of the shipment window").
      *
-     * ## THE FIX IS IN `QTY_PRIMARY`, NOT IN THIS ARRAY, and that is the whole
-     * trap
-     *
-     * Reading this file top to bottom says the dates are already adjacent: they
-     * are declared one after the other, right here. They were not, and the
-     * reason is that THIS ARRAY'S ORDER IS NOT THE RENDERED ORDER. The grid is
-     * `forceCards`, so `renderMobileRow` always runs, and it rebuilds the row as
-     * `[...primary, ...secondary]` — `primary` being `QTY_PRIMARY` resolved
-     * through `byHeader`, `secondary` being everything this array declares that
-     * `QTY_PRIMARY` does not name. Assortment Type and Earlier Shipment Dt both
-     * fell into `secondary`, in declaration order, so the operator saw
-     * `… PO Qty · Delivery Dt · Assortment Type · Earlier Shipment Dt`.
-     *
-     * So a column's position here decides nothing while `QTY_PRIMARY` exists,
-     * and moving cells around in this array to answer a layout complaint is a
-     * change that reads as correct, compiles, and does nothing at all. The
-     * ordering list is the one place to edit; see its own note.
+     * Since the grid became a table (2026-10-03) this array's order IS the
+     * rendered order, so adjacency is declared here and nowhere else.
      *
      * A WINDOW IS A PAIR AND THIS IS WHY IT MUST STAY ONE. `dd-mm-yyyy` beside
      * `dd-mm-yyyy` is a span the operator can check at a glance; the same two
@@ -14838,6 +14503,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
      */
     {
       header: "Delivery Dt",
+      width: FIELD_WIDTH_CSS.code,
       required: true,
       /**
        * TYPED HERE, SEEDED FROM ORDER INFO. The header's Deli.Dt fills this on
@@ -14863,6 +14529,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     },
     {
       header: "Earlier Shipment Dt",
+      width: FIELD_WIDTH_CSS.code,
       required: true,
       /**
        * D-7 OF THE CELL TO ITS LEFT, until the operator says otherwise. The
@@ -14883,7 +14550,26 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       ),
     },
     {
+      header: "Assortment Type",
+      width: FIELD_WIDTH_CSS.code,
+      required: true,
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="assortment_type"
+          label="Assortment Type"
+          options={assortmentTypes}
+          required
+          value={r.assortment_type_id}
+          onChange={(id) => setQty(r.key, { assortment_type_id: id })}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+          compact
+        />
+      ),
+    },
+    {
       header: "Details",
+      width: FIELD_WIDTH_CSS.hug,
       /**
        * The legacy [Click] that opens the Assortments screen (operator
        * screenshot 2026-08-12, 11:27), built at last — 0398 deferred it with
@@ -19179,8 +18865,19 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             With `table-fixed` above the columns can no longer outgrow the
             wrapper, so there is nothing real to scroll to: the wrapper is
             `overflow-hidden` here, and a value too long for its cell still
-            ellipsises inside the cell rather than being cut at the edge. */}
-        <div className="[&_table]:table-fixed [&_.overflow-x-auto]:overflow-hidden">
+            ellipsises inside the cell rather than being cut at the edge.
+
+            SPREADSHEET LOOK (client 2026-10-03: "convert the entire table into
+            a clean, compact, spreadsheet-style grid … remove the individual box
+            borders"). `data-grid-style="sheet"` (globals.css) makes the
+            gridline the box: every cell is ruled, the pickers inside lose their
+            own green border and radius, the focused cell draws the blue inset
+            outline, and the picker ✕ shows only on hover/focus. The ✕ column
+            is headed "Actions" so every column is named. */}
+        <div
+          data-grid-style="sheet"
+          className="[&_table]:table-fixed [&_.overflow-x-auto]:overflow-hidden"
+        >
         <ChildGrid<StyleComponentRow>
           columns={componentColumns(r)}
           headerClassName={STYLE_SECTION_HEAD}
@@ -19196,6 +18893,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             mutComponents(r.key, (cs) => cs.filter((x) => x.key !== c.key))
           }
           addLabel="+ Add component"
+          removeHeader="Actions"
         />
         </div>
       </Field>
@@ -20181,9 +19879,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               print grid is narrower because it genuinely has one fewer column —
               a frame stretched past its last cell is the trailing grey the hug
               exists to stop. */}
+          {/* SPREADSHEET LOOK ON ALL THREE (user 2026-10-03, the `erp-sheet-grid`
+              skill): each wrapper carries `data-grid-style="sheet"` — ruled
+              cells, no green box or ✕ inside a cell at rest, blue inset on the
+              focused cell — and each grid heads its ✕ column "Actions". The
+              sheet rules also drop the card's 10px inline padding, which pays
+              for most of the wider Actions track inside the three-across floor
+              described above. `data-grid-fit="fill"` (user, same day: "remove
+              the unwanted horizontal and vertical scrollbars") stretches each
+              table to its pane with no scroll — see globals.css. */}
           <SectionGrid wrap>
             {/* Yarn dyeing */}
-            <div className="min-w-0 flex-[1_1_18.5rem]">
+            <div data-grid-style="sheet" data-grid-fit="fill" className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- TWO grids share the Color/Print Details section; without captions the operator
                    cannot tell which is which. */
@@ -20194,10 +19901,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={() => addDyeing("yarn")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add yarn dyeing"
+                removeHeader="Actions"
               />
             </div>
             {/* Fabric dyeing */}
-            <div className="min-w-0 flex-[1_1_18.5rem]">
+            <div data-grid-style="sheet" data-grid-fit="fill" className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- the other half of the pair above. */
                 label="Fabric Dyeing"
@@ -20207,10 +19915,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add fabric dyeing"
+                removeHeader="Actions"
               />
             </div>
             {/* Roll form prints */}
-            <div className="min-w-0 flex-[1_1_13rem]">
+            <div data-grid-style="sheet" data-grid-fit="fill" className="min-w-0 flex-[1_1_13rem]">
               <ChildGrid<PrintRow>
                 /* grid-caption: exempt -- the third of three grids in one section; without captions
                    the operator cannot tell which is which. */
@@ -20221,6 +19930,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={addPrint}
                 onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add roll form print"
+                removeHeader="Actions"
               />
             </div>
             {/* ROLL FORM PRINTS AND STRUCTURES WERE HERE, AND CAME OFF THE TAB
@@ -20281,6 +19991,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               className="mb-3"
             />
           )}
+          {/* SPREADSHEET LOOK (user 2026-10-03, screenshot 105842, the
+              `erp-sheet-grid` skill). `tableAlways` REPLACES `inlineCards`:
+              the inline layout is a flex row per record with no `<table>`, so
+              the sheet rules had nothing to rule — the same swap Color/Print's
+              three grids made on 2026-09-05 when the client asked for "one
+              table". At Style 14rem + Combo 144px + Detail 72px + `#` + Actions
+              the table is ~536px, far inside the pane, so the breakpoint
+              `tableAlways` removes was never going to fire here. Not
+              `data-grid-fit="fill"`: stretched, Combo would grow to ~400px for
+              a ~12-capital colourway name. */}
+          <div data-grid-style="sheet">
           <ChildGrid<ComboRow>
             columns={comboColumns}
             rows={combos}
@@ -20290,11 +20011,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                withholds the ✕ from the sole survivor, and Ctrl+Del declines
                with it because both read `locked`. */
             keepOne
-            inlineCards
+            tableAlways
             onAdd={addCombo}
             onRemove={(r) => setCombos((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add combo"
+            removeHeader="Actions"
           />
+          </div>
         </>
       ),
     },
@@ -20325,6 +20048,36 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   BEFORE "+ Add" declined on it. The cell is typed now and there
                   is no ceiling, so it counts what has been named and claims
                   nothing about what is left. */}
+              {/* SPREADSHEET LOOK (user 2026-10-03, the `erp-sheet-grid` skill:
+                  "apply this skill order entry in pack types field").
+                  `tableAlways` REPLACES `inlineCards`, as on Combos: the inline
+                  layout has no `<table>` for the sheet rules to rule. The row is
+                  Pack Type (16rem) · Packs (the rest) · Actions, and the nested
+                  Style · Combo · Qty grid sits INSIDE the Packs cell as a
+                  sub-table — the sheet CSS insets a nested grid by 6px so its
+                  gridlines do not double up on the cell's own. The "full line
+                  to wrap into" the cards gave it is still there: Packs is the
+                  one unsized column, so it takes every pixel Pack Type and the
+                  chrome leave, ~700px on a 1366 desk, past the nested grid's
+                  512px table breakpoint.
+
+                  CAPPED TO THE FORM, NOT THE PANE (2026-10-03, "pack types
+                  compact tighten", `erp-form-compact` rule 4). Uncapped, Packs
+                  took every spare pixel of a 1,600px pane around a 544px nested
+                  table. The cap is derived: Pack Type 200 + `#` 40 + Actions 64
+                  = 304px, and the Packs cell must hold the nested table plus
+                  the sheet's 6px inset each side. With Style and Qty
+                  tightened (496px table → 508px) that is 812px — but the
+                  Packs cell must ALSO stay over the nested grid's 512px card
+                  breakpoint, or it drops to stacked cards. 52rem (832px)
+                  leaves Packs 528px: past the breakpoint, 20px of slack.
+
+                  THE CAP CAME OFF THE SAME DAY ("innum compact pannu"): the
+                  nested grid is `tableAlways` now and the Packs column is sized
+                  to it, so every column has a width and the table hugs its own
+                  752px — see the Packs column's note. A cap is only needed
+                  for a column that fills. */}
+              <div data-grid-style="sheet">
               <ChildGrid<PackTypeRow>
                 badge={
                   <span className="text-xs text-muted-foreground">
@@ -20333,11 +20086,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 }
                 columns={packTypeColumns}
                 rows={packTypes}
-                inlineCards
+                tableAlways
                 onAdd={addPackType}
                 onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add pack type"
+                removeHeader="Actions"
               />
+              </div>
             </>
           ),
         }
@@ -21204,30 +20959,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       label: "Quantities",
       content: (
         <>
-          {/*
-            * CARDS. Eight columns, and until 2026-08-17 eleven — the widest
-            * grid on the document, against 1180px of pane once the 228px rail is
-            * taken and ~100rem of declared width. Cards are still right at
-            * eight: the row lays them out on the `Field` track, which WRAPS.
-            *
-            * IT USED TO SCROLL SIDEWAYS, defended here on the grounds that "the
-            * legacy grid does too". That is the one justification the operator's
-            * standing rule rejects by name (2026-08-10, `raagam-screen-layout`):
-            * a grid WRAPS, it never scrolls sideways, because the operator fills
-            * the first cell and then drags a bar to reach the last one with the
-            * first scrolled out of sight. Copying the legacy screen's scrollbar
-            * copies the defect the conversion exists to remove.
-            *
-            * And it was not even scrolling — it was SQUEEZING. Every picker
-            * rendered as "— S…", "— Se…", "— …", so the country, the consignee,
-            * the warehouse and the port were mutually indistinguishable on a
-            * screen whose whole job is to tell them apart. (The warehouse and the
-            * port have since been withdrawn from this grid — see the columns.)
-            *
-            * `Assort` — the legacy [Click] that opens a size breakdown — is
-            * still deliberately absent (client 2026-08-11); the table and its
-            * Zod type carry no trace of it, so adding it later is additive.
-            */}
           {/**
             * MULTI ORDER LIVES HERE, NOT IN THE HEADER (client 2026-08-17: "add
             * a separate Multi Order button. If enabled, it should open an extra
@@ -21269,6 +21000,20 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 : "One PO for the whole order — the header's PO No."}
             </span>
           </div>
+          {/* SPREADSHEET LOOK (user 2026-10-03, the `erp-sheet-grid` skill:
+              "apply this skill in order entry in quantities field"). It was
+              `forceCards` + `listRows` + a hand-built `renderMobileRow` on a
+              32-column `FieldGrid`, with a fold that kept only Country on a
+              closed line — a card per destination, a boxed field per value.
+              Now one ruled table: a named header per column, the cell is the
+              editor, the ✕ under "Actions". Widths and their arithmetic are on
+              `quantityColumns`. `tableFrom="5xl"` (not `tableAlways`) so a
+              phone still gets ChildGrid's own stacked cards, which read each
+              field's width off the same column. `[&_table]:table-fixed` holds
+              the declared widths while values are typed (operator,
+              2026-09-17); no `data-grid-fit="fill"`, which would stretch
+              Consignee to fill the pane. */}
+          <div data-grid-style="sheet" className="[&_table]:table-fixed">
           <ChildGrid<QuantityRow>
             columns={quantityColumns}
             rows={quantities}
@@ -21279,121 +21024,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                with it because both read `locked`. */
             keepOne
             totalsLabel="Total PO Qty"
-            forceCards
-            /* Labels and cells are read OFF `columns` — never retyped beside it,
-               or a new column leaves the card and the header disagreeing. And
-               `required={c.required}` is not optional plumbing: with
-               `renderMobileRow` supplied, ChildGrid stops wrapping cells in its
-               own `RequiredScope`, so this `Field` is the only place a column's
-               declaration can reach the control. */
-            /* `listRows` drops ChildGrid's own `#N` band, which was a third line
-               above two lines of fields. The row draws its own header below —
-               summary and remove — exactly as the Styles grid does. */
-            listRows
-            renderMobileRow={(row, i) => {
-              const openKey = openQtyKey ?? quantities[quantities.length - 1]?.key ?? null;
-              /* Country is this row's identity, the way Style is a style row's:
-                 with none there is nothing to fold TO and the summary would be a
-                 blank line the operator cannot tell from an empty row. */
-              const isOpen =
-                quantities.length < 2 || row.key === openKey || !row.country_id;
-              const byHeader = (h: string) =>
-                quantityColumns.find((c) => c.header === h);
-              const primary = QTY_PRIMARY.map(byHeader).filter(
-                Boolean,
-              ) as ChildGridColumn<QuantityRow>[];
-              const secondary = quantityColumns.filter(
-                (c) =>
-                  !QTY_PRIMARY.includes(
-                    c.header as (typeof QTY_PRIMARY)[number],
-                  ),
-              );
-              const summary = [
-                data.countries.find((c) => c.id === row.country_id)?.name,
-                /* The PO number only when there is more than one to tell apart:
-                   on a single-PO order it would repeat the header on every
-                   folded line. */
-                form.multi_order ? row.po_no.trim() || null : null,
-                data.consignees.find((c) => c.id === row.consignee_id)?.name,
-                row.po_qty.trim(),
-                fmtDate(row.delivery_date) || null,
-              ]
-                .filter(Boolean)
-                .join("  ·  ");
-              return (
-                <div
-                  className={cn(
-                    // See the Styles row above — the corner ✕ needs a `relative`
-                    // to hang on and the padding to keep clear of the fields,
-                    // and `pr-8` is the width `RowRemoveChip` actually takes
-                    // (a 24px chip 6px in). See the Styles row for why the
-                    // reservation had to move with the control.
-                    "relative space-y-2 pr-8 max-sm:pr-0",
-                    // `pl-2` not `px-2` — see the Styles row: `px-*` would
-                    // outrank the `pr-8` that keeps the ✕ off the summary.
-                    !isOpen && "-mx-2 cursor-pointer rounded-md pl-2 hover:bg-surface-muted",
-                  )}
-                  title={isOpen ? undefined : "Open this quantity line"}
-                  onFocus={() => {
-                    if (!isOpen) setOpenQtyKey(row.key);
-                  }}
-                  onClick={(e) => {
-                    if (isOpen) return;
-                    if ((e.target as HTMLElement).closest("button")) return;
-                    setOpenQtyKey(row.key);
-                  }}
-                >
-                  {/* The ✕ alone, out of the flow — see the Styles grid above
-                      and `ChildGrid`'s cards band. A quantity line is named by
-                      its Country, which is the field it folds to.
-
-                      `RowRemoveChip` since 2026-09-05 (client, Tamil: this icon
-                      "is not in proper alignment"). It was a bare `size="sm"`
-                      ghost icon at `right-0 top-0` — `h-8 px-3`, so the 16px
-                      glyph sat inside a ~40x32px invisible box and painted well
-                      short of the corner its own class named. The chip's `p-0`
-                      and `h-6 w-6` are what make the painted circle the box. */}
-                  <RowRemoveChip
-                    label="Remove quantity line"
-                    onClick={() => setQuantities((xs) => xs.filter((x) => x.key !== row.key))}
-                  />
-                  <FieldGrid cols={32}>
-                    {(isOpen ? [...primary, ...secondary] : primary.slice(0, 1)).map((c) => (
-                      /* One line for all eight — see QTY_SPAN for the split
-                         and why it is stated there rather than here. A folded
-                         row keeps Country at that same narrow width, so the
-                         summary beside it reads on one line either way. */
-                      <Field
-                        key={c.header}
-                        label={c.header}
-                        required={c.required}
-                        size="xs"
-                        className={qtySpanClass(c.header as string)}
-                      >
-                        {c.cell(row, i)}
-                      </Field>
-                    ))}
-                    {!isOpen && (
-                      <Field key="__summary" label="" size="xl">
-                        <div className="flex min-h-8 items-center">
-                          <Truncated className="text-sm text-muted-foreground">
-                            {summary || "Not filled in yet"}
-                          </Truncated>
-                        </div>
-                      </Field>
-                    )}
-                  </FieldGrid>
-                </div>
-              );
-            }}
-            onAdd={() => {
-              const row = blankQuantity();
-              setQuantities((xs) => [...xs, row]);
-              setOpenQtyKey(row.key);
-            }}
+            tableFrom="5xl"
+            onAdd={() => setQuantities((xs) => [...xs, blankQuantity()])}
             onRemove={(r) => setQuantities((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add quantity"
+            removeHeader="Actions"
           />
+          </div>
           {/**
             * THE ORDER'S VALUE — Avg Rate, Gross Value, INR Value (client
             * 2026-09-17: moved here from the Payment tab, which is retired).
@@ -21994,8 +21631,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 Safari take the `::-webkit-scrollbar` parts, Firefox reads
                 `scrollbar-width: thin` + `scrollbar-color` — the same two
                 halves `scrollbar-none` (globals.css) declares, but thin rather
-                than hidden, because a data table keeps its bar. */}
-            <div className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
+                than hidden, because a data table keeps its bar.
+                SPREADSHEET LOOK (user 2026-10-03, the `erp-sheet-grid` skill):
+                `data-grid-style="sheet-rows"` rules every cell of the header
+                and of each rung — see that block at the end of globals.css.
+                LOOK ONLY, by the user's choice: the 2026-09-15 text-until-
+                clicked cells, the red critical edge, Status and the quick
+                actions are untouched. */}
+            <div data-grid-style="sheet-rows" className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
             {/* THE HEADER ROW, as the mock draws it: small, uppercase, widely
                 tracked, muted, on the card's own white with a single rule
                 under it - not the grey band of 09-12, which read as a second
@@ -22006,7 +21649,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 agree on where a column sits. */}
             {/* `TA_ROW_GUTTER` + `py-2` (2026-09-17) — the row's own gutters,
                 so the headings stay over their columns. */}
-            <div className={cn(TA_ROW_GUTTER, "flex items-center border-b border-l-[3px] border-b-border border-l-transparent py-2 text-[10px] font-semibold uppercase leading-none tracking-[0.14em] text-muted-foreground")}>
+            <div data-sheet-row="head" className={cn(TA_ROW_GUTTER, "flex items-center border-b border-l-[3px] border-b-border border-l-transparent py-2 text-[10px] font-semibold uppercase leading-none tracking-[0.14em] text-muted-foreground")}>
               <span className="w-6 flex-none text-center">#</span>
               <span className="flex-none" style={{ width: TA_ACTIVITY_COL_W }}>Activity</span>
               <span className="flex-none" style={{ width: TA_DEPT_COL_W }}>Department</span>
@@ -22151,65 +21794,20 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             */}
           {taView === "approval" && (
           <div className="space-y-4">
-          {/* `max-w-[394px]` — THE CARD IS WHAT CARRIES THE WIDTH, not the grid
-              inside it (operator, 2026-09-16: "wrap the entire approvals grid
-              in a max-width container so it stays compact", tightened the same
-              day to "constrain the total width of this section, e.g.
-              max-w-xl"). This is `erp-form-compact` rule 3 exactly: narrowing
-              the fields does not narrow the card, because a `DetailSection` —
-              or this panel — is a block box and goes on filling the pane,
-              leaving the shrunk controls floating in the surplus. Capping the
-              CARD is also what keeps the "Declare approvals" header band the
-              same width as the rows beneath it; a cap on the grid alone would
-              have left the band stretched across the pane above a narrow table.
+          {/* `max-w-[442px]` — THE CARD CARRIES THE WIDTH, not the grid inside
+              it (operator, 2026-09-16; `erp-form-compact` rule 3): a cap on the
+              grid alone would leave the "Declare approvals" band stretched
+              across the pane above a narrow table.
 
-              THE CAP IS NOW THE ROW'S OWN TOTAL, NOT A TAILWIND STEP ABOVE IT.
-              Every track is declared, so the panel has an exact width rather
-              than a budget: 40px (Item #) + 200px (Approval Name) + 112px (Due
-              Date) + 2 × 8px gaps = 368px of row, + 24px of `p-3` panel padding
-              + the card's own 2px of border = 394px.
+              DERIVED, NOT PICKED. Since the sheet conversion (2026-10-03) the
+              row is a table: 2.5rem (#) + 12.5rem (Approval Name) + 7rem (Due
+              Date) + 4rem (Actions) = 26rem = 416px, + 24px of `p-3` panel
+              padding + the card's 2px of border = 442px. Change it in the same
+              edit as any track in `taApprovalColumns`.
 
-              IT CAME DOWN AGAIN, 88px, WHEN APPROVAL NAME WENT 18rem → 12.5rem
-              (operator, 2026-09-16). One number, one edit, because it is
-              derived — which is the whole reason it is written as arithmetic
-              rather than picked off the Tailwind scale.
-
-              IT CAME DOWN 40px WHEN THE ✕ MOVED INSIDE THE DUE DATE BOX. That
-              is 32px of track plus the 8px gap before it — `inlineCards` used
-              to reserve both, `hideRemove` now frees both, and the row is three
-              tracks and two gaps rather than four and three. A derived number
-              is the only reason that was one edit and not a hunt: see the Due
-              Date cell for where the button went.
-
-              LEAVING IT AT `max-w-xl` WOULD HAVE MOVED THE COMPLAINT, NOT FIXED
-              IT. 576px against a 368px row is 208px of blank inside the card —
-              the same surplus the operator asked us to take out of the input,
-              parked one box further right. `erp-form-compact` rule 3 is that
-              narrowing the fields does not narrow the card and that both are
-              owed; step 3 of its conversion is to DERIVE one width and give it
-              two readers, which is what this is. The arithmetic above IS the
-              derivation, so a track that moves again makes this number wrong in
-              a way the next reader can check rather than one they must notice.
-
-              IT IS STILL A MAX, and with nothing flexible left in the row that
-              matters more than it used to: below 394px the row overflows and
-              `overflow-hidden` clips the right edge of the Due Date box —
-              which, since the ✕ moved into it, is the ✕. See the Approval Name
-              column's own note for why that trade was taken.
-
-              THE ~512px STACKED-CARDS WALL IS NOW PAST, DELIBERATELY.
-              `ChildGrid`'s RESPONSIVE table gives way to stacked cards below a
-              ~512px container and this panel's inner box is now 370px — `md`
-              sub-detail sheets have hit that exact wall, and
-              `style-process-sheet.tsx` records it at length. This grid is
-              `inlineCards`, which is not that layout and has no such
-              breakpoint, so the number is crossed with no effect today. What it
-              costs is the escape route: switching this grid to `responsive`
-              later would now silently drop it to cards with no column headers.
-              That is the thing to re-check before changing the MODE here, and
-              it is why the crossing is written down rather than the cap being
-              rounded up to keep the margin. */}
-          <div className="max-w-[394px] overflow-hidden rounded-lg border border-border">
+              `tableAlways` keeps the table below ChildGrid's ~512px cards
+              threshold, so the narrow panel still shows a headed grid. */}
+          <div className="max-w-[442px] overflow-hidden rounded-lg border border-border">
             <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-3 py-2">
               <CheckCheck className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
               <div>
@@ -22218,59 +21816,31 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 <div className="text-sm font-semibold text-foreground">Declare approvals</div>
               </div>
             </div>
-            {/* `TA_APPROVAL_FIELDS` sits HERE, on the panel that holds nothing
-                but this grid — see the constant for why the uniform box metrics
-                are a descendant rule rather than a prop on each control, and for
-                what is deliberately out of its reach. */}
-            <div className={cn("space-y-2 bg-surface p-3", TA_APPROVAL_FIELDS)}>
+            <div className="space-y-2 bg-surface p-3">
+              {/* SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid` skill):
+                  the marker rules every cell, takes the green box and radius off
+                  the picker and the date, draws the blue inset on the focused
+                  cell and hides the picker's ✕ until hover/focus. `inlineCards`
+                  had no `<table>` for it to reach, so the grid is `tableAlways`
+                  with the grid's own `#` and a real "Actions" column for the
+                  row's ✕ (it used to sit inside the Due Date box).
+                  `TA_APPROVAL_FIELDS` / `_HEADERS` / `_ROWS` painted the old
+                  card rows and are no longer applied. */}
+              <div data-grid-style="sheet" className="[&_table]:table-fixed">
               <ChildGrid<TaApprovalRow>
                 columns={taApprovalColumns}
                 rows={taApprovalRows}
-                /* THE 3-COLUMN GRID — see `taApprovalColumns`' own note for
-                   why this is `inlineCards` and no longer a hand-rolled row.
-                   `inlineCards` honours each column's `width` at every pane
-                   width, so it keeps the one promise the old `forceCards`
-                   row was there for (operator, 2026-09-09: "make approval
-                   date in single row") without any of its own layout.
-
-                   `flushRows`: rows separated by a rule, not a box each, and
-                   the header band at `Label`'s own metrics — the client's
-                   one-frame preference (`flatRows` on every other grid on
-                   this tab). `frameless`: this grid already sits inside the
-                   panel's own `rounded-lg border` card with its own header
-                   band above, so the grid's frame would be a box in a box.
-                   `hideIndex`: the ordinal is the declared `Item #` column
-                   instead, so it can carry a title. */
-                inlineCards
-                flushRows
-                frameless
-                hideIndex
-                /* `hideRemove`: THE ✕ LIVES IN THE DUE DATE BOX NOW — see that
-                   cell for why, and for the `keepOne` condition that had to
-                   travel with it. The prop is what takes the 32px track away as
-                   well as the button; it gated only the button until
-                   2026-09-16, and `child-grid.tsx` records that half-fix beside
-                   the three `w-8` spans it now governs. `onRemove` below is
-                   consequently dead on this grid and is kept because the prop
-                   is required — the SAME expression as the cell's, deliberately,
-                   so a reader comparing them finds one behaviour rather than
-                   two that might differ. */
-                hideRemove
-                headerClassName={TA_APPROVAL_HEADERS}
-                bodyClassName={TA_APPROVAL_ROWS}
+                /* `tableAlways`: one ruled table at every width (the date
+                   still stays on the same row, operator 2026-09-09). `keepOne`:
+                   the last approval's ✕ is withheld, as before. */
+                tableAlways
+                keepOne
                 onAdd={() => setTaApprovalRows((xs) => [...xs, blankTaApprovalRow()])}
                 onRemove={(r) => setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))}
-                /* "+ Add approval" NEEDS NO ALIGNMENT PROP AND MUST NOT GROW
-                   ONE. `frameless` leaves the grid card unpadded and the button
-                   is the card's last child, so its left edge already sits on the
-                   Item # track's left edge — the same 0 the header band and
-                   every row start from. `size="sm"` is `h-8`, which is now the
-                   height of every box above it. A `ml-*`/`pl-*` here would be a
-                   call site patching one property of a layout the grid already
-                   states, which is the bug AGENTS.md's header-row section is
-                   about. */
                 addLabel="+ Add approval"
+                removeHeader="Actions"
               />
+              </div>
               {/* SHOW AND FLAG (see `taApprovalProblems`'s own comment) — RED,
                   never a hold: nothing here is wired through `dupFieldProps`, so
                   a conflicted approval still saves and Tab still moves through
