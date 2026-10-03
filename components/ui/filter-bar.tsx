@@ -88,7 +88,10 @@ export function FilterBar({
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder={searchPlaceholder}
-          className="h-9 w-full text-base sm:w-64 md:text-sm"
+          /* Phone: the search takes what the Filters icon leaves on ITS line
+             (user 2026-10-03, phone audit) — it was `w-full`, which pushed
+             Filters onto a row of its own above every list. */
+          className="h-9 min-w-0 flex-1 basis-40 text-base sm:w-64 sm:flex-none md:text-sm"
         />
 
         {hasFilters && (
@@ -109,9 +112,11 @@ export function FilterBar({
             size="md"
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
+            aria-label="Filters"
+            className="max-sm:px-2.5"
           >
             <SlidersHorizontal />
-            Filters
+            <span className="max-sm:sr-only">Filters</span>
             {activeCount > 0 && (
               <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground">
                 {activeCount}

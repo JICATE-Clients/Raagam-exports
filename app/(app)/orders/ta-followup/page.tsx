@@ -171,7 +171,7 @@ export default async function ApprovalsWorklistPage({
             stays the total, unfiltered count on purpose (its own hint has
             said "Before any filtering" since before this filter bar existed:
             it is a data-health figure, not a view of the current filter). */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2">
           <Stat label="Due today" value={dueToday.length} tone={dueToday.length > 0 ? "info" : "neutral"} />
           <Stat
             label="Backlog"
@@ -213,7 +213,9 @@ export default async function ApprovalsWorklistPage({
         </p>
       )}
 
-      <nav aria-label="Bucket" className="flex items-center gap-1 border-b border-border">
+      {/* Phone: the three tabs keep one line each and the row scrolls (2026-10-03
+          — "Due today · 03/10/2026" wrapped to three lines between its neighbours). */}
+      <nav aria-label="Bucket" className="scrollbar-none flex items-center gap-1 overflow-x-auto border-b border-border">
         {BUCKETS.map((b) => {
           const active = b === activeBucket;
           return (
@@ -222,7 +224,7 @@ export default async function ApprovalsWorklistPage({
               href={tabHref(b)}
               aria-current={active ? "true" : undefined}
               className={cn(
-                "flex items-center gap-2 rounded-t-md border-b-2 px-2 py-1.5 text-sm font-semibold transition-colors",
+                "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-md border-b-2 px-2 py-1.5 text-sm font-semibold transition-colors",
                 "hover:bg-surface-muted focus-visible:bg-primary-soft focus-visible:outline-none",
                 active
                   ? "border-primary text-foreground"

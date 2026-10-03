@@ -236,6 +236,12 @@ export function RowRemoveChip({
         inFlow ? "shrink-0" : "absolute right-1.5",
         /* THE CONTROL BAND — 22px, derived above. */
         !inFlow && align === "control" && "top-[22px] @2xl/editor:top-4",
+        /* PHONE: ON THE LABEL LINE, not beside the input (2026-10-03, phone
+           audit). Fields stack one per line there, so the first label has its
+           whole right side free, while sitting beside the input cost every
+           field in the block a 32px gutter (`pr-8` on the row) — 10% of a 390px
+           screen. A row that drops that gutter on a phone pairs with this. */
+        !inFlow && align === "control" && "max-sm:-top-1.5",
         /* THE LABEL BAND, which on an opted-in grid is the header band.
            NEGATIVE, AND DERIVED FROM THE BAND RATHER THAN FROM THE CORNER.
 
@@ -2792,7 +2798,7 @@ export function ChildGrid<T extends { key: string }>({
         // so the card can hug unconditionally — the collapse this ternary
         // guards against needs the stacked cards to be on screen.
         tableAlways
-        ? "w-fit"
+        ? "sm:w-fit" // phone: the card fills the pane, see the table's `max-sm:min-w-full`
         : tableFrom
           ? TABLE_FROM[tableFrom].hug
           : narrow
@@ -2800,7 +2806,40 @@ export function ChildGrid<T extends { key: string }>({
             : "@lg:w-fit"
       : mode === "cards" && renderMobileRow
         ? undefined
-        : "w-fit";
+        : /* `sm:` — on a phone an inline grid's card fills the pane, and
+             `phoneGrowCol` below hands the slack to a column; hugging left
+             Combo names cut at 9rem beside a band of empty card (2026-10-03,
+             phone audit). */
+          "sm:w-fit";
+
+  /**
+   * THE COLUMN THAT TAKES A PHONE'S SPARE WIDTH in the inline rows: the first
+   * sized column, but only when EVERY column is sized — an unsized one is
+   * `flex-1` already and takes the slack itself. Header band, rows and totals
+   * all read this one index, so the three tracks stay aligned.
+   */
+  const phoneGrowCol =
+    mode === "inline" && columns.length > 0 && columns.every((c) => c.width)
+      ? 0
+      : -1;
+
+  /**
+   * AN UNSIZED COLUMN DROPS TO ITS OWN LINE ON A PHONE when the sized ones
+   * beside it already take most of the screen. Pack type(s) is the case that
+   * found it (2026-10-03, phone audit): Pack Type is 16rem, so on a 390px
+   * phone the flexible Packs column — a whole nested grid — was left ~50px
+   * and its ✕, dropdown and "+ Add line" stacked one letter wide. 200px is
+   * what a phone row can spare and still leave a usable flexible cell.
+   * Only `rem` / `px` widths are summed; anything else (a `calc`) counts as
+   * wide, which errs toward the safe layout.
+   */
+  const sizedPx = columns.reduce((n, c) => {
+    if (!c.width) return n;
+    const m = /^([\d.]+)(rem|px)$/.exec(c.width.trim());
+    return n + (m ? Number(m[1]) * (m[2] === "rem" ? 16 : 1) : 999);
+  }, 0);
+  const phoneWrapUnsized =
+    mode === "inline" && columns.some((c) => !c.width) && sizedPx > 200;
 
   /**
    * The row keys this grid was handed on its FIRST render — the stored rows.
@@ -2934,7 +2973,9 @@ export function ChildGrid<T extends { key: string }>({
                     ? "@md:block"
                     : "@lg:block",
               ),
-            hugsContent && "w-fit max-w-full",
+            // `sm:` — on a phone the wrapper is the pane's width, so the
+            // table's `max-sm:min-w-full` below has a real width to fill.
+            hugsContent && "max-w-full sm:w-fit",
           )}
         >
           <table
@@ -2948,6 +2989,12 @@ export function ChildGrid<T extends { key: string }>({
               // layout honours the declarations and lets the table exceed its
               // container, which is what `overflow-x-auto` on the wrapper is for.
               hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
+              /* PHONE: AT LEAST THE PANE (2026-10-03, phone audit). A hugging
+                 table narrower than the screen left Colour cut at "AQUA FO…"
+                 beside empty card; `min-width` stretches it, and fixed layout
+                 hands the extra to the declared columns in proportion. A table
+                 WIDER than the pane is unaffected and still scrolls. */
+              hugsContent && "max-sm:min-w-full",
             )}
             style={hugWidth ? { width: hugWidth } : undefined}
           >
@@ -3361,6 +3408,8 @@ export function ChildGrid<T extends { key: string }>({
                       // 16px and silently outvote `LABEL_METRICS`.
                       "min-w-0 text-xs font-semibold leading-[inherit] text-muted-foreground",
                       c.width ? "shrink-0" : "flex-1",
+                      ci === phoneGrowCol && "max-sm:grow",
+                      phoneWrapUnsized && !c.width && "max-sm:hidden",
                       align[c.align ?? "left"],
                       headerClassName,
                     )}
@@ -3398,6 +3447,7 @@ export function ChildGrid<T extends { key: string }>({
                   // slots — short cells stay centred exactly as they were, and a
                   // tall one grows downwards instead of pushing its row about.
                   "flex items-start gap-2",
+                  phoneWrapUnsized && "max-sm:flex-wrap",
                   flushRows
                     ? // No card inset: the row's own controls draw the boxes, so
                       // the first one sits level with a `Field` beside it. Rows
@@ -3432,6 +3482,8 @@ export function ChildGrid<T extends { key: string }>({
                       // cell keeps the width it draws itself.
                       "flex min-h-9 min-w-0 flex-col justify-center @2xl/editor:min-h-8 [&>button]:w-fit",
                       c.width ? "shrink-0" : "flex-1",
+                      ci === phoneGrowCol && "max-sm:grow",
+                      phoneWrapUnsized && !c.width && "max-sm:basis-full",
                       c.className,
                     )}
                     style={c.width ? { width: c.width } : undefined}
@@ -3518,6 +3570,7 @@ export function ChildGrid<T extends { key: string }>({
                     className={cn(
                       "min-w-0 text-sm tabular-nums",
                       c.width ? "shrink-0" : "flex-1",
+                      ci === phoneGrowCol && "max-sm:grow",
                       align[c.align ?? "left"],
                     )}
                     style={c.width ? { width: c.width } : undefined}
@@ -3943,6 +3996,19 @@ export function ChildGrid<T extends { key: string }>({
             const cells = () =>
               columns.map((c, ci) => (
                 <div key={ci}>
+                  {/* THE COLUMN'S NAME, ABOVE ITS BOX — `responsive` mode only
+                      (2026-10-03, phone audit). There the cards are the TABLE's
+                      phone fallback, and a table cell is a bare control whose
+                      name lives in the `<th>`; stacked, that left Pack type ▸
+                      Packs as three unlabeled boxes. `cards` mode is left alone:
+                      its callers render cells that label themselves. Same type
+                      as the header band's labels. */}
+                  {mode === "responsive" && c.header && (
+                    <div className="mb-1 text-xs font-semibold text-muted-foreground">
+                      {c.header}
+                      {c.required && <span className="ml-0.5 text-danger">*</span>}
+                    </div>
+                  )}
                   <RequiredScope required={c.required} label={c.header}>
                     {c.cell(row, i)}
                   </RequiredScope>

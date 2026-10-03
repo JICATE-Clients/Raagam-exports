@@ -262,7 +262,7 @@ export default async function TaWorklistPage({
         )}
         {/* The tiles. `Scanned` earns its place by being the number that makes
             an empty list legible: 0 of 0 is a quiet day, 0 of 43 is a scope. */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2">
           <Stat
             label="Due today"
             value={dueToday.length}
@@ -386,7 +386,9 @@ export default async function TaWorklistPage({
           `Link`s doesn't provide; overclaiming them would tell a screen
           reader to expect keys that do nothing. Same plain-`Link` pattern
           `ScopeToggle` already uses above. */}
-      <nav aria-label="Bucket" className="flex items-center gap-1 border-b border-border">
+      {/* Phone: the three tabs keep one line each and the row scrolls (2026-10-03
+          — "Due today · 03/10/2026" wrapped to three lines between its neighbours). */}
+      <nav aria-label="Bucket" className="scrollbar-none flex items-center gap-1 overflow-x-auto border-b border-border">
         {BUCKETS.map((b) => {
           const active = b === activeBucket;
           return (
@@ -395,7 +397,7 @@ export default async function TaWorklistPage({
               href={tabHref(b)}
               aria-current={active ? "true" : undefined}
               className={cn(
-                "flex items-center gap-2 rounded-t-md border-b-2 px-2 py-1.5 text-sm font-semibold transition-colors",
+                "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-md border-b-2 px-2 py-1.5 text-sm font-semibold transition-colors",
                 // A soft rounded FILL on hover/focus, not a `ring` box — a
                 // `ring` (box-shadow) draws a hard rectangle on all four
                 // sides regardless of which corners are rounded, so paired

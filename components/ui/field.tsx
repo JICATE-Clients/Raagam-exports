@@ -937,8 +937,16 @@ export function Field({
          desktop dialog, which is what the "same 72px everywhere" note on
          `FIELD_WIDTH` protects. On the Field, not in that map: 22 call sites
          read `FIELD_WIDTH` directly as matrix column widths, and a full-width
-         column would wreck those tables instead of freeing a field. */
-      className={cn(w ? cn(FIELD_WIDTH[w], "max-sm:w-full") : SPAN[size], "min-w-0", className)}
+         column would wreck those tables instead of freeing a field.
+
+         AND A HAND-WRITTEN WIDTH TOO (2026-10-03, phone audit): Fabric BOM's
+         header sizes its fields by `className="w-[145px]"`, which the rule
+         above never reached, so its Date box cut "03-10-2026" under the
+         calendar icon. `max-sm:w-full` now rides with every Field; twMerge keeps
+         it beside a caller's unprefixed `w-[…]` (different variant), so the
+         caller's width still holds from `sm` up. Inside a grid cell it is the
+         cell's width, i.e. no change. */
+      className={cn(w ? FIELD_WIDTH[w] : SPAN[size], "min-w-0 max-sm:w-full", className)}
       // `"" : undefined` rather than a boolean: React drops an `undefined`
       // attribute entirely, and `[data-focus-optional]` matches an empty value —
       // so the cell is either marked or carries nothing at all. `false` would

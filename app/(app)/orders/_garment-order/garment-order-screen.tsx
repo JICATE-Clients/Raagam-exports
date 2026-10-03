@@ -19650,7 +19650,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                  24px circle sitting 6px in, which is 30px, and 32px clears it
                  with two to spare. Reserving the old width for the new chip
                  would leave 10px of dead margin down the right of every row. */
-              "relative space-y-2 pr-8",
+              "relative space-y-2 pr-8 max-sm:pr-0",
               // A folded row reads as one thing you can open, so it says so on
               // hover. The open row gets nothing — there is nothing to click.
               //
@@ -21328,7 +21328,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     // and `pr-8` is the width `RowRemoveChip` actually takes
                     // (a 24px chip 6px in). See the Styles row for why the
                     // reservation had to move with the control.
-                    "relative space-y-2 pr-8",
+                    "relative space-y-2 pr-8 max-sm:pr-0",
                     // `pl-2` not `px-2` — see the Styles row: `px-*` would
                     // outrank the `pr-8` that keeps the ✕ off the summary.
                     !isOpen && "-mx-2 cursor-pointer rounded-md pl-2 hover:bg-surface-muted",
