@@ -167,6 +167,7 @@ import {
   MATRIX_SIZE_TOKEN,
   matrixCell,
   sizeColPx,
+  textColPx,
 } from "@/components/orders/matrix-grid";
 import { adoptedPrice, reshapeRates } from "@/lib/orders/amendments/price-modes";
 import { ApprovalQtyLines } from "@/components/orders/approval-qty-lines";
@@ -16069,6 +16070,39 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                container's `space-y-2` above it: 8px either side. */
             className={cn(
               "grid grid-cols-2 items-center gap-x-2 gap-y-2 border-t border-border pt-2 first:border-t-0 first:pt-0 min-[1250px]:[&>*]:!box-border",
+              /* THE LINE REACHES THE FRAME'S RIGHT EDGE (client 2026-10-05,
+                 screenshot 142859: "intha line fulla pogama pathilaye
+                 nikkuthu"). Every rule — between parts and between fabrics —
+                 stopped at the Actions cell, ~45px short of the frame: the
+                 fabric ✕ (`removeBeside`'s 8px gap + 28px chip) and the slack
+                 the header's `pr-9` leaves sit OUTSIDE the row's own grid.
+
+                 A `::before` 3rem wide, anchored `right-0` with NO `top` — so
+                 it sits at its static position, this row's top edge — carries
+                 the line across that strip. It resolves against the SHEET
+                 WRAPPER (the outer `relative` frame), because nothing between
+                 here and there is positioned: not this row, not the parts
+                 column, not ChildGrid's row box (its `relative` is for
+                 `cornerRemove` only, and this grid uses `removeBeside`). Make
+                 one of them `relative` and the segment moves inside it. It
+                 overlaps the row's own `border-t` by a few px in the same
+                 colour, which draws nothing new.
+
+                 EVERY PART ROW, the first of a fabric too (that rule is the
+                 fabric boundary, which stopped short the same way) — except
+                 the very first, which sits under the header's own full-width
+                 rule and would double it in the gutter.
+
+                 `before:-mt-px` (screenshot 143814: "line oru mari irukku" —
+                 a 1px step where the segment met the line). A grid's absolute
+                 child takes its static position from the PADDING edge, i.e.
+                 just INSIDE the row's 1px `border-t`, so the segment sat one
+                 pixel below the line it continues. The negative margin moves
+                 the static position up onto it. The fabric boundary is the
+                 same 1px above this row's top (ChildGrid's row-box rule), so
+                 one offset serves both. */
+              !(j === 0 && r.structures[0]?.key === st.key) &&
+                "min-[1250px]:before:absolute min-[1250px]:before:right-0 min-[1250px]:before:-mt-px min-[1250px]:before:w-12 min-[1250px]:before:border-t min-[1250px]:before:border-border",
               /* THE RULE RUNS THE FULL ROW, STRUCTURE TO ✕ (client 2026-09-22,
                  screenshot 111451: "fix the horizontal separator lines so that
                  they stretch completely across the entire row width from left
@@ -17231,12 +17265,20 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             {/* `data-sheet-row` from 1250px, on `FABRIC_TRACK` (the header's
                 own track); below it the 2026-10-01 widths and gaps stand. Cells
                 read from the TOP (`!content-start`), level with the first part
-                beside them rather than centred in a tall merged cell. */}
+                beside them rather than centred in a tall merged cell.
+
+                THE 2026-10-01 TRACK IS FENCED TO 1024–1249px (`lg:max-[1250px]:`;
+                client 2026-10-05, screenshot 142320: "table not aligned"). It was
+                a bare `lg:`, and Tailwind emits the named `lg` rule AFTER the
+                arbitrary `min-[1250px]` one — so above 1250px the OLD widths won,
+                every fabric column sat 2–10px narrower than its header, and the
+                parts half slid ~56px left of its titles. The header reads
+                `FABRIC_TRACK` alone, so this row must too. */}
             <div
               data-sheet-row
               data-sheet-stack="wide"
               className={cn(
-                "grid items-start gap-x-2.5 gap-y-2 lg:grid-cols-[9.5rem_11rem_3.5rem_4.25rem_5.5rem_6.75rem] min-[1250px]:flex-1 min-[1250px]:[&>*]:!box-border min-[1250px]:[&>*]:!content-start",
+                "grid items-start gap-x-2.5 gap-y-2 lg:max-[1250px]:grid-cols-[9.5rem_11rem_3.5rem_4.25rem_5.5rem_6.75rem] min-[1250px]:flex-1 min-[1250px]:[&>*]:!box-border min-[1250px]:[&>*]:!content-start",
                 FABRIC_TRACK,
               )}
             >
@@ -20373,13 +20415,75 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     size_id: z.id,
                     name: z.name,
                   }));
+            /* THE PRICE TYPE IS A CELL OF THE RATE TABLE, not a field above
+               it (client 2026-10-05, screenshots 103513 · 104103: "price type
+               1st rate pack 2nd … orey row"; then "price thaniya keela irukka
+               mari irukku"). As a labelled field beside a table, its label sat
+               where the table had a header band and its box a row lower than
+               the rate — two shapes side by side never line up. One table,
+               `Price Type | Rate / pack`, is one header and one row, the same
+               shape as the Currency · Ex-Rate · Pay Mode table beside it.
+               Declared once here because the empty-sizes fallback still needs
+               it as a plain field. */
+            const priceTypeSelect = (
+              <Select
+                value={mode}
+                onChange={(e) => setPackPriceMode(method, e.target.value)}
+              >
+                {/* ONE DECLARATION, TWO READERS — `PACK_BRANCH_PRICE_MODES`,
+                    which `priceModeOptions` also reads. It was
+                    `PRICE_TYPE_OPTIONS.filter(isPackWise)` in both places:
+                    the same rule written twice, correct only while "offered
+                    on a pack order" and "priced per box" were one sentence.
+                    Adding Size-wise to one of the two copies is exactly the
+                    edit that would have left the other behind. */}
+                {PACK_BRANCH_PRICE_MODES.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </Select>
+            );
+            /* The rate box, rendered in the rate table's cells. */
+            const rateInput = (r: PackPriceRow) => (
+              <Input
+                type="number"
+                inputMode="decimal"
+                /* NO `h-8` HERE — the primitive already IS 32px
+                   on this pane, and saying so again breaks the
+                   half that matters. `Input` is
+                   `h-9 @2xl/editor:h-8`, a CONTAINER query, so it
+                   is 32px in a desktop editor and stays a 36px
+                   touch target in the ~440px picker panel and on a
+                   phone. A flat `h-8` opts this one cell OUT of
+                   that query, so anywhere the pane is under 42rem
+                   it stood 32px beside 36px controls — four pixels
+                   out, in one row.
+
+                   That is the defect `quantityColumns` already
+                   records in as many words (client 2026-08-21,
+                   "that country one is look something not even
+                   with other fields, make even look"): five cells
+                   carried `h-8` while the pickers beside them
+                   carried the query. Same class, same cause, one
+                   tab along. `text-right font-mono tabular-nums`
+                   stays — those say what the VALUE is, which is
+                   the cell's business; the height is the row's. */
+                className="text-right font-mono tabular-nums"
+                value={packRateFor(r.method, mode, r.size_id)}
+                onChange={(e) =>
+                  setPackRate(r.method, mode, r.size_id, e.target.value)
+                }
+              />
+            );
             return (
               /* The same rhythm as the per-style group below — see the note
                  there. 8px flat was one step looser than the pane it sits in. */
               <div key={method} className="space-y-2 @2xl/editor:space-y-1.5">
                 {/* THE PACK NAME IS A HEADING ON ITS OWN LINE, and the Price
                     Type field starts beneath it (client 2026-08-28, screenshot
-                    2534).
+                    2534). Since 2026-10-05 that "field" is the first column
+                    of the rate table — see `priceTypeSelect`.
 
                     The two sat on one `flex` row, so the field's left edge was
                     wherever the NAME happened to end — and a two-method order
@@ -20403,49 +20507,77 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     same field the per-style branch shows; only its options are
                     narrowed. */}
                 <p className="text-sm font-semibold text-foreground">{method}</p>
-                <Field label="Price Type" w="term" required>
-                  <Select
-                    value={mode}
-                    onChange={(e) => setPackPriceMode(method, e.target.value)}
-                  >
-                    {/* ONE DECLARATION, TWO READERS — `PACK_BRANCH_PRICE_MODES`,
-                        which `priceModeOptions` also reads. It was
-                        `PRICE_TYPE_OPTIONS.filter(isPackWise)` in both places:
-                        the same rule written twice, correct only while "offered
-                        on a pack order" and "priced per box" were one sentence.
-                        Adding Size-wise to one of the two copies is exactly the
-                        edit that would have left the other behind. */}
-                    {PACK_BRANCH_PRICE_MODES.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                {rows.length && (!sized || sizes.length) ? (
+                {/* PRICE TYPE AND RATE ARE TWO PLAIN FIELDS ON ONE ROW (client
+                    2026-10-05: "price type thani rate thani field", chosen over
+                    one table and over two tables). A one-rate mode is just two
+                    labelled boxes, type first — the order a quote is spoken in,
+                    and the Tab order. A per-size mode has a rate PER SIZE, which
+                    a single field cannot hold, so there the second item is the
+                    small Size · Rate table instead. Later the same day Price
+                    Type moved into a one-row table of its own — see below. */}
+                {/* ONE LINE AT DESK WIDTH (client 2026-10-05, screenshot 112949:
+                    the rate table had dropped under Price Type, "orey row la
+                    venum").
+                    A PLAIN FLEX ROW, NOT `FieldRow`: FieldRow's outer element is
+                    an `@container/section`, and a size container reports ZERO
+                    width to its parent. The tab's rates track is
+                    `minmax(26rem, max-content)`, so it never learned the two
+                    tables need ~456px and stayed at its 416px floor — the rate
+                    table folded under Price Type. This div reports its real
+                    width, the track grows to it, and `@3xl/editor:flex-nowrap`
+                    keeps one line wherever the terms sit beside it; a phone
+                    still stacks rather than scrolls. Top-aligned so the header
+                    bands stay level when the per-size table is taller. */}
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-2 @3xl/editor:flex-nowrap">
+                {/* PRICE TYPE IN A TABLE OF ITS OWN (client 2026-10-05: "price
+                    type field kku oru table podu"). The same one-row shape as
+                    the Currency · Ex-Rate · Pay Mode table — header band, one
+                    row, no `#`, nothing to add or remove — reusing its
+                    `TERMS_ROWS` because a one-row table's row has no identity
+                    beyond being there. `w-[13rem]` is a DEFINITE width for
+                    ChildGrid's `@container` root (a content-sized one
+                    collapses to 0): `term` 176px plus the card's `p-2` and
+                    borders, rounded up. */}
+                <div className="w-[13rem] shrink-0">
+                  <ChildGrid<TermsRow>
+                    columns={[
+                      {
+                        header: "Price Type",
+                        width: FIELD_WIDTH_CSS.term,
+                        required: true,
+                        cell: () => <Field required>{priceTypeSelect}</Field>,
+                      },
+                    ]}
+                    rows={TERMS_ROWS}
+                    tableAlways
+                    hideIndex
+                    hideAdd
+                    onAdd={() => false}
+                    hideRemove
+                    onRemove={() => {}}
+                  />
+                </div>
+                {!sized ? (
+                  /* THE RATE IS A TABLE TOO (client 2026-10-05: "rate pack kum
+                     table podu"). A one-rate mode is one header, one row — so
+                     it lines up with the Price Type and Currency tables
+                     beside it instead of a labelled box sitting a band lower.
+                     A definite width for ChildGrid's `@container` root, which
+                     collapses to 0 when a flex row sizes it by content.
+
+                     CENTRED BETWEEN PRICE TYPE AND CURRENCY (client 2026-10-05:
+                     "rate pack centre la venum", chosen as "table in the
+                     middle"). The card hugs, so `mx-auto` centres it in this
+                     cell's slack. The gaps either side were 12px (`FieldRow`)
+                     and 24px (the tab's `gap-6` to the terms column), so
+                     `pl-3` adds the missing 12px on the left and the two gaps
+                     come out equal. */
+                  <div className="min-w-[14rem] flex-1 pl-3 [&_[data-grid-card]]:mx-auto">
                   <ChildGrid<PackPriceRow>
                     columns={[
-                      /* NO SIZE COLUMN ON A MODE WITH NO SIZE AXIS — there is
-                         one rate and nothing for the column to say. Spreading a
-                         blank cell across the row instead would leave a header
-                         naming an axis this mode does not have. */
-                      ...(sized
-                        ? [
-                            {
-                              header: "Size",
-                              /* `hug` (88px): a size is a two- or three-letter
-                                 chip. See the Rate column's note below. */
-                              width: FIELD_WIDTH_CSS.hug,
-                              cell: (r: PackPriceRow) => (
-                                <div className="flex min-h-8 items-center">
-                                  <span className="rounded border border-border bg-surface px-1.5 py-px font-mono text-[13px] font-medium tabular-nums text-foreground">
-                                    {r.name}
-                                  </span>
-                                </div>
-                              ),
-                            },
-                          ]
-                        : []),
+                      /* No Size column: this table renders only for a one-rate
+                         mode. A per-size mode is the sizes-across matrix below
+                         (2026-10-05). */
                       {
                         /* THE HEADER NAMES THE UNIT, and it is the only thing on
                            screen that does. Three modes share this one column
@@ -20458,10 +20590,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                            false. */
                         header: perBox ? "Rate / pack" : "Rate / piece",
                         /* SIZED TO THE FIGURE (client 2026-10-05, screenshot
-                           101402: "data kku set aara mari compact"). With no
-                           width the column took the whole 32rem `narrow` cap,
-                           so a rate like 7.25 sat at the far end of a ~500px
-                           box. `range` (112px) holds a rate up to 12,345.50 and
+                           101402: "data kku set aara mari compact"). A rate
+                           like 7.25 sat at the far end of a ~500px box — see
+                           `tableAlways` below for why the width alone did not
+                           fix it. `range` (112px) holds a rate up to 12,345.50 and
                            the "Rate / piece *" header; with every column
                            declaring a width, `ChildGrid` hugs instead of
                            stretching. */
@@ -20474,35 +20606,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                            grid-required-mobile`). */
                         cell: (r) => (
                           <Field required>
-                            <Input
-                              type="number"
-                              inputMode="decimal"
-                              /* NO `h-8` HERE — the primitive already IS 32px
-                                 on this pane, and saying so again breaks the
-                                 half that matters. `Input` is
-                                 `h-9 @2xl/editor:h-8`, a CONTAINER query, so it
-                                 is 32px in a desktop editor and stays a 36px
-                                 touch target in the ~440px picker panel and on a
-                                 phone. A flat `h-8` opts this one cell OUT of
-                                 that query, so anywhere the pane is under 42rem
-                                 it stood 32px beside 36px controls — four pixels
-                                 out, in one row.
-
-                                 That is the defect `quantityColumns` already
-                                 records in as many words (client 2026-08-21,
-                                 "that country one is look something not even
-                                 with other fields, make even look"): five cells
-                                 carried `h-8` while the pickers beside them
-                                 carried the query. Same class, same cause, one
-                                 tab along. `text-right font-mono tabular-nums`
-                                 stays — those say what the VALUE is, which is
-                                 the cell's business; the height is the row's. */
-                              className="text-right font-mono tabular-nums"
-                              value={packRateFor(r.method, mode, r.size_id)}
-                              onChange={(e) =>
-                                setPackRate(r.method, mode, r.size_id, e.target.value)
-                              }
-                            />
+                            {rateInput(r)}
                           </Field>
                         ),
                       },
@@ -20515,8 +20619,26 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                        adds a two-character size beside it and is no wider a
                        question. `narrow` caps the grid at 32rem, which is still
                        4rem clear of the container query that would flip it to
-                       stacked cards — see the prop's note before tightening it. */
-                    narrow
+                       stacked cards — see the prop's note before tightening it.
+
+                       NOW `tableAlways` INSTEAD (client 2026-10-05, screenshots
+                       101402 · 103214: the rate still a full-width box). The
+                       cap above was never the layout this grid got: `narrow`
+                       shows the table only from a 28rem container, and the
+                       Prices tab gives the rates a `minmax(26rem, …)` track —
+                       so it was ALWAYS stacked cards, where the field fills the
+                       card and a column `width` is not read. Every column now
+                       declares a width (Size `hug` + Rate `range` + `#` ≈ 240px),
+                       so the table fits any pane, a phone included, and hugs.
+
+                       AND NO `#` (2026-10-05): the Size column is the row's
+                       label, and the Currency table beside it carries none.
+                       This table now renders only for a per-size mode — a
+                       one-rate mode is a plain field (see the `FieldRow`
+                       above). Price Type `term` + 16px + Size `hug` + Rate
+                       `range` is 392px, inside the 26rem track. */
+                    tableAlways
+                    hideIndex
                     /* THE ROWS ARE THE DATA. A size comes from the styles this
                        method packs, so there is nothing to add or remove here —
                        the lever is the Style(s) tab's size list. `hideAdd` and a
@@ -20536,14 +20658,129 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     hideRemove
                     onRemove={() => {}}
                   />
-                ) : (
+                  </div>
+                ) : sizes.length ? null : (
                   /* An empty state that NAMES A CAUSE ELSEWHERE — the survivor
                      the de-clutter rule keeps. Without it a method whose styles
-                     carry no sizes draws a bare heading and reads as broken. */
-                  <p className="text-xs text-muted-foreground">
+                     carry no sizes draws a bare heading and reads as broken.
+                     Price Type stays beside it: Pack-wise needs no sizes. */
+                  <p className="self-center text-xs text-muted-foreground">
                     The styles in this pack list no sizes yet — add them on
                     Style(s).
                   </p>
+                )}
+                </div>
+                {sized && sizes.length > 0 && (
+                  /* SIZES ACROSS, ONE RATE ROW BENEATH (client 2026-10-05,
+                     screenshot 113543: "packwise size wise kku change panna
+                     approval qty la irukka mari table venum"). The per-size
+                     rates were a `Size | Rate` table, one line per size — ten
+                     sizes made a column ten rows tall. Approval Qty lays the
+                     same size run ACROSS, a token per column, and the operator
+                     asked for that shape here: a size is a column, the rate is
+                     the row.
+
+                     Built from `matrix-grid.ts` — the bands, the size token and
+                     the column rule Assort, the Prices matrix and the Approval
+                     breakup already share — so it is the same look, not a
+                     fourth copy of it. `PriceMatrix` itself is not reused: it
+                     is colour × size and carries a Pieces band and colour
+                     fills that a pack's one rate row has no use for.
+
+                     ITS OWN LINE, under Price Type, not beside it: a kidswear
+                     run is ten sizes, ~800px, which cannot share a line with
+                     the Price Type and Currency tables. `max-w-full
+                     overflow-x-auto` scrolls a longer run inside its own frame,
+                     and the grid track's growth stops at the pane, so nothing
+                     pushes the terms off screen.
+
+                     KEYBOARD: `data-grid-body` + `gridKeyNav` on the grid and
+                     `data-grid-row` on the rate row — ←/→ walk the sizes, Tab
+                     and Enter move along them, exactly as on the Prices
+                     matrix. Every box is `required`, so a blank one holds the
+                     cursor as the old rate column did.
+
+                     NO SCROLLING AT ALL, COLUMNS SPREAD (client 2026-10-05,
+                     screenshot 114558: "move aaga kudathu, space vittu neat
+                     compact aa … scroll bar illamalye move aaguthu"). Hiding
+                     the bar was not enough: the grid was a few pixels wider
+                     than its frame, so Tab into the last size slid the whole
+                     row sideways and cut its edge off. So nothing scrolls —
+                     the frame is `w-full` with no overflow, and every size
+                     column is `minmax(60px, 1fr)`: the run SHARES the width it
+                     is given, evenly, rather than being a fixed strip that
+                     can be a pixel too wide. 60px still holds a token like
+                     1.5/2YRS's box and a rate to two places. The box in each
+                     cell is `min-w-0`, so its ~180px intrinsic width never
+                     pushes a column back out (the trap the Approval breakup
+                     records).
+
+                     AND NOTHING IN IT IS STICKY (screenshot 115247: "corner la
+                     code complete aagala" — the left border and top-left
+                     corner missing). `MATRIX_HEAD` and the row label were
+                     `sticky` for a frame that scrolled; with no scroller here
+                     they stuck to the PAGE instead, sat over the frame's left
+                     edge, and the size header would ride down the pane on a
+                     vertical scroll. `static z-auto` takes both off, and
+                     `overflow-hidden` clips the square cell backgrounds to the
+                     frame's rounded corners. Nothing overflows it to clip. */
+                  <div className="w-full overflow-hidden rounded-lg border border-border">
+                    <div
+                      data-grid-body
+                      className="grid w-full"
+                      style={{
+                        gridTemplateColumns: [
+                          textColPx("Rate / piece *".length, 16, 96, 128) + "px",
+                          ...rows.map(() => "minmax(60px, 1fr)"),
+                        ].join(" "),
+                      }}
+                      onKeyDown={(e) => gridKeyNav(e)}
+                    >
+                      {/* The corner is empty — the row's own name says what it
+                          is, as on the Approval breakup. */}
+                      <div className={cn(MATRIX_HEAD, "static z-auto min-h-[28px] justify-start pl-2")} />
+                      {rows.map((r) => (
+                        <div key={r.key} className={cn(MATRIX_HEAD, "static z-auto min-h-[28px] justify-end pr-2")}>
+                          <span className={MATRIX_SIZE_TOKEN}>{r.name}</span>
+                        </div>
+                      ))}
+                      <div data-grid-row className="contents">
+                        <div
+                          className={cn(
+                            matrixCell("min-h-[36px]"),
+                            "justify-start border-b-0 border-r bg-surface px-2 text-[12.5px] font-semibold text-foreground",
+                          )}
+                        >
+                          {/* The label names the unit — see the Rate column of
+                              the one-rate table for why that is the guard. */}
+                          {perBox ? "Rate / pack" : "Rate / piece"}
+                          <span className="ml-0.5 text-danger">*</span>
+                        </div>
+                        {rows.map((r) => (
+                          <div
+                            key={r.key}
+                            className={cn(matrixCell("min-h-[36px]"), "border-b-0 px-1.5 py-1")}
+                          >
+                            <Input
+                              type="number"
+                              inputMode="decimal"
+                              required
+                              aria-label={`${perBox ? "Rate per pack" : "Rate per piece"} ${r.name}`}
+                              /* Every variant the primitive declares is
+                                 answered — see `CELL_BOX` in price-matrix.tsx
+                                 for why `md:` and `@2xl/editor:` are spelled
+                                 out beside the base. */
+                              className="h-[28px] @2xl/editor:h-[28px] w-full min-w-0 px-1 text-right font-mono text-[12.5px] md:text-[12.5px] tabular-nums"
+                              value={packRateFor(r.method, mode, r.size_id)}
+                              onChange={(e) =>
+                                setPackRate(r.method, mode, r.size_id, e.target.value)
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             );
@@ -20891,7 +21128,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               content is a `w-fit` card inside a `max-w-full` scroller — three
               rules each deferring to the next for a number none of them
               states. */}
-          <div className="@3xl/editor:mt-8 @3xl/editor:w-[21rem] @3xl/editor:shrink-0">
+          {/* THE PACK BRANCH'S BAND IS ITS HEADING, not a button (client
+              2026-10-05, screenshot 104103: the terms table stood lower than
+              the rate table beside it). A pack group opens with the method
+              name — `text-sm`, a 20px line — and the group's 6px `space-y`,
+              so 26px puts both header bands on one line. Two literal classes
+              rather than an interpolated number, so Tailwind emits both. */}
+          <div className={cn("@3xl/editor:w-[21rem] @3xl/editor:shrink-0", packPricingActive ? "@3xl/editor:mt-[1.625rem]" : "@3xl/editor:mt-8")}>
             <ChildGrid<TermsRow>
               columns={[
                 {

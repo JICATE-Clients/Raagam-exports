@@ -4391,7 +4391,11 @@ export function FabricBomScreen({
            `measured` below) — so only the printed word changes; the field
            stays `dia`, unrenamed. */
         header: "Finish Dia",
-        width: "5.5rem",
+        /* 8rem, up from 5.5 (2026-10-05): a stored dia reads `72" Open
+           Width`, ~100px of text plus the ▼ slot. At 5.5rem it only fitted
+           because `fill` was stretching the column; hugging, it would cut
+           the value. */
+        width: "8rem",
         cell: (r) => (
           <Combobox
             compact
@@ -5697,17 +5701,32 @@ export function FabricBomScreen({
    */
   const MANUAL_TRACK: Record<string, string> = {
     Fabric: "minmax(8rem,2fr)",
-    Type: "minmax(6.5rem,1.2fr)",
-    Calculated: "minmax(6.5rem,1.2fr)",
-    "Assort Colour-Wise": "minmax(5.5rem,1fr)",
+    /* 2026-10-05 (client, screenshot 145735: "Assort Colour, EndBit Loss %,
+       Assort Color … table oda maranchirukku"): the three headings were wider
+       than their floors and were cut to "…". Each floor now holds its label
+       on one line at the band's 12px bold sentence case plus the cell's 16px
+       of inset — Assort Colour ~88px, EndBit Loss % ~90px, Assort Color
+       ~80px. Type and Calculated give 0.5rem each back: their values ("Open
+       Width", "Direct") fit 6rem. Floors now sum to 53.75rem, with
+       Calculated fixed at 5.5rem (below). */
+    /* FIXED, NOT `fr` (client 2026-10-05: "roll form and calculate field
+       compact tight"). Both hold a short fixed vocabulary — Roll form "Open
+       Width" / "Tubular", Calculated "Direct" / "Calculated" — so a share of
+       the spare width only padded them; it now goes to Fabric and the rest.
+       6rem holds "Open Width" + the cell inset; 5.5rem holds the
+       "Calculated" heading at 12px bold. */
+    Type: "6rem",
+    Calculated: "5.5rem",
+    "Assort Colour-Wise": "minmax(6.5rem,1fr)",
     "Size Wise": "minmax(4.5rem,0.8fr)",
-    "EndBit Loss %": "minmax(4.5rem,0.9fr)",
+    "EndBit Loss %": "minmax(6.5rem,0.9fr)",
     Components: "minmax(6.75rem,1.1fr)",
-    "Assort Color": "minmax(4.5rem,0.9fr)",
+    "Assort Color": "minmax(6rem,0.9fr)",
   };
   /** The ✕ track, headed "Actions" since 2026-10-03 (`erp-sheet-grid`):
    *  the word at 12px plus the sheet cell's 8px insets needs 4rem, and the
-   *  32px chip box sits centred in it. The floors above now sum to 50.75rem. */
+   *  32px chip box sits centred in it. The floors above sum to 53.75rem
+   *  (2026-10-05; see the note on the three heading floors). */
   const MANUAL_REMOVE_TRACK = "4rem";
   const manualGridCols = (withRemove: boolean) =>
     [
@@ -5827,43 +5846,54 @@ export function FabricBomScreen({
             every tab top. This is legacy's labelled band, asked for by name a
             few hours later. A sentence describing the screen and a record
             header naming three stored values are not the same thing. */}
-        <StyleIdentityBand
-          styleRefNo={styleRow.style_ref_no}
-          identity={styleIdentityFor(styleRow.style_ref_no)}
-          /* ARTICLE NO, THEN STYLE REF NO, DROPPED (client 2026-09-04, two
-             messages on this exact band: first "Article No ... no need in
-             header style listing, remove it", then "Style Ref No — this
-             field also sno need remove it"). Now `omit={["ref", "article"]}`
-             — the SAME omit the Components tab passes one caller up, so the
-             two bands that were deliberately allowed to diverge have
-             converged back to matching by coincidence of two separate asks,
-             not because they were re-unified on purpose. Style No is the
-             only field left on either band. */
-          omit={["ref", "article"]}
-        />
-        {/* RE-SYNC FROM PATTERN SHEET (user 2026-09-26) — only where the
+        {/* THE STYLE BAND AND THE PATTERN SHEET ACTIONS SHARE ONE ROW (client
+            2026-10-05, screenshot 150450: "itha rendayum eduthu antha line kku
+            mela vai"). "Pattern: Ready" and "Re-sync from Pattern Sheet" sat on
+            a row of their own UNDER the band's hairline; they now stand at the
+            right end of it, and the hairline (the band's `flex-1` filler) runs
+            up to them. Without a Pattern Sheet for this style the band is
+            alone and its line runs the full width, as before.
+
+            RE-SYNC FROM PATTERN SHEET (user 2026-09-26) — only where the
             order's Pattern Sheet has lines for this style. Replaces the matched
             fabrics' Type of Parts, Colour, Roll form, Size Wise, Dia and grams
             with the sheet's latest; nothing else on the entry is touched. */}
-        {patternHasStyle(styleRow.style_ref_no) && (
-          <div className="flex items-center justify-end gap-3">
-            {(() => {
-              const st = patternStatusOf(styleRow.style_ref_no);
-              if (!st) return null;
-              return st.value === "ready" ? (
-                <span className="text-xs text-muted-foreground">Pattern: Ready</span>
-              ) : (
-                <span className="text-xs text-amber-700 dark:text-amber-400">
-                  Pattern: {st.label} — not Ready yet
-                </span>
-              );
-            })()}
-            {/* toolbar-size: exempt -- a pane action inside the Manual tab, not a list header row. */}
-            <Button type="button" variant="outline" size="sm" onClick={() => resyncFromPattern(styleRow.style_ref_no)}>
-              Re-sync from Pattern Sheet
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <StyleIdentityBand
+            className="min-w-0 flex-1"
+            styleRefNo={styleRow.style_ref_no}
+            identity={styleIdentityFor(styleRow.style_ref_no)}
+            /* ARTICLE NO, THEN STYLE REF NO, DROPPED (client 2026-09-04, two
+               messages on this exact band: first "Article No ... no need in
+               header style listing, remove it", then "Style Ref No — this
+               field also sno need remove it"). Now `omit={["ref", "article"]}`
+               — the SAME omit the Components tab passes one caller up, so the
+               two bands that were deliberately allowed to diverge have
+               converged back to matching by coincidence of two separate asks,
+               not because they were re-unified on purpose. Style No is the
+               only field left on either band. */
+            omit={["ref", "article"]}
+          />
+          {patternHasStyle(styleRow.style_ref_no) && (
+            <div className="flex shrink-0 items-center gap-3">
+              {(() => {
+                const st = patternStatusOf(styleRow.style_ref_no);
+                if (!st) return null;
+                return st.value === "ready" ? (
+                  <span className="text-xs text-muted-foreground">Pattern: Ready</span>
+                ) : (
+                  <span className="text-xs text-amber-700 dark:text-amber-400">
+                    Pattern: {st.label} — not Ready yet
+                  </span>
+                );
+              })()}
+              {/* toolbar-size: exempt -- a pane action inside the Manual tab, not a list header row. */}
+              <Button type="button" variant="outline" size="sm" onClick={() => resyncFromPattern(styleRow.style_ref_no)}>
+                Re-sync from Pattern Sheet
+              </Button>
+            </div>
+          )}
+        </div>
 
         {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE, THE COMPONENTS TAB'S OWN
             SHAPE (client 2026-09-03: "now we need to apply this rail ui
@@ -6274,10 +6304,28 @@ export function FabricBomScreen({
                     <div
                       key={c.header + ci}
                       /* `flex items-end` so a heading that wraps grows UPWARD
-                         and its last line stays on the band's baseline. */
+                         and its last line stays on the band's baseline.
+                         READS LIKE FABRIC ALLOCATION'S (client 2026-10-05,
+                         screenshots 144235 · 145050): the same
+                         `GRID_HEADER_TEXT` size, weight and colour, left-
+                         aligned, with the case and tracking reset to sentence
+                         case in globals.css (`[data-sheet-row="head"] > *`).
+                         `text-xs` (12px), one step under the constant's
+                         12.5px (client 2026-10-05: "heading text size konjam
+                         kammi pannu") — `cn` is twMerge, so it replaces the
+                         constant's size and keeps its weight and colour. The
+                         size grid below takes the same via `headerClassName`. */
                       className={cn(
-                        "flex min-w-0 items-end break-words leading-tight",
+                        /* `!whitespace-normal !overflow-visible`: a heading
+                           WRAPS to a second line rather than being cut to
+                           "…" (client 2026-10-05, screenshot 145735). The
+                           sheet-rows CSS sets one line + ellipsis on every
+                           head cell, unlayered, so only an `!important`
+                           utility outranks it. `items-end` keeps the last
+                           line on the band's baseline. */
+                        "flex min-w-0 items-end break-words leading-tight !whitespace-normal !overflow-visible",
                         GRID_HEADER_TEXT,
+                        "text-xs",
                       )}
                     >
                       {c.cardLabel ?? c.header}
@@ -6287,7 +6335,7 @@ export function FabricBomScreen({
                     /* The ✕ column's header — "Actions", as on every sheet
                        grid (`erp-sheet-grid`: a named header for EVERY
                        column). Same track as the cell below it. */
-                    <div className={cn("flex min-w-0 items-end leading-tight", GRID_HEADER_TEXT)}>
+                    <div className={cn("flex min-w-0 items-end leading-tight", GRID_HEADER_TEXT, "text-xs")}>
                       Actions
                     </div>
                   )}
@@ -6399,7 +6447,18 @@ export function FabricBomScreen({
                   pane can be narrower than the columns' 47.5rem, and `sheet`
                   alone would let the table run past it instead of shrinking. No
                   "Actions": the rows are the order's sizes (`hideRemove`). */}
-              <div data-grid-style="sheet" data-grid-fit="fill">
+              {/* NO `data-grid-fit="fill"` ANY MORE (client 2026-10-05,
+                  screenshot 144344: "text field ku set aagaramari compact").
+                  `fill` made the table 100% of the pane with `auto` layout, so
+                  every column was stretched — Cons Wt "266" in a ~300px cell —
+                  and the declared widths in `sizeColumns` meant nothing. Every
+                  column declares a width, so without `fill` the table hugs
+                  (`table-fixed`, the erp-sheet-grid form) and each column is
+                  as wide as its value. THE TRADE `fill` was bought for: a pane
+                  narrower than the visible columns now runs the table past
+                  it instead of squeezing — the four-column default is ~24rem,
+                  far inside even the rail-reduced detail pane. */}
+              <div data-grid-style="sheet" className="[&_table]:table-fixed">
               <ChildGrid<ManualDisplayRow>
                 /* grid-caption: exempt -- the fabric card above is the
                    caption; a second heading here would name the same thing
@@ -6433,9 +6492,13 @@ export function FabricBomScreen({
                    inside what the detail pane has even after 268px goes to
                    the rail — this grid's own declared widths sum to 47.5rem
                    (760px), so the table fits with room spare rather than
-                   scrolling sideways. `centerHeaders` stays: it only matters
-                   once the table is actually showing. */
-                centerHeaders
+                   scrolling sideways.
+
+                   NO `centerHeaders` (client 2026-10-05, screenshot 145050):
+                   the headings read like Fabric Allocation's — sentence case,
+                   bold, LEFT-aligned over their values. `text-xs` matches the
+                   entry band's headings above (one step under 12.5px). */
+                headerClassName="text-xs"
                 /* THE FALLBACK, NOT THE NORMAL PATH ANY MORE — for whatever
                    narrower surface still lands below `@lg`. ONE COMPACT ROW,
                    sized by `SIZE_FIELD_SIZES` after a flat `xs` overlapped

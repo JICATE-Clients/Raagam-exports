@@ -7,7 +7,7 @@ import { ChevronDown, Info, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Field, FieldRow, FIELD_WIDTH, RequiredScope, type FieldWidth } from "@/components/ui/field";
+import { Field, FIELD_WIDTH_CSS, RequiredScope, type FieldWidth } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { Select } from "@/components/ui/select";
@@ -33,8 +33,6 @@ import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
-import { DetailSection } from "@/components/masters/detail-section";
-import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -133,6 +131,23 @@ const DETAIL_FIELD_W = {
   shade: "code", //           144px
 } satisfies Record<DetailFieldKey, FieldWidth>;
 
+/** The sheet's column headers for the generic detail fields — the labels
+ *  `detailControl` drew above each box before the sheet layout (2026-10-05).
+ *  `material_type` is named at the call site: "Transaction Type" on an
+ *  accessory class, "Type" elsewhere. */
+const DETAIL_LABELS: Record<DetailFieldKey, string> = {
+  category_id: "Category",
+  sub_category_id: "Sub Category",
+  item_type_name: "Item Type",
+  item_base_name: "Item Name",
+  material_type: "Type",
+  specifications: "Description",
+  short_spec: "Short Spec",
+  count_id: "Count",
+  purity_id: "Purity",
+  shade: "Shade",
+};
+
 /**
  * The editor body AND the footer's button box, from ONE string:
  *
@@ -145,25 +160,97 @@ const DETAIL_FIELD_W = {
  */
 const FORM_W = "max-w-[73rem]";
 
+
 /**
- * The identity row above the body — Item Class · Name · HSN Code, all three at
- * a vocabulary step (client 2026-09-26: Name "compact tight" too).
+ * THE EDITOR IS A SPREADSHEET (client 2026-10-05, design "D · Full sheet" on the
+ * Edit Material Compact artboard: "D ok, ella field um cover aagramari … apply
+ * pannidu"). Each block of the record is one ruled table — a group band, a
+ * header row that IS the label, one row of values — inside the app's
+ * `data-grid-style="sheet"` look (erp-sheet-grid), so a cell's control carries
+ * no box of its own and the gridline is the box.
  *
- *   item class 200 + name 288 + hsn 144 + 2 × 12 gaps = 656
+ * THE COLUMN'S WIDTH IS THE FIELD'S STEP, unchanged: every `w` below is the
+ * same `FieldWidth` the screen gave that field as a labelled box, so the sheet
+ * is exactly as wide as the row it replaced. `table-fixed` + a `<colgroup>`
+ * makes those widths binding — under auto layout a column re-splits as values
+ * are typed (the 2026-09-17 Components lesson).
  *
- * NAME WAS BRIEFLY THE ROW'S REMAINDER (≥ 288px) and the client narrowed it the
- * same day. The cost is known and accepted: a composed name runs to ~67
- * characters — `SOLID SINGLE JERSEY (24'S COMBED COTTON 95%, 20'S ELASTANE 5%)
- * 100%` (fabric-name.ts), ~600px — so it scrolls inside 288px, and for the
- * attribute-driven classes and General the box is read-only. `title` on the
- * input is what keeps the whole name readable on hover. Do not widen it back
- * without the client asking.
+ * THE `*` IS NOT A SECOND DECLARATION. `required` on a column is the same
+ * `req(...)` call that the cell's control receives (`<Field required>` or the
+ * picker's own `required`), so the star and the cursor hold still come from one
+ * fact — the header just stands where the label used to.
+ *
+ * `overflowX` INLINE, NOT `overflow-x-auto`: the sheet CSS deliberately turns
+ * every `.overflow-x-auto` inside it to `visible` (ChildGrid's phantom bar).
+ * This wrapper is the one place a real overflow can happen — a melange Fabric
+ * with its Shade column is wider than the form — so it scrolls in its own box
+ * there rather than running off the pane.
  */
-const IDENTITY_W = {
-  item_class: "party", // 200px — "PACKING ACCESSORIES", the longest of seven
-  name: "name", //       288px — free text; long composed names scroll, see above
-  hsn: "code", //        144px — 8 digits + the picker's own manage icon
-} satisfies Record<string, FieldWidth>;
+/**
+ * A column's width: a vocabulary step, or — where design D drew a width between
+ * two steps (Item Class 160, Name 250, Purity 104, Fabric's Type 132) — a
+ * literal rem. The design is the source for those; a step is used wherever the
+ * design and a step agree.
+ */
+type SheetWidth = FieldWidth | `${number}rem`;
+const sheetW = (w: SheetWidth) => (w in FIELD_WIDTH_CSS ? FIELD_WIDTH_CSS[w as FieldWidth] : w);
+
+type SheetCol = { key: string; head: ReactNode; required?: boolean; w: SheetWidth; cell: ReactNode };
+/** `tone` colours the group band — design D gives each block its own:
+ *  identity green, classification blue, composition sand, units purple
+ *  (`[data-band]` in globals.css, with a dark-mode pair). */
+type SheetTone = "identity" | "classification" | "composition" | "uom";
+type SheetGroup = { label: string; tone?: SheetTone; cols: SheetCol[] };
+
+function SheetTable({ groups }: { groups: SheetGroup[] }) {
+  const cols = groups.flatMap((g) => g.cols);
+  if (cols.length === 0) return null;
+  return (
+    <div className="max-w-full" style={{ overflowX: "auto" }}>
+      <table
+        className="table-fixed text-sm"
+        style={{ width: `calc(${cols.map((c) => sheetW(c.w)).join(" + ")})` }}
+      >
+        <colgroup>
+          {cols.map((c) => (
+            <col key={c.key} style={{ width: sheetW(c.w) }} />
+          ))}
+        </colgroup>
+        <thead>
+          {/* No band when no group is named — a table that is one block under a
+              section title already has its name. */}
+          {groups.some((g) => g.label) && (
+          <tr>
+            {groups
+              .filter((g) => g.cols.length > 0)
+              .map((g) => (
+                <th key={g.label} colSpan={g.cols.length} data-band={g.tone} className="text-left text-[11px] font-semibold">
+                  {g.label}
+                </th>
+              ))}
+          </tr>
+          )}
+          <tr>
+            {cols.map((c) => (
+              <th key={c.key} className="text-left text-xs font-semibold text-foreground">
+                {c.head}
+                {/* required-star: exempt -- drawn from the column's `required`, which is the same req() call the cell's control is given (see the note above) */}
+                {c.required && <span className="ml-0.5 text-danger">*</span>}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {cols.map((c) => (
+              <td key={c.key}>{c.cell}</td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const BLANK = {
   code: "",
@@ -1242,12 +1329,16 @@ export function MaterialMasterScreen({
   }, [formKey, units]);
   const baseUomLimit = classBaseUomId ? new Set([classBaseUomId]) : uomLimit;
 
-  function detailField(key: DetailFieldKey): ReactNode {
-    return (
-      <Field key={key} w={DETAIL_FIELD_W[key]}>
-        {detailControl(key)}
-      </Field>
-    );
+  /** A generic class's detail field as a sheet column — the header carries the
+   *  label `detailControl` used to draw above the box. */
+  function detailCol(key: DetailFieldKey): SheetCol {
+    const head =
+      key === "material_type"
+        ? isAccessoryClass(selectedClassCode)
+          ? "Transaction Type"
+          : "Type"
+        : DETAIL_LABELS[key];
+    return { key, head, required: req(key), w: DETAIL_FIELD_W[key], cell: detailControl(key) };
   }
 
   function detailControl(key: DetailFieldKey): ReactNode {
@@ -1257,6 +1348,7 @@ export function MaterialMasterScreen({
           <CategoryPicker
             key={key}
             label="Category"
+            compact
             // Every class requires a Category — it is in all five entries of
             // `REQUIRED_BY_FORM` — but this path, which renders the WHOLE
             // Classification section for General, Sewing/Packing and Capital
@@ -1286,17 +1378,20 @@ export function MaterialMasterScreen({
         const isAccessory = isAccessoryClass(selectedClassCode);
         const typeOptions = isAccessory ? MATERIAL_TYPES.filter((t) => t !== "Production") : MATERIAL_TYPES;
         return (
-          <div key={key}>
-            <Label>{isAccessory ? "Transaction Type" : "Type"}</Label>
-            <Select value={form.material_type} onChange={(e) => set({ material_type: e.target.value })} className="text-base md:text-sm">
-              <option value=""></option>
-              {typeOptions.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <Select
+            key={key}
+            aria-label={isAccessory ? "Transaction Type" : "Type"}
+            value={form.material_type}
+            onChange={(e) => set({ material_type: e.target.value })}
+            className="text-base md:text-sm"
+          >
+            <option value=""></option>
+            {typeOptions.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
         );
       }
       case "sub_category_id":
@@ -1305,69 +1400,57 @@ export function MaterialMasterScreen({
         // defined a second level, so meeting a new one mid-material meant
         // abandoning the form for the Category master.
         return (
-          <div key={key}>
-            <Label htmlFor="mt-sub-category">Sub Category</Label>
-            <CreatableSubCategoryField
-              id="mt-sub-category"
-              value={form.sub_category_id}
-              options={subCategoryOptions}
-              onChange={(v) => set({ sub_category_id: v })}
-              onCreate={createSubCategoryInline}
-              canCreate={perms.canCreate}
-            />
-          </div>
+          <CreatableSubCategoryField
+            key={key}
+            id="mt-sub-category"
+            value={form.sub_category_id}
+            options={subCategoryOptions}
+            onChange={(v) => set({ sub_category_id: v })}
+            onCreate={createSubCategoryInline}
+            canCreate={perms.canCreate}
+          />
         );
       case "item_type_name":
         // General only — the third segment of the composed Name (see
         // suggestedName). Free text: the client's consumables aren't a list
         // anyone maintains, they are whatever was bought this month.
         return (
-          <div key={key}>
-            <Label htmlFor="mt-item-type">
-              Item Type
-              {req("item_type_name") && <span className="ml-0.5 text-danger">*</span>}
-            </Label>
-            <Input
-              id="mt-item-type"
-              uppercase
-              placeholder="BRUSH"
-              // Mandatory on GENERAL — it is the second segment of the composed
-              // Name, so a General material without it cannot be named. The star
-              // and the hold both come from this one call, as everywhere else.
-              required={req("item_type_name")}
-              value={form.item_type_name}
-              onChange={(e) => set({ item_type_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <Input
+            key={key}
+            id="mt-item-type"
+            aria-label="Item Type"
+            uppercase
+            placeholder="BRUSH"
+            // Mandatory on GENERAL — it is the second segment of the composed
+            // Name, so a General material without it cannot be named. The star
+            // (the column header, `detailCol`) and the hold both come from
+            // this one `req` call, as everywhere else.
+            required={req("item_type_name")}
+            value={form.item_type_name}
+            onChange={(e) => set({ item_type_name: e.target.value })}
+            className="text-base md:text-sm"
+          />
         );
       case "item_base_name":
         return (
-          <div key={key}>
-            <Label htmlFor="mt-item-name">Item Name</Label>
-            <Input
-              id="mt-item-name"
-              uppercase
-              placeholder="NYLON 4 INCH"
-              value={form.item_base_name}
-              onChange={(e) => set({ item_base_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <Input
+            key={key}
+            id="mt-item-name"
+            aria-label="Item Name"
+            uppercase
+            placeholder="NYLON 4 INCH"
+            value={form.item_base_name}
+            onChange={(e) => set({ item_base_name: e.target.value })}
+            className="text-base md:text-sm"
+          />
         );
       case "specifications":
         return (
-          <div key={key}>
-            <Label>Description</Label>
-            <Input uppercase value={form.specifications} onChange={(e) => set({ specifications: e.target.value })} className="text-base md:text-sm" />
-          </div>
+          <Input key={key} aria-label="Description" uppercase value={form.specifications} onChange={(e) => set({ specifications: e.target.value })} className="text-base md:text-sm" />
         );
       case "short_spec":
         return (
-          <div key={key}>
-            <Label>Short Spec</Label>
-            <Input uppercase value={form.short_spec} onChange={(e) => set({ short_spec: e.target.value })} className="text-base md:text-sm" />
-          </div>
+          <Input key={key} aria-label="Short Spec" uppercase value={form.short_spec} onChange={(e) => set({ short_spec: e.target.value })} className="text-base md:text-sm" />
         );
       case "count_id":
         return (
@@ -1375,6 +1458,7 @@ export function MaterialMasterScreen({
             key={key}
             kind="yarn_count"
             label="Count"
+            compact
             // Mandatory on YARN only, and `req` already knows that — Count is
             // meaningless on a General, which is exactly why requiredness here
             // cannot live in the Zod schema and goes through REQUIRED_BY_FORM.
@@ -1392,6 +1476,7 @@ export function MaterialMasterScreen({
             key={key}
             kind="yarn_purity"
             label="Purity"
+            compact
             options={purities}
             value={form.purity_id}
             onChange={(v) => set({ purity_id: v })}
@@ -1401,10 +1486,7 @@ export function MaterialMasterScreen({
         );
       case "shade":
         return (
-          <div key={key}>
-            <Label>Shade</Label>
-            <Input uppercase value={form.shade} onChange={(e) => set({ shade: e.target.value })} className="text-base md:text-sm" />
-          </div>
+          <Input key={key} aria-label="Shade" uppercase value={form.shade} onChange={(e) => set({ shade: e.target.value })} className="text-base md:text-sm" />
         );
     }
   }
@@ -1654,12 +1736,18 @@ export function MaterialMasterScreen({
       return (
         <ChildGrid<MixRow>
           lockExisting
-          inlineCards
-          frameless
-          // This grid SHARES its row with the Using field beside it, so its rows
-          // have to line up with that field's control rather than sit in cards
-          // 17px lower. See `flushRows` in child-grid.tsx for the arithmetic.
-          flushRows
+          /* A SHEET TABLE SINCE 2026-10-05 (the Edit Material sheet layout).
+             It was `inlineCards` + `flushRows`, which existed to line its rows
+             up with the Using field BESIDE it; Using is now a column of the
+             sheet row ABOVE it, so there is nothing to line up with. An
+             `inlineCards` grid has no <table>, so the sheet look could not
+             reach it (erp-sheet-grid); `tableAlways` with every column sized
+             is the table that hugs: Yarn `name` + Mixing % ≈ 440px. */
+          tableAlways
+          removeHeader="Actions"
+          /* The blend status ("83% of 100%") that sat on the Composition
+             card's header; the card is gone (design D), so it rides here. */
+          badge={fabricMixHeader ?? undefined}
           // Shown ONLY while the grid is empty, in the slot the column headers
           // take once a row exists — `flushRows` allows one band and no more.
           // So the caption sits directly above "+ Add row" where the operator
@@ -1668,7 +1756,6 @@ export function MaterialMasterScreen({
           // It is NOT the section's title line: a caption parked at the far
           // right of "COMPOSITION" read as belonging to the section, not to the
           // grid under it.
-          label="Attributes (Mixing)"
           rows={mixings}
           onAdd={addMix}
           hideAdd={isSingleYarnFabric && mixings.length >= 1}
@@ -1676,6 +1763,7 @@ export function MaterialMasterScreen({
           columns={[
             {
               header: "Yarn",
+              width: FIELD_WIDTH_CSS.name,
               // A Fabric IS its yarn composition, so this is the mandatory field
               // — declared ONCE and drawing both halves: the red `*` on the
               // column header and the cursor hold on an empty cell. It replaces
@@ -1714,7 +1802,9 @@ export function MaterialMasterScreen({
         lockExisting
         label="Mixing"
         badge={pctBadge}
-        inlineCards
+        /* A sheet table since 2026-10-05 — see the Fabric variant above. */
+        tableAlways
+        removeHeader="Actions"
         rows={mixings}
         onAdd={addMix}
         onRemove={(m) => delMix(m.key)}
@@ -1736,7 +1826,7 @@ export function MaterialMasterScreen({
           // Ctrl+Del is the exit, as on the Fabric grid: an extra row added by
           // mistake cannot be filled or tabbed out of, and Tab stopped visiting
           // the row's ✕ when it began landing on fields only.
-          { header: "Yarn", required: true, cell: compCell },
+          { header: "Yarn", width: FIELD_WIDTH_CSS.name, required: true, cell: compCell },
           { header: "Mixing %", align: "center", width: "5rem", required: true, cell: (m) => <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMixPct(m.key, e.target.value)} className="text-center" /> },
           { header: "Shade", width: "7rem", cell: (m) => <Input uppercase placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} /> },
         ]}
@@ -1751,145 +1841,228 @@ export function MaterialMasterScreen({
    *    other class's Category, just labeled "Structure" here. Picking it also
    *    derives the fabric_structure_id (Circular/Flat/Woven) off the category
    *    row and auto-fills the UOM (0279 #17/#18) — no separate Type picker. */
-  function fabricDetails() {
+  /** Yarn's Classification as sheet columns — Yarn Type · Count · Category ·
+   *  Purity, then Shade (melange yarn only) and Nature (read-only, from the
+   *  Category). Same four-across order the client chose on 2026-08-05, now as
+   *  the CLASSIFICATION band of the top table (2026-10-05). Mixing still shows
+   *  for a Mixed-nature Category OR a Twisted / Doubling / Melange Yarn Type —
+   *  see `yarnMixingVisible` at the render root. */
+  function yarnClassCols(): SheetCol[] {
+    const nature = selectedCategory?.made ?? null;
+    const ytName = yarnTypes.find((y) => y.id === form.yarn_type_id)?.name?.toLowerCase() ?? null;
+    return [
+      {
+        key: "yarn_type_id",
+        head: "Yarn Type",
+        required: req("yarn_type_id"),
+        w: FIELD_W.yarn_type,
+        cell: (
+          <LookupDialogPicker
+            kind="yarn_type"
+            label="Yarn Type"
+            compact
+            required={req("yarn_type_id")}
+            options={yarnTypes}
+            value={form.yarn_type_id}
+            onChange={handleYarnTypeChange}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+          />
+        ),
+      },
+      {
+        key: "count_id",
+        head: "Count",
+        required: req("count_id"),
+        w: "hug",
+        cell: (
+          <LookupDialogPicker
+            kind="yarn_count"
+            label="Count"
+            compact
+            required={req("count_id")}
+            options={counts}
+            value={form.count_id}
+            onChange={(v) => set({ count_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+          />
+        ),
+      },
+      {
+        key: "category_id",
+        head: "Category",
+        required: req("category_id"),
+        w: FIELD_W.category,
+        cell: (
+          <CategoryPicker
+            label="Category"
+            compact
+            required={req("category_id")}
+            categories={scopedCategories}
+            value={form.category_id}
+            onChange={(v) => set({ category_id: v })}
+            itemClassId={form.item_class_id}
+            selectedClassCode={selectedClassCode}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+            levies={levies}
+            fabricStructures={fabricStructures}
+          />
+        ),
+      },
+      {
+        key: "purity_id",
+        head: "Purity",
+        w: "6.5rem",
+        cell: (
+          <LookupDialogPicker
+            kind="yarn_purity"
+            label="Purity"
+            compact
+            options={purities}
+            value={form.purity_id}
+            onChange={(v) => set({ purity_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+          />
+        ),
+      },
+      // Both conditional and both LAST, as on the old row: Melange yarn carries
+      // its shade (client 2026-07-23); Nature is read-only, from the Category.
+      ...(ytName === "melange"
+        ? [
+            {
+              key: "shade",
+              head: "Shade",
+              w: FIELD_W.shade,
+              cell: (
+                <Input uppercase aria-label="Shade" id="mt-yarn-shade" value={form.shade} onChange={(e) => set({ shade: e.target.value })} />
+              ),
+            },
+          ]
+        : []),
+      ...(nature
+        ? [{ key: "nature", head: "Nature", w: FIELD_W.nature, cell: <Truncated text={nature} className="text-muted-foreground" /> }]
+        : []),
+    ];
+  }
+
+  /** Fabric's Classification as sheet columns — Structure · Type · Fabric Type,
+   *  then Shade on a Melange fabric. The reasoning each field carried as a
+   *  labelled box still holds:
+   *  - STRUCTURE IS MANDATORY and is what makes Type satisfiable — Type is
+   *    read-only and derived from the picked category's structure, so it can
+   *    never hold the cursor itself; requiring its SOURCE is the contract's
+   *    answer (client 2026-08-04).
+   *  - FABRIC TYPE IS A PLAIN SELECT ON PURPOSE, not a picker: code branches on
+   *    the value's NAME (`yarn dyed`, `melange`), so a type added or renamed
+   *    from here would silently break the Shade field and the Mixing rules. */
+  function fabricClassCols(): SheetCol[] {
+    const melange = fabricTypeLabel.get(form.fabric_type_id)?.toLowerCase() === "melange";
+    return [
+      {
+        key: "structure",
+        head: "Structure",
+        required: req("category_id"),
+        w: FIELD_W.structure,
+        cell: (
+          <CategoryPicker
+            label="Structure"
+            compact
+            required={req("category_id")}
+            categories={scopedCategories}
+            value={form.category_id}
+            onChange={handleFabricCategoryChange}
+            itemClassId={form.item_class_id}
+            selectedClassCode={selectedClassCode}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+            levies={levies}
+            fabricStructures={fabricStructures}
+          />
+        ),
+      },
+      {
+        key: "fabric_structure",
+        head: (
+          <span className="inline-flex items-center gap-1">
+            Type
+            <span
+              title="Circular Knit, Flat Knit or Woven — comes from the Structure/category and fixes the units: Circular Knit = KGS, Flat Knit = NOS with KGS alternative, Woven = MTR with KGS alternative."
+              className="cursor-help text-muted-foreground"
+            >
+              <Info className="h-3.5 w-3.5" />
+            </span>
+          </span>
+        ),
+        w: "8.25rem",
+        cell: (
+          <Truncated
+            text={fabricStructures.find((s) => s.id === form.fabric_structure_id)?.name ?? "—"}
+            className="text-muted-foreground"
+          />
+        ),
+      },
+      {
+        key: "fabric_type_id",
+        head: (
+          <span className="inline-flex items-center gap-1">
+            Fabric Type
+            <span title="Solid, Yarn Dyed or Melange — determines the dyeing PO type." className="cursor-help text-muted-foreground">
+              <Info className="h-3.5 w-3.5" />
+            </span>
+          </span>
+        ),
+        required: req("fabric_type_id"),
+        w: "8.25rem",
+        cell: (
+          <Select
+            id="mt-fabric-type"
+            aria-label="Fabric Type"
+            required={req("fabric_type_id")}
+            value={form.fabric_type_id}
+            onChange={(e) => handleFabricTypeChange(e.target.value)}
+          >
+            <option value=""></option>
+            {fabricTypes
+              .filter((t) => t.is_active || t.id === form.fabric_type_id)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+          </Select>
+        ),
+      },
+      ...(melange
+        ? [
+            {
+              key: "shade",
+              head: "Shade",
+              w: FIELD_W.shade,
+              cell: (
+                <Input uppercase aria-label="Shade" id="mt-fabric-shade" value={form.shade} onChange={(e) => set({ shade: e.target.value })} />
+              ),
+            },
+          ]
+        : []),
+    ];
+  }
+
+  /** Fabric's Composition — Using · Direct Purchase · the component yarns.
+   *  Its Classification fields (Structure · Type · Fabric Type · Shade) moved
+   *  into the sheet's top table on 2026-10-05; see `fabricClassCols`. */
+  function fabricComposition() {
     return (
       <>
-        {/* Organized fabric layout (doc/ui/New Material Fabric - Organized
-            Layout.html): Classification as one content-width row, with the
-            long hints tucked into ⓘ tooltips; Mixing nests INSIDE Composition
-            (it IS the composition), never in the right column. The section sits
-            in the LEFT column of the two-column split, exactly as the mockup
-            draws it, and its three fields share ONE row (client 2026-08-04,
-            asked three times) — 552px, see FIELD_W. */}
-        <DetailSection label="Classification" cols={1}>
-          <FieldRow>
-            <Field w={FIELD_W.structure}>
-              <CategoryPicker
-                label="Structure"
-                // `DataPicker` would otherwise draw "— Select Structure —"
-                // (~182px) inside a 181px field, so the noun clips off the end.
-                // LAYOUT.md §5a already prescribes the short form for a blank
-                // option, and the label above this box says "Structure" — the
-                // noun in the placeholder was redundant at any width.
-                // MANDATORY, and it always was — `category_id` has been in
-                // FABRIC's `REQUIRED_BY_FORM` set from the start, so Save was
-                // already blocked without it. The picker just never carried the
-                // prop, so the field drew no `*` and never held: required in the
-                // logic, silent in the UI (client 2026-08-04).
-                //
-                // Requiring THIS is also what makes Type satisfiable. Type is
-                // read-only and derived from the picked category's structure, so
-                // it can never be required itself — a hold on a field the
-                // operator cannot type into is a cage with no keyboard exit. The
-                // contract's answer is to require the SOURCE, and Structure is
-                // the source; fill it and Type fills itself.
-                required={req("category_id")}
-                categories={scopedCategories}
-                value={form.category_id}
-                onChange={handleFabricCategoryChange}
-                itemClassId={form.item_class_id}
-                selectedClassCode={selectedClassCode}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-                levies={levies}
-                fabricStructures={fabricStructures}
-              />
-            </Field>
-            {/* THREE FIELDS ON ONE ROW (client 2026-08-04, asked three times),
-                each at `term` (176px). Do not widen one to a name's width: the
-                failure everyone remembers — Type and Fabric Type starved, neither
-                placeholder fitting — was 133px, and the signed-off mockup lays
-                three ~175px fields across this same half-width column. */}
-            <Field w={FIELD_W.fabric_structure}>
-              {/* Fabric "Type" — Circular Knit/Flat Knit/Woven. Derived from the
-                  picked Structure/category (which already carries its structure,
-                  set in the Category child) and shown read-only — no separate
-                  list to pick from here (user 2026-07-24). */}
-              <Label htmlFor="mt-fabric-structure" className="flex items-center gap-1">
-                Type
-                <span title="Circular Knit, Flat Knit or Woven — comes from the Structure/category and fixes the units: Circular Knit = KGS, Flat Knit = NOS with KGS alternative, Woven = MTR with KGS alternative." className="cursor-help text-muted-foreground">
-                  <Info className="h-3.5 w-3.5" />
-                </span>
-              </Label>
-              {/* `truncate` used to sit on THIS div, which is `flex` — so it
-                  clipped the flex ITEM, never the text, and the placeholder
-                  "— Select —" ran straight out of the box and over
-                  Fabric Type beside it (client 2026-08-04). `min-w-0` is the
-                  other half: a flex child will not shrink below its content
-                  width without it, so even a correct `truncate` inside would
-                  have had nothing to shrink into.
-
-                  `Truncated` rather than a bare `truncate` span, per the standing
-                  rule — an ellipsis is a promise the rest is reachable, and this
-                  is a real value (a structure name) that can genuinely be cut. */}
-              <div
-                id="mt-fabric-structure"
-                className="flex h-9 min-w-0 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground"
-              >
-                <Truncated
-                  text={
-                    fabricStructures.find((s) => s.id === form.fabric_structure_id)?.name ??
-                    "— Select —"
-                  }
-                  className="min-w-0"
-                />
-              </div>
-            </Field>
-            {/* The third of the row — see the note above Type. */}
-            <Field w={FIELD_W.fabric_type}>
-              {/* Fixed 3-value classification (Solid/Yarn Dyed/Melange) — plain
-                  dropdown, no Add/Modify/Delete (client 2026-07-23, Screenshot
-                  2070): users must pick, never grow this list.
-
-                  Deliberately NOT converted to a picker in the 2026-07-31 sweep
-                  that gave Count / Purity / Category theirs, and the reason is
-                  structural rather than a preference: code branches on this
-                  value's NAME — `.includes("yarn") && .includes("dyed")` (:637)
-                  and `=== "melange"` (:468, :1335) gate the Shade field and the
-                  Mixing grid's rules. A type added here would do nothing, and a
-                  type RENAMED here would silently break both. Widen this list
-                  only alongside the branches that read it. */}
-              <Label htmlFor="mt-fabric-type" className="flex items-center gap-1">
-                Fabric Type <span className="text-danger">*</span>
-                <span title="Solid, Yarn Dyed or Melange — determines the dyeing PO type." className="cursor-help text-muted-foreground">
-                  <Info className="h-3.5 w-3.5" />
-                </span>
-              </Label>
-              <Select
-                id="mt-fabric-type"
-                // The `*` above was hand-drawn and nothing backed it: the field
-                // was in FABRIC's required set and blocked Save, but the control
-                // never held, so the operator saw a mandatory marker and Tab
-                // walked straight past it. Same declaration, same source.
-                required={req("fabric_type_id")}
-                value={form.fabric_type_id}
-                onChange={(e) => handleFabricTypeChange(e.target.value)}
-              >
-                <option value=""></option>
-                {fabricTypes
-                  .filter((t) => t.is_active || t.id === form.fabric_type_id)
-                  .map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-              </Select>
-            </Field>
-            {/* Melange fabric carries its shade (client 2026-07-23) */}
-            {fabricTypeLabel.get(form.fabric_type_id)?.toLowerCase() === "melange" && (
-              <Field label="Shade" w={FIELD_W.shade} htmlFor="mt-fabric-shade">
-                <Input
-                  uppercase
-                  id="mt-fabric-shade"
-                  value={form.shade}
-                  onChange={(e) => set({ shade: e.target.value })}
-                />
-              </Field>
-            )}
-          </FieldRow>
-        </DetailSection>
-        <DetailSection label="Composition" cols={1} action={fabricMixHeader}>
+        {/* No card (design D): the COMPOSITION band on the table below names
+            the block, and the blend status rides on the yarn grid itself. */}
             {/* Using comes FIRST, and Direct Purchase is off the Tab path while it is
                 unticked (client 2026-08-01). Ticking it wipes the mixing rows, and Enter
                 TICKS a checkbox rather than moving past it — so on the default typing
@@ -1912,178 +2085,67 @@ export function MaterialMasterScreen({
                 and the off-path rule above still hold. `align="start"`: the
                 grid's `flushRows` lines its rows up with Using's control from
                 the TOP, and bottom-aligning would slide the pair down. */}
-          <FieldRow align="start">
-            <Field w={FIELD_W.using} className="space-y-2">
-              {!form.direct_purchase && (
-                // The 6px under the label is what makes this field and the grid
-                // beside it read as one row (client 2026-08-05, screenshot
-                // 2171): the grid puts 6px under its own top band, so without a
-                // match here the select sat 6px higher than the "+ Add row"
-                // button next to it. The arbitrary variant rather than a `Field`
-                // prop because this is one screen's alignment against one
-                // neighbour, not a new rule about labels — `Label`'s own
-                // spacing is deliberately tight everywhere else.
-                <Field label="Using" size="full" required={req("fabric_using")} className="[&>label]:mb-1.5">
-                  <Select value={form.fabric_using} onChange={(e) => handleFabricUsingChange(e.target.value)}>
-                    <option value=""></option>
-                    {FABRIC_USING.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              )}
-              {/* `offTabPath` stamps `data-focus-optional` on the cell, and
-                  `isOffTabPath` reads it by `closest()` — the same marker the
-                  raw tick box carried, now reaching the switch's own input. */}
-              <Field size="full" offTabPath={!form.direct_purchase}>
-                <Toggle
-                  id="mt-direct-purchase"
-                  label="Direct Purchase"
-                  checked={form.direct_purchase}
-                  onChange={(checked) => {
-                    set({ direct_purchase: checked });
-                    if (checked) setMixings([]);
-                  }}
-                />
-              </Field>
-            </Field>
-            {/* THE MIXING GRID SHARES THE ROW with the pair beside it (client
-                2026-08-05, the same request Classification above answered). It
-                used to take a full row of its own beneath them, leaving most of
-                theirs empty.
-
-                A grid, not a field: it takes the REST of the row, never a step.
-                Basis 18rem (the `name` step) because the client read it as
-                squeezed at 278px (2026-08-05) — below that the Yarn picker
-                inside collapses under "40'S COMBED COTTON" — so a column too
-                narrow for 176 + 12 + 288 wraps the grid under Using instead of
-                crushing it. At the full column it gets ~364px, as before.
-                `min-w-0` lets the table shrink inside its box rather than push
-                out of the card. */}
-            {fabricAttributesVisible && <div className="min-w-0 flex-[1_1_18rem]">{mixingGrid("fabric")}</div>}
-          </FieldRow>
-        </DetailSection>
-      </>
-    );
-  }
-
-  /** Yarn Details (0279) — Mixing shows for a Mixed-nature Category OR for an
-   *  inherently-blended Yarn Type. FINAL rule (user, 2026-07-24 — reinstates the
-   *  yarn-type gate that 2026-07-23 had dropped in favour of Mixed-nature-alone):
-   *  Mixing visible when categories.made = "Mixed" OR Yarn Type ∈
-   *  {Twisted, Doubling, Melange}. So a Grey poly-cotton blend still shows via a
-   *  Mixed category, and a Doubling/Twisted/Melange yarn shows via its type even
-   *  with no category picked. See `yarnMixingVisible` at the render root. */
-  function yarnDetails() {
-    const nature = selectedCategory?.made ?? null;
-    const ytName = yarnTypes.find((y) => y.id === form.yarn_type_id)?.name?.toLowerCase() ?? null;
-    return (
-      <>
-        {/* ONE section, and the four class fields are ONE ROW: Yarn Type ·
-            Count · Category · Purity (user 2026-08-05) — 548px, see FIELD_W.
-            Yarn Type had a section of its own above this one; the header
-            bought nothing — "Yarn Type" and "Classification" are the same
-            subject — and it cost the row its fourth field.
-
-            Order here IS the layout. The row wraps in DOM order, so the two
-            conditionals sit AFTER Purity deliberately: written where they
-            belong semantically (Shade beside Yarn Type, Nature beside the
-            Category it derives from) either one appearing would push Purity
-            onto line 2 and break the four up. They wrap below instead, which
-            is the trade the user took when the row was chosen.
-
-            Three one-word values at `range` and the Category at `term` is
-            what four across a `SectionColumn` costs. The alternative is
-            stacking this section full width, which is the thing the client
-            reverted on 2026-08-04; see the note above `SectionGrid` at the
-            render root. Category is the one long value, so it leans on
-            `<Truncated>` inside the picker. */}
-        <DetailSection label="Classification" cols={1}>
-          <FieldRow>
-            <Field w={FIELD_W.yarn_type}>
-              <LookupDialogPicker
-                kind="yarn_type"
-                label="Yarn Type"
-                required={req("yarn_type_id")}
-                options={yarnTypes}
-                value={form.yarn_type_id}
-                onChange={handleYarnTypeChange}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-              />
-            </Field>
-            <Field w={FIELD_W.count}>
-              {/* Was a plain dropdown with no Add/Modify/Delete (client
-                  2026-07-23 #4, "counts are a fixed list that never grows
-                  here") — REVERSED by the client on 2026-07-31: an operator hit
-                  a count the list didn't carry and had nowhere to add it. It is
-                  now the same shape as Category and Purity beside it, which is
-                  the inconsistency that was reported. */}
-              <LookupDialogPicker
-                kind="yarn_count"
-                label="Count"
-                required={req("count_id")}
-                options={counts}
-                value={form.count_id}
-                onChange={(v) => set({ count_id: v })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-              />
-            </Field>
-            <Field w={FIELD_W.category}>
-              <CategoryPicker
-                label="Category"
-                required={req("category_id")}
-                categories={scopedCategories}
-                value={form.category_id}
-                onChange={(v) => set({ category_id: v })}
-                itemClassId={form.item_class_id}
-                selectedClassCode={selectedClassCode}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-                levies={levies}
-                fabricStructures={fabricStructures}
-              />
-            </Field>
-            <Field w={FIELD_W.purity}>
-              <LookupDialogPicker
-                kind="yarn_purity"
-                label="Purity"
-                options={purities}
-                value={form.purity_id}
-                onChange={(v) => set({ purity_id: v })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-              />
-            </Field>
-            {/* Line 2 — both conditional, both placed last on purpose (see the
-                section note). Melange yarn carries its shade (client
-                2026-07-23); Nature is read-only, derived from the Category. */}
-            {ytName === "melange" && (
-              <Field label="Shade" w={FIELD_W.shade} htmlFor="mt-yarn-shade">
-                <Input
-                  uppercase
-                  id="mt-yarn-shade"
-                  value={form.shade}
-                  onChange={(e) => set({ shade: e.target.value })}
-                />
-              </Field>
-            )}
-            {nature && (
-              <Field label="Nature" w={FIELD_W.nature}>
-                <div className="flex h-9 items-center truncate rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
-              </Field>
-            )}
-          </FieldRow>
-        </DetailSection>
-        {/* Mixing grid renders full-width below the two-column body — see
-            yarnMixingVisible at the render root (Screenshot 2079). */}
+          {/* AS A SHEET ROW (2026-10-05): Using · Direct Purchase are two columns
+              of one ruled row, and the component-yarn grid sits under them as
+              its own sheet table — the shape of design D. The two rules above
+              are unchanged: Using comes first and is mandatory until Direct
+              Purchase is on (then it is not rendered at all), and the switch
+              stays off the Tab path while it is off (`offTabPath`). */}
+          <div className="space-y-3">
+            <SheetTable
+              groups={[
+                {
+                  label: "COMPOSITION",
+                  tone: "composition",
+                  cols: [
+                    ...(!form.direct_purchase
+                      ? [
+                          {
+                            key: "fabric_using",
+                            head: "Using",
+                            required: req("fabric_using"),
+                            w: FIELD_W.using,
+                            cell: (
+                              <Field required={req("fabric_using")}>
+                                <Select aria-label="Using" value={form.fabric_using} onChange={(e) => handleFabricUsingChange(e.target.value)}>
+                                  <option value=""></option>
+                                  {FABRIC_USING.map((u) => (
+                                    <option key={u} value={u}>
+                                      {u}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </Field>
+                            ),
+                          },
+                        ]
+                      : []),
+                    {
+                      key: "direct_purchase",
+                      head: "Direct Purchase",
+                      w: FIELD_W.using,
+                      cell: (
+                        /* `offTabPath` stamps `data-focus-optional` on the cell,
+                           and `isOffTabPath` reads it by `closest()`. */
+                        <Field offTabPath={!form.direct_purchase} className="px-2">
+                          <Toggle
+                            id="mt-direct-purchase"
+                            ariaLabel="Direct Purchase"
+                            checked={form.direct_purchase}
+                            onChange={(checked) => {
+                              set({ direct_purchase: checked });
+                              if (checked) setMixings([]);
+                            }}
+                          />
+                        </Field>
+                      ),
+                    },
+                  ],
+                },
+              ]}
+            />
+            {fabricAttributesVisible && mixingGrid("fabric")}
+          </div>
       </>
     );
   }
@@ -2311,7 +2373,10 @@ export function MaterialMasterScreen({
           </div>
         }
       >
-        <div className={cn("space-y-4", FORM_W)}>
+        {/* `data-grid-style="sheet"` — the whole editor body wears the
+            spreadsheet look (erp-sheet-grid): every table below, hand-built
+            or ChildGrid, is ruled and its cells carry no box of their own. */}
+        <div data-grid-style="sheet" className={cn("space-y-4", FORM_W)}>
           {/* Identity row — Item Class | Name | HSN, per the planned layout
               (doc/ui/New Material - Planned Layout.html, 2026-07-23). The Name
               moved up from the foot of Details; its auto-generation for
@@ -2323,105 +2388,203 @@ export function MaterialMasterScreen({
               `IdentityRow` on `0.8fr 2fr 10rem` tracks, so across the 73rem form
               Item Class — seven known values, "PACKING ACCESSORIES" the longest —
               took ~280px. All three now take a step each (IDENTITY_W). */}
-          <FieldRow align="start">
-              {/* Also deliberately left a plain dropdown by the 2026-07-31
-                  picker sweep: `itemClassForm(selectedClassCode)` (:233-234)
-                  selects this whole form from the class's CODE, so a class
-                  added from here would open a form that does not exist. Item
-                  Class is maintained from its own master, where the code and
-                  its form are decided together. */}
-              {/* A `Field` rather than a bare Label + Select so the `*` and the
-                  mandatory-field cursor hold come from ONE declaration. Its
-                  width is `w=`, a step, not a share of the row. */}
-              <Field
-                label="Item Class"
-                w={IDENTITY_W.item_class}
-                required={req("item_class_id")}
-                htmlFor="mt-item-class"
-              >
-              <Select
-                id="mt-item-class"
-                value={form.item_class_id}
-                onChange={(e) => handleItemClassChange(e.target.value)}
-                className="text-base md:text-sm"
-              >
-                <option value=""></option>
-                {itemClasses
-                  .filter((c) => c.is_active || c.id === form.item_class_id)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </Select>
-              </Field>
-            {/* `name` (288px) — see IDENTITY_W. */}
-            <div className={FIELD_WIDTH[IDENTITY_W.name]}>
-              <Label htmlFor="mt-name">
-                Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="mt-name"
-                uppercase
-                value={form.name}
-                // The whole name on hover — a composed name outruns the 288px box.
-                title={form.name || undefined}
-                onChange={(e) => set({ name: e.target.value })}
-                // ENTER OFF ITEM CLASS LANDS HERE (client 2026-09-29: "item
-                // class aduthu enter press panna name ku pogam, HSN code ku
-                // poguthu"). A composed Name used to carry `tabIndex={-1}` on
-                // every composed class, so Yarn and Fabric — whose composed
-                // name the operator MAY overwrite — were skipped straight to
-                // HSN Code. That override is gone: a name that can be typed is
-                // on the keyboard path like any other field.
-                //
-                // `readOnly` still decides the rest, and needs no tabIndex of
-                // ours: Attribute-driven accessories and General cannot be
-                // named by hand at all (the fields ARE the name — client
-                // 2026-07-28), and `<Input readOnly>` already takes itself off
-                // Tab and Enter (see the note in lib/focus.ts), so on those
-                // classes the cursor still goes on to HSN Code.
-                readOnly={attributeDriven || formKey === "GEN"}
-                className={cn(
-                  "text-base md:text-sm",
-                  nameDuplicate && "border-danger",
-                  (attributeDriven || formKey === "GEN") && "bg-surface-muted",
-                )}
-                // Emitted even when the field is readOnly above. The HOLD is
-                // what has to stand down on a field the operator cannot type
-                // into — and it does, in keyboard-nav-provider.tsx, once for
-                // every screen. Suppressing the marker here instead would also
-                // take away the red border and the announcement, which a
-                // composed duplicate name still needs.
-                {...dupFieldProps(dupMessage, "mt-name")}
-                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
-                // The hook stands itself down on the composed classes, so this
-                // is inert exactly where the field is read-only.
-                onKeyDown={nameSuggest.onKeyDown}
-              />
-              <DuplicateError error={dupMessage} id="mt-name" />
-              <SpellSuggestHint
-                suggestions={nameSuggest.suggestions}
-                existing={nameSuggest.existing}
-                activeIndex={nameSuggest.activeIndex}
-                duplicate={!!dupMessage}
-                onApply={(v) => set({ name: v })}
-              />
-            </div>
-            {/* The picker renders its own label; the Field only sizes it. */}
-            <Field w={IDENTITY_W.hsn}>
-              <LookupDialogPicker
-                kind="hsn_code"
-                label="HSN Code"
-                options={hsnCodes}
-                value={form.hsn_id}
-                onChange={(v) => set({ hsn_id: v })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-              />
-            </Field>
-          </FieldRow>
+          {/* THE TOP TABLE — IDENTITY · CLASSIFICATION (client 2026-10-05,
+              design D). Item Class · Name · HSN Code, then the class's own
+              fields, as one ruled row. Every column keeps the step the field
+              had as a labelled box (IDENTITY_W / FIELD_W / DETAIL_FIELD_W), so
+              the widths and their history are unchanged; only the label moved
+              into the header. Before an Item Class is picked the CLASSIFICATION
+              band is absent — the placeholder below says why. */}
+          {/* ITEM CLASS CHIPS (client 2026-10-05, screenshot 125428 — the class
+              row from design D). One chip per active class, the current one
+              filled; a click goes through `handleItemClassChange`, exactly as
+              the Item Class dropdown in the table below does, so the two can
+              never disagree. The dropdown stays: it is the keyboard's way in
+              (Tab lands on fields, never on a button), and these are the
+              mouse's one-click shortcut. A retired class the record already
+              holds is shown, never offered — the "Disabled rows" rule. */}
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Item Class">
+            <span className="mr-1 text-[11px] font-semibold tracking-wide text-muted-foreground">ITEM CLASS</span>
+            {itemClasses
+              .filter((c) => c.is_active || c.id === form.item_class_id)
+              .map((c) => {
+                const on = c.id === form.item_class_id;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={!c.is_active && !on}
+                    onClick={() => !on && handleItemClassChange(c.id)}
+                    className={cn(
+                      "h-7 rounded-full border px-3 text-[12.5px] font-medium transition-colors",
+                      on
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-surface text-foreground hover:border-border-strong hover:bg-surface-muted",
+                    )}
+                  >
+                    {c.name}
+                  </button>
+                );
+              })}
+          </div>
+          {/* ONE TABLE, as design D draws it (client 2026-10-05: "apply
+              this"). At the design's widths a Yarn row is ~1000px, inside the
+              73rem form; only a pane narrower than that scrolls, inside the
+              table's own box. */}
+          <SheetTable
+            groups={[
+              {
+                label: "IDENTITY",
+                tone: "identity",
+                cols: [
+                  {
+                    key: "item_class_id",
+                    head: "Item Class",
+                    required: req("item_class_id"),
+                    /* 176 / 250 / 112. Name and HSN are design D's widths; Item
+                       Class is one step over its 160 because "PACKING
+                       ACCESSORIES" (the longest of seven) and the select's
+                       arrow do not fit 160. A composed name runs to ~67
+                       characters and scrolls inside its cell — `title` on the
+                       input keeps the whole name readable on hover. */
+                    w: "term",
+                    cell: (
+                      /* Deliberately a plain dropdown, not a picker:
+                         `itemClassForm(selectedClassCode)` selects this whole
+                         form from the class's CODE, so a class added from here
+                         would open a form that does not exist. The `*` and the
+                         hold come from this one `Field required`. */
+                      <Field required={req("item_class_id")}>
+                      <Select
+                        id="mt-item-class"
+                        value={form.item_class_id}
+                        onChange={(e) => handleItemClassChange(e.target.value)}
+                        className="text-base md:text-sm"
+                      >
+                        <option value=""></option>
+                        {itemClasses
+                          .filter((c) => c.is_active || c.id === form.item_class_id)
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                      </Select>
+                      </Field>
+                    ),
+                  },
+                  {
+                    key: "name",
+                    /* AUTO says the system writes this name from the fields
+                       beside it (design D) — the reason it is read-only on
+                       the attribute classes and General. */
+                    head: nameIsComposed ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        Name
+                        <span className="rounded-full bg-primary/10 px-1.5 text-[10.5px] font-semibold text-primary">AUTO</span>
+                      </span>
+                    ) : (
+                      "Name"
+                    ),
+                    /* Always mandatory (Save reads `form.name`); composed and
+                       read-only on Yarn/Fabric/General/attribute classes. */
+                    required: true,
+                    w: "15.5rem",
+                    cell: (
+                      <Input
+                        id="mt-name"
+                        uppercase
+                        value={form.name}
+                        // The whole name on hover — a composed name outruns the 288px box.
+                        title={form.name || undefined}
+                        onChange={(e) => set({ name: e.target.value })}
+                        // ENTER OFF ITEM CLASS LANDS HERE (client 2026-09-29: "item
+                        // class aduthu enter press panna name ku pogam, HSN code ku
+                        // poguthu"). A composed Name used to carry `tabIndex={-1}` on
+                        // every composed class, so Yarn and Fabric — whose composed
+                        // name the operator MAY overwrite — were skipped straight to
+                        // HSN Code. That override is gone: a name that can be typed is
+                        // on the keyboard path like any other field.
+                        //
+                        // `readOnly` still decides the rest, and needs no tabIndex of
+                        // ours: Attribute-driven accessories and General cannot be
+                        // named by hand at all (the fields ARE the name — client
+                        // 2026-07-28), and `<Input readOnly>` already takes itself off
+                        // Tab and Enter (see the note in lib/focus.ts), so on those
+                        // classes the cursor still goes on to HSN Code.
+                        readOnly={attributeDriven || formKey === "GEN"}
+                        className={cn(
+                          "text-base md:text-sm",
+                          nameDuplicate && "border-danger",
+                          (attributeDriven || formKey === "GEN") && "bg-surface-muted",
+                        )}
+                        // Emitted even when the field is readOnly above. The HOLD is
+                        // what has to stand down on a field the operator cannot type
+                        // into — and it does, in keyboard-nav-provider.tsx, once for
+                        // every screen. Suppressing the marker here instead would also
+                        // take away the red border and the announcement, which a
+                        // composed duplicate name still needs.
+                        {...dupFieldProps(dupMessage, "mt-name")}
+                        // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                        // The hook stands itself down on the composed classes, so this
+                        // is inert exactly where the field is read-only.
+                        onKeyDown={nameSuggest.onKeyDown}
+                      />
+                    ),
+                  },
+                  {
+                    key: "hsn_id",
+                    head: "HSN Code",
+                    w: "range",
+                    cell: (
+                      <LookupDialogPicker
+                        kind="hsn_code"
+                        label="HSN Code"
+                        compact
+                        options={hsnCodes}
+                        value={form.hsn_id}
+                        onChange={(v) => set({ hsn_id: v })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        canDelete={perms.canDelete}
+                      />
+                    ),
+                  },
+                ],
+              },
+              {
+                label: "CLASSIFICATION",
+                tone: "classification",
+                cols: !form.item_class_id
+                  ? []
+                  : formKey === "FABRIC"
+                    ? fabricClassCols()
+                    : formKey === "YARN"
+                      ? yarnClassCols()
+                      : // Generic classes (General/SEW/PACK/CAP/Garments). Sub
+                        // Category is in form A's list but only belongs on screen
+                        // for a category that defines one, so it is filtered
+                        // here rather than splitting the registry in two.
+                        (formDef?.fields ?? [])
+                          .filter((k) => k !== "sub_category_id" || subCategoryVisible)
+                          .map((k) => detailCol(k)),
+              },
+            ]}
+          />
+          {/* The Name cell's two messages sit under the table, not inside the
+              cell — a cell that grows a line for an error pushes every other
+              cell of the row down with it. */}
+          <div className="max-w-[44rem]">
+            <DuplicateError error={dupMessage} id="mt-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
+              activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupMessage}
+              onApply={(v) => set({ name: v })}
+            />
+          </div>
 
           {/* Everything below the identity row waits for an Item Class — an
               empty details column beside a full UOM card reads as a broken
@@ -2444,26 +2607,21 @@ export function MaterialMasterScreen({
               its own. The arithmetic is in FIELD_W, the trade in
               `yarnDetails`. Stacking was tried for part of 2026-08-04 and
               the client reverted it the same day. */}
-          <SectionGrid>
-            <SectionColumn>
-              {formKey === "FABRIC" ? (
-                fabricDetails()
-              ) : formKey === "YARN" ? (
-                yarnDetails()
-              ) : (
-                // Generic classes (General/SEW/PACK/CAP/Garments) share the
-                // same dense 2-col layout as Yarn/Fabric — global form rule.
-                // Sub Category is in form A's field list but only belongs on
-                // screen for a General category that defines one, so it is
-                // filtered here rather than splitting the registry in two.
-                <DetailSection label="Classification" cols={1}>
-                  <FieldRow>
-                    {formDef?.fields
-                      .filter((k) => k !== "sub_category_id" || subCategoryVisible)
-                      .map((k) => detailField(k))}
-                  </FieldRow>
-                </DetailSection>
-              )}
+          {/* THE SECOND BAND — the class's grid (Composition, Mixing or
+              Attributes) LEFT, Units of Measure RIGHT, side by side and
+              wrapping on a narrow pane. Was `SectionGrid`'s two fixed halves,
+              which left most of each half empty once the fields became
+              hugging sheet tables (design D, 2026-10-05). `empty:hidden`: a
+              General has no left-hand grid, and an empty column would still
+              cost the gap. */}
+          <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
+            {/* `flex-[1_1_30rem]`: each column needs a DEFINITE width — a
+                `DetailSection` is an `@container/section`, which reports zero
+                width to a content-sized flex item, and the Units of Measure
+                card collapsed to a 20px sliver (screenshot 124112). 30rem a
+                side + the gap fits both on one line inside the 73rem form. */}
+            <div className="min-w-0 flex-[1_1_30rem] space-y-3 empty:hidden">
+              {formKey === "FABRIC" && fabricComposition()}
               {attributeSetMissing && (
                 <div className="rounded-lg border border-dashed border-border bg-surface-muted/50 px-4 py-6 text-center text-sm text-muted-foreground">
                   No Material Attributes configured for this category yet. Set them up under
@@ -2476,10 +2634,21 @@ export function MaterialMasterScreen({
                   picks from its generated steps, a value-list line from its own
                   values, anything else a free number box. */}
               {attrQuestions.length > 0 && (
-                <DetailSection label="Attributes">
-                  <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full border-collapse text-sm">
+                /* No card (design D): an ATTRIBUTES band heads the table. */
+                <div>
+                  <div>
+                    <table className="table-fixed text-sm" style={{ width: "calc(2.5rem + 10rem + 11rem)" }}>
+                      <colgroup>
+                        <col style={{ width: "2.5rem" }} />
+                        <col style={{ width: "10rem" }} />
+                        <col style={{ width: "11rem" }} />
+                      </colgroup>
                       <thead>
+                        <tr>
+                          <th colSpan={3} data-band="composition" className="text-left text-[11px] font-semibold">
+                            ATTRIBUTES
+                          </th>
+                        </tr>
                         <tr className="border-b border-border bg-surface-muted">
                           <th className="w-10 px-2 py-1.5 text-center text-xs font-bold text-muted-foreground">#</th>
                           <th className="px-2 py-1.5 text-left text-xs font-bold text-muted-foreground">Attribute</th>
@@ -2551,7 +2720,7 @@ export function MaterialMasterScreen({
                       </tbody>
                     </table>
                   </div>
-                </DetailSection>
+                </div>
               )}
               {/* Composition grids belong with the class fields, never with the
                   measurements — global rule (Screenshot 2084): LEFT = what the
@@ -2579,13 +2748,13 @@ export function MaterialMasterScreen({
               {/* Using (Items) is a General-item concept only. Accessories
                   (SEW/PACK) list their configured attributes instead (client
                   2026-07-25). */}
-            </SectionColumn>
+            </div>
 
             {/* RIGHT: pure measurement for ALL classes — Units of Measure,
                 Conversions, status. Composition grids never render here. On a
                 stacked Fabric this is the last full-width band rather than a
                 right-hand column; the reading order is unchanged. */}
-            <SectionColumn>
+            <div className="min-w-0 flex-[1_1_30rem] space-y-3">
               {/* Order follows how the client describes the job (2026-07-28):
                   tick Alternative UOM → the conversion grid comes to the TOP of
                   the section → enter the alternate ↔ base row → then fill the
@@ -2596,7 +2765,9 @@ export function MaterialMasterScreen({
                   option list, not their existence — four dropdowns over the whole
                   UOM master, asked before the one row that gives them meaning.
                   Restored below the conversion and filtered to `uomLimit`. */}
-              <DetailSection label="Units of Measure" cols={1}>
+              {/* No card (design D): UNITS OF MEASURE, ALTERNATE ↔ BASE and
+                  UNIT PER USE are bands on the tables themselves. */}
+              <div className="space-y-3">
                 {/* Row 1: Base + the toggle, side by side (client 2026-07-28).
                     ~90% of materials are consumed and purchased in the same unit
                     (a label is Numbers everywhere), so everything the toggle
@@ -2614,52 +2785,64 @@ export function MaterialMasterScreen({
                     structure now PREFILLS this (see the effect above) and the
                     operator has the last word. The ⓘ stays: a field that fills
                     itself still has to say who filled it. */}
-                <FieldRow>
-                <Field
-                  label={
-                    formKey === "FABRIC" ? (
-                      // `inline-flex`, NOT `flex`. A block-level label box pushes
-                      // `Field`'s required `*` onto its own line, so Base showed
-                      // the marker stranded under the caption and its control sat
-                      // a line lower than every field beside it (client
-                      // 2026-08-04). Fabric Type reads correctly because its `*`
-                      // is INSIDE the flex row rather than after it.
-                      <span className="inline-flex items-center gap-1">
-                        Base
-                        <span
-                          title="Prefilled from the fabric structure — Circular Knit KGS, Flat Knit NOS, Woven MTR. Change it if this material is stocked differently."
-                          className="cursor-help text-muted-foreground"
-                        >
-                          <Info className="h-3.5 w-3.5" />
-                        </span>
-                      </span>
-                    ) : (
-                      "Base"
-                    )
-                  }
-                  required={req("base_uom_id")}
-                  w={FIELD_W.uom}
-                >
-                  {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), baseUomLimit)}
-                </Field>
-                {/* No label: the row bottom-aligns, so the switch sits on
-                    Base's control line without a spacer caption.
-                    `@2xl/editor:min-h-8` tracks the Combobox's own height —
-                    `Toggle`'s `min-h-9` alone stands 4px taller than the select
-                    on the wide editor surface.
-                    Not offered on Yarn or Fabric — `singleUomClass` covers both. */}
-                {!singleUomClass && (
-                  <Field w={FIELD_W.alt_uom}>
-                    <Toggle
-                      id="mt-alt-uom"
-                      label="Alternative UOM"
-                      checked={form.has_alternate_uom}
-                      onChange={toggleAltUom}
-                      className="@2xl/editor:min-h-8"
-                    />
-                  </Field>
-                )}
-                </FieldRow>
+                {/* Base · Alternative UOM as one sheet row (2026-10-05). The
+                    switch is a column of its own rather than a captionless box
+                    beside Base; it is still not offered on Yarn or Fabric
+                    (`singleUomClass`), and Base still prefills from a fabric's
+                    structure — the ⓘ on its header says who filled it. */}
+                <SheetTable
+                  groups={[
+                    {
+                      label: "UNITS OF MEASURE",
+                      tone: "uom",
+                      cols: [
+                        {
+                          key: "base_uom_id",
+                          head:
+                            formKey === "FABRIC" ? (
+                              <span className="inline-flex items-center gap-1">
+                                Base
+                                <span
+                                  title="Prefilled from the fabric structure — Circular Knit KGS, Flat Knit NOS, Woven MTR. Change it if this material is stocked differently."
+                                  className="cursor-help text-muted-foreground"
+                                >
+                                  <Info className="h-3.5 w-3.5" />
+                                </span>
+                              </span>
+                            ) : (
+                              "Base"
+                            ),
+                          required: req("base_uom_id"),
+                          w: FIELD_W.uom,
+                          cell: (
+                            <Field required={req("base_uom_id")}>
+                              {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), baseUomLimit)}
+                            </Field>
+                          ),
+                        },
+                        ...(!singleUomClass
+                          ? [
+                              {
+                                key: "has_alternate_uom",
+                                head: "Alternative UOM",
+                                w: FIELD_W.alt_uom,
+                                cell: (
+                                  <div className="px-2">
+                                    <Toggle
+                                      id="mt-alt-uom"
+                                      ariaLabel="Alternative UOM"
+                                      checked={form.has_alternate_uom}
+                                      onChange={toggleAltUom}
+                                    />
+                                  </div>
+                                ),
+                              },
+                            ]
+                          : []),
+                      ],
+                    },
+                  ]}
+                />
                 {/* THE UNIT ON SCREEN DISAGREES WITH THE ONE THE STORED
                     QUANTITIES WERE ENTERED IN. Say so — a number does not change
                     meaning quietly just because the label above it did.
@@ -2693,13 +2876,15 @@ export function MaterialMasterScreen({
                   <div>
                     <ChildGrid<ConvRow>
                       lockExisting
-                      label="Alternate ↔ Base Conversions"
+                      label="Alternate ↔ Base"
                       rows={conversions}
                       onAdd={addConv}
                       onRemove={(c) => delConv(c.key)}
                       addLabel="+ Add conversion"
-                      inlineCards
-                      frameless
+                      /* A sheet table since 2026-10-05 (was `inlineCards`,
+                         which has no <table> for the sheet look to rule). */
+                      tableAlways
+                      removeHeader="Actions"
                       columns={[
                         {
                           header: "Alt qty",
@@ -2714,6 +2899,7 @@ export function MaterialMasterScreen({
                         // that column repeating is the normal shape.
                         {
                           header: "Alt UOM",
+                          width: FIELD_WIDTH_CSS.range,
                           cell: (c) =>
                             uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v }), undefined, conversions.map((x) => x.alt_uom_id).filter(Boolean)),
                         },
@@ -2725,6 +2911,7 @@ export function MaterialMasterScreen({
                         },
                         {
                           header: "Base UOM",
+                          width: FIELD_WIDTH_CSS.range,
                           cell: (c) => uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v })),
                         },
                       ]}
@@ -2747,20 +2934,28 @@ export function MaterialMasterScreen({
                     controls. */}
                 {form.has_alternate_uom && !singleUomClass && (
                   <>
-                    <FieldRow>
-                      <Field label="Stock" w={FIELD_W.uom}>
-                        {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }), uomLimit)}
-                      </Field>
-                      <Field label="Billing" w={FIELD_W.uom}>
-                        {uomSelect(form.billing_uom_id, (v) => set({ billing_uom_id: v }), uomLimit)}
-                      </Field>
-                      <Field label="Planning" w={FIELD_W.uom}>
-                        {uomSelect(form.planning_uom_id, (v) => set({ planning_uom_id: v }), uomLimit)}
-                      </Field>
-                      <Field label="Purchase" w={FIELD_W.uom}>
-                        {uomSelect(form.purchase_uom_id, (v) => set({ purchase_uom_id: v }), uomLimit)}
-                      </Field>
-                    </FieldRow>
+                    {/* The four downstream units as one sheet row (2026-10-05). */}
+                    <SheetTable
+                      groups={[
+                        {
+                          label: "UNIT PER USE",
+                          tone: "uom",
+                          cols: (
+                            [
+                              ["stock_uom_id", "Stock"],
+                              ["billing_uom_id", "Billing"],
+                              ["planning_uom_id", "Planning"],
+                              ["purchase_uom_id", "Purchase"],
+                            ] as const
+                          ).map(([k, head]) => ({
+                            key: k,
+                            head,
+                            w: FIELD_W.uom,
+                            cell: uomSelect(form[k], (v) => set({ [k]: v }), uomLimit),
+                          })),
+                        },
+                      ]}
+                    />
                     {/* Says which question to answer first, rather than leaving
                         the dropdowns on the full UOM master with no explanation
                         of why they narrow later. */}
@@ -2771,15 +2966,15 @@ export function MaterialMasterScreen({
                     )}
                   </>
                 )}
-              </DetailSection>
+              </div>
 
               {/* Budget + Cost Rate removed from the data path (client walkthrough,
                   0279) — no longer edited or written from this screen. The DB
                   columns remain, so any existing values are left untouched. */}
 
               {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
-            </SectionColumn>
-          </SectionGrid>
+            </div>
+          </div>
             </>
           )}
         </div>
