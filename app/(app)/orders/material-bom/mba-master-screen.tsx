@@ -2602,37 +2602,6 @@ export function MbaMasterScreen({
         return next;
       });
 
-    /* Can this row split at all? A tick with no size break-up behind it would
-       refuse the whole line the moment it was ticked, so the box says so and
-       stays disabled instead. */
-    /*
-     * WHY A ROW CANNOT SPLIT ITSELF BY SIZE — one derivation, three consequences:
-     * the box's disabled state, its tooltip, and what the save will actually keep.
-     *
-     * THE ORDER'S BREAK-UP COMES FIRST, being the older and stronger refusal: with
-     * no assort rows a tick refuses the whole line the moment it is set.
-     *
-     * THE ATTRIBUTE IS THE NEW ONE, and it was live-and-useless until now.
-     * `slicesForAxes` takes NO tick predicate — deliberately, see the two-path
-     * comment above — so `requirementRows` cannot store a per-row tick against a
-     * composed grain. The box was enabled anyway, so ticking it wrote a
-     * `size_wise` the next save discarded: a control that looks live, changes
-     * nothing, and leaves the screen and the store describing one row differently.
-     *
-     * BOTH SENTENCES OFF ONE TEST, so they can never both show or both be wrong: a
-     * composed grain either already names Order Size — `{style_ref, size}` and
-     * `{size, country}` come out of the composer pre-expanded, so their rows ARE
-     * size rows — or it does not, and the operator needs a different Attribute.
-     */
-    const sizeWiseWhyNot =
-      orderProd.assortSizes.length === 0
-        ? "This order has no size break-up on Quantities ▸ Assort to split by"
-        : asBasis
-          ? null
-          : grainNames("size")
-            ? "This Attribute already splits every row by Order Size"
-            : "Pick an Attribute that names Order Size to split these rows by size";
-
     const unitKnown = !!r.purchase_uom_id || !!r.consumption_uom_id;
     /* THE SAME PACK THE LINE TOTAL AND THE PER-SLICE COLUMN READ. A row's Final
        is the line's MOQ and step run over ONE row, so it has to be in the unit
@@ -2844,13 +2813,16 @@ export function MbaMasterScreen({
         sizeWise: ticked,
         specification: o?.specification ?? "",
         sizeSpec: o?.size_spec ?? "",
+        /* THE ORDER'S SIZE, shown until something is typed (client 2026-10-05).
+           The names map, never `sizeName()` — that falls back to the uuid or a
+           dash, and neither is a size anyone should see in this box. */
+        sizeSpecAuto: sl.size_id ? (orderProd.sizeNames?.[sl.size_id] ?? "") : "",
         /* THE ROW KEEPS ITS OWN FIGURES EVEN WHEN TICKED (screenshot 2465).
            They are what a blank size box inherits, and taking them away removed
            both the box the operator wanted to type in and the thing the sizes
            were meant to fall back to. */
         cell: cellOf(sl, null),
         sizes: ticked ? kids.map((k) => cellOf(k, sizeName(k.size_id))) : [],
-        sizeWiseWhyNot,
       };
     });
 

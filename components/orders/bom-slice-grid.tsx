@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
  *     Choose ☑        kept — an untick means this row buys none of the material
  *     S No            dropped — a row number nobody refers to
  *     Description     kept — the slice's own name
- *     Size wise ☑     kept, and it REPLACED two Attribute options
+ *     Size wise ☑     REMOVED 2026-10-05 — see below
  *     Item Color      kept — per row, overriding the line's
  *     Specification   kept
  *     Size / Spec     kept — the MATERIAL's size, not the garment's
@@ -27,17 +27,19 @@ import { cn } from "@/lib/utils";
  *     Allowance % / Qty   dropped — client: not needed, the buffer stays on the line
  *     Conv Item       dropped — ours is per line (`uom_conversion_id`); raised, not built
  *
- * ## THE SIZE-WISE TICK IS THE MODEL, NOT A VIEW SETTING
+ * ## THE SIZE TICK IS GONE — SIZE IS AN ATTRIBUTE (client 2026-10-05)
  *
- * Legacy shows `Attribute = Country` with a tick on each row, and the client
- * confirmed what that implies: the Attribute picks ONE axis and a row splits
- * ITSELF. So "Size-wise" and "Combination" left the Attribute dropdown —
- * Colour + tick IS combination, Order + tick IS size-wise, and
- * `check-bom-requirement.mts` asserts that equivalence rather than trusting it.
+ * Legacy's per-row "Size wise" tick sat in a SIZE column beside Size / Spec
+ * (screenshots 3253 / 3254: "the second size delete the field, can use this
+ * Size / Spec field"). The Attribute already offers every Order Size grain
+ * (`Order No / Order Size`, …), and those rows ARE sizes — so the tick was a
+ * second way to say one thing, and disabled outright on any line whose
+ * Attribute named size. Not one stored row had it on (0 of 58,
+ * `material_bom_amendment_item_slices.size_wise`), so nothing was lost.
  *
- * A ticked row keeps its own Choose / Item Color / Specification and grows a
- * strip of size boxes beneath it. The two FIGURES move to the strip, because
- * that is what the tick was for.
+ * The size STRIP below stays: it renders only for a row whose stored
+ * `size_wise` is true, which nothing can now set — kept so a row written by
+ * another path still shows its sizes rather than silently dropping them.
  *
  * ## SIZES GO ACROSS, AND THAT IS THE RULE THE TWO TABS BESIDE THIS ONE FOUND
  *
@@ -121,6 +123,16 @@ export interface BomSliceRow {
   specification: string;
   sizeSpec: string;
   /**
+   * WHAT SIZE / SPEC READS WHILE NOTHING IS TYPED — the ORDER's size name on a
+   * row that is one size (client 2026-10-05: "Size / Spec field need to auto
+   * fetch the order entry style entry size"). Every such row was being typed
+   * by hand (GOA line 886ba984: XS…XXXL, each identical to its row's size).
+   * Display only, the same blank-inherits rule as the figures: typing
+   * overrides it (`S/M/L` to group), clearing returns to it. Empty on a row
+   * with no size.
+   */
+  sizeSpecAuto?: string;
+  /**
    * The row's own figures, ALWAYS present (client 2026-08-21, screenshot 2465:
    * "why can't I give input for Items, Pcs, Exc % — it should allow the manual
    * entry").
@@ -135,16 +147,6 @@ export interface BomSliceRow {
   cell: BomSliceCell;
   /** The size boxes, when the row is ticked. */
   sizes: BomSliceCell[];
-  /**
-   * WHY THIS ROW CANNOT SPLIT ITSELF BY SIZE, or null when it can.
-   *
-   * A REASON AND NOT A BOOLEAN, because the box's `disabled` and its own tooltip
-   * are one fact and there is now more than one cause: an order carrying no size
-   * break-up, and an Attribute the requirement cannot store a per-row tick
-   * against. A boolean beside a hard-coded sentence made the second cause read as
-   * the first.
-   */
-  sizeWiseWhyNot: string | null;
   /**
    * THE GROUP THIS ROW OPENS, or null when it continues the one above.
    *
@@ -216,7 +218,7 @@ const BOX =
  * are narrow because they hold four or five digits, and the descriptive
  * columns gave up the width for them. */
 const COLS =
-  "grid-cols-[2rem_minmax(104px,1fr)_2.75rem_minmax(112px,1fr)_minmax(88px,1fr)_minmax(80px,1fr)_3.75rem_3.75rem_3.5rem_4.5rem_4.5rem_4.75rem]";
+  "grid-cols-[2rem_minmax(104px,1fr)_minmax(112px,1fr)_minmax(88px,1fr)_minmax(80px,1fr)_3.75rem_3.75rem_3.5rem_4.5rem_4.5rem_4.75rem]";
 
 /* `COLS_COMBO` WENT WITH THE COLUMN IT SIZED (2026-08-26). The combination is
    a GROUP HEADING or the row's own identity now, and neither needs a track —
@@ -342,6 +344,36 @@ export function BomSliceGrid({
    * what stops the eighth from doing it again; it also drops the trailing space
    * the size strip emitted when `sizeLabel` was null.
    */
+  /*
+   * THE FIRST ROW LEADS (client 2026-10-05: "item and pcs field first field
+   * value will fill remain field, sometimes only it will vary, that time user
+   * will update manually"). Typing Items or Pcs on the first row of a run
+   * copies it down that run; a row is a FOLLOWER while it is blank or still
+   * holds what the leader held before this keystroke, so a row the operator
+   * changed by hand stops following and is never overwritten.
+   *
+   * A run is the rows sharing a `groupKey` — one combination's band, or the
+   * whole grid in identity mode. Each copy is its own `onSet`, which the screen
+   * applies as a functional update, so they compose within one keystroke.
+   */
+  const setFigure = (
+    row: BomSliceRow,
+    patch: { items?: string; pieces?: string; excess?: string },
+  ) => {
+    onSet(row.cell.key, patch);
+    const run = rows.filter((r) => r.groupKey === row.groupKey);
+    if (run[0]?.key !== row.key) return;
+    for (const field of ["items", "pieces"] as const) {
+      const next = patch[field];
+      if (next === undefined) continue;
+      const before = row.cell[field];
+      for (const r of run.slice(1)) {
+        const held = r.cell[field];
+        if (held === "" || held === before) onSet(r.cell.key, { [field]: next });
+      }
+    }
+  };
+
   const nameOf = (row: BomSliceRow, sizeLabel?: string | null) =>
     [row.label, row.combination, sizeLabel].filter((x) => !!x && String(x).trim()).join(", ");
 
@@ -362,9 +394,6 @@ export function BomSliceGrid({
               the axis and the bands carry the combination. */}
           <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>
             {identityMode ? "Combination" : axisHead}
-          </div>
-          <div className={cn("flex min-h-8 items-center justify-center px-1 text-center", T_LABEL)}>
-            Size
           </div>
           <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>
             Item Color{colourRequired && <span className="ml-0.5 text-danger">*</span>}
@@ -504,23 +533,6 @@ export function BomSliceGrid({
                   {identityMode ? (row.combination ?? "").trim() : row.label}
                 </Truncated>
               </div>
-              <div className="flex min-h-9 items-center justify-center border-l border-border">
-                <input
-                  type="checkbox"
-                  checked={row.sizeWise}
-                  disabled={!row.chosen || !!row.sizeWiseWhyNot}
-                  aria-label={`Split ${row.label} by size`}
-                  /* THE REASON COMES FROM THE CALLER, and it used to be one
-                     hard-coded sentence beside a boolean. There is more than one
-                     cause now — an order with no size break-up, and an Attribute
-                     the requirement cannot store a per-row tick against — and a
-                     fixed sentence made the second read as the first, sending the
-                     operator to the Assort tab to fix nothing. */
-                  title={row.sizeWiseWhyNot ?? undefined}
-                  onChange={(e) => onFlag(row.key, { size_wise: e.target.checked })}
-                  className={TICK}
-                />
-              </div>
               <div className="flex min-h-9 items-center border-l border-border px-1">
                 {renderColour(row.key)}
               </div>
@@ -536,7 +548,7 @@ export function BomSliceGrid({
               <div className="flex min-h-9 items-center border-l border-border">
                 <Input
                   uppercase
-                  value={row.sizeSpec}
+                  value={row.sizeSpec || (row.sizeSpecAuto ?? "")}
                   aria-label={`Material size, ${nameOf(row)}`}
                   onChange={(e) => onFlag(row.key, { size_spec: e.target.value })}
                   className={cn(BOX, "w-full")}
@@ -555,7 +567,7 @@ export function BomSliceGrid({
                         required={row.cell.itemsRequired}
                       placeholder={linePlaceholder.items}
                       aria-label={`No. of items, ${nameOf(row)}`}
-                      onChange={(e) => onSet(row.cell.key, { items: e.target.value })}
+                      onChange={(e) => setFigure(row, { items: e.target.value })}
                       className={cn(BOX, "w-full text-right")}
                     />
                   </div>
@@ -568,7 +580,7 @@ export function BomSliceGrid({
                         required={row.cell.piecesRequired}
                       placeholder={linePlaceholder.pieces}
                       aria-label={`Per pieces, ${nameOf(row)}`}
-                      onChange={(e) => onSet(row.cell.key, { pieces: e.target.value })}
+                      onChange={(e) => setFigure(row, { pieces: e.target.value })}
                       className={cn(BOX, "w-full text-right")}
                     />
                   </div>
@@ -691,8 +703,7 @@ export function BomSliceGrid({
 
       <p className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
         A blank figure uses the line&rsquo;s own. Untick a row to buy none of this material for
-        it; tick <b className="font-semibold text-foreground">Size</b> to split that row into
-        sizes.
+        it.
       </p>
     </div>
   );
