@@ -97,8 +97,22 @@ const q4 = (v: number | null | undefined) => (v == null ? null : Math.round(Numb
  * saved "NAVY" line and a fresh "Navy" one as a stale line and a new line, and
  * the same dye lot would be costed twice.
  */
-export function mergeKey(l: MergeKeyed): string {
-  return pulledLineKey({ ...l, combo: up(l.combo) || null, style_ref_no: up(l.style_ref_no) || null });
+export function mergeKey(l: MergeKeyed & { description?: string | null }): string {
+  const key = pulledLineKey({ ...l, combo: up(l.combo) || null, style_ref_no: up(l.style_ref_no) || null });
+  /*
+   * AN ACCESSORIES LINE IS ONE PER SLICE, AND THE SLICE IS ITS IDENTITY
+   * (2026-10-05: "The BOMs have changed since this budget was filled (12
+   * lines)" on every Send, however often it was refreshed). The Accessories
+   * Plan stores a requirement per slice — LABEL / MAIN & SIZE LABEL · XS, · S,
+   * … · XXXL — and the pull makes one line of each, told apart ONLY by the
+   * slice in its description. `pulledLineKey` reads none of that, so all seven
+   * keyed alike: the fresh seven matched ONE held line (6 "changed"), the other
+   * six held lines matched nothing (6 "no longer on the BOM"), and each refresh
+   * wrote the last slice's figures over that one line — budget 3 ended up with
+   * XXXL twice and no XS. Appended, never inserted, so every other source keys
+   * exactly as before.
+   */
+  return l.source === "material" ? `${key}|${up(l.description)}` : key;
 }
 
 /** A Fabric Processes group: one process on one order. The screen's
@@ -158,10 +172,20 @@ export function mergePulled<H extends HeldLine, F extends FreshLine>(
 
   // ---- everything but Fabric Processes: line by line ----
   const heldByKey = new Map<string, H>();
+  /* A SECOND PULLED LINE ON A KEY ALREADY HELD BY A PULLED LINE. The pull
+     never makes two lines on one key, so such a line is a copy — the slice
+     collision above left them behind (budget 3: XXXL twice). Removed by the
+     refresh rather than flagged: flagged, it would refuse Submit until someone
+     found and deleted it by hand. Typed lines are never counted here. */
+  const copies = new Set<string>();
   for (const h of held) {
     if (h.source === "fabric_process") continue;
     const k = mergeKey(h);
     const prev = heldByKey.get(k);
+    if (prev && prev.from_bom && h.from_bom) {
+      copies.add(h.key);
+      continue;
+    }
     // TWO HELD LINES ON ONE KEY: the pulled one is the one to keep in step.
     if (!prev || (!prev.from_bom && h.from_bom)) heldByKey.set(k, h);
   }
@@ -178,7 +202,7 @@ export function mergePulled<H extends HeldLine, F extends FreshLine>(
   }
   for (const h of held) {
     if (h.source === "fabric_process" || !h.from_bom || matched.has(h.key)) continue;
-    out.stale.push({ key: h.key, disposition: staleDisposition(h) });
+    out.stale.push({ key: h.key, disposition: copies.has(h.key) ? "drop" : staleDisposition(h) });
   }
 
   // ---- Fabric Processes: group by group, on the total ----

@@ -144,5 +144,36 @@ const hp = (key: string, over: Partial<HeldLine> = {}): HeldLine => ({ ...fp(), 
   check("size = update + add + stale", pullMergeSize(m), 3);
 }
 
+// ---- 11. an accessories item planned per SLICE (2026-10-05, budget 3) ----
+{
+  /* LABEL / MAIN & SIZE LABEL split XS…XXXL: one line per size, the same item,
+     told apart only by the slice in the description. Keyed without it, the
+     seven collided and Submit refused "12 lines" after every refresh. */
+  const SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"];
+  const mat = (z: string, qty: number) =>
+    fresh({ source: "material", item_id: "lbl", description: `LABEL / MAIN & SIZE LABEL · ${z}`, qty, stage_id: null });
+  const freshLines = SIZES.map((z, i) => mat(z, 100 + i));
+  const heldLines = SIZES.map((z, i) => ({ ...mat(z, 100 + i), key: `h-${z}`, from_bom: true }));
+  check("slices key apart", mergeKey(mat("XS", 1)) === mergeKey(mat("S", 1)), false);
+  check("slice case-folded (saved in CAPITALS)", mergeKey(mat("xs", 1)) === mergeKey(mat("XS", 1)), true);
+  check("seven size lines in step: nothing to do", pullMergeIsEmpty(mergePulled(heldLines, freshLines)), true);
+
+  /* THE STATE THE BUG LEFT: XS overwritten, XXXL twice. The refresh puts XS
+     back and REMOVES the copy rather than flagging it for a hand delete. */
+  const broken = [...heldLines.filter((h) => h.key !== "h-XS"), { ...heldLines[6], key: "h-XXXL-copy" }];
+  const m = mergePulled(broken, freshLines);
+  check("the lost slice comes back", m.add.map((f) => f.description), ["LABEL / MAIN & SIZE LABEL · XS"]);
+  check("the copy is dropped", m.stale, [{ key: "h-XXXL-copy", disposition: "drop" }]);
+  check("nothing else changes", m.update.length, 0);
+
+  /* Other sources key exactly as before — the slice is appended for
+     `material` alone. */
+  check(
+    "a yarn's description is still a fact, not a key",
+    mergeKey(fresh({ description: "A" })) === mergeKey(fresh({ description: "B" })),
+    true,
+  );
+}
+
 console.log(failed ? `\n${failed} FAILED` : "\nall pull-merge vectors pass");
 process.exit(failed ? 1 : 0);
