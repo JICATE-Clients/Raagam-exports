@@ -135,6 +135,7 @@ export function FabricProcessGrid({
   readOnly = false,
   hideHeader = false,
   lossColours = null,
+  sheet = false,
 }: {
   /** The fabric these steps belong to — stamped onto every row added. */
   itemId: string;
@@ -237,6 +238,13 @@ export function FabricProcessGrid({
    *  route is split into several of these grids stacked in a row; see
    *  `ChildGrid`'s own `hideHeader` note for why. */
   hideHeader?: boolean;
+  /** SPREADSHEET LOOK (user 2026-10-05, Fabric BOM ▸ Fabric Process, the
+   *  `erp-sheet-grid` skill): wraps the grid in `data-grid-style="sheet"` and
+   *  heads the ✕ column "Actions". A prop rather than a wrapper at the call
+   *  site so the error rings below can turn inset in the same switch — a
+   *  rounded outer ring would spill over the gridlines. Opt-in, so IWO Fabric
+   *  BOM keeps its boxes until it is asked for. */
+  sheet?: boolean;
   /**
    * ASSORT COLOR-WISE LOSS (0606, client spec 2026-09-21) — the fabric's OWN
    * colourways. With it, a step whose Loss for = COLOR WISE shows a [Color
@@ -534,7 +542,7 @@ export function FabricProcessGrid({
             (stageRegressionBlocked(rowsInBranch(r), indexInBranch(r), lookups.stages) ||
               yarnDyedStageBlocked(rowsInBranch(r), indexInBranch(r), processes, lookups.stages, fabricIsYarnDyed) ||
               washStageBlocked(r, lookups.stages, fabricIsPieceDyed)) &&
-              "rounded-md ring-2 ring-danger",
+              (sheet ? "ring-2 ring-inset ring-danger" : "rounded-md ring-2 ring-danger"),
           )}
         >
           <LookupDialogPicker
@@ -648,7 +656,7 @@ export function FabricProcessGrid({
               processRepeatedInStage(rowsInBranch(r), indexInBranch(r)) ||
               routeStartNotFirst(rowsInBranch(r), indexInBranch(r), processes) ||
               baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, gatesFor(r))) &&
-              "rounded-md ring-2 ring-danger",
+              (sheet ? "ring-2 ring-inset ring-danger" : "rounded-md ring-2 ring-danger"),
           )}
         >
           {(() => {
@@ -961,7 +969,7 @@ export function FabricProcessGrid({
     }] : []),
   ];
 
-  return (
+  const grid = (
     <ChildGrid<FabricProcessRow>
       columns={columns}
       rows={rows}
@@ -1028,6 +1036,16 @@ export function FabricProcessGrid({
       onAdd={() => onChange([...rows, blankFabricProcess(newKey(), itemId)])}
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
       addLabel="+ Add process"
+      removeHeader={sheet ? "Actions" : undefined}
     />
+  );
+  /* Every column declares a width, so `table-fixed` only stops the split
+     moving as values are typed (operator, 2026-09-17, the skill's note). */
+  return sheet ? (
+    <div data-grid-style="sheet" className="[&_table]:table-fixed">
+      {grid}
+    </div>
+  ) : (
+    grid
   );
 }

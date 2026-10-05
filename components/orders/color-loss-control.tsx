@@ -44,6 +44,7 @@ import { Select } from "@/components/ui/select";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
+import { cn } from "@/lib/utils";
 import {
   colorLossProblem,
   colorLossSeed,
@@ -211,7 +212,7 @@ export function ColorLossControl({
   if (unavailable && !wise) return null;
 
   return (
-    <div className="mt-1 flex min-w-0 flex-col gap-1">
+    <div className={cn("flex min-w-0 flex-col gap-1", !driven && "mt-1")}>
       <div className="flex items-center gap-2">
         {!unavailable && !driven && (
           <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
@@ -242,6 +243,11 @@ export function ColorLossControl({
             size="sm"
             variant="outline"
             data-field-trigger=""
+            /* A CELL'S VALUE when For drives it — `data-row-open` lets a
+               spreadsheet grid draw it as the cell instead of a pill floating
+               in it (`erp-sheet-grid`). It is already a field trigger, and it
+               carries no `aria-expanded`, so no key behaves differently. */
+            {...(driven ? { "data-row-open": "" } : {})}
             disabled={readOnly || (!pickRows && colours.length === 0)}
             onClick={(e) => openSheet(e.currentTarget)}
             onKeyDown={(e) => {
