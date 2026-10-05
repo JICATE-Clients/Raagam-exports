@@ -124,8 +124,8 @@ export function canDeleteBudget(b: { status: BudgetStatus; revisions?: readonly 
  */
 export function bomRefusalOf(fabricSaved: boolean, materialSaved: boolean): string | null {
   if (fabricSaved && materialSaved) return null;
-  if (!fabricSaved && !materialSaved) return "Fabric BOM and Material BOM not saved";
-  return fabricSaved ? "Material BOM not saved" : "Fabric BOM not saved";
+  if (!fabricSaved && !materialSaved) return "Fabric Plan and Accessories Plan not saved";
+  return fabricSaved ? "Accessories Plan not saved" : "Fabric Plan not saved";
 }
 
 export interface BudgetOrder {

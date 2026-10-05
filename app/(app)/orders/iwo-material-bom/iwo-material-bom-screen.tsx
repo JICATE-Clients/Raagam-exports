@@ -225,7 +225,7 @@ const IWO_MATERIAL_BOM_FACETS: FacetGroup<IwoMaterialBomTask>[] = [
     facets: [
       {
         key: "bom",
-        label: "Material BOM",
+        label: "Accessories Plan",
         all: "All",
         wide: true,
         counted: true,
@@ -495,7 +495,7 @@ export function IwoMaterialBomScreen({
     start(async () => {
       const res = await saveIwoMaterialBom(editId, payload);
       if (res.ok) {
-        success(editId ? "Material BOM updated" : "Material BOM created");
+        success(editId ? "Accessories Plan updated" : "Accessories Plan created");
         setDirty(false);
         leaveEditor();
         router.refresh();
@@ -511,7 +511,7 @@ export function IwoMaterialBomScreen({
     start(async () => {
       const res = await deleteIwoMaterialBom(bomId);
       if (res.ok) {
-        success("Material BOM deleted");
+        success("Accessories Plan deleted");
         router.refresh();
       } else {
         toastError(res.error);
@@ -538,7 +538,7 @@ export function IwoMaterialBomScreen({
     { header: "RE No", cell: (t) => <span className="font-mono text-xs">{t.reference_no ?? "—"}</span> },
     { header: "Deli Dt", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.deli_date)}</span> },
     {
-      header: "Material BOM",
+      header: "Accessories Plan",
       cell: (t) =>
         !t.bom ? (
           <StatusPill tone="neutral">Not started</StatusPill>
@@ -932,11 +932,11 @@ export function IwoMaterialBomScreen({
   const sections: FullScreenSection[] = [
     {
       key: "bom",
-      label: "Material BOM",
+      label: "Accessories Plan",
       icon: Layers,
       done: !!form.iwo_id,
       content: (
-        <SectionBody title="Material BOM">
+        <SectionBody title="Accessories Plan">
           {/* The order screen's header, with the IWO standing where the Garment
               Order stood. Everything but the IWO and the Date is READ from the
               IWO — a readOnly field never holds the cursor. */}
@@ -976,7 +976,7 @@ export function IwoMaterialBomScreen({
           {!form.iwo_id && iwoItems.length === 0 && (
             <div className="mt-3">
               <p className="text-sm text-muted-foreground">
-                No Internal Work Order For Accessories is waiting for a Material BOM.
+                No Internal Work Order For Accessories is waiting for an Accessories Plan.
               </p>
               <Button
                 type="button"
@@ -1223,9 +1223,9 @@ export function IwoMaterialBomScreen({
     <>
       <div className="space-y-4">
         <PageHeader
-          title="IWO Material BOM"
-          description="The Material BOM for an Internal Work Order For Accessories — no garment breakdown; the quantity is typed."
-          actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Material BOM</Button> : undefined}
+          title="IWO Accessories Plan"
+          description="The Accessories Plan for an Internal Work Order For Accessories — no garment breakdown; the quantity is typed."
+          actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Accessories Plan</Button> : undefined}
         />
         <FilterBar
           leading={quick.segment}
@@ -1263,7 +1263,7 @@ export function IwoMaterialBomScreen({
         }
         header={{
           initials: "MB",
-          title: picked?.code ?? "New Material BOM",
+          title: picked?.code ?? "New Accessories Plan",
           badges: dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null,
           meta: (
             <>
@@ -1274,11 +1274,11 @@ export function IwoMaterialBomScreen({
         }}
         sections={sections}
         footer={{
-          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Material BOM",
+          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Accessories Plan",
           onCancel: () => leaveEditor(),
           onSave: () => submit(false),
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
-          saveLabel: "Save Material BOM",
+          saveLabel: "Save Accessories Plan",
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
           isPending,

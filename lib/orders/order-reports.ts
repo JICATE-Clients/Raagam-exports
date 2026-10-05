@@ -108,8 +108,8 @@ export interface OrderReportDef {
 
 export const ORDER_REPORT_SOURCES: readonly { source: OrderReportSource; label: string }[] = [
   { source: "order", label: "Order" },
-  { source: "material-bom", label: "Material BOM" },
-  { source: "fabric-bom", label: "Fabric BOM" },
+  { source: "material-bom", label: "Accessories Plan" },
+  { source: "fabric-bom", label: "Fabric Plan" },
   { source: "budget", label: "Budget" },
 ];
 
@@ -137,7 +137,7 @@ export const ORDER_REPORTS = [
      approved, row for row. */
   {
     key: "material-bom-requirement",
-    label: "Material BOM Requirement",
+    label: "Accessories Plan Requirement",
     source: "material-bom",
     icon: "table",
     vFinal: "material-bom-requirement",
@@ -157,7 +157,7 @@ export const ORDER_REPORTS = [
      Reports sheet, its URL and its V_final capture are unchanged. */
   {
     key: "fabric-bom-register",
-    label: "Fabric BOM Entry Register",
+    label: "Fabric Plan Entry Register",
     source: "fabric-bom",
     icon: "table",
     vFinal: "fabric-bom-reports",

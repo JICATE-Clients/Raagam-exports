@@ -273,7 +273,7 @@ type DocSource = {
 };
 
 const FABRIC_BOM_DOC: DocSource = {
-  what: "Fabric BOM",
+  what: "Fabric Plan",
   table: "order_fabric_boms",
   select: "id, code, garment_order_id, bom_date, computed_at, is_draft, location_id",
   dateCol: "bom_date",
@@ -284,7 +284,7 @@ const FABRIC_BOM_DOC: DocSource = {
 /* No `location_id` on a Material BOM — the unit falls back to its order's,
    the second half of the rule below. */
 const MATERIAL_BOM_DOC: DocSource = {
-  what: "Material BOM",
+  what: "Accessories Plan",
   table: "material_bom_amendments",
   select: "id, code, garment_order_id, amend_date, computed_at, is_draft",
   dateCol: "amend_date",
@@ -1940,7 +1940,7 @@ export async function yarnFabricRequirementReport(
   if (noStoredYarn && ![...sourceByFabric.values()].some((src) => !sourceBuysYarn(src))) {
     return {
       refused:
-        "This Fabric BOM has no stored yarn purchase yet — open Yarn Process and save, so the figures this report prints are the ones that were approved.",
+        "This Fabric Plan has no stored yarn purchase yet — open Yarn Process and save, so the figures this report prints are the ones that were approved.",
     };
   }
 

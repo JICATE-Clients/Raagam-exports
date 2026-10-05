@@ -298,7 +298,7 @@ refute("...it is NOT an empty array", names(componentWeightsForOrder([])), []);
 // 3. Grams -> a consumption
 // ---------------------------------------------------------------------------
 
-console.log("\n-- 3. grams into the Fabric BOM's unit --");
+console.log("\n-- 3. grams into the Fabric Plan's unit --");
 
 check("120 g is 0.12 KGS", consumptionFromGrams(120, "KGS"), 0.12);
 check("12 g is 0.012 KGS", consumptionFromGrams(12, "KGS"), 0.012);
@@ -332,7 +332,7 @@ refusedSaying("a weight of 0 is refused", consumptionFromGrams(0, "KGS"), "more 
 // 4. Matching a weight to a Fabric BOM line
 // ---------------------------------------------------------------------------
 
-console.log("\n-- 4. seeding one Fabric BOM line --");
+console.log("\n-- 4. seeding one Fabric Plan line --");
 
 const sheet = componentWeightsForOrder([
   w({ style_ref_no: S1, component_id: FRONT, component_name: "FRONT BODY", grams: 120 }),

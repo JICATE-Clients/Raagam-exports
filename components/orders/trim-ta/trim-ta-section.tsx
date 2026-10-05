@@ -66,14 +66,14 @@ export function TrimTaSection({ garmentOrderId, bomDirty }: { garmentOrderId: st
     <div className="space-y-3">
       {order ? (
         <p className="text-xs text-muted-foreground">
-          From the recorded Material BOM{order.bomCode ? ` ${order.bomCode}` : ""} — each trim&apos;s PO, receipt and
+          From the recorded Accessories Plan{order.bomCode ? ` ${order.bomCode}` : ""} — each trim&apos;s PO, receipt and
           job-work steps, completed automatically from purchase orders, GRNs and delivery challans.
           {bomDirty && " Unsaved changes above appear here after Save."}
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
           {ta.notes[0] ??
-            "No sewing or packing trims on a recorded Material BOM for this order yet — save the BOM (not as draft) to schedule them."}
+            "No sewing or packing trims on a recorded Accessories Plan for this order yet — save the BOM (not as draft) to schedule them."}
         </p>
       )}
       {order &&

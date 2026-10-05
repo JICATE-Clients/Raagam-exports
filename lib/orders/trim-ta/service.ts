@@ -147,7 +147,7 @@ async function loadTrimTaInto(sb: SB, result: TrimTaResult, opts: { salesOrderId
   const bomIds = [...boms.values()].map((b) => b.bom?.id).filter((x): x is string => !!x);
   const allGoIds = [...boms.values()].flatMap((b) => b.goIds);
   if (!bomIds.length) {
-    if (opts.salesOrderId) notes.push("This order has no recorded Material BOM yet — trims are scheduled once one is saved out of draft.");
+    if (opts.salesOrderId) notes.push("This order has no recorded Accessories Plan yet — trims are scheduled once one is saved out of draft.");
     return;
   }
 
@@ -173,10 +173,10 @@ async function loadTrimTaInto(sb: SB, result: TrimTaResult, opts: { salesOrderId
       .select("sales_order_id, item_id, step_code, tolerance_pct, done_on, remarks, assigned_staff_id")
       .in("sales_order_id", soIds),
   ]);
-  fail("Material BOM lines", linesQ.error);
-  fail("Material BOM requirements", reqQ.error);
-  fail("Material BOM processes", procQ.error);
-  fail("Material BOM amendments", allBomQ.error);
+  fail("Accessories Plan lines", linesQ.error);
+  fail("Accessories Plan requirements", reqQ.error);
+  fail("Accessories Plan processes", procQ.error);
+  fail("Accessories Plan amendments", allBomQ.error);
   fail("Orders", soQ.error);
   fail("T&A activities", actsQ.error);
   fail("Trim T&A marks", marksQ.error);

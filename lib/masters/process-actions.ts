@@ -68,7 +68,7 @@ async function syncProcessSubCategories(
       return {
         ok: false,
         error:
-          "That sub-category is used on a Fabric BOM's Fabric Process route. Change those routes first, or rename it instead of removing it.",
+          "That sub-category is used on a Fabric Plan's Fabric Process route. Change those routes first, or rename it instead of removing it.",
       };
     }
     return { ok: false, error: delErr.message };

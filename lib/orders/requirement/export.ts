@@ -188,7 +188,7 @@ export async function exportAccessoriesRequirementPdf(
   });
   if (rows.length === 0) {
     doc.setFontSize(7.5);
-    doc.text("No trims on this Material BOM.", M, finalY(doc, startY) + 12);
+    doc.text("No trims on this Accessories Plan.", M, finalY(doc, startY) + 12);
   }
 
   signOffFooter(doc);

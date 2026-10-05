@@ -190,7 +190,7 @@ export function AmendmentEntryScreen({ detail }: { detail: AmendmentEntryDetail 
     },
     {
       key: "fabric_bom",
-      label: "Fabric BOM",
+      label: "Fabric Plan",
       hint: "Yarn structure, process loss, fabric allocations",
       open: picked.includes("fabric_bom"),
       count: moved.fabric_bom,
@@ -199,7 +199,7 @@ export function AmendmentEntryScreen({ detail }: { detail: AmendmentEntryDetail 
     },
     {
       key: "material_bom",
-      label: "Material BOM",
+      label: "Accessories Plan",
       hint: "Trims, accessories, packaging items",
       open: picked.includes("material_bom"),
       count: moved.material_bom,

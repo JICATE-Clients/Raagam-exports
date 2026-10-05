@@ -151,7 +151,7 @@ check("§8 a PO with nothing Advised is allowed", advisedRefusal(advisedAmong(iw
 check(
   "§8 an Advised material is refused, naming it and the work order",
   advisedRefusal(["BRAND MAIN LABEL"], "U2/IWO/2627/0005"),
-  "BRAND MAIN LABEL is still Advised on work order U2/IWO/2627/0005 — the buyer has not confirmed it. Untick Is Advised on IWO Material BOM once confirmed, then raise the purchase order.",
+  "BRAND MAIN LABEL is still Advised on work order U2/IWO/2627/0005 — the buyer has not confirmed it. Untick Is Advised on IWO Accessories Plan once confirmed, then raise the purchase order.",
 );
 check(
   "§8 more than three names three and counts the rest",
@@ -161,24 +161,24 @@ check(
 check(
   "§8 the form says what is held before Save",
   iwoPurchaseHint(iwoCheck({ bom: { is_draft: false } })),
-  "Limited to IWO Material BOM's purchase quantities — still Advised, cannot be bought: BRAND MAIN LABEL, TWILL TAPE",
+  "Limited to IWO Accessories Plan's purchase quantities — still Advised, cannot be bought: BRAND MAIN LABEL, TWILL TAPE",
 );
 check(
   // REVERSED ON PURPOSE (0595, user 2026-09-19): a Fabric work order's yarn is
   // now held to its Fabric BOM — with none, nothing on it can be bought.
-  "§8 a Fabric work order with no Fabric BOM says nothing can be bought",
+  "§8 a Fabric work order with no Fabric Plan says nothing can be bought",
   iwoPurchaseHint(iwoCheck({ iwo_for: "fabric", bom: null, advised: [] })),
-  "This work order has no Fabric BOM yet — nothing on it can be bought",
+  "This work order has no Fabric Plan yet — nothing on it can be bought",
 );
 check(
-  "§8 a saved Fabric BOM holds yarn to its purchase weights",
+  "§8 a saved Fabric Plan holds yarn to its purchase weights",
   iwoPurchaseHint(iwoCheck({ iwo_for: "yarn", bom: { is_draft: false }, advised: [] })),
-  "Limited to the IWO Fabric BOM's yarn purchase weights",
+  "Limited to the IWO Fabric Plan's yarn purchase weights",
 );
 check(
-  "§8 no Material BOM yet says nothing can be bought (it agrees with the ceiling)",
+  "§8 no Accessories Plan yet says nothing can be bought (it agrees with the ceiling)",
   iwoPurchaseHint(iwoCheck({ bom: null, advised: [] })),
-  "This work order has no Material BOM yet — nothing on it can be bought",
+  "This work order has no Accessories Plan yet — nothing on it can be bought",
 );
 refute(
   "§8 a DRAFT BOM's tick still refuses (a stop sign from the moment it is stored)",
@@ -196,12 +196,12 @@ check("§9 up to the BOM's purchase quantity is allowed", iwoCeilingRefusal(save
 check(
   "§9 one over is refused, quoting both figures and the unit",
   iwoCeilingRefusal(saved({ lines: [LABEL_LINE] }), want([["label", 106]])),
-  "Purchase order quantity (106 NOS) exceeds the approved IWO Material BOM allocation (105 NOS) for BRAND MAIN LABEL on work order U2/IWO/2627/0005. Over-ordering on work orders is blocked.",
+  "Purchase order quantity (106 NOS) exceeds the approved IWO Accessories Plan allocation (105 NOS) for BRAND MAIN LABEL on work order U2/IWO/2627/0005. Over-ordering on work orders is blocked.",
 );
 check(
   "§9 other POs count — 40 held + 70 here is over, and it says what room is left",
   iwoCeilingRefusal(saved({ lines: [LABEL_LINE], committed: [{ item_id: "label", qty: 40 }] }), want([["label", 70]])),
-  "Purchase order quantity (70 NOS) plus 40 NOS already on other purchase orders exceeds the approved IWO Material BOM allocation (105 NOS) for BRAND MAIN LABEL on work order U2/IWO/2627/0005. This one can take at most 65 NOS. Over-ordering on work orders is blocked.",
+  "Purchase order quantity (70 NOS) plus 40 NOS already on other purchase orders exceeds the approved IWO Accessories Plan allocation (105 NOS) for BRAND MAIN LABEL on work order U2/IWO/2627/0005. This one can take at most 65 NOS. Over-ordering on work orders is blocked.",
 );
 check(
   "§9 …and exactly the room left passes",
@@ -221,8 +221,8 @@ refute(
   iwoCeilingRefusal(saved({ lines: [LABEL_LINE] }), want([["button", 1]])),
   null,
 );
-refute("§9 no Material BOM refuses", iwoCeilingRefusal(saved({ bom: null }), want([["label", 1]])), null);
-refute("§9 a draft Material BOM refuses (a draft approves nothing)", iwoCeilingRefusal(saved({ bom: { is_draft: true }, lines: [LABEL_LINE] }), want([["label", 1]])), null);
+refute("§9 no Accessories Plan refuses", iwoCeilingRefusal(saved({ bom: null }), want([["label", 1]])), null);
+refute("§9 a draft Accessories Plan refuses (a draft approves nothing)", iwoCeilingRefusal(saved({ bom: { is_draft: true }, lines: [LABEL_LINE] }), want([["label", 1]])), null);
 refute(
   "§9 a line the BOM could not calculate refuses",
   iwoCeilingRefusal(saved({ lines: [{ ...LABEL_LINE, purchase_qty: null }] }), want([["label", 1]])),
@@ -248,24 +248,24 @@ const YARN_LINE = { item_id: "cotton", name: "30'S COTTON", purchase_qty: 1111.1
 const yarnSaved = (over: Partial<IwoPurchaseCheck>) => saved({ iwo_for: "yarn", lines: [YARN_LINE], ...over });
 check("§10 a yarn up to its purchase weight is allowed", iwoCeilingRefusal(yarnSaved({}), want([["cotton", 1111.112]])), null);
 check(
-  "§10 over it is refused, naming the Fabric BOM",
+  "§10 over it is refused, naming the Fabric Plan",
   iwoCeilingRefusal(yarnSaved({}), want([["cotton", 1200]])),
-  "Purchase order quantity (1,200 KGS) exceeds the approved IWO Fabric BOM allocation (1,111.112 KGS) for 30'S COTTON on work order U2/IWO/2627/0005. Over-ordering on work orders is blocked.",
+  "Purchase order quantity (1,200 KGS) exceeds the approved IWO Fabric Plan allocation (1,111.112 KGS) for 30'S COTTON on work order U2/IWO/2627/0005. Over-ordering on work orders is blocked.",
 );
 check(
-  "§10 a yarn the Fabric BOM does not buy is refused",
+  "§10 a yarn the Fabric Plan does not buy is refused",
   iwoCeilingRefusal(yarnSaved({}), want([["lycra", 1]])),
-  "This is not a yarn work order U2/IWO/2627/0005's Fabric BOM buys, so none of it is approved to buy. Plan it on IWO Fabric BOM first.",
+  "This is not a yarn work order U2/IWO/2627/0005's Fabric Plan buys, so none of it is approved to buy. Plan it on IWO Fabric Plan first.",
 );
 check(
-  "§10 a Fabric work order with no Fabric BOM refuses",
+  "§10 a Fabric work order with no Fabric Plan refuses",
   iwoCeilingRefusal(saved({ iwo_for: "fabric", bom: null }), want([["cotton", 1]])),
-  "Work order U2/IWO/2627/0005 has no Fabric BOM yet, so nothing on it is approved to buy. Plan it on IWO Fabric BOM first.",
+  "Work order U2/IWO/2627/0005 has no Fabric Plan yet, so nothing on it is approved to buy. Plan it on IWO Fabric Plan first.",
 );
 check(
-  "§10 a draft Fabric BOM refuses",
+  "§10 a draft Fabric Plan refuses",
   iwoCeilingRefusal(yarnSaved({ bom: { is_draft: true } }), want([["cotton", 1]])),
-  "Work order U2/IWO/2627/0005's Fabric BOM is still a draft, so nothing on it is approved to buy yet. Save it (not as a draft) first.",
+  "Work order U2/IWO/2627/0005's Fabric Plan is still a draft, so nothing on it is approved to buy yet. Save it (not as a draft) first.",
 );
 check(
   "§10 other purchase orders count for yarn too",
@@ -275,9 +275,9 @@ check(
   true,
 );
 check(
-  "§10 a yarn the BOM could not weigh refuses, naming the Fabric BOM",
+  "§10 a yarn the BOM could not weigh refuses, naming the Fabric Plan",
   iwoCeilingRefusal(yarnSaved({ lines: [{ ...YARN_LINE, purchase_qty: null }] }), want([["cotton", 1]])),
-  "The Fabric BOM for work order U2/IWO/2627/0005 could not work out a purchase quantity for 30'S COTTON. Fix that line on IWO Fabric BOM first.",
+  "The Fabric Plan for work order U2/IWO/2627/0005 could not work out a purchase quantity for 30'S COTTON. Fix that line on IWO Fabric Plan first.",
 );
 
 // ---------------------------------------------------------------------------
@@ -380,7 +380,7 @@ check(
 );
 
 if (failed) {
-  console.error(`\n${failed} IWO Material BOM vector(s) failed.`);
+  console.error(`\n${failed} IWO Accessories Plan vector(s) failed.`);
   process.exit(1);
 }
-console.log("\nIWO Material BOM: the typed quantity reaches the order Material BOM's arithmetic intact.");
+console.log("\nIWO Accessories Plan: the typed quantity reaches the order Accessories Plan's arithmetic intact.");

@@ -86,19 +86,19 @@ const pulled = (i: IwoPullInput) => {
 };
 
 // §1 — nothing is pulled from a BOM that is not there, or not finished.
-check("§1 no Fabric BOM refuses", pullIwoLines(input({})), {
-  refused: "This work order has no Fabric BOM yet — raise it first.",
+check("§1 no Fabric Plan refuses", pullIwoLines(input({})), {
+  refused: "This work order has no Fabric Plan yet — raise it first.",
 });
-check("§1 a draft Fabric BOM refuses", pullIwoLines(input({ fabricBom: fbom({ is_draft: true }) })), {
-  refused: "The Fabric BOM is a draft — save it (not as a draft) before budgeting it.",
+check("§1 a draft Fabric Plan refuses", pullIwoLines(input({ fabricBom: fbom({ is_draft: true }) })), {
+  refused: "The Fabric Plan is a draft — save it (not as a draft) before budgeting it.",
 });
-check("§1 no Material BOM refuses (Accessories)", pullIwoLines(input({ iwoFor: "accessories" })), {
-  refused: "This work order has no Material BOM yet — raise it first.",
+check("§1 no Accessories Plan refuses (Accessories)", pullIwoLines(input({ iwoFor: "accessories" })), {
+  refused: "This work order has no Accessories Plan yet — raise it first.",
 });
 check(
-  "§1 a draft Material BOM refuses",
+  "§1 a draft Accessories Plan refuses",
   pullIwoLines(input({ iwoFor: "accessories", materialBom: { is_draft: true, items: [], processes: [] } })),
-  { refused: "The Material BOM is a draft — save it (not as a draft) before budgeting it." },
+  { refused: "The Accessories Plan is a draft — save it (not as a draft) before budgeting it." },
 );
 
 // §2 — Yarn IWO, the three shapes (0592).

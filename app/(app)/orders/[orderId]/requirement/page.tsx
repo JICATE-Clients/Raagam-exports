@@ -101,7 +101,7 @@ export default async function RequirementPage({
               href="/orders/material-bom-amendment"
               className="mt-3 inline-block text-sm font-medium text-primary hover:underline"
             >
-              Open Material BOM →
+              Open Accessories Plan →
             </Link>
           </CardBody>
         </Card>

@@ -110,7 +110,7 @@ export async function exportMaterialBomRequirementPdf(
   let y = drawSheetMasthead(doc, {
     company: c.name,
     logo: logo && fitted ? { dataUrl: logo.dataUrl, w: fitted.w, h: fitted.h } : null,
-    kind: "Material BOM Requirement",
+    kind: "Accessories Plan Requirement",
     reNo: h.scNo,
     meta: [h.bomCode, h.computedAt ? `Stored ${fmtDateTime(h.computedAt)}` : null].filter(Boolean).join(" · "),
     margin: M,
@@ -200,7 +200,7 @@ export async function exportMaterialBomRequirementPdf(
 export function exportMaterialBomRequirementCsv(r: MbaRequirementReport): void {
   const h = r.header;
   const lines: string[][] = [
-    ["Material BOM Requirement", h.bomCode ?? ""],
+    ["Accessories Plan Requirement", h.bomCode ?? ""],
     ["Customer", h.customer ?? "", "RE No", h.scNo ?? "", "Order No", h.orderNo ?? ""],
     [],
     HEAD,

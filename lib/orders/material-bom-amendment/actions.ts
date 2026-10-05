@@ -1536,7 +1536,7 @@ export async function updateMaterialBomAmendment(
   const s = await createClient();
   const stored = await storedBomOrderId(s, id);
   if (!stored.ok) return fail(stored.error);
-  if (!stored.orderId) return fail("This Material BOM belongs to no order — there is no approval lock to override.");
+  if (!stored.orderId) return fail("This Accessories Plan belongs to no order — there is no approval lock to override.");
   return saveUnderOverride(stored.orderId, override, () => saveMaterialBomAmendment(id, data));
 }
 
@@ -1665,8 +1665,8 @@ export async function recalculateMaterialBomDerived(
     )
     .eq("id", bomId)
     .maybeSingle();
-  if (readErr) return { ok: false, error: `Could not read the Material BOM: ${readErr.message}` };
-  if (!raw) return { ok: false, error: "That Material BOM no longer exists" };
+  if (readErr) return { ok: false, error: `Could not read the Accessories Plan: ${readErr.message}` };
+  if (!raw) return { ok: false, error: "That Accessories Plan no longer exists" };
 
   type Sno = { sno: number };
   const doc = raw as unknown as {
@@ -1686,9 +1686,9 @@ export async function recalculateMaterialBomDerived(
   const sorted = <T extends Sno>(rows: readonly T[] | null | undefined): T[] =>
     [...(rows ?? [])].sort((a, b) => a.sno - b.sno);
 
-  if (!doc.garment_order_id) return { ok: false, error: "This Material BOM names no order to recalculate against" };
+  if (!doc.garment_order_id) return { ok: false, error: "This Accessories Plan names no order to recalculate against" };
   const order = await getOrderProduction(doc.garment_order_id);
-  if (!order) return { ok: false, error: "The order this Material BOM plans could not be read" };
+  if (!order) return { ok: false, error: "The order this Accessories Plan plans could not be read" };
 
   const storedItems = sorted(doc.items);
   const data = {
@@ -1713,7 +1713,7 @@ export async function recalculateMaterialBomDerived(
   if (items.length !== storedItems.length) {
     return {
       ok: false,
-      error: "The Material BOM's lines could not be matched to the stored rows — open the Material BOM and save it",
+      error: "The Accessories Plan's lines could not be matched to the stored rows — open the Accessories Plan and save it",
     };
   }
   const savedItems: ItemRowWithId[] = items.map((r, i) => ({ ...r, id: storedItems[i].id }));

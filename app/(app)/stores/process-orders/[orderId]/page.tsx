@@ -115,7 +115,7 @@ export default async function ProcessOrderDetailPage({
               <dt className="text-xs text-muted-foreground">Order (RE No)</dt>
               <dd>
                 {order.sales_order_id ? (
-                  <Link href="/orders/fabric-bom" className="text-primary hover:underline" title="Its steps are on the T&A tab of this order's Fabric BOM">
+                  <Link href="/orders/fabric-bom" className="text-primary hover:underline" title="Its steps are on the T&A tab of this order's Fabric Plan">
                     {reNo ?? "—"}
                   </Link>
                 ) : (

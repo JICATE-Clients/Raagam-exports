@@ -253,7 +253,7 @@ export async function getPlannableFabrics(
         refusal: refused
           ? refused.refusal_reason
           : reqs.length === 0
-            ? "This fabric has no computed requirement — open the Fabric BOM and save it"
+            ? "This fabric has no computed requirement — open the Fabric Plan and save it"
             : null,
       };
     });

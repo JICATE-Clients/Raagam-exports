@@ -37,7 +37,7 @@ const eq = (label: string, got: unknown, want: unknown) =>
 // 1 --------------------------------------------------------------------------
 {
   const kinds = kindsForSelection({ modules: ["order_entry", "fabric_bom"], orderKinds: ["qty_addition"] });
-  eq("Order Entry (Qty) + Fabric BOM → kinds", kinds, ["qty_addition", "fabric_bom_revision"]);
+  eq("Order Entry (Qty) + Fabric Plan → kinds", kinds, ["qty_addition", "fabric_bom_revision"]);
   eq("…and back to modules", modulesOf(kinds), ["order_entry", "fabric_bom"]);
   eq("all four modules round-trip", modulesOf(kindsForSelection({
     modules: ["order_entry", "material_bom", "fabric_bom", "order_budget"],
@@ -91,12 +91,12 @@ const eq = (label: string, got: unknown, want: unknown) =>
 eq(
   "the spec's Manual Entry Needed example",
   manualEntryMessage({ source: "material", name: "Dyed Zipper", field: "rate" }),
-  'Manual Entry Needed: [Material BOM] -> "Dyed Zipper" requires a Unit Purchase Rate.',
+  'Manual Entry Needed: [Accessories Plan] -> "Dyed Zipper" requires a Unit Purchase Rate.',
 );
 eq(
   "a fabric process asks for a job-work rate",
   manualEntryMessage({ source: "fabric_process", name: "COMPACTING", field: "rate" }),
-  'Manual Entry Needed: [Fabric BOM] -> "COMPACTING" requires a Job-Work Rate.',
+  'Manual Entry Needed: [Fabric Plan] -> "COMPACTING" requires a Job-Work Rate.',
 );
 
 if (failures > 0) {

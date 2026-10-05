@@ -206,10 +206,10 @@ export async function saveIwoMaterialBom(bomId: string | null, payload: IwoMater
         ok: false,
         error:
           error?.code === "23505"
-            ? "This work order already has a Material BOM — open it from the list."
+            ? "This work order already has an Accessories Plan — open it from the list."
             : error?.code === "23514"
-              ? "A Material BOM is raised only for an Internal Work Order For Accessories."
-              : (error?.message ?? "Failed to create the Material BOM"),
+              ? "An Accessories Plan is raised only for an Internal Work Order For Accessories."
+              : (error?.message ?? "Failed to create the Accessories Plan"),
       };
     }
     id = data.id;

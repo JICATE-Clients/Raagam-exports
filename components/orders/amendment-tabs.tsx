@@ -22,8 +22,8 @@ export type AmendmentTab = "overview" | "order" | "fabric-bom" | "material-bom" 
 const TABS: { key: AmendmentTab; label: string; module: AmendmentModule | null }[] = [
   { key: "overview", label: "Overview", module: null },
   { key: "order", label: "Order", module: "order_entry" },
-  { key: "fabric-bom", label: "Fabric BOM", module: "fabric_bom" },
-  { key: "material-bom", label: "Material BOM", module: "material_bom" },
+  { key: "fabric-bom", label: "Fabric Plan", module: "fabric_bom" },
+  { key: "material-bom", label: "Accessories Plan", module: "material_bom" },
   { key: "budget", label: "Budget", module: "order_budget" },
 ];
 

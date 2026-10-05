@@ -7,7 +7,7 @@ import { ChevronDown, Info, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Field, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
+import { Field, FIELD_WIDTH_CSS, RequiredScope, type FieldWidth } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { Select } from "@/components/ui/select";
@@ -2678,6 +2678,16 @@ export function MaterialMasterScreen({
                                 {q.mandatory && <span className="text-danger"> *</span>}
                               </td>
                               <td className="border-l border-border px-2 py-1.5">
+                                {/* THE `*` WAS A STAR WITH NOTHING BEHIND IT (client
+                                    2026-10-05: "it should not move without filling
+                                    it"). A Mandatory attribute line drew the hand-typed
+                                    `*` and blocked Save through `attrMandatoryMissing`,
+                                    but the control below was never told — so no
+                                    `data-required-empty`, no hold, and Tab walked past
+                                    the blank value. The scope is the same one ChildGrid
+                                    wraps each cell in, so both controls hold and the
+                                    message names the attribute. */}
+                                <RequiredScope required={q.mandatory} label={q.label}>
                                 {asDropdown ? (
                                   <Select
                                     value={answers[q.lineId] ?? ""}
@@ -2702,6 +2712,7 @@ export function MaterialMasterScreen({
                                     className="text-base md:text-sm"
                                   />
                                 )}
+                                </RequiredScope>
                               </td>
                             </tr>
                           );

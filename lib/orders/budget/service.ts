@@ -10,6 +10,7 @@ import { withCreators } from "@/lib/created-by";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { HOME_CURRENCY, orderValue } from "@/lib/orders/amendments/order-value";
 import { styleKey } from "@/lib/orders/amendments/style-key";
+import { boxesOfStyle, packGroupOf } from "@/lib/orders/amendments/pack-type-explosion";
 import { orderUnitLabel } from "@/lib/orders/amendments/types";
 import {
   asFabricSource,
@@ -132,9 +133,16 @@ async function salesValuesByOrder(): Promise<
   const { data, error } = await s
     .from("garment_order_amendments")
     .select(
-      "id, ex_rate, currency_code, " +
-        "styles:garment_order_amendment_styles(style_ref_no, po_qty), " +
+      "id, ex_rate, currency_code, pack, " +
+        "styles:garment_order_amendment_styles(style_ref_no, po_qty, packs_ordered), " +
         "prices:garment_order_amendment_price_details(style_ref_no, price_type, combo, size_id, price), " +
+        /* THE BOX INPUTS (2026-10-05). A Pack-wise rate is per BOX, and
+           `orderValue` refuses one it has no box count for. The screen supplies
+           the count from the pack row; without these the budget could not, and
+           every Pack-wise order read "no single price" here while the Prices
+           tab beside it showed a value. */
+        "pack_types:garment_order_amendment_pack_types(pack_type), " +
+        "pack_type_lines:garment_order_amendment_pack_type_lines(pack_type, style_ref_no, combo, qty), " +
         `quantities:garment_order_amendment_quantities(${ASSORT_WEIGHT_SELECT})`,
     )
     .eq("is_draft", false);
@@ -143,7 +151,14 @@ async function salesValuesByOrder(): Promise<
     id: string;
     ex_rate: number | null;
     currency_code: string | null;
-    styles: { style_ref_no: string | null; po_qty: number | null }[] | null;
+    pack: boolean | null;
+    styles:
+      | { style_ref_no: string | null; po_qty: number | null; packs_ordered: number | null }[]
+      | null;
+    pack_types: { pack_type: string | null }[] | null;
+    pack_type_lines:
+      | { pack_type: string | null; style_ref_no: string | null; combo: string | null; qty: number | null }[]
+      | null;
     prices:
       | {
           style_ref_no: string | null;
@@ -173,10 +188,20 @@ async function salesValuesByOrder(): Promise<
        See `assortSizeWeights`. */
     const weights = assortSizeWeights(r.quantities);
 
+    const packLines = r.pack_type_lines ?? [];
+    const methods = (r.pack_types ?? []).map((p) => p.pack_type);
     const v = orderValue(
       (r.styles ?? []).map((x) => ({
         style_ref_no: x.style_ref_no,
         po_qty: Number(x.po_qty) || 0,
+        /* THE SAME TWO INPUTS THE SCREEN PASSES (`orderVal` in
+           garment-order-screen.tsx): the typed pack count, else the boxes on
+           the pack row; and the box the style shares, so a multi-style box is
+           valued once. Only read when the style's price is Pack-wise. */
+        packs_ordered:
+          Number(x.packs_ordered) ||
+          boxesOfStyle(r.quantities, packLines, x.style_ref_no, !!r.pack),
+        pack_group: packGroupOf(methods, packLines, x.style_ref_no) || null,
       })),
       (r.prices ?? []).map((x) => ({
         style_ref_no: x.style_ref_no,
@@ -836,11 +861,11 @@ export async function pullCostLines(
   ]);
 
   for (const [what, res] of [
-    ["Fabric BOM requirements", fabricRes],
-    ["Fabric BOM yarn purchases", yarnRes],
-    ["Fabric BOM yarn processes", yarnStageRes],
-    ["Material BOM requirements", materialRes],
-    ["Material BOM processes", materialProcRes],
+    ["Fabric Plan requirements", fabricRes],
+    ["Fabric Plan yarn purchases", yarnRes],
+    ["Fabric Plan yarn processes", yarnStageRes],
+    ["Accessories Plan requirements", materialRes],
+    ["Accessories Plan processes", materialProcRes],
     ["garment processes", garmentProcRes],
   ] as const) {
     if (res.error) throw new Error(`Could not read the ${what}: ${res.error.message}`);
@@ -1702,7 +1727,7 @@ export async function fabricProcessBreakdown(
       .select("bom_id, consumption_uom_id")
       .in("bom_id", bomRows.map((b) => b.id)),
   ]);
-  if (reqRes.error) throw new Error(`Could not read the Fabric BOM units: ${reqRes.error.message}`);
+  if (reqRes.error) throw new Error(`Could not read the Fabric Plan units: ${reqRes.error.message}`);
   // ONE UNIT PER BOM OR NONE — the ledger's weights are the requirement's unit.
   const uomsByBom = new Map<string, Set<string>>();
   for (const r of (reqRes.data ?? []) as { bom_id: string; consumption_uom_id: string | null }[]) {
@@ -1716,7 +1741,7 @@ export async function fabricProcessBreakdown(
   for (const b of bomRows) {
     const report = reports.get(b.id);
     if (!report || isReportRefusal(report)) {
-      refusals.push(report ? report.refused : "The Fabric BOM report could not be produced");
+      refusals.push(report ? report.refused : "The Fabric Plan report could not be produced");
       continue;
     }
     refusals.push(...report.stageLedgerRefusals);

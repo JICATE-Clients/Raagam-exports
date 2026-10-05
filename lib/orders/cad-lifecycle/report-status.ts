@@ -12,7 +12,7 @@ export async function cadPendingForFabricBom(bomId: string): Promise<boolean> {
   const s = await createClient();
   const { data, error } = await s.from("order_fabric_boms").select("garment_order_id").eq("id", bomId).maybeSingle();
   if (error || !data) {
-    if (error) console.error("[cad-stamp] reading the Fabric BOM's order:", error.message);
+    if (error) console.error("[cad-stamp] reading the Fabric Plan's order:", error.message);
     return true;
   }
   return cadOrderPending((data as { garment_order_id: string }).garment_order_id);

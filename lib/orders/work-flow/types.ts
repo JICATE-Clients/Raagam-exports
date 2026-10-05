@@ -88,9 +88,9 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   {
     code: "MATERIAL_BOM",
     sn: 3,
-    label: "Material BOM",
+    label: "Accessories Plan",
     days: 3,
-    doneWhen: "Material BOM saved (not as a draft)",
+    doneWhen: "Accessories Plan saved (not as a draft)",
     ownerTags: ["MERCHANDISER", "MERCHANDISING"],
     ownerTagsLabel: "Merchandiser / Merchandising",
     alerts: true,
@@ -99,9 +99,9 @@ export const WORK_FLOW_MILESTONES: readonly WorkFlowMilestoneDef[] = [
   {
     code: "FABRIC_BOM",
     sn: 4,
-    label: "Fabric BOM",
+    label: "Fabric Plan",
     days: 3,
-    doneWhen: "Fabric BOM saved (not as a draft)",
+    doneWhen: "Fabric Plan saved (not as a draft)",
     ownerTags: ["MERCHANDISER", "MERCHANDISING", "TECHNICAL"],
     ownerTagsLabel: "Merchandiser / Merchandising / Technical",
     alerts: true,

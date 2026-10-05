@@ -25,10 +25,10 @@ export function moduleOfBudgetSource(source: string): string {
     case "yarn":
     case "yarn_process":
     case "fabric_process":
-      return "Fabric BOM";
+      return "Fabric Plan";
     case "material":
     case "material_process":
-      return "Material BOM";
+      return "Accessories Plan";
     case "garment_process":
       return "Order Entry";
     default:

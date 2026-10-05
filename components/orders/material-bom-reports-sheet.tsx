@@ -98,7 +98,7 @@ export function MaterialBomReportsSheet({
       open={open}
       onClose={onClose}
       size="lg"
-      title="Material BOM Reports"
+      title="Accessories Plan Reports"
       footer={
         <div className="flex justify-end">
           <Button type="button" variant="outline" size="md" onClick={onClose}>
@@ -192,7 +192,7 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
         <div>
           <SheetMasthead
             company={{ name: c.name, logo: c.logo }}
-            kind="Material BOM Requirement"
+            kind="Accessories Plan Requirement"
             reNo={h.scNo}
             meta={[h.bomCode, h.computedAt ? `Stored ${fmtDateTime(h.computedAt)}` : null].filter(Boolean).join(" · ")}
           />

@@ -49,8 +49,8 @@ export const AMENDMENT_ENTRY_TYPES = [
   { value: "price_change", label: "Price Change", hint: "FOB prices, price details, logistic charges and the money terms" },
   { value: "delivery_date_ext", label: "Delivery Date Extension", hint: "The delivery date, and nothing else" },
   { value: "combo_colour_change", label: "Combo / Color Change", hint: "Colours, prints, structures and combos; both BOMs' figures recalculate" },
-  { value: "fabric_bom_revision", label: "Fabric BOM", hint: "Yarn structure, process loss, fabric allocations" },
-  { value: "material_bom_revision", label: "Material BOM", hint: "Trims, accessories, packaging items" },
+  { value: "fabric_bom_revision", label: "Fabric Plan", hint: "Yarn structure, process loss, fabric allocations" },
+  { value: "material_bom_revision", label: "Accessories Plan", hint: "Trims, accessories, packaging items" },
   { value: "budget_revision", label: "Order Budget", hint: "Overheads, freight, operational rates" },
   { value: "bom_revision", label: "BOM Revision", hint: "Both BOMs (raised before the modules were picked separately)" },
 ] as const;
@@ -90,8 +90,8 @@ export const AMENDMENT_MODULES: readonly {
   kind: AmendmentEntryType | null;
 }[] = [
   { key: "order_entry", label: "Order Entry", hint: "PO Qty, Delivery Date, FOB Price, Color Combos", kind: null },
-  { key: "material_bom", label: "Material BOM", hint: "Trims, Accessories, Packaging Items", kind: "material_bom_revision" },
-  { key: "fabric_bom", label: "Fabric BOM", hint: "Yarn Structure, Process Loss, Fabric Allocations", kind: "fabric_bom_revision" },
+  { key: "material_bom", label: "Accessories Plan", hint: "Trims, Accessories, Packaging Items", kind: "material_bom_revision" },
+  { key: "fabric_bom", label: "Fabric Plan", hint: "Yarn Structure, Process Loss, Fabric Allocations", kind: "fabric_bom_revision" },
   { key: "order_budget", label: "Order Budget", hint: "Overheads, Freight, Operational Rates", kind: "budget_revision" },
 ];
 
@@ -580,8 +580,8 @@ const AREA_PARENT: Record<AmendmentArea, string> = {
 
 export const AREA_LABEL: Record<AmendmentArea, string> = {
   order: "Order Entry",
-  fabric_bom: "the Fabric BOM",
-  material_bom: "the Material BOM",
+  fabric_bom: "the Fabric Plan",
+  material_bom: "the Accessories Plan",
   budget: "the Order Budget",
 };
 

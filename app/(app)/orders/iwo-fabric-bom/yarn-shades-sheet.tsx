@@ -144,7 +144,7 @@ export function YarnShadesSheet({
       origin={origin}
       zIndexBase={120}
       title={`Shades — ${yarnName || "yarn"}`}
-      footer={<SubSheetFooter onDone={onClose} parent="Fabric BOM" />}
+      footer={<SubSheetFooter onDone={onClose} parent="Fabric Plan" />}
     >
       <p className="mb-2 text-sm text-muted-foreground">
         {colourBy === "yarn_dyeing"
@@ -155,7 +155,7 @@ export function YarnShadesSheet({
       </p>
       {colours.length === 0 && (
         <p className="mb-2 text-sm text-warning">
-          The Yarn Colour panel (Fabric BOM section) is empty — add the shade names there first.
+          The Yarn Colour panel (Fabric Plan section) is empty — add the shade names there first.
         </p>
       )}
       <ChildGrid<ShadeRow>

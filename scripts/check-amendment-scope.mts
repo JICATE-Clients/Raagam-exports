@@ -271,14 +271,14 @@ for (const type of Object.keys(sqlSeed)) {
   }
   const picked = unionScope(kindsForSelection({ modules: ["order_entry", "fabric_bom"], orderKinds: ["qty_addition"] }));
   if (!areaOpen(picked, "fabric_bom") || areaOpen(picked, "material_bom") || !areaRecalculable(picked, "material_bom")) {
-    fail("Order Entry + Fabric BOM must open the Fabric BOM, keep the Material BOM read-only and still let it recalculate");
+    fail("Order Entry + Fabric Plan must open the Fabric Plan, keep the Accessories Plan read-only and still let it recalculate");
     bad++;
   }
   if (areaOpen(picked, "budget") || !areaOpen(unionScope(["budget_revision"]), "budget")) {
     fail("the budget opens only when Order Budget is picked");
     bad++;
   }
-  if (bad === 0) ok("the spec's example holds: Order Entry + Fabric BOM keeps Material BOM read-only; derived rows recalculate; the budget opens only with Order Budget");
+  if (bad === 0) ok("the spec's example holds: Order Entry + Fabric Plan keeps Accessories Plan read-only; derived rows recalculate; the budget opens only with Order Budget");
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +447,7 @@ for (const type of Object.keys(sqlSeed)) {
     }
   }
   if (bad === 0) {
-    ok("every Order Entry kind reads the whole order open (T&A included) and no unpicked module; a BOM/budget-only entry does not touch Order Entry; only a picked Fabric BOM opens the palette");
+    ok("every Order Entry kind reads the whole order open (T&A included) and no unpicked module; a BOM/budget-only entry does not touch Order Entry; only a picked Fabric Plan opens the palette");
   }
 }
 

@@ -474,8 +474,8 @@ export function NewPoForm({
               {ceiling && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   {ceiling.bomCode
-                    ? `Checked against Material BOM ${ceiling.bomCode}`
-                    : "This order has no recorded Material BOM — nothing to check against"}
+                    ? `Checked against Accessories Plan ${ceiling.bomCode}`
+                    : "This order has no recorded Accessories Plan — nothing to check against"}
                 </p>
               )}
             </div>
@@ -662,8 +662,8 @@ export function NewPoForm({
               <div className="mt-3 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2">
                 <p className="text-sm font-medium text-danger">
                   {blockedLines.length === 1
-                    ? "1 line is over the approved Material BOM"
-                    : `${blockedLines.length} lines are over the approved Material BOM`}
+                    ? "1 line is over the approved Accessories Plan"
+                    : `${blockedLines.length} lines are over the approved Accessories Plan`}
                 </p>
                 <ul className="mt-1 space-y-0.5">
                   {blockedLines.map((b, i) => (
@@ -690,8 +690,8 @@ export function NewPoForm({
               <div className="mt-3 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2">
                 <p className="text-sm font-medium text-warning">
                   {overLines.length === 1
-                    ? "1 line exceeds the Material BOM's plan"
-                    : `${overLines.length} lines exceed the Material BOM's plan`}
+                    ? "1 line exceeds the Accessories Plan's plan"
+                    : `${overLines.length} lines exceed the Accessories Plan's plan`}
                 </p>
                 {/* required-star: exempt -- this form predates the `Field`
                     primitive and uses raw `<Label>` + control throughout (see

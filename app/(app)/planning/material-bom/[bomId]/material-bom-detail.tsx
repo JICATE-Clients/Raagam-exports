@@ -982,7 +982,7 @@ export function MaterialBomDetail({
   function handleApprove() {
     startTransition(async () => {
       const result = await approveMaterialBom(bom.id);
-      if (result.ok) success("Material BOM approved.");
+      if (result.ok) success("Accessories Plan approved.");
       else toastError(result.error);
     });
   }

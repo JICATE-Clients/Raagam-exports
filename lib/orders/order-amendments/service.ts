@@ -586,8 +586,8 @@ async function bomGapsOf(entryId: string, garmentOrderId: string): Promise<Manua
       out.push({ key: `${module}:${why}`, module, message: `Manual Entry Needed: [${module}] -> ${why}`, href });
     }
   };
-  add("Fabric BOM", [...((fr.data ?? []) as unknown[]), ...((fy.data ?? []) as unknown[])], `/orders/order-amendments/${entryId}/fabric-bom`);
-  add("Material BOM", mr.data, `/orders/order-amendments/${entryId}/material-bom`);
+  add("Fabric Plan", [...((fr.data ?? []) as unknown[]), ...((fy.data ?? []) as unknown[])], `/orders/order-amendments/${entryId}/fabric-bom`);
+  add("Accessories Plan", mr.data, `/orders/order-amendments/${entryId}/material-bom`);
   return out;
 }
 
@@ -672,7 +672,7 @@ async function readDownstream(orderId: string): Promise<DownstreamDoc[]> {
   return [
     {
       key: "fabric_bom",
-      label: "Fabric BOM",
+      label: "Fabric Plan",
       status: f?.status ?? "unresolved",
       bom_id: f?.bom_id ?? null,
       ...fStamp,
@@ -683,7 +683,7 @@ async function readDownstream(orderId: string): Promise<DownstreamDoc[]> {
     },
     {
       key: "material_bom",
-      label: "Material BOM",
+      label: "Accessories Plan",
       status: m?.status ?? "unresolved",
       bom_id: m?.bom_id ?? null,
       ...mStamp,

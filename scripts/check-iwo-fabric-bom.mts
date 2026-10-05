@@ -625,7 +625,7 @@ const screenSrc = read("../app/(app)/orders/iwo-fabric-bom/iwo-fabric-bom-screen
 const rulesSrc = read("../lib/orders/iwo-fabric-bom/lines.ts");
 
 check(
-  "§15 the IWO screen gives YarnProcessGrid the Fabric BOM's colour-wise shape",
+  "§15 the IWO screen gives YarnProcessGrid the Fabric Plan's colour-wise shape",
   /<YarnProcessGrid[\s\S]{0,1200}?\bcolourLoss\b/.test(screenSrc),
   true,
 );
@@ -823,7 +823,7 @@ check("§18 the Save gate refuses an undeclared weight", /staleBlockers\.map/.te
 check("§18 the attribute and the sheet are gone", /plan_by|openBreakup|FabricBreakupSheet/.test(screenSrc), false);
 
 if (failed) {
-  console.error(`\n${failed} IWO Fabric BOM vector(s) failed.`);
+  console.error(`\n${failed} IWO Fabric Plan vector(s) failed.`);
   process.exit(1);
 }
-console.log("\nIWO Fabric BOM: the typed weight reaches the order engine intact.");
+console.log("\nIWO Fabric Plan: the typed weight reaches the order engine intact.");

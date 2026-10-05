@@ -73,7 +73,7 @@ export async function listIwoFabricBomTasks(): Promise<IwoFabricBomTask[]> {
     .eq("location_id", locationId)
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
-  if (error) throw new Error(`IWO Fabric BOM: ${error.message}`);
+  if (error) throw new Error(`IWO Fabric Plan: ${error.message}`);
 
   type Raw = Omit<IwoFabricBomTask, "bom"> & {
     iwo_fabric_boms: IwoFabricBom | IwoFabricBom[] | null;
@@ -172,7 +172,7 @@ export async function getIwoFabricBomFormData(): Promise<IwoFabricBomFormData> {
     .from("items")
     .select("id, fabric_type:config_lookups!fabric_type_id(name)")
     .not("fabric_type_id", "is", null);
-  if (error) throw new Error(`IWO Fabric BOM: ${error.message}`);
+  if (error) throw new Error(`IWO Fabric Plan: ${error.message}`);
 
   // The embed can arrive as an object or a one-element array; read both — a
   // cast to one shape silently disabled the order screen's Type rule once.
