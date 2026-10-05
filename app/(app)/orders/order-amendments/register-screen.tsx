@@ -531,12 +531,12 @@ export function AmendmentRegisterScreen({
                     onClick: () => router.push(`/orders/order-amendments/${r.id}/order`),
                   },
                   {
-                    label: "Open Fabric BOM",
+                    label: "Open Fabric Plan",
                     icon: Layers,
                     onClick: () => router.push(`/orders/order-amendments/${r.id}/fabric-bom`),
                   },
                   {
-                    label: "Open Material BOM",
+                    label: "Open Accessories Plan",
                     icon: Package,
                     onClick: () => router.push(`/orders/order-amendments/${r.id}/material-bom`),
                   },

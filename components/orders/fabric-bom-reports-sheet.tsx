@@ -184,7 +184,7 @@ export function FabricBomReportsSheet({
       open={open}
       onClose={onClose}
       size="lg"
-      title="Fabric BOM Reports"
+      title="Fabric Plan Reports"
       footer={
         <div className="flex justify-end">
           <Button type="button" variant="outline" size="md" onClick={onClose}>
@@ -399,7 +399,7 @@ function EntryRegisterView({
       {/* THE SHEET FORMAT (user 2026-09-29, "this is okay apply it") — the
           shared opening, the register's totals as tiles, each table a card;
           the PDF draws the same blocks. */}
-      <SheetOpening kind="Fabric BOM Entry Register" header={data.header} thumbnail={thumbnail} />
+      <SheetOpening kind="Fabric Plan Entry Register" header={data.header} thumbnail={thumbnail} />
       <div className="mb-4">
         <SheetLabel>This register</SheetLabel>
         <SummaryTiles

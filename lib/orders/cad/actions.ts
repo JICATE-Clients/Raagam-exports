@@ -342,7 +342,7 @@ async function planSeed(garmentOrderId: string): Promise<PlannedSeed | { error: 
   // the CAD room is still editing into the document purchasing is checked
   // against, and nothing downstream would say they were provisional.
   if (sheet.status !== "submitted") {
-    return { error: "Submit the CAD marker sheet before seeding the Fabric BOM" };
+    return { error: "Submit the CAD marker sheet before seeding the Fabric Plan" };
   }
   if (sheet.rows.length === 0) {
     return { error: "The CAD marker sheet has no panels on it yet" };

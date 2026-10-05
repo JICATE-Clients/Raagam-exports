@@ -44,8 +44,8 @@ export async function recalculateDownstream(garmentOrderId: string): Promise<Dow
 
   const out: DownstreamRecalc = { done: [], manualEntries: [] };
   const jobs: [string, string | undefined, (id: string) => ReturnType<typeof recalculateFabricBomDerived>][] = [
-    ["Fabric BOM", (fab as { id: string } | null)?.id, (id) => recalculateFabricBomDerived(id)],
-    ["Material BOM", (mat as { id: string } | null)?.id, (id) => recalculateMaterialBomDerived(id)],
+    ["Fabric Plan", (fab as { id: string } | null)?.id, (id) => recalculateFabricBomDerived(id)],
+    ["Accessories Plan", (mat as { id: string } | null)?.id, (id) => recalculateMaterialBomDerived(id)],
   ];
   for (const [label, id, run] of jobs) {
     if (!id) continue;

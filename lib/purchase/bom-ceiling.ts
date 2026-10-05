@@ -126,7 +126,7 @@ export function judgeLine(
   line: { itemId: string | null; quantity: number },
 ): CeilingVerdict {
   if (!line.itemId) return { kind: "unchecked", why: "No material named on this line" };
-  if (!ceiling.bomId) return { kind: "unchecked", why: "This order has no recorded Material BOM" };
+  if (!ceiling.bomId) return { kind: "unchecked", why: "This order has no recorded Accessories Plan" };
 
   const planned = ceiling.byItem.get(line.itemId);
   if (planned === undefined) {
@@ -171,7 +171,7 @@ export function blockedMessage(
       : "";
   const room = Math.max(0, v.planned - v.committed);
   return (
-    `${who}the approved Material BOM allows ${fmt(v.planned)}${already}` +
+    `${who}the approved Accessories Plan allows ${fmt(v.planned)}${already}` +
     `${v.budgetCode ? ` (budget ${v.budgetCode})` : ""}. ` +
     `This line can be at most ${fmt(room)}.`
   );

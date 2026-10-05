@@ -143,13 +143,13 @@ export function pullIwoLines(input: IwoPullInput): IwoPullResult {
 
   if (input.iwoFor === "accessories") {
     const bom = input.materialBom;
-    if (!bom) return { refused: "This work order has no Material BOM yet — raise it first." };
-    if (bom.is_draft) return { refused: "The Material BOM is a draft — save it (not as a draft) before budgeting it." };
+    if (!bom) return { refused: "This work order has no Accessories Plan yet — raise it first." };
+    if (bom.is_draft) return { refused: "The Accessories Plan is a draft — save it (not as a draft) before budgeting it." };
 
     const reqByItem = new Map<string, { qty: number; uom: string | null; broken: boolean }>();
     for (const it of bom.items) {
       if (it.required_qty == null) {
-        skipped.push(`${input.name(it.item_id)}: ${it.refusal_reason ?? "no required quantity on the Material BOM"}`);
+        skipped.push(`${input.name(it.item_id)}: ${it.refusal_reason ?? "no required quantity on the Accessories Plan"}`);
         reqByItem.set(it.item_id, { qty: 0, uom: it.consumption_uom_id, broken: true });
         continue;
       }
@@ -193,18 +193,18 @@ export function pullIwoLines(input: IwoPullInput): IwoPullResult {
   }
 
   const bom = input.fabricBom;
-  if (!bom) return { refused: "This work order has no Fabric BOM yet — raise it first." };
-  if (bom.is_draft) return { refused: "The Fabric BOM is a draft — save it (not as a draft) before budgeting it." };
+  if (!bom) return { refused: "This work order has no Fabric Plan yet — raise it first." };
+  if (bom.is_draft) return { refused: "The Fabric Plan is a draft — save it (not as a draft) before budgeting it." };
 
   // ---- yarn purchase + yarn process ----
   for (const y of bom.yarns) {
     const yarnName = input.name(y.item_id);
     if (y.purchase_qty == null) {
-      skipped.push(`${yarnName}: ${y.refusal_reason ?? "no purchase weight on the Fabric BOM"}`);
+      skipped.push(`${yarnName}: ${y.refusal_reason ?? "no purchase weight on the Fabric Plan"}`);
     } else if (input.iwoFor === "yarn" && y.colour_by === "dyed_purchase" && y.shades.length) {
       for (const sh of y.shades) {
         if (sh.purchase_qty == null) {
-          skipped.push(`${yarnName} ${sh.color_name}: no purchase weight on the Fabric BOM`);
+          skipped.push(`${yarnName} ${sh.color_name}: no purchase weight on the Fabric Plan`);
           continue;
         }
         lines.push({
@@ -305,7 +305,7 @@ export function pullIwoLines(input: IwoPullInput): IwoPullResult {
       // weight again, so it never becomes a `yarn_process` line.
       if (input.processKinds.get(st.process_id)?.is_cloth_purchase) continue;
       if (st.process_qty == null) {
-        skipped.push(`${yarnName}: a Yarn Process step — ${st.refusal_reason ?? "no weight on the Fabric BOM"}`);
+        skipped.push(`${yarnName}: a Yarn Process step — ${st.refusal_reason ?? "no weight on the Fabric Plan"}`);
         continue;
       }
       const perShade = splitDyeing(st);

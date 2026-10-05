@@ -116,7 +116,7 @@ check(
   same(OVERRIDE_GROUPS.flatMap((g) => g.keys), OVERRIDE_KEYS),
   "the admin screen's groups offer every key exactly once",
 );
-check(overrideKeyLabel("price_change") === "Price Change" && overrideKeyLabel("fabric_bom") === "Fabric BOM",
+check(overrideKeyLabel("price_change") === "Price Change" && overrideKeyLabel("fabric_bom") === "Fabric Plan",
   "labels are the Raise Revision wording");
 
 // ---------------------------------------------------------------------------

@@ -974,7 +974,7 @@ export function FabricBomDetail({
   function handleApprove() {
     startTransition(async () => {
       const result = await approveFabricBom(bom.id);
-      if (result.ok) success("Fabric BOM approved.");
+      if (result.ok) success("Fabric Plan approved.");
       else toastError(result.error);
     });
   }

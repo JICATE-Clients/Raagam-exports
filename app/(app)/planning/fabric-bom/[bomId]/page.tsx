@@ -48,7 +48,7 @@ export default async function FabricBomDetailPage({
   return (
     <div className="space-y-4">
       <PageHeader
-        title={bom.code ?? "Fabric BOM"}
+        title={bom.code ?? "Fabric Plan"}
         description={`Style: ${bom.style_code ?? "\u2014"} \u00b7 Customer: ${bom.customer_name ?? "\u2014"} \u00b7 ${fmtDate(bom.created_at)}`}
         actions={
           <StatusPill tone={bomStatusTone(bom.status)}>

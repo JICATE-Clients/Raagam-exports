@@ -69,7 +69,7 @@ export async function convertAdvisedItem(
     .eq("id", lineId)
     .maybeSingle();
   if (readErr) return { ok: false, error: readErr.message };
-  if (!row) return { ok: false, error: "That line is no longer on the Material BOM" };
+  if (!row) return { ok: false, error: "That line is no longer on the Accessories Plan" };
   if ((row as { type: string }).type !== TBA_MATERIAL_TYPE) {
     return { ok: false, error: "This material is already Available — nothing to convert" };
   }

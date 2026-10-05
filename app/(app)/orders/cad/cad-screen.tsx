@@ -1173,7 +1173,7 @@ export function CadScreen({
         }
         success(
           `${res.seeded} fabric BOM line${res.seeded === 1 ? "" : "s"} took the marker weights — ` +
-            "open the Fabric BOM and save it to recompute.",
+            "open the Fabric Plan and save it to recompute.",
         );
         router.refresh();
       } else {
@@ -1383,11 +1383,11 @@ export function CadScreen({
     },
     {
       key: "handoff",
-      label: "Fabric BOM Handoff",
+      label: "Fabric Plan Handoff",
       icon: Send,
       done: seedOutcomes != null,
       content: (
-        <SectionBody title="Fabric BOM Handoff">
+        <SectionBody title="Fabric Plan Handoff">
           {isRefusal(rollup) ? (
             /* THE HANDOFF'S OWN REFUSAL, shown where the handoff is — not on
                Save. "SLEEVE has no marker weight yet" is a normal state of a
@@ -1446,7 +1446,7 @@ export function CadScreen({
               disabled={!editId || dirty || isPending}
             >
               <Send className="h-4 w-4" aria-hidden />
-              Push weights to Fabric BOM
+              Push weights to Fabric Plan
             </Button>
             {dirty && (
               <span className="text-xs text-muted-foreground">Save the sheet first.</span>
@@ -1553,7 +1553,7 @@ export function CadScreen({
       <div className="space-y-4">
         <PageHeader
           title="CAD Markers"
-          description="Marker layouts by fabric dia, the gram weight of every panel, and the handoff to the Fabric BOM."
+          description="Marker layouts by fabric dia, the gram weight of every panel, and the handoff to the Fabric Plan."
         />
 
         {/* EVERY CONTROL IN THIS BAND IS `md` (h-9) — the row's fixed element is

@@ -112,12 +112,12 @@ export async function currentMaterialBom(
     .order("amendment_no", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);
-  if (error) return { refused: `Could not read the Material BOM: ${error.message}` };
+  if (error) return { refused: `Could not read the Accessories Plan: ${error.message}` };
   const bom = (data ?? [])[0] as { id: string } | undefined;
   return (
     bom ?? {
       refused:
-        "This order has no recorded Material BOM yet — raise one on Orders ▸ Material BOM before printing its requirement.",
+        "This order has no recorded Accessories Plan yet — raise one on Orders ▸ Accessories Plan before printing its requirement.",
     }
   );
 }
@@ -134,8 +134,8 @@ export async function materialBomRequirementReport(
     )
     .eq("id", bomId)
     .maybeSingle();
-  if (bomErr) return { refused: `Could not read the Material BOM: ${bomErr.message}` };
-  if (!bomRow) return { refused: "This Material BOM no longer exists." };
+  if (bomErr) return { refused: `Could not read the Accessories Plan: ${bomErr.message}` };
+  if (!bomRow) return { refused: "This Accessories Plan no longer exists." };
   const bom = bomRow as unknown as {
     id: string;
     code: string | null;
@@ -183,7 +183,7 @@ export async function materialBomRequirementReport(
   if (stored.length === 0) {
     return {
       refused:
-        "This Material BOM has no stored requirement yet — open it and save, so the figures the report prints are the ones that were approved.",
+        "This Accessories Plan has no stored requirement yet — open it and save, so the figures the report prints are the ones that were approved.",
     };
   }
   const lines = new Map(((lineRes.data ?? []) as LineRow[]).map((l) => [l.id, l]));

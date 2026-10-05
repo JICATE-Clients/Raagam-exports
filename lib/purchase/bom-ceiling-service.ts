@@ -516,7 +516,7 @@ export async function refuseUnsettledMaterials(
       .eq("amendment_id", bom.id)
       .in("item_id", [...itemIds]);
     // "Could not check" is not "nothing advised": refuse, and say which.
-    if (lineErr) return `Could not check the Material BOM for advised items: ${lineErr.message}`;
+    if (lineErr) return `Could not check the Accessories Plan for advised items: ${lineErr.message}`;
 
     const items = new Map<string, string>();
     for (const r of (lineRows ?? []) as unknown as {

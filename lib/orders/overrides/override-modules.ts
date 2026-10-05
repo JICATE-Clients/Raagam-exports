@@ -195,13 +195,13 @@ const titleCase = (snake: string) =>
  */
 export function overrideTableLabel(table: string): string {
   if (table === "garment_order_amendments") return "Order Entry · Header";
-  if (table === "order_fabric_boms") return "Fabric BOM · Header";
-  if (table === "material_bom_amendments") return "Material BOM · Header";
+  if (table === "order_fabric_boms") return "Fabric Plan · Header";
+  if (table === "material_bom_amendments") return "Accessories Plan · Header";
   if (table === "order_budgets") return "Order Budget · Header";
   const prefixes: [string, string][] = [
     ["garment_order_amendment_", "Order Entry"],
-    ["order_fabric_bom_", "Fabric BOM"],
-    ["material_bom_amendment_", "Material BOM"],
+    ["order_fabric_bom_", "Fabric Plan"],
+    ["material_bom_amendment_", "Accessories Plan"],
     ["order_budget_", "Order Budget"],
   ];
   for (const [p, label] of prefixes) {

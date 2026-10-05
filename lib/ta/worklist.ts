@@ -829,12 +829,12 @@ export async function getWorklist(
     notes.push({
       level: "warn",
       text:
-        `${refusedLines} Material BOM ${refusedLines === 1 ? "line has" : "lines have"} no ` +
+        `${refusedLines} Accessories Plan ${refusedLines === 1 ? "line has" : "lines have"} no ` +
         `quantity the BOM engine could compute, so ${refusedLines === 1 ? "it is" : "they are"} ` +
         `left out of the material figures below rather than counted as zero. Open the order's ` +
-        `Material BOM to see why.`,
+        `Accessories Plan to see why.`,
       href: "/orders/material-bom",
-      hrefLabel: "Material BOM",
+      hrefLabel: "Accessories Plan",
     });
   }
 

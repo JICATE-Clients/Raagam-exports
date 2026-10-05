@@ -147,13 +147,13 @@ export function RaiseAmendmentScreen({
       ...(orderWhole
         ? ["the whole Order Entry"]
         : openAreasOf(scope).filter((a) => a !== "files").map((a) => AREA_WORDS[a] ?? a)),
-      ...(areaOpen(scope, "material_bom") ? ["the Material BOM"] : []),
-      ...(areaOpen(scope, "fabric_bom") ? ["the Fabric BOM"] : []),
+      ...(areaOpen(scope, "material_bom") ? ["the Accessories Plan"] : []),
+      ...(areaOpen(scope, "fabric_bom") ? ["the Fabric Plan"] : []),
       ...(areaOpen(scope, "budget") ? ["the Order Budget's heads and rates"] : []),
     ];
     const recalc = (["material_bom", "fabric_bom"] as const)
       .filter((a) => !areaOpen(scope, a) && areaRecalculable(scope, a))
-      .map((a) => (a === "material_bom" ? "the Material BOM" : "the Fabric BOM"));
+      .map((a) => (a === "material_bom" ? "the Accessories Plan" : "the Fabric Plan"));
     return { edit, recalc };
   }, [modules, orderKinds, alreadyKinds]);
 

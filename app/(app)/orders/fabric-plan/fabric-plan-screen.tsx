@@ -588,11 +588,11 @@ export function FabricPlanScreen({
   const sections: FullScreenSection[] = [
     {
       key: "plan",
-      label: "Fabric Plan",
+      label: "Fabric Route",
       icon: Layers,
       done: !!form.garment_order_id,
       content: (
-        <SectionBody title="Fabric Plan">
+        <SectionBody title="Fabric Route">
           <FieldGrid>
             <Field label="Garment order" required size="sm" htmlFor="fp-order">
               <RecordPicker
@@ -639,12 +639,12 @@ export function FabricPlanScreen({
             <div className="mt-3 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs">
               <span className="mr-2 font-medium text-foreground">Planning against:</span>
               {bomLoading ? (
-                <span className="text-muted-foreground">Reading the Fabric BOM…</span>
+                <span className="text-muted-foreground">Reading the Fabric Plan…</span>
               ) : bomError ? (
                 <span className="text-danger">{bomError}</span>
               ) : (
                 <span className="text-muted-foreground">
-                  {routes.length} {routes.length === 1 ? "fabric" : "fabrics"} on the Fabric BOM
+                  {routes.length} {routes.length === 1 ? "fabric" : "fabrics"} on the Fabric Plan
                   {current?.bomComputedAt
                     ? ` · computed ${fmtDate(current.bomComputedAt)}`
                     : " · the BOM is a draft, so this route will need re-planning"}
@@ -669,7 +669,7 @@ export function FabricPlanScreen({
             // send the operator to different screens.
             <p className="text-sm text-danger">{bomError}</p>
           ) : bomLoading ? (
-            <p className="text-sm text-muted-foreground">Reading the Fabric BOM…</p>
+            <p className="text-sm text-muted-foreground">Reading the Fabric Plan…</p>
           ) : (
             <div className="space-y-6">
               {routes.length > 1 && (
@@ -794,7 +794,7 @@ export function FabricPlanScreen({
 
               {routes.length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  This order&rsquo;s Fabric BOM names no fabrics yet.
+                  This order&rsquo;s Fabric Plan names no fabrics yet.
                 </p>
               )}
             </div>
@@ -943,7 +943,7 @@ export function FabricPlanScreen({
     <>
       <div className="space-y-4">
         <PageHeader
-          title="Fabric Plan"
+          title="Fabric Route"
           description="Step 4 — the route that makes the fabric: yarn purchase, knitting, dyeing and finishing, with each stage's loss."
         />
 
@@ -959,7 +959,7 @@ export function FabricPlanScreen({
           <div className="flex flex-1 items-center justify-end gap-2">
             {perms.canCreate && (
               <Button size="md" onClick={() => openNew(null)}>
-                + New Fabric Plan
+                + New Fabric Route
               </Button>
             )}
           </div>
@@ -969,7 +969,7 @@ export function FabricPlanScreen({
           columns={withCreatedColumns(columns, filtered)}
           rows={filtered}
           getKey={(t) => t.id}
-          empty="No confirmed garment orders yet. A fabric plan is built against an order's Fabric BOM."
+          empty="No confirmed garment orders yet. A fabric route is built against an order's Fabric Plan."
         />
       </div>
 
@@ -986,7 +986,7 @@ export function FabricPlanScreen({
         }
         header={{
           initials: "FP",
-          title: pickedOrder?.code ?? (editId ? "Fabric Plan" : "New fabric plan"),
+          title: pickedOrder?.code ?? (editId ? "Fabric Route" : "New fabric route"),
           badges: dirty ? (
             <span className="text-[11px] font-medium text-warning">● Unsaved</span>
           ) : null,

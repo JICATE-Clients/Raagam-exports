@@ -330,7 +330,7 @@ export async function exportEntryRegisterPdf(
      the register's totals as tiles, then each table as a card. 28pt margins,
      the opening's own, so the cards line up under it in landscape too. */
   const M = 28;
-  let y = drawSheetHeader(doc, data.header, "Fabric BOM Entry Register", logo, thumb);
+  let y = drawSheetHeader(doc, data.header, "Fabric Plan Entry Register", logo, thumb);
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   y = drawSheetLabel(doc, M, y + 2, "This register");
   y = drawSummaryTiles(

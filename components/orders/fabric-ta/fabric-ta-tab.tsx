@@ -75,7 +75,7 @@ export function FabricTaTab({
     return (
       <p className="text-sm text-muted-foreground">
         {ta.notes[0] ??
-          "This order has no recorded Fabric BOM yet — save one out of draft and its yarn, knitting and processing steps are scheduled here."}
+          "This order has no recorded Fabric Plan yet — save one out of draft and its yarn, knitting and processing steps are scheduled here."}
       </p>
     );
   }
@@ -85,8 +85,8 @@ export function FabricTaTab({
       {bomId !== order.bomId && (
         <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           {bomId
-            ? "This is not the order's current recorded Fabric BOM, so the steps below are measured against that one — the store buys against the current BOM, not a draft or an older revision."
-            : "This BOM is not saved yet. The steps below are measured against the order's current recorded Fabric BOM."}
+            ? "This is not the order's current recorded Fabric Plan, so the steps below are measured against that one — the store buys against the current BOM, not a draft or an older revision."
+            : "This BOM is not saved yet. The steps below are measured against the order's current recorded Fabric Plan."}
         </p>
       )}
       {ta.notes.map((n) => (

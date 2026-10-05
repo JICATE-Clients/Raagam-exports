@@ -5604,7 +5604,7 @@ export function GarmentOrderScreen({
           },
           {
             key: "bom",
-            label: "Material BOM",
+            label: "Accessories Plan",
             all: "All",
             counted: true,
             options: [...BOM_STATUSES]
@@ -22318,7 +22318,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     onChange={(e) => set({ amend_in_material_bom: e.target.checked })}
                     className="h-4 w-4 rounded border-border"
                   />
-                  Material BOM
+                  Accessories Plan
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -22327,7 +22327,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     onChange={(e) => set({ amend_in_fabric_bom: e.target.checked })}
                     className="h-4 w-4 rounded border-border"
                   />
-                  Fabric BOM
+                  Fabric Plan
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input

@@ -9027,13 +9027,13 @@ export function FabricBomScreen({
   const sections: FullScreenSection[] = [
     {
       key: "bom",
-      label: "Fabric BOM",
+      label: "Fabric Plan",
       icon: Layers,
       // NO `problems`. Pass `done` — the operator asked for the quiet dot rather
       // than a red count, and `footer.onBlockedSave` is what replaces it.
       done: !!form.garment_order_id,
       content: (
-        <SectionBody title="Fabric BOM">
+        <SectionBody title="Fabric Plan">
           {/* COPY FROM ANOTHER BOM (client 2026-09-01, point 4). It sits on THIS
               tab because that is where the client put it — "a Copy option must
               be integrated into this screen" — and because Size Details is the
@@ -9329,7 +9329,7 @@ export function FabricBomScreen({
                claim. The order picker is one section up, so the sentence points
                at it rather than describing the emptiness. */
             <p className="mb-3 text-xs text-muted-foreground">
-              Pick a garment order under Fabric BOM — the dyeing colours and
+              Pick a garment order under Fabric Plan — the dyeing colours and
               prints it declares are shown here.
             </p>
           ) : null}
@@ -10042,7 +10042,7 @@ export function FabricBomScreen({
               against. A single "nothing to show" would name neither. */}
           {!form.garment_order_id ? (
             <p className="text-sm text-muted-foreground">
-              Pick a garment order under Fabric BOM first.
+              Pick a garment order under Fabric Plan first.
             </p>
           ) : (
             <>
@@ -11042,7 +11042,7 @@ export function FabricBomScreen({
         : await createFabricBom(payload);
       if (res.ok) {
         success(
-          (editId ? "Fabric BOM updated" : "Fabric BOM created") +
+          (editId ? "Fabric Plan updated" : "Fabric Plan created") +
             (o ? " — recorded in the Override Edit Report" : ""),
         );
         setDirty(false);
@@ -11063,7 +11063,7 @@ export function FabricBomScreen({
     start(async () => {
       const res = await deleteFabricBom(bomId);
       if (res.ok) {
-        success("Fabric BOM deleted");
+        success("Fabric Plan deleted");
         router.refresh();
       } else {
         toastError(res.error);
@@ -11091,7 +11091,7 @@ export function FabricBomScreen({
   return (
     <>
       {embed && mode === "list" && (
-        <EmbeddedEditorWait found={tasks.some((x) => x.id === embed.id)} returnHref={embed.returnHref} what="Fabric BOM" />
+        <EmbeddedEditorWait found={tasks.some((x) => x.id === embed.id)} returnHref={embed.returnHref} what="Fabric Plan" />
       )}
       <div className="space-y-4" hidden={!!embed}>
         {/* THE PRIMARY ACTION SITS BESIDE THE TITLE, NOT IN A BAND OF ITS OWN.
@@ -11101,7 +11101,7 @@ export function FabricBomScreen({
             80px from anything it related to, while the search box ended at 25%
             of the width. `actions` puts it where Material BOM's is. */}
         <PageHeader
-          title="Fabric BOM"
+          title="Fabric Plan"
           /* NO "Step 3 — …" SUBTITLE (client spec 2026-09-26, "Remove
              Explanatory Guidance Headers": named by the client, so this one
              goes; AGENTS.md's no-sweep rule for PageHeader descriptions is
@@ -11109,7 +11109,7 @@ export function FabricBomScreen({
           actions={
             perms.canCreate ? (
               <Button size="md" onClick={() => openNew(null)}>
-                + New Fabric BOM
+                + New Fabric Plan
               </Button>
             ) : undefined
           }
@@ -11199,7 +11199,7 @@ export function FabricBomScreen({
         }
         header={{
           initials: "FB",
-          title: pickedOrder?.code ?? (editId ? "Fabric BOM" : "New fabric BOM"),
+          title: pickedOrder?.code ?? (editId ? "Fabric Plan" : "New fabric BOM"),
           badges: dirty ? (
             <span className="text-[11px] font-medium text-warning">● Unsaved</span>
           ) : null,

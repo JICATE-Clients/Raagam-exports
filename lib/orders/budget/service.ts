@@ -861,11 +861,11 @@ export async function pullCostLines(
   ]);
 
   for (const [what, res] of [
-    ["Fabric BOM requirements", fabricRes],
-    ["Fabric BOM yarn purchases", yarnRes],
-    ["Fabric BOM yarn processes", yarnStageRes],
-    ["Material BOM requirements", materialRes],
-    ["Material BOM processes", materialProcRes],
+    ["Fabric Plan requirements", fabricRes],
+    ["Fabric Plan yarn purchases", yarnRes],
+    ["Fabric Plan yarn processes", yarnStageRes],
+    ["Accessories Plan requirements", materialRes],
+    ["Accessories Plan processes", materialProcRes],
     ["garment processes", garmentProcRes],
   ] as const) {
     if (res.error) throw new Error(`Could not read the ${what}: ${res.error.message}`);
@@ -1727,7 +1727,7 @@ export async function fabricProcessBreakdown(
       .select("bom_id, consumption_uom_id")
       .in("bom_id", bomRows.map((b) => b.id)),
   ]);
-  if (reqRes.error) throw new Error(`Could not read the Fabric BOM units: ${reqRes.error.message}`);
+  if (reqRes.error) throw new Error(`Could not read the Fabric Plan units: ${reqRes.error.message}`);
   // ONE UNIT PER BOM OR NONE — the ledger's weights are the requirement's unit.
   const uomsByBom = new Map<string, Set<string>>();
   for (const r of (reqRes.data ?? []) as { bom_id: string; consumption_uom_id: string | null }[]) {
@@ -1741,7 +1741,7 @@ export async function fabricProcessBreakdown(
   for (const b of bomRows) {
     const report = reports.get(b.id);
     if (!report || isReportRefusal(report)) {
-      refusals.push(report ? report.refused : "The Fabric BOM report could not be produced");
+      refusals.push(report ? report.refused : "The Fabric Plan report could not be produced");
       continue;
     }
     refusals.push(...report.stageLedgerRefusals);

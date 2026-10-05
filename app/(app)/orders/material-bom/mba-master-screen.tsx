@@ -3366,7 +3366,7 @@ export function MbaMasterScreen({
         : await createMaterialBomAmendment(payload);
       if (res.ok) {
         success(
-          (editId ? "Material BOM updated" : "Material BOM created") +
+          (editId ? "Accessories Plan updated" : "Accessories Plan created") +
             (o ? " — recorded in the Override Edit Report" : ""),
         );
         setDirty(false);
@@ -3389,7 +3389,7 @@ export function MbaMasterScreen({
     start(async () => {
       const res = await deleteMaterialBomAmendment(t.bom_id as string);
       if (res.ok) {
-        success("Material BOM deleted");
+        success("Accessories Plan deleted");
         router.refresh();
       } else {
         toastError(res.error);
@@ -5782,7 +5782,7 @@ export function MbaMasterScreen({
           placeholder={
             items.some((x) => !!x.item_id)
               ? "— Select Material —"
-              : "Add a material on the Material BOM tab first"
+              : "Add a material on the Accessories Plan tab first"
           }
           compact
         />
@@ -6093,7 +6093,7 @@ export function MbaMasterScreen({
   const sections: FullScreenSection[] = [
     {
       key: "bom",
-      label: "Material BOM",
+      label: "Accessories Plan",
       icon: ClipboardList,
       /*
        * THE 1440px CAP COMES OFF THIS SECTION (client 2026-08-28, via the single
@@ -6134,7 +6134,7 @@ export function MbaMasterScreen({
        */
       done: !!form.amend_date && !!form.garment_order_id && items.some((r) => r.item_id),
       content: (
-        <SectionBody title="Material BOM">
+        <SectionBody title="Accessories Plan">
           {/* ONE FLUSH ROW — four `xs` (2 of 12) and Remarks at `md` (4) = 12.
 
               THE COUNT IS WHAT PICKS THE SIZE, not a preference for small. It
@@ -6852,7 +6852,7 @@ export function MbaMasterScreen({
             <p className="text-xs text-muted-foreground">
               {items.some((x) => !!x.item_id)
                 ? "No material is sent out for processing. Add one below if a trim has to be dyed, washed or printed before it is used."
-                : "Add a material on the Material BOM tab first — a process is sent out against one of this BOM's materials."}
+                : "Add a material on the Accessories Plan tab first — a process is sent out against one of this BOM's materials."}
             </p>
           )}
           {procGroups.length > 0 && (
@@ -7042,7 +7042,7 @@ export function MbaMasterScreen({
        `MasterFullScreen` overlay — so the wrapper cannot simply be deleted. */
     <>
       {embed && mode === "list" && (
-        <EmbeddedEditorWait found={tasks.some((x) => x.id === embed.id)} returnHref={embed.returnHref} what="Material BOM" />
+        <EmbeddedEditorWait found={tasks.some((x) => x.id === embed.id)} returnHref={embed.returnHref} what="Accessories Plan" />
       )}
       <div className="space-y-4" hidden={!!embed}>
         {/* THE PRIMARY ACTION SITS BESIDE "← Back", NOT IN A BAND OF ITS OWN.
@@ -7052,12 +7052,12 @@ export function MbaMasterScreen({
             is also the shape `--check toolbar-size` recognises as a header row,
             so the h-9 rule is enforced here rather than trusted. */}
         <PageHeader
-          title="Material BOM"
+          title="Accessories Plan"
           description="Every sewing and packing accessory a confirmed order needs, and how much of each."
           actions={
             perms.canCreate ? (
               <Button size="md" onClick={() => openAdd(null)}>
-                + New Material BOM
+                + New Accessories Plan
               </Button>
             ) : undefined
           }
@@ -7141,7 +7141,7 @@ export function MbaMasterScreen({
           title:
             selectedOrder?.sc_no ??
             selectedOrder?.code ??
-            (editId ? "Material BOM" : "New material BOM"),
+            (editId ? "Accessories Plan" : "New material BOM"),
           badges: dirty ? (
             <span className="text-[11px] font-medium text-warning">● Unsaved</span>
           ) : null,

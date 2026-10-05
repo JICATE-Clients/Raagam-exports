@@ -48,7 +48,7 @@ export default async function MaterialBomDetailPage({
   return (
     <div className="space-y-4">
       <PageHeader
-        title={bom.code ?? "Material BOM"}
+        title={bom.code ?? "Accessories Plan"}
         description={`Customer: ${bom.customer_name ?? "—"} · RE No: ${bom.order_code ?? "—"} · ${fmtDate(bom.created_at)}`}
         actions={
           <StatusPill tone={bomStatusTone(bom.status)}>

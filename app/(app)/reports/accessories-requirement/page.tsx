@@ -84,10 +84,10 @@ export default async function AccessoriesRequirementIndex() {
           cards={cards}
           icon={ClipboardList}
           empty={{
-            title: "No order has a recorded Material BOM yet",
-            body: "The requirement sheet prints what a saved BOM stored, so there is nothing to show until one exists. Raise one on Orders ▸ Material BOM and save it.",
+            title: "No order has a recorded Accessories Plan yet",
+            body: "The requirement sheet prints what a saved BOM stored, so there is nothing to show until one exists. Raise one on Orders ▸ Accessories Plan and save it.",
             href: "/orders/material-bom",
-            action: "Go to Material BOM",
+            action: "Go to Accessories Plan",
           }}
         />
       )}
