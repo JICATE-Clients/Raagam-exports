@@ -79,9 +79,9 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 /** Which BOM plans a work order of this kind, and where it lives. */
 const bomOf = (f: IwoFor | "" | null | undefined) =>
   f === "accessories"
-    ? { label: "Material BOM", path: "/orders/iwo-material-bom" }
+    ? { label: "Accessories Plan", path: "/orders/iwo-material-bom" }
     : f === "yarn" || f === "fabric"
-      ? { label: "Fabric BOM", path: "/orders/iwo-fabric-bom" }
+      ? { label: "Fabric Plan", path: "/orders/iwo-fabric-bom" }
       : null;
 const bomHref = (f: IwoFor, iwoId: string) => `${bomOf(f)?.path}?open=${iwoId}`;
 

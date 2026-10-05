@@ -308,7 +308,7 @@ check(
 check(
   "a requirement of 0 refuses — it is not 'nothing needed'",
   refusalOf(routeQuantities(ROUTE, 0, 2)),
-  "No requirement to plan against — record the Fabric BOM first",
+  "No requirement to plan against — record the Fabric Plan first",
 );
 refute(
   "…and never answers 0, which on a yarn purchase reads as 'buy nothing'",

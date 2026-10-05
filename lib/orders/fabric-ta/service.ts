@@ -192,7 +192,7 @@ async function loadFabricTaInto(sb: SB, result: FabricTaResult, opts: { salesOrd
       sb.from("order_fabric_bom_requirements").select("bom_id, item_id, required_qty, refusal_reason").in("bom_id", bomIds),
       sb.from("order_fabric_bom_process_scope").select("bom_id, item_id, source").in("bom_id", bomIds),
     ]);
-    fail("Fabric BOM requirements", reqQ.error);
+    fail("Fabric Plan requirements", reqQ.error);
     fail("Fabric sources", scopeQ.error);
     const reqs = (reqQ.data ?? []) as { bom_id: string; item_id: string | null; required_qty: number | null; refusal_reason: string | null }[];
     const sourceOf = new Map<string, FabricTaSource>();

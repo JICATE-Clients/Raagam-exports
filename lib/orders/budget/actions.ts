@@ -259,8 +259,8 @@ async function refuseUnreadyOrders(
     const out: string[] = [];
     const f = fabTasks.find((t) => t.id === id);
     const m = matTasks.find((t) => t.id === id);
-    if (f?.status === "recalculate") out.push(`${label.get(id) ?? "an order"}: the Fabric BOM reads ${bomStatusText(f.status)} — the order moved since it was computed`);
-    if (m?.status === "recalculate") out.push(`${label.get(id) ?? "an order"}: the Material BOM reads ${bomStatusText(m.status)} — the order moved since it was computed`);
+    if (f?.status === "recalculate") out.push(`${label.get(id) ?? "an order"}: the Fabric Plan reads ${bomStatusText(f.status)} — the order moved since it was computed`);
+    if (m?.status === "recalculate") out.push(`${label.get(id) ?? "an order"}: the Accessories Plan reads ${bomStatusText(m.status)} — the order moved since it was computed`);
     return out;
   });
   return stale.length === 0
@@ -939,7 +939,7 @@ export async function loadCostLines(garmentOrderIds: string[]): Promise<PullResu
       error:
         skipped > 0
           ? `Every BOM figure for these orders is unanswered (${skipped} lines) — open the BOMs and fix them`
-          : "These orders have no recorded Fabric or Material BOM yet",
+          : "These orders have no recorded Fabric or Accessories Plan yet",
     };
   }
   return { ok: true, lines, skipped };

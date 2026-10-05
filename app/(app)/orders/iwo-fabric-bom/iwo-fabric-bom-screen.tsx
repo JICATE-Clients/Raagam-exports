@@ -439,7 +439,7 @@ const IWO_FABRIC_BOM_FACETS: FacetGroup<IwoFabricBomTask>[] = [
     facets: [
       {
         key: "bom",
-        label: "Fabric BOM",
+        label: "Fabric Plan",
         all: "All",
         wide: true,
         counted: true,
@@ -1116,7 +1116,7 @@ export function IwoFabricBomScreen({
         const noPrints = rank === 2 && !printDeclared;
         message = `Fabric line ${row}: ${
           noPrints
-            ? "declare a print on the Roll form prints panel (Fabric BOM section), then enter a weight on at least one row."
+            ? "declare a print on the Roll form prints panel (Fabric Plan section), then enter a weight on at least one row."
             : "enter a weight on at least one row."
         }`;
       }
@@ -1158,7 +1158,7 @@ export function IwoFabricBomScreen({
           `Fabric line ${i + 1}: ${what}${kgs ? ` (${kgs} KGS)` : ""} is no longer declared — pick a declared value on that row, remove the row, ` +
           (fabricStageRank(l.stage_id) === 0
             ? "or change the Stage back."
-            : "or declare it again on the Fabric BOM section's panels."),
+            : "or declare it again on the Fabric Plan section's panels."),
       };
     }),
   );
@@ -1406,7 +1406,7 @@ export function IwoFabricBomScreen({
     start(async () => {
       const res = await saveIwoFabricBom(editId, payload);
       if (res.ok) {
-        success(editId ? "Fabric BOM updated" : "Fabric BOM created");
+        success(editId ? "Fabric Plan updated" : "Fabric Plan created");
         setDirty(false);
         leaveEditor();
         router.refresh();
@@ -1422,7 +1422,7 @@ export function IwoFabricBomScreen({
     start(async () => {
       const res = await deleteIwoFabricBom(bomId);
       if (res.ok) {
-        success("Fabric BOM deleted");
+        success("Fabric Plan deleted");
         router.refresh();
       } else {
         toastError(res.error);
@@ -1453,7 +1453,7 @@ export function IwoFabricBomScreen({
     },
     { header: "Deli Dt", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.deli_date)}</span> },
     {
-      header: "Fabric BOM",
+      header: "Fabric Plan",
       cell: (t) =>
         !t.bom ? (
           <StatusPill tone="neutral">Not started</StatusPill>
@@ -2244,11 +2244,11 @@ export function IwoFabricBomScreen({
   const sections: FullScreenSection[] = [
     {
       key: "bom",
-      label: "Fabric BOM",
+      label: "Fabric Plan",
       icon: Layers,
       done: !!form.iwo_id,
       content: (
-        <SectionBody title="Fabric BOM">
+        <SectionBody title="Fabric Plan">
           {/* The order screen's header row, with the IWO standing where the
               Garment order stood. Everything but the IWO and the Date is READ
               from the IWO — a readOnly field never holds the cursor. */}
@@ -2530,7 +2530,7 @@ export function IwoFabricBomScreen({
                     <div className="px-3 py-2">
                       <p className="text-sm text-muted-foreground">{empty}</p>
                       <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => shellRef.current?.goToSection("bom")}>
-                        Go to Fabric BOM
+                        Go to Fabric Plan
                       </Button>
                     </div>
                   )}
@@ -2706,9 +2706,9 @@ export function IwoFabricBomScreen({
     <>
       <div className="space-y-4">
         <PageHeader
-          title="IWO Fabric BOM"
-          description="The Fabric BOM for an Internal Work Order For Yarn or Fabric — no garment breakdown; the weight is typed."
-          actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Fabric BOM</Button> : undefined}
+          title="IWO Fabric Plan"
+          description="The Fabric Plan for an Internal Work Order For Yarn or Fabric — no garment breakdown; the weight is typed."
+          actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Fabric Plan</Button> : undefined}
         />
         <FilterBar
           leading={quick.segment}
@@ -2746,7 +2746,7 @@ export function IwoFabricBomScreen({
         }
         header={{
           initials: "FB",
-          title: picked?.code ?? "New Fabric BOM",
+          title: picked?.code ?? "New Fabric Plan",
           badges: dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null,
           meta: (
             <>
@@ -2761,11 +2761,11 @@ export function IwoFabricBomScreen({
           yarnMode ? !["lines", "consumption", "process"].includes(sec.key) : sec.key !== "yarnLines",
         )}
         footer={{
-          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Fabric BOM",
+          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Fabric Plan",
           onCancel: () => leaveEditor(),
           onSave: () => submit(false),
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
-          saveLabel: "Save Fabric BOM",
+          saveLabel: "Save Fabric Plan",
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
           isPending,

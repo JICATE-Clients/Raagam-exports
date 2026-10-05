@@ -46,14 +46,14 @@ async function safeCount(
 const areas = [
   {
     href: "/planning/material-bom",
-    label: "Material BOM",
+    label: "Accessories Plan",
     desc: "Production BOM — cloths, yarn process, fabric process sequences.",
     icon: FileText,
   },
   {
     href: "/planning/fabric-bom",
-    label: "Fabric BOM",
-    desc: "Fabric BOM — style-level fabric construction and costing.",
+    label: "Fabric Plan",
+    desc: "Fabric Plan — style-level fabric construction and costing.",
     icon: Scissors,
   },
   {

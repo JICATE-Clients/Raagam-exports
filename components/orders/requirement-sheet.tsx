@@ -110,7 +110,7 @@ export function RequirementSheetDocument({ data }: { data: RequirementSheetData 
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <Cell colSpan={ACCESSORY_COLUMNS.length}>No trims on this Material BOM.</Cell>
+                    <Cell colSpan={ACCESSORY_COLUMNS.length}>No trims on this Accessories Plan.</Cell>
                   </tr>
                 )}
                 {rows.map((r, i) => (

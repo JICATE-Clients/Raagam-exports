@@ -72,9 +72,9 @@ export default async function OrderReportPage({
     const imagesP = getReportStyleImages(orderId).catch(() => null);
     const current = snap ? null : await currentFabricBom(orderId);
     if (snap && "refused" in snap) {
-      body = <Refusal message={snap.refused} href="/orders/fabric-bom" action="Open Fabric BOM →" />;
+      body = <Refusal message={snap.refused} href="/orders/fabric-bom" action="Open Fabric Plan →" />;
     } else if (current && isFabricSheetRefusal(current)) {
-      body = <Refusal message={current.refused} href="/orders/fabric-bom" action="Open Fabric BOM →" />;
+      body = <Refusal message={current.refused} href="/orders/fabric-bom" action="Open Fabric Plan →" />;
     } else {
       /* BOTH LOADED, as the editor's sheet does: Printing Requirement reads the
          Yarn & Fabric Requirement object, so the pair is one fetch's worth. */
@@ -120,7 +120,7 @@ export default async function OrderReportPage({
     const snap = frozen as import("@/lib/orders/amendments/v-final").VFinalPayloads["material-bom-requirement"] | null;
     const current = snap ? ("refused" in snap ? { refused: snap.refused } : { id: snap.bomId }) : await currentMaterialBom(orderId);
     if ("refused" in current) {
-      body = <Refusal message={current.refused} href="/orders/material-bom" action="Open Material BOM →" />;
+      body = <Refusal message={current.refused} href="/orders/material-bom" action="Open Accessories Plan →" />;
     } else {
       const requirement =
         snap && !("refused" in snap) ? snap.requirement : await materialBomRequirementReport(current.id);

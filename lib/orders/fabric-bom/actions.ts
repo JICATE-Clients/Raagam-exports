@@ -1820,7 +1820,7 @@ async function writeLines(
        says, and a row whose unit cannot be named is a figure the Budget
        would price with no unit behind it. */
     if (!kg) {
-      return fail("No active kilogram unit on the UOM master — add KGS before saving a Fabric BOM weight");
+      return fail("No active kilogram unit on the UOM master — add KGS before saving a Fabric Plan weight");
     }
     requirement = requirementRows(
       savedEntries,
@@ -2649,7 +2649,7 @@ export async function updateFabricBom(
   const s = await createClient();
   const stored = await storedBomOrderId(s, id);
   if (!stored.ok) return fail(stored.error);
-  if (!stored.orderId) return fail("This Fabric BOM belongs to no order — there is no approval lock to override.");
+  if (!stored.orderId) return fail("This Fabric Plan belongs to no order — there is no approval lock to override.");
   return saveUnderOverride(stored.orderId, override, () => saveFabricBom(id, data));
 }
 
@@ -2921,12 +2921,12 @@ async function planFabricBomRecalc(
     )
     .eq("id", bomId)
     .maybeSingle();
-  if (readErr) return { ok: false, error: `Could not read the Fabric BOM: ${readErr.message}` };
-  if (!raw) return { ok: false, error: "That Fabric BOM no longer exists" };
+  if (readErr) return { ok: false, error: `Could not read the Fabric Plan: ${readErr.message}` };
+  if (!raw) return { ok: false, error: "That Fabric Plan no longer exists" };
   const doc = raw as unknown as StoredFabricBomDoc;
 
   const order = await getOrderProduction(doc.garment_order_id);
-  if (!order) return { ok: false, error: "The order this Fabric BOM plans could not be read" };
+  if (!order) return { ok: false, error: "The order this Fabric Plan plans could not be read" };
 
   const data = fabricInputFromStored(doc);
   /* THE ROUTE'S SOURCE, re-derived exactly as a save does. The stored scope
@@ -2946,7 +2946,7 @@ async function planFabricBomRecalc(
   if (rawEntries.length !== storedEntries.length) {
     return {
       ok: false,
-      error: "The Fabric BOM's manual entries could not be matched to the stored rows — open the Fabric BOM and save it",
+      error: "The Fabric Plan's manual entries could not be matched to the stored rows — open the Fabric Plan and save it",
     };
   }
 
@@ -2974,7 +2974,7 @@ async function planFabricBomRecalc(
     ]);
     decimals = dp;
     if (!kg) {
-      return { ok: false, error: "No active kilogram unit on the UOM master — add KGS before recalculating a Fabric BOM" };
+      return { ok: false, error: "No active kilogram unit on the UOM master — add KGS before recalculating a Fabric Plan" };
     }
     requirement = requirementRows(
       savedEntries,
@@ -3087,8 +3087,8 @@ async function planFabricBomRecalc(
     return {
       ok: false,
       error:
-        `Manual Entry Needed: [Fabric BOM] -> ${yarnProblems.join("; ")}. ` +
-        "Nothing was recalculated — open the Fabric BOM under an amendment that covers it and save.",
+        `Manual Entry Needed: [Fabric Plan] -> ${yarnProblems.join("; ")}. ` +
+        "Nothing was recalculated — open the Fabric Plan under an amendment that covers it and save.",
     };
   }
 
@@ -3122,7 +3122,7 @@ async function planFabricBomRecalc(
       if (seen.has(ck)) continue;
       seen.add(ck);
       manualEntries.push({
-        message: `Manual Entry Needed: [Fabric BOM] -> "${sl.combo.trim().toUpperCase()}" has no fabric weight entry.`,
+        message: `Manual Entry Needed: [Fabric Plan] -> "${sl.combo.trim().toUpperCase()}" has no fabric weight entry.`,
       });
     }
   }

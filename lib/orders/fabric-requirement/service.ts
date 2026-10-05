@@ -171,13 +171,13 @@ export async function currentFabricBom(
     .order("created_at", { ascending: false })
     .limit(1);
 
-  if (bomErr) return { refused: `Could not read the Fabric BOM: ${bomErr.message}` };
+  if (bomErr) return { refused: `Could not read the Fabric Plan: ${bomErr.message}` };
   const bom = ((bomRows ?? []) as unknown as unknown[])[0] as CurrentFabricBom | undefined;
 
   if (!bom) {
     return {
       refused:
-        "This order has no recorded Fabric BOM yet — raise one on Orders ▸ Fabric BOM before printing its requirement.",
+        "This order has no recorded Fabric Plan yet — raise one on Orders ▸ Fabric Plan before printing its requirement.",
     };
   }
 
@@ -241,7 +241,7 @@ export async function getFabricRequirementSheet(
   if (rows.length === 0) {
     return {
       refused:
-        "This Fabric BOM has no stored requirement yet — open it and save, so the figures the sheet prints are the ones that were approved.",
+        "This Fabric Plan has no stored requirement yet — open it and save, so the figures the sheet prints are the ones that were approved.",
     };
   }
 

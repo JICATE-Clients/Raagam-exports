@@ -114,7 +114,7 @@ export const ITEM_MEASURES: ReportField[] = [
   // whole history is being believed while it was wrong. `source` names the
   // material table because a field carries one, and the reason the second is not
   // invisible is that it is written down here.
-  { key: "qty_planned", label: "Planned", kind: "measure", format: "qty", source: "material_bom_amendment_requirements", caveat: "Material BOM and Fabric BOM stored requirements, added together — a plan, not a posting. A refused line is excluded rather than counted as zero." },
+  { key: "qty_planned", label: "Planned", kind: "measure", format: "qty", source: "material_bom_amendment_requirements", caveat: "Accessories Plan and Fabric Plan stored requirements, added together — a plan, not a posting. A refused line is excluded rather than counted as zero." },
   { key: "qty_sent_out", label: "Sent to processor", kind: "measure", format: "qty", source: "dc_line_items", caveat: "Off-book: delivery challans never post a stock movement." },
   { key: "qty_came_back", label: "Back from processor", kind: "measure", format: "qty", source: "dc_line_items", caveat: "Off-book: delivery challans never post a stock movement." },
 
@@ -264,7 +264,7 @@ export const REPORT_SOURCES: ReportSource[] = [
   },
   {
     id: "material_bom_amendments",
-    label: "Material BOM (planned consumption)",
+    label: "Accessories Plan (planned consumption)",
     module: "orders",
     factKinds: ["planned"],
     // 0418. It read `material_bom_amendment_items.quantity_nos`, which is the
@@ -279,11 +279,11 @@ export const REPORT_SOURCES: ReportSource[] = [
     dateColumn: "material_bom_amendments.amend_date",
     postsToLedger: false,
     status: "off_book",
-    note: "The Material BOM's stored requirement, split by order / colour / size. A refused line stores NULL and is excluded rather than counted as zero.",
+    note: "The Accessories Plan's stored requirement, split by order / colour / size. A refused line stores NULL and is excluded rather than counted as zero.",
   },
   {
     id: "order_fabric_boms",
-    label: "Fabric BOM (planned consumption)",
+    label: "Fabric Plan (planned consumption)",
     module: "orders",
     factKinds: ["planned"],
     // 0426. The same shape as the Material BOM above and deliberately so: the
@@ -301,7 +301,7 @@ export const REPORT_SOURCES: ReportSource[] = [
     dateColumn: "order_fabric_boms.bom_date",
     postsToLedger: false,
     status: "off_book",
-    note: "The Fabric BOM's stored requirement, split by colour or by colour and size. A refused line stores NULL and is excluded rather than counted as zero. Carries no rate: the money for a plan is the Budget's (step 7).",
+    note: "The Fabric Plan's stored requirement, split by colour or by colour and size. A refused line stores NULL and is excluded rather than counted as zero. Carries no rate: the money for a plan is the Budget's (step 7).",
   },
   {
     id: "delivery_challans",
@@ -320,7 +320,7 @@ export const REPORT_SOURCES: ReportSource[] = [
   // ---- Declared gaps: real material movement that cannot be reported yet ----
   {
     id: "order_fabric_plans",
-    label: "Fabric Plan (process route)",
+    label: "Fabric Route (process route)",
     module: "orders",
     factKinds: [],
     // 0427. THE FABRIC IS DELIBERATELY NOT REPORTED FROM HERE — it is the same
@@ -347,7 +347,7 @@ export const REPORT_SOURCES: ReportSource[] = [
   },
   {
     id: "order_fabric_plan_lines",
-    label: "Fabric Plan (planned fabric)",
+    label: "Fabric Route (planned fabric)",
     module: "orders",
     factKinds: [],
     // 0427, and declared SEPARATELY from `order_fabric_plans` above because a
@@ -366,7 +366,7 @@ export const REPORT_SOURCES: ReportSource[] = [
     postsToLedger: false,
     status: "gap",
     note:
-      "A snapshot of the Fabric BOM requirement this route was planned against. " +
+      "A snapshot of the Fabric Plan requirement this route was planned against. " +
       "The BOM already reports that quantity as `planned`; reporting it here too " +
       "would double every fabric figure.",
   },

@@ -266,7 +266,7 @@ export function BudgetQueue({
     // THE ORDERS THAT ARE NOT CARDS ARE STILL SAID — an order the operator
     // knows exists and cannot find would otherwise read as a broken list.
     return waiting > 0
-      ? `${head} · ${waiting} more waiting on their Fabric / Material BOM`
+      ? `${head} · ${waiting} more waiting on their Fabric / Accessories Plan`
       : head;
   }, [ready, waiting]);
 
@@ -360,7 +360,7 @@ export function BudgetQueue({
           empty={
             ready.length > 0
               ? "No budgeted orders match the search or filters."
-              : "No confirmed garment orders yet. A budget is built on an order's saved Fabric BOM and Material BOM."
+              : "No confirmed garment orders yet. A budget is built on an order's saved Fabric Plan and Accessories Plan."
           }
         />
       ) : (
@@ -402,8 +402,8 @@ export function BudgetQueue({
         isPending={isPending}
         empty={
           waiting > 0
-            ? `No order is ready to budget yet — ${waiting} ${waiting === 1 ? "is" : "are"} waiting on a saved Fabric BOM and Material BOM.`
-            : "No confirmed garment orders yet. A budget is built on an order's saved Fabric BOM and Material BOM."
+            ? `No order is ready to budget yet — ${waiting} ${waiting === 1 ? "is" : "are"} waiting on a saved Fabric Plan and Accessories Plan.`
+            : "No confirmed garment orders yet. A budget is built on an order's saved Fabric Plan and Accessories Plan."
         }
       />
       )}

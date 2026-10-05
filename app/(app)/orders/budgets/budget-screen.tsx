@@ -3375,7 +3375,7 @@ export function BudgetScreen({
         });
       if (!src) {
         note(
-          `${processName(g.process_id) || "This process"} is no longer on the order's Fabric BOM — pull the costs again`,
+          `${processName(g.process_id) || "This process"} is no longer on the order's Fabric Plan — pull the costs again`,
         );
         return;
       }
@@ -3386,7 +3386,7 @@ export function BudgetScreen({
         // process's cost from the budget on a report that had nothing to say.
         note(
           refusals[0] ??
-            `The Fabric BOM has no quantities for ${processName(g.process_id) || "this process"} — the lines are left as they were`,
+            `The Fabric Plan has no quantities for ${processName(g.process_id) || "this process"} — the lines are left as they were`,
         );
         return;
       }
@@ -3435,7 +3435,7 @@ export function BudgetScreen({
           ? null
           : refusals.length === 1
             ? refusals[0]
-            : `${refusals[0]} — and ${refusals.length - 1} more the Fabric BOM could not place`,
+            : `${refusals[0]} — and ${refusals.length - 1} more the Fabric Plan could not place`,
       );
     });
   }

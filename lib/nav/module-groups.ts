@@ -451,7 +451,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // in scripts/check-module-groups.mts, which asserts the pair. The lib
           // folder and the `material_bom_amendments` table keep their names —
           // an import sweep and a migration with nothing user-visible at the end.
-          { href: "/orders/material-bom", label: "Material BOM", description: "Plan every sewing and packing accessory a confirmed order needs, and how much of each" },
+          { href: "/orders/material-bom", label: "Accessories Plan", description: "Plan every sewing and packing accessory a confirmed order needs, and how much of each" },
           // GARMENT PROCESS PLAN WAS STEP 4 AND IS NOT A STEP (client
           // 2026-08-17, second pass: "only 7 are needed").
           //
@@ -516,7 +516,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // the reasoning for their PLACEMENT (CAD before the Fabric BOM it
           // feeds; Fabric Plan as step 4) is kept there too, because a
           // restoration needs it and a `git log` is a worse place to keep it.
-          { href: "/orders/fabric-bom", label: "Fabric BOM", description: "Fabric per component and colour — consumption, cutting wastage and the net requirement" },
+          { href: "/orders/fabric-bom", label: "Fabric Plan", description: "Fabric per component and colour — consumption, cutting wastage and the net requirement" },
           // 4 · BUDGETING — and 5 · APPROVAL — are two STEPS over ONE document.
           //
           // Approval is a transition on the budget's own `status`, never a
@@ -688,7 +688,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
              /orders/iwo-material-bom, /orders/iwo-budgets — and the approval
              inbox still opens a budget directly. To restore the entries, revert
              the commit that removed these three lines. */
-          { href: "/orders/advised-items", label: "Advised Items", description: "Material BOM lines waiting on buyer specs, by RE No; convert to unlock purchase" },
+          { href: "/orders/advised-items", label: "Advised Items", description: "Accessories Plan lines waiting on buyer specs, by RE No; convert to unlock purchase" },
           { href: "/orders/packing-advice", label: "Packing List Advice", description: "Prepare packing list advice for an order" },
         ],
       },
@@ -816,7 +816,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
-          "These screens are off the Orders menu — Order Booking, Pack Ratios and Excess Orders because Order Management replaces them, All Orders, Style, Fabric Plan and CAD Markers by request, Order Amendment, Process Amendment and Approve Amendment because the Amendments row itself was removed, Due Date Confirmations, Contract Review and Price Confirmation because the Confirmations & Review row itself was removed, and Garment Process Plan by request. They all still work and still open from search — nothing has been deleted.",
+          "These screens are off the Orders menu — Order Booking, Pack Ratios and Excess Orders because Order Management replaces them, All Orders, Style, Fabric Route and CAD Markers by request, Order Amendment, Process Amendment and Approve Amendment because the Amendments row itself was removed, Due Date Confirmations, Contract Review and Price Confirmation because the Confirmations & Review row itself was removed, and Garment Process Plan by request. They all still work and still open from search — nothing has been deleted.",
         children: [
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
@@ -892,9 +892,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           //
           // Both `page.tsx` files render a PageHeader + DataTable and import no
           // HubCard, so assertion 8 is satisfied here exactly as it was there.
-          { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
+          { href: "/orders/fabric-plan", label: "Fabric Route", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
           // Hidden again 2026-09-25 (user) — see the CAD group's note above.
-          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
+          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric Plan" },
           /* CAD MARKERS LEFT THIS GROUP ON 2026-09-24 — it is a child of the CAD
              sub-module again (above), beside the CAD Lifecycle the doc/order/cad.md
              build added (user: "New 'CAD' sidebar group"). It was hidden here on
@@ -947,9 +947,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         note: "These screens are built, but the Planning tables are not in this database — migration 0332 removed them and the replacement schema has not been applied. Nothing here can be opened or saved yet.",
         status: "provisional",
         children: [
-          { href: "/planning/fabric-bom", label: "Fabric BOM", description: "Fabric components, consumption and loss per order", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
+          { href: "/planning/fabric-bom", label: "Fabric Plan", description: "Fabric components, consumption and loss per order", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
           { href: "/planning/garment-bom", label: "Garment BOM", description: "Garment-level bill of materials", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
-          { href: "/planning/material-bom", label: "Material BOM", description: "Sewing and packing materials per order", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
+          { href: "/planning/material-bom", label: "Accessories Plan", description: "Sewing and packing materials per order", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
           { href: "/planning/accessory-bom", label: "Accessories BOM", description: "Accessory requirements per order", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
           { href: "/planning/bom-shortage", label: "BOM Shortage", description: "Required versus available gap across BOMs", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
           { href: "/planning/bom-transfer", label: "BOM Transfer", description: "Move BOM quantities between orders", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },

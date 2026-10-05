@@ -108,8 +108,8 @@ export async function alertCadWeightsSubmitted(
   return postBotAlert({
     sales_order_id: salesOrderId,
     event_key: "cad_weights_submitted",
-    body: "CAD marker and component gram weights have been submitted. The Fabric BOM is ready for approval.",
+    body: "CAD marker and component gram weights have been submitted. The Fabric Plan is ready for approval.",
     href: `/orders/${salesOrderId}/fabric-bom`,
-    title: reNumber ? `${reNumber} · Fabric BOM ready` : "Fabric BOM ready",
+    title: reNumber ? `${reNumber} · Fabric Plan ready` : "Fabric Plan ready",
   });
 }

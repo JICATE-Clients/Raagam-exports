@@ -82,7 +82,7 @@ export default async function FabricBomPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Fabric BOM"
+        title="Fabric Plan"
         description="Style fabric definitions \u2014 dye colors, fabrics, cloths, components."
         actions={
           canCreate ? (

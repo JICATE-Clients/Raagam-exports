@@ -115,12 +115,12 @@ export async function amendmentSubmitProblem(orderIds: readonly string[]): Promi
         .select("computed_at")
         .eq("garment_order_id", r.garment_order_id)
         .maybeSingle();
-      if (bErr) throw new Error(`Could not read ${reNo}'s Fabric BOM: ${bErr.message}`);
+      if (bErr) throw new Error(`Could not read ${reNo}'s Fabric Plan: ${bErr.message}`);
       const at = (bom as { computed_at: string | null } | null)?.computed_at ?? null;
       if (bom && (!at || at < r.reopened_at)) {
         return (
-          `${reNo}: revision ${r.entry_no ?? ""} opened the Fabric BOM, and its yarn purchase weights have not been ` +
-          `recalculated since — press Recalculate on the revision (or open its Fabric BOM tab and save it) before sending the budget.`
+          `${reNo}: revision ${r.entry_no ?? ""} opened the Fabric Plan, and its yarn purchase weights have not been ` +
+          `recalculated since — press Recalculate on the revision (or open its Fabric Plan tab and save it) before sending the budget.`
         );
       }
     }

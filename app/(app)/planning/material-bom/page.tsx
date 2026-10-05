@@ -78,7 +78,7 @@ export default async function MaterialBomPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Material BOM"
+        title="Accessories Plan"
         description="Production BOM — cloths, yarn process, fabric process sequences."
         actions={
           canCreate ? (

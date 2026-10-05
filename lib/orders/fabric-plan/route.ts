@@ -168,7 +168,7 @@ export function routeQuantities(
   }
   const q = num(required);
   if (q == null || q <= 0) {
-    return { refused: "No requirement to plan against — record the Fabric BOM first" };
+    return { refused: "No requirement to plan against — record the Fabric Plan first" };
   }
 
   for (const s of stages) {

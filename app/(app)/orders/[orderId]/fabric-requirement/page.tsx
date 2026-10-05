@@ -152,7 +152,7 @@ export default async function FabricRequirementPage({
               href="/orders/fabric-bom"
               className="mt-3 inline-block text-sm font-medium text-primary hover:underline"
             >
-              Open Fabric BOM →
+              Open Fabric Plan →
             </Link>
           </CardBody>
         </Card>

@@ -56,7 +56,7 @@ export async function listIwoMaterialBomTasks(): Promise<IwoMaterialBomTask[]> {
     .eq("location_id", locationId)
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
-  if (error) throw new Error(`IWO Material BOM: ${error.message}`);
+  if (error) throw new Error(`IWO Accessories Plan: ${error.message}`);
 
   type Raw = Omit<IwoMaterialBomTask, "bom"> & { iwo_material_boms: IwoMaterialBom | IwoMaterialBom[] | null };
   const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_material_boms, ...r }) => {
@@ -121,7 +121,7 @@ export async function getIwoMaterialBomFormData(): Promise<IwoMaterialBomFormDat
     listVendorsForPicker(),
   ]);
   for (const r of [itemRes, classRes, catRes, uomRes, convRes, procRes, colorRes, sizeRes]) {
-    if (r.error) throw new Error(`IWO Material BOM form: ${r.error.message}`);
+    if (r.error) throw new Error(`IWO Accessories Plan form: ${r.error.message}`);
   }
 
   const classes = new Map(

@@ -2602,37 +2602,6 @@ export function MbaMasterScreen({
         return next;
       });
 
-    /* Can this row split at all? A tick with no size break-up behind it would
-       refuse the whole line the moment it was ticked, so the box says so and
-       stays disabled instead. */
-    /*
-     * WHY A ROW CANNOT SPLIT ITSELF BY SIZE — one derivation, three consequences:
-     * the box's disabled state, its tooltip, and what the save will actually keep.
-     *
-     * THE ORDER'S BREAK-UP COMES FIRST, being the older and stronger refusal: with
-     * no assort rows a tick refuses the whole line the moment it is set.
-     *
-     * THE ATTRIBUTE IS THE NEW ONE, and it was live-and-useless until now.
-     * `slicesForAxes` takes NO tick predicate — deliberately, see the two-path
-     * comment above — so `requirementRows` cannot store a per-row tick against a
-     * composed grain. The box was enabled anyway, so ticking it wrote a
-     * `size_wise` the next save discarded: a control that looks live, changes
-     * nothing, and leaves the screen and the store describing one row differently.
-     *
-     * BOTH SENTENCES OFF ONE TEST, so they can never both show or both be wrong: a
-     * composed grain either already names Order Size — `{style_ref, size}` and
-     * `{size, country}` come out of the composer pre-expanded, so their rows ARE
-     * size rows — or it does not, and the operator needs a different Attribute.
-     */
-    const sizeWiseWhyNot =
-      orderProd.assortSizes.length === 0
-        ? "This order has no size break-up on Quantities ▸ Assort to split by"
-        : asBasis
-          ? null
-          : grainNames("size")
-            ? "This Attribute already splits every row by Order Size"
-            : "Pick an Attribute that names Order Size to split these rows by size";
-
     const unitKnown = !!r.purchase_uom_id || !!r.consumption_uom_id;
     /* THE SAME PACK THE LINE TOTAL AND THE PER-SLICE COLUMN READ. A row's Final
        is the line's MOQ and step run over ONE row, so it has to be in the unit
@@ -2844,13 +2813,16 @@ export function MbaMasterScreen({
         sizeWise: ticked,
         specification: o?.specification ?? "",
         sizeSpec: o?.size_spec ?? "",
+        /* THE ORDER'S SIZE, shown until something is typed (client 2026-10-05).
+           The names map, never `sizeName()` — that falls back to the uuid or a
+           dash, and neither is a size anyone should see in this box. */
+        sizeSpecAuto: sl.size_id ? (orderProd.sizeNames?.[sl.size_id] ?? "") : "",
         /* THE ROW KEEPS ITS OWN FIGURES EVEN WHEN TICKED (screenshot 2465).
            They are what a blank size box inherits, and taking them away removed
            both the box the operator wanted to type in and the thing the sizes
            were meant to fall back to. */
         cell: cellOf(sl, null),
         sizes: ticked ? kids.map((k) => cellOf(k, sizeName(k.size_id))) : [],
-        sizeWiseWhyNot,
       };
     });
 
@@ -3394,7 +3366,7 @@ export function MbaMasterScreen({
         : await createMaterialBomAmendment(payload);
       if (res.ok) {
         success(
-          (editId ? "Material BOM updated" : "Material BOM created") +
+          (editId ? "Accessories Plan updated" : "Accessories Plan created") +
             (o ? " — recorded in the Override Edit Report" : ""),
         );
         setDirty(false);
@@ -3417,7 +3389,7 @@ export function MbaMasterScreen({
     start(async () => {
       const res = await deleteMaterialBomAmendment(t.bom_id as string);
       if (res.ok) {
-        success("Material BOM deleted");
+        success("Accessories Plan deleted");
         router.refresh();
       } else {
         toastError(res.error);
@@ -5810,7 +5782,7 @@ export function MbaMasterScreen({
           placeholder={
             items.some((x) => !!x.item_id)
               ? "— Select Material —"
-              : "Add a material on the Material BOM tab first"
+              : "Add a material on the Accessories Plan tab first"
           }
           compact
         />
@@ -6121,7 +6093,7 @@ export function MbaMasterScreen({
   const sections: FullScreenSection[] = [
     {
       key: "bom",
-      label: "Material BOM",
+      label: "Accessories Plan",
       icon: ClipboardList,
       /*
        * THE 1440px CAP COMES OFF THIS SECTION (client 2026-08-28, via the single
@@ -6162,7 +6134,7 @@ export function MbaMasterScreen({
        */
       done: !!form.amend_date && !!form.garment_order_id && items.some((r) => r.item_id),
       content: (
-        <SectionBody title="Material BOM">
+        <SectionBody title="Accessories Plan">
           {/* ONE FLUSH ROW — four `xs` (2 of 12) and Remarks at `md` (4) = 12.
 
               THE COUNT IS WHAT PICKS THE SIZE, not a preference for small. It
@@ -6880,7 +6852,7 @@ export function MbaMasterScreen({
             <p className="text-xs text-muted-foreground">
               {items.some((x) => !!x.item_id)
                 ? "No material is sent out for processing. Add one below if a trim has to be dyed, washed or printed before it is used."
-                : "Add a material on the Material BOM tab first — a process is sent out against one of this BOM's materials."}
+                : "Add a material on the Accessories Plan tab first — a process is sent out against one of this BOM's materials."}
             </p>
           )}
           {procGroups.length > 0 && (
@@ -7077,7 +7049,7 @@ export function MbaMasterScreen({
        `MasterFullScreen` overlay — so the wrapper cannot simply be deleted. */
     <>
       {embed && mode === "list" && (
-        <EmbeddedEditorWait found={tasks.some((x) => x.id === embed.id)} returnHref={embed.returnHref} what="Material BOM" />
+        <EmbeddedEditorWait found={tasks.some((x) => x.id === embed.id)} returnHref={embed.returnHref} what="Accessories Plan" />
       )}
       <div className="space-y-4" hidden={!!embed}>
         {/* THE PRIMARY ACTION SITS BESIDE "← Back", NOT IN A BAND OF ITS OWN.
@@ -7087,12 +7059,12 @@ export function MbaMasterScreen({
             is also the shape `--check toolbar-size` recognises as a header row,
             so the h-9 rule is enforced here rather than trusted. */}
         <PageHeader
-          title="Material BOM"
+          title="Accessories Plan"
           description="Every sewing and packing accessory a confirmed order needs, and how much of each."
           actions={
             perms.canCreate ? (
               <Button size="md" onClick={() => openAdd(null)}>
-                + New Material BOM
+                + New Accessories Plan
               </Button>
             ) : undefined
           }
@@ -7176,7 +7148,7 @@ export function MbaMasterScreen({
           title:
             selectedOrder?.sc_no ??
             selectedOrder?.code ??
-            (editId ? "Material BOM" : "New material BOM"),
+            (editId ? "Accessories Plan" : "New material BOM"),
           badges: dirty ? (
             <span className="text-[11px] font-medium text-warning">● Unsaved</span>
           ) : null,

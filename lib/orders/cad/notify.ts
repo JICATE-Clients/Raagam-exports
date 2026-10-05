@@ -155,7 +155,7 @@ export async function notifyMerchandiserOfCadSubmit(garmentOrderId: string): Pro
     const name = reNo ? `Order ${reNo}` : "An order";
     const payload = {
       title: `${name} — CAD piece weights are ready`,
-      body: "The marker sheet has been submitted. Open the Fabric BOM to pull the panel weights into consumption.",
+      body: "The marker sheet has been submitted. Open the Fabric Plan to pull the panel weights into consumption.",
       href: "/orders/fabric-bom",
       type: "success" as const,
     };

@@ -383,7 +383,7 @@ async function conversionProblem(
   const converts = yarns.some((y) => y.stages.some((st) => !!st.process_id && isUnravelling(st.process_id)));
   if (mode === "yarn") {
     return converts
-      ? "CONVERSION (unravelling) turns a loose FABRIC into yarn — use it on a For = Fabric work order's Fabric BOM."
+      ? "CONVERSION (unravelling) turns a loose FABRIC into yarn — use it on a For = Fabric work order's Fabric Plan."
       : null;
   }
   const routeSteps = (p.processes ?? []).filter((r) => !!r.process_id);
@@ -1020,7 +1020,7 @@ export async function saveIwoFabricBom(
 
   const s = await createClient();
   const mode = await iwoForOf(s, p.iwo_id);
-  if (!mode) return { ok: false, error: "A Fabric BOM is raised only for an Internal Work Order For Yarn or Fabric." };
+  if (!mode) return { ok: false, error: "A Fabric Plan is raised only for an Internal Work Order For Yarn or Fabric." };
   let facts: YarnModeFacts | null = null;
   if (mode === "yarn") {
     // A Yarn IWO bypasses the fabric sections (screenshot 2937): no fabric
@@ -1060,8 +1060,8 @@ export async function saveIwoFabricBom(
         ok: false,
         error:
           error?.code === "23505"
-            ? "This work order already has a Fabric BOM — open it from the list."
-            : (error?.message ?? "Failed to create the Fabric BOM"),
+            ? "This work order already has a Fabric Plan — open it from the list."
+            : (error?.message ?? "Failed to create the Fabric Plan"),
       };
     }
     id = data.id;

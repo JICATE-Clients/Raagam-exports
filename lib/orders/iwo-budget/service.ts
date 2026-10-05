@@ -68,8 +68,8 @@ export async function loadIwoPullInput(iwoId: string): Promise<IwoPullInput | { 
     s.from("config_lookups").select("id, code, name").eq("kind", "yarn_stage"),
     kgUomOf(s),
   ]);
-  if (fab.error) return { refused: `Could not read the Fabric BOM: ${fab.error.message}` };
-  if (mat.error) return { refused: `Could not read the Material BOM: ${mat.error.message}` };
+  if (fab.error) return { refused: `Could not read the Fabric Plan: ${fab.error.message}` };
+  if (mat.error) return { refused: `Could not read the Accessories Plan: ${mat.error.message}` };
   if (stages.error) return { refused: `Could not read the yarn stages: ${stages.error.message}` };
 
   type RawYarn = Omit<IwoPullYarn, "shades"> & { shades: (IwoPullYarn["shades"][number] & { sno: number })[] };

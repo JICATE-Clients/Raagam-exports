@@ -95,7 +95,7 @@ export async function getRequirementSheet(
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY SHEET. `data ?? []` here would
   // render a document with no trims on it and no way to tell that apart from an
   // order that genuinely has none — the failure `getAmendments` records.
-  if (bomErr) return { refused: `Could not read the Material BOM: ${bomErr.message}` };
+  if (bomErr) return { refused: `Could not read the Accessories Plan: ${bomErr.message}` };
   const bom = ((bomRows ?? []) as unknown as unknown[])[0] as
     | {
         id: string;
@@ -112,7 +112,7 @@ export async function getRequirementSheet(
   if (!bom) {
     return {
       refused:
-        "This order has no recorded Material BOM yet — raise one on Orders ▸ Material BOM before printing its requirement.",
+        "This order has no recorded Accessories Plan yet — raise one on Orders ▸ Accessories Plan before printing its requirement.",
     };
   }
 
@@ -148,7 +148,7 @@ export async function getRequirementSheet(
   if (rows.length === 0) {
     return {
       refused:
-        "This Material BOM has no stored requirement yet — open it and save, so the figures the sheet prints are the ones that were approved.",
+        "This Accessories Plan has no stored requirement yet — open it and save, so the figures the sheet prints are the ones that were approved.",
     };
   }
 
@@ -176,7 +176,7 @@ export async function getRequirementSheet(
   ]);
 
   // A failed read is an error, not a sheet whose every Specification is blank.
-  if (lineRes.error) return { refused: `Could not read the Material BOM lines: ${lineRes.error.message}` };
+  if (lineRes.error) return { refused: `Could not read the Accessories Plan lines: ${lineRes.error.message}` };
   const names: SheetNames = { items: {}, uoms: {}, sizes: {}, colours: {}, lines: {} };
   for (const l of (lineRes.data ?? []) as { id: string; supply_type: string | null; specification: string | null }[]) {
     names.lines![l.id] = { supplyType: l.supply_type, specification: l.specification };

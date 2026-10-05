@@ -770,7 +770,7 @@ export function DecisionSheet({
         </Field>
         {status === "approved" && (
           <p className="text-xs text-muted-foreground">
-            Approving marks this version submitted. When every style of the order is approved, its Fabric BOM can be
+            Approving marks this version submitted. When every style of the order is approved, its Fabric Plan can be
             created.
           </p>
         )}

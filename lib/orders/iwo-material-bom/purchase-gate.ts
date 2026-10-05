@@ -79,7 +79,7 @@ export function advisedRefusal(names: readonly string[], iwoCode: string | null)
   const verb = names.length === 1 && shown !== "A material" ? "is" : "are";
   return (
     `${subject} ${verb} still Advised on ${theIwo(iwoCode)} — the buyer has not confirmed ` +
-    `${names.length === 1 ? "it" : "them"}. Untick Is Advised on IWO Material BOM once ` +
+    `${names.length === 1 ? "it" : "them"}. Untick Is Advised on IWO Accessories Plan once ` +
     `confirmed, then raise the purchase order.`
   );
 }
@@ -97,9 +97,9 @@ export function iwoPurchaseHint(check: IwoPurchaseCheck): string {
     return `Its ${bom} is still a draft — nothing on it can be bought until it is saved`;
   }
   // 0595 — a Yarn / Fabric work order buys yarn, held to the Fabric BOM's weights.
-  if (check.iwo_for !== "accessories") return "Limited to the IWO Fabric BOM's yarn purchase weights";
+  if (check.iwo_for !== "accessories") return "Limited to the IWO Fabric Plan's yarn purchase weights";
   const names = [...new Set(check.advised.map((a) => a.name?.trim() || "A material"))];
-  const limit = "Limited to IWO Material BOM's purchase quantities";
+  const limit = "Limited to IWO Accessories Plan's purchase quantities";
   if (names.length === 0) return `${limit} — nothing on it is Advised`;
   const shown = names.slice(0, 3).join(", ");
   const rest = names.length - Math.min(3, names.length);
@@ -157,8 +157,8 @@ export function iwoCeilingRefusal(
     const name = planned[0]?.name?.trim() || "This material";
     if (planned.length === 0) {
       return check.iwo_for === "accessories"
-        ? `This material is not on ${on}'s Material BOM, so none of it is approved to buy. Add it there first.`
-        : `This is not a yarn ${on}'s Fabric BOM buys, so none of it is approved to buy. Plan it on IWO Fabric BOM first.`;
+        ? `This material is not on ${on}'s Accessories Plan, so none of it is approved to buy. Add it there first.`
+        : `This is not a yarn ${on}'s Fabric Plan buys, so none of it is approved to buy. Plan it on IWO Fabric Plan first.`;
     }
     if (planned.some((l) => l.purchase_qty == null)) {
       return `The ${bom} for ${on} could not work out a purchase quantity for ${name}. Fix that line on IWO ${bom} first.`;
@@ -189,6 +189,6 @@ export function iwoCeilingRefusal(
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Which BOM holds the work order's approved quantities. */
-function bomLabel(check: IwoPurchaseCheck): "Material BOM" | "Fabric BOM" {
-  return check.iwo_for === "accessories" ? "Material BOM" : "Fabric BOM";
+function bomLabel(check: IwoPurchaseCheck): "Accessories Plan" | "Fabric Plan" {
+  return check.iwo_for === "accessories" ? "Accessories Plan" : "Fabric Plan";
 }
