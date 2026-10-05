@@ -371,13 +371,116 @@ export function PatternWorkForm({
     const first = keys.length > 0 ? knownParts.get(keys[0]) : undefined;
     const firstComp = row.components.find((c) => keys.length > 0 && cutKey(c) === keys[0]);
     const cs = row.components.filter((c) => keys.includes(cutKey(c)));
-    setLine(l.key, {
-      parts: keys,
-      fabric_category_id: first ? first.fabric_category_id : null,
-      fabric_name: first ? first.structure : null,
-      gsm: l.gsm || (firstComp ? singleGsm(firstComp.gsm) : ""),
-      width_form: formOfParts(version.component_cuts, cs) || l.width_form,
-    });
+    /*
+     * AN UNTICKED PART GETS A LINE OF ITS OWN (client 2026-10-05: "if 4
+     * components in 3 components only choose, remain one should need list
+     * again automatically") — Fabric Plan ▸ Manual's auto-split, brought here.
+     * A part dropped from this line that NO other line holds would otherwise
+     * fall off the sheet unmeasured; it lands on a new line just below, same
+     * fabric and GSM, its roll form from its own Cut Method.
+     *
+     * ON THE UNTICK, NEVER ON A RENDER: a part MOVED to another line is held
+     * there and spawns nothing, and deleting the spawned line sticks — nothing
+     * re-derives it. Only the style's own parts; a saved part the style has
+     * since dropped is not brought back. And only while the line KEEPS a part —
+     * emptying a line is clearing it to re-pick, and a spawned twin would only
+     * move the part sideways.
+     */
+    const dropped = keys.length === 0 ? [] : l.parts.filter(
+      (k) =>
+        !keys.includes(k) &&
+        row.components.some((c) => cutKey(c) === k) &&
+        !lines.some((x) => x.key !== l.key && x.parts.includes(k)),
+    );
+    const spawned: LineRow | null =
+      dropped.length === 0
+        ? null
+        : {
+            ...blankLine(),
+            parts: dropped,
+            fabric_category_id: l.fabric_category_id,
+            fabric_name: l.fabric_name,
+            gsm: l.gsm,
+            width_form: formOfParts(
+              version.component_cuts,
+              row.components.filter((c) => dropped.includes(cutKey(c))),
+            ),
+          };
+    setLines((xs) =>
+      xs.flatMap((x) =>
+        x.key !== l.key
+          ? [x]
+          : [
+              {
+                ...x,
+                parts: keys,
+                fabric_category_id: first ? first.fabric_category_id : null,
+                fabric_name: first ? first.structure : null,
+                gsm: l.gsm || (firstComp ? singleGsm(firstComp.gsm) : ""),
+                width_form: formOfParts(version.component_cuts, cs) || l.width_form,
+              },
+              ...(spawned ? [spawned] : []),
+            ],
+      ),
+    );
+  }
+
+  /**
+   * THE COLOURS OF ONE LINE CHANGED — the same auto-split as the parts (client
+   * 2026-10-05: "same for color field also"). Each colour of a part belongs on
+   * exactly ONE line, so:
+   *
+   *   narrowed   the colours this line no longer covers, and no sibling does,
+   *              land on a new line just below (same parts, fabric, GSM, form).
+   *              A BLANK line means EVERY colour, so the first pick from blank
+   *              narrows too — picking CHOCOLATE leaves the other four listed.
+   *   widened    a colour added here is taken OFF the sibling that had it, so
+   *              picking one by one walks them across instead of doubling them.
+   *              A sibling left with none is removed if nothing is typed on it;
+   *              one with typed figures keeps its last colour (never data lost).
+   *   cleared    back to blank = every colour again; nothing spawned.
+   *
+   * A SIBLING is another line of the same fabric sharing a part with this one.
+   * A sibling left BLANK covers every colour, so nothing is spawned beside it.
+   */
+  function pickColours(l: LineRow, next: string[]) {
+    const all = row.colours;
+    const before = l.colours.length ? l.colours : all;
+    const isSibling = (x: LineRow) =>
+      x.key !== l.key &&
+      x.fabric_category_id === l.fabric_category_id &&
+      x.parts.some((p) => l.parts.includes(p));
+    const added = next.filter((c) => !l.colours.includes(c));
+    const siblings = lines.filter(isSibling);
+    const covered = (c: string) => siblings.some((x) => x.colours.length === 0 || x.colours.includes(c));
+    const dropped =
+      next.length === 0 || l.parts.length === 0
+        ? []
+        : before.filter((c) => !next.includes(c) && all.includes(c) && !covered(c));
+    const spawned: LineRow | null =
+      dropped.length === 0
+        ? null
+        : {
+            ...blankLine(),
+            parts: l.parts,
+            fabric_category_id: l.fabric_category_id,
+            fabric_name: l.fabric_name,
+            gsm: l.gsm,
+            width_form: l.width_form,
+            colours: dropped,
+          };
+    const hasTyped = (x: LineRow) =>
+      !!(x.table_dia.trim() || x.avg_pcs_weight_g.trim() || Object.values(x.sizes).some(hasFigures));
+    setLines((xs) =>
+      xs.flatMap((x) => {
+        if (x.key === l.key) return [{ ...x, colours: next }, ...(spawned ? [spawned] : [])];
+        if (!isSibling(x) || added.length === 0 || x.colours.length === 0) return [x];
+        const kept = x.colours.filter((c) => !added.includes(c));
+        if (kept.length === x.colours.length) return [x];
+        if (kept.length > 0) return [{ ...x, colours: kept }];
+        return hasTyped(x) ? [x] : [];
+      }),
+    );
   }
 
   /**
@@ -535,7 +638,7 @@ export function PatternWorkForm({
             triggerClassName="h-8 max-h-8"
             options={[...new Set([...row.colours, ...l.colours])].map((c) => ({ id: c, label: c }))}
             values={l.colours}
-            onChange={(next) => setLine(l.key, { colours: next })}
+            onChange={(next) => pickColours(l, next)}
           />
           {pickNames(l.colours)}
         </div>
