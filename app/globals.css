@@ -2295,6 +2295,28 @@ html[data-type-scale="compact"] .ty-badge-icon {
 [data-grid-style="sheet"] table:not(:has(> thead)) > tbody:first-of-type > tr:first-child > * {
   border-top-width: 1px;
 }
+/* ALL FOUR OUTER CORNERS ROUNDED (user 2026-10-05, screenshot 095906: "4
+   cornaerlayum curve aa irukkanum"). The frame here is the corner CELLS'
+   own borders (the wrapper's rounded border was removed above), so the
+   radius goes on those four cells — under `border-collapse: separate` a
+   cell's radius rounds its border and clips its header fill with it, which
+   `collapse` would ignore. Bottom corners are the table's last row, in a
+   `tfoot` total band when there is one. A nested grid in a cell matches the
+   same selectors and gets the same corners. */
+[data-grid-style="sheet"] thead > tr:first-child > :first-child,
+[data-grid-style="sheet"] table:not(:has(> thead)) > tbody:first-of-type > tr:first-child > :first-child {
+  border-top-left-radius: var(--radius-lg, 0.5rem);
+}
+[data-grid-style="sheet"] thead > tr:first-child > :last-child,
+[data-grid-style="sheet"] table:not(:has(> thead)) > tbody:first-of-type > tr:first-child > :last-child {
+  border-top-right-radius: var(--radius-lg, 0.5rem);
+}
+[data-grid-style="sheet"] table > :is(tbody, tfoot):last-child > tr:last-child > :first-child {
+  border-bottom-left-radius: var(--radius-lg, 0.5rem);
+}
+[data-grid-style="sheet"] table > :is(tbody, tfoot):last-child > tr:last-child > :last-child {
+  border-bottom-right-radius: var(--radius-lg, 0.5rem);
+}
 [data-grid-style="sheet"] thead th {
   background: var(--surface-muted);
   padding: 0.375rem 0.5rem;
@@ -2341,22 +2363,38 @@ html[data-type-scale="compact"] .ty-badge-icon {
 /* A BUTTON THAT IS A CELL'S VALUE — Combos' [Detail], marked `data-row-open`
    — is drawn as the cell, not as a pill inside it: no border, no radius, full
    cell, primary text. Disabled keeps its fade and its title ("Name the combo
-   first"); focus takes the same blue inset as a field. */
+   first"); focus takes the same blue inset as a field.
+   `!important` BECAUSE THIS RULE NEVER WON (client 2026-10-05, screenshot
+   093856: the [Detail] pill sat flush on the gridlines, "otti irukku"). Three
+   skins out-rank a 0,2,1 selector: the Orders skin's green outline
+   (`[data-skin="raagam"] button[class*="border-border"]…`, 0,5,1) and its
+   radius rule above, and the Pearl/Frost gloss injected by `lib/appearance.ts`
+   (`.ty-btn-outline` tripled, later in source order). Out-ranking them by
+   stacking selectors is an arms race the next skin restarts; a cell-shaped
+   value is a hard override by definition, so it says so. Focus still wins
+   over rest because both carry `!important` and the focus rule comes later. */
 [data-grid-style="sheet"] td [data-row-open] {
   width: 100%;
   height: 2rem;
-  border-color: transparent;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--primary);
+  /* The cell is the hit area, so the button's own `px-3` only crowds the
+     72px Detail column once the › chevron joins the label. */
+  padding-inline: 0.375rem;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--primary) !important;
+}
+[data-grid-style="sheet"] td [data-row-open]::after {
+  display: none !important;
 }
 [data-grid-style="sheet"] td [data-row-open]:hover:not(:disabled) {
-  background: var(--surface-muted);
+  background: var(--surface-muted) !important;
+  text-decoration: underline;
 }
 [data-grid-style="sheet"] td [data-row-open]:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--ring);
-  outline: none;
+  box-shadow: inset 0 0 0 2px var(--ring) !important;
+  outline: none !important;
 }
 /* A reference line under a cell's control (Combos' article no.) keeps a
    little inset — the cell itself has no padding in this style. */
@@ -2551,5 +2589,41 @@ html[data-type-scale="compact"] .ty-badge-icon {
   [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack] > * :is(input:not([type="checkbox"]):not([type="radio"]), select) {
     border-color: var(--border);
     border-radius: var(--radius-md, 0.375rem);
+  }
+}
+/* A LADDER THAT IS ONLY A SHEET WHEN WIDE — `data-sheet-stack="wide"` (Combos ▸
+   Structure Details, 2026-10-05). Below 1250px that grid's fabric and parts
+   halves stack and every field prints its own label above its box, so there is
+   no header row to rule cells under and a field pulled to the gridlines would
+   ride up over its label. So the whole look stands down there:
+   - the ROW and CELL layout props go back to the screen's own utilities with
+     `revert-layer` (these rules are unlayered, Tailwind's are layered, and the
+     raagam skin sets none of these on a div — so nothing else is reverted);
+   - the field keeps a plain box, exactly as the phone-width `data-sheet-stack`
+     above does. */
+@media (width < 1250px) {
+  [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack="wide"] {
+    column-gap: revert-layer;
+    padding-inline: revert-layer;
+    padding-block: revert-layer;
+    align-items: revert-layer;
+    min-height: revert-layer;
+  }
+  [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack="wide"] > * {
+    box-sizing: revert-layer;
+    padding: revert-layer;
+    align-content: revert-layer;
+    border-right-width: 0;
+  }
+  [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack="wide"] > * > :is(:has(input:not([type="hidden"]):not(.hidden)), input:not([type="hidden"]):not(.hidden)) {
+    margin: 0;
+    width: 100%;
+  }
+  [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack="wide"] > * :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+    border-color: var(--border);
+    border-radius: var(--radius-md, 0.375rem);
+  }
+  [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack="wide"] > * [data-field-affordance] {
+    opacity: 1;
   }
 }

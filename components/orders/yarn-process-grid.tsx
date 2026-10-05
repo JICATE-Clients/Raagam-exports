@@ -317,7 +317,10 @@ export function YarnProcessGrid({
            it — never amber, which reads as advice. */
         const refused = yarnStageMismatch(r, yarnOpts) || yarnBaseMissing(rows, at, yarnOpts);
         return (
-          <div className={refused ? "min-w-0 rounded-md ring-2 ring-danger" : "min-w-0"}>
+          /* SQUARE AND INSET since the sheet look (2026-10-05): the cell is
+             the box now, so the refusal outlines the CELL's inside edge — a
+             rounded ring would stand off the gridlines. */
+          <div className={refused ? "min-w-0 ring-2 ring-inset ring-danger" : "min-w-0"}>
             <RecordPicker
               label=""
               compact
@@ -424,10 +427,16 @@ export function YarnProcessGrid({
                 data-row-open
                 aria-expanded={looseFor?.key === r.key}
                 aria-label={name ? `Loose fabric: ${name}` : "Choose the source loose fabric"}
+                /* `!ring-1 ring-inset` on the unpicked state: the sheet look
+                   draws a `[data-row-open]` cell with `box-shadow: none`
+                   (unlayered, globals.css), which would silently erase a plain
+                   `ring-2` — and with it the only mark that says this step
+                   still owes its loose fabric. `!` keeps the red inset, the
+                   same one a blank mandatory field gets. */
                 className={
                   name
                     ? "h-8 w-full justify-start px-2"
-                    : "h-8 w-full justify-start px-2 ring-2 ring-danger"
+                    : "h-8 w-full justify-start px-2 !ring-2 ring-inset ring-danger"
                 }
                 onClick={(e) => setLooseFor({ key: r.key, origin: e.currentTarget.getBoundingClientRect() })}
               >
@@ -809,6 +818,13 @@ export function YarnProcessGrid({
 
   return (
     <>
+    {/* A SPREADSHEET GRID (user 2026-10-05, `erp-sheet-grid` on Fabric BOM ▸
+        Yarn Process): `sheet` draws the gridlines, the grey header and the
+        borderless in-cell pickers with the blue / red insets; the [Click] in
+        For is `data-row-open`, so it is drawn as the cell. `table-fixed` so
+        the declared widths hold as values are typed (Components, 2026-09-17).
+        Below `5xl` the grid still stacks into labelled cards, unaffected. */}
+    <div data-grid-style="sheet" className="[&_table]:table-fixed">
     <ChildGrid<YarnStageRow>
       columns={columns}
       rows={rows}
@@ -865,7 +881,9 @@ export function YarnProcessGrid({
          one thing is the drift AGENTS.md keeps recording. The whole vocabulary
          moved with the button, not just the button. */
       addLabel="+ Add process"
+      removeHeader="Actions"
     />
+    </div>
     {/* THE CONVERSION DETAILS POPUP — legacy's [Click] ▸ Details (user
         2026-09-25, screenshots 3093–3096): one row per colour, Loss % · Loose
         Fabric · GSM · Dia (0645). A `[Click]`-opened sub-detail with no Save of
@@ -903,6 +921,8 @@ export function YarnProcessGrid({
           <DetailSection label="Description Details" frameless>
             {/* Opens with a row per colour (`detailRowsOf`), never empty — the
                 "open with a row" rule met by the colours themselves. */}
+            /* The same sheet look as the process grid it opens from. */
+            <div data-grid-style="sheet" className="[&_table]:table-fixed">
             <ChildGrid<DetailGridRow>
               columns={conversionDetailColumns(looseRow)}
               rows={detailRowsOf(looseRow)}
@@ -911,6 +931,7 @@ export function YarnProcessGrid({
               hideAdd={readOnly}
               hideRemove={readOnly}
               addLabel="+ Add colour"
+              removeHeader="Actions"
               onAdd={() => writeDetails(looseRow, (rows) => [...rows, blankDetail("")])}
               onRemove={(g) => {
                 const at = detailRowsOf(looseRow).findIndex((x) => x.key === g.key);
@@ -926,6 +947,7 @@ export function YarnProcessGrid({
                 </FieldGrid>
               )}
             />
+            </div>
           </DetailSection>
         )}
       </Sheet>

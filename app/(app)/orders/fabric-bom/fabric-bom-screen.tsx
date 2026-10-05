@@ -10403,6 +10403,121 @@ export function FabricBomScreen({
               openKey={openFabricId}
               onToggle={setOpenFabricId}
               foldHeader="Process"
+              afterFold={[
+                {
+                /* "ROUTE PER", NOT "GROUP BY" (2026-09-16) — AND THE OLD
+                    LABEL DESCRIBED A DESIGN THAT NO LONGER EXISTS.
+
+                    Until 2026-09-15 this toggle really did group: the
+                    caller rendered one instance of `FabricProcessGrid` per
+                    colourway. That went (client screenshot 2876, "the ui
+                    for those filters needs a better fix") and the toggle
+                    now ADDS A COLUMN to one grid. It groups nothing.
+
+                    THE REPLACEMENT HAD TO AVOID A COLLISION, which is why
+                    it is not the client's bare phrase. The Manual tab
+                    carries its OWN `assort_color_wise` — on
+                    `order_fabric_bom_manual_entries`, a different table and
+                    a different fact: that one scopes a WEIGHT to some
+                    colourways, this one splits a ROUTE per colourway.
+                    Labelling both "Assort Color-Wise" would put one name on
+                    two settings, which is worse than the mismatch it fixed:
+                    a wrong label makes an operator hesitate, a matching one
+                    makes them confident and wrong. 5f records that the
+                    Manual flag went stored-and-read-by-nothing for months
+                    precisely because nobody could tell the two apart in the
+                    code. "Route per" says what THIS control does. */
+                  header: "Route per",
+                  width: "9.5rem",
+                  control: true,
+                  cell: (r) => {
+                    const scope = scopeFor(r.item_id);
+                    const readOnly = !perms.canEdit && !perms.canCreate;
+                    return (
+                  <div className="flex flex-col gap-0.5">
+                    {/* DISABLED WHEN THE FABRIC HAS NOTHING TO VARY (2026-09-16).
+                        A fabric serving ONE colourway cannot have a per-colour
+                        route: the Assort Color ▾ this reveals would offer "All
+                        colours" plus that single colour, and on a one-colourway
+                        fabric those are the same set. So the toggle was fully
+                        operable and could not change anything — switch it on,
+                        every row still reads "All colours", which is the OFF
+                        state. A control that is always offered but only
+                        sometimes capable teaches operators it does nothing.
+
+                        DISABLED WITH A REASON, NEVER SILENTLY ABSENT. A missing
+                        control is a feature the operator cannot find; a greyed
+                        one with a line under it is a feature that does not
+                        apply yet, and the difference is whether they go looking.
+                        Same treatment the Manual tab's own colour toggle takes
+                        (raagam-6d, same day, same defect found by generalising
+                        this one).
+
+                        `r.combos` is THE FABRIC'S OWN colourways, the identical
+                        list handed to the grid as `colours` below — never the
+                        order's whole set, which is the cascading-filter rule. */}
+                    <Toggle
+                      /* "COMPO COLOR" (client, 2026-09-16) — their own word
+                         for this value, already on the Components tab's
+                         identical column. `Route per Compo Color` still says
+                         what the control does and still cannot be read as the
+                         Manual tab's weight scoping. */
+                      /* "COMBO", NOT "COMPO" (client 2026-09-22, screenshot
+                         2997) — one-letter transcription slip, fixed on all
+                         three surfaces at once. */
+                      label="Combo Color"
+                      checked={scope.assort_color_wise}
+                      disabled={readOnly || r.combos.length < 2}
+                      onChange={(next) =>
+                        setFabricScope(r.item_id, { assort_color_wise: next })
+                      }
+                    />
+                    {/* THE `Component` TOGGLE STOOD HERE AND THE CLIENT
+                        REMOVED IT (2026-09-16, `doc/order/fabriprocess.md`
+                        §6: "the developer agreed to remove the
+                        Component-Wise flag from the Fabric Process screen to
+                        avoid unnecessary complexity").
+
+                        **ONLY THE CONTROL WENT. EVERYTHING UNDER IT IS
+                        DELIBERATELY INTACT** — `scope.component_wise` is
+                        still read three lines down to draw the Component ▾,
+                        still travels in the payload, still decides
+                        `inScope`, and `component_id`, `stagesForGroup`'s
+                        component axis, `comboUplift`, both reports and the
+                        ten §8 vectors in
+                        `scripts/check-fabric-bom-reports.mts` are all
+                        untouched.
+
+                        THAT SPLIT IS THE WHOLE POINT AND IT IS NOT TIDINESS
+                        LEFT UNDONE. Component Wise was wired end to end on
+                        2026-09-15, and the wiring is what fixed a SILENT
+                        yarn over-purchase — the engine had been stacking
+                        every panel's steps onto one route and returning an
+                        uplift of 1.201 where 1.107 was right. Deleting the
+                        machinery now would restore that bug on every route
+                        already saved component-split, and it would do it
+                        without an error, an empty list or anything else an
+                        operator could report. So: no NEW route can be
+                        component-split, and every saved one still renders
+                        and still computes.
+
+                        A reader who finds this and reaches for the delete
+                        key is holding the reversal this comment exists to
+                        stop. Restoring the toggle needs a client decision,
+                        not a tidy-up. */}
+                    {/* WHY THE TOGGLE IS GREYED, SAID RATHER THAN LEFT TO BE
+                        INFERRED — only in the disabled case, and short, now
+                        that it shares a 9.5rem cell with the switch. */}
+                    {r.combos.length < 2 && (
+                      <span className="text-[11px] leading-tight text-muted-foreground">
+                        {r.combos.length === 1 ? "One colour, nothing to vary" : "No assort colour yet"}
+                      </span>
+                    )}
+                  </div>
+                    );
+                  },
+                },
+              ]}
               /* WHAT A SHUT FOLD SAYS — `routeStepCount` rather than the row
                  count, because a half-typed step is not a step. "No route yet"
                  is a complete answer: a fabric bought finished and cut runs
@@ -10479,117 +10594,11 @@ export function FabricBomScreen({
                         wrap rather than stretch, the same `w-fit` the strip
                         already took on 2026-09-04 ("look too much broader
                         bigger box … compact it"). */}
-                    <div className="flex flex-wrap items-center gap-3">
-                    {/* "ROUTE PER", NOT "GROUP BY" (2026-09-16) — AND THE OLD
-                        LABEL DESCRIBED A DESIGN THAT NO LONGER EXISTS.
-
-                        Until 2026-09-15 this toggle really did group: the
-                        caller rendered one instance of `FabricProcessGrid` per
-                        colourway. That went (client screenshot 2876, "the ui
-                        for those filters needs a better fix") and the toggle
-                        now ADDS A COLUMN to one grid. It groups nothing.
-
-                        THE REPLACEMENT HAD TO AVOID A COLLISION, which is why
-                        it is not the client's bare phrase. The Manual tab
-                        carries its OWN `assort_color_wise` — on
-                        `order_fabric_bom_manual_entries`, a different table and
-                        a different fact: that one scopes a WEIGHT to some
-                        colourways, this one splits a ROUTE per colourway.
-                        Labelling both "Assort Color-Wise" would put one name on
-                        two settings, which is worse than the mismatch it fixed:
-                        a wrong label makes an operator hesitate, a matching one
-                        makes them confident and wrong. 5f records that the
-                        Manual flag went stored-and-read-by-nothing for months
-                        precisely because nobody could tell the two apart in the
-                        code. "Route per" says what THIS control does. */}
-                    <div className="inline-flex w-fit items-center gap-4 rounded-md border border-border px-2.5 py-1.5">
-                      <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-                        Route per
-                      </span>
-                      {/* DISABLED WHEN THE FABRIC HAS NOTHING TO VARY (2026-09-16).
-                          A fabric serving ONE colourway cannot have a per-colour
-                          route: the Assort Color ▾ this reveals would offer "All
-                          colours" plus that single colour, and on a one-colourway
-                          fabric those are the same set. So the toggle was fully
-                          operable and could not change anything — switch it on,
-                          every row still reads "All colours", which is the OFF
-                          state. A control that is always offered but only
-                          sometimes capable teaches operators it does nothing.
-
-                          DISABLED WITH A REASON, NEVER SILENTLY ABSENT. A missing
-                          control is a feature the operator cannot find; a greyed
-                          one with a line under it is a feature that does not
-                          apply yet, and the difference is whether they go looking.
-                          Same treatment the Manual tab's own colour toggle takes
-                          (raagam-6d, same day, same defect found by generalising
-                          this one).
-
-                          `r.combos` is THE FABRIC'S OWN colourways, the identical
-                          list handed to the grid as `colours` below — never the
-                          order's whole set, which is the cascading-filter rule. */}
-                      <Toggle
-                        /* "COMPO COLOR" (client, 2026-09-16) — their own word
-                           for this value, already on the Components tab's
-                           identical column. `Route per Compo Color` still says
-                           what the control does and still cannot be read as the
-                           Manual tab's weight scoping. */
-                        /* "COMBO", NOT "COMPO" (client 2026-09-22, screenshot
-                           2997) — one-letter transcription slip, fixed on all
-                           three surfaces at once. */
-                        label="Combo Color"
-                        checked={scope.assort_color_wise}
-                        disabled={readOnly || r.combos.length < 2}
-                        onChange={(next) =>
-                          setFabricScope(r.item_id, { assort_color_wise: next })
-                        }
-                      />
-                      {/* THE `Component` TOGGLE STOOD HERE AND THE CLIENT
-                          REMOVED IT (2026-09-16, `doc/order/fabriprocess.md`
-                          §6: "the developer agreed to remove the
-                          Component-Wise flag from the Fabric Process screen to
-                          avoid unnecessary complexity").
-
-                          **ONLY THE CONTROL WENT. EVERYTHING UNDER IT IS
-                          DELIBERATELY INTACT** — `scope.component_wise` is
-                          still read three lines down to draw the Component ▾,
-                          still travels in the payload, still decides
-                          `inScope`, and `component_id`, `stagesForGroup`'s
-                          component axis, `comboUplift`, both reports and the
-                          ten §8 vectors in
-                          `scripts/check-fabric-bom-reports.mts` are all
-                          untouched.
-
-                          THAT SPLIT IS THE WHOLE POINT AND IT IS NOT TIDINESS
-                          LEFT UNDONE. Component Wise was wired end to end on
-                          2026-09-15, and the wiring is what fixed a SILENT
-                          yarn over-purchase — the engine had been stacking
-                          every panel's steps onto one route and returning an
-                          uplift of 1.201 where 1.107 was right. Deleting the
-                          machinery now would restore that bug on every route
-                          already saved component-split, and it would do it
-                          without an error, an empty list or anything else an
-                          operator could report. So: no NEW route can be
-                          component-split, and every saved one still renders
-                          and still computes.
-
-                          A reader who finds this and reaches for the delete
-                          key is holding the reversal this comment exists to
-                          stop. Restoring the toggle needs a client decision,
-                          not a tidy-up. */}
-                    </div>
-                    {/* WHY THE TOGGLE IS GREYED, SAID RATHER THAN LEFT TO BE
-                        INFERRED. Sits beside the strip rather than under it so
-                        the `flex-wrap` row keeps its shape, and it appears ONLY
-                        in the disabled case — a fabric that can vary its route
-                        needs no explanation, and a permanent caption would be
-                        the heading sentence the de-clutter rule removes. */}
-                    {r.combos.length < 2 && (
-                      <span className="text-[11px] text-muted-foreground">
-                        {r.combos.length === 1
-                          ? "One assort colour on this fabric — no route to vary."
-                          : "No assort colour on this fabric yet."}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-3 empty:hidden">
+                    {/* ROUTE PER ▸ COMBO COLOR MOVED TO THE FABRIC'S OWN LINE,
+                        after Process (user 2026-10-05) — see `afterFold` on
+                        the ProcessFoldList above. The history of the label and
+                        of the removed Component toggle travelled with it. */}
                     {/* WHERE THIS FABRIC COMES FROM (0564,
                         `doc/order/fabriprocess.md` §2) — the planner's
                         "Default Rule No. 1" vs "No. 2".
@@ -10710,6 +10719,9 @@ export function FabricBomScreen({
                         `normalizeProcesses`, the engine and the reports read
                         exactly what they read before. */}
                     <FabricProcessGrid
+                      /* SPREADSHEET LOOK (user 2026-10-05, the
+                         `erp-sheet-grid` skill) — see the prop. */
+                      sheet
                       itemId={r.item_id}
                       colours={scope.assort_color_wise ? r.combos : null}
                       components={scope.component_wise ? r.panelIds : null}

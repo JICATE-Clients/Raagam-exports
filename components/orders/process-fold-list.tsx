@@ -118,6 +118,7 @@ export function ProcessFoldList<T extends { key: string }>({
   startIndex = 0,
   hug = false,
   ruled = false,
+  afterFold = [],
 }: {
   columns: FoldListColumn<T>[];
   rows: T[];
@@ -166,6 +167,14 @@ export function ProcessFoldList<T extends { key: string }>({
    * stacked rows are label/value pairs, and a rule between those is noise.
    */
   ruled?: boolean;
+  /**
+   * COLUMNS AFTER THE FOLD (user 2026-10-05, Fabric BOM ▸ Fabric Process:
+   * "Route per / Combo Color" moved out of the panel to sit after Process on
+   * the fabric's own line). Same shape as `columns`, drawn to the right of the
+   * fold button; a `control` cell still stops its click from folding the row.
+   * Stacked, they join the end of the label/value list.
+   */
+  afterFold?: FoldListColumn<T>[];
 }) {
   /**
    * EVERY COLUMN DECLARES A WIDTH, SO THE ROW STOPS AT THE LAST ONE.
@@ -193,7 +202,8 @@ export function ProcessFoldList<T extends { key: string }>({
    * ONLY THE ALIGNED LAYOUT. Below `@4xl` each value carries its own label in a
    * stack, where there is no column to hug and the pairs must keep the width.
    */
-  const hugsColumns = columns.length > 0 && columns.every((c) => c.width);
+  const hugsColumns =
+    columns.length > 0 && [...columns, ...afterFold].every((c) => c.width);
 
   /* BOTH OR NEITHER — see `foldHeader`. Read once so the header band, the row
      and the panel cannot each decide for themselves. */
@@ -239,6 +249,19 @@ export function ProcessFoldList<T extends { key: string }>({
             </span>
           ))}
           {showsFold && <span className="w-28 shrink-0 text-left">{foldHeader}</span>}
+          {afterFold.map((c, ci) => (
+            <span
+              key={`after-${ci}`}
+              className={cn(
+                "hidden min-w-0 shrink-0 @4xl:block",
+                ruled && "border-l border-border px-2 py-1.5",
+                c.align === "right" ? "text-right" : "text-left",
+              )}
+              style={c.width ? { width: c.width } : undefined}
+            >
+              {c.header}
+            </span>
+          ))}
         </div>
 
         {/* `data-grid-body` + `data-grid-row` ARE THE WHOLE KEYBOARD — see the
@@ -357,7 +380,7 @@ export function ProcessFoldList<T extends { key: string }>({
                   {/* STACKED — the same values, each under its own name. It
                       wraps; it never scrolls sideways (the operator's rule 4). */}
                   <div className="min-w-0 flex-1 space-y-0.5 @4xl:hidden">
-                    {columns.map((c, ci) => (
+                    {[...columns, ...afterFold].map((c, ci) => (
                       <div key={ci} className="flex min-w-0 items-baseline gap-1.5">
                         <span className="w-24 shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
                           {c.cardLabel ?? c.header}
@@ -408,6 +431,22 @@ export function ProcessFoldList<T extends { key: string }>({
                     <span className="min-w-0 truncate">{foldSummary?.(row)}</span>
                   </button>
                   )}
+
+                  {afterFold.map((c, ci) => (
+                    <div
+                      key={`after-${ci}`}
+                      data-fold-control={c.control ? "" : undefined}
+                      onClick={c.control ? (e) => e.stopPropagation() : undefined}
+                      className={cn(
+                        "hidden min-h-7 min-w-0 shrink-0 flex-col justify-center @4xl:flex",
+                        ruled && "border-l border-border px-2 py-1",
+                        c.align === "right" ? "text-right" : "text-left",
+                      )}
+                      style={c.width ? { width: c.width } : undefined}
+                    >
+                      {c.cell(row, i)}
+                    </div>
+                  ))}
                 </div>
 
                 {/* INSIDE THE ROW — see the header. Indented past the S No track
