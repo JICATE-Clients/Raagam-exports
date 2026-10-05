@@ -65,9 +65,20 @@ export type AssortQuantity = {
         combo: string | null;
         no_of_cartons: number | null;
         inners_per_carton?: number | null;
+        /**
+         * THE LINE WHOSE CELLS ARE BOXES (0473). On a pack-type destination
+         * the operator types box counts on this one line and the colourway
+         * lines beneath it are the exploded PIECES. Optional so a caller whose
+         * select predates it compiles — but such a caller counts the boxes as
+         * garments, which is the bug `assortSizeWeights` now skips.
+         */
+        is_pack_row?: boolean | null;
         sizes?: { size_id: string | null; qty: number | null }[] | null;
       }[]
     | null;
+  /** The pack method this destination was exploded under (0473). Read by the
+   *  budget's box count (`boxesOfStyle`); ignored by the weights. */
+  pack_type?: string | null;
 };
 
 /** One (style, combo, size) and the pieces it is worth. */
@@ -213,6 +224,13 @@ export function assortSizeWeights(
        carton would come to disagree about what a carton is. */
     const scope = ratioScope(q);
     return (q.assort_lines ?? []).flatMap((l) => {
+      /* PIECES ONLY (0473) — the same rule the order screen's `pieceLinesOf`
+         applies. A pack row's cells are BOX counts and its colourway lines
+         beneath are those boxes already exploded into garments, so counting
+         it as well adds the boxes on top of the pieces (2026-10-05: 4,297
+         boxes on a 21,485-piece order, both in the budget's weights and in
+         the Material BOM's size curve). */
+      if (l.is_pack_row) return [];
       // The multiplier is the ONLY thing the mode changes — kept as one
       // expression so the two branches cannot drift into reading the row
       // differently.
@@ -232,7 +250,7 @@ export function assortSizeWeights(
 
 /** The PostgREST fragment a caller must select to be able to answer this. */
 export const ASSORT_WEIGHT_SELECT =
-  "style_ref_no,country_id,assortment_type_id,ratio_for," +
+  "style_ref_no,country_id,assortment_type_id,ratio_for,pack_type," +
   // `ratio_for` IS THE SECOND HALF OF THE ARITHMETIC and was the second
   // column this select forgot, after `assort_lines.style_ref_no`. Without it
   // `ratioScope` reads every destination as `master` and an Inner-ratio pack
@@ -242,5 +260,7 @@ export const ASSORT_WEIGHT_SELECT =
   // `style_ref_no` FIRST on the line, and it is the half that was missing: the
   // column has existed since 0433 and nothing selected it, so the coalesce above
   // had nothing to prefer.
-  "assort_lines:garment_order_amendment_assort_lines(style_ref_no,combo,no_of_cartons,inners_per_carton," +
+  // `is_pack_row` — without it the skip above has nothing to read, and the
+  // boxes are counted as garments while the code reads as correct.
+  "assort_lines:garment_order_amendment_assort_lines(style_ref_no,combo,no_of_cartons,inners_per_carton,is_pack_row," +
   "sizes:garment_order_amendment_assort_line_sizes(size_id,qty))";

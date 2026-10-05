@@ -25,6 +25,8 @@ import {
   ASSORT_WEIGHT_SELECT,
   type AssortQuantity,
 } from "../lib/orders/assort-weights.ts";
+import { boxesOfStyle, packGroupOf } from "../lib/orders/amendments/pack-type-explosion.ts";
+import { orderValue } from "../lib/orders/amendments/order-value.ts";
 
 let failed = 0;
 
@@ -349,6 +351,52 @@ check(
   ASSORT_WEIGHT_SELECT.includes("ratio_for"),
   true,
 );
+
+console.log("\n§  PACK TYPE (0473) — the boxes row is not pieces (2026-10-05, GOA-0047)");
+
+/* The live shape: one pack row of BOX counts, and the colourway lines beneath
+   it already exploded to pieces. Counting both added the boxes on top. */
+const packDest: AssortQuantity = {
+  style_ref_no: "H85596",
+  assortment_type: SOLID,
+  pack_type: "5PCS PACK",
+  assort_lines: [
+    { ...line("", 0, 1, [10, 20]), combo: null, is_pack_row: true },
+    { ...line("AQUA", 0, 1, [10, 20]), is_pack_row: false },
+    { ...line("EGRET", 0, 1, [10, 20]), is_pack_row: false },
+  ],
+};
+check("only the colourway lines are weighed", total([packDest]), 60);
+refute("the boxes are not added on top", total([packDest]), 90);
+check(
+  "ASSORT_WEIGHT_SELECT asks for is_pack_row",
+  ASSORT_WEIGHT_SELECT.includes("is_pack_row"),
+  true,
+);
+
+/* THE BUDGET'S BOX COUNT — the twin of the screen's `boxesForStyle`. */
+const packLines = [
+  { pack_type: "5PCS PACK", style_ref_no: "H85596", combo: "AQUA", qty: 1 },
+  { pack_type: "5PCS PACK", style_ref_no: "H85596", combo: "EGRET", qty: 1 },
+];
+check("boxes are the pack row's cells", boxesOfStyle([packDest], packLines, "H85596", true), 30);
+check("no boxes when the order is not packed", boxesOfStyle([packDest], packLines, "H85596", false), 0);
+check("no boxes for a style the method does not pack", boxesOfStyle([packDest], packLines, "OTHER", true), 0);
+check("the pack group is the one method packing the style", packGroupOf(["5pcs pack"], packLines, "H85596"), "5PCS PACK");
+
+/* END TO END: the budget's call, Pack-wise at 7.25 a box. This is what read
+   "no single price for H85596" before the box count was passed. */
+const val = orderValue(
+  [{
+    style_ref_no: "H85596",
+    po_qty: 60,
+    packs_ordered: boxesOfStyle([packDest], packLines, "H85596", true),
+    pack_group: packGroupOf(["5PCS PACK"], packLines, "H85596") || null,
+  }],
+  [{ style_ref_no: "H85596", price_type: "Pack-wise", price: 7.25 }],
+  assortSizeWeights([packDest]),
+);
+check("a Pack-wise order values at boxes x rate", [val.grossValue, val.unresolved], [217.5, []]);
 
 console.log(
   failed === 0
