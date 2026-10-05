@@ -340,3 +340,68 @@ export function totalPiecesFromPacks(
   if (!cells.length) return null;
   return cells.reduce((a, c) => a + c.qty, 0);
 }
+
+/**
+ * One destination as the SERVER reads it back — enough to count its boxes.
+ * `pack_type` is the method the screen stored when it exploded the row.
+ */
+export type PackedDestinationLike = {
+  pack_type?: string | null;
+  assort_lines?:
+    | {
+        is_pack_row?: boolean | null;
+        sizes?: { qty: number | string | null }[] | null;
+      }[]
+    | null;
+};
+
+/**
+ * HOW MANY BOXES THE ORDER SHIPS OF THIS STYLE — the server's twin of the
+ * order screen's `boxesForStyle`, and the multiplicand `orderValue` needs on a
+ * Pack-wise price (2026-10-05).
+ *
+ * The screen falls back to the assortment's boxes when `packs_ordered` is
+ * blank; the budget called `orderValue` without that fallback, so every
+ * Pack-wise order was valued on screen and REFUSED in the budget ("no single
+ * price for …") — one function, two inputs, two answers. This puts the same
+ * input on the server.
+ *
+ * THE STORED METHOD, NOT THE SCREEN'S LIVE RESOLVER. The screen resolves the
+ * method from candidates as the operator types; what Save stores in
+ * `quantities.pack_type` is the method it actually exploded under, which is
+ * the right question for a document read back. `packed` is the header's
+ * `pack` flag — the screen's `packModeOf` requires it too.
+ */
+export function boxesOfStyle(
+  quantities: readonly PackedDestinationLike[] | null | undefined,
+  lines: readonly PackTypeLineLike[],
+  styleRef: string | null | undefined,
+  packed: boolean,
+): number {
+  if (!packed) return 0;
+  let total = 0;
+  for (const q of quantities ?? []) {
+    if (!key(q.pack_type) || !packsStyle(lines, q.pack_type, styleRef)) continue;
+    for (const l of q.assort_lines ?? []) {
+      if (!l.is_pack_row) continue;
+      total += (l.sizes ?? []).reduce((a, z) => a + n(z.qty), 0);
+    }
+  }
+  return total;
+}
+
+/**
+ * WHICH BOX THIS STYLE RIDES IN — the server's twin of the screen's
+ * `packGroupFor`, for `ValuedStyle.pack_group`. Blank when no method or more
+ * than one packs the style: a box is never guessed at.
+ */
+export function packGroupOf(
+  packTypes: readonly (string | null | undefined)[],
+  lines: readonly PackTypeLineLike[],
+  styleRef: string | null | undefined,
+): string {
+  const methods = Array.from(new Set(packTypes.map(key).filter(Boolean))).filter((m) =>
+    packsStyle(lines, m, styleRef),
+  );
+  return methods.length === 1 ? methods[0] : "";
+}

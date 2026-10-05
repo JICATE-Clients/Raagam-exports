@@ -4480,6 +4480,14 @@ export function GarmentOrderScreen({
       priceDetails: r.price_details,
       approvalQtys: r.approval_qtys,
       packTypes: r.pack_types,
+      /* WHAT EACH PACK TYPE PACKS (0472) — was MISSING here (client
+         2026-10-05: "the packtype data is gone after the order entry saved").
+         `toRows` reads `src.packTypeLines ?? []`, so leaving it out compiled
+         and opened every saved order with its pack composition EMPTY; the next
+         Save then wrote that empty grid back over the stored lines, and the
+         Prices tab's Pack-wise value and the budget lost their box. The rows
+         were in the database the whole time. */
+      packTypeLines: r.pack_type_lines,
       quantities: r.quantities,
       /* THE SAVED T&A LADDER (0481), through the SAME mapping as its nine
          neighbours — see `toRows`. What comes back matters more here than
