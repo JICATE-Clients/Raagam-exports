@@ -2334,6 +2334,24 @@ html[data-type-scale="compact"] .ty-badge-icon {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A GROUP BAND'S TONE — `data-band` on a header cell (client 2026-10-05,
+   design D of the Edit Material sheet). Each block of the record has its own
+   tint so the eye finds IDENTITY, CLASSIFICATION, COMPOSITION and UNITS OF
+   MEASURE without reading the words. The band keeps the tracked capitals the
+   design drew; the column headers under it stay sentence case (above). Light
+   values are the design's own; dark ones are the same hues at low lightness,
+   so the text keeps its contrast in both themes. */
+[data-grid-style="sheet"] thead th[data-band] {
+  letter-spacing: 0.06em;
+}
+[data-grid-style="sheet"] thead th[data-band="identity"] { background: #eef3f0; color: #3f5f4a; }
+[data-grid-style="sheet"] thead th[data-band="classification"] { background: #eef1f5; color: #44536a; }
+[data-grid-style="sheet"] thead th[data-band="composition"] { background: #f5f1ea; color: #6a5636; }
+[data-grid-style="sheet"] thead th[data-band="uom"] { background: #f1eef5; color: #56446a; }
+.dark [data-grid-style="sheet"] thead th[data-band="identity"] { background: #1c2a22; color: #a9cdb6; }
+.dark [data-grid-style="sheet"] thead th[data-band="classification"] { background: #1d2430; color: #aebcd2; }
+.dark [data-grid-style="sheet"] thead th[data-band="composition"] { background: #2b2519; color: #d6c3a0; }
+.dark [data-grid-style="sheet"] thead th[data-band="uom"] { background: #251f2e; color: #c4b4d8; }
 [data-grid-style="sheet"] tbody td {
   padding: 0;
   vertical-align: middle;
@@ -2531,6 +2549,16 @@ html[data-type-scale="compact"] .ty-badge-icon {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* SENTENCE CASE ON THE CELL, NOT ONLY THE ROW (client 2026-10-05: Fabric
+     BOM ▸ Manual's headings should read like Fabric Allocation's). The row
+     rule above already says `text-transform: none`, but a heading CELL that
+     carries `GRID_HEADER_TEXT` (uppercase, 0.06em tracking) sets its own
+     case and beats an inherited one — so Manual read "FABRIC · DIA" while
+     Allocation's `<th>` (which the `sheet` block resets directly) read
+     "Fabric · Dia". Same size, same bold; only the case and tracking
+     differed, and this is where they are reset. */
+  text-transform: none;
+  letter-spacing: normal;
 }
 /* A CELL'S WIDTH NEVER DEPENDS ON WHAT IT HOLDS (screenshot 123349, "correct
    aa align aagala"). This first cut zeroed a field cell's padding, so a cell
