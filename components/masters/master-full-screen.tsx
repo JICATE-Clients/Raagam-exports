@@ -880,15 +880,20 @@ export function MasterFullScreen({
   useUnsavedGuard(mount === "page" && (dirty || !!footer.isPending));
 
   /**
-   * Stand the app sidebar down while a page-mounted editor is open, so the
-   * record gets the full width (client 2026-08-10).
+   * Stand the app sidebar down while an editor is open, so the record gets
+   * the full width (client 2026-08-10).
    *
-   * PAGE MOUNT ONLY. An overlay is drawn ON TOP of the shell, so the sidebar
-   * behind it is already covered — hiding it there would only make the scrim
-   * jump as it opens. `useEditorPresence` releases on unmount, so the sidebar
-   * cannot get stuck hidden.
+   * OVERLAYS TOO, SINCE 2026-10-05 (client, screenshot 3272: "why the sidebar
+   * is not closing while inside of the entry"). This was page-mount only, on
+   * the grounds that an overlay — `fixed inset-0` — is drawn over the whole
+   * shell and so already covers the sidebar. It stopped being true with the
+   * floating work panel (2026-10-01): the panel is now the overlay's
+   * containing block, so the overlay covers the panel and the sidebar stays up
+   * beside it, taking ~300px from every Budget / BOM editor.
+   * `useEditorPresence` releases on unmount, so the sidebar cannot get stuck
+   * hidden.
    */
-  useEditorPresence(mount === "page" && open);
+  useEditorPresence(open);
 
   // Re-open always lands on the initial section.
   useEffect(() => {
