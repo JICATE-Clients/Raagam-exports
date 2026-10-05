@@ -4200,13 +4200,26 @@ export function BudgetScreen({
   /* NOT SENT WHILE THE BUDGET TRAILS ITS BOMs (0591) — a pending refresh or a
      line the BOM no longer has. `submitBudget` refuses it anyway; the button
      just does not offer what the server will refuse. */
-  const canSubmit =
-    editable &&
-    canTransition(status, "submitted") &&
-    validity.canSave &&
-    enteredCosts.length > 0 &&
-    bomDrift == null &&
-    staleKeys.size === 0;
+  /* SHOWN WHENEVER IT COULD EVER APPLY, GREYED WITH ITS REASON UNTIL IT DOES
+     (client 2026-10-05: "I couldn't find the send for approval in budget").
+     It used to be HIDDEN by every one of these, so a budget with one unrated
+     line or a BOM drift had no Send at all and nothing saying why — the
+     operator went looking for a button that did not exist. Same rule as the
+     row actions' greyed pencil: hiding is for permission only. The FIRST
+     blocker is the one named, in the order the operator has to clear them. */
+  const showSubmit = editable && canTransition(status, "submitted");
+  const submitBlocker: string | null = !showSubmit
+    ? null
+    : enteredCosts.length === 0
+      ? "Add the budget's cost lines first"
+      : bomDrift != null
+        ? `The BOMs changed since this budget was filled (${bomDrift} ${bomDrift === 1 ? "line" : "lines"}) — press Refresh from BOMs, then Save`
+        : staleKeys.size > 0
+          ? `Remove the ${staleKeys.size} ${staleKeys.size === 1 ? "line" : "lines"} marked "No longer on the BOM" first`
+          : !validity.canSave
+            ? (validity.first?.message ?? "Fill in every rate before sending")
+            : null;
+  const canSubmit = showSubmit && submitBlocker == null;
 
   return (
     <>
@@ -4330,11 +4343,22 @@ export function BudgetScreen({
                 <Copy className="h-4 w-4" aria-hidden />
                 Copy From
               </Button>
-              {canSubmit && (
-                <Button type="button" variant="outline" size="sm" onClick={saveAndSubmit} disabled={isPending}>
-                  <Send className="h-4 w-4" aria-hidden />
-                  Save &amp; send for approval
-                </Button>
+              {showSubmit && (
+                /* The reason sits on a WRAPPER: a disabled <button> receives no
+                   mouse events in Chrome, so its own `title` never shows. */
+                <span title={submitBlocker ?? undefined} className="inline-flex">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={saveAndSubmit}
+                    disabled={!canSubmit || isPending}
+                    aria-description={submitBlocker ?? undefined}
+                  >
+                    <Send className="h-4 w-4" aria-hidden />
+                    Save &amp; send for approval
+                  </Button>
+                </span>
               )}
             </span>
           ) : canReopen(status) && perms.canApprove && editId ? (
