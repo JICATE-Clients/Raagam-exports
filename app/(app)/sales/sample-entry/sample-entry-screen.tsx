@@ -63,6 +63,7 @@ import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
+import { FileAttachments } from "@/components/ui/file-attachments";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -84,15 +85,13 @@ import { orderUnitLabel } from "@/lib/orders/amendments/types";
 import { UNIT_KIND_OPTIONS, coordinatesFull, isUnitKind, pieceCoordinateId } from "@/lib/orders/styles/rules";
 import {
   DELIVERY_MODES,
-  DELIVERY_TO,
   ENQUIRY_ACTIONS,
   ENQUIRY_AGAINST,
   RECEIPT_MODES,
-  SEASONS,
+  SAMPLE_FILE_KINDS,
   SHIP_MODES,
   TECH_PACK,
   comboOrderQty,
-  comboTotalQty,
   effectiveValue,
   isBlankCombo,
   isBlankQuantity,
@@ -102,6 +101,7 @@ import {
   labelOf,
   sampleAssortMode,
   sampleEntryProblems,
+  sampleLocalValue,
   toSampleEntryPayload,
   type ComboDraft,
   type CoordinateDraft,
@@ -132,8 +132,10 @@ type MasterPerms = { canCreate: boolean; canEdit: boolean };
  *   Enquiry No code 144 + Date code 144 + Against term 176 + Action party 200
  *   + Customer name 288                                            = 952
  *   + 4 × 12 gap                                                   = 1000 → 63rem (1008)
- * so Country / Season / Year / Cust Ref / Agent fold onto line 2 and the three
- * receipt-and-dispatch dropdowns onto line 3, at every pane width from 1366 up.
+ * so Country / Season / Year / Agent fold onto line 2 and Received Mode ·
+ * Receipt Dt · Delivery Mode onto line 3, at every pane width from 1366 up.
+ * (Cust Ref and Delivery To came off on 2026-10-06, client; Receipt Dt moved
+ * here from Product Info the same day.)
  */
 const HEADER_W = "max-w-[63rem]";
 
@@ -165,11 +167,12 @@ const blankHeader = (): SampleHeaderDraft => ({
   enquiry_action: "",
   customer_id: null,
   country_id: null,
-  season: "",
+  season_id: null,
   season_year: String(new Date().getFullYear()),
   customer_reference: "",
   agent_id: null,
   receipt_mode: "",
+  receipt_date: "",
   delivery_to: "",
   delivery_mode: "",
   multi_order: false,
@@ -288,6 +291,9 @@ export function SampleEntryScreen({
   };
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
+  /** Where a NEW entry's attachments upload before it has an id — one folder
+   *  per editor session; a saved entry uploads under its own id. */
+  const [uploadFolder] = useState(() => `new-${crypto.randomUUID()}`);
   const keySeq = useRef(0);
   const newKey = () => `n${keySeq.current++}`;
 
@@ -312,7 +318,9 @@ export function SampleEntryScreen({
 
   // ---- option lists (derived; cheap passes over props) --------------------
   const lookupsOf = (kind: string) => data.lookups.filter((l) => l.kind === kind);
-  const agentLookups = lookupsOf("agent");
+  /** Agent = a qualifying vendor (Buying / Service Agent, 0686) — plus the one
+   *  this field already holds, so a re-classified vendor still shows. */
+  const agentItemsFor = (held: string | null) => data.agents.filter((a) => a.qualifies || a.id === held);
   const shipTypeLookups = lookupsOf("ship_type");
   const assortTypeLookups = lookupsOf("assortment_type");
   const colourOptions = lookupsOf("fabric_color")
@@ -350,7 +358,7 @@ export function SampleEntryScreen({
 
   // ---- factories (every key the factory stamps is blank — AGENTS.md
   // "THE SEEDED ROW IS SAVED UNLESS THE SAVE SIDE DROPS IT") ----------------
-  const blankCombo = (): ComboDraft => ({ key: newKey(), combo: "", extra_qty: "", sizes: {} });
+  const blankCombo = (): ComboDraft => ({ key: newKey(), combo: "", sizes: {} });
   /** Order Entry's `blankQuantity`: the dates start from the line's Delivery Dt
    *  (OE: the header's), Earlier Shipment a week before it. */
   const blankQuantity = (st?: StyleDraft | null): QuantityDraft => ({
@@ -403,6 +411,8 @@ export function SampleEntryScreen({
     ship_mode: "",
     currency_code: null,
     price: "",
+    exchange_rate: "",
+    files: [],
     coordinates: [],
     sizes: [],
     combos: [blankCombo()],
@@ -584,7 +594,7 @@ export function SampleEntryScreen({
     {
       header: "Season",
       cell: (r) => (
-        <span className="text-xs">{[labelOf(SEASONS, r.season), r.season_year].filter(Boolean).join(" ") || "—"}</span>
+        <span className="text-xs">{[r.season, r.season_year].filter(Boolean).join(" ") || "—"}</span>
       ),
     },
     {
@@ -903,17 +913,16 @@ export function SampleEntryScreen({
     const sizeSum = (z: string) => s.combos.reduce((t, c) => t + (Number(c.sizes[z]) || 0), 0);
     const digits = (z: string) =>
       Math.max(2, String(sizeSum(z)).length, ...s.combos.map((c) => (c.sizes[z] ?? "").trim().length));
+    /* NO EXTRA QTY, AND SO NO SEPARATE ORDER QTY (client 2026-10-06): the
+       pieces wanted are typed straight into the sizes, so Order Qty and Total
+       would be one number printed twice. Total is the one kept. */
     const track = [
       `${COMBO_ID_W}px`,
       ...sizes.map((z) => `${sizeColPx(z, digits(z))}px`),
-      "5.5rem",
-      "4.5rem",
       "minmax(12px,1fr)",
       `${MATRIX_QTY_W}px`,
     ].join(" ");
     const orderSum = s.combos.reduce((t, c) => t + comboOrderQty(c, sizes), 0);
-    const extraSum = s.combos.reduce((t, c) => t + (Number(c.extra_qty) || 0), 0);
-    const totalSum = s.combos.reduce((t, c) => t + comboTotalQty(c, sizes), 0);
     const want = Number(s.sample_qty) || 0;
 
     return (
@@ -926,8 +935,6 @@ export function SampleEntryScreen({
                 <span className={MATRIX_SIZE_TOKEN}>{z}</span>
               </div>
             ))}
-            <div className={MATRIX_HEAD}>Order Qty</div>
-            <div className={MATRIX_HEAD}>Extra</div>
             <div className={MATRIX_HEAD} />
             <div className={`${MATRIX_HEAD} sticky right-0 z-30 justify-end pr-3`}>Total</div>
 
@@ -973,25 +980,9 @@ export function SampleEntryScreen({
                     />
                   </div>
                 ))}
-                <div className={CELL}>
-                  <span className="block w-full pr-2 text-right text-sm tabular-nums text-muted-foreground">
-                    {fmtNumber(comboOrderQty(c, sizes))}
-                  </span>
-                </div>
-                <div className={CELL}>
-                  <Input
-                    type="number"
-                    min={0}
-                    inputMode="decimal"
-                    aria-label="Extra Qty"
-                    className="h-8 px-1.5 text-right font-mono text-[13px] tabular-nums"
-                    value={c.extra_qty}
-                    onChange={(e) => patchCombo(s, c.key, { extra_qty: e.target.value })}
-                  />
-                </div>
                 <div className={CELL} />
                 <div className={`${CELL} sticky right-0 z-10 justify-end border-l bg-surface pr-3 text-sm font-semibold tabular-nums`}>
-                  {fmtNumber(comboTotalQty(c, sizes))}
+                  {fmtNumber(comboOrderQty(c, sizes))}
                 </div>
               </div>
             ))}
@@ -1004,10 +995,8 @@ export function SampleEntryScreen({
                 {fmtNumber(sizeSum(z))}
               </div>
             ))}
-            <div className={MATRIX_FOOT}>{fmtNumber(orderSum)}</div>
-            <div className={MATRIX_FOOT}>{fmtNumber(extraSum)}</div>
             <div className={MATRIX_FOOT} />
-            <div className={`${MATRIX_FOOT} sticky right-0 z-30 justify-end pr-3`}>{fmtNumber(totalSum)}</div>
+            <div className={`${MATRIX_FOOT} sticky right-0 z-30 justify-end pr-3`}>{fmtNumber(orderSum)}</div>
           </div>
         </div>
         {/* ADVISORY, NOT A HOLD — a sample may carry spares beyond the combos.
@@ -1305,11 +1294,13 @@ export function SampleEntryScreen({
    * style's Price (Product Info — a sample has no Prices tab). One currency for
    * the entry, as an order has one; styles priced in DIFFERENT currencies cannot
    * be added up, so the figures stay blank rather than sum a mix. INR Value is
-   * the gross when the currency IS INR — a sample carries no Ex-Rate.
+   * Σ PO Qty × Price × that style's Exchange Rate (0686) — blank until every
+   * billable style has a rate, never a partial sum that reads as the whole.
    */
   const qtyValue = (() => {
     const priced = billableStyles.map((st) => ({
       price: Number(st.price) || 0,
+      rate: Number(st.exchange_rate) || 0,
       qty: st.quantities.reduce((t, q) => t + (Number(q.po_qty) || 0), 0),
       currency: st.currency_code ?? "",
     }));
@@ -1319,7 +1310,14 @@ export function SampleEntryScreen({
     const gross = priced.reduce((t, x) => t + x.price * x.qty, 0);
     const currency = [...currencies][0];
     return qty > 0
-      ? { avgRate: Math.round((gross / qty) * 1e6) / 1e6, gross, currency, inr: currency === "INR" ? gross : null }
+      ? {
+          avgRate: Math.round((gross / qty) * 1e6) / 1e6,
+          gross,
+          currency,
+          inr: priced.every((x) => x.rate > 0)
+            ? Math.round(priced.reduce((t, x) => t + x.price * x.qty * x.rate, 0) * 100) / 100
+            : null,
+        }
       : null;
   })();
 
@@ -1357,7 +1355,9 @@ export function SampleEntryScreen({
   const customerName = customerOf(header.customer_id)?.name ?? "";
   /** The billing fields' look while the active line is not billable. */
   const billOff = active?.billable ? undefined : "opacity-50";
-  const seasonText = [labelOf(SEASONS, header.season), header.season_year].filter(Boolean).join(" ");
+  const seasonText = [data.seasons.find((x) => x.id === header.season_id)?.name ?? "", header.season_year]
+    .filter(Boolean)
+    .join(" ");
 
   // ---- sections -------------------------------------------------------------------
   const sections: FullScreenSection[] = [
@@ -1425,9 +1425,6 @@ export function SampleEntryScreen({
                       customer_id: id,
                       // Country is the customer master's (spec §3.1 "Text (Auto)").
                       country_id: c?.country_id ?? null,
-                      // A customer with exactly one agent on its master fills a
-                      // blank Agent; it never overwrites one already chosen.
-                      ...(c && !header.agent_id && c.agent_ids.length === 1 ? { agent_id: c.agent_ids[0] } : {}),
                     });
                   }}
                 />
@@ -1437,15 +1434,17 @@ export function SampleEntryScreen({
               <Field label="Country" w="term" htmlFor="se-country">
                 <Input id="se-country" readOnly value={countryName(header.country_id)} />
               </Field>
-              <Field label="Season" w="range" htmlFor="se-season">
-                <Select id="se-season" value={header.season} onChange={(e) => setH({ season: e.target.value })}>
-                  <option value=""></option>
-                  {SEASONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
+              {/* THE SEASON MASTER (client 2026-10-06) — Q1–Q4 buying cycles,
+                  maintained under Master Data ▸ System ▸ Season. */}
+              <Field label="Season" w="range">
+                <RecordPicker
+                  id="se-season"
+                  label="Season"
+                  compact
+                  items={data.seasons}
+                  value={header.season_id}
+                  onChange={(id) => setH({ season_id: id })}
+                />
               </Field>
               <Field label="Year" w="hug" htmlFor="se-year">
                 <Select id="se-year" value={header.season_year} onChange={(e) => setH({ season_year: e.target.value })}>
@@ -1457,24 +1456,17 @@ export function SampleEntryScreen({
                   ))}
                 </Select>
               </Field>
-              <Field label="Cust Ref" w="party" htmlFor="se-custref">
-                <Input
-                  id="se-custref"
-                  maxLength={60}
-                  value={header.customer_reference}
-                  onChange={(e) => setH({ customer_reference: e.target.value })}
-                />
-              </Field>
+              {/* A VENDOR (client 2026-10-06): Vendor master ▸ Service Provider ▸
+                  Buying Agent / Service Agent — `getAgents` in the service. */}
               <Field label="Agent" w="party">
-                <LookupDialogPicker
-                  kind="agent"
+                <RecordPicker
+                  id="se-agent"
                   label="Agent"
                   compact
-                  options={agentLookups}
+                  items={agentItemsFor(header.agent_id)}
+                  emptyHint="No vendor is classified Buying Agent or Service Agent yet — set it on the Vendor master's Service grid."
                   value={header.agent_id}
                   onChange={(id) => setH({ agent_id: id })}
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
                 />
               </Field>
             </FieldRow>
@@ -1489,15 +1481,15 @@ export function SampleEntryScreen({
                   ))}
                 </Select>
               </Field>
-              <Field label="Delivery To" w="term" htmlFor="se-dto">
-                <Select id="se-dto" value={header.delivery_to} onChange={(e) => setH({ delivery_to: e.target.value })}>
-                  <option value=""></option>
-                  {DELIVERY_TO.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
+              {/* Receipt Dt sits beside the mode it dates (client 2026-10-06,
+                  moved here from Product Info). */}
+              <Field label="Receipt Dt" w="code" htmlFor="se-rdate">
+                <Input
+                  id="se-rdate"
+                  type="date"
+                  value={header.receipt_date}
+                  onChange={(e) => setH({ receipt_date: e.target.value })}
+                />
               </Field>
               <Field label="Delivery Mode" w="term" htmlFor="se-dmode">
                 <Select id="se-dmode" value={header.delivery_mode} onChange={(e) => setH({ delivery_mode: e.target.value })}>
@@ -1674,8 +1666,12 @@ export function SampleEntryScreen({
                 </Field>
               </FieldRow>
 
-              {/* RECEIPT & DELIVERY — each starts as Sample Info's value and may
-                  be overridden for this line (spec §2.3, §4.2). */}
+              {/* ORDER DATE · AGENT · DELIVERY MODE. Agent and Delivery Mode start
+                  as Sample Info's value and may be overridden for this line
+                  (spec §2.3). Customer Reference, Received Mode, Receipt Date,
+                  Delivery To and Delivery Through came off on 2026-10-06
+                  (client) — the receipt facts are the header's now, and the
+                  lines inherit them without a field to override. */}
               <FieldRow>
                 <Field label="Order Dt" w="code" htmlFor="se-pi-odt">
                   <Input
@@ -1685,62 +1681,14 @@ export function SampleEntryScreen({
                     onChange={(e) => patchStyle(active.key, { order_date: e.target.value })}
                   />
                 </Field>
-                <Field label="Customer Reference" w="party" htmlFor="se-pi-cref">
-                  <Input
-                    id="se-pi-cref"
-                    maxLength={60}
-                    value={inherited(active, "customer_reference")}
-                    onChange={(e) => setInherited(active, "customer_reference", e.target.value)}
-                  />
-                </Field>
-                <Field label="Receipt Mode" w="term" htmlFor="se-pi-rmode">
-                  <Select
-                    id="se-pi-rmode"
-                    value={inherited(active, "receipt_mode")}
-                    onChange={(e) => setInherited(active, "receipt_mode", e.target.value)}
-                  >
-                    <option value=""></option>
-                    {RECEIPT_MODES.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Receipt Date" w="code" htmlFor="se-pi-rdate">
-                  <Input
-                    id="se-pi-rdate"
-                    type="date"
-                    value={inherited(active, "receipt_date")}
-                    onChange={(e) => setInherited(active, "receipt_date", e.target.value)}
-                  />
-                </Field>
-                <Field label="Delivery To" w="term" htmlFor="se-pi-dto">
-                  <Select
-                    id="se-pi-dto"
-                    value={inherited(active, "delivery_to")}
-                    onChange={(e) => setInherited(active, "delivery_to", e.target.value)}
-                  >
-                    <option value=""></option>
-                    {DELIVERY_TO.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </FieldRow>
-              <FieldRow>
                 <Field label="Agent" w="party">
-                  <LookupDialogPicker
-                    kind="agent"
+                  <RecordPicker
+                    id="se-pi-agent"
                     label="Agent"
                     compact
-                    options={agentLookups}
+                    items={agentItemsFor(inherited(active, "agent_id") || null)}
                     value={inherited(active, "agent_id") || null}
                     onChange={(id) => setInherited(active, "agent_id", id)}
-                    canCreate={masterPerms.canCreate}
-                    canEdit={masterPerms.canEdit}
                   />
                 </Field>
                 <Field label="Delivery Mode" w="term" htmlFor="se-pi-dmode">
@@ -1756,14 +1704,6 @@ export function SampleEntryScreen({
                       </option>
                     ))}
                   </Select>
-                </Field>
-                <Field label="Delivery Through" w="party" htmlFor="se-pi-dthru">
-                  <Input
-                    id="se-pi-dthru"
-                    maxLength={80}
-                    value={active.delivery_through}
-                    onChange={(e) => patchStyle(active.key, { delivery_through: e.target.value })}
-                  />
                 </Field>
               </FieldRow>
 
@@ -1828,7 +1768,13 @@ export function SampleEntryScreen({
                         compact
                         currencies={data.currencies}
                         value={active.currency_code}
-                        onChange={(code) => patchStyle(active.key, { currency_code: code })}
+                        onChange={(code) =>
+                          patchStyle(active.key, {
+                            currency_code: code,
+                            // Order Entry's rule: picking INR fills a BLANK rate with 1.
+                            ...(code === "INR" && !active.exchange_rate.trim() ? { exchange_rate: "1" } : {}),
+                          })
+                        }
                         canCreate={masterPerms.canCreate}
                         canEdit={masterPerms.canEdit}
                       />
@@ -1845,8 +1791,51 @@ export function SampleEntryScreen({
                         onChange={(e) => patchStyle(active.key, { price: e.target.value })}
                       />
                     </Field>
+                    {/* EXCHANGE RATE + LOCAL VALUE (client 2026-10-06). Local
+                        Value = Price × Exchange Rate, derived on every render
+                        and never stored (`sampleLocalValue`). */}
+                    <Field label="Exchange Rate" required={active.billable} w="range" className={billOff} htmlFor="se-pi-exrate">
+                      <Input
+                        id="se-pi-exrate"
+                        type="number"
+                        required={active.billable}
+                        min={0}
+                        step="0.0001"
+                        className="text-right"
+                        value={active.exchange_rate}
+                        onChange={(e) => patchStyle(active.key, { exchange_rate: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Local Value" w="range" className={billOff} htmlFor="se-pi-local">
+                      <Input
+                        id="se-pi-local"
+                        readOnly
+                        className="text-right tabular-nums"
+                        value={(() => {
+                          const v = active.billable ? sampleLocalValue(active) : null;
+                          return v == null ? "" : fmtMoney(v, "INR");
+                        })()}
+                      />
+                    </Field>
                 </fieldset>
               </FieldRow>
+
+              {/* IMAGE & TECH PACK (client 2026-10-06) — garment pictures and
+                  the buyer's tech pack, per style line. PRIVATE bucket, signed
+                  reads (0686). After the fields, so the kind <Select> never
+                  becomes the section's Tab edge ahead of them. */}
+              <div className="pt-2">
+                <FileAttachments
+                  label="Image & Tech Pack"
+                  hint="JPG, PNG, WEBP or PDF — the garment pictures and the buyer's tech pack."
+                  rows={active.files}
+                  onChange={(next) => patchStyle(active.key, { files: next })}
+                  bucket="sample-docs"
+                  folder={`sample/${editId ?? uploadFolder}`}
+                  kinds={SAMPLE_FILE_KINDS}
+                  disabled={editId ? !perms.canEdit : !perms.canCreate}
+                />
+              </div>
               </div>
             </div>
           )}
@@ -1898,7 +1887,7 @@ export function SampleEntryScreen({
             <span className="text-xs text-muted-foreground">
               {header.multi_order
                 ? "Each line names the buyer PO it belongs to."
-                : "One PO for the whole entry — the Cust Ref on Sample Info."}
+                : "One PO for the whole entry."}
             </span>
           </div>
           <div data-grid-style="sheet" className="[&_table]:table-fixed">

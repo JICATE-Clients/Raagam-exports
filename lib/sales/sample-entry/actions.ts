@@ -65,7 +65,7 @@ export async function previewSampleNumbers(
   const supabase = await createClient();
   const p_on = on && on.trim() ? on : null;
   const [opp, prd] = await Promise.all([
-    supabase.rpc("peek_sample_number", { p_series: "OPP", p_on }),
+    supabase.rpc("peek_sample_number", { p_series: "SMP", p_on }),
     supabase.rpc("peek_sample_number", { p_series: "PRD", p_on: null }),
   ]);
   const enquiryNo = typeof opp.data === "string" ? opp.data : null;
