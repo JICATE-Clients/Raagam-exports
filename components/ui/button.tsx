@@ -44,13 +44,21 @@ const variants: Record<Variant, string> = {
 // standing 4px proud of the inputs around it.
 //
 // `sm` (h-8) is already compact, which is why ChildGrid's `+ Add` / remove-row
-// buttons never showed the problem. `lg` is a standalone CTA and never shares a
-// row with a field, so it stays.
+// buttons never showed the problem.
+//
+// ONE SHAPE, TWO HEIGHTS (user 2026-10-06, the Pending/Updated/Draft box as the
+// shape for the whole app). Every size takes `rounded-control` (8px, fixed —
+// see app/globals.css) and the only heights are 36px and 32px. `lg` used to be
+// a 44px / 8px CTA beside 36px / 6px everything else; it is now `md` without
+// the editor compaction, so a standalone CTA keeps its 36px target and the 87
+// call sites did not have to change. A height or radius in a call site's
+// `className` is refused by `npm run check:button-shape` — the size is the
+// button's, not the screen's.
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-xs rounded-md gap-1.5",
-  md: "h-9 @2xl/editor:h-8 px-4 text-sm rounded-md gap-2",
-  lg: "h-11 px-6 text-sm rounded-lg gap-2",
-  icon: "h-9 w-9 @2xl/editor:h-8 @2xl/editor:w-8 rounded-md",
+  sm: "h-8 px-3 text-xs rounded-control gap-1.5",
+  md: "h-9 @2xl/editor:h-8 px-4 text-sm rounded-control gap-2",
+  lg: "h-9 px-4 text-sm rounded-control gap-2",
+  icon: "h-9 w-9 @2xl/editor:h-8 @2xl/editor:w-8 rounded-control",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

@@ -118,6 +118,7 @@ function LoginForm() {
               className={`${FIELD} pr-12 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden`}
               required
             />
+            {/* button-shape: exempt -- a single on/off (show password), not a toggle group */}
             <button
               type="button"
               tabIndex={-1}

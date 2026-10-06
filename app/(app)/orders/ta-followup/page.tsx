@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StaticFilterDrawer, StaticFilterSelect, StaticFilterText } from "@/components/ui/filter-drawer-static";
 import { Stat } from "@/components/ui/stat";
 import { StatusDot } from "@/components/ui/status-pill";
+import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -392,7 +393,7 @@ function FilterBar({
  * update, draft button need to implement same order module fully"), as two
  * server `<Link>`s — `StatusSegment` (components/orders/bom-queue.tsx) is
  * client state, and this page is server-only on purpose. Same box, same lit
- * classes (copied: the classes, not the component), driven by the page's own
+ * classes (shared: the classes, not the component), driven by the page's own
  * `status` param, so the box and the drawer's Status select are ONE filter
  * with two controls and cannot disagree.
  *
@@ -409,12 +410,10 @@ function FilterBar({
  * every Rework row (the urgent re-tries) and the Approved follow-up panel
  * from anyone who arrives by the sidebar. Clicking the lit word steps to the
  * other one, the way `StatusSegment` does.
+ *
+ * The words are `<Link>`s, so the box draws from the SEG_* strings rather than
+ * `ToggleGroup` (the one-shape rule, user 2026-10-06).
  */
-const QUICK_BOX =
-  "inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 text-xs font-medium";
-const QUICK_WORD = "inline-flex h-full items-center gap-1.5 rounded-md px-2.5 transition-colors";
-const QUICK_LIT =
-  "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
 const QUICK_WORDS = [
   { status: "pending", text: "Pending", icon: Clock },
   { status: "approved", text: "Updated", icon: Check },
@@ -431,7 +430,7 @@ function QuickStatusLinks({ filters, bucket }: { filters: Filters; bucket: Bucke
   };
   const lit = QUICK_WORDS.find((w) => w.status === filters.status);
   return (
-    <div role="group" aria-label={`Status: ${lit ? lit.text : "all"}`} className={QUICK_BOX}>
+    <div role="group" aria-label={`Status: ${lit ? lit.text : "all"}`} data-segmented="" className={SEG_TRACK}>
       {QUICK_WORDS.map((w, i) => {
         const on = filters.status === w.status;
         const Icon = w.icon;
@@ -441,9 +440,9 @@ function QuickStatusLinks({ filters, bucket }: { filters: Filters; bucket: Bucke
             key={w.status}
             href={href(next)}
             aria-current={on ? "true" : undefined}
-            className={cn(QUICK_WORD, on ? QUICK_LIT : "text-muted-foreground hover:bg-surface-muted")}
+            className={cn(SEG_ITEM, on ? SEG_LIT : SEG_IDLE)}
           >
-            <Icon className="h-3.5 w-3.5" aria-hidden />
+            <Icon aria-hidden />
             {w.text}
           </Link>
         );

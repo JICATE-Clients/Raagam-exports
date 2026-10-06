@@ -131,7 +131,7 @@ export function AdvisedLinesScreen({
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 w-full"
+            className="w-full"
             // ON THE ROW'S KEYBOARD AXIS — the Fabric BOM Components [Click]
             // precedent: a button that opens something the keyboard cannot
             // otherwise reach. A marker, never a handler.

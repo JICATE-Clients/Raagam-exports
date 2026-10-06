@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonClasses } from "@/components/ui/button";
 import { requirePermission, can } from "@/lib/auth/server";
 import { listPurchasePpms } from "@/lib/planning/ppm-service";
 import { fmtDate, fmtMoney } from "@/lib/format";
@@ -99,7 +100,7 @@ export default async function PurchasePpmPage() {
           canCreate ? (
             <Link
               href="/planning/purchase-ppm/new"
-              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
+              className={buttonClasses({ size: "md" })}
             >
               New
             </Link>

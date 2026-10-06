@@ -641,6 +641,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
                 const on = m.href === viewModule.href;
                 const here = m.href === activeModule?.href;
                 return (
+                  // button-shape: exempt -- a 4-column grid of module tiles in the bottom sheet, navigation rather than a word toggle row
                   <button
                     key={m.href}
                     type="button"

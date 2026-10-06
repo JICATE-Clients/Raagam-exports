@@ -104,12 +104,12 @@ export function LifecycleClient({ rows, employees, canCreate, canEdit, canDelete
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "draft" && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => completeLifecycle(r.id), "Completed")}>Complete</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => cancelLifecycle(r.id), "Cancelled")}>Cancel</Button>
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => completeLifecycle(r.id), "Completed")}>Complete</Button>
+              <Button size="sm" variant="outline" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => cancelLifecycle(r.id), "Cancelled")}>Cancel</Button>
             </>
           )}
           {canDelete && (r.status === "draft" || r.status === "cancelled") && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteLifecycle(r.id), "Deleted")}>Del</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteLifecycle(r.id), "Deleted")}>Del</Button>
           )}
         </div>
       ),

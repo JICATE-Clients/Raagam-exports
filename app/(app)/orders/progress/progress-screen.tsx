@@ -3,13 +3,13 @@
 import { useMemo, useState } from "react";
 import { usePref } from "@/lib/ui/use-pref";
 import { BarChart3, List } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { fmtDate, fmtNumber } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
 import type { ProgressRow } from "@/lib/orders/progress/service";
 import { toItem, type Bucket } from "@/lib/orders/progress/view";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { Overview } from "./overview";
 import { OrdersView } from "./orders-view";
 
@@ -103,42 +103,19 @@ export function ProgressScreen({ rows, today, openId }: { rows: ProgressRow[]; t
         back={false}
         description={`Where each order stands, from order entry to shipment — as of ${fmtDate(today)}.`}
         actions={
-          <div role="tablist" aria-label="View" className="inline-flex rounded-lg border border-border bg-surface-muted p-0.5">
-            {(
-              [
-                ["overview", "Overview", BarChart3],
-                ["orders", "Orders", List],
-              ] as const
-            ).map(([v, label, Icon]) => (
-              <button
-                key={v}
-                type="button"
-                role="tab"
-                aria-selected={view === v}
-                onClick={() => {
-                  setArrivedOpen(false);
-                  changeView(v);
-                }}
-                className={cn(
-                  "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors",
-                  view === v ? "bg-surface text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Icon className="size-3.5" />
-                {label}
-                {v === "orders" && (
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 text-[11px] tabular-nums",
-                      view === v ? "bg-primary-soft text-primary" : "bg-surface text-muted-foreground",
-                    )}
-                  >
-                    {fmtNumber(openCount)}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+          <ToggleGroup
+            role="tablist"
+            label="View"
+            value={view}
+            onChange={(v) => {
+              setArrivedOpen(false);
+              changeView(v);
+            }}
+            options={[
+              { value: "overview", label: "Overview", icon: BarChart3 },
+              { value: "orders", label: "Orders", icon: List, count: openCount },
+            ]}
+          />
         }
       />
 
@@ -172,22 +149,15 @@ export function ProgressScreen({ rows, today, openId }: { rows: ProgressRow[]; t
         {view === "overview" && (
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
             Counting
-            <div role="group" aria-label="Count by" className="inline-flex rounded-md border border-border bg-surface-muted p-0.5">
-              {(["orders", "pieces"] as const).map((u) => (
-                <button
-                  key={u}
-                  type="button"
-                  aria-pressed={unit === u}
-                  onClick={() => changeUnit(u)}
-                  className={cn(
-                    "h-7 rounded px-2.5 text-xs font-semibold capitalize",
-                    unit === u ? "bg-surface text-foreground ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {u}
-                </button>
-              ))}
-            </div>
+            <ToggleGroup
+              label="Count by"
+              value={unit}
+              onChange={changeUnit}
+              options={[
+                { value: "orders", label: "Orders" },
+                { value: "pieces", label: "Pieces" },
+              ]}
+            />
           </div>
         )}
       </div>

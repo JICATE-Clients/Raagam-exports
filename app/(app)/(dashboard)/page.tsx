@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import { buttonClasses } from "@/components/ui/button";
 import { CalendarDays, Plus } from "lucide-react";
 import { can, requireUser } from "@/lib/auth/server";
 import { getCaps, getPulse } from "@/lib/dashboard/service";
@@ -89,7 +90,7 @@ export default async function DashboardPage({
                 content, so create it as a separate page") — this is its door. */}
             <Link
               href="/my-calendar"
-              className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-border-strong bg-surface px-4 text-[13px] font-medium text-foreground transition-colors hover:bg-surface-muted"
+              className={buttonClasses({ variant: "outline", size: "md" })}
             >
               <CalendarDays className="h-4 w-4" />
               My calendar
@@ -97,7 +98,7 @@ export default async function DashboardPage({
             {canCreateOrder && (
               <Link
                 href="/orders/order-booking"
-                className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-primary px-4 text-[13px] font-medium text-primary-foreground shadow-elev transition-colors hover:bg-primary-hover"
+                className={buttonClasses({ size: "md" })}
               >
                 <Plus className="h-4 w-4" />
                 New order

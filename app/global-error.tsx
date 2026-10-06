@@ -30,7 +30,7 @@ export default function GlobalError({
   unstable_retry: () => void;
 }) {
   return (
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+    <html lang="en" translate="no" className="h-full antialiased" suppressHydrationWarning>
       <head>
         <title>Something went wrong — Raagam ERP</title>
         {/* Through `InlineScript`, as `app/layout.tsx` does: this boundary
@@ -55,7 +55,7 @@ export default function GlobalError({
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm active:scale-95"
+            className="inline-flex h-9 items-center justify-center rounded-control bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm active:scale-95"
           >
             Reload
           </button>

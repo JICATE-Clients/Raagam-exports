@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { PaginationBar } from "@/components/ui/pagination";
 import { Truncated } from "@/components/ui/truncated";
+import { ToggleGroup } from "@/components/ui/segmented";
 import type { ListFilters, Segment } from "./progress-screen";
 
 /**
@@ -146,23 +147,22 @@ export function OrdersView({
 
   return (
     <div className="space-y-3">
-      <div role="group" aria-label="Status" className="flex flex-wrap gap-1.5">
-        {SEGMENTS.map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            aria-pressed={f.segment === s.key}
-            onClick={() => set({ segment: s.key, open: null })}
-            className={cn(
-              "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium",
-              f.segment === s.key ? "border-primary bg-primary-soft text-foreground" : "border-border bg-surface text-muted-foreground hover:border-border-strong",
-            )}
-          >
-            {s.key !== "open" && <i className="size-2 rounded-full" style={{ background: BUCKET_COLOR[s.key as Bucket] }} />}
-            {s.label}
-            <b className="font-semibold tabular-nums text-foreground">{fmtNumber(counts[s.key])}</b>
-          </button>
-        ))}
+      <div className="flex flex-wrap gap-1.5">
+        <ToggleGroup
+          label="Status"
+          value={f.segment}
+          onChange={(segment) => set({ segment, open: null })}
+          options={SEGMENTS.map((s) => ({
+            value: s.key,
+            label: (
+              <>
+                {s.key !== "open" && <i className="size-2 rounded-full" style={{ background: BUCKET_COLOR[s.key as Bucket] }} />}
+                {s.label}
+              </>
+            ),
+            count: counts[s.key],
+          }))}
+        />
         {/* Phone: its own full line, the two selects sharing it (2026-10-03 —
             "Most urgent first" ran off the right edge with Download beyond). */}
         <div className="ml-auto flex items-center gap-2 max-sm:ml-0 max-sm:w-full">

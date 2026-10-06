@@ -435,8 +435,8 @@ export function YarnProcessGrid({
                    same one a blank mandatory field gets. */
                 className={
                   name
-                    ? "h-8 w-full justify-start px-2"
-                    : "h-8 w-full justify-start px-2 !ring-2 ring-inset ring-danger"
+                    ? "w-full justify-start px-2"
+                    : "w-full justify-start px-2 !ring-2 ring-inset ring-danger"
                 }
                 onClick={(e) => setLooseFor({ key: r.key, origin: e.currentTarget.getBoundingClientRect() })}
               >

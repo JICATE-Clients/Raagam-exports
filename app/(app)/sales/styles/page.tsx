@@ -1,26 +1,13 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { listAllStyles, getOpportunities, getUoms } from "@/lib/sales/service";
-import { DefineStylesClient } from "./define-styles-client";
+import { redirect } from "next/navigation";
 
-export default async function SalesStylesPage() {
-  await requirePermission("sales", "view");
-
-  const [styles, opportunities, uoms, canCreate, canEdit, canDelete] =
-    await Promise.all([
-      listAllStyles(),
-      getOpportunities(),
-      getUoms(),
-      can("sales", "create"),
-      can("sales", "edit"),
-      can("sales", "delete"),
-    ]);
-
-  return (
-    <DefineStylesClient
-      styles={styles}
-      opportunities={opportunities}
-      uoms={uoms}
-      perms={{ canCreate, canEdit, canDelete }}
-    />
-  );
+/**
+ * RETIRED INTO SAMPLE ENTRY (user 2026-10-06: "update our new sample entry
+ * child and remove the old one"). This route served Define Styles (By Enquiry No.);
+ * Sample ▸ Sample Entry (`/sales/sample-entry`, 0683) now does that work.
+ *
+ * A REDIRECT, NEVER A DELETION — a bookmark or a link to this route still has
+ * to land somewhere. The target runs the Sales view gate itself.
+ */
+export default function RetiredSalesRoutePage() {
+  redirect("/sales/sample-entry");
 }

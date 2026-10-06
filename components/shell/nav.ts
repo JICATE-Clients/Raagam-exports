@@ -78,11 +78,15 @@ export const NAV: NavItem[] = [
     module: "sales",
     icon: ShoppingBag,
     children: [
+      // SAMPLE ENTRY (user 2026-10-06) — the legacy Create Opportunities +
+      // Define Styles merged into one document (0683). It took the place of the
+      // "Samples & Development" row, whose hub now redirects here; the old
+      // Opportunities / Styles screens redirect here too.
+      { href: "/sales/sample-entry", label: "Sample Entry" },
       { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
       { href: "/sales/sq-details", label: "SQ Details" },
       { href: "/sales/pipeline-orders", label: "Pipeline & Seasonal" },
       { href: "/sales/catalogues", label: "Catalogues & Pricing" },
-      { href: "/sales/samples-development", label: "Samples & Development" },
     ],
   },
   {
@@ -217,9 +221,11 @@ export const NAV: NavItem[] = [
  * Kept as a flat map (not nested in NAV) so it's trivial to extend per section.
  */
 export const SECTION_ACTIONS: Record<string, string[]> = {
-  // The ＋ quick action opens the single quick-add form via `?new=1`. Bulk
-  // "Create Opportunities — By Customer" lives at /sales/create (pipeline button).
-  "/sales": ["New Opportunity"],
+  // The ＋ quick action opens a new Sample Entry via `?new=1` (`useCreateIntent`
+  // in sample-entry-screen.tsx). It replaced "New Opportunity" on 2026-10-06:
+  // the opportunity quick-add and its `/sales` pipeline now redirect here.
+  "/sales": ["New Sample Entry"],
+  "/sales/sample-entry": ["New Sample Entry"],
   "/sales/quotes": ["Prepare Quote"],
 
   // The module ROOT's entry, which `sectionActions` falls back to for every

@@ -1,3 +1,4 @@
+import type { ComponentType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -74,46 +75,18 @@ export function Segmented<T extends string>({
       // already announce as a group through their shared `name`, and adding the
       // role without also managing `aria-checked` and roving focus by hand is
       // how a control ends up describing itself twice.
+      //
+      // THE SAME HEIGHT AS THE FIELD BESIDE IT, IN BOTH DENSITIES (client
+      // 2026-08-19) — `SEG_TRACK` carries `h-9 @2xl/editor:h-8`, the pair every
+      // Input and Select uses.
+      //
+      // THE SAME SHAPE AS `ToggleGroup` (2026-10-06, see SEG_TRACK). This was a
+      // grey track with a white pill — the T&A switcher's shape — and that is
+      // one of the looks the one-shape rule retired: the lit word is now the
+      // solid primary segment the queue box has always had, so a radio group
+      // and a view switch on one screen are one control in two places.
       data-segmented=""
-      className={cn(
-        /**
-         * THE SAME HEIGHT AS THE FIELD BESIDE IT, IN BOTH DENSITIES
-         * (client 2026-08-19: "that ratio button size is a little bit different
-         * from the single/multiple button height — make it even").
-         *
-         * `Input`, `Select` and every other control are `h-9 @2xl/editor:h-8`:
-         * 36px normally, compacting to 32px inside a desktop editor. This
-         * carried the 36px half only, so on any editor surface — which is
-         * exactly where it is used — it stood 4px taller than the `Select` next
-         * to it and the row read as uneven.
-         *
-         * Both halves, or the control is right in one density and wrong in the
-         * other. `min-h-8` still clears its own content: `py-1` + a 20px
-         * text-sm line box + `p-0.5` is 32px on the nose.
-         *
-         * `Toggle` carries the same 36px-only assumption and the same latent
-         * 4px gap; its track is a 20px pill centred in the slot, so it shifts
-         * 2px rather than changing the row's height, and nobody has reported it.
-         */
-        /**
-         * A GREY TRACK WITH A WHITE PILL RIDING IN IT — the shape `taSegNav`
-         * (garment-order-screen.tsx) has always used for Activity/Approval,
-         * and now the one this primitive uses too, so the two segmented
-         * controls that sit inches apart on the T&A tab are one control in two
-         * places rather than two that merely rhyme.
-         *
-         * THIS REVERSES THE 2026-09-11 TINTED PILL, DELIBERATELY. That day's
-         * answer to "make active tab more attractive now look not clean" was a
-         * `bg-primary-soft` pill on a white track — louder, but it read as a
-         * THIRD selected-state treatment beside the Activity/Approval pills
-         * above it. The selected segment is still the loud one; it is simply
-         * lifted out of the track by contrast and a shadow, the way the tabs
-         * beside it are, instead of by a tint of its own.
-         */
-        "inline-flex min-h-9 @2xl/editor:min-h-8 w-fit items-center rounded-md border border-border bg-surface-muted p-0.5",
-        disabled && "opacity-60",
-        className,
-      )}
+      className={cn(SEG_TRACK, "text-sm", disabled && "opacity-60", className)}
     >
       {options.map((o) => {
         const off = disabled || o.disabled;
@@ -121,7 +94,7 @@ export function Segmented<T extends string>({
           <label
             key={o.value}
             className={cn(
-              "relative inline-flex cursor-pointer items-center rounded px-3 py-1 text-sm transition-colors",
+              "relative inline-flex h-full cursor-pointer items-center px-3",
               off && "cursor-not-allowed",
             )}
           >
@@ -134,46 +107,141 @@ export function Segmented<T extends string>({
               disabled={off}
               onChange={() => onChange(o.value)}
             />
-            {/* The pill, and the focus ring, BEFORE the text in DOM order.
+            {/* The lit fill, and the focus ring, BEFORE the text in DOM order.
                 Both are positioned elements with an auto z-index, so paint
                 order is DOM order and the label below lands on top — a `-z-10`
-                here would instead push the pill behind the WRAPPER's own
+                here would instead push the fill behind the WRAPPER's own
                 `bg-surface` and make the selection invisible.
                 The ring lands on this overlay because the input is `sr-only`
-                and has no box of its own to draw one on — `Toggle`'s track
-                plays the same part. `focus-visible`, not `focus`, so a mouse
-                click does not leave a ring behind.
-
-                WHITE ON GREY, AND THE TEXT KEEPS ITS COLOUR (operator,
-                2026-09-12: one segmented style for the main tabs and the PP
-                approval tabs both). `bg-surface` + `shadow-sm` under
-                `text-primary` is exactly what `taSegNav`'s active pill does,
-                so the two controls now differ in nothing but their content.
-                The 2026-09-11 note this replaces asked for a louder selected
-                state and got a tinted pill; the lift is what was wanted, and
-                a white pill on the grey track gives more of it than a tint on
-                a white track did — see the wrapper's own comment. */}
+                and has no box of its own to draw one on. `focus-visible`, not
+                `focus`, so a mouse click does not leave a ring behind.
+                No `data-seg-pill`: that appearance hook paints a white gloss
+                made for a WHITE pill, and on a solid one it bleached the top
+                half (the "half white" bom-queue.tsx records, 2026-10-03). */}
             <span
               aria-hidden
-              data-seg-pill=""
               className={cn(
-                "pointer-events-none absolute inset-0 rounded transition-colors",
-                "peer-checked:bg-surface peer-checked:shadow-sm",
-                "peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40",
+                "pointer-events-none absolute inset-0 rounded-control-inner transition-colors",
+                "peer-checked:bg-(--primary) peer-checked:shadow-sm",
+                "peer-focus-visible:ring-2 peer-focus-visible:ring-ring",
               )}
             />
             <span
               className={cn(
-                "relative rounded text-muted-foreground transition-colors",
-                // The selected segment. `peer-checked` rather than a className
-                // built from `value === o.value` so the whole control is one
-                // static string Tailwind's source scan can see.
-                "peer-checked:font-semibold peer-checked:text-primary",
+                "relative text-muted-foreground transition-colors",
+                // `peer-checked` rather than a className built from
+                // `value === o.value` so the whole control is one static
+                // string Tailwind's source scan can see.
+                "peer-checked:font-semibold peer-checked:text-primary-foreground",
               )}
             >
               {o.label}
             </span>
           </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/*
+ * ONE SHAPE FOR EVERY "PICK ONE OF THESE WORDS" CONTROL (user 2026-10-06:
+ * "this is the button shape i prefer for the whole application" — the
+ * Pending / Updated / Draft box on the BOM and Budget queues). Before this the
+ * app drew the same job seven ways: a 24px track with 4px corners on Profit
+ * Check, a 28px one on Progress, square segments on the Trims board, full
+ * pills on HR ▸ Person and the T&A switcher, a grey track with a white pill on
+ * `Segmented`. They are now `SEG_TRACK` + `SEG_ITEM` and nothing else.
+ *
+ * - The track: 36px (32px inside a dense editor, like every field), a 1px
+ *   border, `rounded-control` — the fixed 8px radius every Button takes too.
+ * - A segment: the track's height less its 2px padding, nested at
+ *   `rounded-control-inner`, icon + word + optional count.
+ * - The lit segment wears the PRIMARY BUTTON'S OWN MARKERS (`ty-btn-solid
+ *   ty-btn-primary`), so it follows every colour preset, gradient or flat,
+ *   exactly as the queue box has since 2026-09-22 — `bg-(--primary)` rather
+ *   than `bg-primary`, because the raagam skin repaints any
+ *   `button[class*="bg-primary"]` a fixed light blue (see bom-queue.tsx).
+ *
+ * `data-segmented` is the appearance hook (lib/appearance.ts STYLES) that gives
+ * the track its recessed look under a surface style.
+ *
+ * Gated by `npm run check:button-shape`: an `aria-pressed` button hand-rolled
+ * outside components/ui is refused, so an eighth shape cannot arrive.
+ */
+export const SEG_TRACK =
+  "inline-flex h-9 @2xl/editor:h-8 w-fit max-w-full shrink-0 items-center gap-0.5 overflow-x-auto scrollbar-none rounded-control border border-border bg-surface p-0.5 text-xs font-medium";
+export const SEG_ITEM =
+  "inline-flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control-inner px-2.5 transition-colors [&_svg]:size-3.5 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
+export const SEG_LIT =
+  "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
+export const SEG_IDLE = "text-muted-foreground hover:bg-surface-muted hover:text-foreground";
+
+export type ToggleOption<T extends string> = {
+  value: T;
+  label: ReactNode;
+  /** A lucide icon, drawn at 14px before the word. */
+  icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  /** Shown after the word as `(n)`. Zero is drawn: zero is information. */
+  count?: number;
+  /** Anything else after the word — a coloured count chip, a dot. */
+  after?: ReactNode;
+  disabled?: boolean;
+  title?: string;
+};
+
+/**
+ * A row of buttons, ONE lit — the shape for a VIEW or FILTER switch on a list,
+ * board or report (Pending / Updated / Draft, Value / % / Per pc, Orders /
+ * Overview). Buttons with `aria-pressed`, not radios: a view switch is not a
+ * field of the record, so it stays off the Tab-lands-on-fields path the same
+ * way the "Filters" button does. Where the choice IS a value being entered on a
+ * form, use `Segmented` above — same look, real radios underneath.
+ *
+ * `onChange` receives the clicked word even when it is already lit; a caller
+ * that cycles (the queue box steps to the next word) or clears decides that.
+ * `value: null` lights nothing.
+ */
+export function ToggleGroup<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+  role = "group",
+  className,
+}: {
+  value: T | null;
+  onChange: (next: T) => void;
+  options: ToggleOption<T>[];
+  /** Read to a screen reader as the group's name ("Status", "View"). */
+  label: string;
+  /** `tablist` when the words switch whole panels, as a tab row would. */
+  role?: "group" | "tablist";
+  className?: string;
+}) {
+  const tabs = role === "tablist";
+  return (
+    <div role={role} aria-label={label} data-segmented="" className={cn(SEG_TRACK, className)}>
+      {options.map((o) => {
+        const lit = value === o.value;
+        const Icon = o.icon;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role={tabs ? "tab" : undefined}
+            aria-selected={tabs ? lit : undefined}
+            aria-pressed={tabs ? undefined : lit}
+            disabled={o.disabled}
+            title={o.title}
+            onClick={() => onChange(o.value)}
+            className={cn(SEG_ITEM, lit ? SEG_LIT : SEG_IDLE)}
+          >
+            {Icon && <Icon aria-hidden />}
+            {o.label}
+            {o.count != null && <span className="tabular-nums opacity-80">({o.count})</span>}
+            {o.after}
+          </button>
         );
       })}
     </div>

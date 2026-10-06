@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { TrimStepSheet } from "@/components/orders/trim-ta/trim-step-sheet";
 import { Truncated } from "@/components/ui/truncated";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -71,14 +72,16 @@ export function TrimsOrderBoard({
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-3 py-1.5 text-[11px] leading-none">
           <InHouse label="Sewing trims in store by" target={order.inHouse.SEWING} />
           <InHouse label="Packing trims in store by" target={order.inHouse.PACKING} />
-          <div className="ml-auto inline-flex rounded border border-border text-[11px]" role="group" aria-label="View">
-            <ViewButton active={view === "class"} onClick={() => setView("class")}>
-              Sewing / Packing
-            </ViewButton>
-            <ViewButton active={view === "item"} onClick={() => setView("item")}>
-              Item wise
-            </ViewButton>
-          </div>
+          <ToggleGroup
+            label="View"
+            className="ml-auto"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "class", label: "Sewing / Packing" },
+              { value: "item", label: "Item wise" },
+            ]}
+          />
         </div>
 
         <div className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
@@ -142,22 +145,6 @@ const MONO = "flex-none whitespace-nowrap font-mono text-xs leading-none tabular
 const CLASS_TITLE: Record<TrimClass, string> = { SEWING: "Sewing trims", PACKING: "Packing trims" };
 /** Which desk a step belongs to — the T&A tab's Department column. */
 const DEPT_OF: Record<TrimStep["doc"], string> = { PO: "Purchase", GRN: "Stores", DC: "Stores" };
-
-function ViewButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "px-2 py-1 font-medium leading-none transition-colors first:rounded-l last:rounded-r",
-        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-muted",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 function InHouse({ label, target }: { label: string; target: InHouseTarget }) {
   return (

@@ -1,14 +1,13 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { getBuyers } from "@/lib/sales/service";
-import { CreateOpportunitiesClient } from "./create-opportunities-client";
+import { redirect } from "next/navigation";
 
-export default async function CreateOpportunitiesPage() {
-  await requirePermission("sales", "view");
-
-  const [buyers, canCreate] = await Promise.all([
-    getBuyers(),
-    can("sales", "create"),
-  ]);
-
-  return <CreateOpportunitiesClient buyers={buyers} canCreate={canCreate} />;
+/**
+ * RETIRED INTO SAMPLE ENTRY (user 2026-10-06: "update our new sample entry
+ * child and remove the old one"). This route served Create Opportunities — By Customer;
+ * Sample ▸ Sample Entry (`/sales/sample-entry`, 0683) now does that work.
+ *
+ * A REDIRECT, NEVER A DELETION — a bookmark or a link to this route still has
+ * to land somewhere. The target runs the Sales view gate itself.
+ */
+export default function RetiredSalesRoutePage() {
+  redirect("/sales/sample-entry");
 }

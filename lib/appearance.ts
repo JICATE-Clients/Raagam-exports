@@ -478,9 +478,9 @@ function pearlCss(sel: string): string {
     `${sel} ${field}{box-shadow:inset 0 1px 2px rgb(15 20 30/.07)}` +
     `${d} ${field}{box-shadow:inset 0 1px 2px rgb(0 0 0/.45)}` +
     `${sel} [data-segmented]{background-image:linear-gradient(180deg,#eceef1,#f3f4f6);box-shadow:inset 0 1px 2px rgb(15 20 30/.07)}` +
-    `${sel} [data-segmented] input:checked+[data-seg-pill],${sel} [data-segmented] button[aria-pressed="true"]:not(.ty-btn-solid){background-image:linear-gradient(180deg,rgb(255 255 255/.95),rgb(255 255 255/.55) 50%,rgb(255 255 255/0) 51%);box-shadow:inset 0 1px 0 #fff,0 1px 2px rgb(15 20 30/.14),0 3px 8px -3px rgb(15 20 30/.22)}` +
+    `${sel} [data-segmented] button[aria-pressed="true"]:not(.ty-btn-solid){background-image:linear-gradient(180deg,rgb(255 255 255/.95),rgb(255 255 255/.55) 50%,rgb(255 255 255/0) 51%);box-shadow:inset 0 1px 0 #fff,0 1px 2px rgb(15 20 30/.14),0 3px 8px -3px rgb(15 20 30/.22)}` +
     `${d} [data-segmented]{background-image:none;box-shadow:inset 0 1px 2px rgb(0 0 0/.5)}` +
-    `${d} [data-segmented] input:checked+[data-seg-pill],${d} [data-segmented] button[aria-pressed="true"]:not(.ty-btn-solid){background-image:linear-gradient(180deg,#262b34,#1e232b);box-shadow:inset 0 1px 0 rgb(255 255 255/.07),0 1px 3px rgb(0 0 0/.5)}` +
+    `${d} [data-segmented] button[aria-pressed="true"]:not(.ty-btn-solid){background-image:linear-gradient(180deg,#262b34,#1e232b);box-shadow:inset 0 1px 0 rgb(255 255 255/.07),0 1px 3px rgb(0 0 0/.5)}` +
     `${sel} .ty-badge{box-shadow:inset 0 1px 0 rgb(255 255 255/.6),0 0 0 1px rgb(15 20 30/.05)}` +
     `${d} .ty-badge{box-shadow:inset 0 1px 0 rgb(255 255 255/.06)}` +
     // ── surfaces

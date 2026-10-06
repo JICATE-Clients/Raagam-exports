@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonClasses } from "@/components/ui/button";
 import { requirePermission, can } from "@/lib/auth/server";
 import { listFabricConsumptions } from "@/lib/planning/material-planning-service";
 import { PageHeader } from "@/components/ui/page-header";
@@ -85,7 +86,7 @@ export default async function FabricConsumptionPage() {
           canCreate ? (
             <Link
               href="/planning/fabric-consumption/new"
-              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
+              className={buttonClasses({ size: "md" })}
             >
               New
             </Link>

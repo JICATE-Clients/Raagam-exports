@@ -17,7 +17,7 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { StatusToggle } from "@/components/ui/status-toggle";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Sheet } from "@/components/ui/sheet";
@@ -636,7 +636,7 @@ export default function UsersClient({
           </p>
           <Link
             href="/hr/staff"
-            className="inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+            className={buttonClasses({ size: "md" })}
           >
             Open Staff master
           </Link>

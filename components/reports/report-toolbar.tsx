@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { FileText, Sheet, Printer, BarChart3, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
 import { usePermission } from "@/lib/auth/permission-context";
 import { exportPdf } from "@/lib/reports/export-pdf";
@@ -16,9 +17,9 @@ export type ReportView = "table" | "chart";
  * and a Table/Chart toggle. Hidden from print output via `print:hidden`.
  *
  * toolbar-size: exempt -- a report has no search Input, so there is nothing here
- * for `md` to line up with. All five buttons are `sm` together and two of them
- * are a segmented Table/Chart toggle, which reads as one control only while they
- * stay tight. LAYOUT.md §10 "The header row".
+ * for `md` to line up with. The three action buttons are `sm` together; the
+ * Table/Chart switch is `ToggleGroup` (the one-shape rule, user 2026-10-06).
+ * LAYOUT.md §10 "The header row".
  */
 export function ReportToolbar<T>({
   config,
@@ -63,24 +64,15 @@ export function ReportToolbar<T>({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
       {hasChart ? (
-        <div className="inline-flex rounded-md border border-border bg-surface p-0.5">
-          <Button
-            variant={view === "table" ? "subtle" : "ghost"}
-            size="sm"
-            onClick={() => onViewChange("table")}
-          >
-            <Table2 className="h-4 w-4" />
-            Table
-          </Button>
-          <Button
-            variant={view === "chart" ? "subtle" : "ghost"}
-            size="sm"
-            onClick={() => onViewChange("chart")}
-          >
-            <BarChart3 className="h-4 w-4" />
-            Chart
-          </Button>
-        </div>
+        <ToggleGroup
+          label="View"
+          value={view}
+          onChange={onViewChange}
+          options={[
+            { value: "table", label: "Table", icon: Table2 },
+            { value: "chart", label: "Chart", icon: BarChart3 },
+          ]}
+        />
       ) : (
         <span />
       )}

@@ -184,19 +184,19 @@ export function LabClient(props: Props) {
       cell: (r) => (
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "draft" && (
-            <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending}
+            <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending}
               onClick={() => run(() => issueLabTest(r.id), "Issued")}>Issue</Button>
           )}
           {canEdit && (r.status === "draft" || r.status === "issued") && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending}
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending}
                 onClick={() => run(() => recordLabResult(r.id, "passed", null, null), "Marked passed")}>Pass</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending}
+              <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending}
                 onClick={() => run(() => recordLabResult(r.id, "failed", null, null), "Marked failed")}>Fail</Button>
             </>
           )}
           {canDelete && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending}
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending}
               onClick={() => run(() => deleteLabTest(r.id), "Deleted")}>Del</Button>
           )}
         </div>

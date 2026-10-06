@@ -13,9 +13,8 @@
  * tabs (`raagam-screen-layout`, rule 1). Every section after Orders is drawn
  * from `BUDGET_SECTIONS`, which is also the engine's partition of the sources,
  * so a line can never be costed into the total from a section nobody can open.
- * Purchase Rates and Process Rates carry the blueprint's child tabs (Yarn /
- * Fabric / Accessories …) as rows NESTED UNDER THEM ON THE RAIL, one grid per
- * source (2026-10-05 — they were a `Tabs` strip, see `sectionOfSource`).
+ * Purchase Rates carries the blueprint's child tabs (Yarn / Fabric /
+ * Accessories) as a `Tabs` strip, one grid per source.
  *
  * The old Summary section is gone: its figures are the pinned bottom bar
  * (`BudgetSummaryBar`, `MasterFullScreen`'s `summary`), visible from every
@@ -55,6 +54,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Toggle } from "@/components/ui/toggle";
 import { Select } from "@/components/ui/select";
+import { Tabs } from "@/components/ui/tabs";
 import {
   Field,
   FieldRow,
@@ -427,26 +427,9 @@ const fabricGroupKey = (l: { garment_order_id: string | null; process_id?: strin
  *  submitted summary and the approved baseline are built with. */
 const lineInput = (c: CostRow): BudgetLineInput => lineInputOf(c);
 
-/**
- * Which rail row shows a line of this source.
- *
- * A PURCHASE OR PROCESS KIND IS ITS OWN RAIL ROW, keyed by its source (client
- * 2026-10-05, screenshot 3260: "why the rail kind of process and purchase not
- * listing in left aligned way"). They were a `Tabs side` strip INSIDE the
- * section, and that side list only switches in on a 76.5rem pane — with the
- * app menu open the pane is narrower, so it fell back to a strip across the
- * top. Nested under Purchase Rates / Process Rates on the SECTIONS rail they
- * are always listed, at any width, and cost the grids no width at all. The
- * sources never collide with a section key, so the source IS the row key.
- */
-const KIND_SOURCES: readonly string[] = [
-  ...PURCHASE_TABS.map((t) => t.source),
-  ...PROCESS_TABS.map((t) => t.source),
-];
-const sectionOfSource = (source: string): string =>
-  KIND_SOURCES.includes(source)
-    ? source
-    : (BUDGET_SECTIONS.find((s) => (s.sources as readonly string[]).includes(source))?.key ?? "expense");
+/** Which rail section shows a line of this source. */
+const sectionOfSource = (source: string): BudgetSectionKey =>
+  BUDGET_SECTIONS.find((s) => (s.sources as readonly string[]).includes(source))?.key ?? "expense";
 
 /**
  * EVERY TABLE OPENS WITH A ROW — one per SOURCE, because every source is its own
@@ -679,6 +662,8 @@ export function BudgetScreen({
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [costs, setCosts] = useState<CostRow[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [purchaseTab, setPurchaseTab] = useState<string>(PURCHASE_TABS[0].source);
+  const [processTab, setProcessTab] = useState<string>(PROCESS_TABS[0].source);
   /** Which Fabric Processes group is unfolded — `ProcessFoldList`'s `openKey`,
    *  owned here. `null` on every open: sections start closed (client
    *  2026-08-19). */
@@ -782,6 +767,22 @@ export function BudgetScreen({
     if (pendingJump.current && mode === "edit") landPendingJump();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, costs]);
+  /**
+   * A CHILD TAB OPENS WITH THE CURSOR ON ITS FIRST RATE (client 2026-09-21).
+   * The section rail lands the cursor on a section switch, but Yarn → Fabric
+   * is a `Tabs` switch INSIDE one section, which re-mounts the panel and
+   * lands nothing — the cursor stayed on the tab button and the first key
+   * the operator pressed went to the strip. `goToSection` on the section the
+   * screen is already on runs the same landing the rail does (a `setTimeout(0)`
+   * after React has committed the new panel), and that landing prefers
+   * `[data-focus-land]` — the Rate column. A tab reached by ARROWING the strip
+   * is not opened (Tabs activates on Enter / click only), so this never pulls
+   * the cursor out from under an operator still reading the tab names.
+   */
+  const openTab = (setTab: (k: string) => void, key: string, section: BudgetSectionKey) => {
+    setTab(key);
+    shellRef.current?.goToSection(section);
+  };
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
@@ -961,6 +962,8 @@ export function BudgetScreen({
     setForm(BLANK());
     setOrders([{ key: newKey(), garment_order_id: null }]);
     setCosts(withSeededRows([]));
+    setPurchaseTab(PURCHASE_TABS[0].source);
+    setProcessTab(PROCESS_TABS[0].source);
     setFabricOpenKey(null);
     setBreakupKey(null);
     setTouched(new Set());
@@ -992,6 +995,8 @@ export function BudgetScreen({
     );
     const rows = withSeededRows((b.lines ?? []).map((l) => rowOf(newKey(), l)));
     setCosts(rows);
+    setPurchaseTab(PURCHASE_TABS[0].source);
+    setProcessTab(PROCESS_TABS[0].source);
     setFabricOpenKey(null);
     setBreakupKey(null);
     setTouched(new Set());
@@ -1856,8 +1861,8 @@ export function BudgetScreen({
    *  "Charges" / "Charge" on a process — and its value is the same field. */
   /* THE LANDING FIELD (client 2026-09-21: "active focus lands directly on
      the Price / Rate input as soon as the tab opens"). `data-focus-land` is
-     read by `focusFirstField` (lib/focus.ts) alone — the section landing —
-     so opening Purchase Rates or switching Yarn → Fabric on the rail
+     read by `focusFirstField` (lib/focus.ts) alone — the section landing and
+     `openTab` below — so opening Purchase Rates or switching Yarn → Fabric
      puts the cursor on the FIRST row's Rate rather than on the first cell that
      happens to be typeable (Currency, on a pulled line whose item, qty, stage
      and colour are all the BOM's). Every row carries it; the first on the Tab
@@ -2661,7 +2666,7 @@ export function BudgetScreen({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 w-full"
+          className="w-full"
           // `data-row-open` PUTS IT ON THE ROW'S KEYBOARD AXIS — the Fabric BOM
           // Components [Click] precedent: a button that opens something the
           // keyboard cannot otherwise reach, so Tab and ← → land on it like a
@@ -3553,8 +3558,6 @@ export function BudgetScreen({
     sections: [
       { key: "budget" },
       ...BUDGET_SECTIONS.map((s) => ({ key: s.key })),
-      // The kind rows (`sectionOfSource`) — a refused line is keyed to one.
-      ...KIND_SOURCES.map((k) => ({ key: k })),
       { key: "general" },
     ],
     values: form,
@@ -3624,10 +3627,15 @@ export function BudgetScreen({
     setSaveAttempted(true);
     const p = validity.first;
     if (!p) return;
-    // `p.section` is already the line's own kind row (`sectionOfSource`). A
-    // Fabric Processes line also lives inside a group's FOLD, which is not in
-    // the DOM while it is shut.
-    if (p.section === "fabric_process" && firstUnpriced) setFabricOpenKey(fabricGroupKey(firstUnpriced));
+    // Purchase Rates mounts ONE tab at a time, so the line's own tab has to be
+    // the open one before the cursor can land on it.
+    if (p.section === "purchase" && firstUnpriced) setPurchaseTab(firstUnpriced.source);
+    // ...and Process Rates likewise, plus the FOLD: a Fabric Processes line
+    // lives inside a group's panel, which is not in the DOM while it is shut.
+    if (p.section === "process" && firstUnpriced) {
+      setProcessTab(firstUnpriced.source);
+      if (firstUnpriced.source === "fabric_process") setFabricOpenKey(fabricGroupKey(firstUnpriced));
+    }
     shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
   };
 
@@ -3666,7 +3674,11 @@ export function BudgetScreen({
         message: manualEntryMessage({ source: row.source, name, field }),
         go: () => {
           const section = sectionOfSource(row.source);
-          if (row.source === "fabric_process") setFabricOpenKey(fabricGroupKey(row));
+          if (section === "purchase") setPurchaseTab(row.source);
+          if (section === "process") {
+            setProcessTab(row.source);
+            if (row.source === "fabric_process") setFabricOpenKey(fabricGroupKey(row));
+          }
           shellRef.current?.goToSection(section, { fieldId: cellId(row, field) });
         },
       },
@@ -3689,7 +3701,11 @@ export function BudgetScreen({
       return;
     }
     const section = sectionOfSource(row.source);
-    if (row.source === "fabric_process") setFabricOpenKey(fabricGroupKey(row));
+    if (section === "purchase") setPurchaseTab(row.source);
+    if (section === "process") {
+      setProcessTab(row.source);
+      if (row.source === "fabric_process") setFabricOpenKey(fabricGroupKey(row));
+    }
     shellRef.current?.goToSection(section, { fieldId: cellId(row, (j.field as LineField) || "rate") });
   };
   const nextUnrated = () => {
@@ -3901,7 +3917,7 @@ export function BudgetScreen({
        the merchandiser. Hidden here, not deleted from the engine: `income`
        stays a source (the partition check, and any line an older budget
        holds), it just has no table to type one into. */
-    ...BUDGET_SECTIONS.filter((s) => s.key !== "income").flatMap((s): FullScreenSection[] => {
+    ...BUDGET_SECTIONS.filter((s) => s.key !== "income").map((s): FullScreenSection => {
       const lines = enteredCosts.filter((c) => (s.sources as readonly string[]).includes(c.source));
       /** THE STRIP CARRIES A COUNT even though the rail does not (operator
        *  rule 2): one tab is mounted at a time, and a line refusing on a closed
@@ -3930,67 +3946,77 @@ export function BudgetScreen({
         }, 0);
         return `${n} ${n === 1 ? "line" : "lines"} · ₹ ${fmtNumber(sum)}`;
       };
-      /*
-       * PURCHASE RATES AND PROCESS RATES ARE GROUPS ON THE RAIL (client
-       * 2026-10-05, screenshot 3260) — each kind is a `sub` row beneath its
-       * group, and the group itself is `groupOnly`: clicking it opens its first
-       * kind. They were a `Tabs side` strip inside the section, which needs a
-       * 76.5rem pane to stand as a list and fell back to a strip across the
-       * top whenever the app menu was open. The rail is always there, so the
-       * kinds are always listed, and the grids keep their full width.
-       *
-       * A KIND ROW CARRIES ITS OWN PROBLEM COUNT — the lines still to rate on
-       * that grid — so a refusal on a kind the operator is not standing on is
-       * visible from the rail, which is what the strip's count was for.
-       */
-      if (s.key === "purchase" || s.key === "process") {
-        const kinds = s.key === "purchase" ? PURCHASE_TABS : PROCESS_TABS;
-        const gridOf = (source: string) =>
-          source === "yarn"
-            ? yarnPurchaseGrid
-            : source === "fabric"
-              ? fabricPurchaseGrid
-              : source === "material"
-                ? accessoryPurchaseGrid
-                : source === "yarn_process"
-                  ? yarnProcessGrid
-                  : source === "fabric_process"
-                    ? fabricProcessList
-                    : source === "material_process"
-                      ? accessoryProcessGrid
-                      : garmentProcessGrid;
-        return [
-          {
-            key: s.key,
-            label: s.label,
-            icon: SECTION_ICONS[s.key],
-            done: lines.length > 0,
-            groupOnly: true,
-            content: null,
-          },
-          ...kinds.map(
-            (t): FullScreenSection => ({
-              key: t.source,
-              label: t.label,
-              icon: SECTION_ICONS[s.key],
-              sub: true,
-              done: lines.some((c) => c.source === t.source),
-              problems: tabProblems(t.source),
-              content: (
-                <SectionBody title={t.label}>
-                  {/* What the strip's second line said, kept: how many lines
-                      this kind holds, and the open rates or the rupees so far. */}
-                  <p className="-mt-2 mb-3 text-xs text-muted-foreground">{tabMeta(t.source)}</p>
-                  {gridOf(t.source)}
-                </SectionBody>
-              ),
-            }),
+      if (s.key === "purchase") {
+        return {
+          key: s.key,
+          label: s.label,
+          icon: SECTION_ICONS[s.key],
+          done: lines.length > 0,
+          content: (
+            <SectionBody title={s.label}>
+              {/* A SIDE RAIL BESIDE THE GRID, NOT A STRIP ABOVE IT (user
+                  2026-09-21, screenshot 204339 — the Material BOM's item
+                  listing as the reference). `side` on the primitive; it only
+                  switches in on a pane wide enough for the grids to stay
+                  tables beside it — see `Tabs` for the 76rem arithmetic. */}
+              <Tabs
+                side
+                value={purchaseTab}
+                onChange={(k) => openTab(setPurchaseTab, k, "purchase")}
+                items={PURCHASE_TABS.map((t) => ({
+                  key: t.source,
+                  label: t.label,
+                  done: lines.some((c) => c.source === t.source),
+                  problems: tabProblems(t.source),
+                  meta: tabMeta(t.source),
+                  content:
+                    t.source === "yarn"
+                      ? yarnPurchaseGrid
+                      : t.source === "fabric"
+                        ? fabricPurchaseGrid
+                        : accessoryPurchaseGrid,
+                }))}
+              />
+            </SectionBody>
           ),
-        ];
+        };
+      }
+
+      if (s.key === "process") {
+        return {
+          key: s.key,
+          label: s.label,
+          icon: SECTION_ICONS[s.key],
+          done: lines.length > 0,
+          content: (
+            <SectionBody title={s.label}>
+              <Tabs
+                side
+                value={processTab}
+                onChange={(k) => openTab(setProcessTab, k, "process")}
+                items={PROCESS_TABS.map((t) => ({
+                  key: t.source,
+                  label: t.label,
+                  done: lines.some((c) => c.source === t.source),
+                  problems: tabProblems(t.source),
+                  meta: tabMeta(t.source),
+                  content:
+                    t.source === "yarn_process"
+                      ? yarnProcessGrid
+                      : t.source === "fabric_process"
+                        ? fabricProcessList
+                        : t.source === "material_process"
+                          ? accessoryProcessGrid
+                          : garmentProcessGrid,
+                }))}
+              />
+            </SectionBody>
+          ),
+        };
       }
 
       if (s.key === "cmt") {
-        return [{
+        return {
           key: s.key,
           label: s.label,
           icon: SECTION_ICONS[s.key],
@@ -4001,10 +4027,10 @@ export function BudgetScreen({
               <LockScope locked={ownLocked}>{cmtGrid}</LockScope>
             </SectionBody>
           ),
-        }];
+        };
       }
 
-      return [{
+      return {
         key: s.key,
         label: s.label,
         icon: SECTION_ICONS[s.key],
@@ -4015,7 +4041,7 @@ export function BudgetScreen({
             <LockScope locked={ownLocked}>{s.key === "income" ? incomeGrid : expenseGrid}</LockScope>
           </SectionBody>
         ),
-      }];
+      };
     }),
     {
       // THE LAST ROW, READ-ONLY — the category matrix and the bottom line.

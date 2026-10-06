@@ -6,6 +6,7 @@ import { addDays, dayOfWeek } from "@/lib/calendar";
 import type { CalEvent, CalKind, CalendarData } from "@/lib/my-calendar/data";
 import { monthDays, monthGrid, stepCursor, type CalView } from "@/lib/my-calendar/view";
 import { Card } from "@/components/ui/card";
+import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import { Truncated } from "@/components/ui/truncated";
 
 /**
@@ -83,6 +84,7 @@ export function MyCalendar({ data, view, cursor }: { data: CalendarData; view: C
         <span className="ml-auto flex flex-wrap items-center gap-2">
           {data.canTeam && (
             <Segmented
+              label="Whose calendar"
               active={data.scope}
               items={[
                 { key: "mine", label: "Mine", href: href({ cs: "mine" }) },
@@ -91,6 +93,7 @@ export function MyCalendar({ data, view, cursor }: { data: CalendarData; view: C
             />
           )}
           <Segmented
+            label="View"
             active={view}
             items={[
               { key: "day", label: "Today", href: href({ cv: "day" }) },
@@ -145,18 +148,17 @@ function NavLink({ href, label, children }: { href: string; label: string; child
   );
 }
 
-function Segmented({ items, active }: { items: { key: string; label: string; href: string }[]; active: string }) {
+/** The view / scope switch. Its words are `<Link>`s, so it draws from the SEG_* strings
+ *  rather than `ToggleGroup` — the one-shape rule, user 2026-10-06. */
+function Segmented({ items, active, label }: { items: { key: string; label: string; href: string }[]; active: string; label: string }) {
   return (
-    <div className="inline-flex h-9 items-center rounded-lg border border-border p-0.5 text-sm">
+    <div role="group" aria-label={label} data-segmented="" className={SEG_TRACK}>
       {items.map((i) => (
         <Link
           key={i.key}
           href={i.href}
           aria-current={i.key === active ? "page" : undefined}
-          className={cn(
-            "rounded-md px-3 py-1 font-semibold",
-            i.key === active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-muted",
-          )}
+          className={cn(SEG_ITEM, i.key === active ? SEG_LIT : SEG_IDLE)}
         >
           {i.label}
         </Link>

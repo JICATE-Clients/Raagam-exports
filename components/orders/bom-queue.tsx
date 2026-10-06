@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { CalendarRange, Factory, Users } from "lucide-react";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
 import { DaysOut } from "@/components/orders/days-out";
@@ -256,8 +257,9 @@ const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
    this pill is a filter, not a Save, and the ask is that it show the theme.
    A class the attribute selector cannot match is how it opts out — the
    `hover:` reads the hover token the same way for the same reason. */
-const QUICK_LIT =
-  "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
+/* The lit word's class string now lives in `SEG_LIT` (components/ui/segmented.tsx),
+   which every toggle group in the app reads — the history above is why it is
+   the Button's markers and `bg-(--primary)`. */
 
 export function StatusSegment({
   value,
@@ -304,34 +306,20 @@ export function StatusSegment({
        word now picks itself. Clicking the lit word steps to the next one —
        which on the two-word box is exactly the flip it always was. From
        unfiltered, Pending is still the first landing. */
-    <div
-      role="group"
-      aria-label={`Status: ${label}`}
-      // Surface-style hook (lib/appearance.ts STYLES): a recessed track with
-      // the lit word raised, the same as `Segmented`.
-      data-segmented=""
-      className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 text-xs font-medium"
-    >
-      {words.map((s, i) => {
-        const Icon = QUICK[s].icon;
-        return (
-          <button
-            key={s}
-            type="button"
-            aria-pressed={value === s}
-            onClick={() => onChange(value === s ? words[(i + 1) % words.length] : s)}
-            className={cn(
-              "inline-flex h-full items-center gap-1.5 rounded-md px-2.5 transition-colors",
-              value === s ? QUICK_LIT : "text-muted-foreground hover:bg-surface-muted",
-            )}
-          >
-            <Icon className="h-3.5 w-3.5" aria-hidden />
-            {QUICK[s].text}
-            {counts && <span className="tabular-nums opacity-80">({counts[s] ?? 0})</span>}
-          </button>
-        );
-      })}
-    </div>
+    <ToggleGroup
+      label={`Status: ${label}`}
+      value={current}
+      onChange={(s) => {
+        const i = words.indexOf(s);
+        onChange(value === s ? words[(i + 1) % words.length] : s);
+      }}
+      options={words.map((s) => ({
+        value: s,
+        label: QUICK[s].text,
+        icon: QUICK[s].icon,
+        count: counts ? (counts[s] ?? 0) : undefined,
+      }))}
+    />
   );
 }
 

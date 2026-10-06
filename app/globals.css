@@ -486,6 +486,17 @@
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
+
+  /* ONE CONTROL SHAPE (user 2026-10-06: "this is the button shape i prefer for
+   * the whole application" — the Pending / Updated / Draft box on the BOM and
+   * Budget queues). Every Button and every toggle group takes `rounded-control`;
+   * a toggle's inner segment takes `rounded-control-inner` so it nests 2px
+   * inside the track. A NAMED radius, not `rounded-lg`, because `[data-skin]`
+   * (Masters, HR) re-points `--radius-lg` to 16px, which on a 36px button is a
+   * lozenge — and because this sits in `@theme inline`, the value is baked into
+   * the utility and no skin can move it. Gated by `npm run check:button-shape`. */
+  --radius-control: 0.5rem;
+  --radius-control-inner: 0.375rem;
 }
 
 /* Referenced by --animate-rise / --animate-grow above. `rise` fades a card up

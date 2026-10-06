@@ -5299,7 +5299,7 @@ export function MbaMasterScreen({
                  it. The header row's `md` rule (AGENTS.md) is about the band
                  above a list. */
               size="sm"
-              className="h-8 shrink-0 px-2"
+              className="shrink-0 px-2"
               /* OFF THE TAB PATH. Tab lands on FIELDS and nothing else, and this
                  is a button in a grid row — the same treatment the row's own
                  Remove ✕ carries, for the same reason. The mouse still reaches

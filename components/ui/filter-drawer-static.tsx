@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button, buttonClasses } from "@/components/ui/button";
 
 /**
  * THE GROUPED FILTER DRAWER'S LOOK, FOR A PLAIN GET FORM — server-safe: no
@@ -112,17 +113,14 @@ export function StaticFilterDrawer({
         {active && (
           <Link
             href={clearHref}
-            className="h-7 rounded-md border border-border px-2.5 text-xs leading-7 text-muted-foreground hover:text-foreground"
+            className={buttonClasses({ variant: "outline", size: "sm" })}
           >
             Clear
           </Link>
         )}
-        <button
-          type="submit"
-          className="h-7 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground"
-        >
+        <Button type="submit" size="sm">
           Apply
-        </button>
+        </Button>
       </div>
     </form>
       </div>

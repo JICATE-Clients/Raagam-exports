@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { ToggleGroup } from "@/components/ui/segmented";
 import type { QuoteWithContext } from "@/lib/orders/service";
 import type { Buyer } from "@/lib/masters/types";
 
@@ -207,31 +208,16 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
       <Card>
         <CardHeader>
           <CardTitle>New sales order</CardTitle>
-          {/* Mode toggle */}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setMode("quote")}
-              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                mode === "quote"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-surface-muted text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              From accepted quote
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("manual")}
-              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                mode === "manual"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-surface-muted text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Manual entry
-            </button>
-          </div>
+          {/* Mode toggle — ToggleGroup, the one-shape rule (user 2026-10-06). */}
+          <ToggleGroup
+            label="Mode"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: "quote", label: "From accepted quote" },
+              { value: "manual", label: "Manual entry" },
+            ]}
+          />
         </CardHeader>
 
         <CardBody>

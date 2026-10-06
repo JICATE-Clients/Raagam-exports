@@ -15,8 +15,8 @@ import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
 // same mistake is recorded against `/orders/ta`, which passed `external` on all
 // six of its own siblings.
 const CARDS: HubCardSpec[] = [
-  { key: "/sales", href: "/sales", label: "Opportunities / Pipeline", description: "Enquiry → costing → quoted → won/lost pipeline." },
-  { key: "/sales/styles", href: "/sales/styles", label: "Styles", description: "Define styles for an opportunity." },
+  /* "Opportunities / Pipeline" and "Styles" left this hub on 2026-10-06 — both
+     are now Sample ▸ Sample Entry (0683), and their routes redirect there. */
   { key: "/sales/cost-sheets", href: "/sales/cost-sheets", label: "Cost Sheets", description: "Versioned product cost sheets; draft → approve." },
   { key: "/sales/quotes", href: "/sales/quotes", label: "Quote Preparation", description: "Prepare buyer quotes from approved costings." },
   { key: "/sales/quote-confirmations", href: "/sales/quote-confirmations", label: "Confirm Quotes", description: "Accept/reject quotes (a win creates an order)." },

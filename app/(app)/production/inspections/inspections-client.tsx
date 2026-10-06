@@ -109,16 +109,16 @@ export function InspectionsClient({ rows, orders, canCreate, canEdit, canDelete 
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "draft" && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => recordInspectionResult(r.id, "pass"), "Passed")}>Pass</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => recordInspectionResult(r.id, "rework"), "Rework")}>Rework</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => recordInspectionResult(r.id, "fail"), "Failed")}>Fail</Button>
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => recordInspectionResult(r.id, "pass"), "Passed")}>Pass</Button>
+              <Button size="sm" variant="outline" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => recordInspectionResult(r.id, "rework"), "Rework")}>Rework</Button>
+              <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => recordInspectionResult(r.id, "fail"), "Failed")}>Fail</Button>
             </>
           )}
           {canEdit && r.status === "draft" && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => cancelInspection(r.id), "Cancelled")}>Cancel</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => cancelInspection(r.id), "Cancelled")}>Cancel</Button>
           )}
           {canDelete && (r.status === "draft" || r.status === "cancelled") && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteInspection(r.id), "Deleted")}>Del</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteInspection(r.id), "Deleted")}>Del</Button>
           )}
         </div>
       ),
