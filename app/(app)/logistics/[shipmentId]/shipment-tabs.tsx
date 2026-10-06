@@ -645,7 +645,7 @@ function LinesTab({
                     size="sm"
                     variant="subtle"
                     onClick={() => setEditingId(l.id)}
-                    className="h-7 px-2 text-xs"
+                    className="px-2 text-xs"
                   >
                     Edit
                   </Button>
@@ -656,7 +656,7 @@ function LinesTab({
                     variant="outline"
                     onClick={() => handleDelete(l.id)}
                     disabled={isPending}
-                    className="h-7 px-2 text-xs text-danger hover:border-danger"
+                    className="px-2 text-xs text-danger hover:border-danger"
                   >
                     Del
                   </Button>

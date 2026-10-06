@@ -128,7 +128,7 @@ export function OrderApprovalCard({
               e.stopPropagation();
               openFull();
             }}
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-8 w-full items-center justify-center gap-1 rounded-control border border-border bg-surface px-3 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             View full order data
             <ChevronRight className="size-3.5" aria-hidden />

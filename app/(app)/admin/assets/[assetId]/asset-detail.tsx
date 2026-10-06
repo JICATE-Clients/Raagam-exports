@@ -76,7 +76,7 @@ export function AssetDetail({ assetId, status, assignments, itemName, canEdit, c
     ...(canEdit
       ? [{ header: "Return", align: "right" as const, cell: (r: AssetAssignment) => (
           r.status === "assigned" ? (
-            <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending}
+            <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending}
               onClick={() => run(() => returnAsset(r.id, assetId), "Returned")}>Return</Button>
           ) : <span className="text-xs text-muted-foreground">—</span>
         ) } satisfies Column<AssetAssignment>]

@@ -5,6 +5,7 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
+import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
@@ -166,18 +167,18 @@ function Tile({
 const toneText = (pct: number) => (pct >= 90 ? "text-success" : pct >= 75 ? "text-warning" : "text-danger");
 const toneBg = (pct: number) => (pct >= 90 ? "bg-success" : pct >= 75 ? "bg-warning" : "bg-danger");
 
+/** The period switch. Its words are `<Link>`s (this page is server-only), so it
+ *  draws from the SEG_* strings rather than `ToggleGroup` — the one-shape rule,
+ *  user 2026-10-06. */
 function Segmented({ items, active }: { items: { key: string; label: string; href: string }[]; active: string }) {
   return (
-    <div className="inline-flex h-9 items-center rounded-lg border border-border p-0.5 text-sm">
+    <div role="group" aria-label="Period" data-segmented="" className={SEG_TRACK}>
       {items.map((i) => (
         <Link
           key={i.key}
           href={i.href}
           aria-current={i.key === active ? "page" : undefined}
-          className={cn(
-            "rounded-md px-3 py-1 font-semibold",
-            i.key === active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-muted",
-          )}
+          className={cn(SEG_ITEM, i.key === active ? SEG_LIT : SEG_IDLE)}
         >
           {i.label}
         </Link>

@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { useBlockAction } from "@/components/masters/use-block-action";
 import { StatusToggle } from "@/components/ui/status-toggle";
 import { cn } from "@/lib/utils";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -2403,30 +2404,24 @@ export function MaterialMasterScreen({
               (Tab lands on fields, never on a button), and these are the
               mouse's one-click shortcut. A retired class the record already
               holds is shown, never offered — the "Disabled rows" rule. */}
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Item Class">
+          {/* THE ONE TOGGLE SHAPE (AGENTS.md "One button shape", user
+              2026-10-06): a pick-one row of words is `ToggleGroup`, never a
+              hand-rolled `<button aria-pressed>` pill — `check:button-shape`. */}
+          <div className="flex flex-wrap items-center gap-2">
             <span className="mr-1 text-[11px] font-semibold tracking-wide text-muted-foreground">ITEM CLASS</span>
-            {itemClasses
-              .filter((c) => c.is_active || c.id === form.item_class_id)
-              .map((c) => {
-                const on = c.id === form.item_class_id;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    aria-pressed={on}
-                    disabled={!c.is_active && !on}
-                    onClick={() => !on && handleItemClassChange(c.id)}
-                    className={cn(
-                      "h-7 rounded-full border px-3 text-[12.5px] font-medium transition-colors",
-                      on
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-surface text-foreground hover:border-border-strong hover:bg-surface-muted",
-                    )}
-                  >
-                    {c.name}
-                  </button>
-                );
-              })}
+            <ToggleGroup<string>
+              label="Item Class"
+              value={form.item_class_id || null}
+              onChange={(id) => id !== form.item_class_id && handleItemClassChange(id)}
+              options={itemClasses
+                .filter((c) => c.is_active || c.id === form.item_class_id)
+                .map((c) => ({
+                  value: c.id,
+                  label: c.name,
+                  // A retired class the record already holds is shown, never offered.
+                  disabled: !c.is_active && c.id !== form.item_class_id,
+                }))}
+            />
           </div>
           {/* ONE TABLE, as design D draws it (client 2026-10-05: "apply
               this"). At the design's widths a Yarn row is ~1000px, inside the

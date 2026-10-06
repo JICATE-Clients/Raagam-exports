@@ -164,12 +164,12 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "draft" && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => markCourierDespatched(r.id), "Despatched")}>Despatch</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => cancelDespatch(r.id), "Cancelled")}>Cancel</Button>
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => markCourierDespatched(r.id), "Despatched")}>Despatch</Button>
+              <Button size="sm" variant="outline" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => cancelDespatch(r.id), "Cancelled")}>Cancel</Button>
             </>
           )}
           {canEdit && r.status === "despatched" && (
-            <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => recordPod(r.id, null), "POD recorded")}>Record POD</Button>
+            <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => recordPod(r.id, null), "POD recorded")}>Record POD</Button>
           )}
         </div>
       ),

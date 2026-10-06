@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { AuditList } from "@/components/audit/audit-list";
 import { Select } from "@/components/ui/select";
 import { DATE_MAX } from "@/components/ui/input";
@@ -86,15 +87,12 @@ export function AuditBrowser({
           <span className="text-xs text-muted-foreground">To</span>
           <input type="date" max={DATE_MAX} name="to" defaultValue={current.to} className={field} />
         </label>
-        <button
-          type="submit"
-          className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground active:scale-95"
-        >
+        <Button type="submit" size="sm">
           Filter
-        </button>
+        </Button>
         <Link
           href="/admin/audit"
-          className="flex h-8 items-center rounded-md border border-border px-3 text-xs font-medium text-muted-foreground hover:bg-surface-muted"
+          className={buttonClasses({ variant: "outline", size: "sm" })}
         >
           Clear
         </Link>
@@ -108,7 +106,7 @@ export function AuditBrowser({
           {page > 1 && (
             <Link
               href={buildHref(current, page - 1)}
-              className="rounded-md border border-border px-3 py-1.5 hover:bg-surface-muted"
+              className={buttonClasses({ variant: "outline", size: "sm" })}
             >
               Previous
             </Link>
@@ -116,7 +114,7 @@ export function AuditBrowser({
           {hasMore && (
             <Link
               href={buildHref(current, page + 1)}
-              className="rounded-md border border-border px-3 py-1.5 hover:bg-surface-muted"
+              className={buttonClasses({ variant: "outline", size: "sm" })}
             >
               Next
             </Link>

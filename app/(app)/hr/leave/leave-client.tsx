@@ -112,15 +112,15 @@ export function LeaveClient({ rows, employees, canCreate, canEdit, canApprove, c
         <div className="flex flex-wrap gap-1">
           {canApprove && r.status === "pending" && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => approveLeave(r.id), "Approved")}>Approve</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => rejectLeave(r.id), "Rejected")}>Reject</Button>
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => approveLeave(r.id), "Approved")}>Approve</Button>
+              <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => rejectLeave(r.id), "Rejected")}>Reject</Button>
             </>
           )}
           {canEdit && r.status === "pending" && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => cancelLeave(r.id), "Cancelled")}>Cancel</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => cancelLeave(r.id), "Cancelled")}>Cancel</Button>
           )}
           {canDelete && (r.status === "pending" || r.status === "cancelled" || r.status === "rejected") && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteLeave(r.id), "Deleted")}>Del</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteLeave(r.id), "Deleted")}>Del</Button>
           )}
         </div>
       ),

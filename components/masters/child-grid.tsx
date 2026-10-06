@@ -166,6 +166,7 @@ export function RowRemoveChip({
   align?: "control" | "header";
 }) {
   return (
+    // button-shape: exempt -- a 28px round ✕ chip in a card corner, an icon not a worded button (client 2026-09-05/06, below)
     <Button
       type="button"
       variant="ghost"

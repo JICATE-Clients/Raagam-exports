@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Download, Plus, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   dismissHint,
   isHintDismissed,
@@ -64,14 +65,10 @@ export function InstallPrompt() {
             </p>
           )}
           {canPrompt && (
-            <button
-              type="button"
-              onClick={install}
-              className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[12.5px] font-semibold text-primary-foreground active:scale-95"
-            >
+            <Button type="button" size="sm" onClick={install} className="mt-2.5">
               <Download className="h-4 w-4" />
               Install
-            </button>
+            </Button>
           )}
         </div>
         <button

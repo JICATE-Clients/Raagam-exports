@@ -865,7 +865,7 @@ function PaletteTable<T extends { key: string }>({
                     size="sm"
                     data-row-remove
                     aria-label={`Remove ${label.toLowerCase()} row ${i + 1}`}
-                    className="h-7 px-1 text-danger hover:text-danger"
+                    className="px-1 text-danger hover:text-danger"
                     onClick={() => onRemove(row)}
                   >
                     {"✕"}
@@ -5419,7 +5419,7 @@ export function FabricBomScreen({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 w-full"
+          className="w-full"
           /**
            * `data-row-open` — THE LAST CELL OF THE TOP ROW IS A CELL, NOT
            * CHROME (client 2026-09-08: Tab must reach "Components / Click" and
@@ -5515,7 +5515,7 @@ export function FabricBomScreen({
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 w-full"
+            className="w-full"
             disabled={!e.assort_color_wise}
             aria-label={
               e.combos.length

@@ -924,6 +924,35 @@ footer on the next. It also does not exempt the two declaring components: skippi
 `data-io-toolbar.tsx` would have made the check pass while the actual cause sat untouched.
 `doc/ui/LAYOUT.md` §10.
 
+## One button shape (STANDING)
+
+**Every button is 8px corners at one of two even heights — 36px, or 32px in a
+grid / dense bar — and every "pick one of these words" control is `ToggleGroup`**
+(user 2026-10-06, pointing at the Pending / Updated / Draft box: "this is the
+button shape i prefer for the whole application", then "button size also issue
+… make it even size"). The app had drawn one toggle job seven ways (24px / 4px
+on Profit Check, 28px on Progress, square on the Trims board, full pills on HR
+▸ Person and the T&A switcher, grey-track-white-pill on `Segmented`) and given
+one Button five heights — 59 of them `size="sm" className="h-7"`.
+
+- **The shape lives in two files.** `components/ui/button.tsx` — every size is
+  `rounded-control`, `lg` is now 36px like `md`. `components/ui/segmented.tsx`
+  — `ToggleGroup` (buttons, a view/filter switch) and `Segmented` (radios, a
+  value on a form), both drawn from `SEG_TRACK` / `SEG_ITEM` / `SEG_LIT`. The lit
+  word is the primary Button's own markers, so it follows every colour preset.
+- **`rounded-control` is a NAMED radius, not `rounded-lg`**, because
+  `[data-skin]` (Masters, HR) re-points `--radius-lg` to 16px, a lozenge on a
+  36px button. It sits in `@theme inline`, so no skin can move it.
+- **A height or radius in a `<Button>`'s className is refused**, and so is a
+  hand-rolled `<button aria-pressed>` outside `components/ui` —
+  `npm run check:button-shape`, inside `build:check`, verified by being made to
+  FAIL first against the pre-sweep tree. An icon-square `h-8 w-8` and a
+  responsive `md:h-10` pass. Opt out per element with
+  `// button-shape: exempt -- <reason>` (a round ✕ chip, a lone on/off eye).
+- **Not covered by the check:** a raw `<button>` styled as an action button
+  with its own corners. Use `<Button>` or `buttonClasses()`; review catches the
+  rest until the check learns to tell an action button from a row or a tile.
+
 ## The sidebar lists SUB-MODULES (STANDING)
 
 **A module's sidebar shows groups and standalone screens — never a screen that

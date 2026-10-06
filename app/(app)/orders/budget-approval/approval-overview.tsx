@@ -178,7 +178,7 @@ export function ApprovalOverview({
               <button
                 type="button"
                 onClick={() => setFullOpen(true)}
-                className="flex w-full items-center justify-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-8 w-full items-center justify-center gap-1 rounded-control border border-border px-3 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 View full order data
                 <ChevronRight className="size-3.5" aria-hidden />

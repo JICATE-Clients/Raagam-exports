@@ -1,6 +1,6 @@
 ---
 name: raagam-screen-layout
-description: "Raagam ERP's screen layout contract — which surface a screen uses (the list shell, a Sheet, or the section-rail editor mounted as an overlay or as a page route), the operator's five standing rules for a converted screen (its own name as the first rail row, no problem badge, an overlay that covers the app chrome, grids that wrap instead of scrolling sideways and do it in ONE frame rather than a box per row, everything on the keyboard contract), the de-clutter rule that blanks field placeholders and drops a grid's caption band and prose empty state, BUILDING IT COMPACT THE FIRST TIME (fields and grid columns take the seven value widths of lib/ui/sizes.ts — FieldRow + Field w=, fixed-width tables with tableFrom="5xl" that fit 1155px, definite section caps — and check:grid-budget must list every grid by name before a screen is called done), line items as ChildGrid rather than a hand-rolled table, and the Cancel / Save as Draft / Save footer whose canSave is DERIVED rather than hand-assembled. This skill should be used when building or changing any screen under app/(app), when choosing between Sheet and MasterFullScreen, when a record needs sections or tabs, when wiring Save or a status/workflow bar, when a list screen needs its toolbar and row actions, and whenever a screen is about to write its own grid-cols-*, col-span-* or <table>. Keys and focus are raagam-keyboard-contract's; pickers and icon fields are raagam-masters-picker-wiring's; reports are raagam-report-data's."
+description: "Raagam ERP's screen layout contract — which surface a screen uses (the list shell, a Sheet, or the section-rail editor mounted as an overlay or as a page route), the operator's five standing rules for a converted screen (its own name as the first rail row, no problem badge, an overlay that covers the app chrome, grids that wrap instead of scrolling sideways and do it in ONE frame rather than a box per row, everything on the keyboard contract), the de-clutter rule that blanks field placeholders and drops a grid's caption band and prose empty state, BUILDING IT COMPACT THE FIRST TIME (fields and grid columns take the seven value widths of lib/ui/sizes.ts — FieldRow + Field w=, fixed-width tables with tableFrom="5xl" that fit 1155px, definite section caps — and check:grid-budget must list every grid by name before a screen is called done), line items as ChildGrid rather than a hand-rolled table, and the Cancel / Save as Draft / Save footer whose canSave is DERIVED rather than hand-assembled. For any document with lines the ORDERS MODULE is the reference implementation: references/orders-precedent.md maps every shape (BomQueue / register lists, the header section, a parent line with nested children under it, the data-grid-style=\"sheet\" spreadsheet table, the matrix-grid.ts size matrix that never folds to cards, fullBleed vs sm sub-detail sheets, masterDetail / ProcessFoldList, Style column vs StyleIdentityBand, computed figures) and the eight ways Sample Entry diverged while obeying the prose. This skill should be used when building or changing any screen under app/(app), when choosing between Sheet and MasterFullScreen, when a record needs sections or tabs, when wiring Save or a status/workflow bar, when a list screen needs its toolbar and row actions, and whenever a screen is about to write its own grid-cols-*, col-span-* or <table>. Keys and focus are raagam-keyboard-contract's; pickers and icon fields are raagam-masters-picker-wiring's; reports are raagam-report-data's."
 ---
 
 # Raagam screen layout
@@ -41,8 +41,11 @@ their first commit:
   1366×768 laptop at 100% — `scripts/check-grid-budget.mjs`). Over? Re-cut first — a
   narrower step for the least-harmed column, or merge two small cells (Budget's
   "FOC · Import") — and only then `forceCards` + `flatRows`.
-- **Density follows the closest Orders precedent** (`h-8` grid controls, `<Truncated>` for
-  long text). Invent nothing locally.
+- **Density follows the closest Orders precedent** — and that precedent is now **NO CELL
+  SETS ITS OWN HEIGHT** (OE, client 2026-08-21): no `className="h-8"` on a grid cell's
+  Input/Select, because pickers carry `h-9 @2xl/editor:h-8` and a flat `h-8` puts the row
+  4px out of line. `<Truncated>` for long text. Invent nothing locally. (This line used to
+  say "`h-8` grid controls"; Sample Entry copied it into 15 cells.)
 - **A warning sits UNDER THE FIELD it is about** (user 2026-09-18: "it should only show below
   the exact field"). `<Field error={…}>`, or `FieldError` in a table cell with no `Field` —
   never in a neighbouring cell (Budget printed "Enter a rate" in the AMOUNT column), never
@@ -55,15 +58,81 @@ their first commit:
 **Definition of done** for any screen change, BEFORE saying it is done:
 `npm run check:grid-budget` lists every grid you touched as an `ok` line **by name** and
 prints no `UNMEASURED` line (absent is not ok — since 2026-09-18 the check fails on props
-it cannot read); both audits show zero findings in your files. **Whoever orchestrates
+it cannot read) — and every grid const has a UNIQUE `…Columns` name, because the check
+prints names and ~7 Orders grids called plain `columns` cannot be told apart in its output;
+both audits show zero findings in your files; and every section and grid can be named
+against its row in `references/orders-precedent.md`. **Whoever orchestrates
 teammates reruns these on the teammates' actual output** — never relays "clean" from a
 report.
+
+## COPY THE ORDER MODULE'S SHAPES, NOT A SUMMARY OF THEM (STANDING, 2026-10-06)
+
+User, 2026-10-06, after Sample Entry: *"if I use that skill there [on the next module] there
+won't be UI updates like that … the new sample implement child came wrong, so update the skill
+first."* Sample Entry's spec said "matching the updated Order Entry interface". It obeyed
+every prose rule in this skill and still diverged from Order Entry in ~30 places, almost all
+in its child grids — because the prose had fallen behind what Orders actually draws.
+
+**So for any transaction screen (a document with lines), the Orders module is the reference
+implementation and `references/orders-precedent.md` is the map.** Before building, find the
+row in its "Which shape" table that matches what you are building and copy that precedent's
+props. The prose in this file says WHY; the precedent says WHAT.
+
+The eight mistakes Sample Entry made, each of which looked compliant:
+
+| Sample did | Orders does | Where |
+|---|---|---|
+| `className="h-8"` on every grid cell | No cell sets its own height | precedent §4 |
+| A size matrix as `ChildGrid` columns at a flat `num`, folding to cards past N sizes | `matrix-grid.ts` CSS grid, `sizeColPx` per column, sticky identity + Qty, never cards | §5 |
+| A line's children (Coordinates) behind a `[Click]` sheet; Sizes on a different section | Inline UNDER the line — nested `ChildGrid narrow frameless`, `MultiSelect` sizes | §3 |
+| A `ToggleGroup` style switcher above per-style grids | A Style column (multi-style) or `StyleIdentityBand` (one style); Quantities is one grid | §8 |
+| Quantities as `forceCards flatRows` with `party` widths | `data-grid-style="sheet"` table, compact steps, `removeHeader="Actions"` | §4 |
+| A band of read-only context inputs atop the Assortment; carton fields | Context in the sheet `title`; carton block withdrawn 2026-08-19 | §6 |
+| Computed qty as read-only `<Input>`s | `tabular-nums` spans / `derivedQtyCell` | §9 |
+| Unit defaulted to PCS; Coordinates greyed to "—" for PCS | Unit blank + `required`; PCS seeds PIECES, still editable | §3 |
+
+Also: `<SectionBody title>` on every section (OE wraps only the header section), `sub: true`
+rail rows for a flat document, read-only minted numbers in `w="code"` boxes (OE sizes them to
+content), and no `problems` / `stepper` on the rail.
+
+**ROUND TWO — WHAT ONLY THE BROWSER SHOWED** (user 2026-10-06, the same day, after the
+code-level rebuild: "using chrome browser compare the order module and the sample module").
+The code matched the precedent grid for grid and the two screens still looked like two
+applications, because the biggest differences are not in the screen file at all:
+
+| Difference seen side by side | Cause | Fix |
+|---|---|---|
+| Grey field boxes, grey Filters, solid-blue primary vs Orders' green boxes, green-outlined search/Filters, light-blue primary | **The RAAGAM SKIN.** `app/(app)/orders/layout.tsx` wraps Orders in `<SkinProvider skin="raagam">`; Sales had no layout | A `layout.tsx` with the same provider on the new route (precedent §0). **Check this FIRST — it is one file and it is most of the look** |
+| Rail showed 2 of 5 sections; Styles / Combos / Quantities invisible on a new record | `sub: true` makes a COLLAPSIBLE group, closed until entered (`groupOpen` in master-full-screen.tsx) | Flat rail, as Order Entry's eleven sections are |
+| "SE" initials header over an overlay | Overlay mount | `mount="page"` + Order Entry's own header band (precedent §2a) |
+| No Pending · Updated · Draft box; table scrolled sideways; eye + Status column | Plain FilterBar + default DataTable | `leading={useQuickStatus(...).segment}`, `compact`, `text-xs` cells, `view={false}`, the box replaces the Status column (§1A′) |
+| Inherited values as rows of read-only boxes | Read-only `<Input>`s | A label · value `<dl>` band, StyleIdentityBand type (§2b) |
+| Billable as a No/Yes segmented control | `Segmented` | `Toggle`, like Pack / Multi Style |
+| Amber sentence under a total | prose warning | Order Entry's "N of M allocated · K remaining" strip (§5) |
+| "Coordinates / Coordinate" | `narrow` grid's phone cards print the column header under the Field's label | blank the inner column `header` |
+
+**So the definition of done for a screen that copies Orders now includes looking at it next
+to its precedent in a browser** — `localhost:3001` serves this repo's dev server (3000 is a
+different app; curl the `<title>`). Every row above passed tsc, lint, both audits and
+`check:grid-budget`.
+
+**A spec's ASCII mock or field table is the DATA, not the layout.** "Copied from Order Entry"
+in a spec means copy Order Entry's current code — including what the client has since
+withdrawn from it (the Assortment's context band and cartons, Quantities' Discharge Port).
+Where the spec still lists something Orders withdrew, ask before restoring it.
+
+**Orders has its own drift** (listed at the end of the precedent file) — copy the shapes the
+table names, not whatever file happens to be nearest.
 
 ## Pick the surface
 
 ```
 Is it a LIST of records?
-  └─ yes → MasterListShell            components/masters/master-list-shell.tsx
+  ├─ master / reference data   → MasterListShell   components/masters/master-list-shell.tsx
+  ├─ a document work queue     → BomQueue (+ OrderQueueTable)   components/orders/bom-queue.tsx
+  └─ a register with filters   → PageHeader + FilterBar(useQuickStatus, useFacetFilter)
+                                 + w-fit DataTable(hugCreated(withCreatedColumns(…)))
+                                 — orders-precedent.md §1
 
 Editing ONE record — how many fields?
   ├─ ≤ 7, no child grid    → Sheet + one DetailSection
@@ -121,8 +190,19 @@ the label text — so the red star had nothing behind it and `useRequiredHold` n
 on that screen at all. A field that is not in a section is a field the primitives cannot
 see. `amendment-screen.tsx`'s "Order Info" is the same move.
 
-**2. NO `problems` BADGE ON THE RAIL.** Pass `done`, never `problems`. A section with a
-blank mandatory field shows the quiet empty dot, not a red count.
+**2. NO `problems` BADGE ON THE RAIL — on the screens it was given for.** Pass `done`,
+never `problems`. A section with a blank mandatory field shows the quiet empty dot, not a
+red count.
+
+> **Scope, recorded 2026-10-06.** This rule was given on Material BOM Amendment and
+> Fabric BOM still follows it. **Order Entry does NOT** — it passes
+> `problems: validity.bySection[key]` on every section plus a footer `extra` "N to fix"
+> link, with its own reasoning (OE `orderInfoSection`: without the count "every field
+> blocking the save showed a hollow dot while the two sections the operator had filled
+> showed green ones"). Budget passes it on its sub rows. The skill used to say both things
+> at once (this rule, and "Sections" below). **A new transaction screen copies Order
+> Entry: `problems` from `bySection`, `extra`, `onBlockedSave`.** A screen converted on
+> the MBA pattern keeps rule 2. Either way `onBlockedSave` is mandatory.
 
 This one IS a real loss and the operator accepted it knowingly: one section is mounted at
 a time, so the badge was the only thing that could say WHICH section blocked Save before
@@ -135,7 +215,14 @@ Keep `sectionValidity` regardless: `canSave` must stay DERIVED (rule 5 below). O
 `bySection` output goes unused.
 
 **3. THE EDITOR COVERS THE APP CHROME.** `mount="overlay"` for a record editor that is a
-mode of its list route. A page mount left the module sidebar beside the section rail, so
+mode of its list route.
+
+> **Scope, recorded 2026-10-06.** This rule came from Material BOM Amendment. **Order
+> Entry is a `mount="page"` editor under its own header band** (precedent §2a), and the
+> app sidebar now steps aside for page editors too (6261e14), so a page mount no longer
+> puts two navigation lists on screen. A screen whose spec says "match Order Entry" copies
+> the page mount and the band; Sample Entry shipped as an overlay with an initials header
+> and was the first thing that read as a different app. A page mount left the module sidebar beside the section rail, so
 entering a record put TWO navigation lists on screen — the app's and the record's — and
 left ~1090px for a 13-column grid.
 
@@ -207,6 +294,13 @@ stacked four to a row. `fieldWidthStep(c.width)` (`components/ui/field.tsx`) rea
 column's own step back out of its `FIELD_WIDTH_CSS` width, so the card and the table are
 one declaration: Reqd is 88px in both, and a long line folds onto two lines instead of
 growing. `align="start"` because a cell's error renders under its control.
+
+**A SIZE-ACROSS MATRIX IS NOT A WIDE GRID** and none of this rule applies to it. When the
+columns ARE a size run (size × colour, size × rate), draw it with
+`components/orders/matrix-grid.ts` — per-label `sizeColPx` widths, sticky identity and Qty,
+one horizontal scroll inside its own frame, never cards (`references/orders-precedent.md`
+§5). Folding a matrix to cards past N sizes is what Sample Entry's Combos and Assortment did:
+each card a FieldRow of size boxes with no shared header.
 
 **A fixed-width table is the FIRST choice at any column count** once every column declares
 a vocabulary width and the sum + 72px fits 1155px with `tableFrom="5xl"` (see "BUILD IT
@@ -354,7 +448,24 @@ the client on 2026-08-17. A rule about a field's box does not reach a page's sub
 
 `FullScreenSection` carries `done` (a quiet "has data" dot) and `problems` (a red
 count). Derive `problems` from `sectionValidity().bySection` so a red badge and a
-cursor that refuses to leave a field always mean the same thing.
+cursor that refuses to leave a field always mean the same thing (see the scope note on
+operator's rule 2 for which screens pass it).
+
+`done` comes from a `sectionDone` map built with `has(rows)` — a SEEDED blank row must
+not light the dot, and a minted number never marks a section done.
+
+**Rail rows are flat for a document.** `sub: true` is NOT indentation alone: the rail
+treats a run of `sub` rows as a COLLAPSIBLE GROUP under the row above it, closed until the
+operator enters it (`groupOpen` in `master-full-screen.tsx`). On a new Sample Entry that
+hid Styles, Combos and Quantities entirely — the rail read "Sample Info · Product Info".
+`sub` is for splitting ONE long section's fields into headings the operator opens on
+purpose (HR Person, client 2026-09-11); `groupOnly` is a parent that owns no pane (Budget's
+cost kinds). Order Entry, with eleven sections, uses neither — and a spec drawing sub-tabs
+does not change that (Sample's did, and the rail hid its grids).
+
+**`<SectionBody title>` wraps the header section only.** A section whose content is one grid
+passes the grid bare — the rail row already names it (OE: "NO WRAPPER"), the same reasoning
+as dropping a grid's `label` caption.
 
 Only one section is mounted at a time. **A blank mandatory field on an inactive
 section has no DOM node**, so validity is computed from state — the DOM is consulted
@@ -377,7 +488,11 @@ fourth copy is a fourth thing to keep true.
 
 ## Building a screen
 
-1. **Copy a template** rather than starting from prose:
+0. **For a document with lines, open `references/orders-precedent.md` first** and pick
+   the precedent for every section and every grid before writing any JSX. Name them in
+   your plan ("Quantities = OE Quantities §4; Combos size matrix = matrix-grid §5").
+1. **Copy a template** rather than starting from prose (the templates cover the shell,
+   the header fields and the save model; the precedent covers the grids):
    - `assets/list-master-screen.tsx.template` — list + `Sheet` editor
    - `assets/rail-screen.tsx.template` — `MasterFullScreen mount="page"` with sections,
      derived `canSave`, problem badges and the footer

@@ -94,10 +94,10 @@ export function AdjustmentsClient({ rows, employees, canCreate, canEdit, canDele
       cell: (r) => (
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "active" && (
-            <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => endAdjustment(r.id), "Ended")}>End</Button>
+            <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => endAdjustment(r.id), "Ended")}>End</Button>
           )}
           {canDelete && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteAdjustment(r.id), "Deleted")}>Del</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteAdjustment(r.id), "Deleted")}>Del</Button>
           )}
         </div>
       ),

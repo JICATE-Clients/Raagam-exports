@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { DATE_MAX } from "@/components/ui/input";
 
@@ -66,15 +67,12 @@ export function AnalyticsFiltersBar({
           ))}
         </Select>
       </label>
-      <button
-        type="submit"
-        className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground active:scale-95"
-      >
+      <Button type="submit" size="sm">
         Apply
-      </button>
+      </Button>
       <Link
         href="/analytics"
-        className="flex h-8 items-center rounded-md border border-border px-3 text-xs font-medium text-muted-foreground hover:bg-surface-muted"
+        className={buttonClasses({ variant: "outline", size: "sm" })}
       >
         Reset
       </Link>

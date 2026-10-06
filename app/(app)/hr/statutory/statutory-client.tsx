@@ -92,10 +92,10 @@ export function StatutoryClient({ rows, employees, canCreate, canEdit, canDelete
       cell: (r) => (
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "draft" && (
-            <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => fileStatutory(r.id), "Marked filed")}>File</Button>
+            <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => fileStatutory(r.id), "Marked filed")}>File</Button>
           )}
           {canDelete && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteStatutory(r.id), "Deleted")}>Del</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteStatutory(r.id), "Deleted")}>Del</Button>
           )}
         </div>
       ),
