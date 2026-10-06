@@ -157,32 +157,95 @@ export async function createUserFromStaff(input: {
   return { ok: true, email, userId: authData.user.id, ...delivery };
 }
 
+/**
+ * BRING THE LOGIN ONTO THE HR EMAIL BEFORE MAILING IT (user 2026-10-06).
+ *
+ * A login is created from HR ▸ Staff with the email typed there AT THE TIME.
+ * Correcting a mistyped email in HR afterwards changed only `staff.email`, and
+ * this resend read the LOGIN's email — so every resend went back to the typo
+ * while the Users screen (which lists the HR email) looked corrected. ST-71906
+ * received seven sends at the wrong address that way.
+ *
+ * HR is the source (the header: "a login and a person cannot disagree"), so
+ * when the staff row's email differs, the login follows it, in three steps:
+ *   1. the Auth user — first, because it is the one that can refuse (the
+ *      address already belongs to another login);
+ *   2. the person's ACCESS — keyed by email, not by login, so it is moved by
+ *      `rekey_user_email` (0687) in one transaction; skipping it would sign the
+ *      person in with no units and no permissions. On failure step 1 is undone;
+ *   3. `profiles.email`.
+ * No staff row, or no valid email on it, leaves the login as it is.
+ */
+async function syncLoginEmailFromHr(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  loginEmail: string,
+  employeeCode: string | null,
+): Promise<{ ok: true; email: string } | Fail> {
+  if (!employeeCode) return { ok: true, email: loginEmail };
+  const { data: staff, error } = await admin.from("staff").select("email").eq("code", employeeCode).limit(1).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  const hrEmail = ((staff as { email: string | null } | null)?.email ?? "").trim().toLowerCase();
+  if (!hrEmail || hrEmail === loginEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hrEmail)) {
+    return { ok: true, email: loginEmail };
+  }
+
+  const { data: taken } = await admin.from("profiles").select("id").ilike("email", hrEmail).neq("id", userId).limit(1);
+  if ((taken ?? []).length > 0) {
+    return { ok: false, error: `${hrEmail} (the email in HR & Payroll ▸ People ▸ Staff) already belongs to another login.` };
+  }
+
+  const { error: authErr } = await admin.auth.admin.updateUserById(userId, { email: hrEmail, email_confirm: true });
+  if (authErr) return { ok: false, error: `Could not change the login to ${hrEmail}: ${authErr.message}` };
+
+  const { error: rekeyErr } = await admin.rpc("rekey_user_email", { p_old: loginEmail, p_new: hrEmail });
+  if (rekeyErr) {
+    await admin.auth.admin.updateUserById(userId, { email: loginEmail, email_confirm: true });
+    return { ok: false, error: `Could not move this person's access to ${hrEmail}: ${rekeyErr.message}` };
+  }
+
+  const { error: profErr } = await admin.from("profiles").update({ email: hrEmail }).eq("id", userId);
+  if (profErr) return { ok: false, error: profErr.message };
+
+  await writeAudit({
+    action: "user.email_changed",
+    entityType: "profile",
+    entityId: userId,
+    metadata: { from: loginEmail, to: hrEmail, source: "hr_staff" },
+  });
+  return { ok: true, email: hrEmail };
+}
+
 export async function resendWelcome(userId: string): Promise<Delivered | Fail> {
   if (!(await can("system_admin", "edit"))) return { ok: false, error: "Forbidden" };
   const admin = createAdminClient();
   const { data: prof, error } = await admin
     .from("profiles")
-    .select("id, email, full_name, is_active, is_super_admin")
+    .select("id, email, full_name, employee_code, is_active, is_super_admin")
     .eq("id", userId)
     .maybeSingle();
   if (error) return { ok: false, error: error.message };
-  const p = prof as { id: string; email: string | null; full_name: string | null; is_active: boolean; is_super_admin: boolean } | null;
+  const p = prof as { id: string; email: string | null; full_name: string | null; employee_code: string | null; is_active: boolean; is_super_admin: boolean } | null;
   if (!p?.email) return { ok: false, error: "That user has no email." };
   if (!p.is_active) return { ok: false, error: "That login is deactivated." };
   if (p.is_super_admin) return { ok: false, error: "A super admin's password is not reset from here." };
+
+  const loginEmail = p.email.trim().toLowerCase();
+  const synced = await syncLoginEmailFromHr(admin, p.id, loginEmail, p.employee_code);
+  if (!synced.ok) return synced;
+  const email = synced.email;
 
   const password = tempPassword();
   const { error: pwErr } = await admin.auth.admin.updateUserById(p.id, { password });
   if (pwErr) return { ok: false, error: pwErr.message };
   await admin.from("profiles").update({ must_change_password: true }).eq("id", p.id);
 
-  const email = p.email.trim().toLowerCase();
   const delivery = await deliver(email, p.full_name, password, true);
   await writeAudit({
     action: "user.welcome_resent",
     entityType: "profile",
     entityId: p.id,
-    metadata: { email, emailed: delivery.emailed },
+    metadata: { email, emailed: delivery.emailed, ...(email !== loginEmail ? { previous_email: loginEmail } : {}) },
   });
   revalidatePath("/admin/users");
   return { ok: true, email, ...delivery };

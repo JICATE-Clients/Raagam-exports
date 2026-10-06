@@ -178,6 +178,7 @@ export function FileAttachments({
   styleRefNo = null,
   primaryToggle = false,
   printToggle = false,
+  kinds = ATTACHMENT_KINDS,
 }: {
   rows: AttachmentRow[];
   onChange: (next: AttachmentRow[]) => void;
@@ -249,6 +250,17 @@ export function FileAttachments({
    * `<img>`, and a flagged PDF would be a promise the print cannot keep.
    */
   printToggle?: boolean;
+  /**
+   * The document types the per-row kind `<Select>` offers, and the vocabulary
+   * an upload's guess is drawn from — defaults to the Garment Order's three.
+   * Sample Entry (0686) relabels them Garment Image / Tech Pack: a buyer's tech
+   * pack labelled "Buyer Order Sheet" would be the wrong word on every row.
+   * Relabel, never add a value — `AttachmentKind` feeds Order Entry's Zod enum,
+   * and a fourth member there is a type error in a screen that never sees it. The
+   * guess stays the mime type's: an image is the first kind, a PDF the first
+   * kind that is not `sketch`.
+   */
+  kinds?: { value: AttachmentKind; label: string }[];
   /**
    * WHICH HALF OF THE PANEL TO DRAW, so the add control can sit in a field row
    * while the files it adds stay full width (client 2026-08-26, screenshot 2496:
@@ -376,7 +388,10 @@ export function FileAttachments({
           key: crypto.randomUUID(),
           // Guessed from the type and never final — the operator can re-label
           // it. A PDF is far more often the order sheet than a sketch.
-          doc_kind: file.type === "application/pdf" ? "order_sheet" : "sketch",
+          doc_kind:
+            file.type === "application/pdf"
+              ? (kinds.find((k) => k.value !== "sketch")?.value ?? "")
+              : (kinds.find((k) => k.value === "sketch")?.value ?? kinds[0]?.value ?? ""),
           file_name: file.name,
           storage_path: path,
           mime_type: file.type,
@@ -866,6 +881,7 @@ export function FileAttachments({
         row={r}
         bucket={bucket}
         disabled={disabled}
+        kinds={kinds}
         onOpen={() => open(r)}
         onPatch={(patch) =>
           onChange(rows.map((x) => (x.key === r.key ? { ...x, ...patch } : x)))
@@ -1111,6 +1127,7 @@ function AttachmentRowItem({
   row: r,
   bucket,
   disabled,
+  kinds,
   onOpen,
   onPatch,
   onRemove,
@@ -1118,6 +1135,7 @@ function AttachmentRowItem({
   row: AttachmentRow;
   bucket: string;
   disabled?: boolean;
+  kinds: { value: AttachmentKind; label: string }[];
   onOpen: () => void;
   onPatch: (patch: Partial<AttachmentRow>) => void;
   onRemove: () => void;
@@ -1182,7 +1200,7 @@ function AttachmentRowItem({
         onChange={(e) => onPatch({ doc_kind: e.target.value as AttachmentKind | "" })}
       >
         <option value=""></option>
-        {ATTACHMENT_KINDS.map((k) => (
+        {kinds.map((k) => (
           <option key={k.value} value={k.value}>
             {k.label}
           </option>

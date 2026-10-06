@@ -14,6 +14,7 @@
  * "Mandatory fields").
  */
 import { z } from "zod";
+import type { AttachmentKind, AttachmentRow } from "@/components/ui/file-attachments";
 import { capsName, capsTextNullable } from "@/lib/validation/formats";
 import { COORDINATE_LIMITS, coordinateCountMessage, isUnitKind, type UnitKind } from "@/lib/orders/styles/rules";
 import {
@@ -45,14 +46,10 @@ export const ENQUIRY_ACTIONS = [
   { value: "quote_development", label: "Quote and Development" },
 ] as const satisfies readonly Opt<string>[];
 
-/** Spec §3.1. Stored in capitals (AGENTS.md "CAPITALS"). */
-export const SEASONS = [
-  { value: "AUTUMN", label: "Autumn" },
-  { value: "SPRING", label: "Spring" },
-  { value: "SUMMER", label: "Summer" },
-  { value: "WINTER", label: "Winter" },
-  { value: "ALL", label: "All" },
-] as const satisfies readonly Opt<string>[];
+/* SEASON IS NOT A VOCABULARY HERE ANY MORE (client 2026-10-06): it is a row of
+   the Season master (`seasons`, Master Data ▸ System ▸ Season), the quarterly
+   buying cycles Q1–Q4 — `header.season_id`. 0686 copies the master's name into
+   the old `season` text for the screens that still read it. */
 
 /** Received / Receipt Mode — the spec's words over 0368's stored codes. */
 export const RECEIPT_MODES = [
@@ -61,7 +58,9 @@ export const RECEIPT_MODES = [
   { value: "DIRECT", label: "Hand Delivery" },
 ] as const satisfies readonly Opt<string>[];
 
-/** Delivery To — free text on both tables, so the stored value is the word. */
+/** Delivery To — free text on both tables, so the stored value is the word.
+ *  OFF THE SCREEN since 2026-10-06 (client); kept so a value an older entry
+ *  holds still validates as it passes through a save. */
 export const DELIVERY_TO = [
   { value: "AGENT", label: "Agent" },
   { value: "CUSTOMER DIRECT", label: "Customer Direct" },
@@ -88,6 +87,17 @@ export const SHIP_MODES = [
   { value: "COURIER", label: "Courier" },
 ] as const satisfies readonly Opt<string>[];
 
+/**
+ * The Sample's attachment kinds (0686) — the `kinds` FileAttachments offers.
+ * The component's value set is Order Entry's, so the Tech Pack rides in the
+ * `order_sheet` slot ON SCREEN and is stored as `tech_pack` (`sample_style_files`
+ * CHECK): mapped once at load (service.ts) and once at save (below).
+ */
+export const SAMPLE_FILE_KINDS: { value: AttachmentKind; label: string }[] = [
+  { value: "sketch", label: "Garment Image" },
+  { value: "order_sheet", label: "Tech Pack" },
+];
+
 export function labelOf(xs: readonly Opt<string>[], v: string | null | undefined): string {
   return xs.find((x) => x.value === v)?.label ?? (v ?? "");
 }
@@ -103,11 +113,19 @@ export type SampleHeaderDraft = {
   customer_id: string | null;
   /** DERIVED from the customer master (spec §3.1 "Country: Text (Auto)"). */
   country_id: string | null;
-  season: string;
+  /** A Season master row (0686) — Q1 … Q4. */
+  season_id: string | null;
   season_year: string;
+  /** NOT ON SCREEN since 2026-10-06 (client: Cust Ref removed) — carried so an
+   *  older entry's value survives a save unchanged. */
   customer_reference: string;
+  /** A VENDOR (0686): Service Provider ▸ Buying Agent / Service Agent. */
   agent_id: string | null;
   receipt_mode: string;
+  /** Receipt Dt — moved onto the header beside Received Mode (client
+   *  2026-10-06); every line inherits it. */
+  receipt_date: string;
+  /** Not on screen since 2026-10-06 — carried like `customer_reference`. */
   delivery_to: string;
   delivery_mode: string;
   /** Order Entry's "Multi Order" switch (0685): each destination names its own
@@ -117,8 +135,10 @@ export type SampleHeaderDraft = {
 
 export type CoordinateDraft = { key: string; coordinate_id: string | null };
 
-/** A combo (colourway) and its size-wise piece counts, keyed by size name. */
-export type ComboDraft = { key: string; combo: string; extra_qty: string; sizes: Record<string, string> };
+/** A combo (colourway) and its size-wise piece counts, keyed by size name.
+ *  NO EXTRA QTY (client 2026-10-06): the total pieces wanted are typed straight
+ *  into the size matrix, so the matrix total IS the combo's quantity. */
+export type ComboDraft = { key: string; combo: string; sizes: Record<string, string> };
 
 /**
  * One line of a destination's Assortment — Order Entry's `AssortLineRow`
@@ -199,6 +219,10 @@ export type StyleDraft = {
   ship_mode: string;
   currency_code: string | null;
   price: string;
+  /** Billable only (0686). Local Value = Price × Exchange Rate, derived. */
+  exchange_rate: string;
+  /** Garment images + the buyer's tech pack (0686, `sample_style_files`). */
+  files: AttachmentRow[];
   coordinates: CoordinateDraft[];
   sizes: string[];
   combos: ComboDraft[];
@@ -220,7 +244,7 @@ export type InheritedField = (typeof INHERITED)[number];
 export function headerValueFor(h: SampleHeaderDraft, f: InheritedField): string {
   switch (f) {
     case "receipt_date":
-      return h.received_date;
+      return h.receipt_date;
     case "agent_id":
       return h.agent_id ?? "";
     default:
@@ -243,7 +267,7 @@ const hasQty = (r: Record<string, string>) => Object.values(r).some((v) => v.tri
 
 export const isBlankStyle = (s: StyleDraft) =>
   !s.name.trim() && !s.article_no.trim() && !s.description.trim() && !s.sample_qty.trim() && !s.delivery_date;
-export const isBlankCombo = (c: ComboDraft) => !c.combo.trim() && !c.extra_qty.trim() && !hasQty(c.sizes);
+export const isBlankCombo = (c: ComboDraft) => !c.combo.trim() && !hasQty(c.sizes);
 export const isBlankAssortLine = (l: AssortLineDraft) =>
   !l.combo.trim() && !hasQty(l.sizes) && !l.no_of_cartons.trim() && !l.inners_per_carton.trim();
 export const isBlankQuantity = (q: QuantityDraft) =>
@@ -263,7 +287,19 @@ const num = (v: string) => {
 
 /** Spec §5.2 — Sample Order Qty is the sum of the combo's size quantities. */
 export const comboOrderQty = (c: ComboDraft, sizes: string[]) => sizes.reduce((t, z) => t + num(c.sizes[z] ?? ""), 0);
-export const comboTotalQty = (c: ComboDraft, sizes: string[]) => comboOrderQty(c, sizes) + num(c.extra_qty);
+
+/**
+ * BILLABLE: Local Value = Sample Unit Price × Exchange Rate (client
+ * 2026-10-06). DERIVED, NEVER STORED — Order Entry's INR Value rule: a column
+ * holding the product of two stored columns is a third number that can
+ * disagree. Null until both halves are there, so a half-typed line shows
+ * nothing rather than a zero that reads as a price.
+ */
+export function sampleLocalValue(s: Pick<StyleDraft, "price" | "exchange_rate">): number | null {
+  const p = num(s.price);
+  const r = num(s.exchange_rate);
+  return p > 0 && r > 0 ? Math.round(p * r * 1e4) / 1e4 : null;
+}
 /**
  * ORDER ENTRY'S ASSORTMENT ARITHMETIC, NOT A COPY OF IT — `qty-balance.ts` is a
  * pure module (no imports), so the screen and the server read the one rule:
@@ -382,6 +418,9 @@ export function sampleEntryProblems(
         add({ section: "product", ...at, fieldId: "se-pi-currency", label: "Currency", message: `${who} is billable: choose the Currency.`, strict: true });
       if (!(num(s.price) > 0))
         add({ section: "product", ...at, fieldId: "se-pi-price", label: "Price", message: `${who} is billable: enter the Price.`, strict: true });
+      // Order Entry's Ex-Rate rule: blank or 0 is missing (INR fills 1).
+      if (!(num(s.exchange_rate) > 0))
+        add({ section: "product", ...at, fieldId: "se-pi-exrate", label: "Exchange Rate", message: `${who} is billable: enter the Exchange Rate.`, strict: true });
     }
 
     const combos = s.combos.filter((c) => !isBlankCombo(c));
@@ -472,11 +511,12 @@ export const sampleEntryInput = z
     enquiry_action: enumOf(ENQUIRY_ACTIONS),
     customer_id: uuid,
     country_id: optUuid,
-    season: enumOf(SEASONS),
+    season_id: optUuid,
     season_year: z.coerce.number().int().min(2000).max(2100).nullable().optional(),
     customer_reference: caps(),
     agent_id: optUuid,
     receipt_mode: enumOf(RECEIPT_MODES),
+    receipt_date: optDate,
     delivery_to: enumOf(DELIVERY_TO),
     delivery_mode: enumOf(DELIVERY_MODES),
     is_draft: z.boolean(),
@@ -514,6 +554,18 @@ export const sampleEntryInput = z
           ship_mode: enumOf(SHIP_MODES),
           currency_code: z.string().min(1).nullable().optional(),
           price: optNum,
+          exchange_rate: optNum,
+          files: z.array(
+            z.object({
+              sno: z.number().int(),
+              doc_kind: z.enum(["sketch", "tech_pack"]).nullable(),
+              // caps-input: exempt -- a file name is the operator's file, kept as uploaded.
+              file_name: z.string().trim().min(1).max(255),
+              storage_path: z.string().min(1).max(512),
+              mime_type: z.string().max(120).nullable(),
+              size_bytes: z.number().int().min(0).nullable(),
+            }),
+          ),
           coordinates: z.array(z.object({ sno: z.number().int(), coordinate_id: uuid })),
           sizes: z.array(z.object({ sno: z.number().int(), garment_size: z.string().min(1) })),
           combos: z.array(
@@ -521,7 +573,6 @@ export const sampleEntryInput = z
               sno: z.number().int(),
               combo: capsName("Name the combo colour"),
               order_qty: optNum,
-              extra_qty: optNum,
               sizes: z.array(z.object({ sno: z.number().int(), garment_size: z.string().min(1), order_qty: optNum })),
             }),
           ),
@@ -578,6 +629,7 @@ export const sampleEntryInput = z
       if (!s.merchandiser_id) fail(`${s.name}: choose the Merchandiser.`);
       if (s.billable && !s.currency_code) fail(`${s.name}: choose the Currency.`);
       if (s.billable && !(Number(s.price) > 0)) fail(`${s.name}: enter the Price.`);
+      if (s.billable && !(Number(s.exchange_rate) > 0)) fail(`${s.name}: enter the Exchange Rate.`);
       if (!s.unit_kind) fail(`${s.name}: Order Unit is required — Pcs or Set.`);
       if (s.coordinates.length === 0) fail(`${s.name}: Name at least one coordinate.`);
       if (s.sizes.length === 0) fail(`${s.name}: Tick at least one size.`);
@@ -606,11 +658,12 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
       enquiry_action: orNull(h.enquiry_action),
       customer_id: h.customer_id ?? "",
       country_id: h.country_id,
-      season: orNull(h.season),
+      season_id: h.season_id,
       season_year: orNull(h.season_year),
       customer_reference: orNull(h.customer_reference),
       agent_id: h.agent_id,
       receipt_mode: orNull(h.receipt_mode),
+      receipt_date: orNull(h.receipt_date),
       delivery_to: orNull(h.delivery_to),
       delivery_mode: orNull(h.delivery_mode),
       is_draft: isDraft,
@@ -648,6 +701,17 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
         ship_mode: s.billable ? (orNull(s.ship_mode)) : null,
         currency_code: s.billable ? s.currency_code : null,
         price: s.billable ? orNull(s.price) : null,
+        exchange_rate: s.billable ? orNull(s.exchange_rate) : null,
+        files: s.files
+          .filter((f) => !!f.storage_path)
+          .map((f, fi) => ({
+            sno: fi + 1,
+            doc_kind: f.doc_kind === "sketch" ? "sketch" : f.doc_kind === "order_sheet" ? "tech_pack" : null,
+            file_name: f.file_name,
+            storage_path: f.storage_path,
+            mime_type: f.mime_type || null,
+            size_bytes: Number.isFinite(f.size_bytes) ? f.size_bytes : null,
+          })),
         // A PCS line keeps its one coordinate (PIECES, prefilled — Order Entry's
         // rule, client 2026-08-29), a SET its two to six.
         coordinates: s.coordinates
@@ -661,7 +725,6 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
             sno: ci + 1,
             combo: c.combo,
             order_qty: comboOrderQty(c, s.sizes),
-            extra_qty: orNull(c.extra_qty),
             sizes: s.sizes
               .filter((z) => orNull(c.sizes[z] ?? "") != null)
               .map((z, zi) => ({ sno: zi + 1, garment_size: z, order_qty: orNull(c.sizes[z] ?? "") })),

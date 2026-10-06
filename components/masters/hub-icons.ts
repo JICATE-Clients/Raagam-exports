@@ -115,6 +115,8 @@ export const MASTER_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   // icons, wanting the new TA Approvals tile to match rather than draw the
   // generic `Tag`). A rubber stamp for a dictionary of technical sign-offs.
   "ta-approvals": { icon: Stamp, tone: "accent" },
+  // Sample Entry's buying seasons, Q1 – Q4 (2026-10-06).
+  season: { icon: CalendarDays, tone: "primary" },
 
   /**
    * ASSOCIATES (client 2026-09-08, "all items in Associates use the same blue

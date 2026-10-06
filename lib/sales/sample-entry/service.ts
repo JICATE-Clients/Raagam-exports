@@ -35,7 +35,7 @@ import type {
  */
 
 export type PickerRow = { id: string; code: string | null; name: string } & Deactivatable;
-export type CustomerOption = PickerRow & { country_id: string | null; agent_ids: string[] };
+export type CustomerOption = PickerRow & { country_id: string | null };
 export type MerchandiserOption = PickerRow & { is_merchandiser: boolean };
 export type ConsigneeOption = PickerRow & { customer_id: string | null };
 export type FabricOption = PickerRow & { category_id: string | null };
@@ -45,8 +45,13 @@ export type SampleEntryFormData = {
   merchandisers: MerchandiserOption[];
   countries: Country[];
   currencies: Currency[];
-  /** Every config_lookups kind — agent, ship_type, size, assortment_type, fabric_color. */
+  /** Every config_lookups kind — ship_type, size, assortment_type, fabric_color. */
   lookups: ConfigLookup[];
+  /** Season master rows (0686) — the quarterly buying cycles Q1–Q4. */
+  seasons: PickerRow[];
+  /** Agent = a VENDOR classified Service Provider ▸ Buying Agent / Service
+   *  Agent (client 2026-10-06), plus any vendor a saved entry already names. */
+  agents: (PickerRow & { qualifies: boolean })[];
   consignees: ConsigneeOption[];
   ports: PickerRow[];
   /** A COORDINATE IS A GARMENT (0396) — `items` of class GAR. */
@@ -68,23 +73,59 @@ async function classIds(code: string): Promise<Set<string>> {
   );
 }
 
+/* THE CUSTOMER-AGENT PREFILL IS GONE (0686). `customer_agents.agent_id` names
+   the old `agent` config lookup, and Agent is a vendor now — an id from one
+   list cannot fill a picker over the other. */
 async function getCustomers(): Promise<CustomerOption[]> {
   const s = await createClient();
-  const [{ data, error }, { data: agents, error: agentError }] = await Promise.all([
-    s.from("customers").select("id, code, name, inactive, country_id").order("name"),
-    s.from("customer_agents").select("customer_id, agent_id, sno").order("sno"),
-  ]);
+  const { data, error } = await s.from("customers").select("id, code, name, inactive, country_id").order("name");
   if (error) throw new Error(`Could not load customers: ${error.message}`);
-  if (agentError) throw new Error(`Could not load customer agents: ${agentError.message}`);
-  const byCustomer = new Map<string, string[]>();
-  for (const a of (agents ?? []) as { customer_id: string; agent_id: string | null }[]) {
-    if (!a.agent_id) continue;
-    byCustomer.set(a.customer_id, [...(byCustomer.get(a.customer_id) ?? []), a.agent_id]);
-  }
-  return ((data ?? []) as (PickerRow & { country_id: string | null })[]).map((c) => ({
-    ...c,
-    agent_ids: byCustomer.get(c.id) ?? [],
-  }));
+  return (data ?? []) as CustomerOption[];
+}
+
+/** Season master (0308; Q1–Q4 seeded by 0686). The flag is SELECTED, never
+ *  filtered: a season an entry already holds must still resolve. */
+async function getSeasons(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data, error } = await s.from("seasons").select("id, code:season, name:season_name, inactive").order("season_name");
+  if (error) throw new Error(`Could not load seasons: ${error.message}`);
+  return ((data ?? []) as (PickerRow & { name: string | null })[]).map((r) => ({ ...r, name: r.name ?? r.code ?? "" }));
+}
+
+/** The vendor service types that make a vendor an Agent (0686 seeds both). */
+const AGENT_SERVICE_TYPES = ["BUYING AGENT", "SERVICE AGENT"];
+
+/**
+ * Agent — Vendor master, Service Provider ▸ Buying Agent / Service Agent
+ * (client 2026-10-06). A vendor qualifies when it Is Service Provider AND one
+ * of its Service rows names either type. Every vendor is fetched so a held
+ * agent the vendor master has since re-classified still resolves; the screen
+ * offers only the qualifying ones plus the one a record holds.
+ */
+async function getAgents(): Promise<(PickerRow & { qualifies: boolean })[]> {
+  const s = await createClient();
+  const [{ data: vendors, error }, { data: services, error: svcError }, { data: types, error: typeError }] =
+    await Promise.all([
+      s.from("master_vendors").select("id, code, name, inactive, is_service_provider").order("name"),
+      s.from("master_vendor_services").select("vendor_id, service_type_id"),
+      s.from("config_lookups").select("id, name").eq("kind", "vendor_service_type"),
+    ]);
+  if (error) throw new Error(`Could not load vendors: ${error.message}`);
+  if (svcError) throw new Error(`Could not load vendor services: ${svcError.message}`);
+  if (typeError) throw new Error(`Could not load vendor service types: ${typeError.message}`);
+  const agentTypes = new Set(
+    ((types ?? []) as { id: string; name: string }[])
+      .filter((t) => AGENT_SERVICE_TYPES.includes(t.name.trim().toUpperCase()))
+      .map((t) => t.id),
+  );
+  const agentVendors = new Set(
+    ((services ?? []) as { vendor_id: string; service_type_id: string | null }[])
+      .filter((r) => r.service_type_id && agentTypes.has(r.service_type_id))
+      .map((r) => r.vendor_id),
+  );
+  return ((vendors ?? []) as (PickerRow & { is_service_provider: boolean | null })[]).map(
+    ({ is_service_provider, ...v }) => ({ ...v, qualifies: !!is_service_provider && agentVendors.has(v.id) }),
+  );
 }
 
 /** HR ▸ Staff (0674) — the same people and the same narrowing as Order Entry. */
@@ -148,7 +189,7 @@ async function getFabricStructures(): Promise<PickerRow[]> {
 }
 
 export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
-  const [customers, merchandisers, countries, currencies, lookups, consignees, ports, coordinates, fabricStructures, fabrics] =
+  const [customers, merchandisers, countries, currencies, lookups, consignees, ports, coordinates, fabricStructures, fabrics, seasons, agents] =
     await Promise.all([
       getCustomers(),
       getMerchandisers(),
@@ -160,6 +201,8 @@ export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
       getItemsOfClass("GAR"),
       getFabricStructures(),
       getItemsOfClass("FABRIC"),
+      getSeasons(),
+      getAgents(),
     ]);
   return {
     customers,
@@ -172,6 +215,8 @@ export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
     coordinates: coordinates.map(({ id, code, name, is_active }) => ({ id, code, name, is_active })),
     fabricStructures,
     fabrics,
+    seasons,
+    agents,
   };
 }
 
@@ -249,8 +294,17 @@ type StyleDb = Record<string, unknown> & {
     | {
         sno: number;
         combo: string | null;
-        extra_qty: Num;
         sizes: { sno: number; garment_size: string | null; order_qty: Num }[] | null;
+      }[]
+    | null;
+  files:
+    | {
+        sno: number;
+        doc_kind: string | null;
+        file_name: string;
+        storage_path: string;
+        mime_type: string | null;
+        size_bytes: number | null;
       }[]
     | null;
   quantities:
@@ -278,10 +332,11 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
   const { data, error } = await s
     .from("opportunities")
     .select(
-      "id, code, received_date, enquiry_against, enquiry_action, customer_id, country_id, season, season_year, " +
-        "customer_reference, agent_id, receipt_mode, delivery_to, delivery_mode, multi_order, " +
+      "id, code, received_date, enquiry_against, enquiry_action, customer_id, country_id, season_id, season_year, " +
+        "customer_reference, agent_id, receipt_mode, receipt_date, delivery_to, delivery_mode, multi_order, " +
         "styles(*, coordinates:sample_style_coordinates(sno, coordinate_id), sizes:style_sizes(sno, garment_size), " +
-        "combos:style_combos(sno, combo, extra_qty, sizes:style_combo_sizes(sno, garment_size, order_qty)), " +
+        "combos:style_combos(sno, combo, sizes:style_combo_sizes(sno, garment_size, order_qty)), " +
+        "files:sample_style_files(sno, doc_kind, file_name, storage_path, mime_type, size_bytes), " +
         "quantities:sample_style_quantities(*, lines:sample_quantity_assort_lines(sno, combo, style_ref, no_of_cartons, inners_per_carton, " +
         "sizes:sample_quantity_assort_sizes(sno, garment_size, qty))))",
     )
@@ -305,7 +360,6 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
     const combos: ComboDraft[] = bySno(st.combos).map((c) => ({
       key: key(),
       combo: c.combo ?? "",
-      extra_qty: str(c.extra_qty),
       sizes: Object.fromEntries((c.sizes ?? []).map((z) => [z.garment_size ?? "", str(z.order_qty)])),
     }));
     const quantities: QuantityDraft[] = bySno(st.quantities).map((q) => {
@@ -371,6 +425,17 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
       ship_mode: v("ship_mode"),
       currency_code: vid("currency_code"),
       price: v("price"),
+      exchange_rate: v("exchange_rate"),
+      files: bySno(st.files).map((f) => ({
+        key: key(),
+        // Stored `tech_pack` shows in the component's `order_sheet` slot (types.ts).
+        doc_kind: f.doc_kind === "sketch" ? "sketch" : f.doc_kind === "tech_pack" ? "order_sheet" : "",
+        file_name: f.file_name,
+        storage_path: f.storage_path,
+        mime_type: f.mime_type ?? "",
+        size_bytes: Number(f.size_bytes) || 0,
+        style_ref_no: null,
+      })),
       coordinates: bySno(st.coordinates).map((c) => ({ key: key(), coordinate_id: c.coordinate_id })),
       sizes,
       combos,
@@ -384,11 +449,12 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
     enquiry_action: g("enquiry_action"),
     customer_id: gid("customer_id"),
     country_id: gid("country_id"),
-    season: g("season"),
+    season_id: gid("season_id"),
     season_year: g("season_year"),
     customer_reference: g("customer_reference"),
     agent_id: gid("agent_id"),
     receipt_mode: g("receipt_mode"),
+    receipt_date: g("receipt_date"),
     delivery_to: g("delivery_to"),
     delivery_mode: g("delivery_mode"),
     multi_order: r.multi_order === true,
