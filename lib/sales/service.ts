@@ -170,6 +170,10 @@ export async function listAllCostSheetsForRegister(): Promise<
     .select(
       "*, opportunities!inner(code, created_at, season, buyers!buyer_id(name)), styles(name, style_code)",
     )
+    // Sample ▸ Sample Costing's sheets (0688, costing_type 'sample') have their
+    // own screen, numbering and MD approval; this legacy register's Approve
+    // would bypass the margin floor, so it never lists them.
+    .or("costing_type.is.null,costing_type.neq.sample")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
 
@@ -194,6 +198,7 @@ export async function getCostSheets(
     .from("cost_sheets")
     .select("*, cost_sheet_items(*)")
     .eq("opportunity_id", opportunityId)
+    .or("costing_type.is.null,costing_type.neq.sample")
     .order("version", { ascending: true });
 
   return withCreators(((data ?? []) as (CostSheet & { cost_sheet_items: CostSheetItem[] })[]).map(

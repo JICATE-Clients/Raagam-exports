@@ -1,0 +1,287 @@
+/**
+ * Sample Costing — the buyer's QUOTATION sheet as a PDF (spec §5.1: "Generates
+ * official PDF quotation sheet for buyer transmission").
+ *
+ * Browser-only (jsPDF, blob download, `window.open`) — call from the screen.
+ * The order documents' frame (report-pdf-kit: masthead, facts, tiles, cards),
+ * so a quotation looks like every other document Raagam sends out.
+ *
+ * PRICES ONLY. This sheet goes to the buyer: it prints the quoted price per
+ * piece and size group and the set price — never the fabric rates, CMT, margin
+ * or wastage behind them. The cost breakdown stays on the screen. A piece with
+ * no quoted price prints its calculated price, rounded to the cent, because a
+ * quotation with a blank price is not a quotation; Submit is where an unquoted
+ * sheet is noticed, not here.
+ */
+import { jsPDF } from "jspdf";
+import autoTable, { type RowInput } from "jspdf-autotable";
+import { fmtDate } from "@/lib/format";
+import { fitLogo, loadLetterheadImage } from "@/lib/orders/fabric-bom/letterhead";
+import {
+  BRAND,
+  cardTableHead,
+  cardTableStyles,
+  drawCardHeader,
+  drawOrderFacts,
+  drawSheetLabel,
+  drawSheetMasthead,
+  drawSummaryTiles,
+  paintRow,
+  rgb,
+} from "@/lib/orders/report-pdf-kit";
+import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
+import type { CostingSummary } from "./calc";
+
+export type QuotationSheet = {
+  costingNo: string | null;
+  revision: string;
+  date: string | null;
+  customer: string | null;
+  enquiryNo: string | null;
+  sampleNo: string | null;
+  style: string | null;
+  description: string | null;
+  season: string | null;
+  currency: string | null;
+  shipMode: string | null;
+  isSet: boolean;
+  pieceName: (key: string) => string;
+  groupName: (id: string | null) => string;
+  summary: CostingSummary;
+  approved: boolean;
+};
+
+const price = (v: number | null, ccy: string | null) => (v == null ? "—" : `${ccy ?? ""} ${v.toFixed(2)}`.trim());
+/** The price the buyer is offered: the quoted one, else the calculated one. */
+const offered = (quoted: number | null, calc: number | null) => quoted ?? (calc == null ? null : Math.round(calc * 100) / 100);
+
+export async function exportQuotationPdf(
+  q: QuotationSheet,
+  company: DocLetterhead,
+  output: "download" | "print" = "download",
+): Promise<void> {
+  // The tab opens before any await, or the browser blocks it as a popup.
+  const tab = output === "print" ? window.open("", "_blank") : null;
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+  const M = 30;
+  const CW = W - 2 * M;
+
+  const logo = await loadLetterheadImage(company.logo);
+  const fitted = logo ? fitLogo(logo, 96, 32) : null;
+  let y = drawSheetMasthead(doc, {
+    company: company.name,
+    unit: company.unit,
+    logo: logo && fitted ? { dataUrl: logo.dataUrl, w: fitted.w, h: fitted.h } : null,
+    kind: "Price Quotation",
+    reNo: [q.costingNo, q.revision].filter(Boolean).join(" · "),
+    meta: q.date ? `Dated ${fmtDate(q.date)}` : null,
+    status: q.approved ? "Approved" : null,
+    margin: M,
+  });
+
+  y = drawOrderFacts(
+    doc,
+    y,
+    [
+      { label: "Customer", value: q.customer },
+      { label: "Enquiry No", value: q.enquiryNo },
+      { label: "Sample No", value: q.sampleNo },
+      { label: "Style", value: q.style },
+      { label: "Description", value: q.description },
+      { label: "Season", value: q.season },
+      { label: "Currency", value: q.currency },
+      { label: "Shipment", value: q.shipMode },
+    ],
+    { margin: M, cols: 4 },
+  );
+
+  const groups = q.summary.groups;
+  y = drawSheetLabel(doc, M, y + 6, q.isSet ? "Set price" : "Price");
+  y = drawSummaryTiles(
+    doc,
+    y,
+    groups.map((g) => ({
+      label: groups.length > 1 ? q.groupName(g.groupId) : q.isSet ? "Quoted set price" : "Quoted price",
+      value: price(
+        g.pieces.every((p) => offered(p.quoted, p.calc) != null)
+          ? g.pieces.reduce((t, p) => t + (offered(p.quoted, p.calc) ?? 0), 0)
+          : null,
+        q.currency,
+      ),
+      unit: q.isSet ? "per set" : "per piece",
+      tone: BRAND,
+    })),
+    M,
+  );
+
+  const top = drawCardHeader(doc, M, y + 12, CW, BRAND, q.isSet ? "Price by piece" : "Price by size group");
+  const body: RowInput[] = groups.flatMap((g) => [
+    ...g.pieces.map((p) => [q.pieceName(p.pieceKey), q.groupName(g.groupId), price(offered(p.quoted, p.calc), q.currency)]),
+    ...(q.isSet
+      ? [
+          [
+            "Set total",
+            q.groupName(g.groupId),
+            price(
+              g.pieces.every((p) => offered(p.quoted, p.calc) != null)
+                ? g.pieces.reduce((t, p) => t + (offered(p.quoted, p.calc) ?? 0), 0)
+                : null,
+              q.currency,
+            ),
+          ],
+        ]
+      : []),
+  ]);
+  const totals = new Set<number>();
+  if (q.isSet) {
+    let i = 0;
+    for (const g of groups) {
+      i += g.pieces.length;
+      totals.add(i);
+      i += 1;
+    }
+  }
+  autoTable(doc, {
+    startY: top,
+    margin: { left: M, right: M, top: 40 },
+    theme: "plain",
+    styles: cardTableStyles(),
+    headStyles: cardTableHead(),
+    head: [["Piece", "Size group", `Price (${q.currency ?? ""})`]],
+    body,
+    columnStyles: { 2: { halign: "right" } },
+    didParseCell: (d) => {
+      paintRow(d as Parameters<typeof paintRow>[0], { tone: BRAND, totals });
+      if (d.section === "body" && totals.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+    },
+  });
+
+  const end = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(...rgb("#5b6472"));
+  doc.text(
+    "Prices are per piece unless stated, valid for the quantities and specification of this sample, subject to final order confirmation.",
+    M,
+    end + 18,
+    { maxWidth: CW },
+  );
+  doc.setTextColor(0);
+
+  const stem = `Quotation_${(q.costingNo ?? "costing").replace(/[^A-Za-z0-9]+/g, "-")}_${q.revision.replace(/\s+/g, "")}`;
+  if (output === "print" && tab) {
+    tab.location.href = String(doc.output("bloburl"));
+  } else {
+    doc.save(`${stem}.pdf`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// THE INTERNAL COST SHEET (UI/UX spec §4.1 "Export Cost Sheet (PDF)") — the
+// whole breakdown, for the merchandiser and the MD. Unlike the quotation it
+// prints every rate, weight and margin, so it is labelled INTERNAL on its face.
+// The screen hands over display-ready rows (names resolved), so this file
+// never has to know a master.
+// ---------------------------------------------------------------------------
+export type CostSheetPdf = QuotationSheet & {
+  fabrics: { name: string; yarn: string; knit: string; dye: string; fin: string; proc: string; loss: string; price: string }[];
+  weights: { piece: string; component: string; fabric: string; group: string; grams: string; allowance: string; cost: string }[];
+  labour: { piece: string; cmt: string; print: string; emb: string; wash: string; testing: string; bank: string }[];
+  trims: { piece: string; name: string; qty: string; rate: string; amount: string }[];
+  terms: { label: string; value: string }[];
+};
+
+export async function exportCostSheetPdf(c: CostSheetPdf, company: DocLetterhead): Promise<void> {
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+  const M = 28;
+  const CW = W - 2 * M;
+  const logo = await loadLetterheadImage(company.logo);
+  const fitted = logo ? fitLogo(logo, 96, 32) : null;
+  let y = drawSheetMasthead(doc, {
+    company: company.name,
+    unit: company.unit,
+    logo: logo && fitted ? { dataUrl: logo.dataUrl, w: fitted.w, h: fitted.h } : null,
+    kind: "Sample Cost Sheet — internal",
+    reNo: [c.costingNo, c.revision].filter(Boolean).join(" · "),
+    meta: c.date ? `Dated ${fmtDate(c.date)}` : null,
+    status: c.approved ? "Approved" : null,
+    margin: M,
+  });
+  y = drawOrderFacts(
+    doc,
+    y,
+    [
+      { label: "Customer", value: c.customer },
+      { label: "Sample No", value: c.sampleNo },
+      { label: "Style", value: c.style },
+      { label: "Season", value: c.season },
+      { label: "Currency", value: c.currency },
+      ...c.terms.map((t) => ({ label: t.label, value: t.value })),
+    ],
+    { margin: M, cols: 6 },
+  );
+
+  const table = {
+    margin: { left: M, right: M, top: 36 },
+    theme: "plain" as const,
+    styles: cardTableStyles(),
+    headStyles: cardTableHead(),
+    didParseCell: (d: Parameters<typeof paintRow>[0]) => paintRow(d, { tone: BRAND }),
+  };
+  const end = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  let cursor = y;
+  const card = (title: string, head: string[], body: RowInput[], right: number[]) => {
+    if (!body.length) return;
+    let top = cursor + 12;
+    if (top > doc.internal.pageSize.getHeight() - 90) {
+      doc.addPage();
+      top = 36;
+    }
+    const start = drawCardHeader(doc, M, top, CW, BRAND, title);
+    autoTable(doc, {
+      ...table,
+      startY: start,
+      head: [head],
+      body,
+      columnStyles: Object.fromEntries(right.map((i) => [i, { halign: "right" as const }])),
+    });
+    cursor = end();
+  };
+
+  card("1. Fabric rates (₹ / KG)", ["Fabric", "Yarn", "Knitting", "Dyeing", "Finishing", "Special", "Loss %", "Price / KG"],
+    c.fabrics.map((f) => [f.name, f.yarn, f.knit, f.dye, f.fin, f.proc, f.loss, f.price]), [1, 2, 3, 4, 5, 6, 7]);
+  card("2. Consumption", ["Piece", "Component", "Fabric", "Size group", "Grams", "Allowance %", "Cost ₹"],
+    c.weights.map((w) => [w.piece, w.component, w.fabric, w.group, w.grams, w.allowance, w.cost]), [4, 5, 6]);
+  card("3. CMT & garment processing (₹ / pc)", ["Piece", "CMT", "Print", "Embroidery", "Wash", "Testing & FOB", "Bank"],
+    c.labour.map((l) => [l.piece, l.cmt, l.print, l.emb, l.wash, l.testing, l.bank]), [1, 2, 3, 4, 5, 6]);
+  card("4. Trims & accessories", ["Piece", "Trim", "Qty", "Rate ₹", "Amount ₹"],
+    c.trims.map((t) => [t.piece, t.name, t.qty, t.rate, t.amount]), [2, 3, 4]);
+
+  const money2 = (v: number | null) => (v == null ? "—" : v.toFixed(2));
+  card(
+    "5. Commercial summary",
+    ["Piece", "Size group", "Net ₹", "Wastage ₹", "Overhead ₹", "Gross cost ₹", "Margin ₹", "Discount ₹", "Price ₹", `Calc ${c.currency ?? ""}`, `Quoted ${c.currency ?? ""}`, "Margin %"],
+    c.summary.groups.flatMap((g) =>
+      g.pieces.map((p) => [
+        c.pieceName(p.pieceKey),
+        c.groupName(g.groupId),
+        money2(p.net),
+        money2(p.wastage),
+        money2(p.overhead),
+        money2(p.grossCost),
+        money2(p.margin),
+        money2(p.discount),
+        money2(p.gross),
+        p.calc == null ? "—" : p.calc.toFixed(4),
+        p.quoted == null ? "—" : p.quoted.toFixed(4),
+        p.effectiveMarginPct == null ? "—" : `${p.effectiveMarginPct.toFixed(2)}%`,
+      ]),
+    ),
+    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  );
+
+  doc.save(`CostSheet_${(c.costingNo ?? "costing").replace(/[^A-Za-z0-9]+/g, "-")}_${c.revision.replace(/\s+/g, "")}.pdf`);
+}

@@ -30,7 +30,8 @@ export type WorkflowKey =
   | "order_amendment"
   | "purchase_indent"
   | "purchase_order"
-  | "hr_fine";
+  | "hr_fine"
+  | "sample_costing";
 
 export type WorkflowDecl = {
   key: WorkflowKey;
@@ -85,6 +86,16 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "hr_staff_fine_deductions",
     label: "Staff Fine",
     href: "/hr/fines?open=:id",
+  },
+  /* 0688 — a Sample Costing whose quoted price earns under the 20 % margin
+     floor (doc/sample/sample-costing-specification.md §5.2). Started by
+     `submitSampleCosting`; one that clears the floor never reaches here. The
+     row opens the costing (`useOpenIntent` in sample-costing-screen.tsx). */
+  sample_costing: {
+    key: "sample_costing",
+    subjectTable: "cost_sheets",
+    label: "Sample Costing",
+    href: "/sales/sample-costing?open=:id",
   },
 };
 
