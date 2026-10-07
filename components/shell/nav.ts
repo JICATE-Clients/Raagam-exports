@@ -83,6 +83,10 @@ export const NAV: NavItem[] = [
       // "Samples & Development" row, whose hub now redirects here; the old
       // Opportunities / Styles screens redirect here too.
       { href: "/sales/sample-entry", label: "Sample Entry" },
+      // SAMPLE COSTING (2026-10-07, doc/sample/sample-costing-specification.md)
+      // — the next child after Sample Entry: the legacy Product Cost Sheet as
+      // one document per sample style line, on `cost_sheets` (0688).
+      { href: "/sales/sample-costing", label: "Sample Costing" },
       { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
       { href: "/sales/sq-details", label: "SQ Details" },
       { href: "/sales/pipeline-orders", label: "Pipeline & Seasonal" },
@@ -226,6 +230,7 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   // the opportunity quick-add and its `/sales` pipeline now redirect here.
   "/sales": ["New Sample Entry"],
   "/sales/sample-entry": ["New Sample Entry"],
+  "/sales/sample-costing": ["New Sample Costing"],
   "/sales/quotes": ["Prepare Quote"],
 
   // The module ROOT's entry, which `sectionActions` falls back to for every
