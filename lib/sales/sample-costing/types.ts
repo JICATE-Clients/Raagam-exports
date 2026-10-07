@@ -152,7 +152,14 @@ export type CostingRecord = {
 };
 
 /** Every revision of one Costing No, oldest first — the header's Revision list. */
-export type RevisionRow = { id: string; version: number; status: CostingStatus };
+export type RevisionRow = {
+  id: string;
+  version: number;
+  status: CostingStatus;
+  /** The quoted (set) price that revision carried — the ribbon's price line. */
+  target_fob: number | null;
+  currency_code: string | null;
+};
 
 /** A row of the list. */
 export type CostingListRow = {
@@ -325,6 +332,9 @@ export function costingProblems(d: CostingDraft, opts: { draft?: boolean } = {})
     out.push({ section: "consumption", label: "Consumption", message: "Add at least one component weight." });
   }
   for (const w of live.weights) {
+    // A matrix line writes one row per size group (`line|group`); its
+    // problems belong to the LINE's own controls, reported once.
+    if (w.key.includes("|")) continue;
     if (!w.fabric_key || !live.fabrics.some((f) => f.key === w.fabric_key)) {
       out.push({ section: "consumption", fieldId: costingFieldId.weightFabric(w.key), label: "Fabric", message: "Pick the fabric this component is cut from." });
     }
@@ -549,6 +559,10 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
     quotes: quotes.filter((q) => q.quoted_price !== ""),
   };
 }
+
+/** The rate-memory key of a fabric line (UX plan P2.3): the master fabric, else its typed quality. */
+export const rateMemoryKey = (fabricId: string | null, quality: string) =>
+  fabricId ? `id:${fabricId}` : quality.trim() ? `q:${quality.trim().toUpperCase()}` : "";
 
 /** Spec §5.2 in words, for the toast and the band. */
 export const floorSentence = (lowest: number | null) =>

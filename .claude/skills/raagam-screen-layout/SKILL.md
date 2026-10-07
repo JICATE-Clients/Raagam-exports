@@ -124,6 +124,48 @@ Where the spec still lists something Orders withdrew, ask before restoring it.
 **Orders has its own drift** (listed at the end of the precedent file) — copy the shapes the
 table names, not whatever file happens to be nearest.
 
+## QUIET BY DEFAULT — ROUND THREE (STANDING, 2026-10-07, Sample Costing)
+
+Sample ▸ Sample Costing went through FOUR layouts in one day: a section rail, a one-page
+canvas with a numbered sidebar, a "gamified" v2 (Express / Pro modes, preset strip, ⚡
+auto-fill badges, a completion-score bar, a margin slider, a multi-currency line, a price
+sparkline), and finally a **clean two-column page** — after the user pasted a review that
+said v2 was "cluttered and overwhelming for merchandisers who just want to get their work
+done fast". Every intermediate version passed tsc, lint, both audits and
+`check:grid-budget`. The checks measure widths; they cannot measure noise.
+
+**A UI SPEC'S WIDGETS ARE PROPOSALS, NOT REQUIREMENTS.** Build the DATA and the BEHAVIOUR a
+spec asks for; draw it with the chrome Orders already draws. Before adding a NEW KIND of
+chrome — a mode switch, a progress / score bar, a badge on a field, a slider, a second nav,
+a banner — ask. The clean layout that survived is the reference for a "calculator" screen:
+`doc/sample/sample-costing-clean-ui-spec.md`.
+
+The mistakes, each fixed after the user saw it — every one is now a rule:
+
+| Shipped | What the user saw | Rule |
+|---|---|---|
+| A "What are you costing?" search above a card that ALSO had the Sample No / Style pickers | "we will choose below — why this duplicated step" | **One field per fact.** Never ask the same question in two places; make the real field lead (put it first in its card) instead of adding a shortcut above it |
+| A "Restore unsaved changes" banner across the top of the canvas | "store it in the bottom bar" | **An action on the WHOLE sheet goes in the footer** (`footer.extra`), beside Cancel / Save — never a banner that pushes the work down |
+| Red "to fix" counts on a sheet nobody had typed into; a completion % bar | clutter | Save is the one place that says what is missing (`onBlockedSave` names it and rings the field). No counts, no progress bars |
+| A numbered section sidebar + scroll-spy on a 4-card page | clutter | A page you can see in two scrolls needs no nav. A rail is for a document whose sections do not fit on screen |
+| A sticky side panel ~750px tall in a ~530px pane | its heading had scrolled away — "sticky" pinned only the bottom half | (Superseded by the footer dock below.) A sticky panel must FIT: `lg:max-h-[calc(100dvh-…)] lg:overflow-y-auto`, the answer (the price) at the top, the working (breakdown) folded in a `<details>` |
+| Badges on auto-filled fields | clutter | Fill BLANK fields only and say nothing; a typed value is never overwritten, so there is nothing to warn about |
+| A Costing \| Quotation view switch splitting the one sheet (asked for, built, then "restore our previous single page" within minutes) | the single page was better | **Keep a calculator screen on ONE page**: the price must stay beside the inputs that move it. Don't split it into views/tabs again without a mockup the user has seen first |
+| Inputs at 60 % beside a sticky "Quotation summary" at 40 % | "this split panel — we are getting an uneven UI" | **A calculator's result goes in the FOOTER, never in a side column.** Cards run edge to edge in one column, each card's header carries its own subtotal at the right (a ledger column), and the price is a READ-ONLY dock in `footer.status` — no field pinned, so Tab and the arrows never land in it. A side column can never share the cards' top and bottom edges, and it eats the width the grid budget assumes (trap #17). Approved from a mockup (layout plan B, 2026-10-07) |
+| Bordered cards inside MasterFullScreen's bordered pane; a mono "CST/… · Rev 0" header; ghost + outline + filled buttons side by side; a matrix frame at `w-full` with its last button ~900px from the grams | browser compare with Order Entry, 2026-10-07 | **The pane IS the frame**: a section is an uppercase heading + fields, divided by `border-t` — never a card in the pane. **Header = Order Entry's band** (10.5px label · number · hairline · actions), every header action `variant="outline" size="sm"`, one filled primary at most. **A table hugs its columns** (`w-fit max-w-full`, grid `w-max`), like every Orders grid |
+
+And the alignment defects the user screenshotted (3360, 3361), each a trap in
+`references/traps.md` (#15–#18): a column nav that stretched to its longest label and laid
+its counters over the cards; Toggles and computed figures sitting 4px below the inputs in a
+`FieldRow`; labels wrapping to two lines and dropping their box; a side panel that silently
+shrank the canvas below the tables' width.
+
+**THE BROWSER LOOK HAS TO HAPPEN BEFORE "DONE", AND IT NEEDS THE USER.** The Chrome extension
+does not hold `localhost` (it bounces to a new tab); `http://127.0.0.1:3001` loads, but has
+its own session and opens on the login page. So at the START of a UI task, ask the user to
+sign in on `127.0.0.1:3001` in the Claude tab — every screenshot the user had to send this
+session was one the extension could have taken.
+
 ## Pick the surface
 
 ```

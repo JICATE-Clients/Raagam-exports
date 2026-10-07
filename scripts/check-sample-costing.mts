@@ -19,10 +19,13 @@ import {
   marginHealth,
   yarnMixTotal,
   yarnRateOf,
+  solveTarget,
+  fabricKgFor,
   type CostingInput,
   type FabricInput,
   type PieceInput,
 } from "../lib/sales/sample-costing/calc.ts";
+import { linesToWeights, weightsToLines } from "../lib/sales/sample-costing/matrix.ts";
 
 let failed = 0;
 function eq(label: string, got: number | null | boolean, want: number | null | boolean, dp = 2) {
@@ -182,9 +185,38 @@ const rail = costingSummary({
 eq("ui §3 rail wastage", rail.wastage, 8.79);
 eq("ui §3 rail overhead", rail.overhead, 5.27);
 eq("ui §3 rail gross cost", rail.grossCost, 189.76);
-eq("ui §4.5 health ≥20 good", marginHealth(20) === "good", true);
-eq("ui §4.5 health 12–19 tight", marginHealth(15) === "tight", true);
-eq("ui §4.5 health <12 poor", marginHealth(11.9) === "poor", true);
+// v2 §4.1 badges: ≥ 22 green, 15–21.9 yellow, < 15 red — the 20 % approval floor is separate.
+eq("v2 §4.1 health 22 good", marginHealth(22) === "good", true);
+eq("v2 §4.1 health 21.9 tight", marginHealth(21.9) === "tight", true);
+eq("v2 §4.1 health 15 tight", marginHealth(15) === "tight", true);
+eq("v2 §4.1 health 14.9 poor", marginHealth(14.9) === "poor", true);
+eq("v2 approval floor unchanged at 20", MARGIN_FLOOR_PCT, 20);
+
+// UX plan P2.4 — target solver. Net 214, wastage 5 %, discount 2 %, freight 2 + insurance 1, rate 83.
+// Target $3.10 → INR 3.10 × 83 − 3 = 254.30; margin = (254.30 − 214 × 1.03) / 214 = 15.83 %.
+const tgt = solveTarget({ net: 214 }, base.terms, 3.1, 1, 0.118);
+eq("P2.4 margin at target", tgt?.marginPct ?? null, 15.83);
+eq("P2.4 below floor", tgt?.clearsFloor ?? null, false);
+// Net that clears 20 %: 254.30 ÷ (1 + .05 − .02 + .20) = 206.75 → cut 7.25
+eq("P2.4 cost cut to reach 20 %", tgt?.costCut ?? null, 7.25);
+eq("P2.4 cut per kg of fabric", tgt?.perKgFabric ?? null, 61.44);
+// Feeding the solved margin back as the quoted price reproduces the target.
+eq("P2.4 round-trip", costingSummary({ ...base, quotes: { [quoteKey("top", null)]: "3.10" } }).groups[0].pieces[0].effectiveMarginPct, 15.83);
+eq("P2.4 fabric kg incl. allowance", fabricKgFor([{ ...w("p", "f", "100"), wastage_pct: "3" }], null), 0.103, 3);
+
+// UX plan P2.1 — the matrix. Body 162 / 258 / 270 and a 40 g rib typed once.
+const mLines = [
+  { key: "body", piece_key: "p", component_id: "c1", fabric_key: "f", wastage_pct: "3", cells: { g1: "162", g2: "258", g3: "270" } },
+  { key: "rib", piece_key: "p", component_id: "c2", fabric_key: "f", wastage_pct: "3", cells: { g1: "40", g2: "", g3: "" } },
+];
+const mRows = linesToWeights(mLines, ["g1", "g2", "g3"]);
+eq("P2.1 six rows written", mRows.length, 6);
+eq("P2.1 rib inherits 40 g in g3", Number(mRows.find((r) => r.key === "rib|g3")?.weight_g), 40);
+let mSeq = 0;
+const back = weightsToLines(mRows, () => `k${mSeq++}`, () => null);
+eq("P2.1 round-trip: two lines", back.lines.length, 2);
+eq("P2.1 round-trip: inherited cell reads blank again", back.lines[1].cells.g2 === "", true);
+eq("P2.1 no size groups → one All-sizes row per line", linesToWeights([{ ...mLines[0], cells: { all: "150" } }], []).length, 1);
 
 if (failed) {
   console.error(`\n${failed} sample-costing vector(s) FAILED`);
