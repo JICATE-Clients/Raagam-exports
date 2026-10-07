@@ -7,6 +7,7 @@ import type { Deactivatable } from "@/lib/masters/inactive";
 import { quoteKey } from "./calc";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
+import { rateMemoryKey } from "./types";
 import type { CostingListRow, CostingRecord, CostingStatus, FabricDraft, PieceDraft, TrimDraft, WeightDraft } from "./types";
 
 /**
@@ -38,6 +39,7 @@ export type CostingEnquiryOption = {
   id: string;
   code: string | null;
   name: string;
+  customer_id: string | null;
   customer_name: string | null;
   season: string | null;
   season_year: number | null;
@@ -47,8 +49,9 @@ export type CostingEnquiryOption = {
 export type SampleCostingFormData = {
   enquiries: CostingEnquiryOption[];
   styles: CostingStyleOption[];
-  /** FABRIC-class items — the Fabric Quality picker. */
-  fabrics: PickerRow[];
+  /** FABRIC-class items — the Fabric Quality picker; `category_id` is the
+   *  construction (Single Jersey, Fleece …) the loss memory keys on. */
+  fabrics: (PickerRow & { category_id: string | null })[];
   /** YARN-class items — the Yarn Mix picker (0690). */
   yarns: PickerRow[];
   /** Processes flagged for fabric — the Special Processing picker. */
@@ -59,7 +62,42 @@ export type SampleCostingFormData = {
   /** SEW + PACK items — the trims picker. */
   trims: PickerRow[];
   currencies: Currency[];
+  /** The last APPROVED derivation of each fabric quality (UX plan P2.3). */
+  rateMemory: FabricRateMemory[];
+  /** Each customer's last APPROVED commercial terms (v2 §3.2.3). */
+  customerTerms: CustomerTermsMemory[];
+  /** The last approved process loss per fabric construction (v2 §3.2.2). */
+  constructionLoss: { category_id: string; loss_pct: string; costing_code: string | null }[];
+  /** Latest Quotes / Orders exchange rate per currency, today (v2 §4.1 USD/EUR/GBP). */
+  quoteRates: Record<string, number>;
 };
+
+/** A customer's terms as last approved — the v2 auto-fill for margin & co. */
+export type CustomerTermsMemory = {
+  customer_id: string;
+  costing_code: string | null;
+  currency_code: string | null;
+  margin_pct: string;
+  overhead_pct: string;
+  garment_waste_pct: string;
+  discount_pct: string;
+};
+
+/**
+ * REMEMBERED FABRIC RATES (UX plan P2.3; decision: every approved costing,
+ * newest first). One entry per fabric — keyed by the master fabric when the
+ * line names one, else by its typed quality in capitals — carrying the whole
+ * derivation so "apply" restores yarn mix, rates, processes and loss at once.
+ * An OFFER: the screen never fills it in by itself.
+ */
+export type FabricRateMemory = {
+  key: string;
+  costing_code: string | null;
+  customer_name: string | null;
+  approved_at: string | null;
+  fabric: Omit<FabricDraft, "key">;
+};
+
 
 async function classIds(codes: string[]): Promise<string[]> {
   const s = await createClient();
@@ -70,18 +108,19 @@ async function classIds(codes: string[]): Promise<string[]> {
     .map((c) => c.id);
 }
 
-async function itemsOfClasses(codes: string[]): Promise<PickerRow[]> {
+async function itemsOfClasses(codes: string[]): Promise<(PickerRow & { category_id: string | null })[]> {
   const ids = await classIds(codes);
   if (!ids.length) return [];
   const s = await createClient();
-  const { data, error } = await s.from("items").select("id, code, name, is_active").in("item_class_id", ids).order("name");
+  const { data, error } = await s.from("items").select("id, code, name, is_active, category_id").in("item_class_id", ids).order("name");
   if (error) throw new Error(`Could not load ${codes.join("/")} items: ${error.message}`);
-  return (data ?? []) as PickerRow[];
+  return (data ?? []) as (PickerRow & { category_id: string | null })[];
 }
 
 type EnquiryDb = {
   id: string;
   code: string | null;
+  customer_id: string | null;
   title: string | null;
   season: string | null;
   season_year: number | null;
@@ -112,7 +151,7 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
   const { data, error } = await s
     .from("opportunities")
     .select(
-      "id, code, title, season, season_year, is_draft, customer:customers!customer_id(name), " +
+      "id, code, customer_id, title, season, season_year, is_draft, customer:customers!customer_id(name), " +
         "styles(id, sno, sample_no, name, description, unit_kind, " +
         "coordinates:sample_style_coordinates(sno, coordinate_id, item:items!coordinate_id(name)), " +
         "files:sample_style_files(sno, storage_path, mime_type, doc_kind))",
@@ -145,6 +184,7 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
       code: r.code,
       // The picker shows the NAME; the enquiry's name is its number + customer.
       name: [r.code, cust].filter(Boolean).join(" · ") || r.id.slice(0, 8),
+      customer_id: r.customer_id,
       customer_name: cust,
       season: r.season,
       season_year: r.season_year,
@@ -204,7 +244,7 @@ async function getSizeGroups(): Promise<PickerRow[]> {
 }
 
 export async function getSampleCostingFormData(): Promise<SampleCostingFormData> {
-  const [{ enquiries, styles }, fabrics, yarns, processes, components, sizeGroups, trims, currencies] = await Promise.all([
+  const [{ enquiries, styles }, fabrics, yarns, processes, components, sizeGroups, trims, currencies, memory, quoteRates] = await Promise.all([
     getEnquiries(),
     itemsOfClasses(["FABRIC"]),
     itemsOfClasses(["YARN"]),
@@ -213,8 +253,24 @@ export async function getSampleCostingFormData(): Promise<SampleCostingFormData>
     getSizeGroups(),
     itemsOfClasses(["SEW", "PACK"]),
     listCurrencies(),
+    getCostingMemory(),
+    getQuoteRates(),
   ]);
-  return { enquiries, styles, fabrics, yarns, processes, components, sizeGroups, trims, currencies };
+  return {
+    enquiries,
+    styles,
+    fabrics,
+    yarns,
+    processes,
+    components,
+    sizeGroups,
+    trims,
+    currencies,
+    rateMemory: memory.rateMemory,
+    customerTerms: memory.customerTerms,
+    constructionLoss: memory.constructionLoss,
+    quoteRates,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -480,4 +536,120 @@ export async function getQuoteExchangeRate(
     .sort((a, b) => (b.from ?? "").localeCompare(a.from ?? ""));
   const best = candidates[0];
   return best ? { rate: best.rate, entryDate: best.entryDate, effectiveFrom: best.from } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Remembered fabric rates (P2.3) — read with the page; a failed read costs the
+// offer, never the screen, because nothing on it depends on the memory.
+// ---------------------------------------------------------------------------
+type MemoryDb = Record<string, unknown> & {
+  code: string | null;
+  approved_at: string | null;
+  opp: { title: string | null; customer_id: string | null; customer: { name: string | null } | { name: string | null }[] | null } | null;
+  fabrics:
+    | (Record<string, Num> & {
+        id: string;
+        fabric_id: string | null;
+        quality: string | null;
+        is_direct: boolean;
+        item: { category_id: string | null } | { category_id: string | null }[] | null;
+        yarns: { sno: number; item_id: string | null; yarn_name: string | null; mix_pct: Num; rate: Num }[] | null;
+        processes: { sno: number; process_id: string | null; process_name: string | null; rate: Num }[] | null;
+      })[]
+    | null;
+};
+
+/**
+ * ONE READ OF THE APPROVED SHEETS, THREE MEMORIES (newest first, first seen
+ * wins): the fabric derivations (P2.3), each customer's terms (v2 §3.2.3) and
+ * the process loss per construction (v2 §3.2.2). A failed read costs the
+ * auto-fill, never the screen.
+ */
+async function getCostingMemory(): Promise<{
+  rateMemory: FabricRateMemory[];
+  customerTerms: CustomerTermsMemory[];
+  constructionLoss: { category_id: string; loss_pct: string; costing_code: string | null }[];
+}> {
+  const empty = { rateMemory: [], customerTerms: [], constructionLoss: [] };
+  const s = await createClient();
+  const { data, error } = await s
+    .from("cost_sheets")
+    .select(
+      "code, approved_at, currency_code, margin_pct, overhead_pct, garment_waste_pct, discount_pct, " +
+        "opp:opportunities!opportunity_id(title, customer_id, customer:customers!customer_id(name)), " +
+        "fabrics:sample_costing_fabrics(*, item:items!fabric_id(category_id), yarns:sample_costing_fabric_yarns(sno, item_id, yarn_name, mix_pct, rate), " +
+        "processes:sample_costing_fabric_processes(sno, process_id, process_name, rate))",
+    )
+    .eq("costing_type", "sample")
+    .eq("status", "approved")
+    .order("approved_at", { ascending: false })
+    .limit(200);
+  if (error) return empty;
+  const seen = new Map<string, FabricRateMemory>();
+  const terms = new Map<string, CustomerTermsMemory>();
+  const loss = new Map<string, { category_id: string; loss_pct: string; costing_code: string | null }>();
+  for (const sheet of (data ?? []) as unknown as MemoryDb[]) {
+    const custId = sheet.opp?.customer_id ?? null;
+    if (custId && !terms.has(custId)) {
+      const g = (k: string) => (sheet[k] == null ? "" : String(Number(sheet[k])));
+      terms.set(custId, {
+        customer_id: custId,
+        costing_code: sheet.code,
+        currency_code: (sheet.currency_code as string | null) ?? null,
+        margin_pct: g("margin_pct"),
+        overhead_pct: g("overhead_pct"),
+        garment_waste_pct: g("garment_waste_pct"),
+        discount_pct: g("discount_pct"),
+      });
+    }
+    for (const f of sheet.fabrics ?? []) {
+      const cat = one(f.item)?.category_id ?? null;
+      if (cat && f.process_loss_pct != null && !loss.has(cat)) {
+        loss.set(cat, { category_id: cat, loss_pct: str(f.process_loss_pct), costing_code: sheet.code });
+      }
+      const key = rateMemoryKey(f.fabric_id, f.quality ?? "");
+      if (!key || seen.has(key)) continue;
+      seen.set(key, {
+        key,
+        costing_code: sheet.code,
+        customer_name: one(sheet.opp?.customer)?.name ?? sheet.opp?.title ?? null,
+        approved_at: sheet.approved_at,
+        fabric: {
+          fabric_id: f.fabric_id,
+          quality: f.quality ?? "",
+          yarn_rate: str(f.yarn_rate),
+          yarns: bySno(f.yarns).map((y, i) => ({ key: `m${i}`, item_id: y.item_id, yarn_name: y.yarn_name ?? "", mix_pct: str(y.mix_pct), rate: str(y.rate) })),
+          knitting_rate: str(f.knitting_rate),
+          dyeing_rate: str(f.dyeing_rate),
+          finishing_rate: str(f.finishing_rate),
+          process_loss_pct: str(f.process_loss_pct),
+          is_direct: !!f.is_direct,
+          direct_rate: str(f.direct_rate),
+          processes: bySno(f.processes).map((p, i) => ({ key: `m${i}`, process_id: p.process_id, process_name: p.process_name ?? "", rate: str(p.rate) })),
+        },
+      });
+    }
+  }
+  return { rateMemory: [...seen.values()], customerTerms: [...terms.values()], constructionLoss: [...loss.values()] };
+}
+
+/** The latest Quotes / Orders rate per currency in effect today (v2 §4.1). */
+async function getQuoteRates(): Promise<Record<string, number>> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("exchange_rate_lines")
+    .select("currency_code, ex_rate, entry:exchange_rate_entries!inner(register, entry_date, effective_from)")
+    .eq("entry.register", "quotes_orders");
+  if (error) return {};
+  type Row = { currency_code: string; ex_rate: number | string; entry: { entry_date: string | null; effective_from: string | null } | null };
+  const day = new Date().toISOString().slice(0, 10);
+  const best = new Map<string, { from: string; rate: number }>();
+  for (const r of (data ?? []) as unknown as Row[]) {
+    const from = r.entry?.effective_from ?? r.entry?.entry_date ?? "";
+    const rate = Number(r.ex_rate);
+    if (!(rate > 0) || (from && from > day)) continue;
+    const held = best.get(r.currency_code);
+    if (!held || from > held.from) best.set(r.currency_code, { from, rate });
+  }
+  return Object.fromEntries([...best].map(([k, v]) => [k, v.rate]));
 }

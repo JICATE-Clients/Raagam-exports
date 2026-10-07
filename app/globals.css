@@ -550,6 +550,26 @@
   }
 }
 
+/*
+ * A FIELD BEING POINTED AT (Sample Costing v2 §4.2 "pulse glow"): a primary
+ * ring that fades over 2 s on the field a completion pill or a blocked Save
+ * steered to. Set and cleared by script (`data-glow`); the reduced-motion
+ * block clamps it like everything else.
+ */
+@keyframes field-glow {
+  0%,
+  60% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 50%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+[data-glow] {
+  animation: field-glow 2s ease-out;
+}
+
 @keyframes recalc-flash {
   from {
     background-color: var(--primary-soft);

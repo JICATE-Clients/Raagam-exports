@@ -33,7 +33,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, ClipboardList, Package, Palette, Shirt, Users, CalendarRange, Layers, Trash2 } from "lucide-react";
+import { Boxes, Calculator, ClipboardList, Package, Palette, Shirt, Users, CalendarRange, Layers, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -620,6 +620,10 @@ export function SampleEntryScreen({
       <RowActions
         label={r.code}
         view={false}
+        // COST THIS SAMPLE (Sample Costing UX plan P1.3): opens the enquiry's
+        // latest costing, or starts one on it — never a second chain.
+        menu={[{ label: "Cost this sample", icon: Calculator, onClick: () => router.push(`/sales/sample-costing?costFor=${r.id}`) }]}
+        menuAs="icons"
         onEdit={() => openEdit(r)}
         canEdit={perms.canEdit}
         onDelete={() => del(r)}

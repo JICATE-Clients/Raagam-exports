@@ -32,14 +32,23 @@
  * problem), never a price divided by nothing or by an invented 1.
  */
 
-/** Spec §5.2: a quoted price that earns less than this goes to the MD. */
+/** Costing spec §5.2: a quoted price that earns less than this goes to the MD
+ *  (the APPROVAL rule — server Submit and the approval engine read it). */
 export const MARGIN_FLOOR_PCT = 20;
-/** UI/UX spec §4.5 "Margin Health": green ≥ 20 %, amber 12–19 %, red < 12 %. */
-export const MARGIN_RED_BELOW_PCT = 12;
+/**
+ * UI/UX spec v2 §4.1 margin BADGES — a colour, not an approval rule:
+ *   green  ≥ 22 %        meets the commercial target
+ *   yellow 15 – 21.9 %   acceptable, flagged for management review
+ *   red    < 15 %        low; the Quotation PDF waits for approval
+ * (v1's 20 / 12 bands are superseded.) The 20 % approval floor sits inside
+ * the yellow band: 20–21.9 % is "below target", 15–19.9 % also goes to the MD.
+ */
+export const MARGIN_TARGET_PCT = 22;
+export const MARGIN_RED_BELOW_PCT = 15;
 export type MarginHealth = "good" | "tight" | "poor";
 export function marginHealth(pct: number | null): MarginHealth | null {
   if (pct == null) return null;
-  return pct >= MARGIN_FLOOR_PCT ? "good" : pct >= MARGIN_RED_BELOW_PCT ? "tight" : "poor";
+  return pct >= MARGIN_TARGET_PCT ? "good" : pct >= MARGIN_RED_BELOW_PCT ? "tight" : "poor";
 }
 
 // ---------------------------------------------------------------------------
@@ -372,5 +381,64 @@ export function costingSummary(input: CostingInput): CostingSummary {
     groups,
     lowestMarginPct,
     belowFloor: lowestMarginPct != null && lowestMarginPct < MARGIN_FLOOR_PCT,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// WORK BACK FROM THE BUYER'S TARGET (UX plan P2.4). The buyer names a price
+// first; this answers "what margin does it leave, and how much cost has to
+// come out to reach the floor?" — read-only, it never edits a figure.
+// ---------------------------------------------------------------------------
+/** KG of fabric one piece (or set) consumes in a size group, allowance included. */
+export function fabricKgFor(weights: readonly WeightInput[], groupId: string | null): number {
+  return round(
+    weights
+      .filter((w) => w.size_group_id == null || w.size_group_id === groupId)
+      .reduce((t, w) => t + ((gramsOf(w) ?? 0) * (1 + z(w.wastage_pct) / 100)) / 1000, 0),
+    4,
+  );
+}
+
+export type TargetSolve = {
+  /** The margin the target price leaves, % of net. */
+  marginPct: number;
+  clearsFloor: boolean;
+  /** ₹ of net cost per piece / set to remove to reach MARGIN_FLOOR_PCT; 0 when it clears. */
+  costCut: number;
+  /** The same cut expressed on the fabric, ₹ per KG; null without fabric. */
+  perKgFabric: number | null;
+};
+
+/**
+ * `total` is a group's (or a set's) figures, `pieces` how many garment pieces
+ * the price covers (freight and insurance are per piece).
+ *
+ *   target INR      = target × rate − freight × n − insurance × n
+ *   margin %        = (target INR − net − wastage − overhead + discount) ÷ net
+ *   net that clears = target INR ÷ (1 + wastage% + overhead% − discount% + floor%)
+ *   cost cut        = net − net that clears
+ */
+export function solveTarget(
+  total: { net: number },
+  terms: TermsInput,
+  target: number,
+  pieces: number,
+  fabricKg: number,
+): TargetSolve | null {
+  const rate = num(terms.exchange_rate);
+  if (rate == null || rate <= 0 || total.net <= 0 || !(target > 0)) return null;
+  const n = Math.max(1, pieces);
+  const targetInr = target * rate - z(terms.freight_per_pc) * n - z(terms.insurance_per_pc) * n;
+  const w = z(terms.garment_waste_pct) / 100;
+  const o = z(terms.overhead_pct) / 100;
+  const d = z(terms.discount_pct) / 100;
+  const marginPct = round(((targetInr - total.net * (1 + w + o - d)) / total.net) * 100, 2);
+  const netThatClears = targetInr / (1 + w + o - d + MARGIN_FLOOR_PCT / 100);
+  const costCut = round(Math.max(0, total.net - netThatClears), 2);
+  return {
+    marginPct,
+    clearsFloor: marginPct >= MARGIN_FLOOR_PCT,
+    costCut,
+    perKgFabric: fabricKg > 0 ? round(costCut / fabricKg, 2) : null,
   };
 }

@@ -235,3 +235,58 @@ that is not on the screen and cannot be put there.
 **Do:** when a required value is DERIVED rather than asked, gate Save on the derivation
 succeeding and say why it did not. A picker would have been the wrong fix; it would
 contradict the KG rule the sheet is built on.
+
+---
+
+## 15. A column nav that stretches to its longest label
+
+**Shipped in** Sample Costing's anchor nav (screenshot 3360, 2026-10-07): `<ol className="flex
+flex-wrap … lg:flex-col">` inside a `lg:w-[10rem]` column. A WRAPPING flex container sizes
+each flex LINE to its widest item, so in column direction every row stretched to "Overheads
+& Commercial" (~214px) and overflowed the 160px column — the rows' red counters landed on
+top of the cards beside it and read as stray "1" badges on a form field.
+
+**Do:** a vertical list is `flex-col flex-nowrap` (`lg:flex-nowrap` when it wraps on phones),
+rows `min-w-0`, labels through `<Truncated>`. Better: keep labels short enough not to need it.
+
+---
+
+## 16. A sticky panel taller than the pane
+
+**Shipped in** Sample Costing's right rail (screenshot 3361): ~750px of price, inputs and
+breakdown in a ~530px pane. `position: sticky` pins an element only while it FITS; a taller
+one scrolls with the page, so the panel's heading had already gone when the operator reached
+the lower cards — the panel was "sticky" in name only.
+
+**Do:** `lg:sticky lg:top-2 lg:max-h-[calc(100dvh-14rem)] lg:overflow-y-auto` on the panel, the
+answer first (the price), and the long working folded in a `<details>`. Measure the pane: at
+1366 × 768 it is ~530px tall between the header band and the footer.
+
+---
+
+## 17. A side panel that shrinks the canvas under the tables
+
+`check:grid-budget` measures every grid against the **1155px** pane. Add a sticky side panel
+(or a left nav) beside the cards and the cards' real width is the pane MINUS the panel — a
+40 % panel at 1366 leaves ~770px, and a card's padding takes ~32 more. The check still prints
+`ok`, and a `tableFrom="5xl"` grid (1024px) quietly falls to stacked cards, or a
+`tableAlways` grid overflows its card.
+
+**Do:** compute the canvas width in a comment beside the layout (pane − panel − gaps − card
+padding) and cut every grid in it to fit THAT number; use `tableAlways` for grids that fit it.
+A size-across matrix may scroll inside its own frame (precedent §5); nothing else may.
+
+---
+
+## 18. Controls that do not sit on one line
+
+**Shipped in** Sample Costing's fabric row and rail (screenshots 3360 / 3361): in a
+`FieldRow align="end"` a `<Toggle>` and a computed figure sat ~4px lower than the inputs; a
+label that wrapped ("Process Loss %", "Insurance / pc ₹", "Profit Margin %") pushed its own
+box down a line; two rows of fields at different steps (112 over 144) did not line up as
+columns.
+
+**Do:** `FieldRow align="start"` so every label shares the top line; a Toggle or a figure
+sits in `flex h-9 items-center` so it is the inputs' height; widen a field one step rather
+than let its label wrap; two rows meant to read as columns use the SAME step in both. Never
+answer it with `grid-cols-*` — the screen-grid audit refuses it, and equal steps do the job.

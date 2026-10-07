@@ -76,16 +76,21 @@ export async function loadSampleCosting(
   try {
     const record = await getSampleCostingRecord(id);
     if (!record) return { ok: false, error: "This costing no longer exists." };
-    let revisions: RevisionRow[] = [{ id: record.id, version: record.version, status: record.status }];
+    let revisions: RevisionRow[] = [
+      { id: record.id, version: record.version, status: record.status, target_fob: null, currency_code: record.draft.header.currency_code },
+    ];
     if (record.code) {
       const s = await createClient();
       const { data, error } = await s
         .from("cost_sheets")
-        .select("id, version, status")
+        .select("id, version, status, target_fob, currency_code")
         .eq("code", record.code)
         .order("version", { ascending: true });
       if (error) return { ok: false, error: error.message };
-      revisions = (data ?? []) as RevisionRow[];
+      revisions = ((data ?? []) as (Omit<RevisionRow, "target_fob"> & { target_fob: number | string | null })[]).map((r) => ({
+        ...r,
+        target_fob: r.target_fob == null ? null : Number(r.target_fob),
+      }));
     }
     return { ok: true, record, revisions };
   } catch (e) {
