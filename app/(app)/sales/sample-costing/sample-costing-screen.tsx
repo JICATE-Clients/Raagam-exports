@@ -57,7 +57,7 @@ import {
   ChevronRight,
   Copy,
   GitCompare,
-  FileDown,
+  ClipboardList,
   FileText,
   Pencil,
   RefreshCw,
@@ -175,7 +175,7 @@ import {
   saveSampleCosting,
   submitSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
-import { exportCostSheetPdf, exportQuotationPdf } from "@/lib/sales/sample-costing/quotation-export";
+import { exportQuotationPdf } from "@/lib/sales/sample-costing/quotation-export";
 import { offeredSizes, sizesNotInStyle } from "@/lib/sales/sample-costing/style-sizes";
 import {
   ALL_SIZES,
@@ -1141,64 +1141,17 @@ export function SampleCostingScreen({
   function downloadQuotation() {
     void exportQuotationPdf(pdfBase(), letterhead).catch(pdfFailed);
   }
-  function downloadCostSheet() {
-    const f2 = (v: string) => (num(v) == null ? "" : money(num(v)));
-    void exportCostSheetPdf(
-      {
-        ...pdfBase(),
-        fabrics: live.fabrics.map((f, i) => ({
-          name: fabricLabel(f, i),
-          yarn: f.is_direct ? "" : money(yarnRateOf(f)),
-          knit: f.is_direct ? "" : f2(f.knitting_rate),
-          dye: f.is_direct ? "" : f2(f.dyeing_rate),
-          fin: f.is_direct ? "" : f2(f.finishing_rate),
-          proc: f.is_direct ? "" : money(processTotal(f)),
-          loss: f.is_direct ? "Direct" : f.process_loss_pct ? `${f.process_loss_pct}%` : "",
-          price: money(fabricPricePerKg(f)),
-        })),
-        weights: live.weights.map((w) => ({
-          piece: pieceName(w.piece_key),
-          component: componentName(w.component_id),
-          fabric: (() => {
-            const i = live.fabrics.findIndex((f) => f.key === w.fabric_key);
-            return i >= 0 ? fabricLabel(live.fabrics[i], i) : "";
-          })(),
-          size: sizeLabel(w.size_name),
-          grams: money(dimensionalGrams(w) ?? num(w.weight_g), 1),
-          allowance: w.wastage_pct ? `${w.wastage_pct}%` : "",
-          cost: money(componentCost(w, live.fabrics)),
-        })),
-        labour: pieces.map((p) => ({
-          piece: p.piece_name,
-          cmt: money(pieceCmt(p)),
-          emb: money(pieceEmbellishment(p)),
-          testing: f2(p.testing_cost),
-          bank: f2(p.bank_cost),
-          detail: [
-            p.cmt_direct ? "CMT direct rate" : "",
-            ...p.lines.filter((l) => !isBlankPieceLine(l) && (l.kind === "embellishment" || !p.cmt_direct)).map((l) => `${l.process_name || "—"} ${money(num(l.rate))}`),
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        })),
-        trims: live.trims.map((t) => ({
-          piece: pieceName(t.piece_key),
-          name: t.description || data.trims.find((x) => x.id === t.item_id)?.name || "",
-          qty: t.is_direct ? "" : t.qty,
-          // The unit price: the Direct rate, or Package price ÷ Pack size. Amount is the per-piece cost.
-          rate: t.is_direct ? f2(t.rate) : f2(String((num(t.pack_price) ?? 0) / ((num(t.pack_size) ?? 0) > 0 ? (num(t.pack_size) as number) : 1))),
-          amount: money(trimCostPerPiece(t).cost),
-        })),
-        terms: [
-          { label: "Margin", value: header.margin_pct ? `${header.margin_pct}%` : "—" },
-          { label: "Wastage", value: header.garment_waste_pct ? `${header.garment_waste_pct}%` : "—" },
-          { label: "Overhead", value: header.overhead_pct ? `${header.overhead_pct}%` : "—" },
-          { label: "Discount", value: header.discount_pct ? `${header.discount_pct}%` : "—" },
-          { label: "Exchange rate", value: header.exchange_rate || "—" },
-        ],
-      },
-      letterhead,
-    ).catch(pdfFailed);
+  /** The Cost sheet is a page of the SAVED costing (one answer for screen, PDF and Excel). */
+  function openCostSheet() {
+    if (!editId || revisingFrom) {
+      toastError("Save the costing first, then open its cost sheet.");
+      return;
+    }
+    if (dirty) {
+      toastError("Save your changes first — the cost sheet shows the saved costing.");
+      return;
+    }
+    router.push(`/sales/sample-costing/${editId}/cost-sheet`);
   }
 
   // ---- the list -----------------------------------------------------------------
@@ -1256,6 +1209,8 @@ export function SampleCostingScreen({
         label={r.code}
         view={false}
         lead={
+          <>
+          <RowIconAction label="Cost sheet" name={r.code} icon={ClipboardList} className="text-primary" onClick={() => router.push(`/sales/sample-costing/${r.id}/cost-sheet`)} />
           <RowIconAction
             label="Quotation PDF"
             name={r.code}
@@ -1268,6 +1223,7 @@ export function SampleCostingScreen({
             }
             onClick={() => quotationFromList(r.id)}
           />
+          </>
         }
         menu={perms.canCreate ? [{ label: "Duplicate as a new costing", icon: Copy, onClick: () => duplicateFrom(r.id) }] : undefined}
         menuAs="icons"
@@ -3607,8 +3563,8 @@ export function SampleCostingScreen({
                 <GitCompare className="h-4 w-4" aria-hidden /> Compare
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" onClick={downloadCostSheet}>
-              <FileDown className="h-4 w-4" aria-hidden /> Cost sheet
+            <Button variant="outline" size="sm" onClick={openCostSheet}>
+              <ClipboardList className="h-4 w-4" aria-hidden /> Cost sheet
             </Button>
             <Tooltip label={quoteBlocked ?? "Prices only, for the buyer"}>
               <Button variant="outline" size="sm" onClick={downloadQuotation} disabled={!header.currency_code || !!quoteBlocked}>
