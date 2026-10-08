@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -125,32 +126,24 @@ export function MaterialsConfigSection({ lookups }: { lookups: ConfigLookup[] })
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-1.5">
-        {MATERIAL_CHILDREN.map((child) =>
-          child.type === "link" ? (
-            <button
-              key={child.tab}
-              type="button"
-              onClick={() => router.push(`/masters?tab=${child.tab}`)}
-              className="rounded-md border border-dashed border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted"
-              title={`Opens the ${child.label} tab`}
-            >
-              {child.label} ↗
-            </button>
-          ) : (
-            <button
-              key={child.kind}
-              type="button"
-              onClick={() => { setKind(child.kind); reset(); }}
-              className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-                child.kind === kind ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"
-              }`}
-            >
-              {LOOKUP_KIND_LABELS[child.kind]}
-            </button>
-          )
+      {/* The one-shape rule (user 2026-10-06). A link child is an option too,
+          so the legacy child order holds; picking one jumps to its own tab. */}
+      <ToggleGroup<LookupKind | `link:${string}`>
+        label="Material config"
+        value={kind}
+        onChange={(v) => {
+          if (v.startsWith("link:")) router.push(`/masters?tab=${v.slice(5)}`);
+          else {
+            setKind(v as LookupKind);
+            reset();
+          }
+        }}
+        options={MATERIAL_CHILDREN.map((child) =>
+          child.type === "link"
+            ? { value: `link:${child.tab}` as const, label: `${child.label} ↗`, title: `Opens the ${child.label} tab` }
+            : { value: child.kind, label: LOOKUP_KIND_LABELS[child.kind] },
         )}
-      </div>
+      />
 
       <Card>
         <CardBody>

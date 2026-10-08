@@ -18,6 +18,7 @@ import {
 } from "@/lib/orders/progress/view";
 import type { StageGroup } from "@/lib/orders/progress/engine";
 import { Truncated } from "@/components/ui/truncated";
+import { ToggleGroup } from "@/components/ui/segmented";
 import type { Drill, Unit } from "./progress-screen";
 
 /**
@@ -115,28 +116,16 @@ export function Overview({ items, today, unit, drill }: { items: ProgressItem[];
         <Card
           className="lg:col-span-2"
           title={
-            <span role="tablist" aria-label="Chart" className="inline-flex rounded-lg p-0.5" style={{ background: "var(--glass-track)", border: "1px solid var(--glass-edge)" }}>
-              {(
-                [
-                  ["weeks", "Deliveries by week"],
-                  ["stages", "Where orders wait"],
-                ] as const
-              ).map(([k, label]) => (
-                <button
-                  key={k}
-                  type="button"
-                  role="tab"
-                  aria-selected={flow === k}
-                  onClick={() => setFlow(k)}
-                  className={cn(
-                    "h-7 rounded-md px-3 text-[11px] font-semibold uppercase tracking-[0.06em]",
-                    flow === k ? "bg-surface text-foreground ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </span>
+            <ToggleGroup
+              role="tablist"
+              label="Chart"
+              value={flow}
+              onChange={setFlow}
+              options={[
+                { value: "weeks", label: "Deliveries by week" },
+                { value: "stages", label: "Where orders wait" },
+              ]}
+            />
           }
         >
           {flow === "weeks" ? (
@@ -643,19 +632,15 @@ function Owners({
     <Card
       title="Who needs help"
       right={
-        <span role="group" aria-label="Group by" className="inline-flex rounded-md p-0.5" style={{ background: "var(--glass-track)", border: "1px solid var(--glass-edge)" }}>
-          {(["customer", "merchandiser"] as const).map((b) => (
-            <button
-              key={b}
-              type="button"
-              aria-pressed={by === b}
-              onClick={() => setBy(b)}
-              className={cn("h-6 rounded px-2 text-[11px] font-semibold capitalize", by === b ? "bg-surface text-foreground ring-1 ring-border" : "text-muted-foreground hover:text-foreground")}
-            >
-              {b}
-            </button>
-          ))}
-        </span>
+        <ToggleGroup
+          label="Group by"
+          value={by}
+          onChange={setBy}
+          options={[
+            { value: "customer", label: "Customer" },
+            { value: "merchandiser", label: "Merchandiser" },
+          ]}
+        />
       }
     >
       <p className="text-[12.5px] text-muted-foreground">

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { UserRound as UserRoundIcon } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { usePathname, useRouter } from "next/navigation";
@@ -3232,7 +3233,7 @@ export default function PersonClient({
                 <span className="block text-sm text-muted-foreground">
                   Has / is
                 </span>
-                <div className="flex gap-1.5">
+                <div role="group" aria-label="Has / is" data-segmented="" className={cn(SEG_TRACK, "w-full")}>
                   {(
                     [
                       ["major_operation", "Major Operation", "Major Operation"],
@@ -3245,21 +3246,17 @@ export default function PersonClient({
                   ).map(([key, short, full]) => {
                     const on = !!form[key];
                     return (
+                      // button-shape: exempt -- several may be on at once (each chip is its own boolean), which ToggleGroup's one value cannot hold; drawn from the SEG_* strings
                       <button
                         key={key}
                         type="button"
                         aria-pressed={on}
                         aria-label={full}
                         onClick={() => set({ [key]: !on })}
-                        className={cn(
-                          // truncate-reveal: exempt -- a fixed two-phrase vocabulary; the full wording is the accessible name
-                          "h-9 min-w-0 flex-1 truncate rounded-full border-[1.5px] px-2 text-sm font-semibold transition-colors",
-                          on
-                            ? "border-primary bg-primary-soft text-primary"
-                            : "border-border bg-surface text-muted-foreground",
-                        )}
+                        className={cn(SEG_ITEM, "min-w-0 flex-1 shrink justify-center", on ? SEG_LIT : SEG_IDLE)}
                       >
-                        {short}
+                        {/* truncate-reveal: exempt -- a fixed two-phrase vocabulary; the full wording is the accessible name */}
+                        <span className="truncate">{short}</span>
                       </button>
                     );
                   })}
@@ -3862,7 +3859,7 @@ export default function PersonClient({
                 <span className="block text-sm text-muted-foreground">
                   Through
                 </span>
-                <div className="flex gap-1.5">
+                <div role="group" aria-label="Through" data-segmented="" className={cn(SEG_TRACK, "w-full")}>
                   {(
                     [
                       [
@@ -3880,21 +3877,17 @@ export default function PersonClient({
                   ).map(([key, short, full]) => {
                     const on = !!form[key];
                     return (
+                      // button-shape: exempt -- several may be on at once (each chip is its own boolean), which ToggleGroup's one value cannot hold; drawn from the SEG_* strings
                       <button
                         key={key}
                         type="button"
                         aria-pressed={on}
                         aria-label={full}
                         onClick={() => set({ [key]: !on })}
-                        className={cn(
-                          // truncate-reveal: exempt -- a fixed three-word vocabulary; the full wording is the accessible name
-                          "h-9 min-w-0 flex-1 truncate rounded-full border-[1.5px] px-2 text-sm font-semibold transition-colors",
-                          on
-                            ? "border-primary bg-primary-soft text-primary"
-                            : "border-border bg-surface text-muted-foreground",
-                        )}
+                        className={cn(SEG_ITEM, "min-w-0 flex-1 shrink justify-center", on ? SEG_LIT : SEG_IDLE)}
                       >
-                        {short}
+                        {/* truncate-reveal: exempt -- a fixed three-word vocabulary; the full wording is the accessible name */}
+                        <span className="truncate">{short}</span>
                       </button>
                     );
                   })}

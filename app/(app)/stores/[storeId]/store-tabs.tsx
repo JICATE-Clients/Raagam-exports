@@ -453,7 +453,7 @@ function AccessTab({
           variant="danger"
           onClick={() => handleRevoke(a.id)}
           disabled={isPending}
-          className="h-7 px-2 text-xs"
+          className="px-2 text-xs"
         >
           Revoke
         </Button>

@@ -414,7 +414,7 @@ function RecordOutputTab({
               variant="subtle"
               onClick={() => handleConfirm(e.id)}
               disabled={busyId === e.id}
-              className="h-7 px-2 text-xs"
+              className="px-2 text-xs"
             >
               {busyId === e.id ? "…" : "Confirm"}
             </Button>
@@ -425,7 +425,7 @@ function RecordOutputTab({
               variant="outline"
               onClick={() => handleLogRework(e.id)}
               disabled={busyId === e.id + ":rework"}
-              className="h-7 px-2 text-xs"
+              className="px-2 text-xs"
             >
               {busyId === e.id + ":rework" ? "…" : "Log rework"}
             </Button>

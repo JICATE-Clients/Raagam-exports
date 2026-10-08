@@ -116,7 +116,7 @@ import { ACTIVITY_SHORT_NAME_TO_STAGE, type ProductionStage } from "@/lib/produc
 import type { StageWip } from "@/lib/production/service";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
-import { Segmented } from "@/components/ui/segmented";
+import { Segmented, ToggleGroup } from "@/components/ui/segmented";
 import type { FieldWidth } from "@/lib/ui/sizes";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -10494,64 +10494,53 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    */
   const taSegNav = () => (
     <div className="mb-1 flex flex-wrap items-center gap-2">
-      <div className="inline-flex items-center gap-0.5 rounded-full border border-border bg-surface-muted p-0.5">
-        <button
-          type="button"
-          onClick={() => setTaView("workflow")}
-          className={cn(
-            "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
-            taView === "workflow" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
-          )}
-        >
-          <ListTodo className="h-3.5 w-3.5" aria-hidden />
-          Work Flow
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setTaView("activity");
-            taLandOnPending();
-          }}
-          className={cn(
-            "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
-            taView === "activity" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
-          )}
-        >
-          <ClipboardList className="h-3.5 w-3.5" aria-hidden />
-          Activity
-          <span
-            className={cn(
-              "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-              taView === "activity" ? "bg-primary-soft text-primary" : "bg-surface text-muted-foreground",
-            )}
-          >
-            {taRows.length}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setTaView("approval")}
-          className={cn(
-            "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
-            taView === "approval" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
-          )}
-        >
-          <CheckCheck className="h-3.5 w-3.5" aria-hidden />
-          Approval
-          <span
-            className={cn(
-              "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-              taApprovalAttentionCount > 0
-                ? "bg-danger-soft text-danger"
-                : taView === "approval"
-                  ? "bg-primary-soft text-primary"
-                  : "bg-surface text-muted-foreground",
-            )}
-          >
-            {taApprovalRows.length}
-          </span>
-        </button>
-      </div>
+      {/* The one-shape rule (user 2026-10-06): ToggleGroup, words switching whole panels. */}
+      <ToggleGroup
+        role="tablist"
+        label="T&A view"
+        value={taView}
+        onChange={(v) => {
+          setTaView(v);
+          if (v === "activity") taLandOnPending();
+        }}
+        options={[
+          { value: "workflow", label: "Work Flow", icon: ListTodo },
+          {
+            value: "activity",
+            label: "Activity",
+            icon: ClipboardList,
+            after: (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                  taView === "activity" ? "bg-primary-soft text-primary" : "bg-surface-muted text-muted-foreground",
+                )}
+              >
+                {taRows.length}
+              </span>
+            ),
+          },
+          {
+            value: "approval",
+            label: "Approval",
+            icon: CheckCheck,
+            after: (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                  taApprovalAttentionCount > 0
+                    ? "bg-danger-soft text-danger"
+                    : taView === "approval"
+                      ? "bg-primary-soft text-primary"
+                      : "bg-surface-muted text-muted-foreground",
+                )}
+              >
+                {taApprovalRows.length}
+              </span>
+            ),
+          },
+        ]}
+      />
       {/**
         * DATE AND REF NO LIVE HERE NOW (2026-09-10), NOT IN A HINT SENTENCE
         * BELOW THEM — the row used to spend its remaining width on prose

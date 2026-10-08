@@ -100,8 +100,11 @@ export function ThingScreen({ perms }: { perms: Perms }) {
       // navigable body and summed over ALL rows, never the visible page.
       total: { kind: "sum", of: (r) => Number(r.qty) || 0 },
       cell: (r) => (
+        // NO CELL SETS ITS OWN HEIGHT (Order Entry, client 2026-08-21): pickers carry
+        // `h-9 @2xl/editor:h-8`, and a flat `h-8` here puts the row 4px out of line.
         <Input
-          className="h-8"
+          type="number"
+          className="text-right"
           value={r.qty}
           onChange={(e) =>
             mutLines((xs) => xs.map((x) => (x.key === r.key ? { ...x, qty: e.target.value } : x)))
@@ -177,19 +180,26 @@ export function ThingScreen({ perms }: { perms: Perms }) {
       key: "lines",
       label: "Lines",
       icon: SlidersHorizontal,
-      done: lines.length > 0,
+      // A SEEDED blank row must not light the dot — test for a line with a value.
+      done: lines.some((l) => !!l.item_id || !!l.qty),
       problems: validity.bySection.lines,
+      // NO SectionBody: a section whose content is one grid passes it bare — the
+      // rail row names it (Order Entry, "NO WRAPPER"). No `label` either.
+      // `data-grid-style="sheet"` is Order Entry's spreadsheet look (globals.css,
+      // client 2026-10-03); see references/orders-precedent.md §4.
       content: (
-        <SectionBody title="Lines">
-          {/* No `label` — the section heading already names the grid. */}
+        <div data-grid-style="sheet" className="[&_table]:table-fixed">
           <ChildGrid<LineRow>
             columns={lineColumns}
             rows={lines}
+            tableFrom="5xl"
+            keepOne
+            removeHeader="Actions"
             onAdd={() => mutLines((xs) => [...xs, { key: newKey(), item_id: null, qty: "" }])}
             onRemove={(r) => mutLines((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add line"
           />
-        </SectionBody>
+        </div>
       ),
     },
   ];

@@ -392,7 +392,7 @@ function PaletteTable<T extends { key: string }>({
                     size="sm"
                     data-row-remove
                     aria-label={`Remove ${label.toLowerCase()} row ${i + 1}`}
-                    className="h-7 px-1 text-danger hover:text-danger"
+                    className="px-1 text-danger hover:text-danger"
                     onClick={() => onRemove(row)}
                   >
                     {"✕"}
@@ -2010,7 +2010,7 @@ export function IwoFabricBomScreen({
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 w-full"
+            className="w-full"
             /* Disabled on a GREY line with no shades, which `ROW_FIELDS`
                excludes, so no Tab stop opens nothing. BUT LIVE ON A GREY LINE
                THAT STILL HOLDS SHADES: the rules refuse that line until they

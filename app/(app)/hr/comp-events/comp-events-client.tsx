@@ -101,12 +101,12 @@ export function CompEventsClient({ rows, employees, canCreate, canApprove, canDe
         <div className="flex flex-wrap gap-1">
           {canApprove && r.status === "draft" && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => approveCompEvent(r.id), "Approved")}>Approve</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => rejectCompEvent(r.id), "Rejected")}>Reject</Button>
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => approveCompEvent(r.id), "Approved")}>Approve</Button>
+              <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => rejectCompEvent(r.id), "Rejected")}>Reject</Button>
             </>
           )}
           {canDelete && (r.status === "draft" || r.status === "rejected") && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteCompEvent(r.id), "Deleted")}>Del</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteCompEvent(r.id), "Deleted")}>Del</Button>
           )}
         </div>
       ),

@@ -99,14 +99,14 @@ export function AdvancesClient({ rows, employees, canCreate, canEdit, canDelete 
         <div className="flex flex-wrap gap-1">
           {canEdit && (r.status === "open" || r.status === "repaying") && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending}
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending}
                 onClick={() => run(() => recordRepayment(r.id, r.amount - r.repaid_amount), "Repaid in full")}>Repay full</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={isPending}
+              <Button size="sm" variant="outline" className="px-2 text-xs" disabled={isPending}
                 onClick={() => run(() => cancelAdvance(r.id), "Cancelled")}>Cancel</Button>
             </>
           )}
           {canDelete && (r.status === "open" || r.status === "cancelled") && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending}
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending}
               onClick={() => run(() => deleteAdvance(r.id), "Deleted")}>Del</Button>
           )}
         </div>

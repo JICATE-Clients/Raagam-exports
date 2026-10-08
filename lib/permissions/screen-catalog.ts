@@ -160,9 +160,9 @@ export const SCREEN_ALIASES: Readonly<Record<string, string>> = {
   "/sales/cost-sheets": "/sales/opportunities-costing",
   "/sales/quotes": "/sales/opportunities-costing",
   "/sales/quote-confirmations": "/sales/opportunities-costing",
-  "/sales/styles": "/sales/opportunities-costing",
-  // Opened from Samples & Development.
-  "/sales/samples": "/sales/samples-development",
+  // The sample-tracking screen, off the Sample Entry row since the Samples &
+  // Development hub retired into it (2026-10-06).
+  "/sales/samples": "/sales/sample-entry",
 };
 
 let cached: CatalogModule[] | null = null;

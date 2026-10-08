@@ -1234,13 +1234,13 @@ export function DataPicker({
             triggerRef.current = el;
           }}
           disabled={disabled}
-          // A pill, but still a field to the contract: ↓ opens it, Enter does
+          // The control shape (AGENTS.md "One button shape"), but still a field to the contract: ↓ opens it, Enter does
           // not activate it (lib/focus.ts routes both off this marker).
           data-field-trigger
           data-field-empty="true"
           onClick={() => (open ? close() : openList())}
           onKeyDown={onTriggerKeyDown}
-          className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-border px-3 text-sm font-medium text-primary hover:border-primary hover:bg-surface-muted"
+          className="inline-flex h-8 items-center gap-1 rounded-control border border-dashed border-border px-3 text-sm font-medium text-primary hover:border-primary hover:bg-surface-muted"
         >
           {addLabel ?? `+ Add ${noun.toLowerCase()}`}
         </button>

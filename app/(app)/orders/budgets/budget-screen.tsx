@@ -2666,7 +2666,7 @@ export function BudgetScreen({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 w-full"
+          className="w-full"
           // `data-row-open` PUTS IT ON THE ROW'S KEYBOARD AXIS — the Fabric BOM
           // Components [Click] precedent: a button that opens something the
           // keyboard cannot otherwise reach, so Tab and ← → land on it like a

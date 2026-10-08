@@ -132,7 +132,7 @@ function MilestoneEditRow({ milestone }: { milestone: TaMilestone }) {
         variant="subtle"
         onClick={handleUpdate}
         disabled={isPending}
-        className="h-7 px-2 text-xs"
+        className="px-2 text-xs"
       >
         {isPending ? "…" : "Save"}
       </Button>
@@ -594,7 +594,7 @@ function AmendmentsTab({
                         variant="danger"
                         onClick={handleReject}
                         disabled={isPending}
-                        className="h-7 text-xs"
+                        className="text-xs"
                       >
                         Confirm
                       </Button>
@@ -602,7 +602,7 @@ function AmendmentsTab({
                         size="sm"
                         variant="outline"
                         onClick={() => setRejectForm(null)}
-                        className="h-7 text-xs"
+                        className="text-xs"
                       >
                         Cancel
                       </Button>
@@ -618,7 +618,7 @@ function AmendmentsTab({
                     variant="subtle"
                     onClick={() => handleApprove(a.id)}
                     disabled={isPending}
-                    className="h-7 text-xs"
+                    className="text-xs"
                   >
                     Approve
                   </Button>
@@ -626,7 +626,7 @@ function AmendmentsTab({
                     size="sm"
                     variant="outline"
                     onClick={() => setRejectForm({ id: a.id, reason: "" })}
-                    className="h-7 text-xs"
+                    className="text-xs"
                   >
                     Reject
                   </Button>

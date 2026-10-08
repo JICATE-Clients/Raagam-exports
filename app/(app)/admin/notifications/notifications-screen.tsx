@@ -11,7 +11,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { Select } from "@/components/ui/select";
 import { DATE_MAX, Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { fmtDate, fmtDateTime } from "@/lib/format";
@@ -567,7 +567,7 @@ function LogTab({
         <Button type="submit">Filter</Button>
         <Link
           href="/admin/notifications?tab=log"
-          className="flex h-9 items-center rounded-md border border-border px-3 text-sm font-medium text-muted-foreground hover:bg-surface-muted"
+          className={buttonClasses({ variant: "outline", size: "md" })}
         >
           Clear
         </Link>
@@ -592,12 +592,12 @@ function LogTab({
         <span>Page {log.page}</span>
         <div className="flex gap-2">
           {log.page > 1 && (
-            <Link href={buildLogHref(filters, log.page - 1)} className="rounded-md border border-border px-3 py-1.5 hover:bg-surface-muted">
+            <Link href={buildLogHref(filters, log.page - 1)} className={buttonClasses({ variant: "outline", size: "sm" })}>
               Previous
             </Link>
           )}
           {log.hasMore && (
-            <Link href={buildLogHref(filters, log.page + 1)} className="rounded-md border border-border px-3 py-1.5 hover:bg-surface-muted">
+            <Link href={buildLogHref(filters, log.page + 1)} className={buttonClasses({ variant: "outline", size: "sm" })}>
               Next
             </Link>
           )}

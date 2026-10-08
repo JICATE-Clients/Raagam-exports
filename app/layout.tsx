@@ -87,12 +87,21 @@ export default function RootLayout({
     // suppressHydrationWarning is required, not defensive: THEME_INIT_SCRIPT
     // mutates <html>'s className before React hydrates, so the server markup
     // and the live DOM legitimately differ on this one element.
+    //
+    // translate="no" + the `notranslate` meta: Chrome's page translation
+    // rewrites text nodes in place (wrapping them in <font>), so the next time
+    // React removes or replaces one it throws "Failed to execute 'removeChild'
+    // on 'Node'" and the screen dies (2026-10-06). The app's own code moves no
+    // React-owned node, so a translator is the one thing that can. Codes,
+    // names and quantities are not prose to translate in any case.
     <html
       lang="en"
+      translate="no"
       className={`h-full antialiased ${inter.variable} ${plex.variable} ${sourceSans.variable} ${roboto.variable}`}
       suppressHydrationWarning
     >
       <head>
+        <meta name="google" content="notranslate" />
         {/*
          * Applies the stored theme before first paint. A raw inline <script> —
          * not next/script — because only inline-in-head is guaranteed to run

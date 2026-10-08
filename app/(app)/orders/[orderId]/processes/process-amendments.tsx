@@ -150,7 +150,7 @@ export function ProcessAmendments({
                         variant="danger"
                         onClick={handleReject}
                         disabled={isPending}
-                        className="h-7 text-xs"
+                        className="text-xs"
                       >
                         Confirm
                       </Button>
@@ -158,7 +158,7 @@ export function ProcessAmendments({
                         size="sm"
                         variant="outline"
                         onClick={() => setRejectForm(null)}
-                        className="h-7 text-xs"
+                        className="text-xs"
                       >
                         Cancel
                       </Button>
@@ -173,7 +173,7 @@ export function ProcessAmendments({
                     variant="subtle"
                     onClick={() => handleApprove(a.id)}
                     disabled={isPending}
-                    className="h-7 text-xs"
+                    className="text-xs"
                   >
                     Approve
                   </Button>
@@ -181,7 +181,7 @@ export function ProcessAmendments({
                     size="sm"
                     variant="outline"
                     onClick={() => setRejectForm({ id: a.id, reason: "" })}
-                    className="h-7 text-xs"
+                    className="text-xs"
                   >
                     Reject
                   </Button>

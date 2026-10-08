@@ -96,14 +96,14 @@ export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove
       cell: (r) => (
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "draft" && (
-            <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending}
+            <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending}
               onClick={() => run(() => submitRateAmendment(r.id), "Submitted")}>Submit</Button>
           )}
           {canApprove && r.status === "submitted" && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending}
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending}
                 onClick={() => run(() => approveRateAmendment(r.id), "Approved — PO updated")}>Approve</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending}
+              <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending}
                 onClick={() => run(() => rejectRateAmendment(r.id), "Rejected")}>Reject</Button>
             </>
           )}

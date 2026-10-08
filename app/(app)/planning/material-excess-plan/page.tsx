@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonClasses } from "@/components/ui/button";
 import { requirePermission, can } from "@/lib/auth/server";
 import { listMaterialExcessPlans } from "@/lib/planning/material-planning-service";
 import { fmtDate } from "@/lib/format";
@@ -84,7 +85,7 @@ export default async function MaterialExcessPlanPage() {
           canCreate ? (
             <Link
               href="/planning/material-excess-plan/new"
-              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
+              className={buttonClasses({ size: "md" })}
             >
               New
             </Link>

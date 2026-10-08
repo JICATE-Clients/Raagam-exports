@@ -28,6 +28,7 @@ import { useAppearanceItems } from "@/components/shell/appearance-menu";
 import type { Theme } from "@/lib/theme";
 import { bugPortalUrl, bugReporterConfigured } from "@/lib/bug-reporter";
 import { cn } from "@/lib/utils";
+import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 
 /**
  * THE SIDEBAR DOCK (user 2026-10-01, "can use sidebar bottom"; design round 3,
@@ -511,7 +512,10 @@ export function SidebarDock({
             <div className="flex items-center gap-2.5 px-2.5 py-1">
               <Sun className="h-4 w-4 text-muted-foreground" />
               <span className="flex-1 text-sm">Theme</span>
-              <div role="radiogroup" aria-label="Theme" className="flex rounded-lg bg-surface-muted p-0.5">
+              {/* The one-shape rule (user 2026-10-06): the SEG_* strings rather than
+                  `ToggleGroup`, because each item must carry `data-dock-item`
+                  for the dock's own arrow-key walk. */}
+              <div role="radiogroup" aria-label="Theme" data-segmented="" className={SEG_TRACK}>
                 {THEMES.map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
@@ -522,12 +526,9 @@ export function SidebarDock({
                     title={label}
                     data-dock-item
                     onClick={() => setTheme(id)}
-                    className={cn(
-                      "flex h-6 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                      theme === id ? "bg-surface text-foreground shadow-sm" : "hover:text-foreground",
-                    )}
+                    className={cn(SEG_ITEM, "justify-center px-2", theme === id ? SEG_LIT : SEG_IDLE)}
                   >
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon aria-hidden />
                   </button>
                 ))}
               </div>

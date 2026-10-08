@@ -21,9 +21,24 @@ model and the small pure modules that support them.
   header={/* optional */}
   sections={sections}
   footer={{ status, onCancel, onSave, saveLabel, canSave, onBlockedSave,
-            onSaveDraft, draftLabel, isPending, extra }}
+            onSaveDraft, draftLabel, isPending, extra, stepper }}
 />
 ```
+
+Props this summary used to leave out, all in live use in Orders (2026-10-06 sweep):
+
+| Prop | What | Precedent |
+|---|---|---|
+| `header={{ initials, title, badges, meta, right }}` | the record's identity band; workflow buttons go in `right` | Fabric BOM, Material BOM, Budget, IWO — `orders-precedent.md` §10 |
+| `locked={{ message, open?, action? }}` | approved / pending-MD banner; `open` = section keys an override or revision unlocks | the four BOM/Budget editors |
+| `viewOnly` | read-only render of the whole record | Order Entry, Budget |
+| `summary` | a band above the pane (Budget's summary bar) | Budget |
+| `footer.stepper` | Save reads "Next" until the last section | Order Entry |
+| `footer.extra` | a red "N to fix" link beside Save | Order Entry |
+| `footerOnLastSection` | Save shows only on the last section | Material BOM (Requirement) |
+| `fitRail`, `railCollapsed` / `onExpandRail`, `railHeading` | rail width and collapse | Fabric BOM, Material BOM |
+| `initialSection`, `onEnterSection`, `paneHeading`, `footer.onStepBlocked` | entry section, a hook on section entry (OE lists styles into Combos), pane title, the stepper's refusal message | Order Entry |
+| `mobileNav`, `drawerTrigger` | phone rail as strip or drawer | `raagam-responsive-ui` |
 
 ### What is identical across mounts, and must stay so
 
@@ -81,9 +96,18 @@ type FullScreenSection = {
   icon: LucideIcon;
   done?: boolean;      // quiet "has data" dot
   problems?: number;   // red count; replaces the dot
+  sub?: boolean;       // indented under the row above (splits ONE long section; not a tree)
+  groupOnly?: boolean; // a parent with no pane — clicking opens its first sub row
+  skipTab?: boolean;   // switched off, nothing to type: Tab/Enter hand-off passes over it
+  disabled?: boolean;  // cannot be entered at all (listed, greyed) — implies skipTab
+  wide?: boolean;      // lifts the 1180px content cap for one wide grid
   content: ReactNode;  // rendered ONLY while active
 };
 ```
+
+Read each flag's doc comment in `master-full-screen.tsx` before using it — every one
+records the client report that created it. Sample Entry's Quantities (`disabled` until a
+line is Billable) is the `disabled` shape: a gate, not a hidden section.
 
 `problems` replaces `done` rather than sitting beside it: a section with blocking
 problems is not "done", and two indicators on a 228px rail item is where the label

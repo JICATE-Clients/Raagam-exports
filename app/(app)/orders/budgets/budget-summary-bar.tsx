@@ -200,7 +200,7 @@ export function BudgetSummaryBar({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-7 border-danger/50 text-danger hover:bg-danger/10"
+                className="border-danger/50 text-danger hover:bg-danger/10"
                 onClick={unrated.onNext}
               >
                 Next missing

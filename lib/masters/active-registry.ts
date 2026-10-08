@@ -195,6 +195,14 @@ export const ACTIVE_ENTITIES: Record<string, ActiveEntity> = {
     label: "Zone",
     revalidate: ["/masters", "/masters/associates", "/masters/associates/zones"],
   },
+  /** Master Data ▸ System ▸ Season (2026-10-06). `inactive` since 0305. */
+  season: {
+    table: "seasons",
+    column: "inactive",
+    module: "masters",
+    label: "Season",
+    revalidate: ["/masters", "/masters/system", "/masters/system/season", "/sales/sample-entry"],
+  },
   /**
    * Applicant · Receivable Term · Notify — the three Associates masters the
    * block above did not reach, registered 2026-09-11 under the same client

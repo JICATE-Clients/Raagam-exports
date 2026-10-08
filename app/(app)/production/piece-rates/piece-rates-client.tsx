@@ -91,16 +91,16 @@ export function PieceRatesClient({ rows, contractors, workTypes, canCreate, canE
       cell: (r) => (
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "draft" && (
-            <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => submitPieceRate(r.id), "Submitted")}>Submit</Button>
+            <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => submitPieceRate(r.id), "Submitted")}>Submit</Button>
           )}
           {canApprove && r.status === "submitted" && (
             <>
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => approvePieceRate(r.id), "Approved")}>Approve</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => rejectPieceRate(r.id), "Rejected")}>Reject</Button>
+              <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending} onClick={() => run(() => approvePieceRate(r.id), "Approved")}>Approve</Button>
+              <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => rejectPieceRate(r.id), "Rejected")}>Reject</Button>
             </>
           )}
           {canDelete && (r.status === "draft" || r.status === "rejected") && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deletePieceRate(r.id), "Deleted")}>Del</Button>
+            <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deletePieceRate(r.id), "Deleted")}>Del</Button>
           )}
         </div>
       ),

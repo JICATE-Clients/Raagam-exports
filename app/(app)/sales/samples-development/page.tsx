@@ -1,22 +1,14 @@
-import { requirePermission } from "@/lib/auth/server";
-import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
+import { redirect } from "next/navigation";
 
-// Sales ▸ Marketing (legacy) — "Samples & Development" sub-module hub. See the
-// note on `/sales/opportunities-costing`: Sales keeps a literal list because it
-// is absent from `lib/nav/module-groups.ts`, and the ↗ is dropped because
-// `/sales/samples` does not leave the module.
-const CARDS: HubCardSpec[] = [
-  { key: "/sales/samples", href: "/sales/samples", label: "Samples", description: "Proto/fit/SMS/PP/TOP sample tracking." },
-];
-
-export default async function SamplesDevelopmentHubPage() {
-  await requirePermission("sales", "view");
-  return (
-    <HubPage
-      breadcrumb={{ href: "/sales", label: "Sample" }}
-      title="Samples & Development"
-      description="Sample lifecycle and product-development requests for confirmed styles."
-      cards={CARDS}
-    />
-  );
+/**
+ * RETIRED INTO SAMPLE ENTRY (user 2026-10-06: "update our new sample entry
+ * child and remove the old one"). This route served the Samples & Development
+ * hub, whose sidebar row Sample Entry took; Sample ▸ Sample Entry
+ * (`/sales/sample-entry`, 0683) now does that work.
+ *
+ * A REDIRECT, NEVER A DELETION — a bookmark or a link to this route still has
+ * to land somewhere. The target runs the Sales view gate itself.
+ */
+export default function RetiredSalesRoutePage() {
+  redirect("/sales/sample-entry");
 }

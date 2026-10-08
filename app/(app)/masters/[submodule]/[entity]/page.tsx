@@ -74,6 +74,8 @@ import { listOurBanks } from "@/lib/masters/our-bank-service";
 import { OurBankMasterScreen } from "@/components/masters/our-bank-master-screen";
 import { listZones } from "@/lib/masters/zone-service";
 import { ZoneMasterScreen } from "@/components/masters/zone-master-screen";
+import { listSeasons } from "@/lib/masters/season-service";
+import { SeasonMasterScreen } from "@/components/masters/season-master-screen";
 import { listDocumentNoFormats } from "@/lib/masters/document-no-format-service";
 import { DocumentNoFormatMasterScreen } from "@/components/masters/document-no-format-master-screen";
 import { listPackingFormatColumns } from "@/lib/masters/packing-format-columns-service";
@@ -518,6 +520,9 @@ export default async function SubEntityPage({
     } else if (child.custom === "zone") {
       const rows = await listZones();
       screen = <ZoneMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "season") {
+      const rows = await listSeasons();
+      screen = <SeasonMasterScreen rows={rows} perms={perms} />;
     } else if (child.custom === "ta_approval") {
       const approvals = await listTaApprovals();
       screen = <TaApprovalMasterScreen rows={approvals} perms={perms} />;

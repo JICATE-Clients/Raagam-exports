@@ -7,6 +7,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useSignedUrl } from "@/components/ui/sketch-thumbnail";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import {
   coverOf,
   isImageFile,
@@ -302,18 +303,16 @@ function HoverGallery<F extends GalleryFile>({
       className="rounded-md border border-border bg-background p-2 shadow-lg"
     >
       {many && (
-        <div className="mb-2 flex flex-wrap gap-1">
+        <div role="group" aria-label="Style" data-segmented="" className={cn(SEG_TRACK, "mb-2 h-auto flex-wrap")}>
           {groups.map((g, i) => (
+            // button-shape: exempt -- the SEG_* shape on a WRAPPING track with tabIndex={-1} (a hover popover), which ToggleGroup cannot express
             <button
               key={g.styleRef ?? ""}
               type="button"
               tabIndex={-1}
               onClick={() => pickGroup(i)}
               aria-pressed={i === gi}
-              className={cn(
-                "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                i === gi ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary",
-              )}
+              className={cn(SEG_ITEM, "h-7", i === gi ? SEG_LIT : SEG_IDLE)}
             >
               {g.styleRef ?? "ORDER"}
             </button>
@@ -512,7 +511,7 @@ function Lightbox<F extends GalleryFile>({
           onClick={() => step(-1)}
           disabled={n < 2}
           aria-label="Previous picture"
-          className="inline-flex h-9 w-9 items-center justify-center rounded border border-border disabled:opacity-40"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-control border border-border disabled:opacity-40"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -525,7 +524,7 @@ function Lightbox<F extends GalleryFile>({
           onClick={() => step(1)}
           disabled={n < 2}
           aria-label="Next picture"
-          className="inline-flex h-9 w-9 items-center justify-center rounded border border-border disabled:opacity-40"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-control border border-border disabled:opacity-40"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -615,7 +614,7 @@ function ZoomViewer({ file }: { file: GalleryFile | undefined }) {
           onClick={() => setZoomTo(zoom / 1.5)}
           disabled={zoom <= MIN_ZOOM}
           aria-label="Zoom out"
-          className="inline-flex h-8 w-8 items-center justify-center rounded border border-border disabled:opacity-40"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-control border border-border disabled:opacity-40"
         >
           <ZoomOut className="h-4 w-4" />
         </button>
@@ -627,7 +626,7 @@ function ZoomViewer({ file }: { file: GalleryFile | undefined }) {
           onClick={() => setZoomTo(zoom * 1.5)}
           disabled={zoom >= MAX_ZOOM}
           aria-label="Zoom in"
-          className="inline-flex h-8 w-8 items-center justify-center rounded border border-border disabled:opacity-40"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-control border border-border disabled:opacity-40"
         >
           <ZoomIn className="h-4 w-4" />
         </button>
@@ -636,7 +635,7 @@ function ZoomViewer({ file }: { file: GalleryFile | undefined }) {
           onClick={() => setZoomTo(1)}
           disabled={zoom === 1}
           aria-label="Reset zoom"
-          className="inline-flex h-8 w-8 items-center justify-center rounded border border-border disabled:opacity-40"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-control border border-border disabled:opacity-40"
         >
           <RotateCcw className="h-4 w-4" />
         </button>

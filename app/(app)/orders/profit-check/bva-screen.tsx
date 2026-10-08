@@ -27,6 +27,7 @@ import { Select } from "@/components/ui/select";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { PaginationBar } from "@/components/ui/pagination";
 import { Truncated } from "@/components/ui/truncated";
+import { ToggleGroup } from "@/components/ui/segmented";
 
 /**
  * Orders ▸ Order Management ▸ Order Profit Check — the client half
@@ -83,28 +84,16 @@ export function BvaScreen({ rows }: { rows: ProfitOrderRow[] }) {
         back={false}
         description="Are our orders making the money we planned? The budget the MD approved, beside what has really been spent and shipped."
         actions={
-          <div role="tablist" aria-label="View" className="inline-flex rounded-lg border border-border bg-surface-muted p-0.5">
-            {VIEWS.map((v) => (
-              <button
-                key={v}
-                type="button"
-                role="tab"
-                aria-selected={view === v}
-                onClick={() => setView(v)}
-                className={cn(
-                  "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-semibold capitalize",
-                  view === v ? "bg-surface text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {v}
-                {v === "orders" && (
-                  <span className={cn("rounded-full px-1.5 text-[11px] tabular-nums", view === v ? "bg-primary-soft text-primary" : "bg-surface text-muted-foreground")}>
-                    {fmtNumber(scoped.length)}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+          <ToggleGroup
+            role="tablist"
+            label="View"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "overview", label: "Overview" },
+              { value: "orders", label: "Orders", count: scoped.length },
+            ]}
+          />
         }
       />
 
@@ -570,25 +559,16 @@ function Furthest({
   return (
     <>
       <div className="-mt-8 flex justify-end">
-        <span role="group" aria-label="Show" className="inline-flex rounded-md p-0.5" style={{ background: "var(--glass-track)", border: "1px solid var(--glass-edge)" }}>
-          {(
-            [
-              ["order", "Orders"],
-              ["customer", "Customers"],
-              ["merch", "Merchandisers"],
-            ] as const
-          ).map(([k, l]) => (
-            <button
-              key={k}
-              type="button"
-              aria-pressed={by === k}
-              onClick={() => setBy(k)}
-              className={cn("h-6 rounded px-2 text-[11px] font-semibold", by === k ? "bg-surface text-foreground ring-1 ring-border" : "text-muted-foreground hover:text-foreground")}
-            >
-              {l}
-            </button>
-          ))}
-        </span>
+        <ToggleGroup
+          label="Show"
+          value={by}
+          onChange={setBy}
+          options={[
+            { value: "order", label: "Orders" },
+            { value: "customer", label: "Customers" },
+            { value: "merch", label: "Merchandisers" },
+          ]}
+        />
       </div>
       <p className="text-[13.5px]">
         {worst ? (
@@ -734,20 +714,16 @@ function OrdersList({ items, stage, setStage, open }: { items: BvaItem[]; stage:
     <div className="space-y-3">
       {/* Scrolls rather than clips on a phone (2026-10-03): five stages do not
           fit 390px and "Cancelled" was cut off at the edge. */}
-      <div role="group" aria-label="Stage" className="scrollbar-none inline-flex max-w-full overflow-x-auto rounded-lg border border-border bg-surface-muted p-0.5 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
-        {STAGES.map((s) => (
-          <button
-            key={s}
-            type="button"
-            aria-pressed={stage === s}
-            onClick={() => setStage(s)}
-            className={cn("inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-semibold", stage === s ? "bg-surface text-foreground ring-1 ring-border" : "text-muted-foreground hover:text-foreground")}
-          >
-            {s === "all" ? "All" : STAGE_LABEL[s]}
-            <span className="text-xs font-semibold tabular-nums text-muted-foreground">{items.filter((i) => s === "all" || i.stage === s).length}</span>
-          </button>
-        ))}
-      </div>
+      <ToggleGroup
+        label="Stage"
+        value={stage}
+        onChange={setStage}
+        options={STAGES.map((s) => ({
+          value: s,
+          label: s === "all" ? "All" : STAGE_LABEL[s],
+          count: items.filter((i) => s === "all" || i.stage === s).length,
+        }))}
+      />
       {list.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
           {items.length ? "No orders at this stage." : "No order has an approved budget yet. Orders appear here once the MD approves a budget."}

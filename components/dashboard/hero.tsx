@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import { MODULE_LABELS, type Module } from "@/lib/auth/types";
 import {
   DASHBOARD_RANGES,
@@ -34,11 +35,9 @@ export function RangeTabs({
   };
 
   return (
-    <div
-      className="flex gap-0.5 rounded-lg border border-border bg-surface p-[3px] shadow-elev"
-      role="group"
-      aria-label="Reporting period"
-    >
+    /* The one-shape rule (user 2026-10-06): the words are `<Link>`s, so the
+       SEG_* strings rather than `ToggleGroup`. */
+    <div role="group" aria-label="Reporting period" data-segmented="" className={SEG_TRACK}>
       {DASHBOARD_RANGES.map((r) => {
         const active = r === current;
         return (
@@ -46,12 +45,7 @@ export function RangeTabs({
             key={r}
             href={href(r)}
             aria-current={active ? "true" : undefined}
-            className={cn(
-              "rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors",
-              active
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
+            className={cn(SEG_ITEM, active ? SEG_LIT : SEG_IDLE)}
           >
             {RANGE_LABELS[r]}
           </Link>

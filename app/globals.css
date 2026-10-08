@@ -482,10 +482,27 @@
    * here on purpose: the field must never be left displaced. */
   --animate-dup-nudge: dup-nudge 0.16s ease-in-out;
 
+  /* A computed figure that just CHANGED (Sample Costing, UI/UX spec §5.2 "Live
+   * Calculation Pulse"): a brief primary-soft wash that fades out, so the eye
+   * finds what an edit moved. Re-triggered by re-keying the element on its
+   * value; the reduced-motion block clamps it like everything else. */
+  --animate-recalc: recalc-flash 0.6s ease-out;
+
   /* Dense radii — ERP, not a marketing site */
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
+
+  /* ONE CONTROL SHAPE (user 2026-10-06: "this is the button shape i prefer for
+   * the whole application" — the Pending / Updated / Draft box on the BOM and
+   * Budget queues). Every Button and every toggle group takes `rounded-control`;
+   * a toggle's inner segment takes `rounded-control-inner` so it nests 2px
+   * inside the track. A NAMED radius, not `rounded-lg`, because `[data-skin]`
+   * (Masters, HR) re-points `--radius-lg` to 16px, which on a 36px button is a
+   * lozenge — and because this sits in `@theme inline`, the value is baked into
+   * the utility and no skin can move it. Gated by `npm run check:button-shape`. */
+  --radius-control: 0.5rem;
+  --radius-control-inner: 0.375rem;
 }
 
 /* Referenced by --animate-rise / --animate-grow above. `rise` fades a card up
@@ -530,6 +547,35 @@
   }
   75% {
     transform: translateX(3px);
+  }
+}
+
+/*
+ * A FIELD BEING POINTED AT (Sample Costing v2 §4.2 "pulse glow"): a primary
+ * ring that fades over 2 s on the field a completion pill or a blocked Save
+ * steered to. Set and cleared by script (`data-glow`); the reduced-motion
+ * block clamps it like everything else.
+ */
+@keyframes field-glow {
+  0%,
+  60% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 50%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+[data-glow] {
+  animation: field-glow 2s ease-out;
+}
+
+@keyframes recalc-flash {
+  from {
+    background-color: var(--primary-soft);
+  }
+  to {
+    background-color: transparent;
   }
 }
 

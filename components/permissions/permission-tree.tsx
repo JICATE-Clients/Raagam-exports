@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Truncated } from "@/components/ui/truncated";
 import type { Action, Module } from "@/lib/auth/types";
@@ -241,13 +242,15 @@ function ModuleDetail({
           </p>
         </div>
         {!readOnly && acts.length > 0 && (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => onSetModule(!everything)}
-            className="h-8 shrink-0 rounded-md border border-border bg-surface px-3 text-sm font-medium text-foreground hover:bg-surface-muted"
+            className="shrink-0"
           >
             {everything ? "Clear all" : "Grant all"}
-          </button>
+          </Button>
         )}
       </div>
 
