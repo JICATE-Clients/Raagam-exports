@@ -59,6 +59,9 @@ export async function saveSampleCosting(
   if (error) return { ok: false, error: error.message };
   const out = data as { id: string; code: string | null; version: number } | null;
   if (!out?.id) return { ok: false, error: "The costing was not saved." };
+  // 0695: the Overheads / Price & quote "+ Add" rows ride beside the RPC, not inside it.
+  const { error: extrasError } = await supabase.from("cost_sheets").update({ extra_charges: payload.extras }).eq("id", out.id);
+  if (extrasError) return { ok: false, error: `The costing was saved but its extra charges were not: ${extrasError.message}` };
 
   await writeAudit({
     action: opts.parentId && !id ? "sample_costing.revised" : id ? "sample_costing.updated" : "sample_costing.created",

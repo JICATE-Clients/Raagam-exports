@@ -8,7 +8,7 @@ import { quoteKey } from "./calc";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import { rateMemoryKey } from "./types";
-import type { CostingListRow, CostingRecord, CostingStatus, FabricDraft, PieceDraft, TrimDraft, WeightDraft } from "./types";
+import type { CostingListRow, CostingRecord, CostingStatus, ExtraChargeDraft, FabricDraft, PieceDraft, TrimDraft, WeightDraft } from "./types";
 
 /**
  * Sample Costing — option lists, the list, one record (0688 / 0689).
@@ -33,6 +33,9 @@ export type CostingStyleOption = {
   coordinates: { id: string | null; name: string }[];
   /** A signed URL to the style's first image (Sample Entry ▸ Image), or null. */
   thumb_url: string | null;
+  /** The sizes the style was ticked with in Sample Entry (`style_sizes`), in
+   *  entry order — the only sizes the weights table offers (0693). */
+  sizes: string[];
 };
 
 export type CostingEnquiryOption = {
@@ -56,9 +59,12 @@ export type SampleCostingFormData = {
   yarns: PickerRow[];
   /** Processes flagged for fabric — the Special Processing picker. */
   processes: PickerRow[];
+  /** Garment processes classified on the Process master (0691): CMT operations
+   *  (Cutting, Stitching, Checking …) and Embellishments (Print, Embroidery, Wash …).
+   *  A process with no kind is in neither picker. */
+  garmentProcesses: (PickerRow & { garment_kind: "cmt" | "embellishment" })[];
   /** Garment components (Body, Rib, Pocketing …). */
   components: PickerRow[];
-  sizeGroups: PickerRow[];
   /** SEW + PACK items — the trims picker. */
   trims: PickerRow[];
   currencies: Currency[];
@@ -136,6 +142,7 @@ type EnquiryDb = {
         unit_kind: string | null;
         coordinates: { sno: number; coordinate_id: string | null; item: { name: string | null } | { name: string | null }[] | null }[] | null;
         files: { sno: number; storage_path: string; mime_type: string | null; doc_kind: string | null }[] | null;
+        sizes: { sno: number; garment_size: string | null }[] | null;
       }[]
     | null;
 };
@@ -154,7 +161,8 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
       "id, code, customer_id, title, season, season_year, is_draft, customer:customers!customer_id(name), " +
         "styles(id, sno, sample_no, name, description, unit_kind, " +
         "coordinates:sample_style_coordinates(sno, coordinate_id, item:items!coordinate_id(name)), " +
-        "files:sample_style_files(sno, storage_path, mime_type, doc_kind))",
+        "files:sample_style_files(sno, storage_path, mime_type, doc_kind), " +
+        "sizes:style_sizes(sno, garment_size))",
     )
     .order("created_at", { ascending: true });
   if (error) throw new Error(`Could not load sample enquiries: ${error.message}`);
@@ -206,6 +214,10 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
           .map((c) => ({ id: c.coordinate_id, name: one(c.item)?.name ?? "" }))
           .filter((c) => c.name),
         thumb_url: imagePath.has(st.id) ? (signed.get(imagePath.get(st.id)!) ?? null) : null,
+        sizes: [...(st.sizes ?? [])]
+          .sort((a, b) => a.sno - b.sno)
+          .map((z) => (z.garment_size ?? "").trim())
+          .filter(Boolean),
       })),
   );
   return { enquiries, styles };
@@ -221,6 +233,23 @@ async function getProcesses(): Promise<PickerRow[]> {
     .map((p) => ({ id: p.id, code: null, name: p.name, inactive: p.inactive }));
 }
 
+async function getGarmentProcesses(): Promise<(PickerRow & { garment_kind: "cmt" | "embellishment" })[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("processes")
+    .select("id, name, inactive, garment_kind")
+    .not("garment_kind", "is", null)
+    .order("name");
+  if (error) throw new Error(`Could not load garment processes: ${error.message}`);
+  return ((data ?? []) as { id: string; name: string; inactive: boolean | null; garment_kind: "cmt" | "embellishment" }[]).map((p) => ({
+    id: p.id,
+    code: null,
+    name: p.name,
+    inactive: p.inactive,
+    garment_kind: p.garment_kind,
+  }));
+}
+
 async function getComponents(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data, error } = await s.from("components").select("id, code:short_name, name:description, inactive").order("description");
@@ -228,29 +257,14 @@ async function getComponents(): Promise<PickerRow[]> {
   return ((data ?? []) as (PickerRow & { name: string | null })[]).map((r) => ({ ...r, name: r.name ?? r.code ?? "" }));
 }
 
-async function getSizeGroups(): Promise<PickerRow[]> {
-  const s = await createClient();
-  const { data, error } = await s
-    .from("size_groups")
-    .select("id, code:size_group_no, name:size_group_name, inactive")
-    .order("size_group_name");
-  if (error) throw new Error(`Could not load size groups: ${error.message}`);
-  return ((data ?? []) as { id: string; code: string | number | null; name: string | null; inactive: boolean | null }[]).map((r) => ({
-    id: r.id,
-    code: r.code == null ? null : String(r.code),
-    name: r.name ?? String(r.code ?? ""),
-    inactive: r.inactive,
-  }));
-}
-
 export async function getSampleCostingFormData(): Promise<SampleCostingFormData> {
-  const [{ enquiries, styles }, fabrics, yarns, processes, components, sizeGroups, trims, currencies, memory, quoteRates] = await Promise.all([
+  const [{ enquiries, styles }, fabrics, yarns, processes, garmentProcesses, components, trims, currencies, memory, quoteRates] = await Promise.all([
     getEnquiries(),
     itemsOfClasses(["FABRIC"]),
     itemsOfClasses(["YARN"]),
     getProcesses(),
+    getGarmentProcesses(),
     getComponents(),
-    getSizeGroups(),
     itemsOfClasses(["SEW", "PACK"]),
     listCurrencies(),
     getCostingMemory(),
@@ -262,8 +276,8 @@ export async function getSampleCostingFormData(): Promise<SampleCostingFormData>
     fabrics,
     yarns,
     processes,
+    garmentProcesses,
     components,
-    sizeGroups,
     trims,
     currencies,
     rateMemory: memory.rateMemory,
@@ -350,7 +364,16 @@ type RecordDb = Record<string, unknown> & {
   is_draft: boolean | null;
   parent_cost_sheet_id: string | null;
   decision_remark: string | null;
-  pieces: (Record<string, Num> & { id: string; sno: number; piece_name: string; coordinate_id: string | null })[] | null;
+  pieces:
+    | (Record<string, Num> & {
+        id: string;
+        sno: number;
+        piece_name: string;
+        coordinate_id: string | null;
+        cmt_direct: boolean | null;
+        lines: { sno: number; kind: "cmt" | "embellishment"; process_id: string | null; process_name: string | null; rate: Num }[] | null;
+      })[]
+    | null;
   fabrics:
     | (Record<string, Num> & {
         id: string;
@@ -368,11 +391,13 @@ type RecordDb = Record<string, unknown> & {
         piece_id: string;
         fabric_line_id: string | null;
         component_id: string | null;
-        size_group_id: string | null;
+        size_name: string | null;
+        /** Saved before 0693: the Size Group it was keyed by, read for its NAME only. */
+        group: { size_group_name: string | null } | null;
       })[]
     | null;
-  trims: (Record<string, Num> & { sno: number; piece_id: string; item_id: string | null; description: string | null })[] | null;
-  quotes: { piece_id: string; size_group_id: string | null; quoted_price: Num }[] | null;
+  trims: (Record<string, Num> & { sno: number; piece_id: string; item_id: string | null; description: string | null; is_direct: boolean | null })[] | null;
+  quotes: { piece_id: string; size_name: string | null; group: { size_group_name: string | null } | null; quoted_price: Num }[] | null;
 };
 
 const bySno = <T extends { sno: number }>(xs: T[] | null | undefined) => [...(xs ?? [])].sort((a, b) => a.sno - b.sno);
@@ -383,11 +408,12 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     .from("cost_sheets")
     .select(
       "id, code, version, status, is_draft, parent_cost_sheet_id, decision_remark, opportunity_id, style_id, costing_date, " +
-        "currency_code, exchange_rate, margin_pct, garment_waste_pct, overhead_pct, discount_pct, ship_mode, freight_per_pc, insurance_per_pc, notes, " +
-        "pieces:sample_costing_pieces(*), " +
+        "currency_code, exchange_rate, margin_pct, garment_waste_pct, overhead_pct, discount_pct, ship_mode, freight_per_pc, insurance_per_pc, notes, extra_charges, " +
+        "pieces:sample_costing_pieces(*, lines:sample_costing_piece_processes(sno, kind, process_id, process_name, rate)), " +
         "fabrics:sample_costing_fabrics(*, processes:sample_costing_fabric_processes(sno, process_id, process_name, rate), " +
         "yarns:sample_costing_fabric_yarns(sno, item_id, yarn_name, mix_pct, rate)), " +
-        "weights:sample_costing_component_weights(*), trims:sample_costing_trims(*), quotes:sample_costing_quotes(piece_id, size_group_id, quoted_price)",
+        "weights:sample_costing_component_weights(*, group:size_groups!size_group_id(size_group_name)), trims:sample_costing_trims(*), " +
+        "quotes:sample_costing_quotes(piece_id, size_name, quoted_price, group:size_groups!size_group_id(size_group_name))",
     )
     .eq("id", id)
     .maybeSingle();
@@ -403,9 +429,14 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     piece_name: p.piece_name,
     coordinate_id: p.coordinate_id,
     cmt: str(p.cmt),
-    print_cost: str(p.print_cost),
-    embroidery_cost: str(p.embroidery_cost),
-    wash_cost: str(p.wash_cost),
+    cmt_direct: p.cmt_direct !== false,
+    lines: bySno(p.lines).map((l, i) => ({
+      key: `${p.id}-l${i}`,
+      kind: l.kind,
+      process_id: l.process_id,
+      process_name: l.process_name ?? "",
+      rate: str(l.rate),
+    })),
     testing_cost: str(p.testing_cost),
     bank_cost: str(p.bank_cost),
   }));
@@ -439,7 +470,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     piece_key: w.piece_id,
     fabric_key: w.fabric_line_id,
     component_id: w.component_id,
-    size_group_id: w.size_group_id,
+    size_name: w.size_name ?? w.group?.size_group_name?.trim() ?? null,
     weight_g: str(w.weight_g),
     length_cm: str(w.length_cm),
     width_cm: str(w.width_cm),
@@ -453,9 +484,22 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     description: t.description ?? "",
     qty: str(t.qty),
     rate: str(t.rate),
+    // 0694. A line saved before it is a Direct rate line.
+    is_direct: t.is_direct ?? true,
+    pack_price: str(t.pack_price),
+    pack_size: str(t.pack_size),
+  }));
+  // 0695. Keys are positional; an unreadable row is dropped rather than failing the load.
+  const extras: ExtraChargeDraft[] = (Array.isArray(r.extra_charges) ? (r.extra_charges as Record<string, unknown>[]) : []).map((x, i) => ({
+    key: `x${i}`,
+    section: x.section === "price" ? "price" : "overhead",
+    name: typeof x.name === "string" ? x.name : "",
+    kind: x.kind === "pct" ? "pct" : "flat",
+    value: x.value == null ? "" : String(x.value),
+    sign: x.sign === "deduct" ? "deduct" : "add",
   }));
   const quotes = Object.fromEntries(
-    (r.quotes ?? []).map((q) => [quoteKey(q.piece_id, q.size_group_id), str(q.quoted_price)]),
+    (r.quotes ?? []).map((q) => [quoteKey(q.piece_id, q.size_name ?? q.group?.size_group_name?.trim() ?? null), str(q.quoted_price)]),
   );
 
   return {
@@ -487,6 +531,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
       weights,
       trims,
       quotes,
+      extras,
     },
   };
 }
