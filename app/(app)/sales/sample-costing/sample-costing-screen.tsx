@@ -482,9 +482,11 @@ export function SampleCostingScreen({
   const [dims, setDims] = useState({ l: "", w: "", g: "" });
   const [dimsOrigin, captureDimsOrigin] = useSubSheetOrigin();
 
-  // ---- a fabric's rate build-up — INLINE under its row (no popup) ---------------
-  // One build-up open at a time, the same fold rule as the steps themselves.
+  // ---- a fabric's rate build-up — a POPUP off its row (user 2026-10-08: "card aa
+  // popup mari kondu va"). It was inline under the row; the sheet grows out of the
+  // chevron that opened it. One open at a time by construction.
   const [buildKey, setBuildKey] = useState<string | null>(null);
+  const [buildOrigin, captureBuildOrigin] = useSubSheetOrigin();
   const [buildTab, setBuildTab] = useState<"mix" | "process">("mix");
 
   // ---- the steps: ONE open at a time (AGENTS.md "Folds are accordions") ----------
@@ -1425,7 +1427,7 @@ export function SampleCostingScreen({
     const procSub = fabricSubtotal(f) - yarnSub;
     const mixOk = Math.abs(mixTotal - 100) <= 0.001;
     return (
-      <div id={`sc-build-${f.key}`} className="mt-3 space-y-4 rounded-lg border border-border bg-surface-muted p-4">
+      <div id={`sc-build-${f.key}`} className="space-y-2">
         <ToggleGroup<"mix" | "process">
           label="Parts of the fabric rate"
           value={buildTab}
@@ -1440,11 +1442,11 @@ export function SampleCostingScreen({
             Price per KG sit beside whichever grid is showing, top-aligned with it.
             Plain flex with fixed-width cells: a FieldRow here collapsed to a
             few characters wide (screenshot 3385). Wraps under the table when narrow. */}
-        <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
+        <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
         <div className="min-w-0">
         {buildTab === "mix" ? (
-          <div className="space-y-3">
-            <p className="m-0 text-sm text-muted-foreground">What the cloth is made of. The shares must total 100%.</p>
+          <div className="space-y-2">
+            <p className="m-0 text-xs text-muted-foreground">What the cloth is made of. The shares must total 100%.</p>
             <div id={costingFieldId.yarnMix(f.key)} className="w-[31rem] max-w-full">
               {/* default-row: exempt -- a fabric with no blend needs no mix line; the seeded one is dropped as blank */}
               <div data-grid-style="sheet" className="[&_table]:table-fixed">
@@ -1476,8 +1478,8 @@ export function SampleCostingScreen({
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            <p className="m-0 text-sm text-muted-foreground">Pick each process from the list and give its price per KG: knitting, dyeing, stentering and so on.</p>
+          <div className="space-y-2">
+            <p className="m-0 text-xs text-muted-foreground">Pick each process and give its price per KG.</p>
             <div className="w-[21rem] max-w-full">
               <div data-grid-style="sheet" className="[&_table]:table-fixed">
                 <ChildGrid<FabricProcessDraft>
@@ -1499,7 +1501,7 @@ export function SampleCostingScreen({
           </div>
         )}
         </div>
-        <div className="flex shrink-0 flex-wrap items-end gap-4">
+        <div className="flex shrink-0 flex-wrap items-end gap-3">
           <div className="w-[8.5rem]">
             <Field label="Yarn / KG ₹" w="hug" htmlFor={costingFieldId.fabricRate(f.key)}>
               {mix ? (
@@ -1546,149 +1548,166 @@ export function SampleCostingScreen({
    * carries `data-row-add` so Tab reaches it and `landOnAddedRow` puts the
    * cursor in the new row.
    */
-  const fabricList = (
-    <div className="space-y-3">
-      {fabrics.map((f, i) => {
+  const buildFabric = buildKey ? fabrics.find((x) => x.key === buildKey && !x.is_direct) ?? null : null;
+  /**
+   * THE FABRIC LIST AS A SHEET GRID (user 2026-10-08, erp-sheet-grid): one row
+   * per fabric — Fabric · Uses × Price = Cost, then the two icons that choose
+   * how the price is known. It was a hand-rolled FieldRow per fabric with a
+   * card round each; the `×` and `=` glyphs go with the card, and the column
+   * headers say the same thing. Widths (FIELD_WIDTH_CSS): term 176 + range 112 +
+   * code 144 + range 112 + hug 88 = 632, + 72 chrome = 704.
+   */
+  const fabricColumns: ChildGridColumn<FabricDraft>[] = [
+    {
+      header: "Fabric",
+      required: true,
+      width: FIELD_WIDTH_CSS.term,
+      cell: (f) => (
+        <TypeOrPick
+          label="Fabric"
+          id={costingFieldId.fabric(f.key)}
+          options={data.fabrics.filter((x) => !isInactive(x) || x.id === f.fabric_id).map((x) => ({ id: x.id, name: x.name }))}
+          valueId={f.fabric_id}
+          text={f.quality || (data.fabrics.find((x) => x.id === f.fabric_id)?.name ?? "")}
+          onChange={(v) => onFabricPick(f, v)}
+          placeholder=""
+          uppercase
+        />
+      ),
+    },
+    {
+      header: `Uses kg / ${isSet ? "set" : "pc"}`,
+      align: "right",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (f) => {
+        const kg = fabricKg(f);
+        return (
+          <span className="block text-sm font-semibold text-foreground">
+            <Flash value={kg == null ? "—" : money(kg, 3)} formula="Component weights of this fabric, allowance included" />
+          </span>
+        );
+      },
+    },
+    {
+      header: "Price / KG ₹",
+      required: true,
+      align: "right",
+      width: FIELD_WIDTH_CSS.code,
+      cell: (f) =>
+        f.is_direct ? (
+          <div>
+            <NumInput
+              id={costingFieldId.fabricDirect(f.key)}
+              aria-label="Fabric price per KG"
+              required
+              className="font-semibold"
+              value={f.direct_rate}
+              onChange={(e) => patchFabric(f.key, { direct_rate: e.target.value })}
+            />
+            <FieldError>{msgFor(costingFieldId.fabricDirect(f.key))}</FieldError>
+          </div>
+        ) : (
+          <span className="block text-sm font-semibold text-foreground">
+            <Flash
+              value={money(fabricPricePerKg(f))}
+              formula={`(Yarn ${money(yarnRateOf(f))} + Knit + Dye + Finishing + Special ${money(processTotal(f))} = ${money(fabricSubtotal(f))}) × (1 + ${f.process_loss_pct || 0}% loss)`}
+            />
+          </span>
+        ),
+    },
+    {
+      header: `Fabric cost / ${isSet ? "set" : "pc"}`,
+      align: "right",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (f) => {
         const kg = fabricKg(f);
         const rate = fabricRate(f);
         const cost = kg != null && rate != null ? kg * rate : null;
+        return (
+          <span className="block text-sm font-semibold text-foreground">
+            <Flash value={cost == null ? "—" : money(cost)} formula="Uses × Price" />
+          </span>
+        );
+      },
+    },
+    {
+      header: "Price by",
+      width: FIELD_WIDTH_CSS.hug,
+      // THE ROW'S TWO ICONS — no words, each named by a tooltip and an aria-label.
+      // Buttons are not fields, so none of them is a Tab stop.
+      cell: (f) => {
         const building = !f.is_direct && buildKey === f.key;
         return (
-          <div key={f.key} className="rounded-lg border border-border p-3">
-            <FieldRow gap="row" align="end">
-              <Field label="Fabric" required w="party" htmlFor={costingFieldId.fabric(f.key)}>
-                <TypeOrPick
-                  label="Fabric"
-                  id={costingFieldId.fabric(f.key)}
-                  options={data.fabrics.filter((x) => !isInactive(x) || x.id === f.fabric_id).map((x) => ({ id: x.id, name: x.name }))}
-                  valueId={f.fabric_id}
-                  text={f.quality || (data.fabrics.find((x) => x.id === f.fabric_id)?.name ?? "")}
-                  onChange={(v) => onFabricPick(f, v)}
-                  placeholder=""
-                  uppercase
-                />
-              </Field>
-              <Field label={`Uses kg / ${isSet ? "set" : "pc"}`} w="range">
-                <span className="flex h-9 items-center justify-end rounded-md bg-surface-muted px-2 text-sm font-semibold text-foreground">
-                  <Flash value={kg == null ? "—" : money(kg, 3)} formula="Component weights of this fabric, allowance included" />
-                </span>
-              </Field>
-              <span aria-hidden className="pb-2 text-muted-foreground">
-                ×
-              </span>
-              {f.is_direct ? (
-                <Field label="Price / KG ₹" required w="code" htmlFor={costingFieldId.fabricDirect(f.key)}>
-                  <NumInput
-                    id={costingFieldId.fabricDirect(f.key)}
-                    aria-label="Fabric price per KG"
-                    required
-                    className="font-semibold"
-                    value={f.direct_rate}
-                    onChange={(e) => patchFabric(f.key, { direct_rate: e.target.value })}
-                  />
-                  <FieldError>{msgFor(costingFieldId.fabricDirect(f.key))}</FieldError>
-                </Field>
-              ) : (
-                <Field label="Price / KG ₹" labelSuffix={<span className="font-normal text-muted-foreground">worked out</span>} w="code">
-                  <span className="flex h-9 items-center justify-end rounded-md bg-surface-muted px-2 text-sm font-semibold text-foreground">
-                    <Flash
-                      value={money(fabricPricePerKg(f))}
-                      formula={`(Yarn ${money(yarnRateOf(f))} + Knit + Dye + Finishing + Special ${money(processTotal(f))} = ${money(fabricSubtotal(f))}) × (1 + ${f.process_loss_pct || 0}% loss)`}
-                    />
-                  </span>
-                </Field>
-              )}
-              <span aria-hidden className="pb-2 text-muted-foreground">
-                =
-              </span>
-              <Field label={`Fabric cost / ${isSet ? "set" : "pc"}`} w="range">
-                <span className="flex h-9 items-center justify-end rounded-md bg-surface-muted px-2 text-sm font-semibold text-foreground">
-                  <Flash value={cost == null ? "—" : money(cost)} formula="Uses × Price" />
-                </span>
-              </Field>
-              {/* THE ROW'S ICONS — no words, each named by a tooltip and an aria-label.
-                  Buttons are not fields, so none of them is a Tab stop. */}
-              <div className="flex items-center gap-1">
-                {f.is_direct ? (
-                  <Tooltip label="Work the price out from yarn and processes">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      aria-label="Work the price out from yarn and processes"
-                      onClick={() => {
-                        patchFabric(f.key, { is_direct: false });
-                        setBuildKey(f.key);
-                        setBuildTab("mix");
-                      }}
-                    >
-                      <Calculator aria-hidden />
-                    </Button>
-                  </Tooltip>
-                ) : (
-                  <>
-                    <Tooltip label={building ? "Hide the build-up" : "See how the price is worked out"}>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        aria-label={building ? "Hide the build-up" : "See how the price is worked out"}
-                        aria-expanded={building}
-                        onClick={() => setBuildKey(building ? null : f.key)}
-                      >
-                        <ChevronDown aria-hidden className={building ? "rotate-180" : ""} />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip label="Type the price instead">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        aria-label="Type the price instead"
-                        onClick={() => {
-                          // The worked-out price becomes the typed one, so the figure on screen does not jump.
-                          const keep = fabricPricePerKg(f);
-                          patchFabric(f.key, { is_direct: true, ...(keep != null && !num(f.direct_rate) ? { direct_rate: String(keep) } : {}) });
-                          if (buildKey === f.key) setBuildKey(null);
-                        }}
-                      >
-                        <Pencil aria-hidden />
-                      </Button>
-                    </Tooltip>
-                  </>
-                )}
-                {fabrics.length > 1 ? (
-                  <Tooltip label="Remove this fabric">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      data-row-remove
-                      aria-label={`Remove fabric ${i + 1}`}
-                      onClick={() => mutFabrics((xs) => xs.filter((x) => x.key !== f.key))}
-                    >
-                      <Trash2 aria-hidden />
-                    </Button>
-                  </Tooltip>
-                ) : null}
-              </div>
-            </FieldRow>
-            {building ? fabricBuildUp(f) : null}
+          <div className="flex items-center justify-center gap-1">
+            {f.is_direct ? (
+              <Tooltip label="Work the price out from yarn and processes">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label="Work the price out from yarn and processes"
+                  onClick={() => {
+                    patchFabric(f.key, { is_direct: false });
+                    setBuildKey(f.key);
+                    setBuildTab("mix");
+                  }}
+                >
+                  <Calculator aria-hidden />
+                </Button>
+              </Tooltip>
+            ) : (
+              <>
+                <Tooltip label="See how the price is worked out">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="See how the price is worked out"
+                    aria-haspopup="dialog"
+                    aria-expanded={building}
+                    onClick={captureBuildOrigin(() => setBuildKey(f.key))}
+                  >
+                    <ChevronDown aria-hidden />
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Type the price instead">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Type the price instead"
+                    onClick={() => {
+                      // The worked-out price becomes the typed one, so the figure on screen does not jump.
+                      const keep = fabricPricePerKg(f);
+                      patchFabric(f.key, { is_direct: true, ...(keep != null && !num(f.direct_rate) ? { direct_rate: String(keep) } : {}) });
+                      if (buildKey === f.key) setBuildKey(null);
+                    }}
+                  >
+                    <Pencil aria-hidden />
+                  </Button>
+                </Tooltip>
+              </>
+            )}
           </div>
         );
-      })}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        data-row-add
-        onClick={() => {
-          const f = blankFabric();
-          mutFabrics((xs) => [...xs, f]);
-        }}
-      >
-        + Add fabric
-      </Button>
+      },
+    },
+  ];
+  const fabricList = (
+    <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
+      <ChildGrid<FabricDraft>
+        // grid-caption: exempt -- the card's own title names it
+        label="Fabrics"
+        columns={fabricColumns}
+        rows={fabrics}
+        tableAlways
+        narrow
+        keepOne
+        removeHeader="Actions"
+        addLabel="+ Add fabric"
+        onAdd={() => mutFabrics((xs) => [...xs, blankFabric()])}
+        onRemove={(f) => mutFabrics((xs) => xs.filter((x) => x.key !== f.key))}
+      />
     </div>
   );
 
@@ -1844,15 +1863,20 @@ export function SampleCostingScreen({
     const added = blankLine(lines[lines.length - 1]?.piece_key ?? pieces[0]?.key ?? "");
     mutLines((xs) => [...xs, added]);
   }
-  const ID_COLS = multiPiece ? 2 : 1;
 
   const consumptionMatrix = () => {
+    // SIZE IS THE FIRST COLUMN, EACH SIZE A BAND OF ROWS (user 2026-10-08, the
+    // "Garment weight step" mock-up): Size · [Piece] · Component · Fabric · Grams ·
+    // Cost ₹ · ✕. It was sizes across the top; the data is the same
+    // (`line.cells[size]`, `loss[size]`), only the axis is turned.
     const track = [
+      "88px",
       ...(multiPiece ? ["112px"] : []),
-      "184px",
-      ...matrixCols.map((c) => `${textColPx(colLabel(c).length, 24, 84, 132)}px`),
-      "minmax(12px,1fr)",
-      "72px",
+      "176px",
+      "192px",
+      "148px",
+      "96px",
+      "44px",
     ].join(" ");
     const firstCol = matrixCols[0];
     return (
@@ -1891,189 +1915,167 @@ export function SampleCostingScreen({
         {/* HUGS ITS COLUMNS, like every Orders table (browser check 2026-10-07):
             `w-full` stretched the frame across the pane. `w-max` lets the 1fr
             spacer settle at its 12px floor; `max-w-full` keeps the scroll. */}
-        <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-border">
+        <div className="w-fit max-w-full overflow-x-auto rounded-control border border-border">
           <div data-grid-body className="grid w-max" style={{ gridTemplateColumns: track }} onKeyDown={(e) => gridKeyNav(e)}>
-            {multiPiece ? <div className={`${MATRIX_HEAD} sticky left-0 z-30 justify-start pl-2`}>Piece</div> : null}
-            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Component · Fabric</div>
-            {matrixCols.map((c) => (
-              <div key={c} className={`${MATRIX_HEAD} gap-1 whitespace-normal text-center leading-tight`}>
-                {colLabel(c)} · g
-                {sizeCols.length > 1 && c !== ALL_SIZES ? (
-                  // button-shape: exempt -- a 20px ✕ chip in a column heading
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    aria-label={`Remove size ${c}`}
-                    onClick={() => removeSize(c)}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-control text-[11px] text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                  >
-                    ✕
-                  </button>
-                ) : null}
-              </div>
-            ))}
-            <div className={MATRIX_HEAD} />
+            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Size</div>
+            {multiPiece ? <div className={`${MATRIX_HEAD} justify-start pl-2`}>Piece</div> : null}
+            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Component</div>
+            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Fabric</div>
+            <div className={`${MATRIX_HEAD} justify-end pr-2`}>Grams</div>
+            <div className={`${MATRIX_HEAD} justify-end pr-2`}>Cost ₹</div>
             <div className={MATRIX_HEAD} />
 
-            {lines.map((l) => (
-              <div key={l.key} data-grid-row className="contents">
-                {multiPiece ? (
-                  <div className={`${CELL} sticky left-0 z-10 bg-surface px-1`}>
-                    <Select aria-label="Piece" value={l.piece_key} onChange={(e) => patchLine(l.key, { piece_key: e.target.value })}>
-                      {pieces.map((pc) => (
-                        <option key={pc.key} value={pc.key}>
-                          {pc.piece_name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                ) : null}
-                {/* THE COMPONENT, AND UNDER ITS NAME THE FABRIC IT IS CUT FROM. */}
-                <div className={`${CELL} flex-col !items-stretch gap-1 px-1 py-1`}>
-                  <Select aria-label="Component" value={l.component_id ?? ""} onChange={(e) => patchLine(l.key, { component_id: e.target.value || null })}>
-                    <option value=""></option>
-                    {data.components
-                      .filter((c) => !isInactive(c) || c.id === l.component_id)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </Select>
-                  <Select
-                    id={costingFieldId.weightFabric(l.key)}
-                    aria-label="Fabric"
-                    required
-                    value={l.fabric_key ?? ""}
-                    onChange={(e) => patchLine(l.key, { fabric_key: e.target.value || null })}
-                  >
-                    <option value=""></option>
-                    {fabrics
-                      .filter((f) => !isBlankFabric(f))
-                      .map((f, i) => (
-                        <option key={f.key} value={f.key}>
-                          {fabricLabel(f, i)}
-                        </option>
-                      ))}
-                  </Select>
-                  <FieldError>{msgFor(costingFieldId.weightFabric(l.key))}</FieldError>
+            {matrixCols.map((c, ci) => (
+              <div key={c} className="contents">
+                {lines.map((l, li) => {
+                  const lc = lineCost(l, c);
+                  return (
+                    <div key={l.key} data-grid-row className="contents">
+                      <div className={`${CELL} !items-start !justify-between gap-1 border-r border-border bg-surface-muted px-1.5 py-2`}>
+                        {li === 0 ? (
+                          <span className="inline-flex h-7 items-center gap-1 rounded-control bg-primary pl-2.5 pr-1 text-[13px] font-bold text-primary-foreground">
+                            {colLabel(c)}
+                            {sizeCols.length > 1 && c !== ALL_SIZES ? (
+                              // button-shape: exempt -- a 20px ✕ chip inside the size chip
+                              <button
+                                type="button"
+                                tabIndex={-1}
+                                aria-label={`Remove size ${c}`}
+                                onClick={() => removeSize(c)}
+                                className="inline-flex h-5 w-5 items-center justify-center rounded-control text-[11px] opacity-75 hover:bg-black/20 hover:opacity-100"
+                              >
+                                ✕
+                              </button>
+                            ) : null}
+                          </span>
+                        ) : null}
+                      </div>
+                      {multiPiece ? (
+                        <div className={`${CELL} px-1`}>
+                          <Select aria-label="Piece" value={l.piece_key} onChange={(e) => patchLine(l.key, { piece_key: e.target.value })}>
+                            {pieces.map((pc) => (
+                              <option key={pc.key} value={pc.key}>
+                                {pc.piece_name}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      ) : null}
+                      <div className={`${CELL} px-1`}>
+                        <Select aria-label="Component" value={l.component_id ?? ""} onChange={(e) => patchLine(l.key, { component_id: e.target.value || null })}>
+                          <option value=""></option>
+                          {data.components
+                            .filter((x) => !isInactive(x) || x.id === l.component_id)
+                            .map((x) => (
+                              <option key={x.id} value={x.id}>
+                                {x.name}
+                              </option>
+                            ))}
+                        </Select>
+                      </div>
+                      <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
+                        {/* The fabric belongs to the LINE, so every size's band edits the same one; only the first band carries the id the error focuses. */}
+                        <Select
+                          id={ci === 0 ? costingFieldId.weightFabric(l.key) : undefined}
+                          aria-label="Fabric"
+                          required={ci === 0}
+                          value={l.fabric_key ?? ""}
+                          onChange={(e) => patchLine(l.key, { fabric_key: e.target.value || null })}
+                        >
+                          <option value=""></option>
+                          {fabrics
+                            .filter((f) => !isBlankFabric(f))
+                            .map((f, i) => (
+                              <option key={f.key} value={f.key}>
+                                {fabricLabel(f, i)}
+                              </option>
+                            ))}
+                        </Select>
+                        {ci === 0 ? <FieldError>{msgFor(costingFieldId.weightFabric(l.key))}</FieldError> : null}
+                      </div>
+                      <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
+                        <div className="flex items-center gap-1.5">
+                          <NumInput
+                            id={ci === 0 ? costingFieldId.weightGrams(l.key) : undefined}
+                            aria-label={`${componentName(l.component_id) || "Component"} grams — ${colLabel(c)}`}
+                            required={ci === 0}
+                            className="h-8"
+                            // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
+                            placeholder={ci > 0 ? (l.cells[firstCol] ?? "") : undefined}
+                            value={l.cells[c] ?? ""}
+                            onChange={(e) => setCell(l.key, c, e.target.value)}
+                          />
+                          <Tooltip label="Weight from length × width × GSM">
+                            {/* button-shape: exempt -- a 28px icon square in a matrix cell */}
+                            <button
+                              type="button"
+                              data-row-open
+                              aria-label="Calculate grams from length, width and GSM"
+                              onClick={captureDimsOrigin(() => {
+                                setDims({ l: "", w: "", g: "" });
+                                setDimsFor({ line: l.key, col: c });
+                              })}
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control border border-border text-primary hover:bg-primary-soft"
+                            >
+                              <Ruler className="h-3.5 w-3.5" aria-hidden />
+                            </button>
+                          </Tooltip>
+                        </div>
+                        {ci === 0 ? <FieldError>{msgFor(costingFieldId.weightGrams(l.key))}</FieldError> : null}
+                      </div>
+                      <div className={`${CELL} justify-end pr-2 text-sm font-semibold tabular-nums ${lc == null ? "font-normal text-muted-foreground" : ""}`}>
+                        {lc == null ? "—" : money(lc)}
+                      </div>
+                      <div className={`${CELL} justify-center`}>
+                        {lines.length > 1 ? (
+                          // button-shape: exempt -- the row's ✕, a 28px icon square (data-row-remove for Ctrl+Del)
+                          <button
+                            type="button"
+                            data-row-remove
+                            aria-label="Remove component from every size"
+                            title="Removes this component from every size"
+                            onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-danger-soft hover:text-danger"
+                          >
+                            ✕
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* THE SIZE'S SUBTOTAL ROW: its Loss %, what it uses and what that costs. */}
+                <div className={`${CELL} border-r border-border bg-primary-soft`} style={{ gridColumn: `span ${multiPiece ? 2 : 1}` }} />
+                <div data-loss-row className={`${CELL} justify-start gap-2 bg-primary-soft px-2 text-xs font-semibold text-muted-foreground`}>
+                  <span className="whitespace-nowrap">Loss %</span>
+                  <NumInput
+                    aria-label={`Loss percent — ${colLabel(c)}`}
+                    className="h-8 !w-16"
+                    placeholder={ci > 0 ? (loss[firstCol] ?? "") : undefined}
+                    value={loss[c] ?? ""}
+                    onChange={(e) => setLossAt(c, e.target.value)}
+                  />
                 </div>
-                {matrixCols.map((c, i) => (
-                  <div key={c} className={`${CELL} flex-col !items-stretch px-1`}>
-                    <NumInput
-                      id={i === 0 ? costingFieldId.weightGrams(l.key) : undefined}
-                      aria-label={`${componentName(l.component_id) || "Component"} grams — ${colLabel(c)}`}
-                      required={i === 0}
-                      className="h-8"
-                      // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
-                      placeholder={i > 0 ? (l.cells[firstCol] ?? "") : undefined}
-                      value={l.cells[c] ?? ""}
-                      onChange={(e) => setCell(l.key, c, e.target.value)}
-                    />
-                    {i === 0 ? <FieldError>{msgFor(costingFieldId.weightGrams(l.key))}</FieldError> : null}
-                  </div>
-                ))}
-                <div className={CELL} />
-                <div className={`${CELL} justify-end gap-0.5 pr-1`}>
-                  {firstCol ? (
-                    <Tooltip label="Weight from length × width × GSM">
-                      {/* button-shape: exempt -- a 28px icon square in a matrix cell */}
-                      <button
-                        type="button"
-                        data-row-open
-                        aria-label="Calculate grams from length, width and GSM"
-                        onClick={captureDimsOrigin(() => {
-                          setDims({ l: "", w: "", g: "" });
-                          setDimsFor({ line: l.key, col: firstCol });
-                        })}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-primary-soft hover:text-primary"
-                      >
-                        <Ruler className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                    </Tooltip>
-                  ) : null}
-                  {lines.length > 1 ? (
-                    // button-shape: exempt -- the row's ✕, a 28px icon square (data-row-remove for Ctrl+Del)
-                    <button
-                      type="button"
-                      data-row-remove
-                      aria-label="Remove component"
-                      onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                    >
-                      ✕
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-
-            {matrixCols.length ? (
-              <>
-                {/* THE BAND UNDER THE COMPONENTS: what the sizes add up to. */}
-                <div className={`${MATRIX_FOOT} sticky left-0 z-30 justify-start pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`} style={{ gridColumn: `span ${ID_COLS}` }}>
+                <div className={`${CELL} justify-start gap-1.5 bg-primary-soft px-2 text-xs font-semibold text-muted-foreground`}>
                   Fabric used
-                </div>
-                {matrixCols.map((c) => (
-                  <div key={c} className={MATRIX_FOOT}>
+                  <span className="text-foreground">
                     <Flash value={`${money(colGrams(c), 0)} g`} formula="Σ grams of the components" />
-                  </div>
-                ))}
-                <div className={MATRIX_FOOT} />
-                <div className={MATRIX_FOOT} />
-
-                <div
-                  data-loss-row
-                  className={`${MATRIX_FOOT} sticky left-0 z-30 flex-col items-start justify-center pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`}
-                  style={{ gridColumn: `span ${ID_COLS}` }}
-                >
-                  Loss %
-                  <span className="text-[10px] font-normal normal-case tracking-normal">cloth lost in making</span>
+                  </span>
                 </div>
-                {matrixCols.map((c, i) => (
-                  <div key={c} className={`${CELL} px-1`}>
-                    <NumInput
-                      aria-label={`Loss percent — ${colLabel(c)}`}
-                      className="h-8"
-                      placeholder={i > 0 ? (loss[firstCol] ?? "") : undefined}
-                      value={loss[c] ?? ""}
-                      onChange={(e) => setLossAt(c, e.target.value)}
-                    />
-                  </div>
-                ))}
-                <div className={CELL} />
-                <div className={CELL} />
-
-                <div className={`${MATRIX_FOOT} sticky left-0 z-30 justify-start pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`} style={{ gridColumn: `span ${ID_COLS}` }}>
-                  Total with loss
+                <div className={`${CELL} justify-end bg-primary-soft pr-2 text-xs font-semibold tabular-nums`}>
+                  <Flash value={`${money(colGramsWithLoss(c), 1)} g with loss`} formula="Σ grams × (1 + Loss %)" />
                 </div>
-                {matrixCols.map((c) => (
-                  <div key={c} className={MATRIX_FOOT}>
-                    <Flash value={`${money(colGramsWithLoss(c), 1)} g`} formula="Σ grams × (1 + Loss %)" />
-                  </div>
-                ))}
-                <div className={MATRIX_FOOT} />
-                <div className={MATRIX_FOOT} />
-
-                <div
-                  className={`${MATRIX_FOOT} sticky left-0 z-30 justify-start pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`}
-                  style={{ gridColumn: `span ${ID_COLS}` }}
-                >
-                  Fabric ₹ / {isSet ? "set" : "pc"}
+                <div className={`${CELL} justify-end bg-primary-soft pr-2 text-sm font-bold tabular-nums text-primary`}>
+                  <Flash value={money(colCost(c))} formula="Σ Price / KG ÷ 1000 × grams × (1 + Loss %)" />
                 </div>
-                {matrixCols.map((c) => (
-                  <div key={c} className={MATRIX_FOOT}>
-                    <Flash value={money(colCost(c))} formula="Σ Price / KG ÷ 1000 × grams × (1 + Loss %)" />
-                  </div>
-                ))}
-                <div className={MATRIX_FOOT} />
-                <div className={MATRIX_FOOT} />
-              </>
-            ) : (
-              <div className={`${MATRIX_FOOT} justify-start pl-2 text-xs font-normal text-muted-foreground`} style={{ gridColumn: "1 / -1" }}>
-                Add a size above and the grams boxes appear here.
+                <div className={`${CELL} bg-primary-soft`} />
               </div>
-            )}
+            ))}
+            {!matrixCols.length ? (
+              <div className={`${MATRIX_FOOT} justify-start pl-2 text-xs font-normal text-muted-foreground`} style={{ gridColumn: "1 / -1" }}>
+                Add a size above and its rows appear here.
+              </div>
+            ) : null}
           </div>
         </div>
         <Button
@@ -2440,7 +2442,8 @@ export function SampleCostingScreen({
     {
       header: "Direct rate",
       align: "center",
-      width: FIELD_WIDTH_CSS.num,
+      // hug, not num: the header was cut to "Direct r…" at 72px (user 2026-10-08).
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => <Toggle ariaLabel="Direct rate" checked={r.is_direct} onChange={(v) => patchTrim(r.key, { is_direct: v })} />,
     },
     {
@@ -2480,7 +2483,8 @@ export function SampleCostingScreen({
     {
       header: "Consumption",
       align: "right",
-      width: FIELD_WIDTH_CSS.hug,
+      // range, not hug: the header was cut to "Consumpti…" at 88px.
+      width: FIELD_WIDTH_CSS.range,
       cell: (r) =>
         r.is_direct ? null : (
           <div>
@@ -2673,7 +2677,7 @@ export function SampleCostingScreen({
             </Button>
           </div>
         ) : (
-        <div data-grid-style="sheet" className="[&_table]:table-fixed">
+        <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
         {/* default-row: exempt -- optional extras: none is a real answer, and a row appears only when "+ Add charge" is used */}
         <ChildGrid<ExtraChargeDraft>
           columns={columns}
@@ -2828,7 +2832,7 @@ export function SampleCostingScreen({
     trims: {
       right: head ? <Flash value={`₹${money(head.trims)}`} formula="Trims" /> : null,
       content: (
-        <div data-grid-style="sheet" className="[&_table]:table-fixed">
+        <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
           <ChildGrid<TrimDraft>
             columns={costingTrimColumns}
             rows={trims}
@@ -2848,9 +2852,6 @@ export function SampleCostingScreen({
       ) : null,
       content: (
         <div className="space-y-4">
-          <p className="m-0 text-sm text-muted-foreground">
-            Costs that are not in the garment itself. Bank charges are per piece; wastage and overhead are a percentage of the cost so far.
-          </p>
           <div className={TERMS_W}>
             <FieldRow gap="row" align="start">
               <Field label="Wastage %" w="hug" htmlFor="sc-waste">
@@ -3680,6 +3681,18 @@ export function SampleCostingScreen({
             isPending,
           }}
         />
+
+        <SubDetailSheet
+          open={!!buildFabric}
+          onClose={() => setBuildKey(null)}
+          origin={buildOrigin}
+          parent="costing"
+          grid
+          maxWidthClass="max-w-xl"
+          title="How the fabric price is worked out"
+        >
+          {buildFabric ? fabricBuildUp(buildFabric) : null}
+        </SubDetailSheet>
 
         <SubDetailSheet
           open={!!dimsLine}
