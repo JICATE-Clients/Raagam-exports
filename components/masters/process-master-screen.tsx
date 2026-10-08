@@ -24,7 +24,15 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { PROCESS_NAMES } from "@/lib/masters/name-vocabularies";
-import { BILLING_ON, type BillingOn, type Process, type ProcessInput } from "@/lib/masters/process-types";
+import {
+  BILLING_ON,
+  GARMENT_KINDS,
+  GARMENT_KIND_LABEL,
+  type BillingOn,
+  type GarmentKind,
+  type Process,
+  type ProcessInput,
+} from "@/lib/masters/process-types";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
@@ -50,6 +58,7 @@ const BLANK = {
   for_trims: false,
   for_garments: false,
   for_components: false,
+  garment_kind: "" as "" | GarmentKind,
   no_planning: false,
   is_conversion: false,
   has_sub_categories: false,
@@ -243,6 +252,7 @@ export function ProcessMasterScreen({
       for_trims: r.for_trims,
       for_garments: r.for_garments,
       for_components: r.for_components,
+      garment_kind: r.garment_kind ?? "",
       no_planning: r.no_planning,
       is_conversion: r.is_conversion,
       has_sub_categories: r.has_sub_categories,
@@ -290,6 +300,9 @@ export function ProcessMasterScreen({
    */
   function toggleFor(key: keyof typeof BLANK, checked: boolean) {
     set({ [key]: checked });
+    // Un-ticking Garments drops the kind with it: a process that is no longer a
+    // garment process must not keep turning up in Sample Costing's pickers.
+    if (key === "for_garments" && !checked) set({ garment_kind: "" });
     if ((key === "for_fabric" || key === "for_yarn") && checked && stageRows.length === 0)
       setStageRows([blankStage(newKey())]);
   }
@@ -339,6 +352,7 @@ export function ProcessMasterScreen({
         for_trims: form.for_trims,
         for_garments: form.for_garments,
         for_components: form.for_components,
+        garment_kind: form.garment_kind ? form.garment_kind : null,
         no_planning: form.no_planning,
         is_conversion: form.is_conversion,
         has_sub_categories: form.has_sub_categories,
@@ -664,6 +678,25 @@ export function ProcessMasterScreen({
                   onChange={(v) => toggleFor(f.key, v)}
                 />
               ))}
+              {/* WHAT KIND OF GARMENT PROCESS (0691) — sorts Sample Costing's
+                  pickers: CMT operations vs Embellishments. Two more switches in
+                  the same row as the For flags (client 2026-10-08: "add
+                  embellishment as a process kind, not a dropdown"). One column
+                  holds the kind, so the two switches are mutually exclusive:
+                  turning one on turns the other off. Shown while Garments is
+                  ticked, or while a kind is already held (the seeded Print /
+                  Embroidery / Wash rows carry one without the tick). */}
+              {form.for_garments || form.garment_kind
+                ? GARMENT_KINDS.map((k) => (
+                    <Toggle
+                      key={k}
+                      id={`pr-kind-${k}`}
+                      label={GARMENT_KIND_LABEL[k]}
+                      checked={form.garment_kind === k}
+                      onChange={(v) => set({ garment_kind: v ? k : "" })}
+                    />
+                  ))
+                : null}
             </FieldRow>
           </DetailSection>
 

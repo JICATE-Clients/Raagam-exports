@@ -64,9 +64,22 @@ export interface ProcessFabricStage {
   /** Is this process the stage's MANDATORY entry step? */
   is_base: boolean;
 }
+/** What kind of GARMENT process this is (0691) — sorts the Sample Costing
+ *  pickers: CMT operations (Cutting, Stitching, Checking, Ironing, Packing …)
+ *  versus Embellishments (Print, Embroidery, Wash, Sequin …). Optional: a
+ *  process with no kind is simply in neither picker. */
+export const GARMENT_KINDS = ["cmt", "embellishment"] as const;
+export type GarmentKind = (typeof GARMENT_KINDS)[number];
+export const GARMENT_KIND_LABEL: Record<GarmentKind, string> = {
+  cmt: "CMT operation",
+  embellishment: "Embellishment",
+};
+
 export interface Process {
   id: string;
   name: string;
+  /** See `GARMENT_KINDS`. Meaningful only while `for_garments` is ticked. */
+  garment_kind: GarmentKind | null;
   /* NO `short_description`. IT WAS HERE AND THE CLIENT REMOVED IT (2026-09-16,
      doc/order/fabriprocess.md §4). Gone from the DATABASE (0565) and not merely
      from the screen, for the reason `rate` and `description` record in
@@ -224,6 +237,10 @@ export const processInput = z.object({
   for_trims: z.boolean().default(false),
   for_garments: z.boolean().default(false),
   for_components: z.boolean().default(false),
+  /* `.optional()`, NOT `.default(null)`: a parse that does not name this key
+     (a `lib/data-io` import) must leave the stored kind alone, exactly as the
+     system kind flags below are left alone. Only the Process form names it. */
+  garment_kind: z.enum(GARMENT_KINDS).nullable().optional(),
   no_planning: z.boolean().default(false),
   is_conversion: z.boolean().default(false),
   /* NO `designwise_delivery` / `is_print` / `is_dyeing` / `is_knitting` — see

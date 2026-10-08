@@ -22,8 +22,10 @@ import {
   num,
   yarnMixTotal,
   quoteKey,
-  sizeGroupsOf,
+  sizesOf,
+  trimCostPerPiece,
   type CostingInput,
+  type ExtraChargeInput,
   type CostingSummary,
 } from "./calc";
 
@@ -78,13 +80,20 @@ export type PieceDraft = {
   key: string;
   piece_name: string;
   coordinate_id: string | null;
+  /** The flat CMT rate — read only while `cmt_direct` is ticked (0692). */
   cmt: string;
-  print_cost: string;
-  embroidery_cost: string;
-  wash_cost: string;
+  /** Direct rate ticked = the flat `cmt`; unticked = the CMT operation lines. */
+  cmt_direct: boolean;
+  /** CMT operations and Embellishments, picked from the Process master by
+   *  `processes.garment_kind` (0691). The old fixed Print / Embroidery / Wash
+   *  columns are no longer written or read. */
+  lines: PieceLineDraft[];
   testing_cost: string;
   bank_cost: string;
 };
+
+export type PieceLineKind = "cmt" | "embellishment";
+export type PieceLineDraft = { key: string; kind: PieceLineKind; process_id: string | null; process_name: string; rate: string };
 
 export type FabricProcessDraft = { key: string; process_id: string | null; process_name: string; rate: string };
 
@@ -111,7 +120,8 @@ export type WeightDraft = {
   piece_key: string;
   fabric_key: string | null;
   component_id: string | null;
-  size_group_id: string | null;
+  /** The style size this row weighs, by name (0693); null = a legacy "every size" row. */
+  size_name: string | null;
   weight_g: string;
   length_cm: string;
   width_cm: string;
@@ -125,9 +135,29 @@ export type TrimDraft = {
   piece_key: string;
   item_id: string | null;
   description: string;
+  /** CONSUMPTION per garment — units, or metres for a length trim (the 0688 `qty`).
+   *  Rendered and counted only while Direct rate is OFF. */
   qty: string;
+  /** The Direct rate, flat ₹ per piece. Rendered and counted only while Direct rate is ON. */
   rate: string;
+  /** 0694. Ticked = the Direct rate; unticked = Package price ÷ Pack size × consumption.
+   *  The factory stamps true and `isBlankTrim` never tests it, so an untouched row stays blank. */
+  is_direct: boolean;
+  /** Purchase price of one box / cone / gross / metre. */
+  pack_price: string;
+  /** Pieces or garments one pack covers; blank counts as 1. */
+  pack_size: string;
 };
+
+/**
+ * One "+ Add" row of Overheads (`section: "overhead"`) or Price & quote
+ * (`"price"`): a name, FLAT ₹ per piece or PERCENT of net, a value, and — on a
+ * price row only — whether it is added to the price or deducted from it.
+ * The factory stamps `kind: "flat"` and `sign: "add"`, which `isBlankExtra`
+ * never reads, so an untouched seeded row saves nothing.
+ */
+export type ExtraChargeDraft = ExtraChargeInput & { key: string; name: string };
+export const isBlankExtra = (e: ExtraChargeDraft) => !filled(e.name) && !filled(e.value);
 
 export type CostingDraft = {
   header: CostingHeaderDraft;
@@ -135,8 +165,10 @@ export type CostingDraft = {
   fabrics: FabricDraft[];
   weights: WeightDraft[];
   trims: TrimDraft[];
-  /** Quoted price per `quoteKey(piece.key, size_group_id)`. */
+  /** Quoted price per `quoteKey(piece.key, size_name)`. */
   quotes: Record<string, string>;
+  /** The Overheads and Price & quote "+ Add" rows (0695). */
+  extras: ExtraChargeDraft[];
 };
 
 /** One saved sheet, as the editor opens it. */
@@ -202,6 +234,9 @@ export const isBlankFabric = (f: FabricDraft) =>
   !f.processes.some((p) => !isBlankProcess(p)) &&
   !f.yarns.some((y) => !isBlankYarn(y));
 
+/** A CMT / Embellishment line is real once a process is picked or a rate typed — the factory stamps only its kind. */
+export const isBlankPieceLine = (l: PieceLineDraft) => !l.process_id && !filled(l.process_name) && !filled(l.rate);
+
 export const isBlankProcess = (p: FabricProcessDraft) => !p.process_id && !filled(p.process_name) && !filled(p.rate);
 export const isBlankYarn = (y: YarnMixDraft) => !y.item_id && !filled(y.yarn_name) && !filled(y.mix_pct) && !filled(y.rate);
 
@@ -211,17 +246,21 @@ export const isBlankYarn = (y: YarnMixDraft) => !y.item_id && !filled(y.yarn_nam
  * typed — the constant-`true` clause AGENTS.md "THE SEEDED ROW IS SAVED UNLESS
  * THE SAVE SIDE DROPS IT" warns about. A row is real once the operator types
  * something they have to type.
+ *
+ * NOT `size_name` either (0693): the sizes are COLUMNS the operator chose, and
+ * every line of the sheet is written once per column, so a size on a row says
+ * nothing about whether anything was typed on it.
  */
 export const isBlankWeight = (w: WeightDraft) =>
   !w.fabric_key &&
   !w.component_id &&
-  !w.size_group_id &&
   !filled(w.weight_g) &&
   !filled(w.length_cm) &&
   !filled(w.width_cm) &&
   !filled(w.gsm);
 
-export const isBlankTrim = (t: TrimDraft) => !t.item_id && !filled(t.description) && !filled(t.qty) && !filled(t.rate);
+export const isBlankTrim = (t: TrimDraft) =>
+  !t.item_id && !filled(t.description) && !filled(t.qty) && !filled(t.rate) && !filled(t.pack_price) && !filled(t.pack_size);
 
 /** The drafts the arithmetic and the payload read — blanks dropped. */
 export function liveRows(d: CostingDraft) {
@@ -232,6 +271,7 @@ export function liveRows(d: CostingDraft) {
     fabrics,
     weights: d.weights.filter((w) => !isBlankWeight(w)),
     trims: d.trims.filter((t) => !isBlankTrim(t)),
+    extras: (d.extras ?? []).filter((e) => !isBlankExtra(e)),
   };
 }
 
@@ -239,12 +279,13 @@ export function liveRows(d: CostingDraft) {
 export function costingInputOf(d: CostingDraft): CostingInput {
   const live = liveRows(d);
   return {
-    pieces: d.pieces,
+    pieces: d.pieces.map((p) => ({ ...p, lines: p.lines.filter((l) => !isBlankPieceLine(l)) })),
     fabrics: live.fabrics,
     weights: live.weights,
     trims: live.trims,
     terms: d.header,
     quotes: d.quotes,
+    extras: live.extras,
   };
 }
 
@@ -279,6 +320,11 @@ export const costingFieldId = {
   weightFabric: (key: string) => `sc-w-fab-${key}`,
   weightGrams: (key: string) => `sc-w-g-${key}`,
   trimRate: (key: string) => `sc-t-rate-${key}`,
+  trimQty: (key: string) => `sc-t-qty-${key}`,
+  trimPackPrice: (key: string) => `sc-t-price-${key}`,
+  trimPackSize: (key: string) => `sc-t-pack-${key}`,
+  extraName: (key: string) => `sc-x-name-${key}`,
+  extraValue: (key: string) => `sc-x-val-${key}`,
 };
 
 /**
@@ -329,10 +375,10 @@ export function costingProblems(d: CostingDraft, opts: { draft?: boolean } = {})
   }
 
   if (live.weights.length === 0) {
-    out.push({ section: "consumption", label: "Consumption", message: "Add at least one component weight." });
+    out.push({ section: "consumption", label: "Consumption", message: "Add at least one component weight: choose a size, then type the grams." });
   }
   for (const w of live.weights) {
-    // A matrix line writes one row per size group (`line|group`); its
+    // A matrix line writes one row per size (`line|size`); its
     // problems belong to the LINE's own controls, reported once.
     if (w.key.includes("|")) continue;
     if (!w.fabric_key || !live.fabrics.some((f) => f.key === w.fabric_key)) {
@@ -345,7 +391,20 @@ export function costingProblems(d: CostingDraft, opts: { draft?: boolean } = {})
 
   for (const t of live.trims) {
     if (!t.item_id && !filled(t.description)) {
-      out.push({ section: "trims", fieldId: costingFieldId.trimRate(t.key), label: "Trim", message: "Name the trim, or remove the line." });
+      out.push({
+        section: "trims",
+        // A hidden control cannot be revealed, so the error sits on one the row renders.
+        fieldId: t.is_direct ? costingFieldId.trimRate(t.key) : costingFieldId.trimPackPrice(t.key),
+        label: "Trim",
+        message: "Name the trim, or remove the line.",
+      });
+    }
+    // Package-priced lines: a pack size of 0 is never divided, and a price needs its consumption.
+    const { problem } = trimCostPerPiece(t);
+    if (problem === "pack_size") {
+      out.push({ section: "trims", fieldId: costingFieldId.trimPackSize(t.key), label: "Pack size", message: "Pack size must be more than 0. Leave it blank if the price is for one unit." });
+    } else if (problem === "consumption") {
+      out.push({ section: "trims", fieldId: costingFieldId.trimQty(t.key), label: "Consumption", message: "Type how much one garment uses." });
     }
   }
 
@@ -363,6 +422,17 @@ export function costingProblems(d: CostingDraft, opts: { draft?: boolean } = {})
   }
   if ([h.margin_pct, h.garment_waste_pct, h.overhead_pct, h.discount_pct, h.freight_per_pc, h.insurance_per_pc].some(negative)) {
     out.push({ section: "quotation", label: "Terms", message: "Margin, wastage, overhead, discount, freight and insurance cannot be negative." });
+  }
+
+  for (const e of live.extras) {
+    if (!filled(e.name)) {
+      out.push({ section: "quotation", fieldId: costingFieldId.extraName(e.key), label: "Charge", message: "Name the charge, or remove the line." });
+    } else if (!filled(e.value)) {
+      out.push({ section: "quotation", fieldId: costingFieldId.extraValue(e.key), label: "Charge", message: `Enter the value of ${e.name.trim()}, or remove the line.` });
+    }
+    if ((num(e.value) ?? 0) < 0) {
+      out.push({ section: "quotation", fieldId: costingFieldId.extraValue(e.key), label: "Charge", message: "A charge cannot be negative — use Deduct on a price line." });
+    }
   }
 
   if (!h.currency_code) {
@@ -410,9 +480,16 @@ export const costingDraftSchema = z.object({
         piece_name: s,
         coordinate_id: sid,
         cmt: numStr,
-        print_cost: numStr,
-        embroidery_cost: numStr,
-        wash_cost: numStr,
+        cmt_direct: z.boolean(),
+        lines: z.array(
+          z.object({
+            key: s,
+            kind: z.union([z.literal("cmt"), z.literal("embellishment")]),
+            process_id: sid,
+            process_name: s,
+            rate: numStr,
+          }),
+        ),
         testing_cost: numStr,
         bank_cost: numStr,
       }),
@@ -440,7 +517,7 @@ export const costingDraftSchema = z.object({
       piece_key: s,
       fabric_key: z.string().nullable(),
       component_id: sid,
-      size_group_id: sid,
+      size_name: z.string().nullable(),
       weight_g: numStr,
       length_cm: numStr,
       width_cm: numStr,
@@ -448,8 +525,18 @@ export const costingDraftSchema = z.object({
       wastage_pct: numStr,
     }),
   ),
-  trims: z.array(z.object({ key: s, piece_key: s, item_id: sid, description: s, qty: numStr, rate: numStr })),
+  trims: z.array(z.object({ key: s, piece_key: s, item_id: sid, description: s, qty: numStr, rate: numStr, is_direct: z.boolean(), pack_price: numStr, pack_size: numStr })),
   quotes: z.record(z.string(), numStr),
+  extras: z.array(
+    z.object({
+      key: s,
+      section: z.union([z.literal("overhead"), z.literal("price")]),
+      name: s,
+      kind: z.union([z.literal("flat"), z.literal("pct")]),
+      value: numStr,
+      sign: z.union([z.literal("add"), z.literal("deduct")]),
+    }),
+  ),
 }) satisfies z.ZodType<CostingDraft>;
 
 /** Free text is stored in CAPITALS — through the Zod transform (AGENTS.md CAPITALS). */
@@ -470,9 +557,9 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
   const fabricIndex = new Map(live.fabrics.map((f, i) => [f.key, i]));
   const rate = num(d.header.exchange_rate);
   const quotes = d.pieces.flatMap((p, pi) =>
-    sizeGroupsOf(live.weights).map((g) => ({
+    sizesOf(live.weights).map((g) => ({
       piece_index: pi,
-      size_group_id: g,
+      size_name: g,
       quoted_price: (d.quotes[quoteKey(p.key, g)] ?? "").trim(),
     })),
   );
@@ -513,9 +600,11 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
       piece_name: caps(p.piece_name) ?? "GARMENT",
       coordinate_id: p.coordinate_id,
       cmt: p.cmt.trim(),
-      print_cost: p.print_cost.trim(),
-      embroidery_cost: p.embroidery_cost.trim(),
-      wash_cost: p.wash_cost.trim(),
+      cmt_direct: p.cmt_direct,
+      // Blank lines are dropped here — the seeded blank row must never be saved.
+      lines: p.lines
+        .filter((l) => !isBlankPieceLine(l))
+        .map((l) => ({ kind: l.kind, process_id: l.process_id, process_name: caps(l.process_name), rate: l.rate.trim() })),
       testing_cost: p.testing_cost.trim(),
       bank_cost: p.bank_cost.trim(),
     })),
@@ -540,7 +629,7 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
         piece_index: pieceIndex.get(w.piece_key),
         fabric_index: w.fabric_key != null && fabricIndex.has(w.fabric_key) ? fabricIndex.get(w.fabric_key) : null,
         component_id: w.component_id,
-        size_group_id: w.size_group_id,
+        size_name: w.size_name,
         weight_g: w.weight_g.trim(),
         length_cm: w.length_cm.trim(),
         width_cm: w.width_cm.trim(),
@@ -555,8 +644,18 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
         description: caps(t.description),
         qty: t.qty.trim(),
         rate: t.rate.trim(),
+        is_direct: t.is_direct,
+        pack_price: t.pack_price.trim(),
+        pack_size: t.pack_size.trim(),
       })),
     quotes: quotes.filter((q) => q.quoted_price !== ""),
+    extras: live.extras.map((e) => ({
+      section: e.section,
+      name: caps(e.name) ?? "",
+      kind: e.kind,
+      value: e.value.trim(),
+      sign: e.section === "price" ? e.sign : "add",
+    })),
   };
 }
 

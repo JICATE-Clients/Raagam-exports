@@ -7,7 +7,7 @@
  * so a quotation looks like every other document Raagam sends out.
  *
  * PRICES ONLY. This sheet goes to the buyer: it prints the quoted price per
- * piece and size group and the set price — never the fabric rates, CMT, margin
+ * piece and size and the set price — never the fabric rates, CMT, margin
  * or wastage behind them. The cost breakdown stays on the screen. A piece with
  * no quoted price prints its calculated price, rounded to the cent, because a
  * quotation with a blank price is not a quotation; Submit is where an unquoted
@@ -46,7 +46,7 @@ export type QuotationSheet = {
   shipMode: string | null;
   isSet: boolean;
   pieceName: (key: string) => string;
-  groupName: (id: string | null) => string;
+  sizeName: (size: string | null) => string;
   summary: CostingSummary;
   approved: boolean;
 };
@@ -103,7 +103,7 @@ export async function exportQuotationPdf(
     doc,
     y,
     groups.map((g) => ({
-      label: groups.length > 1 ? q.groupName(g.groupId) : q.isSet ? "Quoted set price" : "Quoted price",
+      label: groups.length > 1 ? q.sizeName(g.size) : q.isSet ? "Quoted set price" : "Quoted price",
       value: price(
         g.pieces.every((p) => offered(p.quoted, p.calc) != null)
           ? g.pieces.reduce((t, p) => t + (offered(p.quoted, p.calc) ?? 0), 0)
@@ -116,14 +116,14 @@ export async function exportQuotationPdf(
     M,
   );
 
-  const top = drawCardHeader(doc, M, y + 12, CW, BRAND, q.isSet ? "Price by piece" : "Price by size group");
+  const top = drawCardHeader(doc, M, y + 12, CW, BRAND, q.isSet ? "Price by piece" : "Price by size");
   const body: RowInput[] = groups.flatMap((g) => [
-    ...g.pieces.map((p) => [q.pieceName(p.pieceKey), q.groupName(g.groupId), price(offered(p.quoted, p.calc), q.currency)]),
+    ...g.pieces.map((p) => [q.pieceName(p.pieceKey), q.sizeName(g.size), price(offered(p.quoted, p.calc), q.currency)]),
     ...(q.isSet
       ? [
           [
             "Set total",
-            q.groupName(g.groupId),
+            q.sizeName(g.size),
             price(
               g.pieces.every((p) => offered(p.quoted, p.calc) != null)
                 ? g.pieces.reduce((t, p) => t + (offered(p.quoted, p.calc) ?? 0), 0)
@@ -149,7 +149,7 @@ export async function exportQuotationPdf(
     theme: "plain",
     styles: cardTableStyles(),
     headStyles: cardTableHead(),
-    head: [["Piece", "Size group", `Price (${q.currency ?? ""})`]],
+    head: [["Piece", "Size", `Price (${q.currency ?? ""})`]],
     body,
     columnStyles: { 2: { halign: "right" } },
     didParseCell: (d) => {
@@ -187,8 +187,9 @@ export async function exportQuotationPdf(
 // ---------------------------------------------------------------------------
 export type CostSheetPdf = QuotationSheet & {
   fabrics: { name: string; yarn: string; knit: string; dye: string; fin: string; proc: string; loss: string; price: string }[];
-  weights: { piece: string; component: string; fabric: string; group: string; grams: string; allowance: string; cost: string }[];
-  labour: { piece: string; cmt: string; print: string; emb: string; wash: string; testing: string; bank: string }[];
+  weights: { piece: string; component: string; fabric: string; size: string; grams: string; allowance: string; cost: string }[];
+  /** `detail` names the picked CMT operations and Embellishments with their rates. */
+  labour: { piece: string; cmt: string; emb: string; testing: string; bank: string; detail: string }[];
   trims: { piece: string; name: string; qty: string; rate: string; amount: string }[];
   terms: { label: string; value: string }[];
 };
@@ -253,21 +254,21 @@ export async function exportCostSheetPdf(c: CostSheetPdf, company: DocLetterhead
 
   card("1. Fabric rates (₹ / KG)", ["Fabric", "Yarn", "Knitting", "Dyeing", "Finishing", "Special", "Loss %", "Price / KG"],
     c.fabrics.map((f) => [f.name, f.yarn, f.knit, f.dye, f.fin, f.proc, f.loss, f.price]), [1, 2, 3, 4, 5, 6, 7]);
-  card("2. Consumption", ["Piece", "Component", "Fabric", "Size group", "Grams", "Allowance %", "Cost ₹"],
-    c.weights.map((w) => [w.piece, w.component, w.fabric, w.group, w.grams, w.allowance, w.cost]), [4, 5, 6]);
-  card("3. CMT & garment processing (₹ / pc)", ["Piece", "CMT", "Print", "Embroidery", "Wash", "Testing & FOB", "Bank"],
-    c.labour.map((l) => [l.piece, l.cmt, l.print, l.emb, l.wash, l.testing, l.bank]), [1, 2, 3, 4, 5, 6]);
+  card("2. Consumption", ["Piece", "Component", "Fabric", "Size", "Grams", "Loss %", "Cost ₹"],
+    c.weights.map((w) => [w.piece, w.component, w.fabric, w.size, w.grams, w.allowance, w.cost]), [4, 5, 6]);
+  card("3. CMT & embellishment (₹ / pc)", ["Piece", "CMT", "Embellishment", "Testing & FOB", "Bank", "Detail"],
+    c.labour.map((l) => [l.piece, l.cmt, l.emb, l.testing, l.bank, l.detail]), [1, 2, 3, 4]);
   card("4. Trims & accessories", ["Piece", "Trim", "Qty", "Rate ₹", "Amount ₹"],
     c.trims.map((t) => [t.piece, t.name, t.qty, t.rate, t.amount]), [2, 3, 4]);
 
   const money2 = (v: number | null) => (v == null ? "—" : v.toFixed(2));
   card(
     "5. Commercial summary",
-    ["Piece", "Size group", "Net ₹", "Wastage ₹", "Overhead ₹", "Gross cost ₹", "Margin ₹", "Discount ₹", "Price ₹", `Calc ${c.currency ?? ""}`, `Quoted ${c.currency ?? ""}`, "Margin %"],
+    ["Piece", "Size", "Net ₹", "Wastage ₹", "Overhead ₹", "Gross cost ₹", "Margin ₹", "Discount ₹", "Price ₹", `Calc ${c.currency ?? ""}`, `Quoted ${c.currency ?? ""}`, "Margin %"],
     c.summary.groups.flatMap((g) =>
       g.pieces.map((p) => [
         c.pieceName(p.pieceKey),
-        c.groupName(g.groupId),
+        c.sizeName(g.size),
         money2(p.net),
         money2(p.wastage),
         money2(p.overhead),

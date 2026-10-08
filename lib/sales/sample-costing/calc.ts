@@ -4,7 +4,7 @@
  * server's Submit decision (§5.2, margin floor) and the quotation PDF are the
  * SAME numbers — three readers, one engine, nothing to drift.
  *
- * The chain, per garment PIECE and per SIZE GROUP:
+ * The chain, per garment PIECE and per SIZE:
  *
  *   Yarn / KG          = typed, or Σ Mix % × Rate ÷ 100 over the Yarn Mix lines
  *   Fabric Price / KG  = (Yarn + Knitting + Dyeing + Finishing + Σ special processes)
@@ -15,17 +15,26 @@
  *   Net cost           = Fabric + CMT + Print + Embroidery + Wash + Trims
  *                        + Testing & FOB + Bank charges
  *   Margin / Wastage / Overhead / Discount = Net × their %
- *   Gross cost (INR)   = Net + Wastage + Overhead              (UI/UX spec §3 rail)
- *   Price (INR)        = Gross cost + Margin − Discount        (= the costing spec's
+ *   Gross cost (INR)   = Net + Wastage + Overhead + Σ Overhead charges  (UI/UX spec §3 rail)
+ *   Price (INR)        = Gross cost + Margin − Discount ± Σ Price charges
+ *                                                             (= the costing spec's
  *                                                             "Gross Price", §4.1)
+ *
+ * EXTRA CHARGES (the "+ Add" rows of Overheads and Price & quote, 2026-10-08).
+ * A row is a name, a kind and a value: FLAT is ₹ per piece, PERCENT is % of the
+ * piece's NET cost (the base Wastage, Overhead, Margin and Discount already
+ * use). An Overheads row is a cost and joins the gross cost; a Price row is a
+ * surcharge (+) or a deduction (−) on the selling price and, like freight and
+ * insurance, passes THROUGH the margin rather than being earned by it.
  *   Calc price         = (Price + Freight + Insurance) ÷ Exchange Rate
  *   Set price          = Σ over the pieces of a SET
  *
- * SIZE GROUPS. A component weight row may name a size group (the spec's 162 g /
- * 258 g / 270 g bodies for three size ranges) or none, meaning "every size" — a
- * rib that is 40 g in every range is typed once. A piece is costed once per
- * size group the sheet uses; a row with no group adds to every group. A sheet
- * that names no group at all is costed once, as "All sizes".
+ * SIZES (0693). A component weight row names a SIZE — one of the style's own
+ * ticked sizes (S, M, L …), stored by name — or none, meaning "every size": a
+ * rib that is 40 g in every size is typed once, and a legacy row saved before
+ * 0693 carries none. A piece is costed once per size the sheet uses; a row with
+ * no size adds to every size. A sheet that names no size at all is costed once,
+ * as "All sizes".
  *
  * A BLANK IS NOT A ZERO where the figure is a price the operator owes us: a
  * missing exchange rate leaves the calc price `null` (shown as a dash and as a
@@ -71,19 +80,30 @@ export type FabricInput = {
   direct_rate: string;
   processes: readonly FabricProcessInput[];
 };
+/** One CMT operation or Embellishment line picked from the Process master (0692). */
+export type PieceLineInput = { kind: "cmt" | "embellishment"; rate: string };
 export type PieceInput = {
   key: string;
+  /** The flat CMT rate — counted only while `cmt_direct`. */
   cmt: string;
-  print_cost: string;
-  embroidery_cost: string;
-  wash_cost: string;
+  cmt_direct: boolean;
+  lines: readonly PieceLineInput[];
   testing_cost: string;
   bank_cost: string;
 };
+
+/** CMT per piece: the Direct rate, or the sum of the CMT operation lines. */
+export function pieceCmt(p: Pick<PieceInput, "cmt" | "cmt_direct" | "lines">): number {
+  return p.cmt_direct ? z(p.cmt) : p.lines.filter((l) => l.kind === "cmt").reduce((s, l) => s + z(l.rate), 0);
+}
+/** Embellishment per piece: the sum of its Process-master lines. */
+export function pieceEmbellishment(p: Pick<PieceInput, "lines">): number {
+  return p.lines.filter((l) => l.kind === "embellishment").reduce((s, l) => s + z(l.rate), 0);
+}
 export type WeightInput = {
   piece_key: string;
   fabric_key: string | null;
-  size_group_id: string | null;
+  size_name: string | null;
   weight_g: string;
   length_cm: string;
   width_cm: string;
@@ -92,7 +112,33 @@ export type WeightInput = {
    *  component's fabric, applied to its grams. Blank = none. */
   wastage_pct: string;
 };
-export type TrimInput = { piece_key: string; qty: string; rate: string };
+/**
+ * A trim line. `qty` is the CONSUMPTION per garment (units, or metres for a length
+ * trim). Two ways to price it (Trims Consumption spec, 2026-10-08):
+ *   Direct rate   (`is_direct` !== false, the default and every pre-0694 row):
+ *                 cost = rate, the flat ₹ per piece. The grid renders ONLY the rate box in this
+ *                 mode (user 2026-10-08, "dynamically show the fields"), so `qty` is not read.
+ *   Package price (`is_direct` === false):
+ *                 cost = (pack_price ÷ pack_size) × qty, a blank pack_size counting as 1
+ *                 (a length trim: rate per metre × metres, pack size left blank).
+ * Both sets stay in the draft when the switch is flipped; only the active set counts.
+ */
+export type TrimInput = {
+  piece_key: string;
+  qty: string;
+  rate: string;
+  is_direct?: boolean;
+  pack_price?: string;
+  pack_size?: string;
+};
+/** One "+ Add" row of Overheads (`section: "overhead"`) or Price & quote (`"price"`). */
+export type ExtraChargeInput = {
+  section: "overhead" | "price";
+  kind: "flat" | "pct";
+  value: string;
+  /** Price rows only — an Overheads row is always a cost. */
+  sign: "add" | "deduct";
+};
 export type TermsInput = {
   margin_pct: string;
   garment_waste_pct: string;
@@ -108,8 +154,10 @@ export type CostingInput = {
   weights: readonly WeightInput[];
   trims: readonly TrimInput[];
   terms: TermsInput;
-  /** Quoted price per `quoteKey(piece, group)`. */
+  /** Quoted price per `quoteKey(piece, size)`. */
   quotes: Readonly<Record<string, string>>;
+  /** The Overheads / Price & quote "+ Add" rows; absent = none. */
+  extras?: readonly ExtraChargeInput[];
 };
 
 /** A typed number, or null for a blank / unreadable box. */
@@ -121,13 +169,50 @@ export function num(v: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 const z = (v: string | null | undefined) => num(v) ?? 0;
+
+/** What is wrong with a package-priced trim line, if anything. Never a NaN or an Infinity. */
+export type TrimProblem = "pack_size" | "consumption" | null;
+
+/**
+ * ONE trim line's cost per piece — the single rule the screen, the server Submit and
+ * the PDFs all read. An invalid line costs 0 and says why (`problem`), so Save can
+ * refuse it instead of pricing a division by zero.
+ */
+export function trimCostPerPiece(t: Pick<TrimInput, "qty" | "rate" | "is_direct" | "pack_price" | "pack_size">): {
+  cost: number;
+  problem: TrimProblem;
+} {
+  if (t.is_direct !== false) return { cost: z(t.rate), problem: null };
+  const price = num(t.pack_price);
+  const size = num(t.pack_size);
+  const qty = num(t.qty);
+  if (size != null && size <= 0) return { cost: 0, problem: "pack_size" };
+  if (price == null && size == null && qty == null) return { cost: 0, problem: null };
+  if (qty == null) return { cost: 0, problem: "consumption" };
+  return { cost: ((price ?? 0) / (size ?? 1)) * qty, problem: null };
+}
 const round = (v: number, dp: number) => {
   const f = 10 ** dp;
   return Math.round(v * f) / f;
 };
 
-/** The key a quoted price is stored under — one per piece × size group. */
-export const quoteKey = (pieceKey: string, groupId: string | null) => `${pieceKey}|${groupId ?? ""}`;
+/**
+ * ONE extra charge in ₹ on a piece whose net cost is `net`: flat is the value
+ * itself, percent is `value` % of net. SIGNED — a Price row set to Deduct is
+ * negative; an Overheads row is never negative.
+ */
+export function extraChargeAmount(e: Pick<ExtraChargeInput, "section" | "kind" | "value" | "sign">, net: number): number {
+  const v = z(e.value);
+  const amt = e.kind === "pct" ? round((net * v) / 100, 4) : v;
+  return e.section === "price" && e.sign === "deduct" ? -amt : amt;
+}
+/** Σ of one section's charges on a piece of net cost `net`. */
+export function extrasOf(extras: readonly ExtraChargeInput[] | undefined, section: ExtraChargeInput["section"], net: number): number {
+  return round((extras ?? []).filter((e) => e.section === section).reduce((t, e) => t + extraChargeAmount(e, net), 0), 4);
+}
+
+/** The key a quoted price is stored under — one per piece × size name (null = All sizes). */
+export const quoteKey = (pieceKey: string, size: string | null) => `${pieceKey}|${size ?? ""}`;
 
 // ---------------------------------------------------------------------------
 // §3.1 Fabric rate derivation
@@ -198,10 +283,10 @@ export function componentCost(w: WeightInput, fabrics: readonly FabricInput[]): 
   return round((price / 1000) * grams * (1 + z(w.wastage_pct) / 100), 4);
 }
 
-/** The size groups the sheet is costed for, in first-use order; [null] = all sizes. */
-export function sizeGroupsOf(weights: readonly WeightInput[]): (string | null)[] {
+/** The sizes the sheet is costed for, in first-use order; [null] = all sizes. */
+export function sizesOf(weights: readonly WeightInput[]): (string | null)[] {
   const seen: string[] = [];
-  for (const w of weights) if (w.size_group_id && !seen.includes(w.size_group_id)) seen.push(w.size_group_id);
+  for (const w of weights) if (w.size_name && !seen.includes(w.size_name)) seen.push(w.size_name);
   return seen.length ? seen : [null];
 }
 
@@ -210,7 +295,7 @@ export function sizeGroupsOf(weights: readonly WeightInput[]): (string | null)[]
 // ---------------------------------------------------------------------------
 export type PieceFigures = {
   pieceKey: string;
-  groupId: string | null;
+  size: string | null;
   fabric: number;
   cmt: number;
   /** Print + Embroidery + Wash — the garment processing of §3.3. */
@@ -222,8 +307,12 @@ export type PieceFigures = {
   margin: number;
   wastage: number;
   overhead: number;
+  /** Σ of the Overheads "+ Add" rows (₹, per piece). */
+  extraOverhead: number;
   discount: number;
-  /** Net + Wastage + Overhead — what the piece COSTS before any margin. */
+  /** Σ of the Price & quote "+ Add" rows, signed: surcharges minus deductions. */
+  priceAdj: number;
+  /** Net + Wastage + Overhead + extra overheads — what the piece COSTS before any margin. */
   grossCost: number;
   /** The INR selling price: Gross cost + Margin − Discount. */
   gross: number;
@@ -242,10 +331,10 @@ export type PieceFigures = {
 };
 
 export type GroupFigures = {
-  groupId: string | null;
+  size: string | null;
   pieces: PieceFigures[];
   /** The set (or the one piece) — every money figure summed over the pieces. */
-  total: Omit<PieceFigures, "pieceKey" | "groupId" | "effectiveMarginPct" | "deltaPct"> & {
+  total: Omit<PieceFigures, "pieceKey" | "size" | "effectiveMarginPct" | "deltaPct"> & {
     deltaPct: number | null;
     effectiveMarginPct: number | null;
   };
@@ -290,33 +379,35 @@ export function costingSummary(input: CostingInput): CostingSummary {
   const rateRaw = num(t.exchange_rate);
   const rate = rateRaw != null && rateRaw > 0 ? rateRaw : null;
 
-  const groups = sizeGroupsOf(input.weights).map((groupId): GroupFigures => {
+  const groups = sizesOf(input.weights).map((size): GroupFigures => {
     const pieces = input.pieces.map((p): PieceFigures => {
       const rows = input.weights.filter(
-        (w) => w.piece_key === p.key && (w.size_group_id == null || w.size_group_id === groupId),
+        (w) => w.piece_key === p.key && (w.size_name == null || w.size_name === size),
       );
       const fabric = round(rows.reduce((s, w) => s + (componentCost(w, input.fabrics) ?? 0), 0), 4);
       const trims = round(
-        input.trims.filter((x) => x.piece_key === p.key).reduce((s, x) => s + z(x.qty) * z(x.rate), 0),
+        input.trims.filter((x) => x.piece_key === p.key).reduce((s, x) => s + trimCostPerPiece(x).cost, 0),
         4,
       );
-      const cmt = z(p.cmt);
-      const process = z(p.print_cost) + z(p.embroidery_cost) + z(p.wash_cost);
+      const cmt = pieceCmt(p);
+      const process = pieceEmbellishment(p);
       const other = z(p.testing_cost) + z(p.bank_cost);
       const net = round(fabric + cmt + process + trims + other, 4);
       const margin = round((net * marginPct) / 100, 4);
       const wastage = round((net * wastePct) / 100, 4);
       const overhead = round((net * overheadPct) / 100, 4);
       const discount = round((net * discPct) / 100, 4);
-      const grossCost = round(net + wastage + overhead, 4);
-      const gross = round(grossCost + margin - discount, 4);
+      const extraOverhead = extrasOf(input.extras, "overhead", net);
+      const priceAdj = extrasOf(input.extras, "price", net);
+      const grossCost = round(net + wastage + overhead + extraOverhead, 4);
+      const gross = round(grossCost + margin - discount + priceAdj, 4);
       const calc = rate ? round((gross + freight + insurance) / rate, 4) : null;
-      const quoted = num(input.quotes[quoteKey(p.key, groupId)]);
+      const quoted = num(input.quotes[quoteKey(p.key, size)]);
       const delta = quoted != null && calc != null ? round(quoted - calc, 4) : null;
       const deltaPct = delta != null && calc ? round((delta / calc) * 100, 2) : null;
       return {
         pieceKey: p.key,
-        groupId,
+        size,
         fabric,
         cmt,
         process,
@@ -326,19 +417,22 @@ export function costingSummary(input: CostingInput): CostingSummary {
         margin,
         wastage,
         overhead,
+        extraOverhead,
         discount,
+        priceAdj,
         grossCost,
         gross,
         calc,
         quoted,
         delta,
         deltaPct,
-        effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead, discount, freight, insurance, rate),
+        // A price charge passes through the margin like freight and insurance do.
+        effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead + extraOverhead, discount, freight + priceAdj, insurance, rate),
       };
     });
 
     const sum = (
-      k: "fabric" | "cmt" | "process" | "trims" | "other" | "net" | "margin" | "wastage" | "overhead" | "discount" | "grossCost" | "gross",
+      k: "fabric" | "cmt" | "process" | "trims" | "other" | "net" | "margin" | "wastage" | "overhead" | "extraOverhead" | "discount" | "priceAdj" | "grossCost" | "gross",
     ) =>
       round(pieces.reduce((s, x) => s + x[k], 0), 4);
     const calc = sumOrNull(pieces.map((x) => x.calc));
@@ -347,10 +441,12 @@ export function costingSummary(input: CostingInput): CostingSummary {
     const net = sum("net");
     const wastage = sum("wastage");
     const overhead = sum("overhead");
+    const extraOverhead = sum("extraOverhead");
+    const priceAdj = sum("priceAdj");
     const discount = sum("discount");
     const n = pieces.length;
     return {
-      groupId,
+      size,
       pieces,
       total: {
         fabric: sum("fabric"),
@@ -362,7 +458,9 @@ export function costingSummary(input: CostingInput): CostingSummary {
         margin: sum("margin"),
         wastage,
         overhead,
+        extraOverhead,
         discount,
+        priceAdj,
         grossCost: sum("grossCost"),
         gross: sum("gross"),
         calc,
@@ -370,7 +468,7 @@ export function costingSummary(input: CostingInput): CostingSummary {
         delta,
         deltaPct: delta != null && calc ? round((delta / calc) * 100, 2) : null,
         // Freight and insurance are per PIECE, so a set carries them n times.
-        effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead, discount, freight * n, insurance * n, rate),
+        effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead + extraOverhead, discount, freight * n + priceAdj, insurance * n, rate),
       },
     };
   });
@@ -389,11 +487,11 @@ export function costingSummary(input: CostingInput): CostingSummary {
 // first; this answers "what margin does it leave, and how much cost has to
 // come out to reach the floor?" — read-only, it never edits a figure.
 // ---------------------------------------------------------------------------
-/** KG of fabric one piece (or set) consumes in a size group, allowance included. */
-export function fabricKgFor(weights: readonly WeightInput[], groupId: string | null): number {
+/** KG of fabric one piece (or set) consumes in a size, allowance included. */
+export function fabricKgFor(weights: readonly WeightInput[], size: string | null): number {
   return round(
     weights
-      .filter((w) => w.size_group_id == null || w.size_group_id === groupId)
+      .filter((w) => w.size_name == null || w.size_name === size)
       .reduce((t, w) => t + ((gramsOf(w) ?? 0) * (1 + z(w.wastage_pct) / 100)) / 1000, 0),
     4,
   );
@@ -424,16 +522,29 @@ export function solveTarget(
   target: number,
   pieces: number,
   fabricKg: number,
+  extras?: readonly ExtraChargeInput[],
 ): TargetSolve | null {
   const rate = num(terms.exchange_rate);
   if (rate == null || rate <= 0 || total.net <= 0 || !(target > 0)) return null;
   const n = Math.max(1, pieces);
-  const targetInr = target * rate - z(terms.freight_per_pc) * n - z(terms.insurance_per_pc) * n;
+  // Extra charges: a flat row is ₹ per piece (n of them), a percent row rides on net.
+  // Overheads rows are costs; Price rows pass through the margin like freight does.
+  let ohFlat = 0;
+  let ohPct = 0;
+  let priceFlat = 0;
+  let pricePct = 0;
+  for (const e of extras ?? []) {
+    const v = e.section === "price" && e.sign === "deduct" ? -z(e.value) : z(e.value);
+    if (e.section === "overhead") (e.kind === "pct" ? (ohPct += v / 100) : (ohFlat += v * n));
+    else (e.kind === "pct" ? (pricePct += v / 100) : (priceFlat += v * n));
+  }
+  const targetInr = target * rate - z(terms.freight_per_pc) * n - z(terms.insurance_per_pc) * n - priceFlat - ohFlat;
   const w = z(terms.garment_waste_pct) / 100;
   const o = z(terms.overhead_pct) / 100;
   const d = z(terms.discount_pct) / 100;
-  const marginPct = round(((targetInr - total.net * (1 + w + o - d)) / total.net) * 100, 2);
-  const netThatClears = targetInr / (1 + w + o - d + MARGIN_FLOOR_PCT / 100);
+  const load = 1 + w + o + ohPct + pricePct - d;
+  const marginPct = round(((targetInr - total.net * load) / total.net) * 100, 2);
+  const netThatClears = targetInr / (load + MARGIN_FLOOR_PCT / 100);
   const costCut = round(Math.max(0, total.net - netThatClears), 2);
   return {
     marginPct,
