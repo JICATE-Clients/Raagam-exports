@@ -2494,8 +2494,15 @@ html[data-type-scale="compact"] .ty-badge-icon {
    input can BE the cell; text, a figure or a file name laid at padding 0
    touches the gridline. So a cell holding no visible field gets the 8px a
    spreadsheet cell gives its text. A file cell's hidden `<input type=file>`
-   is not a field, hence the `.hidden` / `[type=hidden]` exclusions. */
-[data-grid-style="sheet"] tbody td:not(:has(input:not([type="hidden"]):not(.hidden), select, textarea, [data-row-open], [data-grid-card])) {
+   is not a field, hence the `.hidden` / `[type=hidden]` exclusions.
+
+   A SWITCH OR TICK IS NOT A FIELD THAT FILLS THE CELL EITHER (client
+   2026-10-05, Budgeting ▸ FOC / Import: "table oda otti irukku"). `Toggle`
+   keeps a real `<input type="checkbox">` (sr-only, for the keyboard), so its
+   cell matched "holds an input" and lost its padding — and the 36px track sat
+   flush on the left gridline. A checkbox never stretches to be the cell, so
+   it is excluded here and the cell keeps the same 8px a text cell has. */
+[data-grid-style="sheet"] tbody td:not(:has(input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not(.hidden), select, textarea, [data-row-open], [data-grid-card])) {
   padding: 0 0.5rem;
 }
 

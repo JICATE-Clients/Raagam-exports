@@ -2127,7 +2127,7 @@ export function MaterialMasterScreen({
                       cell: (
                         /* `offTabPath` stamps `data-focus-optional` on the cell,
                            and `isOffTabPath` reads it by `closest()`. */
-                        <Field offTabPath={!form.direct_purchase} className="px-2">
+                        <Field offTabPath={!form.direct_purchase}>
                           <Toggle
                             id="mt-direct-purchase"
                             ariaLabel="Direct Purchase"
@@ -2827,7 +2827,7 @@ export function MaterialMasterScreen({
                                 head: "Alternative UOM",
                                 w: FIELD_W.alt_uom,
                                 cell: (
-                                  <div className="px-2">
+                                  <div>
                                     <Toggle
                                       id="mt-alt-uom"
                                       ariaLabel="Alternative UOM"

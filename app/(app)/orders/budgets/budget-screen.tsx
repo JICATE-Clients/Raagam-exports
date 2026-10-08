@@ -1741,6 +1741,11 @@ export function BudgetScreen({
   );
   const toggleCol = (header: string, key: "is_foc" | "is_import", aria: string): CostCol => ({
     header,
+    /* CENTRED (client 2026-10-05: "antha toggle button aa center aa
+       konduva"). A switch is one fixed-size mark, not a value read from its
+       left edge, so it sits in the middle of its cell — and the heading over
+       it with it (`align` sets both). */
+    align: "center",
     cell: (r) => flagToggle(r, key, aria),
   });
   const focCol = toggleCol("FOC", "is_foc", "Free of cost");
@@ -3047,6 +3052,7 @@ export function BudgetScreen({
         onAdd={() => addCost("yarn")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3064,6 +3070,7 @@ export function BudgetScreen({
         onAdd={() => addCost("fabric")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3081,6 +3088,7 @@ export function BudgetScreen({
         onAdd={() => addCost("material")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3098,6 +3106,7 @@ export function BudgetScreen({
         onAdd={() => addCost("yarn_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3115,6 +3124,7 @@ export function BudgetScreen({
         onAdd={() => addCost("material_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3134,6 +3144,7 @@ export function BudgetScreen({
         onAdd={() => addCost("garment_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3151,6 +3162,7 @@ export function BudgetScreen({
         onAdd={() => addCost("cmt")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3167,6 +3179,7 @@ export function BudgetScreen({
         onAdd={() => addCost("expense")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3183,6 +3196,7 @@ export function BudgetScreen({
         onAdd={() => addCost("income")}
         onRemove={removeCost}
         addLabel="+ Add line"
+        removeHeader="Actions"
       />
   );
 
@@ -3464,6 +3478,7 @@ export function BudgetScreen({
             lockRow={pulledRowLocked}
             onAdd={() => false}
             onRemove={removeCost}
+            removeHeader="Actions"
           />
         </div>
       )}
@@ -3981,7 +3996,14 @@ export function BudgetScreen({
                   {/* What the strip's second line said, kept: how many lines
                       this kind holds, and the open rates or the rupees so far. */}
                   <p className="-mt-2 mb-3 text-xs text-muted-foreground">{tabMeta(t.source)}</p>
-                  {gridOf(t.source)}
+                  {/* THE SPREADSHEET LOOK (client 2026-10-05, the
+                      `erp-sheet-grid` skill on every Budgeting table): ruled
+                      cells, grey sentence-case header, borderless in-cell
+                      controls, "Actions" over the ✕, and the four rounded
+                      outer corners. Covers the Fabric Processes fold's
+                      per-group grid too. Below `5xl` the grids are cards,
+                      which the sheet rules do not touch. */}
+                  <div data-grid-style="sheet">{gridOf(t.source)}</div>
                 </SectionBody>
               ),
             }),
@@ -3998,7 +4020,7 @@ export function BudgetScreen({
           content: (
             <SectionBody title={s.label}>
               {editable && ownLocked && <OwnSectionLockedNote entryNo={amendScope?.entryNo ?? null} />}
-              <LockScope locked={ownLocked}>{cmtGrid}</LockScope>
+              <LockScope locked={ownLocked}><div data-grid-style="sheet">{cmtGrid}</div></LockScope>
             </SectionBody>
           ),
         }];
@@ -4012,7 +4034,7 @@ export function BudgetScreen({
         content: (
           <SectionBody title={s.label}>
             {editable && ownLocked && <OwnSectionLockedNote entryNo={amendScope?.entryNo ?? null} />}
-            <LockScope locked={ownLocked}>{s.key === "income" ? incomeGrid : expenseGrid}</LockScope>
+            <LockScope locked={ownLocked}><div data-grid-style="sheet">{s.key === "income" ? incomeGrid : expenseGrid}</div></LockScope>
           </SectionBody>
         ),
       }];
