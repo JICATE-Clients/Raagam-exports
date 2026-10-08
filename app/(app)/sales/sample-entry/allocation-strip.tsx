@@ -16,7 +16,8 @@ export function AllocationStrip({ allocated, target }: { allocated: number; targ
   return (
     <p
       className={
-        "mt-2 rounded-md border px-3 py-1.5 text-xs tabular-nums " +
+        // w-fit: hugs its sentence like the matrix above it (user 2026-10-08).
+        "mt-1 w-fit max-w-full rounded-md border px-2.5 py-0.5 text-xs tabular-nums " +
         (over
           ? "border-danger/40 bg-danger/10 font-semibold text-danger"
           : "border-border bg-surface-muted text-muted-foreground")

@@ -179,7 +179,10 @@ export function FileAttachments({
   primaryToggle = false,
   printToggle = false,
   kinds = ATTACHMENT_KINDS,
+  dense = false,
 }: {
+  /** `panel` only: legend + one-line add row instead of the dashed empty box. */
+  dense?: boolean;
   rows: AttachmentRow[];
   onChange: (next: AttachmentRow[]) => void;
   bucket: string;
@@ -720,6 +723,27 @@ export function FileAttachments({
         {fileInput}
         {error && <p className="text-xs text-danger">{error}</p>}
         {rows.length > 1 ? carousel() : tileList}
+      </div>
+    );
+  }
+
+  /* `dense`: a hairline-ruled legend (label · hint) with the empty sentence and
+     the add button on ONE line beneath — Sample Entry's Product Info, 2026-10-08.
+     The default panel is untouched for its other caller. */
+  if (dense) {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.1em] text-muted-foreground after:h-px after:flex-1 after:bg-border">
+          {label}
+          <span className="font-medium normal-case tracking-normal">· {hint}</span>
+        </div>
+        {rows.length > 0 && <ul className="space-y-1.5">{rows.map(fileRow)}</ul>}
+        <div className="flex flex-wrap items-center gap-2">
+          {rows.length === 0 && <span className="text-sm text-muted-foreground">No documents attached.</span>}
+          {/* toolbar-size: exempt -- in-editor add control, not a header row */}
+          {addControl}
+        </div>
+        {error && <p className="text-xs text-danger">{error}</p>}
       </div>
     );
   }

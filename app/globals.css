@@ -2277,8 +2277,16 @@ html[data-type-scale="compact"] .ty-badge-icon {
  * and the keyboard never used it (Delete/Backspace and ↓ do that job).
  * ======================================================================== */
 [data-grid-style="sheet"] [data-grid-card] {
-  border-color: transparent;
+  /* NO BORDER AT ALL, not a transparent one (user 2026-10-08, "total kku keela
+     neraa vertical line"): the card encloses the totals band that sits BELOW
+     the table, so anything it drew showed down the band's sides. */
+  border: 0;
+  box-shadow: none;
   padding: 0;
+}
+[data-grid-style="sheet"] table > tfoot {
+  border: 0;
+  box-shadow: none;
 }
 /* NO SCROLLBAR ON ANY SHEET GRID (user 2026-10-03, Combos: "remove scroll
    bar" — the third time the same bar was reported, after Components on
@@ -2292,6 +2300,16 @@ html[data-type-scale="compact"] .ty-badge-icon {
    a hugged table (a phone), the table runs past the pane instead of
    scrolling inside it — `data-grid-fit="fill"` is the answer for a grid
    that has to shrink. */
+/* LIGHT CURVE ON EVERY FRAME INSIDE A SHEET (user 2026-10-08: "ippavum apdi
+   than irukku"). The Orders / Masters skin re-points `--radius-lg` to 16px,
+   and ChildGrid's frame, the section card around it and the totals band all
+   take `rounded-lg`, so the corners stayed big however the cell rule was
+   set. Custom properties inherit, so pinning it here gives everything drawn
+   inside a sheet wrapper the 8px the Sample Entry table shows. */
+[data-grid-style="sheet"],
+[data-grid-style="sheet-rows"] {
+  --radius-lg: 0.5rem;
+}
 [data-grid-style="sheet"] .overflow-x-auto {
   /* VISIBLE, NOT HIDDEN (user 2026-10-03: "action field column fulla aa
      theriyanum" — the Actions column must show whole). `hidden` removed the
@@ -2351,17 +2369,17 @@ html[data-type-scale="compact"] .ty-badge-icon {
    same selectors and gets the same corners. */
 [data-grid-style="sheet"] thead > tr:first-child > :first-child,
 [data-grid-style="sheet"] table:not(:has(> thead)) > tbody:first-of-type > tr:first-child > :first-child {
-  border-top-left-radius: var(--radius-lg, 0.5rem);
+  border-top-left-radius: var(--radius-control, 0.5rem);
 }
 [data-grid-style="sheet"] thead > tr:first-child > :last-child,
 [data-grid-style="sheet"] table:not(:has(> thead)) > tbody:first-of-type > tr:first-child > :last-child {
-  border-top-right-radius: var(--radius-lg, 0.5rem);
+  border-top-right-radius: var(--radius-control, 0.5rem);
 }
 [data-grid-style="sheet"] table > :is(tbody, tfoot):last-child > tr:last-child > :first-child {
-  border-bottom-left-radius: var(--radius-lg, 0.5rem);
+  border-bottom-left-radius: var(--radius-control, 0.5rem);
 }
 [data-grid-style="sheet"] table > :is(tbody, tfoot):last-child > tr:last-child > :last-child {
-  border-bottom-right-radius: var(--radius-lg, 0.5rem);
+  border-bottom-right-radius: var(--radius-control, 0.5rem);
 }
 [data-grid-style="sheet"] thead th {
   background: var(--surface-muted);
@@ -2399,7 +2417,8 @@ html[data-type-scale="compact"] .ty-badge-icon {
 .dark [data-grid-style="sheet"] thead th[data-band="composition"] { background: #2b2519; color: #d6c3a0; }
 .dark [data-grid-style="sheet"] thead th[data-band="uom"] { background: #251f2e; color: #c4b4d8; }
 [data-grid-style="sheet"] tbody td {
-  padding: 0;
+  /* A small inset so the boxed field below has air around its curve. */
+  padding: 0.125rem 0.25rem;
   vertical-align: middle;
 }
 [data-grid-style="sheet"] tbody td:focus-within {
@@ -2410,19 +2429,24 @@ html[data-type-scale="compact"] .ty-badge-icon {
    would otherwise be the one boxed value on the row. */
 [data-grid-style="sheet"] td :is(input:not([type="checkbox"]):not([type="radio"]), select) {
   height: 2rem;
-  border-color: transparent;
-  border-radius: 0;
-  background: transparent;
+  /* BOXED AND LIGHTLY CURVED, LIKE THE COMBO FIELD (user 2026-10-08, Sample
+     Entry allocation: "ella table um combo filed la irukka mari bend aagirukka
+     mari … light curve pothum"). This reverses the flat borderless cell above
+     on purpose: the border colour is left to the skin (the same green box the
+     combo field draws) and only the corner is set here. */
+  border-radius: var(--radius-control-inner, 0.375rem);
+  background: var(--surface);
   box-shadow: none;
 }
 [data-grid-style="sheet"] td :is(input:not([type="checkbox"]):not([type="radio"]), select):focus-visible {
-  border-color: transparent;
-  box-shadow: inset 0 0 0 2px var(--ring);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px var(--ring);
 }
 [data-grid-style="sheet"] td :is(input, select).border-danger,
 [data-grid-style="sheet"] td input[data-required-empty],
 [data-grid-style="sheet"] td input[data-dup-error] {
-  box-shadow: inset 0 0 0 1px var(--danger);
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
 }
 /* A BUTTON THAT IS A CELL'S VALUE — Combos' [Detail], marked `data-row-open`
    — is drawn as the cell, not as a pill inside it: no border, no radius, full
@@ -2623,28 +2647,30 @@ html[data-type-scale="compact"] .ty-badge-icon {
    cell's box. A field followed by a line under it (Activity's Bypass caption)
    keeps its bottom margin so the caption is not overlapped. */
 [data-grid-style="sheet-rows"] [data-sheet-row] > * > :is(:has(input:not([type="hidden"]):not(.hidden)), input:not([type="hidden"]):not(.hidden)) {
-  margin: -0.375rem -0.5rem;
-  width: calc(100% + 1rem);
+  /* Inset 0.125rem from the gridlines so the boxed, curved field below has
+     air around it (user 2026-10-08, same look as the combo field). */
+  margin: -0.25rem -0.375rem;
+  width: calc(100% + 0.75rem);
   max-width: none;
 }
 [data-grid-style="sheet-rows"] [data-sheet-row] > * > :is(:has(input), input):not(:last-child) {
   margin-bottom: 0;
 }
 [data-grid-style="sheet-rows"] [data-sheet-row] > * :is(input:not([type="checkbox"]):not([type="radio"]), select) {
-  height: 2rem;
-  border-color: transparent;
-  border-radius: 0;
-  background: transparent;
+  height: 1.75rem;
+  border-radius: var(--radius-control-inner, 0.375rem);
+  background: var(--surface);
   box-shadow: none;
 }
 [data-grid-style="sheet-rows"] [data-sheet-row] > * :is(input:not([type="checkbox"]):not([type="radio"]), select):focus-visible {
-  border-color: transparent;
-  box-shadow: inset 0 0 0 2px var(--ring);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px var(--ring);
 }
 [data-grid-style="sheet-rows"] [data-sheet-row] > * :is(input, select).border-danger,
 [data-grid-style="sheet-rows"] [data-sheet-row] > * input[data-required-empty],
 [data-grid-style="sheet-rows"] [data-sheet-row] > * input[data-dup-error] {
-  box-shadow: inset 0 0 0 1px var(--danger);
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
 }
 [data-grid-style="sheet-rows"] [data-sheet-row] > * [data-field-affordance] {
   opacity: 0;
@@ -2707,4 +2733,70 @@ html[data-type-scale="compact"] .ty-badge-icon {
   [data-grid-style="sheet-rows"] [data-sheet-row][data-sheet-stack="wide"] > * [data-field-affordance] {
     opacity: 1;
   }
+}
+
+/* ONE TABLE CORNER FOR THE WHOLE APP (user 2026-10-08: "global aa ellam table
+   layum itha add pannidu curve size"). The skin re-points `--radius-lg` to 16px,
+   and every table frame is a `rounded-lg` box around a `<table>` — DataTable,
+   ChildGrid, hand-rolled grids, nested tables — so each drew its own big
+   corner. Any `rounded-lg` element that directly holds a table (or the scroller
+   that holds one) takes the named control radius, which no skin moves. Cards
+   that merely CONTAIN a table somewhere inside keep their own corner. */
+.rounded-lg:is(:has(> table), :has(> .overflow-x-auto > table), :has(> [data-grid-body])),
+.overflow-x-auto:has(> table) {
+  border-radius: var(--radius-control, 0.5rem);
+}
+
+/* FLAT CELLS ON ONE SHEET — `data-grid-style="sheet" data-grid-cells="flat"`
+   (user 2026-10-08, Sample Entry ▸ Quantities: erp-sheet-grid's original look).
+   Per grid by design: the boxed default for every other sheet stays. */
+[data-grid-style="sheet"][data-grid-cells="flat"] tbody td {
+  padding: 0;
+}
+[data-grid-style="sheet"][data-grid-cells="flat"] td :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+[data-grid-style="sheet"][data-grid-cells="flat"] td :is(input:not([type="checkbox"]):not([type="radio"]), select):focus-visible {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+[data-grid-style="sheet"][data-grid-cells="flat"] td :is(input, select).border-danger,
+[data-grid-style="sheet"][data-grid-cells="flat"] td input[data-required-empty],
+[data-grid-style="sheet"][data-grid-cells="flat"] td input[data-dup-error] {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+/* A TOTALS BAND WITH NO BORDERS, ON EVERY SHEET GRID (user 2026-10-08, Sample
+   Entry ▸ Quantities, then "global aa ellam tables la irukka total qty kkum
+   table line vendam"). It was a per-grid marker for an hour; it is now the
+   sheet rule. Every
+   border of the tfoot's cells goes, so the label and figure stand on plain
+   background; the line above the band is the last body row's own bottom border
+   and stays. */
+/* SPECIFICITY IS THE POINT HERE (user 2026-10-08, screenshot 120739: "total kku
+   left side oru chinna line"). `table tr > :first-child` (left border) and the
+   last-row corner rule out-rank a plain `tfoot td`, so the band's first cell
+   kept a left line and a rounded bottom-left corner under the frame. The
+   `:nth-child(n)` argument matches every cell and lifts this above both. */
+[data-grid-style="sheet"] table > tfoot > tr > :is(td, th):nth-child(n) {
+  border-width: 0;
+  border-radius: 0;
+  background: transparent;
+}
+/* THE FRAME CLOSES ABOVE THE BAND (user 2026-10-08: "total po 0 kku lines
+   vandam"). The totals band carries no line at all, so the grid's rounded
+   bottom edge is drawn on the last BODY row instead, and "Total PO Qty" sits
+   below the frame as plain text. */
+[data-grid-style="sheet"] tbody:not(:last-child) > tr:last-child > td {
+  border-bottom-width: 1px;
+}
+[data-grid-style="sheet"] tbody:not(:last-child) > tr:last-child > :first-child {
+  border-bottom-left-radius: var(--radius-control, 0.5rem);
+}
+[data-grid-style="sheet"] tbody:not(:last-child) > tr:last-child > :last-child {
+  border-bottom-right-radius: var(--radius-control, 0.5rem);
 }

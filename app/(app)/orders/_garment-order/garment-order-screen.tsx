@@ -16698,7 +16698,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         own label, and `data-sheet-stack="wide"` stands the look down. The
         2026-09-22 "no parts | actions divider" decision is superseded by the
         skill's one-rule-per-cell grid — that needs saying, not hiding. */}
-    <div data-grid-style="sheet-rows" className="relative max-w-full rounded-lg border border-border bg-surface px-3 pb-3 pt-2 min-[1250px]:w-fit min-[1250px]:rounded-none min-[1250px]:p-0 min-[1250px]:[&_[data-row-box]]:!py-0 [&_[data-grid-row]]:!border-border [&_[data-row-box]+[data-row-box]]:!border-t">
+    <div data-grid-style="sheet-rows" className="relative max-w-full rounded-lg border border-border bg-surface px-3 pb-3 pt-2 min-[1250px]:w-fit min-[1250px]:overflow-hidden min-[1250px]:p-0 min-[1250px]:[&_[data-row-box]]:!py-0 [&_[data-grid-row]]:!border-border [&_[data-row-box]+[data-row-box]]:!border-t">
     {/* `pr-9` is the fabric ✕ beside each row (28px chip + `removeBeside`'s
         8px gap), grey so the header band runs the box's full width. */}
     <div

@@ -71,7 +71,7 @@ export function SidebarSection({
       {(!fold || fold.open) && (
         // The vertical guide line the rows hang off — only under a caption;
         // a module's loose, uncaptioned rows have nothing to hang from.
-        <div className={cn("space-y-px", label && "ml-2.5 border-l border-border pl-1")}>{children}</div>
+        <div className="space-y-0.5">{children}</div>
       )}
     </div>
   );

@@ -4002,8 +4002,9 @@ export function BudgetScreen({
                       controls, "Actions" over the ✕, and the four rounded
                       outer corners. Covers the Fabric Processes fold's
                       per-group grid too. Below `5xl` the grids are cards,
-                      which the sheet rules do not touch. */}
-                  <div data-grid-style="sheet">{gridOf(t.source)}</div>
+                      which the sheet rules do not touch. Yarn / Fabric Purchases and every Process grid
+                      take the flat, borderless cell (user 2026-10-08, erp-sheet-grid). */}
+                  <div data-grid-style="sheet" data-grid-cells={s.key === "process" || t.source === "yarn" || t.source === "fabric" ? "flat" : undefined}>{gridOf(t.source)}</div>
                 </SectionBody>
               ),
             }),
@@ -4020,7 +4021,7 @@ export function BudgetScreen({
           content: (
             <SectionBody title={s.label}>
               {editable && ownLocked && <OwnSectionLockedNote entryNo={amendScope?.entryNo ?? null} />}
-              <LockScope locked={ownLocked}><div data-grid-style="sheet">{cmtGrid}</div></LockScope>
+              <LockScope locked={ownLocked}><div data-grid-style="sheet" data-grid-cells="flat">{cmtGrid}</div></LockScope>
             </SectionBody>
           ),
         }];
@@ -4034,7 +4035,7 @@ export function BudgetScreen({
         content: (
           <SectionBody title={s.label}>
             {editable && ownLocked && <OwnSectionLockedNote entryNo={amendScope?.entryNo ?? null} />}
-            <LockScope locked={ownLocked}><div data-grid-style="sheet">{s.key === "income" ? incomeGrid : expenseGrid}</div></LockScope>
+            <LockScope locked={ownLocked}><div data-grid-style="sheet" data-grid-cells={s.key === "income" ? undefined : "flat"}>{s.key === "income" ? incomeGrid : expenseGrid}</div></LockScope>
           </SectionBody>
         ),
       }];

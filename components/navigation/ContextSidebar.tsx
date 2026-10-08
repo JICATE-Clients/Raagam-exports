@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
 import { useAppUser } from "@/lib/auth/permission-context";
 import type { StoreNavLink } from "@/components/shell/sidebar-types";
+import { cn } from "@/lib/utils";
 import { useRecent } from "@/lib/use-recent";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import {
@@ -191,7 +192,7 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
               // 28px rows (`py-[5px]`; 30px before — suggestion 4). Text
               // size and colour unchanged: the client asked for DARKER menu
               // text on 2026-08-27, so only the spacing tightened.
-              className="w-full rounded-lg px-2 py-[5px]"
+              className={cn("h-9 w-full rounded-[10px] px-3 py-0 text-[14px]", row.href !== activeHref && "text-foreground")}
               onClick={navigate(row.href, row.label)}
             />
           )}
