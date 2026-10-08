@@ -70,7 +70,7 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdByFacet, createdDateFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { TypeOrPick } from "@/app/(app)/orders/_garment-order/type-or-pick";
@@ -127,17 +127,18 @@ type MasterPerms = { canCreate: boolean; canEdit: boolean };
 
 /**
  * THE HEADER'S CAP — a definite length, never `max-w-fit` (a content-sized cap
- * computes to 0 under `@container/section`). The widest row is the spec's first
- * five fields, in the spec's order:
+ * computes to 0 under `@container/section`). Two lines (client 2026-10-08),
+ * seven fields on the first:
  *   Enquiry No code 144 + Date code 144 + Against term 176 + Action party 200
- *   + Customer name 288                                            = 952
- *   + 4 × 12 gap                                                   = 1000 → 63rem (1008)
- * so Country / Season / Year / Agent fold onto line 2 and Received Mode ·
- * Receipt Dt · Delivery Mode onto line 3, at every pane width from 1366 up.
+ *   + Customer party 200 + Season range 112 + Year hug 88          = 1064
+ *   + 6 × 12 gap                                                   = 1136 → 71rem
+ * and line 2: Country 176 + Agent 200 + Received Mode 176 + Receipt Dt 144
+ *   + Delivery Mode 176 = 872 + 48 gap = 920.
+ * 72rem (1152) fits the 1155px content width from 1366 up.
  * (Cust Ref and Delivery To came off on 2026-10-06, client; Receipt Dt moved
  * here from Product Info the same day.)
  */
-const HEADER_W = "max-w-[63rem]";
+const HEADER_W = "max-w-[72rem]";
 
 /**
  * Product Info's cap. The inherited identity is a text band now, not boxes, so
@@ -145,7 +146,19 @@ const HEADER_W = "max-w-[63rem]";
  * 200 each) + GSM num 72 + Tech Pack term 176 = 848 + 4 × 12 gap = 896, under
  * 61rem (976); the receipt row with Order Dt is 888.
  */
-const PRODUCT_W = "max-w-[61rem]";
+// 67rem (1072px): Merchandiser 200 + Order Dt 144 + Agent 200 + Delivery Mode
+// 176 + the two switches (~270) + gaps ≈ 1035px, so the whole Order row fits on
+// ONE line and Billable is not pushed under Accessories Reqd (user 2026-10-08).
+const PRODUCT_W = "max-w-[67rem]";
+
+/** A hairline-ruled group label above a row of Product Info fields. */
+function PiLegend({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 pt-2 text-[11px] font-bold uppercase tracking-[.1em] text-muted-foreground after:h-px after:flex-1 after:bg-border">
+      {children}
+    </div>
+  );
+}
 
 /** Year choices for "Season & Year" — last year to three ahead, no typing. */
 const yearOptions = (() => {
@@ -577,6 +590,7 @@ export function SampleEntryScreen({
   const listColumns: Column<SampleEntryListRow>[] = [
     {
       header: "Enquiry No",
+      className: HUG,
       cell: (r) => (
         <button
           type="button"
@@ -587,12 +601,18 @@ export function SampleEntryScreen({
         </button>
       ),
     },
-    { header: "Date", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.received_date)}</span> },
-    { header: "Customer", cell: (r) => <span className="text-xs">{r.customer_name ?? "—"}</span> },
-    { header: "Against", cell: (r) => <span className="text-xs">{labelOf(ENQUIRY_AGAINST, r.enquiry_against) || "—"}</span> },
-    { header: "Action", cell: (r) => <span className="text-xs">{labelOf(ENQUIRY_ACTIONS, r.enquiry_action) || "—"}</span> },
+    { header: "Date", className: HUG, cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.received_date)}</span> },
+    {
+      header: "Customer",
+      cell: (r) => (
+        <Truncated className="block max-w-[11rem] text-xs">{r.customer_name ?? "—"}</Truncated>
+      ),
+    },
+    { header: "Against", className: HUG, cell: (r) => <span className="text-xs">{labelOf(ENQUIRY_AGAINST, r.enquiry_against) || "—"}</span> },
+    { header: "Action", className: HUG, cell: (r) => <span className="text-xs">{labelOf(ENQUIRY_ACTIONS, r.enquiry_action) || "—"}</span> },
     {
       header: "Season",
+      className: HUG,
       cell: (r) => (
         <span className="text-xs">{[r.season, r.season_year].filter(Boolean).join(" ") || "—"}</span>
       ),
@@ -600,15 +620,18 @@ export function SampleEntryScreen({
     {
       header: "Styles",
       align: "right",
+      className: HUG,
       cell: (r) => <span className="block text-right font-mono tabular-nums text-xs">{r.style_count}</span>,
     },
     {
       header: "Sample Qty",
       align: "right",
+      className: HUG,
       cell: (r) => <span className="block text-right font-mono tabular-nums text-xs">{fmtNumber(r.sample_qty)}</span>,
     },
     {
       header: "Billable",
+      className: HUG,
       cell: (r) =>
         r.billable_count > 0 ? (
           <StatusPill tone="info">{`${r.billable_count} billable`}</StatusPill>
@@ -869,6 +892,9 @@ export function SampleEntryScreen({
             required
             label="Sizes"
             framed
+            // The frame's p-2.5 pushed the box ~10px below Coordinates' beside
+            // it (user 2026-10-08): both start on the label's own baseline.
+            className="border-0 p-0 @2xl/editor:p-0"
             gridded
             gridColumns={6}
             gridDense
@@ -906,9 +932,20 @@ export function SampleEntryScreen({
    * is not a field in a row of pickers, so the "no cell sets its own height"
    * rule is about the line grids, not this.
    */
-  const COMBO_ID_W = 240;
-  const MATRIX_QTY_W = 88;
-  const CELL = matrixCell("min-h-9");
+  const COMBO_ID_W = 220;
+  const MATRIX_QTY_W = 80;
+  /* COMPACTED LIKE APPROVAL QTY'S BREAKUP (user 2026-10-08: "approval qty la
+     irukka mari table … compacted aa") — `approval-qty-lines.tsx`'s chrome:
+     a box that hugs its columns, 26px rows, a hairline between size columns,
+     right-aligned digits, and a 2px rule before the Total. */
+  const MX_ROW_H = "min-h-[26px]";
+  const MX_HEAD = `${MATRIX_HEAD} ${MX_ROW_H} justify-end pr-2`;
+  const MX_FOOT = `${MATRIX_FOOT} ${MX_ROW_H}`;
+  const CELL = matrixCell(MX_ROW_H);
+  const MX_SEP = "border-r border-border";
+  const MX_TOTAL = "border-l-2 border-border-strong font-semibold";
+  const MX_BOX =
+    "h-[28px] @2xl/editor:h-[28px] w-full min-w-0 rounded-[6px] px-1 text-right text-[12.5px] md:text-[12.5px] font-semibold tabular-nums";
   const patchCombo = (s: StyleDraft, key: string, patch: Partial<ComboDraft>) =>
     patchStyle(s.key, { combos: s.combos.map((c) => (c.key === key ? { ...c, ...patch } : c)) });
 
@@ -923,7 +960,6 @@ export function SampleEntryScreen({
     const track = [
       `${COMBO_ID_W}px`,
       ...sizes.map((z) => `${sizeColPx(z, digits(z))}px`),
-      "minmax(12px,1fr)",
       `${MATRIX_QTY_W}px`,
     ].join(" ");
     const orderSum = s.combos.reduce((t, c) => t + comboOrderQty(c, sizes), 0);
@@ -931,20 +967,19 @@ export function SampleEntryScreen({
 
     return (
       <div className="space-y-2">
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <div data-grid-body className="grid w-full" style={{ gridTemplateColumns: track }} onKeyDown={(e) => gridKeyNav(e)}>
-            <div className={`${MATRIX_HEAD} sticky left-0 z-30 justify-start pl-3`}>Combo / Color</div>
+        <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-border bg-surface">
+          <div data-grid-body className="grid w-fit" style={{ gridTemplateColumns: track }} onKeyDown={(e) => gridKeyNav(e)}>
+            <div className={`${MX_HEAD} sticky left-0 z-30 justify-start pl-2`}>Combo / Color</div>
             {sizes.map((z) => (
-              <div key={z} className={MATRIX_HEAD}>
+              <div key={z} className={`${MX_HEAD} ${MX_SEP}`}>
                 <span className={MATRIX_SIZE_TOKEN}>{z}</span>
               </div>
             ))}
-            <div className={MATRIX_HEAD} />
-            <div className={`${MATRIX_HEAD} sticky right-0 z-30 justify-end pr-3`}>Total</div>
+            <div className={`${MX_HEAD} ${MX_TOTAL} sticky right-0 z-30`}>Total</div>
 
             {s.combos.map((c) => (
               <div key={c.key} data-grid-row className="contents">
-                <div className={`${CELL} sticky left-0 z-10 gap-1 border-r bg-surface px-2`}>
+                <div className={`${CELL} sticky left-0 z-10 gap-1 border-r border-border-strong bg-surface px-2`}>
                   <div className="min-w-0 flex-1">
                     <TypeOrPick
                       id={`se-cb-name-${c.key}`}
@@ -953,7 +988,7 @@ export function SampleEntryScreen({
                       options={colourOptions}
                       valueId={colourOptions.find((o) => o.name.toUpperCase() === c.combo.trim().toUpperCase())?.id ?? null}
                       text={c.combo}
-                      inputClassName="h-8"
+                      inputClassName="h-[28px]"
                       onChange={(next) => patchCombo(s, c.key, { combo: next.name })}
                     />
                   </div>
@@ -972,35 +1007,33 @@ export function SampleEntryScreen({
                   )}
                 </div>
                 {sizes.map((z) => (
-                  <div key={z} className={CELL}>
+                  <div key={z} className={`${CELL} min-h-[32px] px-1 ${MX_SEP}`}>
                     <Input
                       type="number"
                       min={0}
                       inputMode="decimal"
                       aria-label={`${c.combo || "Combo"} ${z} pieces`}
-                      className="h-8 px-1.5 text-right font-mono text-[13px] tabular-nums"
+                      className={MX_BOX}
                       value={c.sizes[z] ?? ""}
                       onChange={(e) => patchCombo(s, c.key, { sizes: { ...c.sizes, [z]: e.target.value } })}
                     />
                   </div>
                 ))}
-                <div className={CELL} />
-                <div className={`${CELL} sticky right-0 z-10 justify-end border-l bg-surface pr-3 text-sm font-semibold tabular-nums`}>
+                <div className={`${CELL} ${MX_TOTAL} sticky right-0 z-10 justify-end bg-surface pr-2 text-[12.5px] tabular-nums`}>
                   {fmtNumber(comboOrderQty(c, sizes))}
                 </div>
               </div>
             ))}
 
-            <div className={`${MATRIX_FOOT} sticky left-0 z-30 justify-start pl-3 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`}>
+            <div className={`${MX_FOOT} sticky left-0 z-30 justify-start pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`}>
               Total
             </div>
             {sizes.map((z) => (
-              <div key={z} className={MATRIX_FOOT}>
+              <div key={z} className={`${MX_FOOT} ${MX_SEP} justify-end px-2`}>
                 {fmtNumber(sizeSum(z))}
               </div>
             ))}
-            <div className={MATRIX_FOOT} />
-            <div className={`${MATRIX_FOOT} sticky right-0 z-30 justify-end pr-3`}>{fmtNumber(orderSum)}</div>
+            <div className={`${MX_FOOT} ${MX_TOTAL} sticky right-0 z-30 justify-end pr-2`}>{fmtNumber(orderSum)}</div>
           </div>
         </div>
         {/* ADVISORY, NOT A HOLD — a sample may carry spares beyond the combos.
@@ -1415,7 +1448,7 @@ export function SampleEntryScreen({
                   ))}
                 </Select>
               </Field>
-              <Field label="Customer" required w="name">
+              <Field label="Customer" required w="party">
                 <RecordPicker
                   id="se-customer"
                   label="Customer"
@@ -1432,11 +1465,6 @@ export function SampleEntryScreen({
                     });
                   }}
                 />
-              </Field>
-            </FieldRow>
-            <FieldRow>
-              <Field label="Country" w="term" htmlFor="se-country">
-                <Input id="se-country" readOnly value={countryName(header.country_id)} />
               </Field>
               {/* THE SEASON MASTER (client 2026-10-06) — Q1–Q4 buying cycles,
                   maintained under Master Data ▸ System ▸ Season. */}
@@ -1460,6 +1488,11 @@ export function SampleEntryScreen({
                   ))}
                 </Select>
               </Field>
+            </FieldRow>
+            <FieldRow>
+              <Field label="Country" w="term" htmlFor="se-country">
+                <Input id="se-country" readOnly value={countryName(header.country_id)} />
+              </Field>
               {/* A VENDOR (client 2026-10-06): Vendor master ▸ Service Provider ▸
                   Buying Agent / Service Agent — `getAgents` in the service. */}
               <Field label="Agent" w="party">
@@ -1473,8 +1506,6 @@ export function SampleEntryScreen({
                   onChange={(id) => setH({ agent_id: id })}
                 />
               </Field>
-            </FieldRow>
-            <FieldRow>
               <Field label="Received Mode" w="term" htmlFor="se-rmode">
                 <Select id="se-rmode" value={header.receipt_mode} onChange={(e) => setH({ receipt_mode: e.target.value })}>
                   <option value=""></option>
@@ -1611,19 +1642,12 @@ export function SampleEntryScreen({
               </dl>
               <div className={`${PRODUCT_W} space-y-1`}>
 
-              {/* MERCHANDISING & FABRIC (spec §4.2). */}
+              {/* FABRIC (spec §4.2). Two labelled groups — Fabric · Order —
+                  (user 2026-10-08, artifact mock-up; the two switches sit with the Order row, billing fields under them) — so the
+                  section reads as groups rather than one long run of fields.
+                  Merchandiser moved down into Order, where it belongs. */}
+              <PiLegend>Fabric</PiLegend>
               <FieldRow>
-                <Field label="Merchandiser" required w="party">
-                  <RecordPicker
-                    id="se-pi-merch"
-                    label="Merchandiser"
-                    compact
-                    required
-                    items={merchItems}
-                    value={active.merchandiser_id}
-                    onChange={(id) => patchStyle(active.key, { merchandiser_id: id })}
-                  />
-                </Field>
                 <Field label="Fabric Structure" w="party">
                   <RecordPicker
                     label="Fabric Structure"
@@ -1676,7 +1700,19 @@ export function SampleEntryScreen({
                   Delivery To and Delivery Through came off on 2026-10-06
                   (client) — the receipt facts are the header's now, and the
                   lines inherit them without a field to override. */}
+              <PiLegend>Order</PiLegend>
               <FieldRow>
+                <Field label="Merchandiser" required w="party">
+                  <RecordPicker
+                    id="se-pi-merch"
+                    label="Merchandiser"
+                    compact
+                    required
+                    items={merchItems}
+                    value={active.merchandiser_id}
+                    onChange={(id) => patchStyle(active.key, { merchandiser_id: id })}
+                  />
+                </Field>
                 <Field label="Order Dt" w="code" htmlFor="se-pi-odt">
                   <Input
                     id="se-pi-odt"
@@ -1709,26 +1745,35 @@ export function SampleEntryScreen({
                     ))}
                   </Select>
                 </Field>
+                {/* COMMERCIAL (spec §4.3). The two switches sit in the Order
+                    row; Billable = No greys the billing fields below, and a
+                    greyed field is never saved (`toSampleEntryPayload`) and
+                    never required. */}
+                <div className="flex items-center gap-4">
+                  <Toggle
+                    id="se-pi-acc"
+                    label="Accessories Reqd"
+                    checked={active.accessories_reqd}
+                    onChange={(v) => patchStyle(active.key, { accessories_reqd: v })}
+                    // Same h-9 → @2xl/editor:h-8 step as Input, so the switch centres on the boxes beside it.
+                    className="@2xl/editor:min-h-8"
+                  />
+                  {/* A TOGGLE, like Order Entry's Pack and Multi Style switches and
+                      the spec's own word ("Billable Toggle (No / Yes)", §1). */}
+                  <Toggle
+                    id="se-pi-billable"
+                    label="Billable"
+                    checked={active.billable}
+                    onChange={(v) => patchStyle(active.key, { billable: v })}
+                    // Same h-9 → @2xl/editor:h-8 step as Input, so the switch centres on the boxes beside it.
+                    className="@2xl/editor:min-h-8"
+                  />
+                </div>
               </FieldRow>
 
-              {/* COMMERCIAL (spec §4.3). Billable = No is the default and hides
-                  the four billing fields; a hidden field is never saved
-                  (`toSampleEntryPayload`) and never required. */}
+              {/* Own row, so the two switches stay together beside Delivery Mode
+                  instead of Billable being pushed down by the six billing fields. */}
               <FieldRow>
-                <Toggle
-                  id="se-pi-acc"
-                  label="Accessories Reqd"
-                  checked={active.accessories_reqd}
-                  onChange={(v) => patchStyle(active.key, { accessories_reqd: v })}
-                />
-                {/* A TOGGLE, like Order Entry's Pack and Multi Style switches and
-                    the spec's own word ("Billable Toggle (No / Yes)", §1). */}
-                <Toggle
-                  id="se-pi-billable"
-                  label="Billable"
-                  checked={active.billable}
-                  onChange={(v) => patchStyle(active.key, { billable: v })}
-                />
                 {/* GREYED, NOT HIDDEN, WHEN BILLABLE = NO (user 2026-10-06): showing
                     and hiding four fields made the row jump on every toggle. A
                     native <fieldset disabled> disables every control inside it —
@@ -1830,8 +1875,9 @@ export function SampleEntryScreen({
                   becomes the section's Tab edge ahead of them. */}
               <div className="pt-2">
                 <FileAttachments
+                  dense
                   label="Image & Tech Pack"
-                  hint="JPG, PNG, WEBP or PDF — the garment pictures and the buyer's tech pack."
+                  hint="JPG, PNG, WEBP or PDF"
                   rows={active.files}
                   onChange={(next) => patchStyle(active.key, { files: next })}
                   bucket="sample-docs"
@@ -1894,7 +1940,7 @@ export function SampleEntryScreen({
                 : "One PO for the whole entry."}
             </span>
           </div>
-          <div data-grid-style="sheet" className="[&_table]:table-fixed">
+                    <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
             <ChildGrid<QuantityRow>
               columns={sampleQuantityColumns}
               rows={qtyRows}
@@ -2092,20 +2138,34 @@ export function SampleEntryScreen({
             : `${filtered.length} of ${rows.length}`
         }
       />
-      <DataTable
-        columns={withCreatedColumns(listColumns, filtered)}
-        rows={filtered}
-        // HIGH-DENSITY LIST — the Garment Orders list's `compact` table.
-        compact
-        getKey={(r) => r.id}
-        empty={
-          !rows.length
-            ? "No sample entries yet. Use 'New Sample Entry' to create the first."
-            : quick.value && !searched.some(quick.matches)
-              ? `No sample entries are ${QUICK_LABEL[quick.value]} — the counts above show which word they are in.`
-              : "No sample entries match the search or filters."
-        }
-      />
+      {/* erp-table-fit (user 2026-10-08): short columns hug, the frame is w-fit, Customer stays unsized. */}
+      {/* ONE LINE PER CELL (user 2026-10-08: "one line la iruntha pothum, 2 line
+          aa split aagirukku"). The wrapping override that kept the table inside
+          the pane split Enquiry No, Customer, Season and Created User over two
+          lines; `dense` already tightens the columns enough to fit at desk width,
+          so the primitive's own nowrap stands. NO SCROLLBAR EITHER (same day: "but
+          scroll bar vendam"): Customer and Created User are the two long values, so
+          they carry a max width and end in "…" (Customer reveals the whole name on
+          hover) instead of widening the row past the pane. */}
+      <div className="w-fit max-w-full [&_.overflow-x-auto]:overflow-x-hidden [&_td:nth-last-child(2)]:max-w-[8rem] [&_td:nth-last-child(2)]:truncate">
+        <DataTable
+          columns={hugCreated(withCreatedColumns(listColumns, filtered))}
+          rows={filtered}
+          // TIGHT ROWS, px-2 py-1 (user 2026-10-08: remove the sideways scrollbar,
+          // "innum compact"). `compact` kept px-3 and, with Created Date / User
+          // added, ran ~40px wider than the pane — a scrollbar under one row and
+          // the row icons cut off. `dense` takes 8px off every column's padding.
+          dense
+          getKey={(r) => r.id}
+          empty={
+            !rows.length
+              ? "No sample entries yet. Use 'New Sample Entry' to create the first."
+              : quick.value && !searched.some(quick.matches)
+                ? `No sample entries are ${QUICK_LABEL[quick.value]} — the counts above show which word they are in.`
+                : "No sample entries match the search or filters."
+          }
+        />
+      </div>
     </div>
   );
 }

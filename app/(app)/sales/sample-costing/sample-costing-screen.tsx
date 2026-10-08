@@ -484,9 +484,11 @@ export function SampleCostingScreen({
   const [dims, setDims] = useState({ l: "", w: "", g: "" });
   const [dimsOrigin, captureDimsOrigin] = useSubSheetOrigin();
 
-  // ---- a fabric's rate build-up — INLINE under its row (no popup) ---------------
-  // One build-up open at a time, the same fold rule as the steps themselves.
+  // ---- a fabric's rate build-up — a POPUP off its row (user 2026-10-08: "card aa
+  // popup mari kondu va"). It was inline under the row; the sheet grows out of the
+  // chevron that opened it. One open at a time by construction.
   const [buildKey, setBuildKey] = useState<string | null>(null);
+  const [buildOrigin, captureBuildOrigin] = useSubSheetOrigin();
   const [buildTab, setBuildTab] = useState<"mix" | "process">("mix");
 
   // ---- the steps: ONE open at a time (AGENTS.md "Folds are accordions") ----------
@@ -1383,7 +1385,7 @@ export function SampleCostingScreen({
     const procSub = fabricSubtotal(f) - yarnSub;
     const mixOk = Math.abs(mixTotal - 100) <= 0.001;
     return (
-      <div id={`sc-build-${f.key}`} className="mt-3 space-y-4 rounded-lg border border-border bg-surface-muted p-4">
+      <div id={`sc-build-${f.key}`} className="space-y-2">
         <ToggleGroup<"mix" | "process">
           label="Parts of the fabric rate"
           value={buildTab}
@@ -1398,11 +1400,11 @@ export function SampleCostingScreen({
             Price per KG sit beside whichever grid is showing, top-aligned with it.
             Plain flex with fixed-width cells: a FieldRow here collapsed to a
             few characters wide (screenshot 3385). Wraps under the table when narrow. */}
-        <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
+        <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
         <div className="min-w-0">
         {buildTab === "mix" ? (
-          <div className="space-y-3">
-            <p className="m-0 text-sm text-muted-foreground">What the cloth is made of. The shares must total 100%.</p>
+          <div className="space-y-2">
+            <p className="m-0 text-xs text-muted-foreground">What the cloth is made of. The shares must total 100%.</p>
             <div id={costingFieldId.yarnMix(f.key)} className="w-[31rem] max-w-full">
               {/* default-row: exempt -- a fabric with no blend needs no mix line; the seeded one is dropped as blank */}
               <div data-grid-style="sheet" className="[&_table]:table-fixed">
@@ -1434,8 +1436,8 @@ export function SampleCostingScreen({
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            <p className="m-0 text-sm text-muted-foreground">Pick each process from the list and give its price per KG: knitting, dyeing, stentering and so on.</p>
+          <div className="space-y-2">
+            <p className="m-0 text-xs text-muted-foreground">Pick each process and give its price per KG.</p>
             <div className="w-[21rem] max-w-full">
               <div data-grid-style="sheet" className="[&_table]:table-fixed">
                 <ChildGrid<FabricProcessDraft>
@@ -1457,7 +1459,7 @@ export function SampleCostingScreen({
           </div>
         )}
         </div>
-        <div className="flex shrink-0 flex-wrap items-end gap-4">
+        <div className="flex shrink-0 flex-wrap items-end gap-3">
           <div className="w-[8.5rem]">
             <Field label="Yarn / KG ₹" w="hug" htmlFor={costingFieldId.fabricRate(f.key)}>
               {mix ? (
@@ -1504,149 +1506,166 @@ export function SampleCostingScreen({
    * carries `data-row-add` so Tab reaches it and `landOnAddedRow` puts the
    * cursor in the new row.
    */
-  const fabricList = (
-    <div className="space-y-3">
-      {fabrics.map((f, i) => {
+  const buildFabric = buildKey ? fabrics.find((x) => x.key === buildKey && !x.is_direct) ?? null : null;
+  /**
+   * THE FABRIC LIST AS A SHEET GRID (user 2026-10-08, erp-sheet-grid): one row
+   * per fabric — Fabric · Uses × Price = Cost, then the two icons that choose
+   * how the price is known. It was a hand-rolled FieldRow per fabric with a
+   * card round each; the `×` and `=` glyphs go with the card, and the column
+   * headers say the same thing. Widths (FIELD_WIDTH_CSS): term 176 + range 112 +
+   * code 144 + range 112 + hug 88 = 632, + 72 chrome = 704.
+   */
+  const fabricColumns: ChildGridColumn<FabricDraft>[] = [
+    {
+      header: "Fabric",
+      required: true,
+      width: FIELD_WIDTH_CSS.term,
+      cell: (f) => (
+        <TypeOrPick
+          label="Fabric"
+          id={costingFieldId.fabric(f.key)}
+          options={data.fabrics.filter((x) => !isInactive(x) || x.id === f.fabric_id).map((x) => ({ id: x.id, name: x.name }))}
+          valueId={f.fabric_id}
+          text={f.quality || (data.fabrics.find((x) => x.id === f.fabric_id)?.name ?? "")}
+          onChange={(v) => onFabricPick(f, v)}
+          placeholder=""
+          uppercase
+        />
+      ),
+    },
+    {
+      header: `Uses kg / ${isSet ? "set" : "pc"}`,
+      align: "right",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (f) => {
+        const kg = fabricKg(f);
+        return (
+          <span className="block text-sm font-semibold text-foreground">
+            <Flash value={kg == null ? "—" : money(kg, 3)} formula="Component weights of this fabric, allowance included" />
+          </span>
+        );
+      },
+    },
+    {
+      header: "Price / KG ₹",
+      required: true,
+      align: "right",
+      width: FIELD_WIDTH_CSS.code,
+      cell: (f) =>
+        f.is_direct ? (
+          <div>
+            <NumInput
+              id={costingFieldId.fabricDirect(f.key)}
+              aria-label="Fabric price per KG"
+              required
+              className="font-semibold"
+              value={f.direct_rate}
+              onChange={(e) => patchFabric(f.key, { direct_rate: e.target.value })}
+            />
+            <FieldError>{msgFor(costingFieldId.fabricDirect(f.key))}</FieldError>
+          </div>
+        ) : (
+          <span className="block text-sm font-semibold text-foreground">
+            <Flash
+              value={money(fabricPricePerKg(f))}
+              formula={`(Yarn ${money(yarnRateOf(f))} + Knit + Dye + Finishing + Special ${money(processTotal(f))} = ${money(fabricSubtotal(f))}) × (1 + ${f.process_loss_pct || 0}% loss)`}
+            />
+          </span>
+        ),
+    },
+    {
+      header: `Fabric cost / ${isSet ? "set" : "pc"}`,
+      align: "right",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (f) => {
         const kg = fabricKg(f);
         const rate = fabricRate(f);
         const cost = kg != null && rate != null ? kg * rate : null;
+        return (
+          <span className="block text-sm font-semibold text-foreground">
+            <Flash value={cost == null ? "—" : money(cost)} formula="Uses × Price" />
+          </span>
+        );
+      },
+    },
+    {
+      header: "Price by",
+      width: FIELD_WIDTH_CSS.hug,
+      // THE ROW'S TWO ICONS — no words, each named by a tooltip and an aria-label.
+      // Buttons are not fields, so none of them is a Tab stop.
+      cell: (f) => {
         const building = !f.is_direct && buildKey === f.key;
         return (
-          <div key={f.key} className="rounded-lg border border-border p-3">
-            <FieldRow gap="row" align="end">
-              <Field label="Fabric" required w="party" htmlFor={costingFieldId.fabric(f.key)}>
-                <TypeOrPick
-                  label="Fabric"
-                  id={costingFieldId.fabric(f.key)}
-                  options={data.fabrics.filter((x) => !isInactive(x) || x.id === f.fabric_id).map((x) => ({ id: x.id, name: x.name }))}
-                  valueId={f.fabric_id}
-                  text={f.quality || (data.fabrics.find((x) => x.id === f.fabric_id)?.name ?? "")}
-                  onChange={(v) => onFabricPick(f, v)}
-                  placeholder=""
-                  uppercase
-                />
-              </Field>
-              <Field label={`Uses kg / ${isSet ? "set" : "pc"}`} w="range">
-                <span className="flex h-9 items-center justify-end rounded-md bg-surface-muted px-2 text-sm font-semibold text-foreground">
-                  <Flash value={kg == null ? "—" : money(kg, 3)} formula="Component weights of this fabric, allowance included" />
-                </span>
-              </Field>
-              <span aria-hidden className="pb-2 text-muted-foreground">
-                ×
-              </span>
-              {f.is_direct ? (
-                <Field label="Price / KG ₹" required w="code" htmlFor={costingFieldId.fabricDirect(f.key)}>
-                  <NumInput
-                    id={costingFieldId.fabricDirect(f.key)}
-                    aria-label="Fabric price per KG"
-                    required
-                    className="font-semibold"
-                    value={f.direct_rate}
-                    onChange={(e) => patchFabric(f.key, { direct_rate: e.target.value })}
-                  />
-                  <FieldError>{msgFor(costingFieldId.fabricDirect(f.key))}</FieldError>
-                </Field>
-              ) : (
-                <Field label="Price / KG ₹" labelSuffix={<span className="font-normal text-muted-foreground">worked out</span>} w="code">
-                  <span className="flex h-9 items-center justify-end rounded-md bg-surface-muted px-2 text-sm font-semibold text-foreground">
-                    <Flash
-                      value={money(fabricPricePerKg(f))}
-                      formula={`(Yarn ${money(yarnRateOf(f))} + Knit + Dye + Finishing + Special ${money(processTotal(f))} = ${money(fabricSubtotal(f))}) × (1 + ${f.process_loss_pct || 0}% loss)`}
-                    />
-                  </span>
-                </Field>
-              )}
-              <span aria-hidden className="pb-2 text-muted-foreground">
-                =
-              </span>
-              <Field label={`Fabric cost / ${isSet ? "set" : "pc"}`} w="range">
-                <span className="flex h-9 items-center justify-end rounded-md bg-surface-muted px-2 text-sm font-semibold text-foreground">
-                  <Flash value={cost == null ? "—" : money(cost)} formula="Uses × Price" />
-                </span>
-              </Field>
-              {/* THE ROW'S ICONS — no words, each named by a tooltip and an aria-label.
-                  Buttons are not fields, so none of them is a Tab stop. */}
-              <div className="flex items-center gap-1">
-                {f.is_direct ? (
-                  <Tooltip label="Work the price out from yarn and processes">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      aria-label="Work the price out from yarn and processes"
-                      onClick={() => {
-                        patchFabric(f.key, { is_direct: false });
-                        setBuildKey(f.key);
-                        setBuildTab("mix");
-                      }}
-                    >
-                      <Calculator aria-hidden />
-                    </Button>
-                  </Tooltip>
-                ) : (
-                  <>
-                    <Tooltip label={building ? "Hide the build-up" : "See how the price is worked out"}>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        aria-label={building ? "Hide the build-up" : "See how the price is worked out"}
-                        aria-expanded={building}
-                        onClick={() => setBuildKey(building ? null : f.key)}
-                      >
-                        <ChevronDown aria-hidden className={building ? "rotate-180" : ""} />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip label="Type the price instead">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        aria-label="Type the price instead"
-                        onClick={() => {
-                          // The worked-out price becomes the typed one, so the figure on screen does not jump.
-                          const keep = fabricPricePerKg(f);
-                          patchFabric(f.key, { is_direct: true, ...(keep != null && !num(f.direct_rate) ? { direct_rate: String(keep) } : {}) });
-                          if (buildKey === f.key) setBuildKey(null);
-                        }}
-                      >
-                        <Pencil aria-hidden />
-                      </Button>
-                    </Tooltip>
-                  </>
-                )}
-                {fabrics.length > 1 ? (
-                  <Tooltip label="Remove this fabric">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      data-row-remove
-                      aria-label={`Remove fabric ${i + 1}`}
-                      onClick={() => mutFabrics((xs) => xs.filter((x) => x.key !== f.key))}
-                    >
-                      <Trash2 aria-hidden />
-                    </Button>
-                  </Tooltip>
-                ) : null}
-              </div>
-            </FieldRow>
-            {building ? fabricBuildUp(f) : null}
+          <div className="flex items-center justify-center gap-1">
+            {f.is_direct ? (
+              <Tooltip label="Work the price out from yarn and processes">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label="Work the price out from yarn and processes"
+                  onClick={() => {
+                    patchFabric(f.key, { is_direct: false });
+                    setBuildKey(f.key);
+                    setBuildTab("mix");
+                  }}
+                >
+                  <Calculator aria-hidden />
+                </Button>
+              </Tooltip>
+            ) : (
+              <>
+                <Tooltip label="See how the price is worked out">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="See how the price is worked out"
+                    aria-haspopup="dialog"
+                    aria-expanded={building}
+                    onClick={captureBuildOrigin(() => setBuildKey(f.key))}
+                  >
+                    <ChevronDown aria-hidden />
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Type the price instead">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Type the price instead"
+                    onClick={() => {
+                      // The worked-out price becomes the typed one, so the figure on screen does not jump.
+                      const keep = fabricPricePerKg(f);
+                      patchFabric(f.key, { is_direct: true, ...(keep != null && !num(f.direct_rate) ? { direct_rate: String(keep) } : {}) });
+                      if (buildKey === f.key) setBuildKey(null);
+                    }}
+                  >
+                    <Pencil aria-hidden />
+                  </Button>
+                </Tooltip>
+              </>
+            )}
           </div>
         );
-      })}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        data-row-add
-        onClick={() => {
-          const f = blankFabric();
-          mutFabrics((xs) => [...xs, f]);
-        }}
-      >
-        + Add fabric
-      </Button>
+      },
+    },
+  ];
+  const fabricList = (
+    <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
+      <ChildGrid<FabricDraft>
+        // grid-caption: exempt -- the card's own title names it
+        label="Fabrics"
+        columns={fabricColumns}
+        rows={fabrics}
+        tableAlways
+        narrow
+        keepOne
+        removeHeader="Actions"
+        addLabel="+ Add fabric"
+        onAdd={() => mutFabrics((xs) => [...xs, blankFabric()])}
+        onRemove={(f) => mutFabrics((xs) => xs.filter((x) => x.key !== f.key))}
+      />
     </div>
   );
 
@@ -1802,7 +1821,6 @@ export function SampleCostingScreen({
     const added = blankLine(lines[lines.length - 1]?.piece_key ?? pieces[0]?.key ?? "");
     mutLines((xs) => [...xs, added]);
   }
-  const ID_COLS = multiPiece ? 2 : 1;
 
   /*
    * SIZE IS THE FIRST COLUMN (user 2026-10-08: "move this size as first field … add
@@ -1824,6 +1842,10 @@ export function SampleCostingScreen({
     return fi >= 0 ? fabricLabel(fabrics[fi], fi) : "";
   };
   const consumptionMatrix = () => {
+    // SIZE IS THE FIRST COLUMN, EACH SIZE A BAND OF ROWS (user 2026-10-08, the
+    // "Garment weight step" mock-up): Size · [Piece] · Component · Fabric · Grams ·
+    // Cost ₹ · ✕. It was sizes across the top; the data is the same
+    // (`line.cells[size]`, `loss[size]`), only the axis is turned.
     const track = [
       "92px",
       ...(multiPiece ? ["112px"] : []),
@@ -1876,7 +1898,7 @@ export function SampleCostingScreen({
         ) : null}
         {/* HUGS ITS COLUMNS, like every Orders table: `w-max` lets the 1fr spacer
             settle at its 12px floor; `max-w-full` keeps the scroll. */}
-        <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-border">
+        <div className="w-fit max-w-full overflow-x-auto rounded-control border border-border">
           <div data-grid-body className="grid w-max" style={{ gridTemplateColumns: track }} onKeyDown={(e) => gridKeyNav(e)}>
             <div className={`${MATRIX_HEAD} justify-start pl-2`}>Size</div>
             {multiPiece ? <div className={`${MATRIX_HEAD} justify-start pl-2`}>Piece</div> : null}
@@ -2347,7 +2369,7 @@ export function SampleCostingScreen({
     return rows;
   };
   const cmtTable = () => (
-    <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-border">
+    <div className="w-fit max-w-full overflow-x-auto rounded-control border border-border">
       <table className="border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
@@ -2431,7 +2453,8 @@ export function SampleCostingScreen({
     {
       header: "Direct rate",
       align: "center",
-      width: FIELD_WIDTH_CSS.num,
+      // hug, not num: the header was cut to "Direct r…" at 72px (user 2026-10-08).
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => <Toggle ariaLabel="Direct rate" checked={r.is_direct} onChange={(v) => patchTrim(r.key, { is_direct: v })} />,
     },
     {
@@ -2471,7 +2494,8 @@ export function SampleCostingScreen({
     {
       header: "Consumption",
       align: "right",
-      width: FIELD_WIDTH_CSS.hug,
+      // range, not hug: the header was cut to "Consumpti…" at 88px.
+      width: FIELD_WIDTH_CSS.range,
       cell: (r) =>
         r.is_direct ? null : (
           <div>
@@ -2664,7 +2688,7 @@ export function SampleCostingScreen({
             </Button>
           </div>
         ) : (
-        <div data-grid-style="sheet" className="[&_table]:table-fixed">
+        <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
         {/* default-row: exempt -- optional extras: none is a real answer, and a row appears only when "+ Add charge" is used */}
         <ChildGrid<ExtraChargeDraft>
           columns={columns}
@@ -2819,7 +2843,7 @@ export function SampleCostingScreen({
     trims: {
       right: head ? <Flash value={`₹${money(head.trims)}`} formula="Trims" /> : null,
       content: (
-        <div data-grid-style="sheet" className="[&_table]:table-fixed">
+        <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
           <ChildGrid<TrimDraft>
             columns={costingTrimColumns}
             rows={trims}
@@ -2839,9 +2863,6 @@ export function SampleCostingScreen({
       ) : null,
       content: (
         <div className="space-y-4">
-          <p className="m-0 text-sm text-muted-foreground">
-            Costs that are not in the garment itself. Bank charges are per piece; wastage and overhead are a percentage of the cost so far.
-          </p>
           <div className={TERMS_W}>
             <FieldRow gap="row" align="start">
               <Field label="Wastage %" w="hug" htmlFor="sc-waste">
@@ -3687,6 +3708,18 @@ export function SampleCostingScreen({
             isPending,
           }}
         />
+
+        <SubDetailSheet
+          open={!!buildFabric}
+          onClose={() => setBuildKey(null)}
+          origin={buildOrigin}
+          parent="costing"
+          grid
+          maxWidthClass="max-w-xl"
+          title="How the fabric price is worked out"
+        >
+          {buildFabric ? fabricBuildUp(buildFabric) : null}
+        </SubDetailSheet>
 
         <SubDetailSheet
           open={!!dimsLine}

@@ -3070,6 +3070,58 @@ export function GarmentOrderScreen({
   // Not while VIEWING: nothing there can be typed, so pinning the guard would
   // only hold the silent auto-update off for as long as someone reads an order.
   useUnsavedGuard((mode === "edit" && !viewOnly) || isPending);
+  /* AUTO-SAVE AS DRAFT (user 2026-10-08, "mail la draft nu kattumla"). Once the
+     four mandatory fields are in and the operator has touched the order, a
+     change is saved as a DRAFT every few seconds through the same `submit(true)`
+     the Save as Draft button runs. Only a NEW order or an existing DRAFT — a
+     recorded order is never silently re-saved, and an approved one is locked.
+     ABOVE the `if (mode === "list")` return, like every hook in this file. */
+  const autoDraftRef = useRef<string | null>(null);
+  const autoSigRef = useRef("");
+  const autoRunRef = useRef<(force?: boolean) => void>(() => {});
+  const autoFlushRef = useRef(false);
+  const autoSkipRef = useRef(false);
+  /* ONLY AN EDITOR RENDER MAY REFRESH THIS CLOSURE. `submit` reads consts
+     declared BELOW the `if (mode === "list")` return (`stylePoQty` …), which are
+     in their temporal dead zone on a list render — calling that render's copy
+     from the leave-the-editor flush threw "Cannot access 'stylePoQty' before
+     initialization" and took the route down. The copy kept from the last editor
+     render has every const initialised and the latest typed state. */
+  if (mode === "edit") {
+    autoRunRef.current = (force?: boolean) => {
+      if ((mode !== "edit" && !force) || viewOnly || amending || isPending || !touched) return;
+      if (editId && !rows.find((r) => r.id === editId)?.is_draft) return;
+      const sig = JSON.stringify([form, styles, dyeings, prints, structures, combos, priceDetails, approvalQtys, packTypes, quantities]);
+      if (sig === autoSigRef.current) return;
+      autoSigRef.current = sig;
+      if (force) autoFlushRef.current = true;
+      submit(true, true);
+    };
+  }
+  useEffect(() => {
+    if (mode !== "edit") return;
+    autoFlushRef.current = false;
+    const id = window.setInterval(() => autoRunRef.current(), 3000);
+    return () => window.clearInterval(id);
+  }, [mode]);
+  /* LEAVING THE EDITOR SAVES WHAT IS THERE (user 2026-10-08: "order entry la
+     irunthu veliya vantahlum draft la save aaganum"). Back to list, ✕ and
+     Cancel all land on mode "list" with the form state still in memory, so one
+     last auto-save runs from here — unless the operator just saved for real,
+     which would otherwise park a second, duplicate draft of the same order. */
+  const prevModeRef = useRef(mode);
+  useEffect(() => {
+    const left = prevModeRef.current === "edit" && mode === "list";
+    prevModeRef.current = mode;
+    if (mode === "edit") return;
+    if (left && !autoSkipRef.current) {
+      autoRunRef.current(true);
+      return;
+    }
+    autoSkipRef.current = false;
+    autoDraftRef.current = null;
+    autoSigRef.current = "";
+  }, [mode]);
   /* OPEN ONE ORDER FROM A LINK — `?open=<garment order id>` (0616, the
      Amendment Entry page's "Open order"). ABOVE THE `if (mode === "list")`
      RETURN, like every hook in this file — the rule its own comments record
@@ -4546,7 +4598,7 @@ export function GarmentOrderScreen({
     setMode("edit");
   }
 
-  function submit(asDraft: boolean) {
+  function submit(asDraft: boolean, silent = false) {
     /**
      * The narrowing guard for the two mandatory FKs.
      *
@@ -4566,6 +4618,8 @@ export function GarmentOrderScreen({
        the first thing they meet. */
     const po = form.po_no.trim();
     if (!form.location_id || !form.customer_id || !po || !form.merchandiser_id) {
+      // AUTO-SAVE waits quietly until the four mandatory fields are in.
+      if (silent) return;
       toastError(
         !form.location_id
           ? "Pick the Unit — the SC No is numbered under it."
@@ -5044,7 +5098,7 @@ export function GarmentOrderScreen({
     // A new order's CAD steps wait under NEW_ORDER_CAD (cad-pending.ts).
     const cadProblem = pendingCadProblem(editId ?? NEW_ORDER_CAD);
     if (cadProblem) {
-      toastError(cadProblem);
+      if (!silent) toastError(cadProblem);
       return;
     }
     /* PERMISSION OVERRIDE (0653, doc/email role system.md §7.2). On an
@@ -5053,21 +5107,49 @@ export function GarmentOrderScreen({
        and the SAME save runs with it — the action opens the override commit
        around the unchanged body. A refusal toasts and keeps every typed value;
        nothing below resets the editor unless the save succeeded. */
-    const override = editId ? areaOverride(overrideState, "order", raiseFor[editId]) : null;
+    const override = !silent && editId ? areaOverride(overrideState, "order", raiseFor[editId]) : null;
+    /* A NEW order that the auto-save has already parked as a draft is UPDATED by
+       every later save, never created a second time. `editId` itself stays null
+       so the CAD tab's parked steps (NEW_ORDER_CAD) keep their key. */
+    const targetId = editId ?? autoDraftRef.current;
     const doSave = (o?: OverrideSaveRequest) => start(async () => {
-      const res = editId
-        ? await updateAmendment(editId, payload, o)
+      const res = targetId
+        ? await updateAmendment(targetId, payload, o)
         : await createAmendment(payload);
+      if (silent) {
+        /* AUTO-SAVE (user 2026-10-08: "order entry potta athu auto save aaganum,
+           mail la draft nu kattumla"). Quiet on purpose — no toast, no CAD write,
+           no leaving the editor. A refusal (a style with no document, a
+           quantity that does not balance) just waits for the next change. */
+        if (autoFlushRef.current) {
+          autoFlushRef.current = false;
+          autoDraftRef.current = null;
+          autoSigRef.current = "";
+          if (res.ok) router.refresh();
+          return;
+        }
+        if (res.ok && !targetId && "id" in res && res.id) {
+          autoDraftRef.current = res.id;
+          /* THE DRAFT KEEPS ITS NUMBER. Pinned to what the trigger stamped, so a
+             later Unit / Date change cannot re-peek the NEXT number (6) into a
+             header that belongs to draft 5. The counter is already spent, which
+             is what makes the next new order 6. */
+          if (res.orderNumber) setSavedOrderNo(res.orderNumber);
+          success("Saved as draft" + (res.orderNumber ? ` — ${res.orderNumber}` : ""));
+        }
+        return;
+      }
       if (res.ok) {
         /* The order FIRST — a CAD is allocated against its saved styles. A
            CAD write that fails keeps the editor open with the step still
            parked, so pressing Save again retries only what did not land. */
         /* A NEW order's CAD (user 2026-09-30: the tab works before the first
            Save) is written now, against the id the create just returned. */
+        const newId = "id" in res && res.id ? res.id : targetId;
         const cad = editId
           ? await savePendingCad(editId)
-          : "id" in res && res.id
-            ? await savePendingCad(NEW_ORDER_CAD, res.id)
+          : newId
+            ? await savePendingCad(NEW_ORDER_CAD, newId)
             : { saved: 0, errors: [] };
         if (cad.errors.length) {
           toastError(`The order was saved, but the CAD was not — ${cad.errors.join("; ")}`);
@@ -5085,6 +5167,8 @@ export function GarmentOrderScreen({
             ("notice" in res && res.notice ? ` — ${res.notice}` : "") +
             (o ? " — recorded in the Override Edit Report" : ""),
         );
+        autoDraftRef.current = null;
+        autoSkipRef.current = true;
         setMode("list");
         router.refresh();
       } else {
@@ -16698,7 +16782,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         own label, and `data-sheet-stack="wide"` stands the look down. The
         2026-09-22 "no parts | actions divider" decision is superseded by the
         skill's one-rule-per-cell grid — that needs saying, not hiding. */}
-    <div data-grid-style="sheet-rows" className="relative max-w-full rounded-lg border border-border bg-surface px-3 pb-3 pt-2 min-[1250px]:w-fit min-[1250px]:rounded-none min-[1250px]:p-0 min-[1250px]:[&_[data-row-box]]:!py-0 [&_[data-grid-row]]:!border-border [&_[data-row-box]+[data-row-box]]:!border-t">
+    <div data-grid-style="sheet-rows" className="relative max-w-full rounded-lg border border-border bg-surface px-3 pb-3 pt-2 min-[1250px]:w-fit min-[1250px]:overflow-hidden min-[1250px]:p-0 min-[1250px]:[&_[data-row-box]]:!py-0 [&_[data-grid-row]]:!border-border [&_[data-row-box]+[data-row-box]]:!border-t">
     {/* `pr-9` is the fabric ✕ beside each row (28px chip + `removeBeside`'s
         8px gap), grey so the header band runs the box's full width. */}
     <div

@@ -2968,7 +2968,7 @@ export function ChildGrid<T extends { key: string }>({
         {mode === "responsive" && (
         <div
           className={cn(
-            "overflow-x-auto rounded-lg border border-border",
+            "overflow-x-auto rounded-control border border-border",
             // See `narrow`: the cap would otherwise push this below @lg and the
             // grid would render as cards. See `wideTable` for the other end —
             // and note @lg is 512px here, not the 1024 the viewport name suggests.
