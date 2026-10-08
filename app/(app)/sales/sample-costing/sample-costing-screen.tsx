@@ -1821,6 +1821,7 @@ export function SampleCostingScreen({
     const added = blankLine(lines[lines.length - 1]?.piece_key ?? pieces[0]?.key ?? "");
     mutLines((xs) => [...xs, added]);
   }
+  const ID_COLS = multiPiece ? 2 : 1;
 
   /*
    * SIZE IS THE FIRST COLUMN (user 2026-10-08: "move this size as first field … add
