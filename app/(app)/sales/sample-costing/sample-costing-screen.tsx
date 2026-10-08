@@ -3180,11 +3180,12 @@ export function SampleCostingScreen({
             >
               {stepDone[c.key] && !open ? <Check className="h-3.5 w-3.5" /> : i + 1}
             </span>
-            <span className="text-[15px] font-semibold text-foreground">{c.label}</span>
-            {open ? <span className="flex-1" /> : <span className="min-w-0 flex-1 truncate text-sm font-normal text-muted-foreground">{blurbs[c.key]}</span>}
+            <span className="w-44 shrink-0 text-[15px] font-semibold text-foreground">{c.label}</span>
+            {open ? null : <span className="min-w-0 max-w-[40%] flex-1 truncate text-sm font-normal text-muted-foreground lg:w-72 lg:flex-none">{blurbs[c.key]}</span>}
             {open ? (b.right ? <span className="text-sm font-semibold tabular-nums text-foreground">{b.right}</span> : null) : amount != null ? (
-              <span className="text-sm font-semibold tabular-nums text-foreground">{`₹ ${money(amount)}`}</span>
+              <span className="w-28 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">{`₹ ${money(amount)}`}</span>
             ) : null}
+            <span className="flex-1" />
             <ChevronRight aria-hidden className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         </h2>
@@ -3440,7 +3441,19 @@ export function SampleCostingScreen({
       : editId
         ? "Editing sample costing"
         : "New sample costing";
-  const dock = <span className="tabular-nums">{footerWord}</span>;
+  const dock = (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 tabular-nums">
+      <span>{footerWord}</span>
+      {heroValue != null ? (
+        <>
+          <span aria-hidden className="h-4 w-px bg-border" />
+          <span className="font-semibold text-foreground">{`${t?.quoted != null ? "Quoted" : "FOB"} ${ccy ?? ""} ${heroValue.toFixed(2)} / ${unitWord}`.replace("  ", " ")}</span>
+          <span className={`font-semibold ${health ? HEALTH[health].text : "text-foreground"}`}>{`${pct(t?.effectiveMarginPct)} margin`}</span>
+          <span className="text-muted-foreground">{`Net ₹ ${money(t?.net)}`}</span>
+        </>
+      ) : null}
+    </span>
+  );
 
   const sections: FullScreenSection[] = [
     {
