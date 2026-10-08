@@ -155,7 +155,7 @@ export function DataTable<T>({
 
   const wrapperClassName = cn(
     "overflow-x-auto",
-    !bare && "rounded-lg border border-border bg-surface",
+    !bare && "rounded-control border border-border bg-surface",
   );
   /* `hidden md:table`, with the stacked cards below taking over — see the
      note above that block. Desktop is unchanged: `md:table` restores the

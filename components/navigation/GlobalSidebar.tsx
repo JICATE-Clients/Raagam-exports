@@ -258,7 +258,15 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                       // 28px since the sidebar dock (2026-10-01): the dock takes
                       // ~64px off the bottom, and 16 rows × 4px is what gives it
                       // back without bringing the scrollbar (3181) back.
-                      className={cn("h-7 rounded-xl", expanded && "w-full gap-3")}
+                      // 36px, 10px curve, 14px dark text (user 2026-10-08, from the sidebar
+                      // mock-up) — the same row as the context sidebar. This REVERSES the
+                      // 28px above on purpose; on a short window the rail scrolls
+                      // instead of fitting.
+                      className={cn(
+                        "h-9 rounded-[10px] text-[14px]",
+                        !isActive && "text-foreground",
+                        expanded && "w-full gap-3",
+                      )}
                       onClick={(e) => {
                         e.preventDefault();
                         openTab({ href: item.href, title: item.label });
