@@ -72,6 +72,7 @@ export function SubDetailSheet({
    *  contains a `ChildGrid`. See the file header for why there is no third
    *  option. */
   grid = false,
+  maxWidthClass,
   /** What the operator must save to keep this — passed straight through to
    *  `SubSheetFooter`, which needs it for the same reason: "the parent" is
    *  not a thing they can see from inside an overlay. Ignored if `footer` is
@@ -94,6 +95,9 @@ export function SubDetailSheet({
   children: ReactNode;
   origin?: SheetOrigin | null;
   grid?: boolean;
+  /** A narrower cap than `grid`'s 1152px, for a grid that needs headers but not that
+   *  much room (Sample Costing's fabric build-up, user 2026-10-08: "compacted"). */
+  maxWidthClass?: string;
   parent?: string;
   blockedReason?: string | null;
   onBlocked?: (reason: string) => void;
@@ -107,6 +111,7 @@ export function SubDetailSheet({
       onClose={onClose}
       title={title}
       size={grid ? "md" : "sm"}
+      maxWidthClass={maxWidthClass}
       alignToPane
       origin={origin}
       headerActions={headerActions}

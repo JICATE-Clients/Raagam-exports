@@ -56,7 +56,7 @@ import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
 
 /** `id` is the document a create just minted — Order Entry's CAD tab writes
  *  the CAD steps typed on a NEW order against it once the order exists. */
-type Result = { ok: true; notice?: string; id?: string } | { ok: false; error: string };
+type Result = { ok: true; notice?: string; id?: string; orderNumber?: string } | { ok: false; error: string };
 
 function fail(msg: string): Result {
   return { ok: false, error: msg };
@@ -2080,16 +2080,21 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
      depends on the PARENT structure's Fabric Type, and whether the part is
      checked at all depends on it having said something. Same shape, and the
      same reason, as `missingRequiredMaterialFields`. */
-  const comboProblem = comboTreeProblem(p.data);
+  /* A DRAFT PARKS UNFINISHED WORK (user 2026-10-08: whatever was typed must be
+     saved as a draft, including when Order Entry is left half-way — and the
+     auto-save runs through here). The three completeness guards below judge a
+     FINISHED order, so they stand down for `is_draft`; the real Save runs them
+     all, and so does recording the draft. */
+  const comboProblem = p.data.is_draft ? null : comboTreeProblem(p.data);
   if (comboProblem) return fail(comboProblem);
   /* Every style carries a document (0479 · client 2026-08-31). The screen
      deadens Save on the same predicate; this is the half `submit` cannot skip. */
-  const fileProblem = styleFileProblem(p.data);
+  const fileProblem = p.data.is_draft ? null : styleFileProblem(p.data);
   if (fileProblem) return fail(fileProblem);
   /* The quantity double lock (client 2026-08-31). Same predicate the Details
      overlay's Done button and the dead Save read; this is the half a stale
      client or a direct post cannot skip. */
-  const qtyProblem = qtyBalanceProblem(p.data);
+  const qtyProblem = p.data.is_draft ? null : qtyBalanceProblem(p.data);
   if (qtyProblem) return fail(qtyProblem);
   const s = await createClient();
 
@@ -2139,6 +2144,7 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
    */
   let salesOrderId = p.data.sales_order_id;
   let mintedOrderId: string | null = null;
+  let mintedOrderNumber: string | null = null;
   if (!salesOrderId) {
     // The Unit is only mandatory on THIS branch — it is what the counter is
     // keyed by. Checked here rather than in the schema so an edit of a document
@@ -2182,13 +2188,14 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
          * questions now have two columns, which is the point.
          */
       })
-      .select("id")
+      .select("id, order_number")
       .single();
     if (orderErr || !order) {
       return fail(orderErr?.message ?? "Could not create the order number");
     }
     salesOrderId = order.id;
     mintedOrderId = order.id;
+    mintedOrderNumber = (order as { order_number?: string | null }).order_number ?? null;
   }
 
   const { data: created, error } = await s
@@ -2229,7 +2236,7 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
   if (mintedOrderId) await notifyCadOfNewOrder(created.id);
 
   rev();
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, ...(mintedOrderNumber ? { orderNumber: mintedOrderNumber } : {}) };
 }
 
 /**
@@ -2293,16 +2300,21 @@ async function saveAmendment(
      depends on the PARENT structure's Fabric Type, and whether the part is
      checked at all depends on it having said something. Same shape, and the
      same reason, as `missingRequiredMaterialFields`. */
-  const comboProblem = comboTreeProblem(p.data);
+  /* A DRAFT PARKS UNFINISHED WORK (user 2026-10-08: whatever was typed must be
+     saved as a draft, including when Order Entry is left half-way — and the
+     auto-save runs through here). The three completeness guards below judge a
+     FINISHED order, so they stand down for `is_draft`; the real Save runs them
+     all, and so does recording the draft. */
+  const comboProblem = p.data.is_draft ? null : comboTreeProblem(p.data);
   if (comboProblem) return fail(comboProblem);
   /* Every style carries a document (0479 · client 2026-08-31). The screen
      deadens Save on the same predicate; this is the half `submit` cannot skip. */
-  const fileProblem = styleFileProblem(p.data);
+  const fileProblem = p.data.is_draft ? null : styleFileProblem(p.data);
   if (fileProblem) return fail(fileProblem);
   /* The quantity double lock (client 2026-08-31). Same predicate the Details
      overlay's Done button and the dead Save read; this is the half a stale
      client or a direct post cannot skip. */
-  const qtyProblem = qtyBalanceProblem(p.data);
+  const qtyProblem = p.data.is_draft ? null : qtyBalanceProblem(p.data);
   if (qtyProblem) return fail(qtyProblem);
   const s = await createClient();
   /**
