@@ -47,7 +47,7 @@
  * `if (mode === "edit")`, so every hook here is declared above it.
  */
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Calculator,
@@ -74,7 +74,7 @@ import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/fi
 import { Truncated } from "@/components/ui/truncated";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
-import { MATRIX_FOOT, MATRIX_HEAD, matrixCell, textColPx } from "@/components/orders/matrix-grid";
+import { MATRIX_HEAD, MATRIX_SIZE_TOKEN, matrixCell } from "@/components/orders/matrix-grid";
 import {
   MasterFullScreen,
   type FullScreenSection,
@@ -455,6 +455,8 @@ export function SampleCostingScreen({
   const [railGroup, setRailGroup] = useState<string>("all");
   /** Which view of the Quotation summary is open under the waterfall. */
   const [railTab, setRailTab] = useState<"breakdown" | "whatif" | "target">("breakdown");
+  /** Breakdown shows Net · Gross · Price; this opens the other lines. */
+  const [railAll, setRailAll] = useState(false);
   /** CMT & charges ▸ "Hide operations": pieces whose per-operation strip is folded away. Display only — a folded strip keeps every value. */
   const [opsHidden, setOpsHidden] = useState<Record<string, boolean>>({});
   /** The buyer's target, for "Work back from a target price" (not stored). */
@@ -1802,245 +1804,278 @@ export function SampleCostingScreen({
   }
   const ID_COLS = multiPiece ? 2 : 1;
 
+  /*
+   * SIZE IS THE FIRST COLUMN (user 2026-10-08: "move this size as first field … add
+   * it front of the component"). One BAND of rows per size, Size · Component ·
+   * Fabric · Grams · Cost ₹, then a tinted subtotal row that holds the size's
+   * Loss % and what it adds up to. The data is still the matrix underneath
+   * (lines × sizes, one Loss % per size — matrix.ts), so nothing stored moves.
+   *
+   * The components are DEFINED in the first band only: Piece, Component and
+   * Fabric are boxes there and plain text in every later band, so a line is one
+   * set of controls however many sizes are on the sheet (one id, one ✕, one
+   * error). Every band has its own grams box, and a blank one takes the first
+   * size's number (the placeholder shows what it takes). The ✕ on a component
+   * removes it from every size. With no size yet there is one band whose grams
+   * cell asks for a size, and "Add a size" leads the step instead of trailing it.
+   */
+  const fabricNameOf = (key: string | null) => {
+    const fi = fabrics.findIndex((f) => f.key === key);
+    return fi >= 0 ? fabricLabel(fabrics[fi], fi) : "";
+  };
   const consumptionMatrix = () => {
     const track = [
+      "92px",
       ...(multiPiece ? ["112px"] : []),
-      "184px",
-      ...matrixCols.map((c) => `${textColPx(colLabel(c).length, 24, 84, 132)}px`),
+      "168px",
+      "200px",
+      "156px",
+      "100px",
       "minmax(12px,1fr)",
-      "72px",
+      "44px",
     ].join(" ");
     const firstCol = matrixCols[0];
+    const bands: (string | null)[] = matrixCols.length ? matrixCols : [null];
+    const bandCell = "flex min-h-11 items-center border-b border-border bg-primary-soft px-2 text-xs";
+    const addSizeRow = (
+      <FieldRow gap="row" align="end">
+        {offered.length ? (
+          <Field label="Add a size" w="term" htmlFor="sc-add-size">
+            <Select id="sc-add-size" value="" onChange={(e) => addSize(e.target.value)}>
+              <option value="">+ Add size…</option>
+              {offered.map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+        <p className="m-0 pb-2 text-xs text-muted-foreground">
+          {!style
+            ? "Choose the style first; its sizes appear here."
+            : !styleSizes.length
+              ? "This style has no sizes ticked in Sample Entry, so no size can be added."
+              : !offered.length
+                ? "Every size of the style is on the sheet."
+                : sizeCols.length > 1
+                  ? "A blank box takes the first size's number."
+                  : "Add the sizes you are costing, then type the grams."}
+        </p>
+      </FieldRow>
+    );
     return (
       <div className="space-y-3">
-        <FieldRow gap="row" align="end">
-          {offered.length ? (
-            <Field label="Add a size" w="term" htmlFor="sc-add-size">
-              <Select id="sc-add-size" value="" onChange={(e) => addSize(e.target.value)}>
-                <option value="">+ Add size…</option>
-                {offered.map((z) => (
-                  <option key={z} value={z}>
-                    {z}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : null}
-          <p className="m-0 pb-2 text-xs text-muted-foreground">
-            {!style
-              ? "Choose the style first; its sizes appear here."
-              : !styleSizes.length
-                ? "This style has no sizes ticked in Sample Entry, so no size can be added."
-                : !offered.length
-                  ? "Every size of the style is on the sheet."
-                  : sizeCols.length > 1
-                    ? "A blank box takes the first size's number."
-                    : "Add the sizes you are costing, then type the grams."}
-          </p>
-        </FieldRow>
+        {/* NO SIZE YET: the size is the first thing to choose, so it leads. */}
+        {!matrixCols.length ? addSizeRow : null}
         {/* A held size the style no longer carries — a notice, never an edit. */}
         {heldNotInStyle.length ? (
           <p className="m-0 text-xs text-warning">
-            {`The style no longer has ${heldNotInStyle.join(", ")}. The column stays until you remove it.`}
+            {`The style no longer has ${heldNotInStyle.join(", ")}. The band stays until you remove it.`}
           </p>
         ) : null}
-        {/* HUGS ITS COLUMNS, like every Orders table (browser check 2026-10-07):
-            `w-full` stretched the frame across the pane. `w-max` lets the 1fr
-            spacer settle at its 12px floor; `max-w-full` keeps the scroll. */}
+        {/* HUGS ITS COLUMNS, like every Orders table: `w-max` lets the 1fr spacer
+            settle at its 12px floor; `max-w-full` keeps the scroll. */}
         <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-border">
           <div data-grid-body className="grid w-max" style={{ gridTemplateColumns: track }} onKeyDown={(e) => gridKeyNav(e)}>
-            {multiPiece ? <div className={`${MATRIX_HEAD} sticky left-0 z-30 justify-start pl-2`}>Piece</div> : null}
-            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Component · Fabric</div>
-            {matrixCols.map((c) => (
-              <div key={c} className={`${MATRIX_HEAD} gap-1 whitespace-normal text-center leading-tight`}>
-                {colLabel(c)} · g
-                {sizeCols.length > 1 && c !== ALL_SIZES ? (
-                  // button-shape: exempt -- a 20px ✕ chip in a column heading
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    aria-label={`Remove size ${c}`}
-                    onClick={() => removeSize(c)}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-control text-[11px] text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                  >
-                    ✕
-                  </button>
-                ) : null}
-              </div>
-            ))}
+            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Size</div>
+            {multiPiece ? <div className={`${MATRIX_HEAD} justify-start pl-2`}>Piece</div> : null}
+            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Component</div>
+            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Fabric</div>
+            <div className={`${MATRIX_HEAD} justify-end pr-2`}>Grams</div>
+            <div className={`${MATRIX_HEAD} justify-end pr-2`}>Cost ₹</div>
             <div className={MATRIX_HEAD} />
             <div className={MATRIX_HEAD} />
 
-            {lines.map((l) => (
-              <div key={l.key} data-grid-row className="contents">
-                {multiPiece ? (
-                  <div className={`${CELL} sticky left-0 z-10 bg-surface px-1`}>
-                    <Select aria-label="Piece" value={l.piece_key} onChange={(e) => patchLine(l.key, { piece_key: e.target.value })}>
-                      {pieces.map((pc) => (
-                        <option key={pc.key} value={pc.key}>
-                          {pc.piece_name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
+            {bands.map((c, bi) => (
+              <Fragment key={c ?? "no-size"}>
+                {lines.map((l, li) => {
+                  const cost = c ? lineCost(l, c) : null;
+                  return (
+                    <div key={l.key} data-grid-row className="contents">
+                      {/* THE SIZE, on the first row of its band. */}
+                      <div className={`${CELL} items-start justify-between gap-1 border-r border-border bg-surface-muted px-2 pt-2`}>
+                        {li === 0 ? (
+                          c ? (
+                            <>
+                              <span className={MATRIX_SIZE_TOKEN}>{colLabel(c)}</span>
+                              {sizeCols.length > 1 && c !== ALL_SIZES ? (
+                                // button-shape: exempt -- a 20px ✕ chip beside the size
+                                <button
+                                  type="button"
+                                  tabIndex={-1}
+                                  aria-label={`Remove size ${c}`}
+                                  onClick={() => removeSize(c)}
+                                  className="inline-flex h-5 w-5 items-center justify-center rounded-control text-[11px] text-muted-foreground hover:bg-danger-soft hover:text-danger"
+                                >
+                                  ✕
+                                </button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )
+                        ) : null}
+                      </div>
+                      {multiPiece ? (
+                        <div className={`${CELL} justify-start px-1`}>
+                          {bi === 0 ? (
+                            <Select aria-label="Piece" value={l.piece_key} onChange={(e) => patchLine(l.key, { piece_key: e.target.value })}>
+                              {pieces.map((pc) => (
+                                <option key={pc.key} value={pc.key}>
+                                  {pc.piece_name}
+                                </option>
+                              ))}
+                            </Select>
+                          ) : (
+                            <span className="truncate px-1 text-xs text-muted-foreground">{pieces.find((pc) => pc.key === l.piece_key)?.piece_name ?? ""}</span>
+                          )}
+                        </div>
+                      ) : null}
+                      <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
+                        {bi === 0 ? (
+                          <Select aria-label="Component" value={l.component_id ?? ""} onChange={(e) => patchLine(l.key, { component_id: e.target.value || null })}>
+                            <option value=""></option>
+                            {data.components
+                              .filter((x) => !isInactive(x) || x.id === l.component_id)
+                              .map((x) => (
+                                <option key={x.id} value={x.id}>
+                                  {x.name}
+                                </option>
+                              ))}
+                          </Select>
+                        ) : (
+                          <span className="truncate px-1 text-xs text-muted-foreground">{componentName(l.component_id) || "—"}</span>
+                        )}
+                      </div>
+                      <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
+                        {bi === 0 ? (
+                          <>
+                            <Select
+                              id={costingFieldId.weightFabric(l.key)}
+                              aria-label="Fabric"
+                              required
+                              value={l.fabric_key ?? ""}
+                              onChange={(e) => patchLine(l.key, { fabric_key: e.target.value || null })}
+                            >
+                              <option value=""></option>
+                              {fabrics
+                                .filter((f) => !isBlankFabric(f))
+                                .map((f, i) => (
+                                  <option key={f.key} value={f.key}>
+                                    {fabricLabel(f, i)}
+                                  </option>
+                                ))}
+                            </Select>
+                            <FieldError>{msgFor(costingFieldId.weightFabric(l.key))}</FieldError>
+                          </>
+                        ) : (
+                          <span className="truncate px-1 text-xs text-muted-foreground">{fabricNameOf(l.fabric_key) || "—"}</span>
+                        )}
+                      </div>
+                      <div className={`${CELL} gap-1 px-1`}>
+                        {c ? (
+                          <>
+                            <div className="min-w-0 flex-1">
+                              <NumInput
+                                id={bi === 0 ? costingFieldId.weightGrams(l.key) : undefined}
+                                aria-label={`${componentName(l.component_id) || "Component"} grams — ${colLabel(c)}`}
+                                required={bi === 0}
+                                className="h-8"
+                                // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
+                                placeholder={bi > 0 ? (l.cells[firstCol] ?? "") : undefined}
+                                value={l.cells[c] ?? ""}
+                                onChange={(e) => setCell(l.key, c, e.target.value)}
+                              />
+                              {bi === 0 ? <FieldError>{msgFor(costingFieldId.weightGrams(l.key))}</FieldError> : null}
+                            </div>
+                            <Tooltip label="Weight from length × width × GSM">
+                              {/* button-shape: exempt -- a 28px icon square in a matrix cell */}
+                              <button
+                                type="button"
+                                data-row-open
+                                aria-label={`Calculate ${colLabel(c)} grams from length, width and GSM`}
+                                onClick={captureDimsOrigin(() => {
+                                  setDims({ l: "", w: "", g: "" });
+                                  setDimsFor({ line: l.key, col: c });
+                                })}
+                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                              >
+                                <Ruler className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                            </Tooltip>
+                          </>
+                        ) : (
+                          <span className="px-1 text-xs text-muted-foreground">Add a size first</span>
+                        )}
+                      </div>
+                      <div className={`${CELL} justify-end pr-2 text-xs font-semibold tabular-nums ${cost == null ? "text-muted-foreground" : "text-foreground"}`}>
+                        {cost == null ? "—" : money(cost)}
+                      </div>
+                      <div className={CELL} />
+                      <div className={`${CELL} justify-end pr-1`}>
+                        {bi === 0 && lines.length > 1 ? (
+                          <Tooltip label="Remove this component from every size">
+                            {/* button-shape: exempt -- the row's ✕, a 28px icon square (data-row-remove for Ctrl+Del) */}
+                            <button
+                              type="button"
+                              data-row-remove
+                              aria-label="Remove component"
+                              onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-danger-soft hover:text-danger"
+                            >
+                              ✕
+                            </button>
+                          </Tooltip>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* THE SIZE'S SUBTOTAL ROW: its Loss %, and what the band adds up to. */}
+                {c ? (
+                  <>
+                    <div className={`${bandCell} border-r`} />
+                    <div data-loss-row className={`${bandCell} gap-2 font-semibold text-muted-foreground`} style={{ gridColumn: `span ${ID_COLS}` }}>
+                      <span className="whitespace-nowrap">Loss %</span>
+                      <div className="w-16">
+                        <NumInput
+                          aria-label={`Loss percent — ${colLabel(c)}`}
+                          className="h-8"
+                          placeholder={bi > 0 ? (loss[firstCol] ?? "") : undefined}
+                          value={loss[c] ?? ""}
+                          onChange={(e) => setLossAt(c, e.target.value)}
+                        />
+                      </div>
+                      <span className="text-[10px] font-normal">cloth lost in making</span>
+                    </div>
+                    <div className={`${bandCell} gap-1.5 text-muted-foreground`}>
+                      Fabric used
+                      <b className="text-foreground">
+                        <Flash value={`${money(colGrams(c), 0)} g`} formula="Σ grams of the components" />
+                      </b>
+                    </div>
+                    <div className={`${bandCell} justify-end font-semibold text-foreground`}>
+                      <Flash value={`${money(colGramsWithLoss(c), 1)} g with loss`} formula="Σ grams × (1 + Loss %)" />
+                    </div>
+                    <div className={`${bandCell} justify-end text-sm font-bold text-primary`}>
+                      <Flash value={money(colCost(c))} formula={`Fabric ₹ / ${isSet ? "set" : "pc"} = Σ Price / KG ÷ 1000 × grams × (1 + Loss %)`} />
+                    </div>
+                    <div className={bandCell} />
+                    <div className={bandCell} />
+                  </>
                 ) : null}
-                {/* THE COMPONENT, AND UNDER ITS NAME THE FABRIC IT IS CUT FROM. */}
-                <div className={`${CELL} flex-col !items-stretch gap-1 px-1 py-1`}>
-                  <Select aria-label="Component" value={l.component_id ?? ""} onChange={(e) => patchLine(l.key, { component_id: e.target.value || null })}>
-                    <option value=""></option>
-                    {data.components
-                      .filter((c) => !isInactive(c) || c.id === l.component_id)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </Select>
-                  <Select
-                    id={costingFieldId.weightFabric(l.key)}
-                    aria-label="Fabric"
-                    required
-                    value={l.fabric_key ?? ""}
-                    onChange={(e) => patchLine(l.key, { fabric_key: e.target.value || null })}
-                  >
-                    <option value=""></option>
-                    {fabrics
-                      .filter((f) => !isBlankFabric(f))
-                      .map((f, i) => (
-                        <option key={f.key} value={f.key}>
-                          {fabricLabel(f, i)}
-                        </option>
-                      ))}
-                  </Select>
-                  <FieldError>{msgFor(costingFieldId.weightFabric(l.key))}</FieldError>
-                </div>
-                {matrixCols.map((c, i) => (
-                  <div key={c} className={`${CELL} flex-col !items-stretch px-1`}>
-                    <NumInput
-                      id={i === 0 ? costingFieldId.weightGrams(l.key) : undefined}
-                      aria-label={`${componentName(l.component_id) || "Component"} grams — ${colLabel(c)}`}
-                      required={i === 0}
-                      className="h-8"
-                      // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
-                      placeholder={i > 0 ? (l.cells[firstCol] ?? "") : undefined}
-                      value={l.cells[c] ?? ""}
-                      onChange={(e) => setCell(l.key, c, e.target.value)}
-                    />
-                    {i === 0 ? <FieldError>{msgFor(costingFieldId.weightGrams(l.key))}</FieldError> : null}
-                  </div>
-                ))}
-                <div className={CELL} />
-                <div className={`${CELL} justify-end gap-0.5 pr-1`}>
-                  {firstCol ? (
-                    <Tooltip label="Weight from length × width × GSM">
-                      {/* button-shape: exempt -- a 28px icon square in a matrix cell */}
-                      <button
-                        type="button"
-                        data-row-open
-                        aria-label="Calculate grams from length, width and GSM"
-                        onClick={captureDimsOrigin(() => {
-                          setDims({ l: "", w: "", g: "" });
-                          setDimsFor({ line: l.key, col: firstCol });
-                        })}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-primary-soft hover:text-primary"
-                      >
-                        <Ruler className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                    </Tooltip>
-                  ) : null}
-                  {lines.length > 1 ? (
-                    // button-shape: exempt -- the row's ✕, a 28px icon square (data-row-remove for Ctrl+Del)
-                    <button
-                      type="button"
-                      data-row-remove
-                      aria-label="Remove component"
-                      onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                    >
-                      ✕
-                    </button>
-                  ) : null}
-                </div>
-              </div>
+              </Fragment>
             ))}
-
-            {matrixCols.length ? (
-              <>
-                {/* THE BAND UNDER THE COMPONENTS: what the sizes add up to. */}
-                <div className={`${MATRIX_FOOT} sticky left-0 z-30 justify-start pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`} style={{ gridColumn: `span ${ID_COLS}` }}>
-                  Fabric used
-                </div>
-                {matrixCols.map((c) => (
-                  <div key={c} className={MATRIX_FOOT}>
-                    <Flash value={`${money(colGrams(c), 0)} g`} formula="Σ grams of the components" />
-                  </div>
-                ))}
-                <div className={MATRIX_FOOT} />
-                <div className={MATRIX_FOOT} />
-
-                <div
-                  data-loss-row
-                  className={`${MATRIX_FOOT} sticky left-0 z-30 flex-col items-start justify-center pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`}
-                  style={{ gridColumn: `span ${ID_COLS}` }}
-                >
-                  Loss %
-                  <span className="text-[10px] font-normal normal-case tracking-normal">cloth lost in making</span>
-                </div>
-                {matrixCols.map((c, i) => (
-                  <div key={c} className={`${CELL} px-1`}>
-                    <NumInput
-                      aria-label={`Loss percent — ${colLabel(c)}`}
-                      className="h-8"
-                      placeholder={i > 0 ? (loss[firstCol] ?? "") : undefined}
-                      value={loss[c] ?? ""}
-                      onChange={(e) => setLossAt(c, e.target.value)}
-                    />
-                  </div>
-                ))}
-                <div className={CELL} />
-                <div className={CELL} />
-
-                <div className={`${MATRIX_FOOT} sticky left-0 z-30 justify-start pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`} style={{ gridColumn: `span ${ID_COLS}` }}>
-                  Total with loss
-                </div>
-                {matrixCols.map((c) => (
-                  <div key={c} className={MATRIX_FOOT}>
-                    <Flash value={`${money(colGramsWithLoss(c), 1)} g`} formula="Σ grams × (1 + Loss %)" />
-                  </div>
-                ))}
-                <div className={MATRIX_FOOT} />
-                <div className={MATRIX_FOOT} />
-
-                <div
-                  className={`${MATRIX_FOOT} sticky left-0 z-30 justify-start pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`}
-                  style={{ gridColumn: `span ${ID_COLS}` }}
-                >
-                  Fabric ₹ / {isSet ? "set" : "pc"}
-                </div>
-                {matrixCols.map((c) => (
-                  <div key={c} className={MATRIX_FOOT}>
-                    <Flash value={money(colCost(c))} formula="Σ Price / KG ÷ 1000 × grams × (1 + Loss %)" />
-                  </div>
-                ))}
-                <div className={MATRIX_FOOT} />
-                <div className={MATRIX_FOOT} />
-              </>
-            ) : (
-              <div className={`${MATRIX_FOOT} justify-start pl-2 text-xs font-normal text-muted-foreground`} style={{ gridColumn: "1 / -1" }}>
-                Add a size above and the grams boxes appear here.
-              </div>
-            )}
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          data-row-add
-          onClick={addLine}
-        >
-          + Add component
-        </Button>
+        <div className="flex flex-wrap items-end gap-3">
+          <Button type="button" variant="outline" size="sm" data-row-add onClick={addLine}>
+            + Add component
+          </Button>
+          {matrixCols.length ? <div className="min-w-0 flex-1">{addSizeRow}</div> : null}
+        </div>
         {multiPiece ? (
           // SET BREAKDOWN (v2 §5.3) — one line per coordinate and the set total;
           // read-only, a document table (`paginate={false}`).
@@ -2664,7 +2699,7 @@ export function SampleCostingScreen({
                 Style row leads, so a new sheet's cursor lands on Sample No —
                 the one question to answer before anything else. */}
             <FieldRow gap="row" align="start">
-              <Field label="Sample No" required w="name" htmlFor={costingFieldId.sample}>
+              <Field label="Sample No" required w="party" htmlFor={costingFieldId.sample}>
                 <RecordPicker
                   id={costingFieldId.sample}
                   label="Sample No"
@@ -3107,10 +3142,19 @@ export function SampleCostingScreen({
     trims: head ? head.trims : null,
     overheads: head ? bankPc + head.wastage + head.overhead : null,
   };
+  /* Garment weight and Price & quote are not rupees, so they name their own unit. */
+  const gramsShown = live.weights
+    .filter((w) => w.size_name == null || w.size_name === (railData?.size ?? null))
+    .reduce((x, w) => x + (gramsOf(w) ?? 0), 0);
+  const amountTexts: Partial<Record<CardKey, string>> = {
+    weights: gramsShown > 0 ? `${Math.round(gramsShown)} g` : "0 g",
+    price: heroValue == null ? "—" : `${ccy ?? ""} ${heroValue.toFixed(2)}`.trim(),
+  };
   const cardSection = (c: (typeof CARDS)[number], i: number) => {
     const b = c.key === "price" ? priceBody : cardBody[c.key];
     const open = fold.isOpen(c.key) || held(c.key);
     const amount = amounts[c.key];
+    const amountText = amountTexts[c.key] ?? (amount != null ? `₹ ${money(amount)}` : null);
     return (
       <section
         key={c.key}
@@ -3138,8 +3182,8 @@ export function SampleCostingScreen({
             </span>
             <span className="w-44 shrink-0 text-[15px] font-semibold text-foreground">{c.label}</span>
             {open ? null : <span className="min-w-0 max-w-[40%] flex-1 truncate text-sm font-normal text-muted-foreground lg:w-72 lg:flex-none">{blurbs[c.key]}</span>}
-            {open ? (b.right ? <span className="text-sm font-semibold tabular-nums text-foreground">{b.right}</span> : null) : amount != null ? (
-              <span className="w-28 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">{`₹ ${money(amount)}`}</span>
+            {open ? (b.right ? <span className="text-sm font-semibold tabular-nums text-foreground">{b.right}</span> : null) : amountText != null ? (
+              <span className="w-28 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">{amountText}</span>
             ) : null}
             <span className="flex-1" />
             <ChevronRight aria-hidden className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
@@ -3198,9 +3242,9 @@ export function SampleCostingScreen({
     const steps = [
       { label: "Fabric", v: t.fabric, bar: "bg-primary" },
       { label: "CMT", v: t.cmt, bar: "bg-accent" },
-      { label: "Process", v: t.process + testingPc, bar: "bg-info" },
+      { label: "Proc.", v: t.process + testingPc, bar: "bg-info" },
       { label: "Trims", v: t.trims, bar: "bg-warning" },
-      { label: "Overh.", v: bankPc + t.wastage + t.overhead + t.extraOverhead, bar: "bg-danger" },
+      { label: "Ovhd", v: bankPc + t.wastage + t.overhead + t.extraOverhead, bar: "bg-danger" },
       { label: "Margin", v: t.margin, bar: "bg-success" },
       ...(Math.abs(adj) > 0.005 ? [{ label: "Adj.", v: adj, bar: "bg-foreground/40" }] : []),
     ];
@@ -3210,7 +3254,7 @@ export function SampleCostingScreen({
       cum += s.v;
       return { ...s, lo: Math.min(from, cum), hi: Math.max(from, cum) };
     });
-    cols.push({ label: "Price", v: t.gross, bar: "bg-foreground", lo: 0, hi: t.gross });
+    cols.push({ label: "Price", v: t.gross, bar: "bg-primary", lo: 0, hi: t.gross });
     const top = Math.max(...cols.map((c) => c.hi), 1) * 1.15;
     return { cols, top };
   })();
@@ -3230,9 +3274,9 @@ export function SampleCostingScreen({
      lands in the aside. A price card (margin ring against the floor), the cost
      waterfall, then Breakdown · What-if · Target in one tab row so the rail stays
      short. */
-  const ringFrac = Math.min(Math.max((t?.effectiveMarginPct ?? 0) / 35, 0), 1);
-  const ringCirc = 2 * Math.PI * 29;
-  const ringColour = health === "good" ? "var(--success)" : health === "tight" ? "var(--warning)" : health === "poor" ? "var(--danger)" : "var(--border-strong)";
+  const marginFrac = Math.min(Math.max((t?.effectiveMarginPct ?? 0) / 35, 0), 1);
+  const marginBarColour = health === "good" ? "bg-success" : health === "tight" ? "bg-warning" : "bg-danger";
+  const hasPrice = !!t && t.gross > 0;
   const rail = (
     <div className="space-y-3 rounded-lg border border-border bg-background p-3 shadow-sm">
       <div className="space-y-3 rounded-lg border border-border bg-primary-soft p-3">
@@ -3247,41 +3291,38 @@ export function SampleCostingScreen({
             />
           ) : null}
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[11px] text-muted-foreground">{t?.quoted != null ? "Final quoted FOB price" : "Calculated FOB price"}</div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-bold leading-tight tracking-tight text-foreground">
-                <Flash value={heroValue == null ? "—" : `${ccy ?? ""} ${heroValue.toFixed(2)}`.trim()} />
-              </span>
-              <span className="text-xs font-medium text-muted-foreground">/ {unitWord}</span>
-            </div>
-            {t ? <div className="text-[11px] tabular-nums text-muted-foreground">{`₹ ${money(t.gross)} before freight & insurance`}</div> : null}
+        <div className="min-w-0">
+          <div className="text-[11px] text-muted-foreground">{t?.quoted != null ? "Final quoted FOB price" : "Calculated FOB price"}</div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-3xl font-bold leading-tight tracking-tight text-foreground">
+              <Flash value={heroValue == null ? "—" : `${ccy ?? ""} ${heroValue.toFixed(2)}`.trim()} />
+            </span>
+            <span className="text-xs font-medium text-muted-foreground">/ {unitWord}</span>
           </div>
-          <div className="relative h-[70px] w-[70px] shrink-0" role="img" aria-label={`Margin ${pct(t?.effectiveMarginPct)}, floor ${MARGIN_FLOOR_PCT}%`}>
-            <svg viewBox="0 0 70 70" className="h-full w-full -rotate-90" aria-hidden>
-              <circle cx="35" cy="35" r="29" fill="none" strokeWidth="7" style={{ stroke: "var(--border)" }} />
-              <circle
-                cx="35" cy="35" r="29" fill="none" strokeWidth="7" strokeLinecap="round"
-                strokeDasharray={`${ringCirc * ringFrac} ${ringCirc}`}
-                style={{ stroke: ringColour }}
-              />
-              <line x1="56" y1="35" x2="69" y2="35" strokeWidth="2" strokeLinecap="round" transform={`rotate(${(MARGIN_FLOOR_PCT / 35) * 360} 35 35)`} style={{ stroke: "var(--foreground)" }} />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
-              <b className={`text-[14px] tabular-nums ${health ? HEALTH[health].text : "text-foreground"}`}>{t?.effectiveMarginPct == null ? "—" : `${t.effectiveMarginPct.toFixed(1)}%`}</b>
-              <span className="mt-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">margin</span>
-            </div>
-          </div>
+          {t ? <div className="text-[11px] tabular-nums text-muted-foreground">{`₹ ${money(t.gross)} before freight & insurance`}</div> : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {health ? <StatusPill tone={HEALTH[health].tone}>{HEALTH[health].label}</StatusPill> : null}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            {health && hasPrice ? <StatusPill tone={HEALTH[health].tone}>{HEALTH[health].label}</StatusPill> : <StatusPill tone="neutral">No price yet</StatusPill>}
+            <span className={`text-[15px] font-bold tabular-nums ${health && hasPrice ? HEALTH[health].text : "text-muted-foreground"}`}>
+              {hasPrice ? `${pct(t?.effectiveMarginPct)} margin` : "—"}
+            </span>
+          </div>
+          <div className="relative h-2 rounded-full border border-border bg-background" role="img" aria-label={`Margin ${pct(t?.effectiveMarginPct)}, floor ${MARGIN_FLOOR_PCT}%`}>
+            <div className={`absolute inset-y-0 left-0 rounded-full transition-[width] ${hasPrice ? marginBarColour : ""}`} style={{ width: hasPrice ? `${marginFrac * 100}%` : "0%" }} />
+            <i className="absolute -bottom-1 -top-1 w-0.5 rounded-sm bg-foreground" style={{ left: `${(MARGIN_FLOOR_PCT / 35) * 100}%` }} />
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>0%</span>
+            <span>{`Floor ${MARGIN_FLOOR_PCT}%`}</span>
+            <span>35%</span>
+          </div>
         </div>
         {summary.belowFloor ? <p className="m-0 text-xs text-danger">{floorSentence(summary.lowestMarginPct)}</p> : null}
       </div>
 
       {waterfall && t && t.gross > 0 ? (
-        <div>
+        <div className="[@media(max-height:760px)]:hidden">
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">How the price builds up</div>
           <div
             className="grid gap-1.5"
@@ -3291,7 +3332,7 @@ export function SampleCostingScreen({
           >
             {waterfall.cols.map((c) => (
               <div key={c.label} className="flex flex-col items-stretch gap-1">
-                <div className="relative h-16 border-b border-border">
+                <div className="relative h-14 border-b border-border">
                   <i
                     className={`absolute inset-x-0 block rounded-sm ${c.bar}`}
                     style={{ bottom: `${(c.lo / waterfall.top) * 100}%`, height: `${Math.max(((c.hi - c.lo) / waterfall.top) * 100, 1.5)}%` }}
@@ -3303,7 +3344,7 @@ export function SampleCostingScreen({
                     {Math.round(c.v)}
                   </span>
                 </div>
-                <span className="text-center text-[9px] font-medium text-muted-foreground">{c.label}</span>
+                <span className="whitespace-nowrap text-center text-[8.5px] font-medium leading-none tracking-tight text-muted-foreground">{c.label}</span>
               </div>
             ))}
           </div>
@@ -3323,21 +3364,31 @@ export function SampleCostingScreen({
       />
 
       {railTab === "breakdown" ? (
-        <dl className="m-0">
-          {line("Fabric", money(t?.fabric))}
-          {line("CMT & processing", money(t ? t.cmt + t.process + testingPc : null))}
-          {line("Trims & accessories", money(t?.trims))}
-          {line("Bank charges", money(t ? bankPc : null))}
-          {line("Net cost ₹", money(t?.net), { total: true, formula: "Fabric + CMT & processing + Trims + Bank" })}
-          {line(`Wastage ${header.garment_waste_pct || 0}%`, money(t?.wastage))}
-          {line(`Overhead ${header.overhead_pct || 0}%`, money(t?.overhead))}
-          {t?.extraOverhead ? line("Other charges", money(t.extraOverhead)) : null}
-          {line("Gross cost ₹", money(t?.grossCost), { total: true, formula: "Net + Wastage + Overhead" })}
-          {line(`Margin ${header.margin_pct || 0}%`, money(t?.margin))}
-          {line(`Discount ${header.discount_pct || 0}%`, t?.discount ? `−${money(t.discount)}` : money(0))}
-          {t?.priceAdj ? line("Price charges", `${t.priceAdj < 0 ? "−" : ""}${money(Math.abs(t.priceAdj))}`) : null}
-          {line("Price ₹", money(t?.gross), { total: true, formula: "Gross cost + Margin − Discount ± price charges" })}
-        </dl>
+        hasPrice ? (
+          <div>
+            <dl className="m-0">
+              {railAll ? line("Fabric", money(t?.fabric)) : null}
+              {railAll ? line("CMT & processing", money(t ? t.cmt + t.process + testingPc : null)) : null}
+              {railAll ? line("Trims & accessories", money(t?.trims)) : null}
+              {railAll ? line("Bank charges", money(t ? bankPc : null)) : null}
+              {line("Net cost ₹", money(t?.net), { total: true, formula: "Fabric + CMT & processing + Trims + Bank" })}
+              {railAll ? line(`Wastage ${header.garment_waste_pct || 0}%`, money(t?.wastage)) : null}
+              {railAll ? line(`Overhead ${header.overhead_pct || 0}%`, money(t?.overhead)) : null}
+              {railAll && t?.extraOverhead ? line("Other charges", money(t.extraOverhead)) : null}
+              {line("Gross cost ₹", money(t?.grossCost), { total: true, formula: "Net + Wastage + Overhead" })}
+              {railAll ? line(`Margin ${header.margin_pct || 0}%`, money(t?.margin)) : null}
+              {railAll ? line(`Discount ${header.discount_pct || 0}%`, t?.discount ? `−${money(t.discount)}` : money(0)) : null}
+              {railAll && t?.priceAdj ? line("Price charges", `${t.priceAdj < 0 ? "−" : ""}${money(Math.abs(t.priceAdj))}`) : null}
+              {line("Price ₹", money(t?.gross), { total: true, formula: "Gross cost + Margin − Discount ± price charges" })}
+            </dl>
+            {/* button-shape: exempt -- a text link that folds the list, not an action button */}
+            <button type="button" onClick={() => setRailAll((v) => !v)} className="mt-1 px-2 text-xs font-semibold text-primary hover:underline">
+              {railAll ? "Show fewer lines" : "Show all lines"}
+            </button>
+          </div>
+        ) : (
+          <p className="m-0 px-2 text-xs text-muted-foreground">Add a fabric and a garment weight to see the price build up here.</p>
+        )
       ) : null}
 
       {railTab === "whatif" ? (
