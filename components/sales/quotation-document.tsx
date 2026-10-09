@@ -131,7 +131,7 @@ export function QuotationDocument({ model }: { model: QuotationModel }) {
               {model.approved ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: "#eef7df", color: "#3f6a0d" }}>
                   <span className="size-1.5 rounded-full" style={{ background: "#85c227" }} />
-                  Approved
+                  {model.approvalNote ?? "Approved"}
                 </span>
               ) : null}
             </div>

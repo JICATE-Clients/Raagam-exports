@@ -29,6 +29,7 @@ import {
 import { linesToWeights, weightsToLines } from "../lib/sales/sample-costing/matrix.ts";
 import { buildRevisionHistory, type RevisionSource } from "../lib/sales/sample-costing/revision-history.ts";
 import { historyForBuyer } from "../lib/sales/sample-costing/quotation.ts";
+import { approvalLineForBuyer, approvalLineOf, type ApprovalFacts } from "../lib/sales/sample-costing/approval-line.ts";
 import { cleanSizes, offeredSizes, sizesNotInStyle } from "../lib/sales/sample-costing/style-sizes.ts";
 
 let failed = 0;
@@ -373,6 +374,30 @@ eq("extras: the target solver reads them (139 leaves 20 %)", xs?.marginPct ?? nu
   eq("internal history carries each revision's margin", withMargin[0].marginPct, 31.5, 1);
   eq("quotation history: the margin is stripped, so the buyer's page cannot print it", historyForBuyer(withMargin).some((r) => "marginPct" in r), false);
   eq("quotation history: the price survives", historyForBuyer(withMargin)[1].price, 4.1);
+}
+
+// ---- approval line (client 2026-10-09: "where is the approver") ----
+{
+  const facts = (o: Partial<ApprovalFacts>): ApprovalFacts => ({
+    status: "approved", isDraft: false, submittedAt: "2026-10-09T05:00:00Z", approvedAt: "2026-10-09T05:00:00Z",
+    decidedByName: null, decidedAt: null, remark: null, lowestMarginPct: 38.4, ...o,
+  });
+  const auto = approvalLineOf(facts({}));
+  eq("approval: no decider = approved automatically", auto.text.startsWith("Approved automatically on submit"), true);
+  eq("approval: …and it is green", auto.tone === "good", true);
+  eq("approval: …and says the floor cleared it, with the lowest margin", (auto.detail ?? "").includes("20%") && (auto.detail ?? "").includes("38.4%"), true);
+  const md = approvalLineOf(facts({ decidedByName: "ARUN MD", decidedAt: "2026-10-10T08:00:00Z", remark: "Price held for volume" }));
+  eq("approval: a named decider = approved BY them", md.text.startsWith("Approved by ARUN MD"), true);
+  eq("approval: …with the MD's remark", md.detail === "Price held for volume", true);
+  eq("approval: with the MD while submitted", approvalLineOf(facts({ status: "submitted", approvedAt: null })).text.startsWith("With the MD"), true);
+  eq("approval: a submitted costing explains the floor", (approvalLineOf(facts({ status: "submitted", lowestMarginPct: 12 })).detail ?? "").includes("under the 20% floor"), true);
+  eq("approval: rejected names who and keeps the reason", (() => { const r = approvalLineOf(facts({ status: "rejected", decidedByName: "ARUN MD", remark: "Margin too thin" })); return r.text.startsWith("Rejected by ARUN MD") && r.detail === "Margin too thin" && r.tone === "bad"; })(), true);
+  eq("approval: a draft is not submitted", approvalLineOf(facts({ status: "draft", isDraft: true, approvedAt: null })).text.startsWith("Not submitted"), true);
+  eq("approval: superseded says so", approvalLineOf(facts({ status: "superseded" })).text.startsWith("Superseded"), true);
+  eq("buyer: an approved costing says approved and when", (approvalLineForBuyer(facts({})) ?? "").startsWith("Approved on"), true);
+  const leak = approvalLineForBuyer(facts({ decidedByName: "ARUN MD", remark: "secret", lowestMarginPct: 12 })) ?? "";
+  eq("buyer: it never names the MD, the remark or a margin", /ARUN|secret|12|%|MD|floor/i.test(leak), false);
+  eq("buyer: a draft or pending costing shows nothing", approvalLineForBuyer(facts({ status: "submitted" })) === null && approvalLineForBuyer(facts({ status: "draft" })) === null, true);
 }
 
 if (failed) {

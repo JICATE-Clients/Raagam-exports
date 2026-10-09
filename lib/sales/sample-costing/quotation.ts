@@ -16,6 +16,7 @@ import { SHIP_MODES, STATUS_LABEL, costingInputOf, revisionShort, type CostingRe
 import type { CostingEnquiryOption, CostingStyleOption } from "./service";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { RevisionHistoryRow } from "./revision-history";
+import { approvalLineForBuyer, type ApprovalFacts } from "./approval-line";
 
 /** The price the buyer is offered: the quoted one, else the calculated one
  *  rounded to the cent — a quotation with a blank price is not a quotation. */
@@ -74,6 +75,8 @@ export type QuotationModel = {
   pieceNames: Record<string, string>;
   /** Every revision of this Costing No, oldest first — `[]` when never revised. PRICES ONLY. */
   history: QuotationHistoryRow[];
+  /** "Approved on 09/10/2026" — or null. Never how, by whom, or at what margin. */
+  approvalNote: string | null;
 };
 
 export function buildQuotationModel(
@@ -81,6 +84,7 @@ export function buildQuotationModel(
   lookups: { enquiries: readonly CostingEnquiryOption[]; styles: readonly CostingStyleOption[] },
   company: DocLetterhead,
   history: RevisionHistoryRow[] = [],
+  approvalFacts: ApprovalFacts | null = null,
 ): QuotationModel {
   const d = record.draft;
   const h = d.header;
@@ -134,5 +138,10 @@ export function buildQuotationModel(
     /* The margin is dropped HERE, at the model, so no drawing of this document
        — page or PDF — can print what the buyer must not see. */
     history: historyForBuyer(history),
+    approvalNote: approved
+      ? approvalLineForBuyer(
+          approvalFacts ?? { status: record.status, isDraft: record.is_draft, submittedAt: null, approvedAt: null, decidedByName: null, decidedAt: null, remark: null, lowestMarginPct: null },
+        )
+      : null,
   };
 }

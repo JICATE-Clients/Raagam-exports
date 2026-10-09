@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardList, FileText, GitBranchPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
 import { QuotationDocument } from "@/components/sales/quotation-document";
@@ -32,8 +33,8 @@ export function CostingReports({
   cost: CostSheetModel;
   quote: QuotationModel;
   initial: Tab;
-  /** Set only when Revise would work (approved + may edit) — see the page. */
-  revise: { id: string; nextLabel: string } | null;
+  /** Null only when the reader may not edit. `reason` is why Revise is unavailable (greyed), or null when it works. */
+  revise: { id: string; nextLabel: string; reason: string | null } | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>(initial);
@@ -60,15 +61,17 @@ export function CostingReports({
         ]}
       />
       {revise ? (
-        <Button
-          variant="outline"
-          size="md"
-          title="Open this costing as the next revision, to change the price"
-          onClick={() => router.push(`/sales/sample-costing?reviseFrom=${revise.id}`)}
-        >
-          <GitBranchPlus className="h-4 w-4" />
-          Revise → {revise.nextLabel}
-        </Button>
+        <Tooltip label={revise.reason ?? "Open this costing as the next revision, to change the price"}>
+          <Button
+            variant="outline"
+            size="md"
+            disabled={!!revise.reason}
+            onClick={() => router.push(`/sales/sample-costing?reviseFrom=${revise.id}`)}
+          >
+            <GitBranchPlus className="h-4 w-4" />
+            {revise.reason ? "Revise" : `Revise → ${revise.nextLabel}`}
+          </Button>
+        </Tooltip>
       ) : null}
       </div>
       {tab === "cost-sheet" ? <CostSheetDocument model={cost} /> : <QuotationDocument model={quote} />}

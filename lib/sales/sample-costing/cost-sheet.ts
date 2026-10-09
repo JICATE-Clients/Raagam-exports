@@ -28,6 +28,7 @@ import { SHIP_MODES, STATUS_LABEL, costingInputOf, isBlankPieceLine, liveRows, r
 import type { CostingEnquiryOption, CostingStyleOption } from "./service";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { RevisionHistoryRow } from "./revision-history";
+import { approvalLineOf, type ApprovalFacts, type ApprovalLine } from "./approval-line";
 
 /** A figure to the rupee-and-paise the sheet prints. */
 export const fx = (v: number | null | undefined, dp = 2) => (v == null || !Number.isFinite(v) ? "—" : v.toFixed(dp));
@@ -114,6 +115,8 @@ export type CostSheetModel = {
   terms: { margin: number; wastage: number; overhead: number; discount: number; freight: number; insurance: number };
   /** Every revision of this Costing No, oldest first — `[]` when it was never revised. INTERNAL: carries margin. */
   history: RevisionHistoryRow[];
+  /** How this costing was approved, and by whom. INTERNAL — the buyer's copy says only "Approved". */
+  approval: ApprovalLine;
 };
 
 const sizeLabel = (s: string | null) => s ?? "All sizes";
@@ -128,6 +131,7 @@ export function buildCostSheetModel(
   },
   company: DocLetterhead,
   history: RevisionHistoryRow[] = [],
+  approvalFacts: ApprovalFacts | null = null,
 ): CostSheetModel {
   const d = record.draft;
   const h = d.header;
@@ -321,6 +325,18 @@ export function buildCostSheetModel(
       insurance: num(h.insurance_per_pc) ?? 0,
     },
     history,
+    approval: approvalLineOf(
+      approvalFacts ?? {
+        status: record.status,
+        isDraft: record.is_draft,
+        submittedAt: null,
+        approvedAt: null,
+        decidedByName: null,
+        decidedAt: null,
+        remark: record.decision_remark,
+        lowestMarginPct: summary.lowestMarginPct,
+      },
+    ),
   };
 }
 

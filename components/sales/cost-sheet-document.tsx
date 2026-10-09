@@ -170,6 +170,15 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
         </div>
       </header>
 
+      {/* THE APPROVAL LINE (client 2026-10-09: "where is the approver") — how this
+          costing was approved and by whom: automatically on submit when every quote
+          clears the floor, else the MD by name. INTERNAL; the Quotation says only
+          "Approved on …". */}
+      <div className="apv" data-tone={model.approval.tone}>
+        <b>Approval: {model.approval.text}</b>
+        {model.approval.detail ? <span>{model.approval.detail}</span> : null}
+      </div>
+
       <div className="pad">
         <section className="hero">
           <div className="title">
@@ -813,6 +822,12 @@ const CSS = `
 .cs-sheet td { padding:4px 12px; border-bottom:1px solid var(--cs-rule); white-space:nowrap; background:#fff; }
 .cs-sheet tr:last-child td { border-bottom:0; } .cs-sheet .r { text-align:right; }
 .cs-sheet tr.total td { background:var(--cs-brand-tint); font-weight:800; color:var(--cs-brand-ink); }
+.cs-sheet .apv { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 14px; padding:7px 18px; font-size:12.5px; border-bottom:1px solid var(--cs-rule); }
+.cs-sheet .apv span { font-size:12px; opacity:.85; }
+.cs-sheet .apv[data-tone="good"] { background:var(--cs-good-tint); color:var(--cs-good); }
+.cs-sheet .apv[data-tone="warn"] { background:var(--cs-warn-tint); color:var(--cs-warn); }
+.cs-sheet .apv[data-tone="bad"] { background:var(--cs-bad-tint); color:var(--cs-bad); }
+.cs-sheet .apv[data-tone="muted"] { background:var(--cs-soft); color:var(--cs-muted); }
 .cs-sheet .sign { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:20px; padding-top:2px; }
 .cs-sheet .sign div { border-top:1px solid var(--cs-ink); padding-top:6px; font-size:12px; color:var(--cs-muted); } .cs-sheet .sign b { display:block; min-height:1.6em; }
 .cs-sheet .foot { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; color:var(--cs-muted); font-size:11.5px; padding:8px 18px; border-top:1px solid var(--cs-rule); background:var(--cs-soft); }
