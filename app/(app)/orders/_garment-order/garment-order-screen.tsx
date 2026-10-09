@@ -23768,14 +23768,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             </span>
           )}
           <SketchThumbnail bucket="garment-order-docs" path={sketchPath} />
-          {/* `size="sm"`, down from `md` — this is a plain `<Button>`, not the
-             shared `BackLink` AGENTS.md's "header row" rule binds to `md` (that
-             rule is about matching a LIST toolbar's search box; there is no
-             toolbar here), so shrinking it to match this compact band is not
-             the drift that rule exists to prevent. */}
-          <Button variant="outline" size="sm" onClick={() => setMode("list")} className="max-md:hidden">
-            ← Back to list
-          </Button>
+          {/* NO "← Back to list" ON A DESKTOP (user 2026-10-09, button plan
+              Rule 1). It ran `setMode("list")`, the same exit as the footer's
+              Cancel / Close — two buttons for one job. Escape and the phone's
+              ← above still leave. */}
         </div>
       </div>
 

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { buttonClasses } from "@/components/ui/button";
 import { backTarget, type BackTarget } from "@/lib/nav/back-target";
 import { confirmDiscard } from "@/lib/reload-guard";
 
@@ -16,12 +15,13 @@ import { confirmDiscard } from "@/lib/reload-guard";
  *
  * Three things that are not cosmetic:
  *
- * - **`md` (`h-9`), via `buttonClasses`.** "The header row (STANDING)" in
- *   AGENTS.md names a `← Back` link explicitly as one of the controls that must
- *   match the search box beside it, and `buttonClasses` is the existing way an
- *   `<a>` looks like a `<button>` without restating the list (`RowActions`'s
- *   `editHref` is the other caller). Nesting a `<button>` in an `<a>` is invalid
- *   HTML and puts two stops in the Tab path for one control.
+ * - **A LINK, NOT A BUTTON (user 2026-10-09, button plan Rule 4).** It moves
+ *   the operator around the app; it acts on no record. Drawn as an outline
+ *   button it stood in the same row as "New Garment Order" and read as one
+ *   more action to weigh, on ~110 list pages at once. It keeps the row's 36px
+ *   line (`h-9`, "The header row") so it centres on the buttons beside it, but
+ *   is primary-coloured text with no box. The label drops "Back to" — the ←
+ *   already says it — and the full sentence stays in `aria-label`.
  *
  * - **It asks before discarding.** A `<Link>` out of a half-filled editor loses
  *   the work silently, and `confirmDiscard()` is the question Escape already
@@ -44,14 +44,15 @@ export function BackLink({ target }: { target?: BackTarget }) {
   return (
     <Link
       href={to.href}
-      // `toolbar-size: exempt -- buttonClasses({size:"md"}) IS h-9; the check
+      // `toolbar-size: exempt -- a text link on the row's h-9 line; the check
       // reads a `size` prop and there is no Button element here to carry one.`
-      className={buttonClasses({ variant: "outline", size: "md" })}
+      className="inline-flex h-9 items-center gap-1 rounded-control px-1 text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={`Back to ${to.label}`}
       onClick={(e) => {
         if (!confirmDiscard()) e.preventDefault();
       }}
     >
-      ← Back to {to.label}
+      ← {to.label}
     </Link>
   );
 }

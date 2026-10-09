@@ -135,11 +135,17 @@ band the screen draws itself:
     <dd className="m-0 text-sm font-semibold text-foreground">{number}</dd>
   </div>
   <div aria-hidden className="h-px min-w-[2rem] flex-1 self-center bg-border" />
-  <div className="flex shrink-0 items-center gap-3">{/* figures */}<Button variant="outline" size="sm">← Back to list</Button></div>
+  <div className="flex shrink-0 items-center gap-3">{/* figures · Reports · <MoreActions> · the ONE filled next step */}</div>
 </div>
 <MasterFullScreen mount="page" open dirty={dirty} modeLabel={null}
   footer={{ …, extra: <button className="text-xs font-medium text-danger">{n} to fix</button>, stepper: true }} />
 ```
+
+**No desktop "← Back to list" in the band** (user 2026-10-09, button plan): the footer's
+Cancel / Close is the way out, so a second button for the same `setMode("list")` is the
+duplicate the plan removed. The phone `←` stays (the footer hides Cancel below `sm`).
+**Exception:** a footer using `skip` (HR person) drops Cancel, so its band keeps Back.
+See AGENTS.md "Buttons: one job, one filled, three on top".
 
 `stepper: true` shows **Next** until the last section (Save + Save as Draft there); `extra`
 is the red "N to fix" link. No `header` prop — the band replaces it.
@@ -400,7 +406,7 @@ parent of a grid's rows.
 
 `header={{ initials: "FB", title: reNo ?? code ?? "New …", badges: <span className=
 "text-[11px] font-medium text-warning">● Unsaved</span>, meta: [customer, ref, style, …]
-.filter(Boolean).join(" · "), right: <>Reports · Copy from… · Submit</> }}`. A workflow
+.filter(Boolean).join(" · "), right: <>Reports · More ▾ (Copy from…) · Submit</> }}`. A workflow
 action (Submit, Send to MD) goes in `header.right`, never the footer (shells.md, keyboard
 reason). Header buttons are `size="md"` (Fabric BOM); Material BOM / Budget's `sm` Reports
 button is the drift, not the rule.

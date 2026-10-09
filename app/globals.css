@@ -1369,9 +1369,14 @@ body {
    items resolve to — so the three share one radius by reference and cannot
    drift apart. The separate pill rule for the header row went with this; it
    existed only to make that row rounder than the rest, which is the opposite
-   of what is wanted now. */
-[data-skin="raagam"] button:not([role="tab"]):not([role="switch"]):not([data-field-affordance]),
-[data-skin="raagam"] a[class*="inline-flex"] {
+   of what is wanted now.
+   `:not(.ty-button)` (user 2026-10-09, Garment Orders header + Sample Costing
+   footer: "different shape different types"): a `Button` / `buttonClasses()`
+   already carries `rounded-control` — the ONE button shape (AGENTS.md, 8px,
+   named so no skin can move it) — and this 0,4,1 rule was out-ranking it to
+   12px, so every Button here stood rounder than the ToggleGroup beside it. */
+[data-skin="raagam"] button:not(.ty-button):not([role="tab"]):not([role="switch"]):not([data-field-affordance]),
+[data-skin="raagam"] a[class*="inline-flex"]:not(.ty-button) {
   border-radius: var(--radius-md);
 }
 
@@ -1387,12 +1392,17 @@ body {
    one place the untouched #85c227 can be used as a fill.
    `bg-primary` is how `Button` draws its primary variant, so this catches Save
    without the screen passing anything. */
-[data-skin="raagam"] button[class*="bg-primary"]:not([disabled]) {
+/* `a.ty-btn-*` beside every `button[…]` here: a link drawn with
+   `buttonClasses()` — "← Back to Order Management" — is the same button to the
+   operator, and matching only the element left it grey beside green ones. */
+[data-skin="raagam"] button[class*="bg-primary"]:not([disabled]),
+[data-skin="raagam"] a.ty-btn-primary {
   background: linear-gradient(135deg, #cfe8f7 0%, #b1d9f0 52%, #93c9e8 100%);
   color: #0b3a56;
   border: 1px solid #8cc4e5;
 }
-[data-skin="raagam"] button[class*="bg-primary"]:not([disabled]):hover {
+[data-skin="raagam"] button[class*="bg-primary"]:not([disabled]):hover,
+[data-skin="raagam"] a.ty-btn-primary:hover {
   background: linear-gradient(135deg, #bfe0f4 0%, #9fd0ea 52%, #83bfe2 100%);
 }
 
@@ -1405,11 +1415,13 @@ body {
    result was a green ✕ in a green ring floating inside the field (client
    2026-08-28: "remove this curves"). An affordance drawn ON a control is not a
    button in the sense either rule means, so it opts out of both. */
-[data-skin="raagam"] button[class*="border-border"]:not([role="tab"]):not([disabled]):not([data-field-affordance]) {
+[data-skin="raagam"] button[class*="border-border"]:not([role="tab"]):not([disabled]):not([data-field-affordance]),
+[data-skin="raagam"] a.ty-btn-outline {
   border-color: #b7dc7c;
   color: #3f6612;
 }
-[data-skin="raagam"] button[class*="border-border"]:not([role="tab"]):not([disabled]):not([data-field-affordance]):hover {
+[data-skin="raagam"] button[class*="border-border"]:not([role="tab"]):not([disabled]):not([data-field-affordance]):hover,
+[data-skin="raagam"] a.ty-btn-outline:hover {
   border-color: #85c227;
   background: #f2f9e6;
 }

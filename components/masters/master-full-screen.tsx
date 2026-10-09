@@ -660,6 +660,14 @@ export function MasterFullScreen({
      * Omit it and the button behaves exactly as it always has: disabled.
      */
     onBlockedSave?: () => void;
+    /**
+     * DRAW SAVE AS OUTLINE — the screen's next step is elsewhere (user
+     * 2026-10-09, button plan Rule 2: one filled button on screen). A saved,
+     * untouched record whose header offers Submit had two filled buttons, and
+     * neither said "this one". Only the LOOK changes: Save stays the footer's
+     * last enabled button, so Enter off the last field and Ctrl+S still save.
+     */
+    saveQuiet?: boolean;
     /** Renders a "Save as Draft" outline button when provided. */
     onSaveDraft?: () => void;
     draftLabel?: string;
@@ -2098,7 +2106,7 @@ export function MasterFullScreen({
               also what Enter off the last field and `submitTargetOf` resolve
               to, and nothing else can be. */}
           {reading ? (
-            <Button size="sm" onClick={footer.onCancel}>
+            <Button onClick={footer.onCancel}>
               Close
             </Button>
           ) : (
@@ -2110,7 +2118,6 @@ export function MasterFullScreen({
                consults `stepGuard`: skipping past the check is its job. */
             <Button
               variant="outline"
-              size="sm"
               onClick={() => goToSection(nextSectionKey!, "first")}
             >
               Skip
@@ -2121,7 +2128,7 @@ export function MasterFullScreen({
                — plus Escape and the system Back, and on a 390px footer Cancel
                was the button that pushed Save onto two lines. Same handler as
                the ✕, so nothing is lost. */
-            <Button variant="outline" size="sm" onClick={footer.onCancel} className="max-sm:hidden">
+            <Button variant="outline" onClick={footer.onCancel} className="max-sm:hidden">
               Cancel
             </Button>
           )}
@@ -2167,7 +2174,6 @@ export function MasterFullScreen({
           */}
           {stepping && (
             <Button
-              size="sm"
               data-blocked={stepBlockedWhy ? true : undefined}
               className={cn(stepBlockedWhy && "opacity-60")}
               onClick={() => {
@@ -2185,7 +2191,6 @@ export function MasterFullScreen({
           {!stepping && footer.onSaveDraft && (
             <Button
               variant="outline"
-              size="sm"
               disabled={footer.isPending || !footer.canSave || !!locked}
               onClick={footer.onSaveDraft}
             >
@@ -2203,7 +2208,7 @@ export function MasterFullScreen({
               disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
           {!stepping && (
             <Button
-              size="sm"
+              variant={footer.saveQuiet ? "outline" : "primary"}
               disabled={footer.isPending || (!footer.canSave && !blocked)}
               data-blocked={blocked || undefined}
               className={cn(blocked && "opacity-60")}
