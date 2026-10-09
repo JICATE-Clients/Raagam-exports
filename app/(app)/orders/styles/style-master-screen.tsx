@@ -1894,14 +1894,20 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 COUNT is not what `narrow` should be judged on; the length of what
                 the columns carry is, and these carry master names. */}
             <Field label="" size="lg">
-              <ChildGrid<CompRow>
-                columns={compColumns}
-                rows={comps}
-                seedRow
-                onAdd={() => mutComps((xs) => [...xs, blankComp()])}
-                onRemove={(r) => mutComps((xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add component"
-              />
+              {/* Spreadsheet look (erp-sheet-grid, 2026-10-09: same grid as Order
+                  Entry ▸ Styles ▸ Components) — gridline is the box, "Actions"
+                  heads the ✕ column. */}
+              <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
+                <ChildGrid<CompRow>
+                  columns={compColumns}
+                  rows={comps}
+                  seedRow
+                  onAdd={() => mutComps((xs) => [...xs, blankComp()])}
+                  onRemove={(r) => mutComps((xs) => xs.filter((x) => x.key !== r.key))}
+                  addLabel="+ Add component"
+                  removeHeader="Actions"
+                />
+              </div>
             </Field>
 
             {/* SIZES ARE CHOSEN, NOT ENTERED (client 2026-08-18: "just show the

@@ -18487,8 +18487,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
      * to fix it. The function's own note carries the full argument.
      */
     return (
+      /* SPREADSHEET LOOK (erp-sheet-grid, 2026-10-09: "apply this skill in
+         order module in styles field"). `tableAlways` because `narrow`'s
+         cards have no `<table>` for the sheet rules to rule; the column is
+         sized 2.5rem `#` + 7.5rem Coordinate = 10rem (no Actions: `hideRemove`),
+         which is the wrapper's width below. FILES STAYS ON THIS LINE (user 2026-10-09:
+         "table athe mari than venum"): the tables keep their widths and
+         Components' flex BASIS drops to 20rem — the basis is only what the
+         wrap test measures, and grow 6 hands it all the slack back, so it
+         looks as wide as before whenever the line has room. */
+      <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
       <ChildGrid<StyleCoordRow>
-        narrow
+        tableAlways
         /* `frameless` — this grid sits inside the style row's card and inside
            its own `<Field>`, so the grid card would be a second border on the
            same panel. Restored with the frame itself on 2026-08-27.
@@ -18504,6 +18514,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         columns={[
           {
             header: "Coordinate",
+            width: COORDINATE_W,
             cell: (c) => (
               /* NOT `required`. On the master it is required once a component
                  row is started, because there a coordinate is what a component
@@ -18596,8 +18607,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            coordinate" wrapped to two lines at `sm`'s `px-3`; `px-2` +
            `whitespace-nowrap` keeps it on one, `w-full` squares it with the
            rows above. */
-        bodyClassName="space-y-1.5 [&>[data-row-box]]:rounded-none [&>[data-row-box]]:border-0 [&>[data-row-box]]:p-0"
-        addClassName="w-full whitespace-nowrap px-2"
         seedRow
         onAdd={() => addStyleCoordinate(r.key)}
         onRemove={(c) =>
@@ -18605,6 +18614,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         }
         addLabel="+ Add coordinate"
       />
+      </div>
     );
   };
 
@@ -18781,7 +18791,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           pane going from 152px to its button's ~80px the same day: four gaps
           x 12px + Coordinate's 8px below = 56px of the ~72px that freed, so
           the line is no nearer its wrap point than before. */}
-      <div className="flex flex-wrap items-start gap-x-6 gap-y-3 @lg/section:col-span-14">
+      {/* ONE NEAT ROW (user 2026-10-09: Coordinate, Sizes, Components, Process, Files on one line, "extra gap remove"): `gap-x-3` (12px) between panes, and every pane HUGS its content (`flex-none` / `flex-[0_1_auto]`) instead of Components growing to eat the slack, which is what left a hole before Process. */}
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-3 @lg/section:col-span-14">
       {/* 120px AND NOT 220 (client 2026-09-07). The
           arithmetic in the note above is unchanged in shape and 100px slacker:
           the line now measures Coordinate 120 + Sizes 220 + Components 512 +
@@ -18798,7 +18809,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           COORDINATE input box does not stretch fully". It was a 120px basis
           free to shrink; now it is one width, box + ✕ inside it, and the
           breathing room before Sizes is the row's `gap-x-6`. */}
-      <div className="w-32 min-w-32 flex-none">
+      {/* A FIXED 10rem = `#` 2.5 + Coordinate 7.5 (user 2026-10-09, screenshots 100757 / 101655). This grid passes `hideRemove`, so it never has an Actions column — the 15.5rem it was given reserved 4rem of air, and the `w-fit` / `w-max` that replaced it collapsed to ~0 because ChildGrid's root is an `@container` (inline-size containment has no intrinsic width), which is what slid Sizes UNDER the table. Only a definite width holds the pane open. */}
+      <div className="w-40 min-w-40 flex-none">
       <Field label="Coordinate" size="full">
         {/* THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added on "add the
             border for the coordinate section" (screenshot 2519) while
@@ -18971,7 +18983,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         />
         </Field>
       </div>
-      <div className="min-w-0 flex-[6_1_32rem]">
+      {/* COMPACT (user 2026-10-09: "table compact pannu"): a fixed 32rem pane that does not grow, so the table is 512px instead of taking all the slack. Column widths are NOT declared per column — check:grid-budget sums every column `componentColumns` can return. */}
+      <div className="min-w-0 flex-[0_1_32rem]">
       {/* `size="full"`, and it is INERT — a `col-span` does not resolve outside
           the track it names, and the parent here is a flex row. It stays as the
           honest "take this cell whole", the same thing Coordinate and Process
@@ -19023,6 +19036,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             is headed "Actions" so every column is named. */}
         <div
           data-grid-style="sheet"
+          data-grid-cells="flat"
           className="[&_table]:table-fixed [&_.overflow-x-auto]:overflow-hidden"
         >
         <ChildGrid<StyleComponentRow>
@@ -19200,7 +19214,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         * has to know about the other, and there is no state where one refuses
         * while the other allows.
         */}
-      <div className="min-w-0 flex-[0_1_9.5rem]">
+      <div className="min-w-0 w-32 flex-none">
         {/* OPEN DURING ANY AMENDMENT (user, 2026-09-23, screenshot 3026: "only
             allowing 1 file"). A style's pictures are not a costed field, so an
             amendment scoped to Prices must not freeze them. `files` is lifted

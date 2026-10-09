@@ -207,12 +207,16 @@ const DETAILS_W = "max-w-[67rem]";
 const TERMS_W = "max-w-[36rem]";
 /**
  * Price & quote ▸ the SELLING terms, one row: Margin / Discount hug 88 ×2 ·
- * Currency / Exchange Rate code 144 ×2 · Ship Mode code 144 · Freight /
- * Insurance range 112 ×2 · Quoted Price code 144 = 1112 + 7 × 12 = 1196 →
- * 75rem. The pane is ~1100px inside at 1366, so Quoted Price wraps there and
- * the row is one line on a wider screen.
+ * Currency / Exchange Rate / Ship Mode range 112 ×3 · Freight /
+ * Insurance / Quoted Price / In ₹ range 112 ×4 = 960 + 8 × 12 = 1056 (Ship
+ * Mode 144 → 112 on 2026-10-09: 1088 still drew a horizontal scrollbar at
+ * a 1366 pane, user "scroll bar remove"; the row is `nowrap`) →
+ * 70rem (1088 plus slack so a sub-pixel never wraps the last field; user
+ * 2026-10-09: Quoted Price and "In ₹" belong on the SAME row as the other seven, "one row compact"). It was 1196 with Margin / Currency /
+ * Rate / Quoted at code 144, which wrapped the last two under the first at
+ * the ~1100px a 1366 pane gives.
  */
-const PRICE_W = "max-w-[75rem]";
+const PRICE_W = "max-w-[70rem]";
 
 /** The spec's default Wastage Allowance on a new component line (§4.3). */
 const DEFAULT_ALLOWANCE = "3";
@@ -2952,17 +2956,18 @@ export function SampleCostingScreen({
           {heroValue == null ? "" : `Final FOB price ${ccy ?? ""} ${heroValue.toFixed(2)} per ${unitWord}, margin ${pct(t?.effectiveMarginPct)}`}
         </span>
         <div className={PRICE_W}>
-          <FieldRow gap="row" align="start">
-            <Field label="Margin %" required w="code" htmlFor={costingFieldId.margin}>
+          {/* `overflow-visible`: `nowrap` adds `overflow-x-auto`, which also computes overflow-y to auto — and the 3-line "In ₹" note is taller than the row, so a VERTICAL scrollbar appeared beside it (user 2026-10-09, screenshot 105559). The row fits at the pane width now, so nothing needs to scroll. */}
+<FieldRow gap="row" align="start" nowrap className="overflow-visible">
+            <Field label="Margin %" required w="hug" htmlFor={costingFieldId.margin}>
               <NumInput id={costingFieldId.margin} value={header.margin_pct} onChange={(e) => setH({ margin_pct: e.target.value })} />
             </Field>
             <Field label="Discount %" w="hug" htmlFor="sc-disc">
               <NumInput id="sc-disc" value={header.discount_pct} onChange={(e) => setH({ discount_pct: e.target.value })} />
             </Field>
-            <Field label="Currency" required w="code">
+            <Field label="Currency" required w="range">
               <CurrencyPicker label="Currency" compact currencies={data.currencies} value={header.currency_code} canCreate={false} canEdit={false} onChange={onCurrency} />
             </Field>
-            <Field label="Exchange Rate ₹" required w="code" htmlFor={costingFieldId.rate}>
+            <Field label="Exchange Rate ₹" required w="range" htmlFor={costingFieldId.rate}>
               <div className="relative">
                 <NumInput id={costingFieldId.rate} className="pr-8" value={header.exchange_rate} onChange={(e) => setH({ exchange_rate: e.target.value })} />
                 <span className="absolute inset-y-0 right-1 flex items-center">
@@ -2981,7 +2986,7 @@ export function SampleCostingScreen({
                 </span>
               </div>
             </Field>
-            <Field label="Ship Mode" w="code" htmlFor="sc-ship">
+            <Field label="Ship Mode" w="range" htmlFor="sc-ship">
               <Select id="sc-ship" value={header.ship_mode} onChange={(e) => setH({ ship_mode: e.target.value })}>
                 <option value=""></option>
                 {SHIP_MODES.map((m) => (
@@ -2997,30 +3002,36 @@ export function SampleCostingScreen({
             <Field label="Insurance / pc ₹" w="range" htmlFor="sc-ins">
               <NumInput id="sc-ins" value={header.insurance_per_pc} onChange={(e) => setH({ insurance_per_pc: e.target.value })} />
             </Field>
+            {/* QUOTED PRICE AND ITS "In ₹" ARE ONE UNIT (user 2026-10-09: "put it
+                beside the Quoted Price field"). One flex item, so if the row has to
+                wrap the pair wraps TOGETHER and the rupee value is never stranded
+                on a line of its own. */}
             {single ? (
-              <Field label={`Quoted Price ${ccy ?? ""} / ${unitWord}`.trim()} w="code" htmlFor="sc-quoted">
+              <div className="flex items-start gap-3">
+              <Field label={`Quoted ${ccy ?? ""} / ${unitWord}`.trim()} w="range" htmlFor="sc-quoted">
                 <NumInput id="sc-quoted" className="font-semibold" value={quotes[single.key] ?? ""} onChange={(e) => setQuote(single.key, e.target.value)} />
               </Field>
-            ) : null}
-            {/* LIVE INR IMPACT, right beside the Quoted Price (client): rounding $7.2386
-                to $7.25 looks like 1 cent but is ₹1+ a piece after the exchange rate, so the
-                rupee value and the rupee difference against the calculated price stay in
-                front of the merchandiser while they type. Shown only for a foreign currency
-                (a rate of 1 would just repeat the box). Reads the same calc / rate the
-                summary uses; nothing is stored. */}
-            {single && inrImpact ? (
-              <Field label={`In ₹ / ${unitWord}`.trim()} w="range">
-                <div className="flex h-9 flex-col justify-center text-xs tabular-nums leading-tight" aria-live="polite">
-                  <span className="text-sm font-semibold text-foreground">{`₹ ${money(inrImpact.value)}`}</span>
-                  {inrImpact.diff != null && Math.abs(inrImpact.diff) >= 0.005 ? (
-                    <span className={inrImpact.diff > 0 ? "text-success" : "text-danger"}>
-                      {`${inrImpact.diff > 0 ? "+" : "−"}₹ ${money(Math.abs(inrImpact.diff))} vs calculated`}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">{inrImpact.diff == null ? "calculated price" : "same as calculated"}</span>
-                  )}
-                </div>
-              </Field>
+              {/* LIVE INR IMPACT, right beside the Quoted Price (client): rounding $7.2386
+                  to $7.25 looks like 1 cent but is ₹1+ a piece after the exchange rate, so the
+                  rupee value and the rupee difference against the calculated price stay in
+                  front of the merchandiser while they type. Shown only for a foreign currency
+                  (a rate of 1 would just repeat the box). Reads the same calc / rate the
+                  summary uses; nothing is stored. */}
+              {inrImpact ? (
+                <Field label={`In ₹ / ${unitWord}`.trim()} w="range">
+                  <div className="flex h-9 flex-col justify-center text-xs tabular-nums leading-tight" aria-live="polite">
+                    <span className="text-sm font-semibold text-foreground">{`₹ ${money(inrImpact.value)}`}</span>
+                    {inrImpact.diff != null && Math.abs(inrImpact.diff) >= 0.005 ? (
+                      <span className={inrImpact.diff > 0 ? "text-success" : "text-danger"}>
+                        {`${inrImpact.diff > 0 ? "+" : "−"}₹ ${money(Math.abs(inrImpact.diff))} vs calculated`}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">{inrImpact.diff == null ? "calculated price" : "same as calculated"}</span>
+                    )}
+                  </div>
+                </Field>
+              ) : null}
+              </div>
             ) : null}
           </FieldRow>
         </div>
@@ -3425,7 +3436,7 @@ export function SampleCostingScreen({
         </div>
         <aside
           aria-label="Quotation summary"
-          className="w-full lg:sticky lg:top-2 lg:max-h-[calc(100dvh-14rem)] lg:w-[20rem] lg:shrink-0 lg:overflow-y-auto"
+          className="w-full lg:sticky lg:top-2 lg:max-h-[calc(100dvh-14rem)] lg:w-[20rem] lg:shrink-0 lg:overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {rail}
         </aside>
