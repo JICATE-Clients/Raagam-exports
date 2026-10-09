@@ -333,6 +333,8 @@ export async function raiseSampleGroupIw(groupId: string): Promise<{ ok: true; i
     reference_no: group.group_code,
     deli_date: deli,
     remarks: remarks.slice(0, 1000),
+    // Listed on Sample ▸ Fabric Plan, where its yarn and knitting are planned (0704).
+    is_sample: true,
   });
   if (!iw.ok) return iw;
   const moved = await moveStatus(groupId, "approved", "po_raised", { iwo_id: iw.iwoId });

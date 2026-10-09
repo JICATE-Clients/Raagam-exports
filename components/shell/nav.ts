@@ -91,6 +91,11 @@ export const NAV: NavItem[] = [
       // the next child after Costing: sample styles of one season that share
       // a fabric structure and yarn blend, batched into one MOQ purchase (0702).
       { href: "/sales/sample-grouping", label: "Grouping" },
+      // FABRIC PLAN · ACCESSORIES PLAN (user 2026-10-09) — the IWO Fabric /
+      // Accessories Plan screens over the SAMPLE work orders (0704 `is_sample`):
+      // spec step 4, "Fabric & trim internal plan". The same record Orders opens.
+      { href: "/sales/sample-fabric-plan", label: "Fabric Plan" },
+      { href: "/sales/sample-accessories-plan", label: "Accessories Plan" },
       // OPPORTUNITIES & COSTING, SQ DETAILS, PIPELINE & SEASONAL and CATALOGUES
       // & PRICING LEFT THE SIDEBAR (user 2026-10-09: "remove the opportunities
       // to catalogue and price 4 child from sample entry"). Sample Entry and

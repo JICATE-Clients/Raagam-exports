@@ -350,7 +350,7 @@ export function GroupingScreen({
               name={g.iwo_code ?? g.group_code}
               icon={FileText}
               className="text-primary"
-              onClick={() => router.push(`/orders/iwo-fabric-bom?open=${g.iwo_id}`)}
+              onClick={() => router.push(`/sales/sample-fabric-plan?open=${g.iwo_id}`)}
             />
           ) : undefined
         }

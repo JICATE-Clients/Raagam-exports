@@ -55,7 +55,10 @@ export type IwoFabricBomTask = {
   bom: IwoFabricBom | null;
 };
 
-export async function listIwoFabricBomTasks(): Promise<IwoFabricBomTask[]> {
+/** `sampleOnly` — Sample ▸ Fabric Plan lists only the work orders the
+ *  Sample module raised (0704); the Orders route lists every one, samples
+ *  included, since a sample plan is the same record either way. */
+export async function listIwoFabricBomTasks(opts: { sampleOnly?: boolean } = {}): Promise<IwoFabricBomTask[]> {
   const locationId = await getCurrentLocationId();
   if (!locationId) return [];
   const supabase = await createClient();
@@ -71,6 +74,7 @@ export async function listIwoFabricBomTasks(): Promise<IwoFabricBomTask[]> {
     )
     .in("iwo_for", ["yarn", "fabric"])
     .eq("location_id", locationId)
+    .in("is_sample", opts.sampleOnly ? [true] : [true, false])
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
   if (error) throw new Error(`IWO Fabric Plan: ${error.message}`);

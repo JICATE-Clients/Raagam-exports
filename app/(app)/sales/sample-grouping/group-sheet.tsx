@@ -314,7 +314,7 @@ export function GroupSheet({
             <div className="flex items-baseline gap-2">
               <dt className={label10}>IW</dt>
               <dd className="m-0 text-sm font-medium">
-                <Link href={`/orders/iwo-fabric-bom?open=${group.iwo_id}`} className="font-mono text-primary hover:underline">
+                <Link href={`/sales/sample-fabric-plan?open=${group.iwo_id}`} className="font-mono text-primary hover:underline">
                   {group.iwo_code ?? "Open"}
                 </Link>
               </dd>
