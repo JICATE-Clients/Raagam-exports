@@ -32,7 +32,9 @@
  */
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useTabResume } from "@/lib/workspace-tabs";
+import { useOpenIntent } from "@/lib/use-open-intent";
 import { Boxes, Calculator, ClipboardList, Package, Palette, Shirt, Users, CalendarRange, Layers, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -464,6 +466,15 @@ export function SampleEntryScreen({
   useCreateIntent(() => {
     if (perms.canCreate) openAdd();
   });
+  /* THE TOP-NAVIGATION TAB REMEMBERS THE OPEN ENQUIRY (user 2026-10-09): leaving from
+     an enquiry and coming back through the tab reopens THAT enquiry, not the list.
+     `?open=<id>` is consumed by `useOpenIntent`, which strips it from the URL. */
+  useOpenIntent((id) => {
+    const r = rows.find((x) => x.id === id);
+    if (r) openEdit(r);
+  });
+  const tabPath = usePathname();
+  useTabResume(tabPath, mode === "edit" && editId ? `?open=${editId}` : null);
 
   function openEdit(r: SampleEntryListRow) {
     start(async () => {

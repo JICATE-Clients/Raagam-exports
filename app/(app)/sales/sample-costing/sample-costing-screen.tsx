@@ -49,6 +49,7 @@
 
 import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useTabResume } from "@/lib/workspace-tabs";
 import {
   Calculator,
   CalendarRange,
@@ -61,8 +62,8 @@ import {
   Pencil,
   RefreshCw,
   Ruler,
-  Trash2,
   Users,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -491,7 +492,7 @@ export function SampleCostingScreen({
   // popup mari kondu va"). It was inline under the row; the sheet grows out of the
   // chevron that opened it. One open at a time by construction.
   const [buildKey, setBuildKey] = useState<string | null>(null);
-  const [buildOrigin] = useSubSheetOrigin();
+  const [buildOrigin, captureBuildOrigin] = useSubSheetOrigin();
   const [buildTab, setBuildTab] = useState<"mix" | "process">("mix");
 
   // ---- the steps: ONE open at a time (AGENTS.md "Folds are accordions") ----------
@@ -893,6 +894,8 @@ export function SampleCostingScreen({
    */
   const params = useSearchParams();
   const pathname = usePathname();
+  // The top-navigation tab reopens THIS costing, not the list (user 2026-10-09).
+  useTabResume(pathname, mode === "edit" && editId ? `?open=${editId}` : null);
   const startFor = useEffectEvent((oppId: string) => {
     const existing = rows.filter((r) => r.opportunity_id === oppId && r.status !== "superseded");
     if (existing.length) {
@@ -1398,6 +1401,21 @@ export function SampleCostingScreen({
     const mixOk = Math.abs(mixTotal - 100) <= 0.001;
     return (
       <div id={`sc-build-${f.key}`} className="space-y-2">
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              // The worked-out price becomes the typed one, so the figure on screen does not jump.
+              const keep = fabricPricePerKg(f);
+              patchFabric(f.key, { is_direct: true, ...(keep != null && !num(f.direct_rate) ? { direct_rate: String(keep) } : {}) });
+              setBuildKey(null);
+            }}
+          >
+            Type the price instead
+          </Button>
+        </div>
         <ToggleGroup<"mix" | "process">
           label="Parts of the fabric rate"
           value={buildTab}
@@ -1603,47 +1621,29 @@ export function SampleCostingScreen({
     {
       header: "Price by",
       width: FIELD_WIDTH_CSS.hug,
-      // THE ROW'S TWO ICONS — no words, each named by a tooltip and an aria-label.
-      // Buttons are not fields, so none of them is a Tab stop.
+      // ONE EDIT PENCIL PER ROW (user 2026-10-09: "fabric la edit button click pannale popup
+      // card varanum", and the calculator icon is not wanted). It always opens the build-up
+      // popup; from a typed price it first switches the row to the worked-out one, exactly
+      // as the calculator did. "Type the price instead" now lives inside the popup.
+      // Buttons are not fields, so it is not a Tab stop.
       cell: (f) => {
         return (
           <div className="flex items-center justify-center gap-1">
-            {f.is_direct ? (
-              <Tooltip label="Work the price out from yarn and processes">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label="Work the price out from yarn and processes"
-                  onClick={() => {
-                    patchFabric(f.key, { is_direct: false });
-                    setBuildKey(f.key);
-                    setBuildTab("mix");
-                  }}
-                >
-                  <Calculator aria-hidden />
-                </Button>
-              </Tooltip>
-            ) : (
-              <>
-                <Tooltip label="Type the price instead">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label="Type the price instead"
-                    onClick={() => {
-                      // The worked-out price becomes the typed one, so the figure on screen does not jump.
-                      const keep = fabricPricePerKg(f);
-                      patchFabric(f.key, { is_direct: true, ...(keep != null && !num(f.direct_rate) ? { direct_rate: String(keep) } : {}) });
-                      if (buildKey === f.key) setBuildKey(null);
-                    }}
-                  >
-                    <Pencil aria-hidden />
-                  </Button>
-                </Tooltip>
-              </>
-            )}
+            <Tooltip label="Edit — work the price out from yarn and processes">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="Edit the fabric price"
+                onClick={captureBuildOrigin(() => {
+                  if (f.is_direct) patchFabric(f.key, { is_direct: false });
+                  setBuildKey(f.key);
+                  setBuildTab("mix");
+                })}
+              >
+                <Pencil aria-hidden />
+              </Button>
+            </Tooltip>
           </div>
         );
       },
@@ -2236,29 +2236,37 @@ export function SampleCostingScreen({
           />
         </div>
       </td>
+      {/* NO ACTIONS COLUMN (user 2026-10-09, "cmt la action field vendam"): the remove ✕
+          rides in the ₹ / pc cell beside the rate, so the row can still be deleted with the
+          mouse and Ctrl+Del still finds `data-row-remove` inside this `data-emb-cell`. */}
       <td className={TD} data-emb-cell>
-        <div style={{ width: FIELD_WIDTH_CSS.hug }}>
-          <NumInput
-            aria-label="Embellishment rate per piece"
-            placeholder="₹ / pc"
-            value={r.rate}
-            onChange={(e) => setPieceLines(pc.key, (xs) => xs.map((x) => (x.key === r.key ? { ...x, rate: e.target.value } : x)))}
-          />
-        </div>
-      </td>
-      <td className={TD} data-emb-cell>
-        <Tooltip label="Remove this embellishment">
-          <Button
+        <div className="flex items-center gap-1 pr-1">
+          <div style={{ width: FIELD_WIDTH_CSS.hug }}>
+            <NumInput
+              aria-label="Embellishment rate per piece"
+              placeholder="₹ / pc"
+              value={r.rate}
+              onChange={(e) => setPieceLines(pc.key, (xs) => xs.map((x) => (x.key === r.key ? { ...x, rate: e.target.value } : x)))}
+            />
+          </div>
+          {/* ✕ ON ROW HOVER / FOCUS only (user 2026-10-09: "delete icon remove, mouse hover
+              panna x vara mari"). Hidden at rest, not removed: it stays in the DOM and the
+              tab-free focus order, so Ctrl+Del (`data-row-remove`) and screen readers
+              still reach it. */}
+          {/* button-shape: exempt -- a 20px ✕ chip revealed on row hover */}
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
             data-row-remove
+            tabIndex={-1}
             aria-label="Remove this embellishment"
+            title="Remove"
             onClick={() => setPieceLines(pc.key, (xs) => xs.filter((x) => x.key !== r.key))}
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-control text-muted-foreground opacity-0 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100 [tr:hover_&]:opacity-100"
           >
-            <Trash2 aria-hidden />
-          </Button>
-        </Tooltip>
+            {/* the picker's own compact clear glyph: `FieldAffordance` GLYPH.compact, h-3 w-3 */}
+            <X className="h-3 w-3" aria-hidden />
+          </button>
+        </div>
       </td>
     </>
   );
@@ -2269,7 +2277,7 @@ export function SampleCostingScreen({
     const ops = cmtOpsOf(pc);
     const stripOpen = !pc.cmt_direct && !opsHidden[pc.key];
     const addCell = (lead: boolean) => (
-      <td className={(lead ? TD_LEAD : TD) + " px-2"} colSpan={3}>
+      <td className={(lead ? TD_LEAD : TD) + " px-2"} colSpan={2}>
         <div className="flex items-center gap-3">
           {emb.length === 0 ? <span className="text-sm text-muted-foreground">None</span> : null}
           <Button type="button" variant="outline" size="sm" data-row-add onClick={addEmb}>
@@ -2364,7 +2372,7 @@ export function SampleCostingScreen({
     if (stripOpen) {
       rows.push(
         <tr key={pc.key + "-ops"} className="bg-surface-muted">
-          <td className={TD + " px-3 py-2"} colSpan={8}>
+          <td className={TD + " px-3 py-2"} colSpan={7}>
             <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
               <span className="self-center text-xs font-semibold text-muted-foreground">
                 {(multiPiece ? pc.piece_name + " · " : "") + "CMT by operation"}
@@ -2404,7 +2412,6 @@ export function SampleCostingScreen({
             <th className={TH}>CMT ₹ / pc</th>
             <th className={TH}>Embellishment</th>
             <th className={TH}>₹ / pc</th>
-            <th className={TH}>Actions</th>
             <th className={TH}>Testing ₹ / pc</th>
             <th className={TH + " text-right"}>Per piece</th>
           </tr>

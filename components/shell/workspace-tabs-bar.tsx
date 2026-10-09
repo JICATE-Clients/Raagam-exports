@@ -39,7 +39,7 @@ import { createElement, useEffect } from "react";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { Truncated } from "@/components/ui/truncated";
 import { hasPermission } from "@/lib/auth/types";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   ChevronDown,
   ChevronLeft,
@@ -48,7 +48,7 @@ import {
   Search,
   type LucideIcon,
 } from "lucide-react";
-import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useWorkspaceTabs } from "@/lib/workspace-tabs";
+import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useTrackTabSearch, useWorkspaceTabs } from "@/lib/workspace-tabs";
 import { NAV } from "@/components/shell/nav";
 import { isHubRoute } from "@/lib/nav/module-groups";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
@@ -157,6 +157,10 @@ export function WorkspaceTabsBar() {
   });
 
   const { tabs, activate, close, closeOthers, closeAll, mergeSameScreen } = useWorkspaceTabs();
+  // Remember each screen's query string, so the tab returns to where the operator
+  // left (user 2026-10-09: "enth screen la erunthu exit akarangolo thirumba anga").
+  const searchNow = useSearchParams().toString();
+  useTrackTabSearch(pathname, searchNow);
 
   // One screen, one tab: a staff member's `/hr/staff` IS their own record
   // (`navEntry`), so a tab left on the list and the record's own tab are

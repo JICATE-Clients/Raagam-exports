@@ -19,7 +19,8 @@ import {
   useState,
   useTransition,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useTabResume } from "@/lib/workspace-tabs";
 import {
   Trash2,
   Shirt,
@@ -3132,6 +3133,14 @@ export function GarmentOrderScreen({
     const r = rows.find((x) => x.id === orderId);
     if (r) openEdit(r);
   });
+  /* THE TOP-NAVIGATION TAB REMEMBERS THE OPEN ORDER (user 2026-10-09: "order
+     entry no 1 la irunthu veliya poita … thirumba vandha anga tha poganum").
+     While a saved order is open the tab resumes at `?open=<id>` (which
+     `useOpenIntent` above already answers); on the list it resumes at the list.
+     Above the list return, like every hook here. Not when embedded in an
+     amendment — that page is not this route's tab. */
+  const tabPath = usePathname();
+  useTabResume(tabPath, !embed && mode === "edit" && editId ? `?open=${editId}` : null);
   /* EMBEDDED IN THE AMENDMENT WORKSPACE (2026-09-23) — above the list return. */
   useEmbeddedEditor({
     embed,
