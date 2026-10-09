@@ -53,7 +53,6 @@ import {
   Calculator,
   CalendarRange,
   Check,
-  ChevronDown,
   ChevronRight,
   Copy,
   GitCompare,
@@ -492,7 +491,7 @@ export function SampleCostingScreen({
   // popup mari kondu va"). It was inline under the row; the sheet grows out of the
   // chevron that opened it. One open at a time by construction.
   const [buildKey, setBuildKey] = useState<string | null>(null);
-  const [buildOrigin, captureBuildOrigin] = useSubSheetOrigin();
+  const [buildOrigin] = useSubSheetOrigin();
   const [buildTab, setBuildTab] = useState<"mix" | "process">("mix");
 
   // ---- the steps: ONE open at a time (AGENTS.md "Folds are accordions") ----------
@@ -1607,7 +1606,6 @@ export function SampleCostingScreen({
       // THE ROW'S TWO ICONS — no words, each named by a tooltip and an aria-label.
       // Buttons are not fields, so none of them is a Tab stop.
       cell: (f) => {
-        const building = !f.is_direct && buildKey === f.key;
         return (
           <div className="flex items-center justify-center gap-1">
             {f.is_direct ? (
@@ -1628,19 +1626,6 @@ export function SampleCostingScreen({
               </Tooltip>
             ) : (
               <>
-                <Tooltip label="See how the price is worked out">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label="See how the price is worked out"
-                    aria-haspopup="dialog"
-                    aria-expanded={building}
-                    onClick={captureBuildOrigin(() => setBuildKey(f.key))}
-                  >
-                    <ChevronDown aria-hidden />
-                  </Button>
-                </Tooltip>
                 <Tooltip label="Type the price instead">
                   <Button
                     type="button"
@@ -2194,8 +2179,15 @@ export function SampleCostingScreen({
    * Tab stop (data-row-add), a second Enter adds, and \`data-grid-body\` on the tbody is
    * what lets landOnAddedRow diff the fields and put the cursor in the new pair.
    */
-  const TH = "whitespace-nowrap border-b border-border bg-surface-muted px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground";
-  const TD = "border-b border-border px-3 py-2 align-middle";
+  /* SPREADSHEET LOOK (erp-sheet-grid, 2026-10-09: "this field … apply this skill",
+     Embellishment): the sheet marker on the wrapper below draws the gridlines,
+     header band and flat cells, so the cells carry no border or padding of their
+     own. A row that continues a rowSpan group starts with a cell that is not the
+     row's first VISUAL column, yet the sheet's `tr > :first-child` left border
+     would stack on the spanned cell's right one — `TD_LEAD` drops it. */
+  const TH = "whitespace-nowrap px-3 text-left";
+  const TD = "align-middle";
+  const TD_LEAD = TD + " !border-l-0";
   const ctrlDelEmbellishment = (e: React.KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Delete" || !(e.ctrlKey || e.metaKey) || e.altKey) return;
     const t = e.target;
@@ -2205,9 +2197,9 @@ export function SampleCostingScreen({
     e.preventDefault();
     btn.click();
   };
-  const embellishmentPair = (pc: PieceDraft, r: PieceLineDraft, rows: PieceLineDraft[]) => (
+  const embellishmentPair = (pc: PieceDraft, r: PieceLineDraft, rows: PieceLineDraft[], lead: boolean) => (
     <>
-      <td className={TD} data-emb-cell>
+      <td className={lead ? TD_LEAD : TD} data-emb-cell>
         <div style={{ width: FIELD_WIDTH_CSS.term }}>
           <RecordPicker
             compact
@@ -2260,8 +2252,8 @@ export function SampleCostingScreen({
     const span = emb.length > 0 ? emb.length + 1 : 1;
     const ops = cmtOpsOf(pc);
     const stripOpen = !pc.cmt_direct && !opsHidden[pc.key];
-    const addCell = (
-      <td className={TD} colSpan={3}>
+    const addCell = (lead: boolean) => (
+      <td className={(lead ? TD_LEAD : TD) + " px-2"} colSpan={3}>
         <div className="flex items-center gap-3">
           {emb.length === 0 ? <span className="text-sm text-muted-foreground">None</span> : null}
           <Button type="button" variant="outline" size="sm" data-row-add onClick={addEmb}>
@@ -2337,7 +2329,7 @@ export function SampleCostingScreen({
       rows.push(
         <tr key={pc.key + "-0"}>
           {groupCells}
-          {addCell}
+          {addCell(false)}
           {tailCells}
         </tr>,
       );
@@ -2346,17 +2338,17 @@ export function SampleCostingScreen({
         rows.push(
           <tr key={r.key}>
             {i === 0 ? groupCells : null}
-            {embellishmentPair(pc, r, emb)}
+            {embellishmentPair(pc, r, emb, i > 0)}
             {i === 0 ? tailCells : null}
           </tr>,
         ),
       );
-      rows.push(<tr key={pc.key + "-add"}>{addCell}</tr>);
+      rows.push(<tr key={pc.key + "-add"}>{addCell(true)}</tr>);
     }
     if (stripOpen) {
       rows.push(
         <tr key={pc.key + "-ops"} className="bg-surface-muted">
-          <td className={TD} colSpan={8}>
+          <td className={TD + " px-3 py-2"} colSpan={8}>
             <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
               <span className="self-center text-xs font-semibold text-muted-foreground">
                 {(multiPiece ? pc.piece_name + " · " : "") + "CMT by operation"}
@@ -2392,9 +2384,7 @@ export function SampleCostingScreen({
             <th className={TH}>CMT ₹ / pc</th>
             <th className={TH}>Embellishment</th>
             <th className={TH}>₹ / pc</th>
-            <th className={TH}>
-              <span className="sr-only">Remove</span>
-            </th>
+            <th className={TH}>Actions</th>
             <th className={TH}>Testing ₹ / pc</th>
             <th className={TH + " text-right"}>Per piece</th>
           </tr>
