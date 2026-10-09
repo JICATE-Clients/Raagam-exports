@@ -47,13 +47,12 @@
  * `if (mode === "edit")`, so every hook here is declared above it.
  */
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Calculator,
   CalendarRange,
   Check,
-  ChevronDown,
   ChevronRight,
   Copy,
   GitCompare,
@@ -74,7 +73,6 @@ import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/fi
 import { Truncated } from "@/components/ui/truncated";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
-import { MATRIX_FOOT, MATRIX_HEAD, matrixCell, textColPx } from "@/components/orders/matrix-grid";
 import {
   MasterFullScreen,
   type FullScreenSection,
@@ -490,7 +488,7 @@ export function SampleCostingScreen({
   // popup mari kondu va"). It was inline under the row; the sheet grows out of the
   // chevron that opened it. One open at a time by construction.
   const [buildKey, setBuildKey] = useState<string | null>(null);
-  const [buildOrigin, captureBuildOrigin] = useSubSheetOrigin();
+  const [buildOrigin] = useSubSheetOrigin();
   const [buildTab, setBuildTab] = useState<"mix" | "process">("mix");
 
   // ---- the steps: ONE open at a time (AGENTS.md "Folds are accordions") ----------
@@ -1640,7 +1638,6 @@ export function SampleCostingScreen({
       // THE ROW'S TWO ICONS — no words, each named by a tooltip and an aria-label.
       // Buttons are not fields, so none of them is a Tab stop.
       cell: (f) => {
-        const building = !f.is_direct && buildKey === f.key;
         return (
           <div className="flex items-center justify-center gap-1">
             {f.is_direct ? (
@@ -1661,19 +1658,6 @@ export function SampleCostingScreen({
               </Tooltip>
             ) : (
               <>
-                <Tooltip label="See how the price is worked out">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label="See how the price is worked out"
-                    aria-haspopup="dialog"
-                    aria-expanded={building}
-                    onClick={captureBuildOrigin(() => setBuildKey(f.key))}
-                  >
-                    <ChevronDown aria-hidden />
-                  </Button>
-                </Tooltip>
                 <Tooltip label="Type the price instead">
                   <Button
                     type="button"
@@ -1824,7 +1808,6 @@ export function SampleCostingScreen({
     setSizeCols(rest);
     setDirty(true);
   };
-  const CELL = matrixCell("min-h-10");
   type SetRow = { key: string; n: string; piece: string; fabric: string; grams: number; cmt: number; cost: number | null };
   const setBreakdownRows: SetRow[] = (() => {
     const g0 = summary.groups.find((g) => (g.size ?? "all") === railGroup) ?? summary.groups[0];
@@ -1916,171 +1899,197 @@ export function SampleCostingScreen({
             {`The style no longer has ${heldNotInStyle.join(", ")}. The column stays until you remove it.`}
           </p>
         ) : null}
-        {/* HUGS ITS COLUMNS, like every Orders table (browser check 2026-10-07):
-            `w-full` stretched the frame across the pane. `w-max` lets the 1fr
-            spacer settle at its 12px floor; `max-w-full` keeps the scroll. */}
-        <div className="w-fit max-w-full overflow-x-auto rounded-control border border-border">
-          <div data-grid-body className="grid w-max" style={{ gridTemplateColumns: track }} onKeyDown={(e) => gridKeyNav(e)}>
-            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Size</div>
-            {multiPiece ? <div className={`${MATRIX_HEAD} justify-start pl-2`}>Piece</div> : null}
-            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Component</div>
-            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Fabric</div>
-            <div className={`${MATRIX_HEAD} justify-end pr-2`}>Grams</div>
-            <div className={`${MATRIX_HEAD} justify-end pr-2`}>Cost ₹</div>
-            <div className={MATRIX_HEAD} />
-
-            {matrixCols.map((c, ci) => (
-              <div key={c} className="contents">
-                {lines.map((l, li) => {
-                  const lc = lineCost(l, c);
-                  return (
-                    <div key={l.key} data-grid-row className="contents">
-                      <div className={`${CELL} !items-start !justify-between gap-1 border-r border-border bg-surface-muted px-1.5 py-2`}>
-                        {li === 0 ? (
-                          <span className="inline-flex h-7 items-center gap-1 rounded-control bg-primary pl-2.5 pr-1 text-[13px] font-bold text-primary-foreground">
-                            {colLabel(c)}
-                            {sizeCols.length > 1 && c !== ALL_SIZES ? (
-                              // button-shape: exempt -- a 20px ✕ chip inside the size chip
+        {/* SPREADSHEET LOOK (erp-sheet-grid, 2026-10-09: "apply this skill for this
+            table", Garment weight). It was a CSS-grid ladder of `div`s; a real
+            `<table>` is what the sheet rules rule, so the gridline is the box and
+            the controls are flat. One `<tbody>`, so the frame's bottom corners fall
+            on the last size's Loss row. The Size chip sits on the band's first row
+            and its other rows leave the cell empty (no rowSpan: that would stack a
+            second left border on the next cell). Columns are fixed so typing never
+            re-splits them. */}
+        <div data-grid-style="sheet" data-grid-cells="flat" className="w-fit max-w-full overflow-x-auto [&_table]:table-fixed">
+          <table className="w-max" onKeyDown={(e) => gridKeyNav(e)}>
+            <colgroup>
+              <col style={{ width: "88px" }} />
+              {multiPiece ? <col style={{ width: "112px" }} /> : null}
+              <col style={{ width: "176px" }} />
+              <col style={{ width: "192px" }} />
+              <col style={{ width: "148px" }} />
+              <col style={{ width: "96px" }} />
+              <col style={{ width: "64px" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="px-2 text-left">Size</th>
+                {multiPiece ? <th className="px-2 text-left">Piece</th> : null}
+                <th className="px-2 text-left">Component</th>
+                <th className="px-2 text-left">Fabric</th>
+                <th className="px-2 text-right">Grams</th>
+                <th className="px-2 text-right">Cost ₹</th>
+                <th className="px-2 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matrixCols.map((c, ci) => (
+                <Fragment key={c}>
+                  {lines.map((l, li) => {
+                    const lc = lineCost(l, c);
+                    return (
+                      <tr key={l.key} data-grid-row>
+                        <td className="bg-surface-muted px-1.5">
+                          {li === 0 ? (
+                            <span className="inline-flex h-7 items-center gap-1 rounded-control bg-primary pl-2.5 pr-1 text-[13px] font-bold text-primary-foreground">
+                              {colLabel(c)}
+                              {sizeCols.length > 1 && c !== ALL_SIZES ? (
+                                // button-shape: exempt -- a 20px ✕ chip inside the size chip
+                                <button
+                                  type="button"
+                                  tabIndex={-1}
+                                  aria-label={`Remove size ${c}`}
+                                  onClick={() => removeSize(c)}
+                                  className="inline-flex h-5 w-5 items-center justify-center rounded-control text-[11px] opacity-75 hover:bg-black/20 hover:opacity-100"
+                                >
+                                  ✕
+                                </button>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </td>
+                        {multiPiece ? (
+                          <td>
+                            <Select aria-label="Piece" value={l.piece_key} onChange={(e) => patchLine(l.key, { piece_key: e.target.value })}>
+                              {pieces.map((pc) => (
+                                <option key={pc.key} value={pc.key}>
+                                  {pc.piece_name}
+                                </option>
+                              ))}
+                            </Select>
+                          </td>
+                        ) : null}
+                        <td>
+                          <Select aria-label="Component" value={l.component_id ?? ""} onChange={(e) => patchLine(l.key, { component_id: e.target.value || null })}>
+                            <option value=""></option>
+                            {data.components
+                              .filter((x) => !isInactive(x) || x.id === l.component_id)
+                              .map((x) => (
+                                <option key={x.id} value={x.id}>
+                                  {x.name}
+                                </option>
+                              ))}
+                          </Select>
+                        </td>
+                        <td>
+                          {/* The fabric belongs to the LINE, so every size's band edits the same one; only the first band carries the id the error focuses. */}
+                          <Select
+                            id={ci === 0 ? costingFieldId.weightFabric(l.key) : undefined}
+                            aria-label="Fabric"
+                            required={ci === 0}
+                            value={l.fabric_key ?? ""}
+                            onChange={(e) => patchLine(l.key, { fabric_key: e.target.value || null })}
+                          >
+                            <option value=""></option>
+                            {fabrics
+                              .filter((f) => !isBlankFabric(f))
+                              .map((f, i) => (
+                                <option key={f.key} value={f.key}>
+                                  {fabricLabel(f, i)}
+                                </option>
+                              ))}
+                          </Select>
+                          {ci === 0 ? <FieldError>{msgFor(costingFieldId.weightFabric(l.key))}</FieldError> : null}
+                        </td>
+                        <td>
+                          <div className="flex items-center">
+                            <NumInput
+                              id={ci === 0 ? costingFieldId.weightGrams(l.key) : undefined}
+                              aria-label={`${componentName(l.component_id) || "Component"} grams — ${colLabel(c)}`}
+                              required={ci === 0}
+                              className="min-w-0 flex-1"
+                              // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
+                              placeholder={ci > 0 ? (l.cells[firstCol] ?? "") : undefined}
+                              value={l.cells[c] ?? ""}
+                              onChange={(e) => setCell(l.key, c, e.target.value)}
+                            />
+                            <Tooltip label="Weight from length × width × GSM">
+                              {/* button-shape: exempt -- a 32px icon square in a matrix cell. Inline width: the sheet's `data-row-open` rule says 100%. */}
                               <button
                                 type="button"
-                                tabIndex={-1}
-                                aria-label={`Remove size ${c}`}
-                                onClick={() => removeSize(c)}
-                                className="inline-flex h-5 w-5 items-center justify-center rounded-control text-[11px] opacity-75 hover:bg-black/20 hover:opacity-100"
+                                data-row-open
+                                aria-label="Calculate grams from length, width and GSM"
+                                style={{ width: "2rem" }}
+                                onClick={captureDimsOrigin(() => {
+                                  setDims({ l: "", w: "", g: "" });
+                                  setDimsFor({ line: l.key, col: c });
+                                })}
+                                className="inline-flex h-8 shrink-0 items-center justify-center text-primary"
                               >
-                                ✕
+                                <Ruler className="h-3.5 w-3.5" aria-hidden />
                               </button>
-                            ) : null}
-                          </span>
-                        ) : null}
-                      </div>
-                      {multiPiece ? (
-                        <div className={`${CELL} px-1`}>
-                          <Select aria-label="Piece" value={l.piece_key} onChange={(e) => patchLine(l.key, { piece_key: e.target.value })}>
-                            {pieces.map((pc) => (
-                              <option key={pc.key} value={pc.key}>
-                                {pc.piece_name}
-                              </option>
-                            ))}
-                          </Select>
-                        </div>
-                      ) : null}
-                      <div className={`${CELL} px-1`}>
-                        <Select aria-label="Component" value={l.component_id ?? ""} onChange={(e) => patchLine(l.key, { component_id: e.target.value || null })}>
-                          <option value=""></option>
-                          {data.components
-                            .filter((x) => !isInactive(x) || x.id === l.component_id)
-                            .map((x) => (
-                              <option key={x.id} value={x.id}>
-                                {x.name}
-                              </option>
-                            ))}
-                        </Select>
-                      </div>
-                      <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
-                        {/* The fabric belongs to the LINE, so every size's band edits the same one; only the first band carries the id the error focuses. */}
-                        <Select
-                          id={ci === 0 ? costingFieldId.weightFabric(l.key) : undefined}
-                          aria-label="Fabric"
-                          required={ci === 0}
-                          value={l.fabric_key ?? ""}
-                          onChange={(e) => patchLine(l.key, { fabric_key: e.target.value || null })}
-                        >
-                          <option value=""></option>
-                          {fabrics
-                            .filter((f) => !isBlankFabric(f))
-                            .map((f, i) => (
-                              <option key={f.key} value={f.key}>
-                                {fabricLabel(f, i)}
-                              </option>
-                            ))}
-                        </Select>
-                        {ci === 0 ? <FieldError>{msgFor(costingFieldId.weightFabric(l.key))}</FieldError> : null}
-                      </div>
-                      <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
-                        <div className="flex items-center gap-1.5">
-                          <NumInput
-                            id={ci === 0 ? costingFieldId.weightGrams(l.key) : undefined}
-                            aria-label={`${componentName(l.component_id) || "Component"} grams — ${colLabel(c)}`}
-                            required={ci === 0}
-                            className="h-8"
-                            // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
-                            placeholder={ci > 0 ? (l.cells[firstCol] ?? "") : undefined}
-                            value={l.cells[c] ?? ""}
-                            onChange={(e) => setCell(l.key, c, e.target.value)}
-                          />
-                          <Tooltip label="Weight from length × width × GSM">
-                            {/* button-shape: exempt -- a 28px icon square in a matrix cell */}
+                            </Tooltip>
+                          </div>
+                          {ci === 0 ? <FieldError>{msgFor(costingFieldId.weightGrams(l.key))}</FieldError> : null}
+                        </td>
+                        <td className={`px-2 text-right text-sm font-semibold tabular-nums ${lc == null ? "font-normal text-muted-foreground" : ""}`}>
+                          {lc == null ? "—" : money(lc)}
+                        </td>
+                        <td className="text-center">
+                          {lines.length > 1 ? (
+                            // button-shape: exempt -- the row's ✕, a 28px icon square (data-row-remove for Ctrl+Del)
                             <button
                               type="button"
-                              data-row-open
-                              aria-label="Calculate grams from length, width and GSM"
-                              onClick={captureDimsOrigin(() => {
-                                setDims({ l: "", w: "", g: "" });
-                                setDimsFor({ line: l.key, col: c });
-                              })}
-                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control border border-border text-primary hover:bg-primary-soft"
+                              data-row-remove
+                              aria-label="Remove component from every size"
+                              title="Removes this component from every size"
+                              onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-danger-soft hover:text-danger"
                             >
-                              <Ruler className="h-3.5 w-3.5" aria-hidden />
+                              ✕
                             </button>
-                          </Tooltip>
-                        </div>
-                        {ci === 0 ? <FieldError>{msgFor(costingFieldId.weightGrams(l.key))}</FieldError> : null}
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {/* THE SIZE'S SUBTOTAL ROW: its Loss %, what it uses and what that costs. */}
+                  <tr>
+                    <td className="bg-primary-soft" colSpan={multiPiece ? 2 : 1} />
+                    <td data-loss-row className="bg-primary-soft px-2 text-xs font-semibold text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <span className="whitespace-nowrap">Loss %</span>
+                        <NumInput
+                          aria-label={`Loss percent — ${colLabel(c)}`}
+                          className="!w-16"
+                          placeholder={ci > 0 ? (loss[firstCol] ?? "") : undefined}
+                          value={loss[c] ?? ""}
+                          onChange={(e) => setLossAt(c, e.target.value)}
+                        />
                       </div>
-                      <div className={`${CELL} justify-end pr-2 text-sm font-semibold tabular-nums ${lc == null ? "font-normal text-muted-foreground" : ""}`}>
-                        {lc == null ? "—" : money(lc)}
-                      </div>
-                      <div className={`${CELL} justify-center`}>
-                        {lines.length > 1 ? (
-                          // button-shape: exempt -- the row's ✕, a 28px icon square (data-row-remove for Ctrl+Del)
-                          <button
-                            type="button"
-                            data-row-remove
-                            aria-label="Remove component from every size"
-                            title="Removes this component from every size"
-                            onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                          >
-                            ✕
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-                {/* THE SIZE'S SUBTOTAL ROW: its Loss %, what it uses and what that costs. */}
-                <div className={`${CELL} border-r border-border bg-primary-soft`} style={{ gridColumn: `span ${multiPiece ? 2 : 1}` }} />
-                <div data-loss-row className={`${CELL} justify-start gap-2 bg-primary-soft px-2 text-xs font-semibold text-muted-foreground`}>
-                  <span className="whitespace-nowrap">Loss %</span>
-                  <NumInput
-                    aria-label={`Loss percent — ${colLabel(c)}`}
-                    className="h-8 !w-16"
-                    placeholder={ci > 0 ? (loss[firstCol] ?? "") : undefined}
-                    value={loss[c] ?? ""}
-                    onChange={(e) => setLossAt(c, e.target.value)}
-                  />
-                </div>
-                <div className={`${CELL} justify-start gap-1.5 bg-primary-soft px-2 text-xs font-semibold text-muted-foreground`}>
-                  Fabric used
-                  <span className="text-foreground">
-                    <Flash value={`${money(colGrams(c), 0)} g`} formula="Σ grams of the components" />
-                  </span>
-                </div>
-                <div className={`${CELL} justify-end bg-primary-soft pr-2 text-xs font-semibold tabular-nums`}>
-                  <Flash value={`${money(colGramsWithLoss(c), 1)} g with loss`} formula="Σ grams × (1 + Loss %)" />
-                </div>
-                <div className={`${CELL} justify-end bg-primary-soft pr-2 text-sm font-bold tabular-nums text-primary`}>
-                  <Flash value={money(colCost(c))} formula="Σ Price / KG ÷ 1000 × grams × (1 + Loss %)" />
-                </div>
-                <div className={`${CELL} bg-primary-soft`} />
-              </div>
-            ))}
-            {!matrixCols.length ? (
-              <div className={`${MATRIX_FOOT} justify-start pl-2 text-xs font-normal text-muted-foreground`} style={{ gridColumn: "1 / -1" }}>
-                Add a size above and its rows appear here.
-              </div>
-            ) : null}
-          </div>
+                    </td>
+                    <td className="bg-primary-soft px-2 text-xs font-semibold text-muted-foreground">
+                      Fabric used{" "}
+                      <span className="text-foreground">
+                        <Flash value={`${money(colGrams(c), 0)} g`} formula="Σ grams of the components" />
+                      </span>
+                    </td>
+                    <td className="bg-primary-soft px-2 text-right text-xs font-semibold tabular-nums">
+                      <Flash value={`${money(colGramsWithLoss(c), 1)} g with loss`} formula="Σ grams × (1 + Loss %)" />
+                    </td>
+                    <td className="bg-primary-soft px-2 text-right text-sm font-bold tabular-nums text-primary">
+                      <Flash value={money(colCost(c))} formula="Σ Price / KG ÷ 1000 × grams × (1 + Loss %)" />
+                    </td>
+                    <td className="bg-primary-soft" />
+                  </tr>
+                </Fragment>
+              ))}
+              {!matrixCols.length ? (
+                <tr>
+                  <td colSpan={multiPiece ? 7 : 6} className="px-2 text-xs font-normal text-muted-foreground">
+                    Add a size above and its rows appear here.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
         <Button
           type="button"
@@ -2173,8 +2182,15 @@ export function SampleCostingScreen({
    * Tab stop (data-row-add), a second Enter adds, and \`data-grid-body\` on the tbody is
    * what lets landOnAddedRow diff the fields and put the cursor in the new pair.
    */
-  const TH = "whitespace-nowrap border-b border-border bg-surface-muted px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground";
-  const TD = "border-b border-border px-3 py-2 align-middle";
+  /* SPREADSHEET LOOK (erp-sheet-grid, 2026-10-09: "this field … apply this skill",
+     Embellishment): the sheet marker on the wrapper below draws the gridlines,
+     header band and flat cells, so the cells carry no border or padding of their
+     own. A row that continues a rowSpan group starts with a cell that is not the
+     row's first VISUAL column, yet the sheet's `tr > :first-child` left border
+     would stack on the spanned cell's right one — `TD_LEAD` drops it. */
+  const TH = "whitespace-nowrap px-3 text-left";
+  const TD = "align-middle";
+  const TD_LEAD = TD + " !border-l-0";
   const ctrlDelEmbellishment = (e: React.KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Delete" || !(e.ctrlKey || e.metaKey) || e.altKey) return;
     const t = e.target;
@@ -2184,9 +2200,9 @@ export function SampleCostingScreen({
     e.preventDefault();
     btn.click();
   };
-  const embellishmentPair = (pc: PieceDraft, r: PieceLineDraft, rows: PieceLineDraft[]) => (
+  const embellishmentPair = (pc: PieceDraft, r: PieceLineDraft, rows: PieceLineDraft[], lead: boolean) => (
     <>
-      <td className={TD} data-emb-cell>
+      <td className={lead ? TD_LEAD : TD} data-emb-cell>
         <div style={{ width: FIELD_WIDTH_CSS.term }}>
           <RecordPicker
             compact
@@ -2239,8 +2255,8 @@ export function SampleCostingScreen({
     const span = emb.length > 0 ? emb.length + 1 : 1;
     const ops = cmtOpsOf(pc);
     const stripOpen = !pc.cmt_direct && !opsHidden[pc.key];
-    const addCell = (
-      <td className={TD} colSpan={3}>
+    const addCell = (lead: boolean) => (
+      <td className={(lead ? TD_LEAD : TD) + " px-2"} colSpan={3}>
         <div className="flex items-center gap-3">
           {emb.length === 0 ? <span className="text-sm text-muted-foreground">None</span> : null}
           <Button type="button" variant="outline" size="sm" data-row-add onClick={addEmb}>
@@ -2316,7 +2332,7 @@ export function SampleCostingScreen({
       rows.push(
         <tr key={pc.key + "-0"}>
           {groupCells}
-          {addCell}
+          {addCell(false)}
           {tailCells}
         </tr>,
       );
@@ -2325,17 +2341,17 @@ export function SampleCostingScreen({
         rows.push(
           <tr key={r.key}>
             {i === 0 ? groupCells : null}
-            {embellishmentPair(pc, r, emb)}
+            {embellishmentPair(pc, r, emb, i > 0)}
             {i === 0 ? tailCells : null}
           </tr>,
         ),
       );
-      rows.push(<tr key={pc.key + "-add"}>{addCell}</tr>);
+      rows.push(<tr key={pc.key + "-add"}>{addCell(true)}</tr>);
     }
     if (stripOpen) {
       rows.push(
         <tr key={pc.key + "-ops"} className="bg-surface-muted">
-          <td className={TD} colSpan={8}>
+          <td className={TD + " px-3 py-2"} colSpan={8}>
             <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
               <span className="self-center text-xs font-semibold text-muted-foreground">
                 {(multiPiece ? pc.piece_name + " · " : "") + "CMT by operation"}
@@ -2362,8 +2378,8 @@ export function SampleCostingScreen({
     return rows;
   };
   const cmtTable = () => (
-    <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-border">
-      <table className="border-separate border-spacing-0 text-sm">
+    <div data-grid-style="sheet" data-grid-cells="flat" className="w-fit max-w-full overflow-x-auto">
+      <table className="text-sm">
         <thead>
           <tr>
             <th className={TH}>Piece</th>
@@ -2371,9 +2387,7 @@ export function SampleCostingScreen({
             <th className={TH}>CMT ₹ / pc</th>
             <th className={TH}>Embellishment</th>
             <th className={TH}>₹ / pc</th>
-            <th className={TH}>
-              <span className="sr-only">Remove</span>
-            </th>
+            <th className={TH}>Actions</th>
             <th className={TH}>Testing ₹ / pc</th>
             <th className={TH + " text-right"}>Per piece</th>
           </tr>
