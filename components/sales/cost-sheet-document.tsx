@@ -8,6 +8,7 @@ import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
 import { MARGIN_RED_BELOW_PCT, MARGIN_TARGET_PCT } from "@/lib/sales/sample-costing/calc";
+import { changeText } from "@/lib/sales/sample-costing/revision-history";
 
 /**
  * THE SAMPLE COST SHEET — the page (2026-10-08, "think more modern and visual").
@@ -657,6 +658,49 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
             </div>
           </details>
         </section>
+
+        {/* WHERE THIS COSTING STANDS IN THE NEGOTIATION (client 2026-10-09: "the
+            sample rev will happen in the report"). Every revision of this Costing
+            No, the one on this page marked; INTERNAL, so the margin each carried
+            is here — the buyer's Quotation prints prices only. Absent for a
+            costing that was never revised. */}
+        {model.history.length > 0 ? (
+          <section className="sec">
+            <div className="sec-h">
+              <h3>Revision history</h3>
+              <span>{model.history.length} revisions of this costing</span>
+            </div>
+            <div className="scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Revision</th>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th className="r">Quoted price</th>
+                    <th className="r">Change</th>
+                    <th className="r">Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.history.map((r) => (
+                    <tr key={r.id} className={r.current ? "total" : undefined}>
+                      <td>
+                        {r.label}
+                        {r.current ? " · this sheet" : ""}
+                      </td>
+                      <td>{r.date ? fmtDate(r.date) : "—"}</td>
+                      <td>{r.statusLabel}</td>
+                      <td className="r">{r.price == null ? "—" : `${ccy} ${fx(r.price, 2)}`.trim()}</td>
+                      <td className="r">{changeText(r.changePct)}</td>
+                      <td className="r">{r.marginPct == null ? "—" : `${r.marginPct.toFixed(1)}%`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
 
         <div className="sign">
           <div><b />Prepared by</div>

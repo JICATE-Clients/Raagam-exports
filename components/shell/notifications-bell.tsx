@@ -46,7 +46,7 @@ export function NotificationsBell() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
+        className="relative flex h-9 w-9 items-center justify-center rounded-control text-muted-foreground hover:bg-surface-muted"
         aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ""}`}
       >
         <Bell className="h-4 w-4" />

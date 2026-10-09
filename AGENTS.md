@@ -953,6 +953,30 @@ one Button five heights — 59 of them `size="sm" className="h-7"`.
   with its own corners. Use `<Button>` or `buttonClasses()`; review catches the
   rest until the check learns to tell an action button from a row or a tile.
 
+## Buttons: one job, one filled, three on top (STANDING)
+
+**Too many buttons was the complaint, not their shape** (user 2026-10-09,
+Sample Costing showed 11 at once). The approved plan, five rules:
+
+- **One job, one button.** An editor's way out is the footer's Cancel / Close;
+  a desktop "← Back to list" in the header ran the same handler and is gone.
+  The phone `←` stays. A footer using `skip` (HR person) has no Cancel, so it
+  keeps its Back.
+- **One filled button on screen** — the next step. While dirty that is Save;
+  once saved, Submit appears filled and the footer passes `saveQuiet` so Save
+  drops to outline. Submit is hidden while there are unsaved changes.
+- **At most three in a header**: Reports, `<MoreActions>` (now-and-then actions
+  like Copy from / Compare), and the filled step.
+- **"← Back to …" on a list page is a text link** (`BackLink`), not a button.
+- **A one-time notice uses links** (Restore / Discard a draft), so the save bar
+  shows the same buttons every visit.
+
+Header and save-bar buttons are 36px (`MasterFullScreen`'s footer no longer
+passes `size="sm"`). **Done so far:** `BackLink`, the footer, Sample Costing,
+the Garment Order editor. **Not yet swept:** the other editors that still draw
+"← Back to list" (`grep -rl "Back to list" app components`). Not enforced by a
+script yet.
+
 ## The sidebar lists SUB-MODULES (STANDING)
 
 **A module's sidebar shows groups and standalone screens — never a screen that

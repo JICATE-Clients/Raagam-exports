@@ -27,6 +27,7 @@ import {
   rgb,
 } from "@/lib/orders/report-pdf-kit";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "./cost-sheet";
+import { changeText } from "./revision-history";
 
 const TONE_HEX = { fabric: "#037bb8", cmt: "#1f9a8a", emb: "#d1527a", trims: "#e0a030", over: "#7c62d0", margin: "#2f9e5b" } as const;
 
@@ -252,6 +253,22 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
       ...o.perSize.map((v) => `${o.side === "price" ? (v >= 0 ? "+" : "-") : ""}${fx(Math.abs(v))}`),
     ]),
     m.sizes.map((_, i) => i + 2),
+  );
+  // WHERE THIS COSTING STANDS IN THE NEGOTIATION (client 2026-10-09). Internal, so
+  // the margin each revision carried is here; empty (and so skipped) when never revised.
+  card(
+    "Revision history",
+    ["Revision", "Date", "Status", `Quoted ${ccy}`, "Change", "Margin %"],
+    m.history.map((r) => [
+      r.current ? `${r.label}  (this sheet)` : r.label,
+      r.date ? fmtDate(r.date) : "—",
+      r.statusLabel,
+      r.price == null ? "—" : r.price.toFixed(2),
+      changeText(r.changePct),
+      r.marginPct == null ? "—" : `${fx(r.marginPct)}%`,
+    ]),
+    [3, 4, 5],
+    `${m.history.length} revisions`,
   );
 
   // Sign-off + page numbers

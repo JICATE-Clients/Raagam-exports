@@ -56,7 +56,6 @@ import {
   ChevronRight,
   Copy,
   GitCompare,
-  ClipboardList,
   FileText,
   Pencil,
   RefreshCw,
@@ -65,6 +64,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ToggleGroup } from "@/components/ui/segmented";
@@ -110,7 +110,6 @@ import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { SampleCostingFormData, CostingStyleOption } from "@/lib/sales/sample-costing/service";
 import {
   MARGIN_FLOOR_PCT,
-  MARGIN_RED_BELOW_PCT,
   componentCost,
   dimensionalGrams,
   extraChargeAmount,
@@ -174,7 +173,6 @@ import {
   saveSampleCosting,
   submitSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
-import { exportQuotationPdf } from "@/lib/sales/sample-costing/quotation-export";
 import { cleanSizes, offeredSizes, sizesNotInStyle } from "@/lib/sales/sample-costing/style-sizes";
 import {
   ALL_SIZES,
@@ -412,7 +410,6 @@ export function SampleCostingScreen({
   data,
   perms,
   nextCostingNo,
-  letterhead,
 }: {
   rows: CostingListRow[];
   data: SampleCostingFormData;
@@ -862,7 +859,7 @@ export function SampleCostingScreen({
     if (perms.canCreate) openAdd();
   });
 
-  function openById(id: string) {
+  function openById(id: string, opts?: { revise?: boolean }) {
     start(async () => {
       const res = await loadSampleCosting(id);
       if (!res.ok) {
@@ -876,6 +873,19 @@ export function SampleCostingScreen({
       setMeta({ code: r.code, version: r.version, status: r.status, isDraft: r.is_draft, decisionRemark: r.decision_remark });
       seedAndOpen({ ...r.draft, pieces: r.draft.pieces.length ? r.draft.pieces : [blankPiece("GARMENT", null)] });
       setApproval(null);
+      /* STARTED FROM THE REPORT (client 2026-10-09): the Reports page's Revise
+         button lands here with `?reviseFrom=`, and the sheet opens already as the
+         next revision — exactly what `revise()` does from the editor, under the
+         same two conditions. Anything else opens the costing as it is and says why. */
+      if (opts?.revise) {
+        if (r.status === "approved" && perms.canEdit) {
+          setRevisingFrom(r.id);
+          setMeta((m) => ({ ...m, version: m.version + 1, status: "draft", isDraft: false, decisionRemark: null }));
+          setDirty(true);
+        } else {
+          toastError("Only an approved costing can be revised, and only by someone who can edit.");
+        }
+      }
       if (r.status === "submitted") {
         const panel = await getCostingApproval(r.id);
         setApproval({ forId: r.id, run: panel.run, verdict: panel.verdict });
@@ -906,6 +916,17 @@ export function SampleCostingScreen({
     if (only.length === 1) applyStyle(only[0]);
     fillFromCustomer(oppId);
   });
+  /** `?reviseFrom=<id>` — the Reports page's Revise button. */
+  const reviseFor = useEffectEvent((id: string) => openById(id, { revise: true }));
+  useEffect(() => {
+    const id = params.get("reviseFrom");
+    if (!id) return;
+    queueMicrotask(() => reviseFor(id));
+    const next = new URLSearchParams(params.toString());
+    next.delete("reviseFrom");
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [params, pathname, router]);
   useEffect(() => {
     const id = params.get("costFor");
     if (!id) return;
@@ -1113,61 +1134,24 @@ export function SampleCostingScreen({
     });
   }
 
-  // ---- PDFs: the buyer's quotation (prices only) and the internal cost sheet ----
-  /** The PDFs' inputs for ANY sheet — the open one, or one loaded from the list. */
-  const pdfBaseOf = (d: CostingDraft, m: { code: string | null; version: number; status: CostingStatus }) => {
-    const enq = data.enquiries.find((e) => e.id === d.header.opportunity_id) ?? null;
-    const st = data.styles.find((x) => x.id === d.header.style_id) ?? null;
-    return {
-      costingNo: m.code ?? preview,
-      revision: revisionShort(m.version),
-      date: d.header.costing_date || null,
-      customer: enq?.customer_name ?? null,
-      enquiryNo: enq?.code ?? null,
-      sampleNo: st?.sample_no ?? null,
-      style: st?.name ?? null,
-      description: st?.description ?? null,
-      season: [enq?.season, enq?.season_year].filter(Boolean).join(" ") || null,
-      currency: d.header.currency_code,
-      shipMode: SHIP_MODES.find((x) => x.value === d.header.ship_mode)?.label ?? null,
-      isSet: st?.unit_kind === "set" || d.pieces.length > 1,
-      pieceName: (k: string) => d.pieces.find((x) => x.key === k)?.piece_name || "GARMENT",
-      sizeName: sizeLabel,
-      summary: summaryOf(d),
-      approved: m.status === "approved",
-    };
-  };
-  const pdfBase = () => pdfBaseOf(draft, meta);
-  /** List ▸ the Quotation icon in the row's view slot (Row actions STANDING). */
-  function quotationFromList(id: string) {
-    start(async () => {
-      const res = await loadSampleCosting(id);
-      if (!res.ok) {
-        toastError(res.error);
-        return;
-      }
-      if (!res.record.draft.header.currency_code) {
-        toastError("This costing has no currency yet, so there is no quotation to print.");
-        return;
-      }
-      void exportQuotationPdf(pdfBaseOf(res.record.draft, res.record), letterhead).catch(pdfFailed);
-    });
-  }
-  const pdfFailed = (e: unknown) => toastError(e instanceof Error ? e.message : "Could not build the PDF.");
-  function downloadQuotation() {
-    void exportQuotationPdf(pdfBase(), letterhead).catch(pdfFailed);
-  }
-  /** The Cost sheet is a page of the SAVED costing (one answer for screen, PDF and Excel). */
-  function openCostSheet() {
+  // ---- Reports: the Cost Sheet and the Quotation, read first, then downloaded ----
+  /**
+   * ONE DOOR, LIKE ORDER ENTRY'S REPORTS ICON (client 2026-10-09: "there is no
+   * proper view option … directly downloading"). The editor's two buttons — a
+   * Cost sheet page and a Quotation that built a PDF the moment it was pressed —
+   * are now one, and it opens Costing ▸ Reports, where both documents are read
+   * on screen and then downloaded or printed. The page shows the SAVED costing.
+   */
+  function openReports() {
     if (!editId || revisingFrom) {
-      toastError("Save the costing first, then open its cost sheet.");
+      toastError("Save the costing first, then open its reports.");
       return;
     }
     if (dirty) {
-      toastError("Save your changes first — the cost sheet shows the saved costing.");
+      toastError("Save your changes first — the reports show the saved costing.");
       return;
     }
-    router.push(`/sales/sample-costing/${editId}/cost-sheet`);
+    router.push(`/sales/sample-costing/${editId}/reports`);
   }
 
   // ---- the list -----------------------------------------------------------------
@@ -1224,22 +1208,18 @@ export function SampleCostingScreen({
       <RowActions
         label={r.code}
         view={false}
+        /* ONE REPORTS ICON, the shape Order Entry's rows use (client 2026-10-09):
+           it opens Costing ▸ Reports with the Cost Sheet and the Quotation as
+           tabs. The two separate icons — one a page, one a direct PDF download —
+           are gone; nothing downloads until the reader has seen the document. */
         lead={
-          <>
-          <RowIconAction label="Cost sheet" name={r.code} icon={ClipboardList} className="text-primary" onClick={() => router.push(`/sales/sample-costing/${r.id}/cost-sheet`)} />
           <RowIconAction
-            label="Quotation PDF"
+            label="Reports"
             name={r.code}
             icon={FileText}
             className="text-primary"
-            disabledReason={
-              r.profit_loss_pct != null && r.profit_loss_pct < MARGIN_RED_BELOW_PCT && r.status !== "approved"
-                ? `Margin under ${MARGIN_RED_BELOW_PCT}% — waits for approval.`
-                : null
-            }
-            onClick={() => quotationFromList(r.id)}
+            onClick={() => router.push(`/sales/sample-costing/${r.id}/reports`)}
           />
-          </>
         }
         menu={perms.canCreate ? [{ label: "Duplicate as a new costing", icon: Copy, onClick: () => duplicateFrom(r.id) }] : undefined}
         menuAs="icons"
@@ -3629,14 +3609,9 @@ export function SampleCostingScreen({
     if (g != null && dimsFor) setCell(dimsFor.line, dimsFor.col, String(g));
   };
 
-  /** v2 §4.1: red (< 15 %) waits for approval before a quotation goes out. */
-  const quoteBlocked =
-    health === "poor" && meta.status !== "approved"
-      ? `Margin under ${MARGIN_RED_BELOW_PCT}% — the quotation waits until the costing is approved.`
-      : null;
-
   if (mode === "edit") {
     const canSubmit = !!editId && !revisingFrom && isEditableStatus(meta.status) && !meta.isDraft && perms.canEdit;
+    const submitNow = canSubmit && !dirty;
     const context = [enquiry?.code, style?.name, enquiry?.customer_name, [enquiry?.season, enquiry?.season_year].filter(Boolean).join(" ")].filter(Boolean);
     return (
       <div className="flex h-full flex-col gap-3">
@@ -3666,38 +3641,37 @@ export function SampleCostingScreen({
             </span>
           ) : null}
           <div aria-hidden className="h-px min-w-[2rem] flex-1 self-center bg-border" />
+          {/* THE BUTTON PLAN (user 2026-10-09): Reports, More, and the ONE
+              next step, filled — at 36px like every header. Copy from and
+              Compare are now-and-then actions, folded under More. "← Back to
+              list" is gone on a desktop: it ran the same `closeEditor` as the
+              footer's Cancel, two buttons for one job. The phone keeps its ←
+              above, where the footer's Cancel is hidden. */}
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {editable && copyCandidates.length ? (
-              <Button variant="outline" size="sm" onClick={() => setCopyOpen(true)}>
-                <Copy className="h-4 w-4" aria-hidden /> Copy from
-              </Button>
-            ) : null}
-            {revisions.length > 1 && editId ? (
-              <Button variant="outline" size="sm" onClick={() => openCompare(revisions.find((r) => r.id !== editId)!.id)}>
-                <GitCompare className="h-4 w-4" aria-hidden /> Compare
-              </Button>
-            ) : null}
-            <Button variant="outline" size="sm" onClick={openCostSheet}>
-              <ClipboardList className="h-4 w-4" aria-hidden /> Cost sheet
+            <Button variant="outline" onClick={openReports}>
+              <FileText aria-hidden /> Reports
             </Button>
-            <Tooltip label={quoteBlocked ?? "Prices only, for the buyer"}>
-              <Button variant="outline" size="sm" onClick={downloadQuotation} disabled={!header.currency_code || !!quoteBlocked}>
-                <FileText className="h-4 w-4" aria-hidden /> Quotation
-              </Button>
-            </Tooltip>
+            <MoreActions
+              items={[
+                ...(editable && copyCandidates.length
+                  ? [{ label: "Copy from…", icon: Copy, onClick: () => setCopyOpen(true) }]
+                  : []),
+                ...(revisions.length > 1 && editId
+                  ? [{ label: "Compare revisions", icon: GitCompare, onClick: () => openCompare(revisions.find((r) => r.id !== editId)!.id) }]
+                  : []),
+              ]}
+            />
             {meta.status === "approved" && !revisingFrom && perms.canEdit ? (
-              <Button variant="outline" size="sm" onClick={revise}>
-                Revise
-              </Button>
+              <Button onClick={revise}>Revise</Button>
             ) : null}
-            {canSubmit ? (
-              <Button size="sm" onClick={sendForApproval} disabled={isPending}>
+            {/* HIDDEN WHILE THERE ARE UNSAVED CHANGES (Rule 2). Save is then
+                the one filled button; once saved, Submit is — so a version
+                that was never saved cannot be sent to the MD. */}
+            {submitNow ? (
+              <Button onClick={sendForApproval} disabled={isPending}>
                 Submit
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" onClick={closeEditor} className="max-md:hidden">
-              ← Back to list
-            </Button>
           </div>
         </div>
 
@@ -3729,21 +3703,26 @@ export function SampleCostingScreen({
             onSave: () => submit(false),
             saveLabel: revisingFrom ? `Save ${revisionShort(meta.version)}` : "Save costing",
             canSave: validity.canSave,
+            // Submit is the next step once saved, so Save steps down (Rule 2).
+            saveQuiet: submitNow,
             // Save names the first missing field and steers to it with a brief
             // ring (clean spec §4) — no counts, no progress bar.
             onBlockedSave: revealFirstProblem,
             // THE DRAFT OFFER LIVES IN THE BOTTOM BAR (user 2026-10-07), beside
             // the buttons that act on the whole sheet — not as a banner taking
-            // the top of the canvas.
+            // the top of the canvas. LINKS, NOT BUTTONS (user 2026-10-09,
+            // button plan Rule 5): a one-time notice drawn as two more buttons
+            // read as part of the bar, and Discard sat beside Cancel. The bar
+            // keeps the same three buttons on every visit.
             extra: formDraft.hasDraft ? (
-              <span className="flex items-center gap-2 text-xs">
-                <span className="text-warning">Unsaved changes from an earlier visit</span>
-                <Button type="button" size="sm" onClick={formDraft.restore}>
+              <span className="flex items-center gap-3 text-xs">
+                <span className="text-warning">Unsaved changes from an earlier visit —</span>
+                <button type="button" className="font-semibold text-primary hover:underline" onClick={formDraft.restore}>
                   Restore
-                </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={formDraft.discard}>
+                </button>
+                <button type="button" className="font-semibold text-muted-foreground hover:text-foreground hover:underline" onClick={formDraft.discard}>
                   Discard
-                </Button>
+                </button>
               </span>
             ) : undefined,
             onSaveDraft: (editId ? perms.canEdit : perms.canCreate) && !revisingFrom ? () => submit(true) : undefined,

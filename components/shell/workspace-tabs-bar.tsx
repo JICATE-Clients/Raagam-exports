@@ -135,7 +135,7 @@ function iconForPath(pathname: string, modules: { href: string; icon: LucideIcon
  * close, close others/all); only how it is drawn changed.
  */
 const NAV_BTN =
-  "flex h-10 w-10 flex-none items-center justify-center rounded-lg border border-border bg-surface text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-surface md:h-8 md:w-8";
+  "flex h-10 w-10 flex-none items-center justify-center rounded-control border border-border bg-surface text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-surface md:h-9 md:w-9";
 
 export function WorkspaceTabsBar() {
   const pathname = usePathname();
@@ -282,7 +282,7 @@ export function WorkspaceTabsBar() {
         items={switcherItems}
         label={`Open screens, current: ${currentLabel}`}
         align="left"
-        triggerClassName="ty-tab flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-surface-muted md:ml-1 md:h-8 md:max-w-[22rem] md:flex-none"
+        triggerClassName="ty-tab flex h-10 min-w-0 flex-1 items-center gap-2 rounded-control border border-border bg-surface px-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-surface-muted md:ml-1 md:h-9 md:max-w-[22rem] md:flex-none"
         trigger={
           <>
             {/* `createElement`, not `<CurrentIcon />`: the icon is looked up per
@@ -332,7 +332,7 @@ export function WorkspaceTabsBar() {
           tabIndex={-1}
           onClick={search.open}
           aria-label="Search everywhere"
-          className="flex h-8 w-52 items-center gap-2 rounded-lg bg-surface-muted px-2.5 text-xs text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] transition-colors hover:text-foreground lg:w-60"
+          className="flex h-9 w-52 items-center gap-2 rounded-control bg-surface-muted px-2.5 text-xs text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] transition-colors hover:text-foreground lg:w-60"
         >
           <Search className="h-4 w-4 shrink-0" />
           <span className="flex-1 text-left">Search…</span>

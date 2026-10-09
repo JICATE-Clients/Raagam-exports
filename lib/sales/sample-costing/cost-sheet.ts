@@ -27,6 +27,7 @@ import {
 import { SHIP_MODES, STATUS_LABEL, costingInputOf, isBlankPieceLine, liveRows, revisionShort, type CostingRecord, type CostingStatus } from "./types";
 import type { CostingEnquiryOption, CostingStyleOption } from "./service";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
+import type { RevisionHistoryRow } from "./revision-history";
 
 /** A figure to the rupee-and-paise the sheet prints. */
 export const fx = (v: number | null | undefined, dp = 2) => (v == null || !Number.isFinite(v) ? "—" : v.toFixed(dp));
@@ -111,6 +112,8 @@ export type CostSheetModel = {
   /** Overheads ▸ one row per line, ₹ per size (a set's pieces summed). */
   overheads: { name: string; type: string; value: string; perSize: number[]; side: "cost" | "price" }[];
   terms: { margin: number; wastage: number; overhead: number; discount: number; freight: number; insurance: number };
+  /** Every revision of this Costing No, oldest first — `[]` when it was never revised. INTERNAL: carries margin. */
+  history: RevisionHistoryRow[];
 };
 
 const sizeLabel = (s: string | null) => s ?? "All sizes";
@@ -124,6 +127,7 @@ export function buildCostSheetModel(
     trims: readonly { id: string; name: string }[];
   },
   company: DocLetterhead,
+  history: RevisionHistoryRow[] = [],
 ): CostSheetModel {
   const d = record.draft;
   const h = d.header;
@@ -316,6 +320,7 @@ export function buildCostSheetModel(
       freight: num(h.freight_per_pc) ?? 0,
       insurance: num(h.insurance_per_pc) ?? 0,
     },
+    history,
   };
 }
 
