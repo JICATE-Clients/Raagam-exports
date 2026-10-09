@@ -53,6 +53,8 @@ export type QuotationSheet = {
   approved: boolean;
   /** Every revision of this Costing No — price and date only, never the margin. */
   history?: QuotationHistoryRow[];
+  /** "Approved on 09/10/2026" — approved-and-when only; null otherwise. */
+  approvalNote?: string | null;
 };
 
 /* One rule for the price a buyer is offered, shared with the on-screen quotation. */
@@ -79,7 +81,8 @@ export async function exportQuotationPdf(
     logo: logo && fitted ? { dataUrl: logo.dataUrl, w: fitted.w, h: fitted.h } : null,
     kind: "Price Quotation",
     reNo: [q.costingNo, q.revision].filter(Boolean).join(" · "),
-    meta: q.date ? `Dated ${fmtDate(q.date)}` : null,
+    // "Dated …" and, when approved, when — the buyer sees THAT it is approved, never how.
+    meta: [q.date ? `Dated ${fmtDate(q.date)}` : null, q.approvalNote ?? null].filter(Boolean).join(" · ") || null,
     status: q.approved ? "Approved" : null,
     margin: M,
   });

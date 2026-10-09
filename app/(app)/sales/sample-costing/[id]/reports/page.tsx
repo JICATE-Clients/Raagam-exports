@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
 import { revisionShort } from "@/lib/sales/sample-costing/types";
-import { getCostingLetterhead, getCostingRevisionSources, getSampleCostingFormData, getSampleCostingRecord } from "@/lib/sales/sample-costing/service";
+import { getCostingLetterhead, getCostingApprovalFacts, getCostingRevisionSources, getSampleCostingFormData, getSampleCostingRecord } from "@/lib/sales/sample-costing/service";
 import { buildRevisionHistory } from "@/lib/sales/sample-costing/revision-history";
 import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
 import { buildQuotationModel } from "@/lib/sales/sample-costing/quotation";
@@ -21,6 +21,17 @@ import { CostingReports } from "./costing-reports";
  */
 export const metadata = { title: "Costing Reports" };
 
+/** Why Revise is unavailable for a costing in this state, or null when it works.
+ *  Same rule as the editor's Revise (approved only) — said in words. */
+function reviseReason(status: string, isDraft: boolean | null): string | null {
+  if (status === "approved") return null;
+  if (isDraft || status === "draft") return "This costing is still a Draft — edit it directly. Revise starts a new revision once it is approved.";
+  if (status === "submitted") return "This costing is with the MD — Revise becomes available once it is approved.";
+  if (status === "rejected") return "This costing was rejected — edit and resubmit it directly.";
+  if (status === "superseded") return "A later revision replaced this one — open the latest revision to revise it.";
+  return "Only an approved costing can be revised.";
+}
+
 export default async function CostingReportsPage({
   params,
   searchParams,
@@ -33,8 +44,9 @@ export default async function CostingReportsPage({
   const [record, data, letterhead] = await Promise.all([getSampleCostingRecord(id), getSampleCostingFormData(), getCostingLetterhead()]);
   if (!record) notFound();
   const history = buildRevisionHistory(await getCostingRevisionSources(record.code), record.id);
-  const cost = buildCostSheetModel(record, data, letterhead, history);
-  const quote = buildQuotationModel(record, data, letterhead, history);
+  const facts = await getCostingApprovalFacts(record.id);
+  const cost = buildCostSheetModel(record, data, letterhead, history, facts);
+  const quote = buildQuotationModel(record, data, letterhead, history, facts);
   return (
     <div className="space-y-4">
       <PageHeader title="Costing Reports" description={[cost.costingNo, cost.revision, cost.style].filter(Boolean).join(" · ")} />
@@ -45,7 +57,18 @@ export default async function CostingReportsPage({
         /* REVISE FROM THE REPORT (client 2026-10-09) — offered under the editor's own
            two conditions: the costing is APPROVED and the reader may edit. A draft or
            one with the MD is edited in place, and a superseded revision is history. */
-        revise={canEdit && record.status === "approved" ? { id: record.id, nextLabel: revisionShort(record.version + 1) } : null}
+        revise={
+          canEdit
+            ? {
+                id: record.id,
+                nextLabel: revisionShort(record.version + 1),
+                /* GREYED, SAYING WHY — never hidden (the standing rule for a locked
+                   record's actions): an absent button cannot tell "not yet" from
+                   "not for you". Only a missing permission hides it. */
+                reason: reviseReason(record.status, record.is_draft),
+              }
+            : null
+        }
       />
     </div>
   );

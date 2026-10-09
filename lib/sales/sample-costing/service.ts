@@ -9,6 +9,7 @@ import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/l
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import { rateMemoryKey } from "./types";
 import type { RevisionSource } from "./revision-history";
+import type { ApprovalFacts } from "./approval-line";
 import type { CostingListRow, CostingRecord, CostingStatus, ExtraChargeDraft, FabricDraft, PieceDraft, TrimDraft, WeightDraft } from "./types";
 
 /**
@@ -727,4 +728,49 @@ export async function getCostingRevisionSources(code: string | null): Promise<Re
     profit_loss_pct: r.profit_loss_pct == null ? null : Number(r.profit_loss_pct),
   }));
   return rows;
+}
+
+/**
+ * THE APPROVAL FACTS OF ONE COSTING, for the reports' approval line (client
+ * 2026-10-09). `decided_by` is a profile id; the name comes through
+ * `creator_names()` (SECURITY DEFINER, id + name only) because `profiles` lets a
+ * user read only their own row. A failed read THROWS — a silent null would print
+ * "Approved automatically", which is a claim about the money.
+ */
+export async function getCostingApprovalFacts(id: string): Promise<ApprovalFacts | null> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("cost_sheets")
+    .select("status, is_draft, submitted_at, approved_at, decided_at, decided_by, decision_remark, profit_loss_pct")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load this costing's approval: ${error.message}`);
+  if (!data) return null;
+  const r = data as unknown as {
+    status: CostingStatus;
+    is_draft: boolean | null;
+    submitted_at: string | null;
+    approved_at: string | null;
+    decided_at: string | null;
+    decided_by: string | null;
+    decision_remark: string | null;
+    profit_loss_pct: number | string | null;
+  };
+  let decidedByName: string | null = null;
+  if (r.decided_by) {
+    const { data: names } = await s.rpc("creator_names", { ids: [r.decided_by] });
+    decidedByName = ((names ?? []) as { id: string; full_name: string | null }[])[0]?.full_name ?? null;
+  }
+  return {
+    status: r.status,
+    isDraft: !!r.is_draft,
+    submittedAt: r.submitted_at,
+    approvedAt: r.approved_at,
+    decidedByName,
+    decidedAt: r.decided_at,
+    // The automatic clearance writes its own sentence into the remark; that is
+    // the line's headline already, so it is not repeated as a "remark".
+    remark: r.decision_remark && !/^cleared on submit/i.test(r.decision_remark) ? r.decision_remark : null,
+    lowestMarginPct: r.profit_loss_pct == null ? null : Number(r.profit_loss_pct),
+  };
 }

@@ -69,6 +69,23 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
     { margin: M, cols: 6 },
   );
 
+  // THE APPROVAL LINE (client 2026-10-09: "where is the approver"): how this
+  // costing was approved and by whom — internal, so it names the floor and the MD.
+  {
+    const ink: Record<string, [number, number, number]> = { good: [20, 128, 63], warn: [154, 98, 0], bad: [179, 38, 30], muted: [91, 100, 114] };
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(...(ink[m.approval.tone] ?? ink.muted));
+    doc.text(`Approval: ${m.approval.text}`, M, y + 4);
+    if (m.approval.detail) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.2);
+      doc.text(m.approval.detail, M, y + 14, { maxWidth: CW });
+    }
+    doc.setTextColor(0);
+    y += m.approval.detail ? 24 : 14;
+  }
+
   const shown = s.quoted ?? s.calc;
   y = drawSummaryTiles(
     doc,
