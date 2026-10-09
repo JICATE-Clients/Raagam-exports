@@ -2375,7 +2375,11 @@ export function SampleCostingScreen({
     return rows;
   };
   const cmtTable = () => (
-    <div className="w-fit max-w-full overflow-x-auto rounded-control border border-border">
+    /* The marker the comment above promised and the wrapper never carried
+       (user 2026-10-09, "apply this artifact"): sheet + flat cells = the Excel look,
+       and the sheet CSS draws the frame, so the wrapper's own `border` / `rounded`
+       go (a second frame would double it — erp-sheet-grid). */
+    <div data-grid-style="sheet" data-grid-cells="flat" className="w-fit max-w-full overflow-x-auto">
       <table className="border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
