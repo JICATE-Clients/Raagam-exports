@@ -249,7 +249,7 @@ export function buildCostSheetModel(
     { name: "Bank charges", type: "Flat ₹", value: "", perSize: sizes.map((s) => s.bank), side: "cost" },
   ];
   if ((num(h.garment_waste_pct) ?? 0) > 0) {
-    overheads.push({ name: "Wastage", type: "Percent", value: `${fx(num(h.garment_waste_pct))} %`, perSize: sizes.map((s) => s.wastage), side: "cost" });
+    overheads.push({ name: "Garment Rejection", type: "Percent", value: `${fx(num(h.garment_waste_pct))} %`, perSize: sizes.map((s) => s.wastage), side: "cost" });
   }
   if ((num(h.overhead_pct) ?? 0) > 0) {
     overheads.push({ name: "Overhead", type: "Percent", value: `${fx(num(h.overhead_pct))} %`, perSize: sizes.map((s) => s.overhead), side: "cost" });

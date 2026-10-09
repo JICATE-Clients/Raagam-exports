@@ -176,7 +176,7 @@ import {
   submitSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
 import { exportQuotationPdf } from "@/lib/sales/sample-costing/quotation-export";
-import { offeredSizes, sizesNotInStyle } from "@/lib/sales/sample-costing/style-sizes";
+import { cleanSizes, offeredSizes, sizesNotInStyle } from "@/lib/sales/sample-costing/style-sizes";
 import {
   ALL_SIZES,
   cellGrams,
@@ -668,6 +668,15 @@ export function SampleCostingScreen({
     setPieces(next);
     setLines((xs) => xs.map((l) => (keep.has(l.piece_key) ? l : { ...l, piece_key: first })));
     setTrims((xs) => xs.map((t) => (keep.has(t.piece_key) ? t : { ...t, piece_key: first })));
+    // The style's own sizes (ticked in Sample Entry) become the weight columns the
+    // moment it is chosen - fetched, not hunted for in "+ Add size...". Only while no
+    // grams are typed, so changing style never wipes numbers the operator entered.
+    const typed = lines.some((l) => Object.values(l.cells).some((v) => (v ?? "").trim() !== ""));
+    if (!typed) {
+      const sizes = cleanSizes(st?.sizes ?? []);
+      setSizeCols(sizes);
+      setLoss(Object.fromEntries(sizes.map((z) => [z, DEFAULT_ALLOWANCE])));
+    }
     setDirty(true);
   }
 
@@ -1396,7 +1405,7 @@ export function SampleCostingScreen({
           ]}
         />
         {/* THE TABLE LEFT, ITS THREE NUMBERS ON ITS RIGHT (user 2026-10-08, screenshot
-            3385: "near to the table right side"): Yarn / KG ₹ · Lost while making % ·
+            3385: "near to the table right side"): Yarn / KG ₹ · Process Loss % ·
             Price per KG sit beside whichever grid is showing, top-aligned with it.
             Plain flex with fixed-width cells: a FieldRow here collapsed to a
             few characters wide (screenshot 3385). Wraps under the table when narrow. */}
@@ -1478,7 +1487,7 @@ export function SampleCostingScreen({
             </Field>
           </div>
           <div className="w-[9.5rem]">
-            <Field label="Lost while making %" w="range">
+            <Field label="Process Loss %" w="range">
               <NumInput aria-label="Process loss percent" value={f.process_loss_pct} onChange={(e) => patchFabric(f.key, { process_loss_pct: e.target.value })} />
             </Field>
           </div>
@@ -1883,7 +1892,7 @@ export function SampleCostingScreen({
                 ? "Every size of the style is on the sheet."
                 : sizeCols.length > 1
                   ? "A blank box takes the first size's number."
-                  : "Add the sizes you are costing, then type the grams."}
+                  : "Remove any size you are not costing, then type the grams."}
         </p>
       </FieldRow>
     );
@@ -2459,15 +2468,15 @@ export function SampleCostingScreen({
       cell: (r) => <Toggle ariaLabel="Direct rate" checked={r.is_direct} onChange={(v) => patchTrim(r.key, { is_direct: v })} />,
     },
     {
-      header: "Package ₹",
+      header: "Pack Rate (₹)",
       align: "right",
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.range,
       cell: (r) =>
         r.is_direct ? null : (
           <div>
             <NumInput
               id={costingFieldId.trimPackPrice(r.key)}
-              aria-label="Package price"
+              aria-label="Pack rate"
               value={r.pack_price}
               onChange={(e) => patchTrim(r.key, { pack_price: e.target.value })}
             />
@@ -2476,7 +2485,7 @@ export function SampleCostingScreen({
         ),
     },
     {
-      header: "Pack size",
+      header: "No of Pcs",
       align: "right",
       width: FIELD_WIDTH_CSS.num,
       cell: (r) =>
@@ -2484,7 +2493,7 @@ export function SampleCostingScreen({
           <div>
             <NumInput
               id={costingFieldId.trimPackSize(r.key)}
-              aria-label="Pack size"
+              aria-label="No of pcs"
               value={r.pack_size}
               onChange={(e) => patchTrim(r.key, { pack_size: e.target.value })}
             />
@@ -2493,10 +2502,10 @@ export function SampleCostingScreen({
         ),
     },
     {
-      header: "Consumption",
+      header: "Consumption Rate",
       align: "right",
-      // range, not hug: the header was cut to "Consumpti…" at 88px.
-      width: FIELD_WIDTH_CSS.range,
+      // "Consumption Rate" needs ~100px of text plus padding: range (112px) cuts it.
+      width: "8.5rem",
       cell: (r) =>
         r.is_direct ? null : (
           <div>
@@ -2526,8 +2535,9 @@ export function SampleCostingScreen({
             <FieldError>{msgFor(costingFieldId.trimRate(r.key))}</FieldError>
           </div>
         ) : (
-          // Package mode: the flat-rate cell shows the computed cost as plain text, not a field.
-          <Figure value={isBlankTrim(r) ? null : trimCostPerPiece(r).cost} formula="Package ₹ ÷ Pack size × Consumption" />
+          // Pack mode: nothing here. The computed cost already shows in "Cost ₹ / pc" beside it,
+          // so repeating it under "Rate" was the confusion between pack rate and per-piece cost.
+          null
         ),
     },
     {
@@ -2538,7 +2548,7 @@ export function SampleCostingScreen({
       cell: (r) => (
         <Figure
           value={isBlankTrim(r) ? null : trimCostPerPiece(r).cost}
-          formula={r.is_direct ? "Consumption × Rate" : "Package ₹ ÷ Pack size × Consumption"}
+          formula={r.is_direct ? "Consumption × Rate" : "Pack Rate ÷ No of Pcs × Consumption Rate"}
         />
       ),
     },
@@ -2560,7 +2570,7 @@ export function SampleCostingScreen({
   const costingQuoteColumns: ChildGridColumn<QuoteRow>[] = [
     { header: "Piece", width: FIELD_WIDTH_CSS.range, cell: (r) => <Truncated className="text-sm font-medium">{pieceName(r.pieceKey)}</Truncated> },
     { header: "Size", width: FIELD_WIDTH_CSS.range, cell: (r) => <span className="text-sm">{sizeLabel(r.size)}</span> },
-    { header: "Gross Cost ₹", align: "right", width: FIELD_WIDTH_CSS.hug, cell: (r) => <Figure value={r.fig.grossCost} formula="Net + Wastage + Overhead" /> },
+    { header: "Gross Cost ₹", align: "right", width: FIELD_WIDTH_CSS.hug, cell: (r) => <Figure value={r.fig.grossCost} formula="Net + Garment Rejection + Overhead" /> },
     {
       header: `Calc ${ccy ?? ""}`.trim(),
       align: "right",
@@ -2860,13 +2870,17 @@ export function SampleCostingScreen({
     },
     overheads: {
       right: head ? (
-        <Flash value={`₹${money(bankPc + head.wastage + head.overhead + head.extraOverhead)}`} formula="Bank charges + Wastage + Overhead + extra charges" />
+        <Flash value={`₹${money(bankPc + head.wastage + head.overhead + head.extraOverhead)}`} formula="Bank charges + Garment Rejection + Overhead + extra charges" />
       ) : null,
       content: (
         <div className="space-y-4">
           <div className={TERMS_W}>
-            <FieldRow gap="row" align="start">
-              <Field label="Wastage %" w="hug" htmlFor="sc-waste">
+            {/* Bottom-aligned (the default): "Garment Rejection %" wraps in its hug
+                box, and top-aligning dropped its input a line below Overhead % and
+                Bank Charges. No hint/error sits under these fields, so the
+                top-aligned hazard does not apply. */}
+            <FieldRow gap="row">
+              <Field label="Garment Rejection %" w="range" htmlFor="sc-waste">
                 <NumInput id="sc-waste" value={header.garment_waste_pct} onChange={(e) => setH({ garment_waste_pct: e.target.value })} />
               </Field>
               <Field label="Overhead %" w="hug" htmlFor="sc-ovh">
@@ -2885,7 +2899,7 @@ export function SampleCostingScreen({
             <p className="m-0 text-sm tabular-nums text-muted-foreground">
               {"Bank "}
               <b className="text-foreground">{`₹ ${money(bankPc)}`}</b>
-              {" + Wastage "}
+              {" + Garment Rejection "}
               <b className="text-foreground">{`₹ ${money(head.wastage)}`}</b>
               {" + Overhead "}
               <b className="text-foreground">{`₹ ${money(head.overhead)}`}</b>
@@ -3056,6 +3070,12 @@ export function SampleCostingScreen({
                 <>
                   <span className="mx-1.5">·</span>
                   <DeltaBadge delta={t.delta} pctValue={t.deltaPct} />
+                  {/* INR impact of rounding: (quoted - calculated) x exchange rate, per piece. */}
+                  {(num(header.exchange_rate) ?? 0) > 0 ? (
+                    <span className={`ml-1.5 text-xs font-medium ${t.delta > 0 ? "text-success" : "text-danger"}`}>
+                      {`₹ ${t.delta > 0 ? "+" : "−"}${money(Math.abs(t.delta) * (num(header.exchange_rate) ?? 0))}`}
+                    </span>
+                  ) : null}
                 </>
               ) : null}
             </p>
@@ -3154,7 +3174,7 @@ export function SampleCostingScreen({
       .map((pc) => (pc.cmt_direct ? "Direct rate" : plural(pc.lines.filter((l) => l.kind === "cmt" && l.process_id).length, "operation", "operations")))
       .join(" · "),
     trims: plural(live.trims.length, "trim", "trims"),
-    overheads: `Wastage ${header.garment_waste_pct || 0}% · Overhead ${header.overhead_pct || 0}%`,
+    overheads: `Garment Rejection ${header.garment_waste_pct || 0}% · Overhead ${header.overhead_pct || 0}%`,
     price: `Margin ${header.margin_pct || "—"}%${ccy ? ` · ${ccy}` : ""}`,
   };
   const amounts: Partial<Record<CardKey, number | null>> = {
@@ -3394,10 +3414,10 @@ export function SampleCostingScreen({
               {railAll ? line("Trims & accessories", money(t?.trims)) : null}
               {railAll ? line("Bank charges", money(t ? bankPc : null)) : null}
               {line("Net cost ₹", money(t?.net), { total: true, formula: "Fabric + CMT & processing + Trims + Bank" })}
-              {railAll ? line(`Wastage ${header.garment_waste_pct || 0}%`, money(t?.wastage)) : null}
+              {railAll ? line(`Garment Rejection ${header.garment_waste_pct || 0}%`, money(t?.wastage)) : null}
               {railAll ? line(`Overhead ${header.overhead_pct || 0}%`, money(t?.overhead)) : null}
               {railAll && t?.extraOverhead ? line("Other charges", money(t.extraOverhead)) : null}
-              {line("Gross cost ₹", money(t?.grossCost), { total: true, formula: "Net + Wastage + Overhead" })}
+              {line("Gross cost ₹", money(t?.grossCost), { total: true, formula: "Net + Garment Rejection + Overhead" })}
               {railAll ? line(`Margin ${header.margin_pct || 0}%`, money(t?.margin)) : null}
               {railAll ? line(`Discount ${header.discount_pct || 0}%`, t?.discount ? `−${money(t.discount)}` : money(0)) : null}
               {railAll && t?.priceAdj ? line("Price charges", `${t.priceAdj < 0 ? "−" : ""}${money(Math.abs(t.priceAdj))}`) : null}
@@ -3524,7 +3544,7 @@ export function SampleCostingScreen({
     };
     const terms: [string, keyof CostingHeaderDraft][] = [
       ["Margin %", "margin_pct"],
-      ["Wastage %", "garment_waste_pct"],
+      ["Garment Rejection %", "garment_waste_pct"],
       ["Overhead %", "overhead_pct"],
       ["Discount %", "discount_pct"],
       ["Freight / pc ₹", "freight_per_pc"],
@@ -3821,7 +3841,7 @@ export function SampleCostingScreen({
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Sample Costing"
+        title="Costing"
         description="Cost a sample style — fabric, consumption, CMT, trims — and quote the buyer, with MD approval under the margin floor."
         actions={perms.canCreate ? <Button onClick={openAdd}>New Sample Costing</Button> : undefined}
       />

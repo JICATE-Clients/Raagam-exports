@@ -109,7 +109,7 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
     { label: "Trims", value: s.trims, tone: "trims" },
     { label: "Bank charges", value: s.bank, tone: "over" },
     { label: "Net cost", value: s.net, tone: null },
-    { label: "Wastage + overhead", value: s.wastage + s.overhead, tone: "over" },
+    { label: "Rejection + overhead", value: s.wastage + s.overhead, tone: "over" },
     { label: "Extra charges", value: s.extraOverhead, tone: "over" },
     { label: "Gross cost", value: s.grossCost, tone: null },
     { label: `Margin ${model.terms.margin}%`, value: s.margin, tone: "margin" },
@@ -285,7 +285,7 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
           <div className="kpi">
             <label>Net cost</label>
             <div className="v">₹ {money(s.net)}</div>
-            <div className="n">before wastage and overhead</div>
+            <div className="n">before rejection and overhead</div>
           </div>
           <div className="kpi">
             <label>Gross cost</label>

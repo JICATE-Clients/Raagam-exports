@@ -73,7 +73,7 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
     doc,
     y,
     [
-      { label: `NET COST ₹${m.sizes.length > 1 ? ` · ${s.label}` : ""}`, value: fx(s.net), note: "before wastage and overhead" },
+      { label: `NET COST ₹${m.sizes.length > 1 ? ` · ${s.label}` : ""}`, value: fx(s.net), note: "before rejection and overhead" },
       { label: "GROSS COST ₹", value: fx(s.grossCost), note: `what a ${m.unitWord} costs us` },
       { label: "PRICE ₹", value: fx(s.price), note: "gross cost + margin ± price charges" },
       { label: `${s.quoted != null ? "QUOTED" : "CALCULATED"} FOB ${ccy}`.trim(), value: shown == null ? "—" : fx(shown), note: s.calc != null ? `calculated ${s.calc.toFixed(4)}` : "add the exchange rate", tone: BRAND },
@@ -96,7 +96,7 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
       { label: "Trims", value: s.trims, hex: TONE_HEX.trims },
       { label: "Bank charges", value: s.bank, hex: TONE_HEX.over },
       { label: "Net cost", value: s.net, hex: null },
-      { label: "Wastage + overhead", value: s.wastage + s.overhead, hex: TONE_HEX.over },
+      { label: "Rejection + overhead", value: s.wastage + s.overhead, hex: TONE_HEX.over },
       { label: "Extra charges", value: s.extraOverhead, hex: TONE_HEX.over },
       { label: "Gross cost", value: s.grossCost, hex: null },
       { label: `Margin ${m.terms.margin}%`, value: s.margin, hex: TONE_HEX.margin },
@@ -308,7 +308,7 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   line("Trims", (x) => x.trims);
   line("Bank charges", (x) => x.bank);
   line("Net cost", (x) => x.net);
-  line("Wastage", (x) => x.wastage);
+  line("Garment Rejection", (x) => x.wastage);
   line("Overhead", (x) => x.overhead);
   line("Extra charges", (x) => x.extraOverhead);
   line("Gross cost", (x) => x.grossCost);

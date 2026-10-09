@@ -251,7 +251,7 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
     { header: "Gmt Proc", align: "right", cell: (r) => money(r.garment_process_cost) },
     { header: "Other Exp", align: "right", cell: (r) => money(r.other_expenses) },
     { header: "Gross", align: "right", cell: (r) => <span className="font-medium">{money(r.gross_cost)}</span> },
-    { header: "Waste %", align: "right", cell: (r) => money(r.garment_waste_pct) },
+    { header: "Rejection %", align: "right", cell: (r) => money(r.garment_waste_pct) },
     { header: "Waste", align: "right", cell: (r) => money(r.garment_waste_amt) },
     { header: "Total", align: "right", cell: (r) => <span className="font-medium">{money(r.total_cost)}</span> },
     { header: "Margin %", align: "right", cell: (r) => money(r.margin_pct) },
@@ -361,7 +361,7 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
                     <TotalCell label="Gross Cost" value={rollup.gross_cost} />
                   </tr>
                   <tr className="border-b border-border">
-                    <BucketCell label="Garment Waste %" value={form.garment_waste_pct} onChange={(v) => set({ garment_waste_pct: v })} />
+                    <BucketCell label="Garment Rejection %" value={form.garment_waste_pct} onChange={(v) => set({ garment_waste_pct: v })} />
                     <TotalCell label="Garment Waste" value={rollup.garment_waste_amt} />
                     <TotalCell label="Total Cost" value={rollup.total_cost} strong />
                   </tr>
