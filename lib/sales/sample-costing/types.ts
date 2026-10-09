@@ -119,7 +119,9 @@ export type WeightDraft = {
   key: string;
   piece_key: string;
   fabric_key: string | null;
-  component_id: string | null;
+  /** Every component this line weighs together (0699) — Body + Sleeve in one
+   *  figure. The first is stored as `component_id` too, for older readers. */
+  component_ids: string[];
   /** The style size this row weighs, by name (0693); null = a legacy "every size" row. */
   size_name: string | null;
   weight_g: string;
@@ -253,7 +255,7 @@ export const isBlankYarn = (y: YarnMixDraft) => !y.item_id && !filled(y.yarn_nam
  */
 export const isBlankWeight = (w: WeightDraft) =>
   !w.fabric_key &&
-  !w.component_id &&
+  w.component_ids.length === 0 &&
   !filled(w.weight_g) &&
   !filled(w.length_cm) &&
   !filled(w.width_cm) &&
@@ -516,7 +518,7 @@ export const costingDraftSchema = z.object({
       key: s,
       piece_key: s,
       fabric_key: z.string().nullable(),
-      component_id: sid,
+      component_ids: z.array(z.string().uuid()),
       size_name: z.string().nullable(),
       weight_g: numStr,
       length_cm: numStr,
@@ -628,7 +630,8 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
       .map((w) => ({
         piece_index: pieceIndex.get(w.piece_key),
         fabric_index: w.fabric_key != null && fabricIndex.has(w.fabric_key) ? fabricIndex.get(w.fabric_key) : null,
-        component_id: w.component_id,
+        component_id: w.component_ids[0] ?? null,
+        component_ids: w.component_ids,
         size_name: w.size_name,
         weight_g: w.weight_g.trim(),
         length_cm: w.length_cm.trim(),

@@ -2163,6 +2163,11 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
         // inventing a buyer to satisfy the column would be worse. 0404 made it
         // nullable for exactly this insert.
         location_id: p.data.location_id,
+        /* A DRAFT TAKES NO RE No (0700, user 2026-10-09). The shell is still
+           made — it carries the draft's unit for `has_order_access` — but the
+           number waits for the first real Save (`numberOnRecord` below), so a
+           parked draft no longer pushes the next recorded order up by one. */
+        number_deferred: p.data.is_draft,
         // Decides which fiscal year the SC No numbers into, so a back-dated
         // order files under the previous year. Sent explicitly: what the
         // operator saw in the header must be what the number is built from.
@@ -2233,7 +2238,9 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
    * frozen the moment its response is returned — an un-awaited promise here is
    * a notification that sometimes arrives.
    */
-  if (mintedOrderId) await notifyCadOfNewOrder(created.id);
+  /* A draft is not yet an order CAD should start on — it is told when the
+     draft is first recorded and numbered (`numberOnRecord`). */
+  if (mintedOrderId && !p.data.is_draft) await notifyCadOfNewOrder(created.id);
 
   rev();
   return { ok: true, id: created.id, ...(mintedOrderNumber ? { orderNumber: mintedOrderNumber } : {}) };
@@ -2372,6 +2379,14 @@ async function saveAmendment(
     writeChildren(s, id, p.data, scope),
   ]);
   if (!childRes.ok) return childRes;
+
+  /* THE DRAFT'S FIRST REAL SAVE IS WHEN IT IS NUMBERED (0700). Last, after
+     every grid has been written, so a save refused half-way leaves the draft
+     unnumbered rather than holding an RE No for an order that was not saved. */
+  const numbered = p.data.is_draft ? null : await numberOnRecord(s, id, sales_order_id, p.data.amend_date);
+  if (numbered && !numbered.ok) return numbered;
+  if (numbered?.orderNumber) await notifyCadOfNewOrder(id);
+
   await writeAudit({
     action: "garment_order_amendment.updated",
     entityType: "garment_order_amendment",
@@ -2397,7 +2412,49 @@ async function saveAmendment(
     }
   }
   rev();
-  return { ok: true, notice };
+  return {
+    ok: true,
+    notice,
+    ...(numbered?.orderNumber ? { orderNumber: numbered.orderNumber } : {}),
+  };
+}
+
+/**
+ * NUMBER A DRAFT ON ITS FIRST REAL SAVE (0700, user 2026-10-09).
+ *
+ * Clearing `number_deferred` is what fires `assign_order_number()` — the one
+ * authority for the RE No's format, per-unit counter and fiscal year. The
+ * `number_deferred = true` filter makes it a no-op on every later save, and on
+ * an order that was numbered at creation, so it never re-numbers. `order_date`
+ * moves to the date it was recorded on, because that decides the fiscal year
+ * the number files under.
+ */
+async function numberOnRecord(
+  s: Awaited<ReturnType<typeof createClient>>,
+  id: string,
+  salesOrderId: string | null | undefined,
+  recordedOn: string | null | undefined,
+): Promise<{ ok: true; orderNumber: string | null } | { ok: false; error: string }> {
+  let soId = salesOrderId ?? null;
+  if (!soId) {
+    const { data, error } = await s
+      .from("garment_order_amendments")
+      .select("sales_order_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) return { ok: false, error: `Could not read the order's RE No: ${error.message}` };
+    soId = (data as { sales_order_id: string | null } | null)?.sales_order_id ?? null;
+  }
+  if (!soId) return { ok: true, orderNumber: null };
+  const { data, error } = await s
+    .from("sales_orders")
+    .update({ number_deferred: false, ...(recordedOn ? { order_date: recordedOn } : {}) })
+    .eq("id", soId)
+    .eq("number_deferred", true)
+    .select("order_number");
+  if (error) return { ok: false, error: `The order was saved but could not be numbered: ${error.message}` };
+  const row = (data ?? [])[0] as { order_number: string | null } | undefined;
+  return { ok: true, orderNumber: row?.order_number ?? null };
 }
 
 /**

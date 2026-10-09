@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Download, Printer, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup } from "@/components/ui/segmented";
@@ -30,7 +30,23 @@ const MUTED = "#5b6472";
 const BLUE = "#037bb8";
 const RULE = "#e3e7ec";
 
-export function QuotationDocument({ model }: { model: QuotationModel }) {
+export function QuotationDocument({
+  model,
+  locked = false,
+  lead,
+  trail,
+  quietDownload = false,
+  lockedHint = "Save the revision to download or print",
+}: {
+  model: QuotationModel;
+  /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
+  locked?: boolean;
+  /** The page's controls share this toolbar row — see `CostSheetDocument`. */
+  lead?: ReactNode;
+  trail?: ReactNode;
+  quietDownload?: boolean;
+  lockedHint?: string;
+}) {
   const [idx, setIdx] = useState(0);
   const [busy, setBusy] = useState<"download" | "print" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +88,8 @@ export function QuotationDocument({ model }: { model: QuotationModel }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm print:hidden">
+        {lead}
         {multi ? (
           <ToggleGroup<string>
             label="Size shown"
@@ -81,15 +98,25 @@ export function QuotationDocument({ model }: { model: QuotationModel }) {
             options={model.groups.map((x, i) => ({ value: String(i), label: `${x.label} · ${priceText(model.isSet ? x.total : (x.lines[0]?.price ?? null), ccy)}` }))}
           />
         ) : null}
-        <Button variant="outline" size="md" disabled={busy != null || !!model.blocked} onClick={() => void run("print")} title={model.blocked ?? undefined}>
-          <Printer className="h-4 w-4" />
-          {busy === "print" ? "Opening…" : "Print"}
-        </Button>
-        <Button size="md" disabled={busy != null || !!model.blocked} onClick={() => void run("download")} title={model.blocked ?? undefined}>
-          <Download className="h-4 w-4" />
-          {busy === "download" ? "Building…" : "Download PDF"}
-        </Button>
-        {error ? <span className="text-sm text-danger">{error}</span> : null}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {error ? <span className="text-sm text-danger">{error}</span> : null}
+          {locked ? (
+            <span className="text-sm text-muted-foreground">{lockedHint}</span>
+          ) : model.blocked ? null : (
+            // A blocked quotation says why in the amber notice below, so no dead buttons here.
+            <>
+              <Button variant="outline" size="md" disabled={busy != null} onClick={() => void run("print")}>
+                <Printer className="h-4 w-4" />
+                {busy === "print" ? "Opening…" : "Print"}
+              </Button>
+              <Button variant={quietDownload ? "outline" : undefined} size="md" disabled={busy != null} onClick={() => void run("download")}>
+                <Download className="h-4 w-4" />
+                {busy === "download" ? "Building…" : "Download PDF"}
+              </Button>
+            </>
+          )}
+          {trail}
+        </div>
       </div>
 
       {model.blocked ? (
@@ -197,7 +224,7 @@ export function QuotationDocument({ model }: { model: QuotationModel }) {
 
         {/* WHERE THIS QUOTATION STANDS IN THE NEGOTIATION — prices only; the
             margin is stripped from the model, so it cannot reach this table. */}
-        <RevisionHistory rows={model.history} currency={ccy} />
+        <RevisionHistory rows={model.history} currency={ccy} hrefFor={(id) => `/sales/sample-costing/${id}/reports?tab=quotation`} />
 
         <section className="grid grid-cols-2 gap-x-6 gap-y-3 border-t px-7 py-5 md:grid-cols-3" style={{ borderColor: RULE }}>
           {facts.map(([k, v]) => (

@@ -54,8 +54,10 @@ export type CostingEnquiryOption = {
 export type SampleCostingFormData = {
   enquiries: CostingEnquiryOption[];
   styles: CostingStyleOption[];
-  /** FABRIC-class items — the Fabric Quality picker; `category_id` is the
-   *  construction (Single Jersey, Fleece …) the loss memory keys on. */
+  /** FABRIC STRUCTURES — the FABRIC-class categories (Single Jersey, Fleece,
+   *  1X1 Lycra Rib …) the Fabric picker lists (0698, user 2026-10-09). A
+   *  structure IS the construction the loss memory keys on, so `category_id`
+   *  is the row's own id. */
   fabrics: (PickerRow & { category_id: string | null })[];
   /** YARN-class items — the Yarn Mix picker (0690). */
   yarns: PickerRow[];
@@ -225,6 +227,26 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
   return { enquiries, styles };
 }
 
+/**
+ * The fabric STRUCTURES (0698): a costing prices a construction before the
+ * cloth exists, so the Fabric field offers FABRIC-class categories, not the
+ * finished fabric items of Materials. Same table Fabric BOM's Structure reads.
+ */
+async function getFabricStructures(): Promise<(PickerRow & { category_id: string | null })[]> {
+  const ids = await classIds(["FABRIC"]);
+  if (!ids.length) return [];
+  const s = await createClient();
+  const { data, error } = await s.from("categories").select("id, name, inactive").in("item_class_id", ids).order("name");
+  if (error) throw new Error(`Could not load fabric structures: ${error.message}`);
+  return ((data ?? []) as { id: string; name: string; inactive: boolean | null }[]).map((c) => ({
+    id: c.id,
+    code: null,
+    name: c.name,
+    inactive: c.inactive,
+    category_id: c.id,
+  }));
+}
+
 async function getProcesses(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data, error } = await s.from("processes").select("id, name, inactive, for_fabric").order("name");
@@ -262,7 +284,7 @@ async function getComponents(): Promise<PickerRow[]> {
 export async function getSampleCostingFormData(): Promise<SampleCostingFormData> {
   const [{ enquiries, styles }, fabrics, yarns, processes, garmentProcesses, components, trims, currencies, memory, quoteRates] = await Promise.all([
     getEnquiries(),
-    itemsOfClasses(["FABRIC"]),
+    getFabricStructures(),
     itemsOfClasses(["YARN"]),
     getProcesses(),
     getGarmentProcesses(),
@@ -393,6 +415,7 @@ type RecordDb = Record<string, unknown> & {
         piece_id: string;
         fabric_line_id: string | null;
         component_id: string | null;
+        component_ids: string[] | null;
         size_name: string | null;
         /** Saved before 0693: the Size Group it was keyed by, read for its NAME only. */
         group: { size_group_name: string | null } | null;
@@ -471,7 +494,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     key: `w${i}`,
     piece_key: w.piece_id,
     fabric_key: w.fabric_line_id,
-    component_id: w.component_id,
+    component_ids: w.component_ids?.length ? w.component_ids : w.component_id ? [w.component_id] : [],
     size_name: w.size_name ?? w.group?.size_group_name?.trim() ?? null,
     weight_g: str(w.weight_g),
     length_cm: str(w.length_cm),
@@ -599,7 +622,6 @@ type MemoryDb = Record<string, unknown> & {
         fabric_id: string | null;
         quality: string | null;
         is_direct: boolean;
-        item: { category_id: string | null } | { category_id: string | null }[] | null;
         yarns: { sno: number; item_id: string | null; yarn_name: string | null; mix_pct: Num; rate: Num }[] | null;
         processes: { sno: number; process_id: string | null; process_name: string | null; rate: Num }[] | null;
       })[]
@@ -624,7 +646,7 @@ async function getCostingMemory(): Promise<{
     .select(
       "code, approved_at, currency_code, margin_pct, overhead_pct, garment_waste_pct, discount_pct, " +
         "opp:opportunities!opportunity_id(title, customer_id, customer:customers!customer_id(name)), " +
-        "fabrics:sample_costing_fabrics(*, item:items!fabric_id(category_id), yarns:sample_costing_fabric_yarns(sno, item_id, yarn_name, mix_pct, rate), " +
+        "fabrics:sample_costing_fabrics(*, yarns:sample_costing_fabric_yarns(sno, item_id, yarn_name, mix_pct, rate), " +
         "processes:sample_costing_fabric_processes(sno, process_id, process_name, rate))",
     )
     .eq("costing_type", "sample")
@@ -650,7 +672,8 @@ async function getCostingMemory(): Promise<{
       });
     }
     for (const f of sheet.fabrics ?? []) {
-      const cat = one(f.item)?.category_id ?? null;
+      // fabric_id IS the structure since 0698 — the construction the loss keys on.
+      const cat = f.fabric_id;
       if (cat && f.process_loss_pct != null && !loss.has(cat)) {
         loss.set(cat, { category_id: cat, loss_pct: str(f.process_loss_pct), costing_code: sheet.code });
       }

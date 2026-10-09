@@ -63,6 +63,7 @@ export function LookupDialogPicker({
   adminOnly = false,
   required = false,
   compact = false,
+  keepOrder = false,
 }: {
   kind: LookupKind;
   label: string;
@@ -97,6 +98,13 @@ export function LookupDialogPicker({
   required?: boolean;
   /** Trigger-only (no label) for dense grid rows. */
   compact?: boolean;
+  /**
+   * Keep `options` in the order given instead of A–Z. For a caller that ranks
+   * the list itself — Material BOM's Item Color puts the order's own colours
+   * first, then the rest of the master (user 2026-10-09). Values added in this
+   * session still land at the end.
+   */
+  keepOrder?: boolean;
 }) {
   const router = useRouter();
   /*
@@ -166,11 +174,10 @@ export function LookupDialogPicker({
 
   const rows: PickerRow[] = useMemo(
     () =>
-      all
-        // Sorted by the NAME, not the composed label: alphabetical by the words
+      (keepOrder ? all : [...all].sort((a, b) => a.name.localeCompare(b.name)))
+        // Sorted by the NAME (unless `keepOrder`), not the composed label: alphabetical by the words
         // the operator reads first, so Ship Type still runs CARRIAGE… → COST… →
         // DELIVERED…, not CFR → CIF → CIP.
-        .sort((a, b) => a.name.localeCompare(b.name))
         // Codes are backend-only (client 2026-07-23) — show just the name. The
         // ONE exception is a kind whose code is a term of the trade rather than a
         // generated key: Ship Type reads "FREE ON BOARD (FOB)", which also makes
@@ -189,7 +196,7 @@ export function LookupDialogPicker({
           short: lookupShortLabel(kind, o),
           inactive: isInactive(o),
         })),
-    [all, kind],
+    [all, kind, keepOrder],
   );
 
   const manage: ManageConfig = {

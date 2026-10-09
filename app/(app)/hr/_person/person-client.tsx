@@ -4713,7 +4713,6 @@ export default function PersonClient({
                 missing, so the operator knows without opening it. */}
             <Button
               variant="outline"
-              size="sm"
               onClick={() => setProfileOpen(true)}
               aria-label={
                 form.photo_url ? "View profile" : "View profile — photo missing"
@@ -4729,9 +4728,10 @@ export default function PersonClient({
                 />
               )}
             </Button>
+            {/* button-plan: exempt -- the footer uses `skip`, which swaps
+                Cancel for Skip, so this is the record's only visible way out. */}
             <Button
               variant="outline"
-              size="sm"
               onClick={cancel}
               aria-label="Back to list"
               className="max-md:hidden"

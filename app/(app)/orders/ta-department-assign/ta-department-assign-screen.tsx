@@ -272,15 +272,12 @@ export function TaDepartmentAssignScreen({ rows, data, perms }: Props) {
       <PageHeader
         title={editId ? "Edit Assignment" : "New Assignment"}
         // back={false}: this screen swaps a list and an editor at ONE url, and
-        // the editor already shows "← Back to list". The derived hub link is
+        // the editor's way out is its Cancel. The derived hub link is
         // right on the LIST branch above and a second, differently aimed Back here.
         back={false}
         description="Pick a Location & Department, then assign activities. Blank rows are ignored."
-        actions={
-          <Button variant="outline" size="md" onClick={() => setMode("list")}>
-            ← Back to list
-          </Button>
-        }
+        // No "← Back to list" (user 2026-10-09, button plan Rule 1): the footer's
+        // Cancel runs the same setMode("list"), and is visible on a phone too.
       />
 
       {/* `FieldGrid`, not a hand-rolled `lg:grid-cols-4` — a screen composes

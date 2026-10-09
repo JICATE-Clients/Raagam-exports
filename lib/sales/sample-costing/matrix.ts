@@ -35,7 +35,8 @@ export const ALL_SIZES = "all";
 export type ConsumptionLine = {
   key: string;
   piece_key: string;
-  component_id: string | null;
+  /** One or more components weighed together (0699). */
+  component_ids: string[];
   fabric_key: string | null;
   /** Grams per column: a style size name, or `ALL_SIZES`. Blank = inherit column 1. */
   cells: Record<string, string>;
@@ -48,7 +49,7 @@ const filled = (v: string | undefined) => (v ?? "").trim() !== "";
 
 /** Nothing typed that the operator HAS to type. */
 export const isBlankLine = (l: ConsumptionLine) =>
-  !l.fabric_key && !l.component_id && !Object.values(l.cells).some(filled);
+  !l.fabric_key && l.component_ids.length === 0 && !Object.values(l.cells).some(filled);
 
 /** The columns a sheet writes: its chosen sizes, or the one All-sizes column. */
 export const columnsOf = (sizes: readonly string[]) => (sizes.length ? [...sizes] : [ALL_SIZES]);
@@ -85,7 +86,7 @@ export function linesToWeights(lines: readonly ConsumptionLine[], sizes: readonl
         key: i === 0 ? l.key : `${l.key}|${col}`,
         piece_key: l.piece_key,
         fabric_key: l.fabric_key,
-        component_id: l.component_id,
+        component_ids: l.component_ids,
         size_name: col === ALL_SIZES ? null : col,
         weight_g: grams,
         length_cm: "",
@@ -121,10 +122,10 @@ export function weightsToLines(
   const byKey = new Map<string, ConsumptionLine>();
   const lossRaw: LossBySize = {};
   for (const w of weights) {
-    const k = [w.piece_key, w.component_id ?? "", w.fabric_key ?? ""].join("|");
+    const k = [w.piece_key, w.component_ids.join(","), w.fabric_key ?? ""].join("|");
     let line = byKey.get(k);
     if (!line) {
-      line = { key: newKey(), piece_key: w.piece_key, component_id: w.component_id, fabric_key: w.fabric_key, cells: {} };
+      line = { key: newKey(), piece_key: w.piece_key, component_ids: [...w.component_ids], fabric_key: w.fabric_key, cells: {} };
       byKey.set(k, line);
     }
     const col = w.size_name ?? cols[0];

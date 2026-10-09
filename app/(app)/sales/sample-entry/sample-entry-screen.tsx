@@ -2050,9 +2050,9 @@ export function SampleEntryScreen({
               <span className="font-medium tabular-nums text-foreground">{fmtNumber(totalSampleQty)}</span>
               <span className="text-muted-foreground">pcs</span>
             </span>
-            <Button variant="outline" size="sm" onClick={closeEditor} className="max-md:hidden">
-              ← Back to list
-            </Button>
+            {/* No desktop "← Back to list" (user 2026-10-09, button plan Rule
+                1): the footer's Cancel runs the same closeEditor. The phone
+                keeps its ← at the start of this band. */}
           </div>
         </div>
 

@@ -972,10 +972,17 @@ Sample Costing showed 11 at once). The approved plan, five rules:
   shows the same buttons every visit.
 
 Header and save-bar buttons are 36px (`MasterFullScreen`'s footer no longer
-passes `size="sm"`). **Done so far:** `BackLink`, the footer, Sample Costing,
-the Garment Order editor. **Not yet swept:** the other editors that still draw
-"← Back to list" (`grep -rl "Back to list" app components`). Not enforced by a
-script yet.
+passes `size="sm"`). Swept 2026-10-09: Sample Costing, Sample Entry, Garment
+Order, Style, TA Plan, TA Style, TA Department Assign. HR person keeps its Back
+(exempt, see above). The ten read-only `[id]` detail pages keep their plain
+"Back to list" text link — no Cancel there, so it is their only way out.
+
+Checked by `npm run check:button-plan` (inside `build:check`): a
+desktop-visible "← Back to list" `<Button>`, and a `size="sm"` button in an
+editor header band (`data-focus-region="header"`). Verified by being made to
+FAIL first, against Sample Costing and the Garment Order editor before
+`216fa07`. **Its floor:** "one filled button" is not checked — two filled
+buttons that never show together look the same in source as two that do.
 
 ## The sidebar lists SUB-MODULES (STANDING)
 

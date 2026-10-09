@@ -1,14 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Download, FileSpreadsheet, Printer } from "lucide-react";
+import { AddCharge, AddFabric, AddOperation, AddTrim, AddWeight, EdText, Pick, RemoveX, type EditOptions } from "@/components/sales/cost-sheet-editors";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
-import { MARGIN_RED_BELOW_PCT, MARGIN_TARGET_PCT } from "@/lib/sales/sample-costing/calc";
+import { MARGIN_RED_BELOW_PCT, MARGIN_TARGET_PCT, hasYarnMix, quoteKey } from "@/lib/sales/sample-costing/calc";
+import type { CostingDraft, FabricDraft, PieceDraft } from "@/lib/sales/sample-costing/types";
 import { changeText } from "@/lib/sales/sample-costing/revision-history";
+import { newFabricProcess, newYarnMix } from "@/lib/sales/sample-costing/revision-draft";
 
 /**
  * THE SAMPLE COST SHEET — the page (2026-10-08, "think more modern and visual").
@@ -39,7 +44,62 @@ const TONE_VAR = {
 
 const money = (v: number | null | undefined) => fx(v);
 
-export function CostSheetDocument({ model }: { model: CostSheetModel }) {
+/**
+ * INLINE EDITING ON THE REPORT (client 2026-10-09: "inline edit inside the report
+ * — the chart and the remaining calculation work the same, lively; not a
+ * separate panel"). While a revision is being worked, `edit` carries the working
+ * copy and the report's OWN cells become inputs: the Fabric rates table, the CMT
+ * & embellishment rates and the Margin tile. The page above rebuilds `model`
+ * from that copy on every keystroke, so the price, gauge, waterfall and donut
+ * redraw as you type. This component computes nothing — it only writes the typed
+ * text back into the draft row each cell belongs to (`model` carries the keys).
+ */
+export type CostSheetEdit = { draft: CostingDraft; onChange: (next: CostingDraft) => void; /** A quoted price was typed — the caller holds that one and stops recalculating it. */ onQuote?: (key: string) => void; /** The masters the row pickers list; without them the sheet edits figures only. */ options?: EditOptions };
+
+const patchBy = <T extends { key: string }>(xs: readonly T[], key: string, patch: Partial<T>): T[] => xs.map((x) => (x.key === key ? { ...x, ...patch } : x));
+
+/** A number cell edited in place. Paper-coloured whatever the theme: the sheet is paper. */
+function Ed({ value, onChange, label, w = "w-24" }: { value: string; onChange: (v: string) => void; label: string; w?: string }) {
+  return (
+    <Input
+      type="number"
+      inputMode="decimal"
+      step="any"
+      min={0}
+      aria-label={label}
+      title={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={(e) => e.currentTarget.select()}
+      className={`${w} !h-7 !border-[#037bb8] !bg-white !px-2 text-right font-semibold tabular-nums !text-[#0f1b26]`}
+    />
+  );
+}
+
+export function CostSheetDocument({
+  model,
+  locked = false,
+  edit,
+  lead,
+  trail,
+  quietDownload = false,
+  lockedHint = "Save the revision to download or print",
+}: {
+  model: CostSheetModel;
+  /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
+  locked?: boolean;
+  /** THE PAGE'S CONTROLS SHARE THIS ROW (client 2026-10-09, screenshot 3427: "make in
+   *  single with better ui"). The report tabs go before the size switch; the
+   *  revision picker / Revise / Submit after the downloads — one toolbar, not two. */
+  lead?: ReactNode;
+  trail?: ReactNode;
+  /** Another button is the next step (Submit), so Download PDF drops to outline. */
+  quietDownload?: boolean;
+  /** Said IN PLACE of the downloads while locked — a disabled button's title never shows. */
+  lockedHint?: string;
+  /** Present only while a revision is being worked — the report's cells become inputs. */
+  edit?: CostSheetEdit;
+}) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
   const [idx, setIdx] = useState(lowest);
@@ -64,7 +124,8 @@ export function CostSheetDocument({ model }: { model: CostSheetModel }) {
   return (
     <div className="space-y-3">
       <DocumentPrintStyles scope="cs" />
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm print:hidden">
+        {lead}
         {model.sizes.length > 1 ? (
           <ToggleGroup<string>
             label="Size shown"
@@ -73,26 +134,37 @@ export function CostSheetDocument({ model }: { model: CostSheetModel }) {
             options={model.sizes.map((x, i) => ({ value: String(i), label: x.label }))}
           />
         ) : null}
-        <Button variant="outline" size="md" disabled={busy != null} onClick={() => void run("csv")}>
-          <FileSpreadsheet className="h-4 w-4" />
-          Excel
-        </Button>
-        <Button variant="outline" size="md" onClick={() => window.print()}>
-          <Printer className="h-4 w-4" />
-          Print
-        </Button>
-        <Button size="md" disabled={busy != null} onClick={() => void run("pdf")}>
-          <Download className="h-4 w-4" />
-          {busy === "pdf" ? "Building…" : "Download PDF"}
-        </Button>
-        {error ? <span className="text-sm text-danger">{error}</span> : null}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {error ? <span className="text-sm text-danger">{error}</span> : null}
+          {locked ? (
+            <span className="text-sm text-muted-foreground">{lockedHint}</span>
+          ) : (
+            <>
+              <Button variant="outline" size="md" disabled={busy != null} onClick={() => void run("csv")}>
+                <FileSpreadsheet className="h-4 w-4" />
+                Excel
+              </Button>
+              <Button variant="outline" size="md" onClick={() => window.print()}>
+                <Printer className="h-4 w-4" />
+                Print
+              </Button>
+              <Button variant={quietDownload ? "outline" : undefined} size="md" disabled={busy != null} onClick={() => void run("pdf")}>
+                <Download className="h-4 w-4" />
+                {busy === "pdf" ? "Building…" : "Download PDF"}
+              </Button>
+            </>
+          )}
+          {trail}
+        </div>
       </div>
-      <Sheet model={model} s={s} idx={idx} />
+      <Sheet model={model} s={s} idx={idx} edit={edit} />
     </div>
   );
 }
 
-function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: number }) {
+function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures; idx: number; edit?: CostSheetEdit }) {
+  const setFabric = (key: string, patch: Partial<FabricDraft>) => edit?.onChange({ ...edit.draft, fabrics: patchBy(edit.draft.fabrics, key, patch) });
+  const setPiece = (key: string, patch: Partial<PieceDraft>) => edit?.onChange({ ...edit.draft, pieces: patchBy(edit.draft.pieces, key, patch) });
   const eff = s.effectiveMarginPct;
   const pin = eff == null ? null : (Math.min(Math.max(eff, 0), 30) / 30) * 100;
   const ccy = model.currency ?? "";
@@ -317,7 +389,16 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
           <div className="kpi">
             <label>Margin earned</label>
             <div className="v">₹ {money(s.margin)}</div>
-            <div className="n">{model.terms.margin}% of net</div>
+            <div className="n" style={edit ? { display: "flex", alignItems: "center", gap: 6 } : undefined}>
+              {edit ? (
+                <>
+                  <Ed w="w-16" label="Margin % of net" value={edit.draft.header.margin_pct} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, margin_pct: v } })} />
+                  <span>% of net</span>
+                </>
+              ) : (
+                `${model.terms.margin}% of net`
+              )}
+            </div>
           </div>
         </section>
 
@@ -479,6 +560,41 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
           </div>
         </section>
 
+        {edit ? (
+          <section className="sec">
+            <div className="sec-h">
+              <h3>Terms &amp; quote</h3>
+              <span>exchange rate, discount, freight, insurance and the quoted price</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", alignItems: "center" }}>
+              {(
+                [
+                  ["Exchange rate", "exchange_rate"],
+                  ["Discount %", "discount_pct"],
+                  ["Freight / pc", "freight_per_pc"],
+                  ["Insurance / pc", "insurance_per_pc"],
+                ] as const
+              ).map(([label, field]) => (
+                <label key={field} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span className="dim">{label}</span>
+                  <Ed w="w-20" label={label} value={edit.draft.header[field]} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, [field]: v } })} />
+                </label>
+              ))}
+              {edit.draft.pieces.flatMap((p) =>
+                model.sizes.map((x) => {
+                  const k = quoteKey(p.key, x.size);
+                  return (
+                    <label key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <span className="dim">Quote{edit.draft.pieces.length > 1 ? ` ${p.piece_name || "piece"}` : ""}{model.sizes.length > 1 ? ` ${x.label}` : ""}</span>
+                      <Ed w="w-24" label={`Quoted price ${x.label}`} value={edit.draft.quotes[k] ?? ""} onChange={(v) => { edit.onQuote?.(k); edit.onChange({ ...edit.draft, quotes: { ...edit.draft.quotes, [k]: v } }); }} />
+                    </label>
+                  );
+                }),
+              )}
+            </div>
+          </section>
+        ) : null}
+
         <section className="sec">
           <div className="sec-h">
             <h3>Full detail</h3>
@@ -504,20 +620,82 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                   </tr>
                 </thead>
                 <tbody>
-                  {model.fabrics.map((f) => (
-                    <tr key={f.name}>
-                      <td>{f.name}</td>
-                      <td className="r">{f.direct ? "" : money(f.yarn)}</td>
-                      <td className="r">{f.direct ? "" : money(f.knitting)}</td>
-                      <td className="r">{f.direct ? "" : money(f.dyeing)}</td>
-                      <td className="r">{f.direct ? "" : money(f.finishing)}</td>
-                      <td className="r">{f.direct ? "" : money(f.special)}</td>
-                      <td className="r">{f.direct ? "Direct" : fx(f.lossPct)}</td>
-                      <td className="r"><b>{money(f.price)}</b></td>
-                    </tr>
-                  ))}
+                  {model.fabrics.flatMap((f) => {
+                    /* THE DRAFT ROW THIS LINE IS — present only while revising, when its
+                       cells turn into inputs. A direct fabric edits its Price / kg; a built
+                       fabric edits its Yarn (when it has no blend) and its Loss %, and the
+                       yarns / processes behind it open as a line of inputs beneath. */
+                    const d = edit?.draft.fabrics.find((x) => x.key === f.key);
+                    const blend = d ? !d.is_direct && hasYarnMix(d) : false;
+                    const rows = [
+                      <tr key={f.key}>
+                        <td>
+                          {d && edit?.options ? (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              <Pick label="Fabric structure" value={d.fabric_id} empty={d.quality || "Fabric structure"} options={edit.options.fabrics} w="w-40" onPick={(id, name) => setFabric(f.key, { fabric_id: id, quality: name })} />
+                              <RemoveX label={f.name} onClick={() => edit.onChange({ ...edit.draft, fabrics: edit.draft.fabrics.filter((x) => x.key !== f.key) })} />
+                            </span>
+                          ) : (
+                            f.name
+                          )}
+                        </td>
+                        <td className="r">
+                          {f.direct ? "" : d && !blend ? <Ed label={`${f.name} — yarn rate ₹/kg`} value={d.yarn_rate} onChange={(v) => setFabric(f.key, { yarn_rate: v })} /> : money(f.yarn)}
+                        </td>
+                        <td className="r">{f.direct ? "" : money(f.knitting)}</td>
+                        <td className="r">{f.direct ? "" : money(f.dyeing)}</td>
+                        <td className="r">{f.direct ? "" : money(f.finishing)}</td>
+                        <td className="r">{f.direct ? "" : money(f.special)}</td>
+                        <td className="r">
+                          {f.direct ? "Direct" : d ? <Ed w="w-20" label={`${f.name} — process loss %`} value={d.process_loss_pct} onChange={(v) => setFabric(f.key, { process_loss_pct: v })} /> : fx(f.lossPct)}
+                        </td>
+                        <td className="r">
+                          {f.direct && d ? <Ed label={`${f.name} — direct rate ₹/kg`} value={d.direct_rate} onChange={(v) => setFabric(f.key, { direct_rate: v })} /> : <b>{money(f.price)}</b>}
+                        </td>
+                      </tr>,
+                    ];
+                    if (d && edit) {
+                      const opts = edit.options;
+                      rows.push(
+                        <tr key={`${f.key}-parts`} className="sub">
+                          <td colSpan={8}>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "center" }}>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                <input type="checkbox" checked={d.is_direct} onChange={(e) => setFabric(f.key, { is_direct: e.target.checked })} />
+                                <span className="dim">Direct rate (bought-in)</span>
+                              </label>
+                              {!d.is_direct ? (
+                                <>
+                                  {d.yarns.map((y, k) => (
+                                    <span key={y.key} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                      {opts ? <Pick label="Yarn" value={y.item_id} empty={y.yarn_name || `Yarn ${k + 1}`} options={opts.yarns} w="w-40" onPick={(id, name) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { item_id: id, yarn_name: name }) })} /> : <span className="dim">{y.yarn_name || `Yarn ${k + 1}`}</span>}
+                                      <Ed w="w-16" label={`${y.yarn_name || "Yarn"} share %`} value={y.mix_pct} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { mix_pct: v }) })} />
+                                      <span className="dim">%</span>
+                                      <Ed w="w-20" label={`${y.yarn_name || "Yarn"} rate ₹/kg`} value={y.rate} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { rate: v }) })} />
+                                      <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
+                                    </span>
+                                  ))}
+                                  {opts ? <Pick label="Add yarn" value={null} empty="+ Yarn" options={opts.yarns} w="w-28" onPick={(id, name) => setFabric(f.key, { yarns: [...d.yarns, { ...newYarnMix(), item_id: id, yarn_name: name }] })} /> : null}
+                                  {d.processes.map((q, k) => (
+                                    <span key={q.key} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                      {opts ? <Pick label="Process" value={q.process_id} empty={q.process_name || `Process ${k + 1}`} options={opts.processes} w="w-40" onPick={(id, name) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { process_id: id, process_name: name }) })} /> : <span className="dim">{q.process_name || `Process ${k + 1}`}</span>}
+                                      <Ed w="w-20" label={`${q.process_name || "Process"} rate ₹/kg`} value={q.rate} onChange={(v) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { rate: v }) })} />
+                                      <RemoveX label={q.process_name || "process"} onClick={() => setFabric(f.key, { processes: d.processes.filter((x) => x.key !== q.key) })} />
+                                    </span>
+                                  ))}
+                                  {opts ? <Pick label="Add process" value={null} empty="+ Process" options={opts.processes} w="w-28" onPick={(id, name) => setFabric(f.key, { processes: [...d.processes, { ...newFabricProcess(), process_id: id, process_name: name }] })} /> : null}
+                                </>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>,
+                      );
+                    }
+                    return rows;
+                  })}
                 </tbody>
               </table>
+              {edit?.options ? <AddFabric draft={edit.draft} onChange={edit.onChange} options={edit.options} /> : null}
             </div>
           </details>
 
@@ -542,12 +720,33 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                   {model.weights.rows.map((r, i) => (
                     <tr key={i}>
                       {model.pieceCount > 1 ? <td>{r.piece}</td> : null}
-                      <td>{r.component}</td>
+                      <td>
+                        {edit && r.wkeys.length ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            {r.component}
+                            <RemoveX label={r.component || "weight line"} onClick={() => edit.onChange({ ...edit.draft, weights: edit.draft.weights.filter((x) => !r.wkeys.includes(x.key)) })} />
+                          </span>
+                        ) : (
+                          r.component
+                        )}
+                      </td>
                       <td>{r.fabric}</td>
-                      {r.grams.map((g, j) => (
-                        <td key={j} className="r">{g == null ? "" : g}</td>
-                      ))}
-                      <td className="r">{r.lossPct}</td>
+                      {r.grams.map((g, j) => {
+                        const cell = r.cells[j];
+                        const w = edit && cell && !cell.dim ? edit.draft.weights.find((x) => x.key === cell.key) : null;
+                        return (
+                          <td key={j} className="r">
+                            {w && edit ? <Ed w="w-20" label={`${r.component} ${model.weights.sizeLabels[j]} — grams`} value={w.weight_g} onChange={(v) => edit.onChange({ ...edit.draft, weights: patchBy(edit.draft.weights, w.key, { weight_g: v }) })} /> : g == null ? "" : g}
+                          </td>
+                        );
+                      })}
+                      <td className="r">
+                        {edit && r.wkeys.length ? (
+                          <Ed w="w-16" label={`${r.component} — loss %`} value={edit.draft.weights.find((x) => x.key === r.wkeys[0])?.wastage_pct ?? ""} onChange={(v) => edit.onChange({ ...edit.draft, weights: edit.draft.weights.map((x) => (r.wkeys.includes(x.key) ? { ...x, wastage_pct: v } : x)) })} />
+                        ) : (
+                          r.lossPct
+                        )}
+                      </td>
                     </tr>
                   ))}
                   <tr className="total">
@@ -559,10 +758,11 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                   </tr>
                 </tbody>
               </table>
+              {edit?.options ? <AddWeight draft={edit.draft} onChange={edit.onChange} options={edit.options} sizes={model.sizes.map((x) => x.size)} /> : null}
             </div>
           </details>
 
-          {model.ops.length ? (
+          {model.ops.length || edit?.options ? (
             <details open>
               <summary>
                 CMT &amp; embellishment <span>₹ {money(s.cmt + s.process + s.testing)} / {model.unitWord}</span>
@@ -581,9 +781,36 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                     {model.ops.map((o, i) => (
                       <tr key={i}>
                         {model.pieceCount > 1 ? <td>{o.piece}</td> : null}
-                        <td>{o.name}</td>
+                        <td>
+                          {edit && o.field === "line" && o.lineKey ? (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              {o.name}
+                              <RemoveX
+                                label={o.name}
+                                onClick={() =>
+                                  edit.onChange({
+                                    ...edit.draft,
+                                    pieces: edit.draft.pieces.map((x) => (x.key === o.pieceKey ? { ...x, lines: x.lines.filter((l) => l.key !== o.lineKey) } : x)),
+                                  })
+                                }
+                              />
+                            </span>
+                          ) : (
+                            o.name
+                          )}
+                        </td>
                         <td className="dim">{o.kind}</td>
-                        <td className="r">{money(o.rate)}</td>
+                        <td className="r">
+                          {(() => {
+                            const piece = edit?.draft.pieces.find((x) => x.key === o.pieceKey);
+                            if (!edit || !piece) return money(o.rate);
+                            const label = `${o.name}${o.piece ? ` (${o.piece})` : ""} — rate ₹`;
+                            if (o.field === "cmt") return <Ed label={label} value={piece.cmt} onChange={(v) => setPiece(piece.key, { cmt: v })} />;
+                            if (o.field === "testing") return <Ed label={label} value={piece.testing_cost} onChange={(v) => setPiece(piece.key, { testing_cost: v })} />;
+                            const line = piece.lines.find((l) => l.key === o.lineKey);
+                            return line ? <Ed label={label} value={line.rate} onChange={(v) => setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { rate: v }) })} /> : money(o.rate);
+                          })()}
+                        </td>
                       </tr>
                     ))}
                     <tr className="total">
@@ -592,11 +819,12 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                     </tr>
                   </tbody>
                 </table>
+                {edit?.options ? <AddOperation draft={edit.draft} onChange={edit.onChange} options={edit.options} /> : null}
               </div>
             </details>
           ) : null}
 
-          {model.trims.length ? (
+          {model.trims.length || edit?.options ? (
             <details open>
               <summary>
                 Trims &amp; accessories <span>₹ {money(s.trims)} / {model.unitWord}</span>
@@ -616,9 +844,49 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                     {model.trims.map((t, i) => (
                       <tr key={i}>
                         {model.pieceCount > 1 ? <td>{t.piece}</td> : null}
-                        <td>{t.name}</td>
-                        <td className="dim">{t.pricing}</td>
-                        <td className="r">{t.qty}</td>
+                        <td>
+                          {edit ? (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              {t.name}
+                              <RemoveX label={t.name || "trim"} onClick={() => edit.onChange({ ...edit.draft, trims: edit.draft.trims.filter((x) => x.key !== t.key) })} />
+                            </span>
+                          ) : (
+                            t.name
+                          )}
+                        </td>
+                        <td className="dim">
+                          {(() => {
+                            const d = edit?.draft.trims.find((x) => x.key === t.key);
+                            if (!edit || !d) return t.pricing;
+                            const set = (patch: Partial<typeof d>) => edit.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, d.key, patch) });
+                            // Direct: the flat ₹ per piece. Packed: the pack price (consumption below does the rest).
+                            return (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                  <input type="checkbox" checked={d.is_direct !== false} onChange={(e) => set({ is_direct: e.target.checked })} />
+                                  <span>Direct</span>
+                                </label>
+                                {d.is_direct !== false ? (
+                                  <Ed w="w-20" label={`${t.name} — direct rate ₹`} value={d.rate} onChange={(v) => set({ rate: v })} />
+                                ) : (
+                                  <>
+                                    <Ed w="w-20" label={`${t.name} — pack price ₹`} value={d.pack_price} onChange={(v) => set({ pack_price: v })} />
+                                    <span>÷</span>
+                                    <Ed w="w-16" label={`${t.name} — pack size`} value={d.pack_size} onChange={(v) => set({ pack_size: v })} />
+                                  </>
+                                )}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="r">
+                          {(() => {
+                            const d = edit?.draft.trims.find((x) => x.key === t.key);
+                            if (!edit || !d || d.is_direct !== false) return t.qty;
+                            const set = (patch: Partial<typeof d>) => edit.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, d.key, patch) });
+                            return <Ed w="w-20" label={`${t.name} — consumption`} value={d.qty} onChange={(v) => set({ qty: v })} />;
+                          })()}
+                        </td>
                         <td className="r">{money(t.cost)}</td>
                       </tr>
                     ))}
@@ -628,6 +896,7 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                     </tr>
                   </tbody>
                 </table>
+                {edit?.options ? <AddTrim draft={edit.draft} onChange={edit.onChange} options={edit.options} /> : null}
               </div>
             </details>
           ) : null}
@@ -652,11 +921,64 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                   {model.overheads.map((o, i) => (
                     <tr key={i}>
                       <td>
-                        {o.name.toUpperCase()}
-                        {o.side === "price" ? <span className="dim"> (price)</span> : null}
+                        {(() => {
+                          const x = edit && o.edit.kind === "extra" ? edit.draft.extras.find((e) => e.key === o.edit.key) : null;
+                          if (!edit || !x) {
+                            return (
+                              <>
+                                {o.name.toUpperCase()}
+                                {o.side === "price" ? <span className="dim"> (price)</span> : null}
+                              </>
+                            );
+                          }
+                          const set = (patch: Partial<typeof x>) => edit.onChange({ ...edit.draft, extras: patchBy(edit.draft.extras, x.key, patch) });
+                          return (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              <EdText label="Charge name" value={x.name} onChange={(v) => set({ name: v })} />
+                              <RemoveX label={x.name || "charge"} onClick={() => edit.onChange({ ...edit.draft, extras: edit.draft.extras.filter((e) => e.key !== x.key) })} />
+                            </span>
+                          );
+                        })()}
                       </td>
-                      <td className="dim">{o.type}</td>
-                      <td className="r">{o.value}</td>
+                      <td className="dim">
+                        {(() => {
+                          const x = edit && o.edit.kind === "extra" ? edit.draft.extras.find((e) => e.key === o.edit.key) : null;
+                          if (!edit || !x) return o.type;
+                          const set = (patch: Partial<typeof x>) => edit.onChange({ ...edit.draft, extras: patchBy(edit.draft.extras, x.key, patch) });
+                          return (
+                            <select
+                              aria-label="Charge type"
+                              value={x.kind}
+                              autoComplete="off"
+                              data-1p-ignore
+                              data-lpignore="true"
+                              data-form-type="other"
+                              onChange={(e) => set({ kind: e.target.value as "flat" | "pct" })}
+                              className="h-7 rounded-md border border-[#037bb8] bg-white px-1.5 text-xs font-semibold text-[#0f1b26]"
+                            >
+                              <option value="flat">Flat ₹</option>
+                              <option value="pct">Percent</option>
+                            </select>
+                          );
+                        })()}
+                      </td>
+                      <td className="r">
+                        {(() => {
+                          if (!edit) return o.value;
+                          const dr = edit.draft;
+                          const label = `${o.name} — ${o.type === "Percent" ? "%" : "₹"}`;
+                          const setH = (patch: Partial<typeof dr.header>) => edit.onChange({ ...dr, header: { ...dr.header, ...patch } });
+                          if (o.edit.kind === "waste") return <Ed w="w-20" label={label} value={dr.header.garment_waste_pct} onChange={(v) => setH({ garment_waste_pct: v })} />;
+                          if (o.edit.kind === "overhead") return <Ed w="w-20" label={label} value={dr.header.overhead_pct} onChange={(v) => setH({ overhead_pct: v })} />;
+                          if (o.edit.kind === "bank") {
+                            // Bank charges are per piece; with several pieces there is no single box to type into.
+                            const only = dr.pieces.length === 1 ? dr.pieces[0] : null;
+                            return only ? <Ed w="w-20" label={label} value={only.bank_cost} onChange={(v) => edit.onChange({ ...dr, pieces: patchBy(dr.pieces, only.key, { bank_cost: v }) })} /> : o.value;
+                          }
+                          const x = dr.extras.find((e) => e.key === o.edit.key);
+                          return x ? <Ed w="w-20" label={label} value={x.value} onChange={(v) => edit.onChange({ ...dr, extras: patchBy(dr.extras, x.key, { value: v }) })} /> : o.value;
+                        })()}
+                      </td>
                       {o.perSize.map((v, j) => (
                         <td key={j} className="r">{o.side === "price" && v >= 0 ? "+" : o.side === "price" ? "−" : ""}{money(Math.abs(v))}</td>
                       ))}
@@ -664,6 +986,7 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                   ))}
                 </tbody>
               </table>
+              {edit ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
             </div>
           </details>
         </section>
@@ -695,7 +1018,13 @@ function Sheet({ model, s, idx }: { model: CostSheetModel; s: SizeFigures; idx: 
                   {model.history.map((r) => (
                     <tr key={r.id} className={r.current ? "total" : undefined}>
                       <td>
-                        {r.label}
+                        {r.current ? (
+                          r.label
+                        ) : (
+                          <Link href={`/sales/sample-costing/${r.id}/reports?tab=cost-sheet`} style={{ color: "var(--cs-brand)", textDecoration: "underline" }}>
+                            {r.label}
+                          </Link>
+                        )}
                         {r.current ? " · this sheet" : ""}
                       </td>
                       <td>{r.date ? fmtDate(r.date) : "—"}</td>
@@ -821,6 +1150,7 @@ const CSS = `
 .cs-sheet th { text-align:left; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--cs-muted); padding:5px 12px; border-bottom:1px solid var(--cs-rule); white-space:nowrap; font-weight:700; background:#fff; }
 .cs-sheet td { padding:4px 12px; border-bottom:1px solid var(--cs-rule); white-space:nowrap; background:#fff; }
 .cs-sheet tr:last-child td { border-bottom:0; } .cs-sheet .r { text-align:right; }
+.cs-sheet tr.sub td { background:var(--cs-soft); padding:6px 12px; font-size:12px; }
 .cs-sheet tr.total td { background:var(--cs-brand-tint); font-weight:800; color:var(--cs-brand-ink); }
 .cs-sheet .apv { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 14px; padding:7px 18px; font-size:12.5px; border-bottom:1px solid var(--cs-rule); }
 .cs-sheet .apv span { font-size:12px; opacity:.85; }
