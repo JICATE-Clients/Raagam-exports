@@ -347,7 +347,7 @@ export function BomSliceGrid({
   /*
    * THE FIRST ROW LEADS (client 2026-10-05: "item and pcs field first field
    * value will fill remain field, sometimes only it will vary, that time user
-   * will update manually"). Typing Items or Pcs on the first row of a run
+   * will update manually"). Typing Items, Pcs or Exc % on the first row of a run
    * copies it down that run; a row is a FOLLOWER while it is blank or still
    * holds what the leader held before this keystroke, so a row the operator
    * changed by hand stops following and is never overwritten.
@@ -363,7 +363,7 @@ export function BomSliceGrid({
     onSet(row.cell.key, patch);
     const run = rows.filter((r) => r.groupKey === row.groupKey);
     if (run[0]?.key !== row.key) return;
-    for (const field of ["items", "pieces"] as const) {
+    for (const field of ["items", "pieces", "excess"] as const) {
       const next = patch[field];
       if (next === undefined) continue;
       const before = row.cell[field];
@@ -592,8 +592,9 @@ export function BomSliceGrid({
                       max="100"
                       step="0.01"
                       value={row.cell.excess}
+                      placeholder={linePlaceholder.excess}
                       aria-label={`Excess percent, ${nameOf(row)}`}
-                      onChange={(e) => onSet(row.cell.key, { excess: e.target.value })}
+                      onChange={(e) => setFigure(row, { excess: e.target.value })}
                       className={cn(BOX, "w-full text-right")}
                     />
                   </div>

@@ -329,21 +329,18 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
       <PageHeader
         title={editId ? "Edit TA Style" : "New TA Style"}
         // back={false}: this screen swaps a list and an editor at ONE url, and
-        // the editor already shows "← Back to list". The derived hub link is
+        // the editor's way out is its Cancel. The derived hub link is
         // right on the LIST branch above and a second, differently aimed Back here.
         back={false}
         description="Pick activities from the TA Activity catalogue and set day offsets."
+        // No "← Back to list" (user 2026-10-09, button plan Rule 1): the footer's
+        // Cancel runs the same setMode("list"), and is visible on a phone too.
         actions={
-          <div className="flex gap-2">
-            {editId && (
-              <Button variant="outline" size="md" onClick={() => loadForm(rows.find((r) => r.id === editId) ?? null, { asCopy: true })}>
-                <Copy className="mr-1 h-3.5 w-3.5" /> Copy
-              </Button>
-            )}
-            <Button variant="outline" size="md" onClick={() => setMode("list")}>
-              ← Back to list
+          editId ? (
+            <Button variant="outline" size="md" onClick={() => loadForm(rows.find((r) => r.id === editId) ?? null, { asCopy: true })}>
+              <Copy aria-hidden /> Copy
             </Button>
-          </div>
+          ) : undefined
         }
       />
 

@@ -1789,7 +1789,7 @@ export function MbaMasterScreen({
     return sortBySize(out, (z) => z.name);
   }, [orderProd]);
 
-  const orderColourOptions = (styleRef: string, held: string | null) => {
+  const orderColourOptions = (styleRef: string) => {
     const wanted = new Set(
       (orderProd?.combos ?? [])
         .filter(
@@ -1801,18 +1801,18 @@ export function MbaMasterScreen({
         .map((c) => (c.combo ?? "").trim().toUpperCase())
         .filter(Boolean),
     );
+    /* THE ORDER'S COLOURS FIRST, THEN THE WHOLE MASTER (user 2026-10-09: "only
+       one color is listing but it should list the color master … if I add red
+       it says red is existing"). Narrowing to the order's combos (08-20) left
+       a BLACK order offering BLACK alone, so a white label or a red thread
+       could not be picked — and "+ Add item color" then refused RED as a
+       duplicate of a master row the list was hiding. Ordering keeps what the
+       08-20 rule was for (the likely pick on top) without hiding the rest.
+       A colour a row already holds needs no special case: every row is offered. */
     if (wanted.size === 0) return itemColours;
-    const narrowed = itemColours.filter((l) =>
-      wanted.has((l.name ?? "").trim().toUpperCase()),
-    );
-    // A HELD VALUE ALWAYS SURVIVES — the standing rule. A colour a saved line
-    // already names must keep resolving even if the order no longer declares it,
-    // or a filled cell renders empty and blanks its FK on the next save.
-    if (held && !narrowed.some((l) => l.id === held)) {
-      const row = itemColours.find((l) => l.id === held);
-      if (row) return [...narrowed, row];
-    }
-    return narrowed.length ? narrowed : itemColours;
+    const isOrder = (l: (typeof itemColours)[number]) =>
+      wanted.has((l.name ?? "").trim().toUpperCase());
+    return [...itemColours.filter(isOrder), ...itemColours.filter((l) => !isOrder(l))];
   };
 
   const selectedOrder = useMemo(
@@ -2941,15 +2941,14 @@ export function MbaMasterScreen({
                would cage the operator on a finished row (the Items/Pcs shape
                one column over). */
             const owed = colourRequired(grain) && !r.item_color_id;
-            /* HIDDEN OFF A COLOUR-WISE LINE (client spec 2026-09-21: ITEM_WISE
-               and SIZE_WISE — "Color: HIDDEN"). A row that is not a colourway
-               has no colour to match, so the box is a dash, and Tab walks past
-               it. A value the row ALREADY holds survives (a BOM saved before
-               the rule, the "Disabled rows" shape): the box stays so it can be
-               read and cleared, never silently kept. */
-            if (!colourRequired(grain) && !o?.item_color_id) {
-              return <span className="px-1 text-xs text-muted-foreground">—</span>;
-            }
+            /* OPEN ON EVERY ATTRIBUTE (user 2026-10-09, a Style-wise MONTH
+               LABEL showing "—": "whatever the attribute, the item color should
+               be user entry"). This reverses the 2026-09-21 spec's "Color:
+               HIDDEN" for ITEM / SIZE-wise lines — a label or a carton has a
+               colour of its own whatever the line is exploded by. What did NOT
+               move: it is still only OWED (star, hold, Save gate) on a
+               colour-wise line; elsewhere it is optional. `requirementRows`
+               already prefers a row's own colour over the line's on any grain. */
             return (
               <RequiredScope required={owed} label="Item Color">
                 {/* THE RED IS EARNED HERE, not only the star: the client asked
@@ -2962,7 +2961,8 @@ export function MbaMasterScreen({
                     kind="fabric_color"
                     label="Item Color"
                     required={owed}
-                    options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
+                    options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no)}
+                    keepOrder
                     value={o?.item_color_id ?? null}
                     onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
                     canCreate={masterPerms.canCreate}

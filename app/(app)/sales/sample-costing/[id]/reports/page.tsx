@@ -7,6 +7,11 @@ import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
 import { buildQuotationModel } from "@/lib/sales/sample-costing/quotation";
 import { PageHeader } from "@/components/ui/page-header";
 import { CostingReports } from "./costing-reports";
+import { isEditableStatus } from "@/lib/sales/sample-costing/types";
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
+
+/** A master list as the report's row pickers take it: live rows only, id and name only. */
+const live = <T extends { id: string; name: string } & Deactivatable>(rows: readonly T[]) => rows.filter((r) => !isInactive(r)).map((r) => ({ id: r.id, name: r.name }));
 
 /**
  * COSTING ▸ REPORTS, at `/sales/sample-costing/<costing id>/reports`.
@@ -43,8 +48,10 @@ export default async function CostingReportsPage({
   const [{ id }, sp, canEdit] = await Promise.all([params, searchParams, can("sales", "edit")]);
   const [record, data, letterhead] = await Promise.all([getSampleCostingRecord(id), getSampleCostingFormData(), getCostingLetterhead()]);
   if (!record) notFound();
-  const history = buildRevisionHistory(await getCostingRevisionSources(record.code), record.id);
-  const facts = await getCostingApprovalFacts(record.id);
+  /* ONE ROUND, NOT TWO — the revisions and the approval are independent reads that
+     only need the record's code and id, and each round trip is ~260 ms. */
+  const [revisionSources, facts] = await Promise.all([getCostingRevisionSources(record.code), getCostingApprovalFacts(record.id)]);
+  const history = buildRevisionHistory(revisionSources, record.id);
   const cost = buildCostSheetModel(record, data, letterhead, history, facts);
   const quote = buildQuotationModel(record, data, letterhead, history, facts);
   return (
@@ -57,6 +64,30 @@ export default async function CostingReportsPage({
         /* REVISE FROM THE REPORT (client 2026-10-09) — offered under the editor's own
            two conditions: the costing is APPROVED and the reader may edit. A draft or
            one with the MD is edited in place, and a superseded revision is history. */
+        source={{
+          record,
+          /* ONLY WHAT THIS COSTING NAMES goes to the browser (not every enquiry and
+             style in the register): the report re-builds both documents from a working
+             copy, and needs just its own sample, its style and the component / trim
+             names. */
+          lookups: {
+            enquiries: data.enquiries.filter((e) => e.id === record.draft.header.opportunity_id),
+            styles: data.styles.filter((s) => s.id === record.draft.header.style_id),
+            components: data.components,
+            trims: data.trims,
+          },
+          company: letterhead,
+          options: {
+            fabrics: live(data.fabrics),
+            yarns: live(data.yarns),
+            processes: live(data.processes),
+            garmentProcesses: data.garmentProcesses.filter((r) => !isInactive(r)).map((r) => ({ id: r.id, name: r.name, garment_kind: r.garment_kind })),
+            components: live(data.components),
+            trims: live(data.trims),
+          },
+          history,
+          canSubmit: canEdit && record.status === "draft" && !record.is_draft && isEditableStatus(record.status),
+        }}
         revise={
           canEdit
             ? {

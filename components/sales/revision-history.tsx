@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { fmtDate } from "@/lib/format";
 import { changeText, type RevisionHistoryRow } from "@/lib/sales/sample-costing/revision-history";
 
@@ -19,7 +20,18 @@ const RULE = "#e3e7ec";
 
 type Row = Omit<RevisionHistoryRow, "marginPct"> & { marginPct?: number | null };
 
-export function RevisionHistory({ rows, currency, showMargin = false }: { rows: readonly Row[]; currency: string | null; showMargin?: boolean }) {
+export function RevisionHistory({
+  rows,
+  currency,
+  showMargin = false,
+  hrefFor,
+}: {
+  rows: readonly Row[];
+  currency: string | null;
+  showMargin?: boolean;
+  /** Where a revision's own report lives. When given, every revision but the one shown is a link. */
+  hrefFor?: (id: string) => string;
+}) {
   if (rows.length === 0) return null;
   const price = (v: number | null) => (v == null ? "—" : `${currency ?? ""} ${v.toFixed(2)}`.trim());
   return (
@@ -44,7 +56,13 @@ export function RevisionHistory({ rows, currency, showMargin = false }: { rows: 
             {rows.map((r) => (
               <tr key={r.id} style={{ background: r.current ? "#eaf7fd" : "#ffffff", color: r.current ? INK : MUTED, fontWeight: r.current ? 600 : 400 }}>
                 <td className="border-t px-3 py-2" style={{ borderColor: RULE }}>
-                  {r.label}
+                  {hrefFor && !r.current ? (
+                    <Link href={hrefFor(r.id)} className="underline underline-offset-2" style={{ color: "#037bb8" }}>
+                      {r.label}
+                    </Link>
+                  ) : (
+                    r.label
+                  )}
                   {r.current ? (
                     <span className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white" style={{ background: "#037bb8" }}>
                       This report

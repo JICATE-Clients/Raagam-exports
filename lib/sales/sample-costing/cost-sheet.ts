@@ -92,6 +92,8 @@ export type CostSheetModel = {
   /** Which size carries the lowest margin — what the MD banner names. */
   lowestSize: string | null;
   fabrics: {
+    /** The draft row this line is — what an inline edit patches. */
+    key: string;
     name: string;
     yarn: number;
     knitting: number;
@@ -106,12 +108,31 @@ export type CostSheetModel = {
   }[];
   weights: {
     sizeLabels: string[];
-    rows: { piece: string; component: string; fabric: string; grams: (number | null)[]; lossPct: string }[];
+    rows: {
+      piece: string;
+      component: string;
+      fabric: string;
+      grams: (number | null)[];
+      lossPct: string;
+      /** The draft weight behind each size cell (null = none), and whether it is length × width × gsm — so a cell edited on the report writes back. */
+      cells: ({ key: string; dim: boolean } | null)[];
+      /** Every draft weight on this line: where the Loss % is written. */
+      wkeys: string[];
+    }[];
   };
-  ops: { piece: string; name: string; kind: "CMT" | "Embellishment" | "Testing"; rate: number }[];
-  trims: { piece: string; name: string; pricing: string; qty: string; cost: number }[];
+  ops: {
+    piece: string;
+    name: string;
+    kind: "CMT" | "Embellishment" | "Testing";
+    rate: number;
+    /** Which draft figure this rate is, so a cell edited on the report writes it back. */
+    pieceKey: string;
+    lineKey: string | null;
+    field: "cmt" | "line" | "testing";
+  }[];
+  trims: { key: string; piece: string; name: string; pricing: string; qty: string; cost: number }[];
   /** Overheads ▸ one row per line, ₹ per size (a set's pieces summed). */
-  overheads: { name: string; type: string; value: string; perSize: number[]; side: "cost" | "price" }[];
+  overheads: { name: string; type: string; value: string; perSize: number[]; side: "cost" | "price"; edit: { kind: "bank" | "waste" | "overhead" | "extra"; key?: string } }[];
   terms: { margin: number; wastage: number; overhead: number; discount: number; freight: number; insurance: number };
   /** Every revision of this Costing No, oldest first — `[]` when it was never revised. INTERNAL: carries margin. */
   history: RevisionHistoryRow[];
@@ -184,6 +205,7 @@ export function buildCostSheetModel(
   const fabrics = live.fabrics.map((f, i) => {
     const mix = f.yarns.filter((y) => num(y.mix_pct) != null);
     return {
+      key: f.key,
       name: f.quality.trim() || `Fabric ${i + 1}`,
       yarn: f.is_direct ? 0 : yarnRateOf(f),
       knitting: num(f.knitting_rate) ?? 0,
@@ -202,9 +224,9 @@ export function buildCostSheetModel(
 
   // One line per (piece, component, fabric): grams in each size column.
   const sizeCols = sizes.map((s) => s.size);
-  const lineKey = (w: { piece_key: string; component_id: string | null; fabric_key: string | null }) =>
-    [w.piece_key, w.component_id ?? "", w.fabric_key ?? ""].join("|");
-  const lines = new Map<string, { piece: string; component: string; fabric: string; grams: (number | null)[]; loss: Set<string> }>();
+  const lineKey = (w: { piece_key: string; component_ids: string[]; fabric_key: string | null }) =>
+    [w.piece_key, w.component_ids.join(","), w.fabric_key ?? ""].join("|");
+  const lines = new Map<string, { piece: string; component: string; fabric: string; grams: (number | null)[]; loss: Set<string>; cells: ({ key: string; dim: boolean } | null)[]; wkeys: string[] }>();
   for (const w of live.weights) {
     const k = lineKey(w);
     let line = lines.get(k);
@@ -212,17 +234,24 @@ export function buildCostSheetModel(
       const fi = live.fabrics.findIndex((f) => f.key === w.fabric_key);
       line = {
         piece: pieceName(w.piece_key),
-        component: lookups.components.find((c) => c.id === w.component_id)?.name ?? "",
+        component: w.component_ids
+          .map((id) => lookups.components.find((c) => c.id === id)?.name ?? "")
+          .filter(Boolean)
+          .join(" + "),
         fabric: fi >= 0 ? fabrics[fi].name : "",
         grams: sizeCols.map(() => null),
         loss: new Set(),
+        cells: sizeCols.map(() => null),
+        wkeys: [],
       };
       lines.set(k, line);
     }
     const g = dimensionalGrams(w) ?? num(w.weight_g);
     sizeCols.forEach((col, i) => {
       if ((w.size_name == null || w.size_name === col) && g != null) line!.grams[i] = g;
+      if (w.size_name === col) line!.cells[i] = { key: w.key, dim: dimensionalGrams(w) != null };
     });
+    line.wkeys.push(w.key);
     if (num(w.wastage_pct) != null) line.loss.add(String(num(w.wastage_pct)));
   }
 
@@ -230,13 +259,13 @@ export function buildCostSheetModel(
   for (const p of d.pieces) {
     const tag = d.pieces.length > 1 ? p.piece_name : "";
     if (p.cmt_direct) {
-      if ((num(p.cmt) ?? 0) > 0) ops.push({ piece: tag, name: "CMT (direct rate)", kind: "CMT", rate: num(p.cmt) ?? 0 });
+      if ((num(p.cmt) ?? 0) > 0) ops.push({ piece: tag, name: "CMT (direct rate)", kind: "CMT", rate: num(p.cmt) ?? 0, pieceKey: p.key, lineKey: null, field: "cmt" });
     }
     for (const l of p.lines.filter((x) => !isBlankPieceLine(x))) {
       if (l.kind === "cmt" && p.cmt_direct) continue;
-      ops.push({ piece: tag, name: l.process_name || "—", kind: l.kind === "cmt" ? "CMT" : "Embellishment", rate: num(l.rate) ?? 0 });
+      ops.push({ piece: tag, name: l.process_name || "—", kind: l.kind === "cmt" ? "CMT" : "Embellishment", rate: num(l.rate) ?? 0, pieceKey: p.key, lineKey: l.key, field: "line" });
     }
-    if ((num(p.testing_cost) ?? 0) > 0) ops.push({ piece: tag, name: "Testing & FOB", kind: "Testing", rate: num(p.testing_cost) ?? 0 });
+    if ((num(p.testing_cost) ?? 0) > 0) ops.push({ piece: tag, name: "Testing & FOB", kind: "Testing", rate: num(p.testing_cost) ?? 0, pieceKey: p.key, lineKey: null, field: "testing" });
   }
 
   const trims = live.trims.map((t) => {
@@ -244,6 +273,7 @@ export function buildCostSheetModel(
     const price = num(t.pack_price);
     const size = num(t.pack_size);
     return {
+      key: t.key,
       piece: pieceName(t.piece_key),
       name: t.description || lookups.trims.find((x) => x.id === t.item_id)?.name || "",
       pricing: direct ? `Direct ₹${fx(num(t.rate))}` : `₹${fx(price)} ÷ ${size ?? 1}`,
@@ -254,13 +284,13 @@ export function buildCostSheetModel(
 
   // Overheads: every line, ₹ per size. A flat row applies to each piece, a percent row to each piece's net.
   const overheads: CostSheetModel["overheads"] = [
-    { name: "Bank charges", type: "Flat ₹", value: "", perSize: sizes.map((s) => s.bank), side: "cost" },
+    { name: "Bank charges", type: "Flat ₹", value: "", perSize: sizes.map((s) => s.bank), side: "cost", edit: { kind: "bank" } },
   ];
   if ((num(h.garment_waste_pct) ?? 0) > 0) {
-    overheads.push({ name: "Garment Rejection", type: "Percent", value: `${fx(num(h.garment_waste_pct))} %`, perSize: sizes.map((s) => s.wastage), side: "cost" });
+    overheads.push({ name: "Garment Rejection", type: "Percent", value: `${fx(num(h.garment_waste_pct))} %`, perSize: sizes.map((s) => s.wastage), side: "cost", edit: { kind: "waste" } });
   }
   if ((num(h.overhead_pct) ?? 0) > 0) {
-    overheads.push({ name: "Overhead", type: "Percent", value: `${fx(num(h.overhead_pct))} %`, perSize: sizes.map((s) => s.overhead), side: "cost" });
+    overheads.push({ name: "Overhead", type: "Percent", value: `${fx(num(h.overhead_pct))} %`, perSize: sizes.map((s) => s.overhead), side: "cost", edit: { kind: "overhead" } });
   }
   for (const e of live.extras) {
     const perSize = sizes.map((s) => {
@@ -273,6 +303,7 @@ export function buildCostSheetModel(
       value: `${e.section === "price" && e.sign === "deduct" ? "−" : e.section === "price" ? "+" : ""}${fx(num(e.value))}${e.kind === "pct" ? " %" : ""}`,
       perSize,
       side: e.section === "price" ? "price" : "cost",
+      edit: { kind: "extra", key: e.key },
     });
   }
 
@@ -311,6 +342,8 @@ export function buildCostSheetModel(
         fabric: l.fabric,
         grams: l.grams,
         lossPct: [...l.loss].join(" / "),
+        cells: l.cells,
+        wkeys: l.wkeys,
       })),
     },
     ops,

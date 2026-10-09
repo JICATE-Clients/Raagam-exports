@@ -2135,15 +2135,19 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         title={editId ? "Edit Style" : "New Style"}
         description="Wire each ⓘ field from stored data. Blank grid rows are ignored."
         /* THE EDITOR BRANCH ONLY. This screen swaps a list and an editor at one
-           URL, and the editor already carries its own "← Back to list" in
-           `actions` below — the derived link would be a second Back on the same
-           row, aimed at the module hub rather than at the list the operator came
-           from. The LIST branch above keeps the default, which is exactly the
+           URL, and the editor's way out is the footer's Cancel (plus a phone ←
+           in `actions` below) — the derived link would be a second Back, aimed
+           at the module hub rather than at the list the operator came from. The LIST branch above keeps the default, which is exactly the
            case `back` was added for (`page-header.tsx`). */
         back={false}
+        /* PHONE-ONLY ← (user 2026-10-09, button plan Rule 1). On a desktop the
+           footer's Cancel is the way out, so the "← Back to list" button was a
+           second one for the same job. The footer hides Cancel below `sm`, so
+           the phone keeps this arrow. */
         actions={
-          <Button variant="outline" size="md" onClick={() => setMode("list")}>
-            ← Back to list
+          // toolbar-size: exempt -- phone-only ← (md:hidden); no desktop header row to line up with
+          <Button variant="outline" size="icon" aria-label="Back to list" onClick={() => setMode("list")} className="md:hidden">
+            ←
           </Button>
         }
       />

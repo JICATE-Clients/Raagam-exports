@@ -30,6 +30,8 @@ import { linesToWeights, weightsToLines } from "../lib/sales/sample-costing/matr
 import { buildRevisionHistory, type RevisionSource } from "../lib/sales/sample-costing/revision-history.ts";
 import { historyForBuyer } from "../lib/sales/sample-costing/quotation.ts";
 import { approvalLineForBuyer, approvalLineOf, type ApprovalFacts } from "../lib/sales/sample-costing/approval-line.ts";
+import { cloneDraft, withCalculatedQuotes } from "../lib/sales/sample-costing/revision-draft.ts";
+import { costingInputOf, type CostingDraft } from "../lib/sales/sample-costing/types.ts";
 import { cleanSizes, offeredSizes, sizesNotInStyle } from "../lib/sales/sample-costing/style-sizes.ts";
 
 let failed = 0;
@@ -65,6 +67,7 @@ const piece = (o: Partial<PieceInput> & { key: string }): PieceInput => ({
 const w = (piece_key: string, fabric_key: string, weight_g: string, size_name: string | null = null) => ({
   piece_key,
   fabric_key,
+  component_ids: [] as string[],
   size_name,
   weight_g,
   length_cm: "",
@@ -246,8 +249,8 @@ eq("P2.4 fabric kg incl. allowance", fabricKgFor([{ ...w("p", "f", "100"), wasta
 // 0693 — the SIZE matrix. Body 162 / 258 / 270 across M, L, XL and a 40 g rib typed once;
 // Loss % is one box per size, a blank one inherits the first size's.
 const mLines = [
-  { key: "body", piece_key: "p", component_id: "c1", fabric_key: "f", cells: { M: "162", L: "258", XL: "270" } },
-  { key: "rib", piece_key: "p", component_id: "c2", fabric_key: "f", cells: { M: "40", L: "", XL: "" } },
+  { key: "body", piece_key: "p", component_ids: ["c1"], fabric_key: "f", cells: { M: "162", L: "258", XL: "270" } },
+  { key: "rib", piece_key: "p", component_ids: ["c2"], fabric_key: "f", cells: { M: "40", L: "", XL: "" } },
 ];
 const mSizes = ["M", "L", "XL"];
 const mLoss = { M: "3", L: "", XL: "5" };
@@ -270,13 +273,13 @@ eq("matrix: an unfinished first column still writes (so it is reported)", linesT
 
 // A LEGACY ROW (no size, saved before 0693) fills the FIRST size column; nothing is dropped.
 const legacy = [
-  { ...w("p", "f", "100", null), key: "a", component_id: "c1", wastage_pct: "3" },
-  { ...w("p", "f", "30", "L"), key: "b", component_id: "c1", wastage_pct: "4" },
+  { ...w("p", "f", "100", null), key: "a", component_ids: ["c1"], wastage_pct: "3" },
+  { ...w("p", "f", "30", "L"), key: "b", component_ids: ["c1"], wastage_pct: "4" },
 ];
 const lg = weightsToLines(legacy, () => "x", () => null);
 eq("legacy: the one sized row defines the only size", JSON.stringify(lg.sizes), JSON.stringify(["L"]));
 eq("legacy: the no-size grams land in that first column", lg.lines.length === 1 && lg.lines[0].cells.L !== undefined, true);
-const lgOnly = weightsToLines([{ ...w("p", "f", "100", null), key: "a", component_id: "c1", wastage_pct: "3" }], () => "x", () => null);
+const lgOnly = weightsToLines([{ ...w("p", "f", "100", null), key: "a", component_ids: ["c1"], wastage_pct: "3" }], () => "x", () => null);
 eq("legacy: a sheet with no size at all keeps its grams in the All-sizes column", lgOnly.lines[0].cells.all, "100");
 eq("legacy: …and its loss", lgOnly.loss.all, "3");
 
@@ -374,6 +377,36 @@ eq("extras: the target solver reads them (139 leaves 20 %)", xs?.marginPct ?? nu
   eq("internal history carries each revision's margin", withMargin[0].marginPct, 31.5, 1);
   eq("quotation history: the margin is stripped, so the buyer's page cannot print it", historyForBuyer(withMargin).some((r) => "marginPct" in r), false);
   eq("quotation history: the price survives", historyForBuyer(withMargin)[1].price, 4.1);
+}
+
+// ---- revise on the report (client 2026-10-09: "fabric rate, CMT and margin … the report should update immediately") ----
+{
+  const draft = (over: { fabricRate?: string; cmt?: string; margin?: string; exchange?: string; quote?: string } = {}): CostingDraft => ({
+    header: {
+      opportunity_id: "o", style_id: "s", costing_date: "2026-10-09", currency_code: "USD", exchange_rate: over.exchange ?? "95",
+      margin_pct: over.margin ?? "25", garment_waste_pct: "", overhead_pct: "", discount_pct: "", ship_mode: "", freight_per_pc: "", insurance_per_pc: "", notes: "",
+    },
+    pieces: [{ key: "p", piece_name: "PIECE", coordinate_id: null, cmt: over.cmt ?? "50", cmt_direct: true, lines: [], testing_cost: "", bank_cost: "" }],
+    fabrics: [{ key: "f", fabric_id: null, quality: "JERSEY", yarn_rate: "", yarns: [], knitting_rate: "", dyeing_rate: "", finishing_rate: "", process_loss_pct: "", is_direct: true, direct_rate: over.fabricRate ?? "450", processes: [] }],
+    weights: [{ key: "w", piece_key: "p", fabric_key: "f", component_ids: [], size_name: null, weight_g: "250", length_cm: "", width_cm: "", gsm: "", wastage_pct: "" }],
+    trims: [],
+    quotes: over.quote ? { "p|": over.quote } : {},
+    extras: [],
+  });
+  const priceOf = (d: CostingDraft) => Number(withCalculatedQuotes(d).quotes["p|"]);
+  const base = priceOf(draft());
+  eq("revise: the price follows the costing, to the cent", base, Math.round(costingSummary(costingInputOf(draft())).groups[0].pieces[0].calc! * 100) / 100);
+  eq("revise: a cheaper fabric rate gives a lower quoted price", priceOf(draft({ fabricRate: "400" })) < base, true);
+  eq("revise: a cheaper CMT gives a lower quoted price", priceOf(draft({ cmt: "40" })) < base, true);
+  eq("revise: a smaller margin gives a lower quoted price", priceOf(draft({ margin: "20" })) < base, true);
+  eq("revise: a larger margin gives a higher quoted price", priceOf(draft({ margin: "30" })) > base, true);
+  eq("revise: it replaces a typed quote that no longer matches the costs", priceOf(draft({ quote: "9.99", fabricRate: "400" })) !== 9.99, true);
+  eq("revise: with no exchange rate nothing can be calculated, so a typed quote is kept", withCalculatedQuotes(draft({ exchange: "", quote: "4.30" })).quotes["p|"] === "4.30", true);
+  const original = draft({ quote: "4.30" });
+  const copy = cloneDraft(original);
+  copy.header.margin_pct = "1";
+  copy.fabrics[0].direct_rate = "1";
+  eq("revise: editing the working copy never touches the saved record", original.header.margin_pct === "25" && original.fabrics[0].direct_rate === "450", true);
 }
 
 // ---- approval line (client 2026-10-09: "where is the approver") ----

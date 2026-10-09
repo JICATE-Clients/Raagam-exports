@@ -66,6 +66,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Select } from "@/components/ui/select";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { Toggle } from "@/components/ui/toggle";
@@ -543,7 +544,9 @@ export function SampleCostingScreen({
   const sizeLabel = (size: string | null) => size ?? "All sizes";
   const fabricLabel = (f: FabricDraft, i: number) =>
     f.quality.trim() || data.fabrics.find((x) => x.id === f.fabric_id)?.name || `Fabric ${i + 1}`;
-  const componentName = (id: string | null) => data.components.find((c) => c.id === id)?.name ?? "";
+  /** A line's components by name — "BODY + SLEEVE" when it weighs several (0699). */
+  const componentName = (ids: readonly string[]) =>
+    ids.map((id) => data.components.find((c) => c.id === id)?.name ?? "").filter(Boolean).join(" + ");
 
   /** A piece's labour: CMT (Direct rate or operations) + embellishment + testing. */
   const labourOf = (p: PieceDraft) => pieceCmt(p) + pieceEmbellishment(p) + (num(p.testing_cost) ?? 0);
@@ -615,7 +618,7 @@ export function SampleCostingScreen({
   const blankLine = (pieceKey: string): ConsumptionLine => ({
     key: newKey(),
     piece_key: pieceKey,
-    component_id: null,
+    component_ids: [],
     fabric_key: null,
     cells: {},
   });
@@ -916,27 +919,45 @@ export function SampleCostingScreen({
     if (only.length === 1) applyStyle(only[0]);
     fillFromCustomer(oppId);
   });
-  /** `?reviseFrom=<id>` — the Reports page's Revise button. */
+  /**
+   * `?reviseFrom=<id>` (the Reports page's "open the full editor" link) and
+   * `?costFor=<enquiry>` (Sample Entry's "Cost this sample") are ONE-SHOT
+   * SHORTCUTS: act once, then take the parameter out of the address.
+   *
+   * IT USED TO TAKE IT OUT WITH `router.replace`, AND THAT WAS THE BUG (client
+   * 2026-10-09: "I click the report, it is not opening"). `router.replace`
+   * re-runs the server component; the Status chips rewrite the address with
+   * `replaceState` from `window.location`, parameter still in it. The two undid
+   * each other, the effect re-fired on every change, and the churn of replaces
+   * cancelled the click's own `router.push` to a report — so the Reports icon
+   * did nothing while a stale `?reviseFrom=` sat in the URL.
+   *
+   * So: remember what was handled (a ref), and clear the parameter with
+   * `history.replaceState` — no navigation, no refetch, nothing to race. Next
+   * keeps `useSearchParams` in step with it.
+   */
   const reviseFor = useEffectEvent((id: string) => openById(id, { revise: true }));
+  const handledIntent = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const id = params.get("reviseFrom");
-    if (!id) return;
-    queueMicrotask(() => reviseFor(id));
-    const next = new URLSearchParams(params.toString());
-    next.delete("reviseFrom");
-    const qs = next.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [params, pathname, router]);
-  useEffect(() => {
-    const id = params.get("costFor");
-    if (!id) return;
-    // After the effect, not inside it: opening sets a dozen pieces of state.
-    queueMicrotask(() => startFor(id));
-    const next = new URLSearchParams(params.toString());
-    next.delete("costFor");
-    const qs = next.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [params, pathname, router]);
+    for (const [name, act] of [
+      ["reviseFrom", (id: string) => reviseFor(id)],
+      ["costFor", (id: string) => startFor(id)],
+    ] as const) {
+      const id = params.get(name);
+      if (!id) continue;
+      // Strip it from the address whether or not it was already handled — a
+      // stale copy re-added by another writer must not linger.
+      const next = new URLSearchParams(window.location.search);
+      next.delete(name);
+      const qs = next.toString();
+      window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+      const once = `${name}:${id}`;
+      if (handledIntent.current.has(once)) continue;
+      handledIntent.current.add(once);
+      // After the effect, not inside it: opening sets a dozen pieces of state.
+      queueMicrotask(() => act(id));
+    }
+  }, [params, pathname]);
 
   /**
    * A DRAFT IS NEVER LOST (UX plan P1.4): the app's `useFormDraft` keeps the
@@ -1935,18 +1956,22 @@ export function SampleCostingScreen({
                       ) : null}
                       <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
                         {bi === 0 ? (
-                          <Select aria-label="Component" value={l.component_id ?? ""} onChange={(e) => patchLine(l.key, { component_id: e.target.value || null })}>
-                            <option value=""></option>
-                            {data.components
-                              .filter((x) => !isInactive(x) || x.id === l.component_id)
-                              .map((x) => (
-                                <option key={x.id} value={x.id}>
-                                  {x.name}
-                                </option>
-                              ))}
-                          </Select>
+                          // Several components weighed as ONE figure (user 2026-10-09:
+                          // "allow multiple components choosing in components field").
+                          <MultiSelect
+                            label="Component"
+                            compact
+                            hideChips
+                            summarizeLabels
+                            options={data.components
+                              .filter((x) => !isInactive(x) || l.component_ids.includes(x.id))
+                              .map((x) => ({ id: x.id, label: x.name }))}
+                            values={l.component_ids}
+                            onChange={(ids) => patchLine(l.key, { component_ids: ids })}
+                            placeholder=""
+                          />
                         ) : (
-                          <span className="truncate px-1 text-xs text-muted-foreground">{componentName(l.component_id) || "—"}</span>
+                          <span className="truncate px-1 text-xs text-muted-foreground">{componentName(l.component_ids) || "—"}</span>
                         )}
                       </div>
                       <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
@@ -1980,7 +2005,7 @@ export function SampleCostingScreen({
                             <div className="min-w-0 flex-1">
                               <NumInput
                                 id={bi === 0 ? costingFieldId.weightGrams(l.key) : undefined}
-                                aria-label={`${componentName(l.component_id) || "Component"} grams — ${colLabel(c)}`}
+                                aria-label={`${componentName(l.component_ids) || "Component"} grams — ${colLabel(c)}`}
                                 required={bi === 0}
                                 className="h-8"
                                 // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
@@ -2426,14 +2451,14 @@ export function SampleCostingScreen({
 
   /** TRIMS BY CONSUMPTION (user 2026-10-08, the Trims Consumption spec; "based on Direct
    *  enable/disable, dynamically show the fields").
-   *  [Piece range 112] · Trim party 200 · Direct num 72 · Package ₹ hug 88 · Pack size num 72 ·
-   *  Consumption hug 88 · Rate ₹ hug 88 · Cost ₹ / pc hug 88 = 696 (808 with Piece)
+   *  [Piece range 112] · Trim party 200 · Direct hug 88 · Item Rate range 112 · No of Pcs num 72 ·
+   *  Consumption 136 · Cost ₹ / pc hug 88 = 696 (808 with Piece)
    *  + 72 = 768 (880 with Piece) ≤ 1155 (the check's pane).
    *
-   *  THE SWITCH DECIDES WHICH CONTROLS EXIST. Direct ON renders only the flat Rate box; the
+   *  THE SWITCH DECIDES WHICH CONTROLS EXIST. Direct ON renders only the Cost ₹ / pc box; the
    *  Package ₹ / Pack size / Consumption cells render NOTHING (no box, no tab stop). Direct OFF
-   *  renders those three, and the Rate cell becomes the computed cost as plain text (no tab
-   *  stop). Cost ₹ / pc always shows the resulting figure. Both sets stay in the draft when the
+   *  renders those three, and Cost ₹ / pc becomes the computed figure as plain text (no tab
+   *  stop). Both sets stay in the draft when the
    *  switch is flipped, so nothing typed is lost; only the active set is counted
    *  (`trimCostPerPiece`). A hidden control is never required and carries no error. Pack size
    *  blank = 1, so a length trim is Rate per metre × metres with Pack size empty. */
@@ -2462,7 +2487,8 @@ export function SampleCostingScreen({
       cell: (r) => <Toggle ariaLabel="Direct rate" checked={r.is_direct} onChange={(v) => patchTrim(r.key, { is_direct: v })} />,
     },
     {
-      header: "Pack Rate (₹)",
+      // "Item Rate", not "Pack Rate" (user 2026-10-09). Stored as `pack_price`.
+      header: "Item Rate (₹)",
       align: "right",
       width: FIELD_WIDTH_CSS.range,
       cell: (r) =>
@@ -2470,7 +2496,7 @@ export function SampleCostingScreen({
           <div>
             <NumInput
               id={costingFieldId.trimPackPrice(r.key)}
-              aria-label="Pack rate"
+              aria-label="Item rate"
               value={r.pack_price}
               onChange={(e) => patchTrim(r.key, { pack_price: e.target.value })}
             />
@@ -2514,37 +2540,29 @@ export function SampleCostingScreen({
         ),
     },
     {
-      header: "Rate ₹",
+      // ONE column for the per-piece figure (user 2026-10-09: "remove the rate or
+      // consumption field which both are doing same thing"). A Direct trim's rate IS
+      // its cost per piece (`trimCostPerPiece` returns it unchanged), so a separate
+      // "Rate ₹" box beside "Cost ₹ / pc" showed one number twice — and stood empty
+      // on every pack-priced row. Direct: type it here. Pack: computed, plain text.
+      header: "Cost ₹ / pc",
       align: "right",
       width: FIELD_WIDTH_CSS.hug,
+      total: { kind: "sum", of: (r) => (isBlankTrim(r) ? 0 : trimCostPerPiece(r).cost), format: (n) => money(n) },
       cell: (r) =>
         r.is_direct ? (
           <div>
             <NumInput
               id={costingFieldId.trimRate(r.key)}
-              aria-label="Rate"
+              aria-label="Cost per piece"
               value={r.rate}
               onChange={(e) => patchTrim(r.key, { rate: e.target.value })}
             />
             <FieldError>{msgFor(costingFieldId.trimRate(r.key))}</FieldError>
           </div>
         ) : (
-          // Pack mode: nothing here. The computed cost already shows in "Cost ₹ / pc" beside it,
-          // so repeating it under "Rate" was the confusion between pack rate and per-piece cost.
-          null
+          <Figure value={isBlankTrim(r) ? null : trimCostPerPiece(r).cost} formula="Item Rate ÷ No of Pcs × Consumption Rate" />
         ),
-    },
-    {
-      header: "Cost ₹ / pc",
-      align: "right",
-      width: FIELD_WIDTH_CSS.hug,
-      total: { kind: "sum", of: (r) => (isBlankTrim(r) ? 0 : trimCostPerPiece(r).cost), format: (n) => money(n) },
-      cell: (r) => (
-        <Figure
-          value={isBlankTrim(r) ? null : trimCostPerPiece(r).cost}
-          formula={r.is_direct ? "Consumption × Rate" : "Pack Rate ÷ No of Pcs × Consumption Rate"}
-        />
-      ),
     },
   ];
 
@@ -3747,7 +3765,7 @@ export function SampleCostingScreen({
           onClose={() => setDimsFor(null)}
           origin={dimsOrigin}
           parent="costing"
-          title={`Grams from dimensions${dimsLine ? ` — ${componentName(dimsLine.component_id) || "component"}` : ""}`}
+          title={`Grams from dimensions${dimsLine ? ` — ${componentName(dimsLine.component_ids) || "component"}` : ""}`}
         >
           {dimsLine && dimsFor ? (
             <div className="space-y-4">

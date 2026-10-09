@@ -3168,7 +3168,9 @@ export function GarmentOrderScreen({
      operator sees a number AT ALL on the first paint. */
   const [previewNo, setPreviewNo] = useState<string | null>(initialOrderNo);
   useEffect(() => {
-    if (mode !== "edit" || editId) return;
+    /* `savedOrderNo`, not `editId`: a reopened DRAFT has no RE No yet (0700),
+       so it keeps showing the prediction until its first real Save. */
+    if (mode !== "edit" || savedOrderNo) return;
     let cancelled = false;
     // No `if (!location_id) setPreviewNo(null)` guard: `previewOrderNumber`
     // already answers null for a blank Unit, so clearing the Unit clears the
@@ -3180,7 +3182,7 @@ export function GarmentOrderScreen({
     return () => {
       cancelled = true;
     };
-  }, [mode, editId, form.location_id, form.amend_date]);
+  }, [mode, savedOrderNo, form.location_id, form.amend_date]);
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;
@@ -5134,12 +5136,11 @@ export function GarmentOrderScreen({
         }
         if (res.ok && !targetId && "id" in res && res.id) {
           autoDraftRef.current = res.id;
-          /* THE DRAFT KEEPS ITS NUMBER. Pinned to what the trigger stamped, so a
-             later Unit / Date change cannot re-peek the NEXT number (6) into a
-             header that belongs to draft 5. The counter is already spent, which
-             is what makes the next new order 6. */
-          if (res.orderNumber) setSavedOrderNo(res.orderNumber);
-          success("Saved as draft" + (res.orderNumber ? ` — ${res.orderNumber}` : ""));
+          /* A DRAFT TAKES NO RE No (0700, user 2026-10-09). It used to be
+             numbered here, which pushed the next RECORDED order to 6 while the
+             draft sat on 5. The header keeps peeking the next free number, and
+             the real one is stamped by the first "Save garment order". */
+          success("Saved as draft");
         }
         return;
       }
@@ -5166,6 +5167,9 @@ export function GarmentOrderScreen({
             : editId
               ? "Garment order updated"
               : "Garment order created") +
+            /* The RE No it was given — on a new order, or a draft recorded
+               for the first time (0700). */
+            ("orderNumber" in res && res.orderNumber ? ` — ${res.orderNumber}` : "") +
             /* 0619 — what the automatic BOM recalculation did, or what it
                could not fill (Manual Entry Needed). */
             ("notice" in res && res.notice ? ` — ${res.notice}` : "") +
@@ -6246,7 +6250,32 @@ export function GarmentOrderScreen({
   const stylePoQty = (r: StyleRow): number =>
     form.is_set_pack ? (derivedPoQty(r) ?? 0) : (Number(r.po_qty) || 0);
 
-  const updateStyle = (key: string, patch: Partial<StyleRow>) =>
+  /**
+   * STYLE PO QTY FLOWS INTO QUANTITIES (client 2026-10-09: "style tab po qty
+   * should auto populate in quantities tab po qty").
+   *
+   * The same "follows until you change it" rule `setHeaderDeliveryDate` uses:
+   * a Quantities row is rewritten only while it is blank or still holds the
+   * style's PREVIOUS figure, so a quantity the operator typed by hand stays.
+   *
+   * ONLY WHILE THE STYLE HAS ONE DESTINATION. Split across two countries, each
+   * row holds a PART of the style's quantity, and copying the whole figure into
+   * both would double the order — which share goes where is the operator's
+   * answer, not a derivable one.
+   */
+  const followStylePoQty = (ref: string, prev: string, next: string) => {
+    const k = styleKey(ref);
+    if (!k || prev === next) return;
+    setQuantities((xs) => {
+      const mine = xs.filter((x) => styleKey(x.style_ref_no) === k);
+      if (mine.length !== 1) return xs;
+      const q = mine[0];
+      if (q.po_qty.trim() && q.po_qty !== prev) return xs;
+      return xs.map((x) => (x.key === q.key ? { ...x, po_qty: next } : x));
+    });
+  };
+
+  const updateStyle =(key: string, patch: Partial<StyleRow>) =>
     setStyles((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   /** Opens the new row and folds the finished one — `openStyleKey` is declared
       with the other state, above the list-mode return. */
@@ -6445,6 +6474,36 @@ export function GarmentOrderScreen({
       const blankAt = xs.findIndex((x) => !x.style_ref_no.trim());
       if (blankAt === -1) return [...xs, seeded];
       return [...xs.slice(0, blankAt), seeded, ...xs.slice(blankAt + 1)];
+    });
+
+    /*
+     * THE QUANTITIES TAB TAKES REF NO AND PO QTY FROM HERE (client 2026-10-09:
+     * "style tab po qty should auto populate in quantities tab po qty, same for
+     * ref no").
+     *
+     * Same shape as the Prices seed above: ADDITIVE, keyed by `styleKey`, and it
+     * fills the blank opening row before appending one. A style that already
+     * has a destination keeps it — only a blank PO Qty on its single row is
+     * topped up, so a split across countries or a hand-typed figure is never
+     * overwritten (see `followStylePoQty`).
+     */
+    const poQty = stylePoQty(row) ? String(stylePoQty(row)) : "";
+    setQuantities((xs) => {
+      const want = styleKey(ref);
+      const mine = xs.filter((x) => styleKey(x.style_ref_no) === want);
+      if (mine.length === 1 && !mine[0].po_qty.trim() && poQty) {
+        return xs.map((x) => (x.key === mine[0].key ? { ...x, po_qty: poQty } : x));
+      }
+      if (mine.length) return xs;
+      const blankAt = xs.findIndex((x) => !x.style_ref_no.trim());
+      if (blankAt === -1) {
+        return [...xs, { ...blankQuantity(), style_ref_no: ref, style_no: ref, po_qty: poQty }];
+      }
+      return xs.map((x, i) =>
+        i === blankAt
+          ? { ...x, style_ref_no: ref, style_no: ref, po_qty: x.po_qty.trim() || poQty }
+          : x,
+      );
     });
 
     /*
@@ -8071,7 +8130,10 @@ export function GarmentOrderScreen({
             type="number"
             className="text-right"
             value={r.po_qty}
-            onChange={(e) => updateStyle(r.key, { po_qty: e.target.value })}
+            onChange={(e) => {
+              updateStyle(r.key, { po_qty: e.target.value });
+              followStylePoQty(r.style_ref_no, r.po_qty, e.target.value);
+            }}
           />
         ),
     },
@@ -8095,7 +8157,19 @@ export function GarmentOrderScreen({
                 type="number"
                 className="text-right"
                 value={r.packs_ordered}
-                onChange={(e) => updateStyle(r.key, { packs_ordered: e.target.value })}
+                onChange={(e) => {
+                  updateStyle(r.key, { packs_ordered: e.target.value });
+                  /* On a set pack the PO Qty is packs x pieces, so the packs
+                     box is what moves it — carried the same way the typed
+                     PO Qty is (`followStylePoQty`). */
+                  const was = packDerivedQty(r.pack_components, r.packs_ordered);
+                  const now = packDerivedQty(r.pack_components, e.target.value);
+                  followStylePoQty(
+                    r.style_ref_no,
+                    was == null ? "" : String(was),
+                    now == null ? "" : String(now),
+                  );
+                }}
               />
             ),
           },
