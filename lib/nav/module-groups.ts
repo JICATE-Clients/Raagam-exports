@@ -549,6 +549,11 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
              every live RE from entry to shipment, and whether it will make its
              delivery date. Derived on read; the risk alert links here. */
           { href: "/orders/progress", label: "Order Progress", description: "Where every order stands, from entry to shipment, and which will miss delivery" },
+          /* SEASON REPORT (client audio brief, 2026-10-09): the orders of one
+             Season + Year, as a picture or as a Summary / Detailed report, with
+             Shipped and Pending boxes to see only the balance still to make.
+             Season and Year are a pair on Order Info — never a date range. */
+          { href: "/orders/season-report", label: "Season Report", description: "Everything committed to a season and year — pieces, colours and sizes, and what is still to ship" },
           /* ORDER PROFIT CHECK (doc/order/digitalisation-plan.md §3, 0667): the
              approved budget against what was actually bought, processed and
              shipped. Named "Profitability", then "Budget vs Actual", then this

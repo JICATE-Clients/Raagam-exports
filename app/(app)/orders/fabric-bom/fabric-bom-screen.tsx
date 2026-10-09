@@ -152,6 +152,7 @@ import {
   panelTaken,
   samePanels,
   takenPanels,
+  widthFormOfFabricForm,
   type ManualPanel,
   unassignedCombos,
   type ManualSizeInput,
@@ -2482,6 +2483,8 @@ export function FabricBomScreen({
         item_id: p.item_id,
         combo: p.combo,
         component_id: p.component_id,
+        /* 0697 — which cloth layout this step belongs to; null = every layout. */
+        layout: p.layout ?? null,
         stage_id: p.stage_id,
         process_id: p.process_id,
         /* 0583 — "DYEING [WITH BIOWASH]". */
@@ -7682,6 +7685,10 @@ export function FabricBomScreen({
     const componentsByEntry = new Map(entries.map((e) => [e.key, componentIdsOf(e.panels)]));
     /* THE PART EACH ENTRY WEIGHS (0596) — `fabricGrossOf` stamps the same. */
     const partByEntry = new Map(entries.map((e) => [e.key, e.yd_part || null]));
+    /* THE CLOTH LAYOUT EACH ENTRY IS CUT IN (0697) — `fabricGrossOf` stamps the
+       same off the saved entries, so a fabric cut both ways previews each
+       layout against its own route. */
+    const layoutByEntry = new Map(entries.map((e) => [e.key, e.width_form || null]));
     for (const p of preview) {
       /* A ROW THAT COULD NOT NAME ITS FABRIC IS SKIPPED. It is a refusal about
          the Fabric Lines tab ("no fabric uses this structure"), so there is no
@@ -7700,6 +7707,7 @@ export function FabricBomScreen({
         gross: p.qty == null ? null : (held?.gross ?? 0) + p.qty,
         uom_id: p.uom_id,
         component_ids: componentsByEntry.get(p.entry_key) ?? [],
+        layout: layoutByEntry.get(p.entry_key) ?? null,
         /* IS THIS SLICE PRINTED? (2026-09-19) — off the BOM's own lines, the
            same `printedGroup` `fabricGrossOf` (actions.ts) asks of the saved
            lines, so an unprinted colourway's yarn is not grossed by the print
@@ -7747,6 +7755,8 @@ export function FabricBomScreen({
         /* CARRIED SINCE 2026-09-15 — without it a "Component Wise" route
            read as one route and stacked every panel's steps (`stagesForGroup`). */
         component_id: p.component_id ?? null,
+        /* 0697 — the engine's layout axis; `routesByFabricOf` carries the same. */
+        layout: p.layout ?? null,
         loss_pct: loss,
         /* 0606 — per-colourway losses, gated exactly as `normalizeProcesses`
            stores them (only an "All colours" step), so the preview and the
@@ -9015,9 +9025,19 @@ export function FabricBomScreen({
    * family is "Circular Knit" and a roll form is "Open" or "Tubular", so the
    * declared widths were sized for text that does not exist.
    */
-  const fabricRouteRows = fabricGroups.map((g) => ({
-    key: g.item_id,
+  /* ONE CARD PER FABRIC — OR PER (FABRIC, LAYOUT) WHEN IT IS CUT BOTH WAYS (0697,
+     client: "list Open Width and Tubular separately, like Manual"). A jersey with
+     an Open Width body and Tubular sleeves is two cloths to the dye house, each
+     with its own steps and losses, exactly as Manual already counts them as two
+     entries. Its lines are split by their `fabric_form`, so each card lists its
+     own colours and panels. A fabric cut one way, or with no form chosen yet,
+     keeps its single card and `layout` stays null — every route saved before
+     this, whose steps apply to every layout. */
+  const routeRowFor = (g: (typeof fabricGroups)[number], layout: string | null) => ({
+    key: layout ? `${g.item_id}|${layout}` : g.item_id,
     item_id: g.item_id,
+    /** The cloth layout this card is for; null on a single-card fabric. */
+    layout,
     name: g.name,
     lines: g.lines,
     /* PLAIN `map` + `rollUp`, NOT `useMemo` — a pass over one order's own lines,
@@ -9030,6 +9050,17 @@ export function FabricBomScreen({
       ),
     ),
     form: rollUp(g.lines.map((l) => fabricFormLabel(l.fabric_form))),
+    /* THE CLOTH LAYOUTS THIS FABRIC IS CUT IN (0696) — 'open_width' /
+       'tubular', translated from the lines' `fabric_form` ('open'/'tubular').
+       Two readers: the "/ Open Width" tag in the card's heading, and the
+       Process ▾, which withholds a step tagged with the other layout. A fabric
+       cut both ways lists both, so nothing is withheld from it; one whose lines
+       have not stated a form yet lists none, which withholds nothing either. */
+    layouts: [
+      ...new Set(
+        g.lines.map((l) => widthFormOfFabricForm(l.fabric_form)).filter(Boolean),
+      ),
+    ].sort(),
     /* WHAT THIS FABRIC IS USED FOR, gathered from its lines rather than named
        again. A fabric on several lines is several colourways and several panels
        — which is exactly the fact that makes ONE route right for all of them, so
@@ -9049,9 +9080,60 @@ export function FabricBomScreen({
           .map((l) => [l.component_id, { id: l.component_id, name: componentName(l) }] as const),
       ).values(),
     ],
-  }));
+  });
 
-  type FabricRouteRow = (typeof fabricRouteRows)[number];
+  const fabricRouteRows = fabricGroups.flatMap((g) => {
+    const forms = [
+      ...new Set(g.lines.map((l) => widthFormOfFabricForm(l.fabric_form)).filter(Boolean)),
+    ].sort();
+    if (forms.length < 2) return [routeRowFor(g, null)];
+    return forms.map((f) =>
+      routeRowFor(
+        { ...g, lines: g.lines.filter((l) => widthFormOfFabricForm(l.fabric_form) === f) },
+        f,
+      ),
+    );
+  });
+
+  type FabricRouteRow = ReturnType<typeof routeRowFor>;
+
+  /** Does a stored step show on this card? An untagged step applies to every
+   *  layout, so it shows on all of them until an edit gives it a home. */
+  const inCard = (p: FabricProcessRow, r: { layout: string | null }) =>
+    !r.layout || !p.layout || p.layout === r.layout;
+
+  /**
+   * THE FABRIC'S WHOLE ROUTE AFTER ONE CARD IS EDITED (0697).
+   *
+   * `all` is every stored step of the fabric, `next` the edited card's rows. On
+   * a single-card fabric this is the old behaviour, and it clears any stale
+   * layout tag. On a split fabric the card's rows are stamped with its layout,
+   * the OTHER layout's rows are left exactly as they were, and any step that
+   * was still untagged (a route typed before the fabric was split) is first
+   * COPIED to every layout — otherwise the first edit of one card would claim a
+   * shared step and the other layout would silently lose it, a route the engine
+   * then grosses without that step and nothing on screen says so.
+   */
+  const routeAfterCardEdit = (
+    r: FabricRouteRow,
+    all: FabricProcessRow[],
+    inScope: (p: FabricProcessRow) => boolean,
+    next: FabricProcessRow[],
+  ): FabricProcessRow[] => {
+    const stamped = next.map((x) => ({ ...x, layout: r.layout }));
+    if (!r.layout) return [...all.filter((p) => !inScope(p)), ...stamped];
+    const layouts = fabricRouteRows.filter((x) => x.item_id === r.item_id).map((x) => x.layout as string);
+    const exploded = all.flatMap((p) =>
+      p.layout
+        ? [p]
+        : layouts.map((l) => ({ ...p, layout: l, key: l === r.layout ? p.key : newKey() })),
+    );
+    return [
+      ...exploded.filter((p) => p.layout !== r.layout),
+      ...exploded.filter((p) => p.layout === r.layout && !inScope(p)),
+      ...stamped,
+    ];
+  };
 
   const fabricRouteColumns: FoldListColumn<FabricRouteRow>[] = [
     {
@@ -9065,8 +9147,16 @@ export function FabricBomScreen({
       width: "22rem",
       cell: (r) => (
         <div className="min-w-0">
-          <div className="text-sm text-foreground">
+          <div className="flex min-w-0 items-baseline gap-1.5 text-sm text-foreground">
             <Truncated>{r.name || "(fabric not in the master)"}</Truncated>
+            {/* "FABRIC / Open Width" (0696) — the layout rides on the heading so
+                a route is read as one cloth in one form. A fabric cut both ways
+                says both; one with no form chosen yet says nothing. */}
+            {r.layouts.length > 0 && (
+              <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                / {r.layouts.map((l) => layoutTypeLabel(l)).join(" + ")}
+              </span>
+            )}
           </div>
           {/* NO LINE NAMES IT ANY MORE — see `fabricGroups`. Said in words,
               because a row that has simply lost its colourways looks like a row
@@ -10587,7 +10677,7 @@ export function FabricBomScreen({
                  none, which is why nothing here blocks Save. */
               foldSummary={(r) => {
                 const steps = routeStepCount(
-                  procs.filter((p) => p.item_id === r.item_id),
+                  procs.filter((p) => p.item_id === r.item_id && inCard(p, r)),
                 );
                 return steps ? `${steps} step${steps === 1 ? "" : "s"}` : "No route yet";
               }}
@@ -10598,7 +10688,10 @@ export function FabricBomScreen({
                    with DYED FABRIC PURCHASE stop buying yarn. `scope.source` is
                    only the stored fallback now. */
                 const source = sourceOf(r.item_id);
-                const fabricRows = procs.filter((p) => p.item_id === r.item_id);
+                /* EVERY stored step of the fabric, and the ones THIS card shows
+                   (0697): a fabric cut both ways has a card per layout. */
+                const allFabricRows = procs.filter((p) => p.item_id === r.item_id);
+                const fabricRows = allFabricRows.filter((p) => inCard(p, r));
                 /* A STEP NAMING A BRANCH ON AN AXIS THAT IS NOW OFF is out of
                    the grid but not out of state — the same rows
                    `normalizeProcesses` will drop on Save (its own note), kept
@@ -10790,7 +10883,7 @@ export function FabricBomScreen({
                       components={scope.component_wise ? r.panelIds : null}
                       rows={shownRows}
                       onChange={(next) =>
-                        setFabricProcs(r.item_id, [...fabricRows.filter((p) => !inScope(p)), ...next])
+                        setFabricProcs(r.item_id, routeAfterCardEdit(r, allFabricRows, inScope, next))
                       }
                       processes={data.processes}
                       lookups={data.processLookups}
@@ -10819,6 +10912,9 @@ export function FabricBomScreen({
                          was set to Yarn Dyed). */
                       fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
                       fabricIsPieceDyed={isPieceDyed(fabricTypeOf(r.item_id))}
+                      /* 0696 — a step tagged Open Width / Tubular on the Process
+                         master is withheld from a fabric cut only the other way. */
+                      fabricLayouts={r.layouts}
                       /* 0633 — only a linked loose fabric's route may run
                          CONVERSION (unravelling). */
                       looseFabricRoute={looseFabricIds.has(r.item_id)}
@@ -11074,6 +11170,7 @@ export function FabricBomScreen({
         item_id: p.item_id,
         combo: p.combo,
         component_id: p.component_id,
+        layout: (p.layout || null) as "open_width" | "tubular" | null,
         /* `sno` HERE IS A PLACEHOLDER, not the ordinal the server writes — it
            only has to satisfy the schema's `nonnegative`. `normalizeProcesses`
            renumbers per GROUP (fabric x combo x component), which this flat,

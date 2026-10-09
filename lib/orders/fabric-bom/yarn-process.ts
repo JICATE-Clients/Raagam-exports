@@ -260,6 +260,13 @@ export type FabricGross = {
    * arithmetic it always got.
    */
   printed?: boolean;
+  /**
+   * THE CLOTH LAYOUT THIS WEIGHT IS CUT IN — the Manual entry's `width_form`
+   * ('open_width' | 'tubular'), so a fabric cut both ways is grossed by each
+   * layout's own route (0697). Absent = unknown, which excludes every
+   * layout-tagged step (`stageCoversLayout`) and walks the untagged ones.
+   */
+  layout?: string | null;
 };
 
 /** The bucket key for a colourway. One function so the screen, the engine and
@@ -622,7 +629,34 @@ export type RouteStage = {
    *  or empty = the flat loss, which is every step before 0606. Resolved in
    *  `stagesForGroup` and nowhere else — see `lossForCombo`. */
   color_losses?: Readonly<Record<string, number>> | null;
+  /** WHICH CLOTH LAYOUT this step belongs to — 'open_width' | 'tubular' — when
+   *  the same fabric is cut both ways and runs a route in each (0697). Absent or
+   *  null = every layout, which is every step saved before that. See
+   *  `stageCoversLayout`. */
+  layout?: string | null;
 };
+
+/**
+ * DOES THIS STEP TREAT A GROUP OF THIS LAYOUT? (0697.)
+ *
+ * The layout axis, beside `stageCoversCombo` and the component axis. An untagged
+ * step treats every layout. A tagged one treats only its own — so a jersey cut
+ * Open Width AND Tubular, with a route typed for each, grosses each weight by its
+ * own route and never stacks the two (the over-purchase `stagesForGroup`'s header
+ * records for components).
+ *
+ * `groupLayout` UNDEFINED MEANS "DO NOT FILTER BY LAYOUT", and that is load-
+ * bearing in both directions. `comboUplift` runs `stagesForGroup` AGAIN over a
+ * route that has already been resolved, with no layout to hand — filtering there
+ * would drop the very steps the first pass kept. A caller handing over a RAW
+ * route states its group's layout explicitly; one that knows the layout is
+ * unstated passes null, which excludes every tagged step (the under-count, never
+ * the stack).
+ */
+export const stageCoversLayout = (
+  stepLayout: string | null | undefined,
+  groupLayout: string | null | undefined,
+): boolean => !stepLayout || groupLayout === undefined || stepLayout === groupLayout;
 
 /**
  * THE LOSS ONE STEP CHARGES ONE COLOURWAY (0606, client spec 2026-09-21).
@@ -741,6 +775,10 @@ export function stagesForGroup<S extends RouteStage>(
   /** IS THIS GROUP PRINTED? (2026-09-19) — see `routeForPrint`. Undefined
    *  walks the route whole, which is every pre-existing caller. */
   printed?: boolean,
+  /** THE GROUP'S CLOTH LAYOUT (0697) — see `stageCoversLayout`. UNDEFINED does
+   *  not filter (every pre-0697 caller, and a second pass over a resolved
+   *  route); null means "layout unstated" and drops every layout-tagged step. */
+  layout?: string | null,
 ): S[] | Refusal {
   /* COLOUR-WISE LOSS IS RESOLVED HERE, ONCE (0606). Every ladder — the yarn
      purchase, the cloth purchase, both report breakdowns — walks the list this
@@ -749,7 +787,7 @@ export function stagesForGroup<S extends RouteStage>(
      two panels are compared on the losses this colourway actually pays. A
      step with no map is returned as the same object. */
   const forColour = stages
-    .filter((s) => stageCoversCombo(s.combo, combo))
+    .filter((s) => stageCoversLayout(s.layout, layout) && stageCoversCombo(s.combo, combo))
     .map((s) =>
       s.color_losses && Object.keys(s.color_losses).length
         ? { ...s, loss_pct: lossForCombo(s, combo) }
@@ -846,8 +884,10 @@ export function comboUplift(
   source: FabricSource = "yarn_knit",
   /** Same fifth argument as `stagesForGroup` (2026-09-19). */
   printed?: boolean,
+  /** Same sixth argument as `stagesForGroup` (0697). */
+  layout?: string | null,
 ): number | Refusal {
-  const treating = stagesForGroup(stages, combo, componentIds, source, printed);
+  const treating = stagesForGroup(stages, combo, componentIds, source, printed, layout);
   if (isRefusal(treating)) return treating;
   let factor = 1;
   for (const s of treating) {
@@ -911,8 +951,10 @@ export function comboUpliftBreakdown(
   source: FabricSource = "yarn_knit",
   /** Same fifth argument as `comboUplift`, for the identical-list reason. */
   printed?: boolean,
+  /** Same sixth argument as `comboUplift` (0697). */
+  layout?: string | null,
 ): { factor: number; steps: StageUpliftStep[] } | Refusal {
-  const treating = stagesForGroup(stages, combo, componentIds, source, printed);
+  const treating = stagesForGroup(stages, combo, componentIds, source, printed, layout);
   if (isRefusal(treating)) return treating;
   let factor = 1;
   const steps: StageUpliftStep[] = [];
@@ -1262,6 +1304,10 @@ export function yarnPurchase(
       /* 2026-09-19 — an unprinted slice's yarn is not grossed by the print
          stage's losses (`routeForPrint`). */
       f.printed,
+      /* 0697 — each layout is grossed by its own route. `?? null`, not the raw
+         field: a slice that states no layout must DROP tagged steps, whereas
+         undefined would walk them all and stack the two layouts. */
+      f.layout ?? null,
     );
     if (isRefusal(route)) {
       return { refused: `${comp.fabric_name || "One fabric"}: ${route.refused}` };
@@ -1430,6 +1476,7 @@ export function clothPurchase(
       f.component_ids ?? [],
       source,
       f.printed,
+      f.layout ?? null, // 0697 — see `yarnPurchase` above.
     );
     if (isRefusal(route)) return { refused: `${fabricName}: ${route.refused}` };
     /* `comboUplift` OVER THE ALREADY-RESOLVED LIST, exactly as `yarnPurchase`

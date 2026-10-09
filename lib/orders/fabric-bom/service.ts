@@ -743,7 +743,7 @@ export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
      BEFORE the select that needs it. */
   const { data, error } = await s
     .from("processes")
-    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting, is_cloth_purchase, has_sub_categories, is_unravelling")
+    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting, is_cloth_purchase, has_sub_categories, is_unravelling, layout")
     .order("name");
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (AGENTS.md) — `data ?? []`
   // on a missing column (e.g. `is_dyeing` before 0557 is applied) turns a
@@ -833,12 +833,15 @@ export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     is_cloth_purchase: boolean | null;
     has_sub_categories: boolean | null;
     is_unravelling: boolean | null;
+    layout: "open_width" | "tubular" | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
     name: p.name,
     inactive: p.inactive ?? false,
     for_fabric: p.for_fabric ?? false,
+    /* 0696 — null = either layout. */
+    layout: p.layout ?? null,
     /* 0633 — LOOSE FABRIC CONVERSION: offered only on a linked loose
        fabric's route (`looseFabricRoute`). */
     is_unravelling: p.is_unravelling ?? false,

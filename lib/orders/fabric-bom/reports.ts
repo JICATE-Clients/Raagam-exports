@@ -9,6 +9,7 @@ import {
   comboUpliftBreakdown,
   resolveRouteComponents,
   stageCoversCombo,
+  stageCoversLayout,
   type FabricComposition,
   type FabricGross,
   type RouteStage,
@@ -732,6 +733,13 @@ export type EntryRegisterColourGroup = {
 export type StageLedgerRow = {
   className: "Fabric" | "Yarn";
   itemName: string;
+  /** "Open Width" / "Tubular" / "Open Width + Tubular" — the roll form(s) this
+   *  FABRIC is cut in, read off the register's own Manual entries, so the
+   *  ledger names `SOLID 1X1 RIB / Tubular`. Null on a Yarn row and on a
+   *  fabric no entry states a form for. OPTIONAL because V_FINAL freezes this
+   *  report's payload: a snapshot taken before this field existed has none, and
+   *  must keep rendering. */
+  layoutForm?: string | null;
   /** THE BRANCH THIS STEP BELONGS TO when the fabric's route is split (0528)
    *  — the un-aggregated route per colour and per panel, exactly as
    *  declared. Both null on a unified route and on every Yarn row. */
@@ -742,10 +750,24 @@ export type StageLedgerRow = {
   lossPct: number | null;
 };
 
+/** The register's figures for ONE roll form — what the Open Width and the
+ *  Tubular cloth each need, since the two are cut, dia'd and bought apart. */
+export type EntryRegisterLayoutTotal = {
+  /** "Open Width" / "Tubular", or "Not stated" for entries that never chose. */
+  form: string;
+  cutQty: number;
+  netReqWt: number;
+  grossWt: number;
+};
+
 export type EntryRegister = {
   header: BomDocHeader;
   groups: EntryRegisterColourGroup[];
   grandTotal: { cutQty: number; netReqWt: number; grossWt: number };
+  /** Subtotals by roll form, printed above the grand total. EMPTY when no
+   *  entry states a form (nothing to split). OPTIONAL for V_FINAL snapshots
+   *  taken before it existed — see `StageLedgerRow.layoutForm`. */
+  layoutTotals?: EntryRegisterLayoutTotal[];
   stageLedger: StageLedgerRow[];
 };
 
@@ -806,6 +828,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
   type EntryRow = {
     id: string;
     style_ref_no: string | null;
+    item_id: string | null;
     width_form: string | null;
     structure_id: string | null;
     components: { component_id: string | null; component: { short_name: string } | null }[] | null;
@@ -845,7 +868,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       itemIds.length
         ? s
             .from("order_fabric_bom_processes")
-            .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct, color_wise_loss, color_losses")
+            .select("item_id, combo, component_id, layout, sno, stage_id, process_id, sub_category_id, loss_pct, color_wise_loss, color_losses")
             .eq("bom_id", bomId)
             .in("item_id", itemIds)
             .order("sno", { ascending: true })
@@ -943,6 +966,8 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     item_id: string;
     combo: string | null;
     component_id: string | null;
+    /** 0697 — the cloth layout the step belongs to; null = every layout. */
+    layout: string | null;
     stage_id: string | null;
     process_id: string | null;
     sub_category_id: string | null;
@@ -967,6 +992,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       /* CARRIED SINCE 2026-09-15 — a "Component Wise" route (0528) read
          without it is every panel's steps stacked onto every weight. */
       component_id: p.component_id,
+      layout: p.layout,
       loss_pct: p.loss_pct == null ? null : Number(p.loss_pct),
       /* 0606 — resolved per colourway by `stagesForGroup`, the same filter
          the save path's ladder walks, so the printed loss is the charged one. */
@@ -1000,11 +1026,17 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     refusal: string | null;
   };
   const ladderCache = new Map<string, Ladder | null>();
-  function ladderFor(itemId: string, comboMapKey: string, componentIds: readonly string[]): Ladder | null {
+  function ladderFor(
+    itemId: string,
+    comboMapKey: string,
+    componentIds: readonly string[],
+    /** The entry's roll form (0697) — each layout is grossed by its own route. */
+    layout: string | null = null,
+  ): Ladder | null {
     /* KEYED ON THE PANEL SET TOO (2026-09-15): two entries of one fabric and
        colour naming different panels are two different ladders under a
        "Component Wise" route. */
-    const cacheKey = `${itemId}::${comboMapKey}::${[...componentIds].sort().join(",")}`;
+    const cacheKey = `${itemId}::${comboMapKey}::${[...componentIds].sort().join(",")}::${layout ?? ""}`;
     const cached = ladderCache.get(cacheKey);
     if (cached !== undefined) return cached;
 
@@ -1023,6 +1055,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
         sourceByFabric.get(itemId) ?? "yarn_knit",
         /* 2026-09-19 — an unprinted group is not charged the print stage. */
         printedGroup(printLines as PrintLine[], itemId, comboMapKey, componentIds),
+        layout,
       );
       if (isReportRefusal(ladder)) {
         result = { factor: 1, lossChain: [], refusal: ladder.refused };
@@ -1077,10 +1110,23 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       components: string[];
       componentIds: string[];
       itemForm: string | null;
+      /** The raw 'open_width' | 'tubular' (0697) — what the route is filtered by. */
+      widthForm: string | null;
       structureId: string | null;
       sizes: Map<string, { dia: string | null; purchaseWidth: number | null }>;
     }
   >();
+  /* THE ROLL FORMS EACH FABRIC IS CUT IN, from the entries (a fabric on two
+     entries may be Open Width on one and Tubular on the other) — what the
+     Stage Loss Ledger tags its fabric rows with. */
+  const formsByItem = new Map<string, Set<string>>();
+  for (const e of entryRows) {
+    const label = layoutTypeLabel(e.width_form);
+    if (!e.item_id || !label) continue;
+    const set = formsByItem.get(e.item_id) ?? new Set<string>();
+    set.add(label);
+    formsByItem.set(e.item_id, set);
+  }
   for (const e of entryRows) {
     const sizes = new Map<string, { dia: string | null; purchaseWidth: number | null }>();
     for (const sz of e.sizes ?? []) {
@@ -1102,6 +1148,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
         .sort((a, b) => a.localeCompare(b)),
       componentIds: (e.components ?? []).map((c) => c.component_id).filter((id): id is string => !!id),
       itemForm: layoutTypeLabel(e.width_form) || null,
+      widthForm: e.width_form,
       structureId: e.structure_id,
       sizes,
     });
@@ -1114,6 +1161,9 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
   };
   const byCombo = new Map<string, ColourGroupBuild>();
   const grandTotal = { cutQty: 0, netReqWt: 0, grossWt: 0 };
+  /* PER ROLL FORM, keyed by the same label the group's pill prints. */
+  const NO_FORM = "Not stated";
+  const byForm = new Map<string, EntryRegisterLayoutTotal>();
 
   for (const r of reqRows) {
     if (!r.item_id) continue;
@@ -1136,7 +1186,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     const componentIds = entry?.componentIds ?? [];
     let compGroup = colourGroup.components.get(componentKey);
     if (!compGroup) {
-      const ladder = ladderFor(r.item_id, comboMapKey, componentIds);
+      const ladder = ladderFor(r.item_id, comboMapKey, componentIds, entry?.widthForm ?? null);
       compGroup = {
         key: componentKey,
         componentNames: entry?.components ?? [],
@@ -1155,7 +1205,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     const sizeInfo = entry?.sizes.get(r.size_id ?? "");
     const netReqWt = r.required_qty ?? 0;
     const cut = r.basis_qty ?? 0;
-    const ladder = ladderFor(r.item_id, comboMapKey, componentIds);
+    const ladder = ladderFor(r.item_id, comboMapKey, componentIds, entry?.widthForm ?? null);
     /* A REFUSED ladder abstains exactly like an absent one — `grossWt =
        netReqWt`, `lossPct` null — and the group's `routeRefusal` says why. */
     const grossWt = ladder && !ladder.refusal ? netReqWt * ladder.factor : netReqWt;
@@ -1185,7 +1235,22 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     grandTotal.cutQty += cut;
     grandTotal.netReqWt += netReqWt;
     grandTotal.grossWt += grossWt;
+    const formKey = compGroup.itemForm ?? NO_FORM;
+    const formTotal = byForm.get(formKey) ?? { form: formKey, cutQty: 0, netReqWt: 0, grossWt: 0 };
+    formTotal.cutQty += cut;
+    formTotal.netReqWt += netReqWt;
+    formTotal.grossWt += grossWt;
+    byForm.set(formKey, formTotal);
   }
+
+  /* OPEN WIDTH, THEN TUBULAR, THEN "Not stated" — and nothing at all when no
+     entry states a form, since a single "Not stated" line would only repeat the
+     grand total beneath it. */
+  const formOrder = [layoutTypeLabel("open_width"), layoutTypeLabel("tubular"), NO_FORM];
+  const layoutTotals =
+    byForm.size === 1 && byForm.has(NO_FORM)
+      ? []
+      : formOrder.flatMap((f) => (byForm.has(f) ? [byForm.get(f)!] : []));
 
   /* THE PANEL NAMES A SPLIT ROUTE NAMES — fetched only when some step is
      component-scoped, off the same `components` master the route's FK points
@@ -1193,11 +1258,18 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
   const componentNames = await routeComponentNames(s, processRows.map((p) => p.component_id));
   if (isReportRefusal(componentNames)) return componentNames;
 
+  /** "Open Width", "Tubular", or "Open Width + Tubular" when it is cut both ways. */
+  const layoutFormOf = (itemId: string): string | null => {
+    const forms = formsByItem.get(itemId);
+    return forms && forms.size ? [...forms].sort().join(" + ") : null;
+  };
+
   const stageLedger: StageLedgerRow[] = [];
   for (const p of processRows) {
     const base = {
       className: "Fabric" as const,
       itemName: itemNames.get(p.item_id) ?? "(fabric not found)",
+      layoutForm: layoutFormOf(p.item_id),
       componentName: p.component_id ? (componentNames.get(p.component_id) ?? "(component not found)") : null,
       stageName: p.stage_id ? (stageNames.get(p.stage_id) ?? null) : null,
       /* 0583 — with its sub-category, "DYEING [WITH BIOWASH]". */
@@ -1240,6 +1312,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     header,
     groups: [...byCombo.values()].map((g) => ({ ...g, components: [...g.components.values()] })),
     grandTotal,
+    layoutTotals,
     stageLedger,
   };
 }
@@ -2062,6 +2135,10 @@ export async function yarnFabricRequirementReport(
     panels: string[];
     /** YD PART (0596) — "" for the cloth's only part. */
     part: string;
+    /** THE CLOTH LAYOUT (0697) — the entry's `width_form`, "" when unstated or
+     *  for a loose fabric. Kept apart through the collapse so each layout is
+     *  grossed by its own route (`stageCoversLayout`). */
+    layout: string;
     /** THE COLOUR THIS SLICE IS DYED TO, when nothing on the Components tab
      *  says it (2026-09-26) — a LOOSE FABRIC's, which is the yarn colour its
      *  unravelled yarn becomes (the CONVERSION block's colour). */
@@ -2083,7 +2160,10 @@ export async function yarnFabricRequirementReport(
     /* THE PART IS IN THE KEY (0596) — a Top and a Bottom of one cloth are
        grossed alike but dyed to different stripes, so they must not sum here. */
     const part = r.entry_id ? (partByEntry.get(r.entry_id) ?? "") : "";
-    const panelKey = `${part}|${[...panels].sort().join(",")}`;
+    /* THE LAYOUT IS IN THE KEY TOO (0697) — Open Width and Tubular cloth of one
+       fabric are grossed by different routes, so they must not sum here. */
+    const layout = entry?.widthForm ?? "";
+    const panelKey = `${part}|${layout}|${[...panels].sort().join(",")}`;
     const held = byPanels.get(panelKey) ?? {
       net: 0,
       nos: 0,
@@ -2092,6 +2172,7 @@ export async function yarnFabricRequirementReport(
       dias: new Set<string>(),
       panels,
       part,
+      layout,
       bySize: new Map<string, SizeSlice>(),
     };
     held.net += r.required_qty ?? 0;
@@ -2148,7 +2229,7 @@ export async function yarnFabricRequirementReport(
     fabricItemIds.length
       ? s
           .from("order_fabric_bom_processes")
-          .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct, color_wise_loss, color_losses")
+          .select("item_id, combo, component_id, layout, sno, stage_id, process_id, sub_category_id, loss_pct, color_wise_loss, color_losses")
           .eq("bom_id", bomId)
           .in("item_id", fabricItemIds)
           .order("sno", { ascending: true })
@@ -2174,6 +2255,7 @@ export async function yarnFabricRequirementReport(
     item_id: string;
     combo: string | null;
     component_id: string | null;
+    layout: string | null;
     sno: number;
     loss_pct: string | number | null;
     stage_id: string | null;
@@ -2194,6 +2276,7 @@ export async function yarnFabricRequirementReport(
       /* CARRIED SINCE 2026-09-15 — see `stagesForGroup` for what a route
          read without it did to every weight. */
       component_id: p.component_id,
+      layout: p.layout,
       loss_pct: p.loss_pct == null ? null : Number(p.loss_pct),
       /* 0606 — see the Entry Register's route builder above. */
       color_losses: p.color_wise_loss ? (p.color_losses ?? null) : null,
@@ -2362,6 +2445,7 @@ export async function yarnFabricRequirementReport(
       buckets.set(bucket, {
         fabric_id: r.item_id,
         yd_part: partByEntry.get(r.entry_id) || null,
+        layout: entryFacts.get(r.entry_id)?.widthForm ?? null, // 0697
         combo: r.combo,
         gross: r.required_qty == null ? null : (held?.gross ?? 0) + Number(r.required_qty),
         uom_id: r.consumption_uom_id,
@@ -2457,6 +2541,7 @@ export async function yarnFabricRequirementReport(
           dias: new Set<string>(),
           panels: [],
           part: "",
+          layout: "",
           colour,
           // Unravelled, never cut — no sizes; its DYEING line stays one per colour.
           bySize: new Map<string, SizeSlice>(),
@@ -2764,6 +2849,8 @@ export async function yarnFabricRequirementReport(
           panels: Set<string>;
           /** YD PART (0596) — kept apart through the collapse, see NetSlice. */
           part: string;
+          /** THE CLOTH LAYOUT (0697) — kept apart for the same reason. */
+          layout: string;
           /** EACH PANEL SET'S OWN FIGURES (2026-09-26) — what the DYEING / DYED
            *  FABRIC PURCHASE sections print one line each for. */
           sets: {
@@ -2778,8 +2865,13 @@ export async function yarnFabricRequirementReport(
           }[];
         }
       >();
-      for (const { net, nos, garments, consWt, dias, panels, part, colour, bySize } of byPanels.values()) {
-        const forColour = route.filter((st) => stageCoversCombo(st.combo, combo));
+      for (const { net, nos, garments, consWt, dias, panels, part, layout, colour, bySize } of byPanels.values()) {
+        /* `layout || null`, not the raw string: a slice that states no layout
+           drops every layout-tagged step (under-count) rather than walking both
+           layouts' routes stacked. */
+        const forColour = route.filter(
+          (st) => stageCoversLayout(st.layout, layout || null) && stageCoversCombo(st.combo, combo),
+        );
         const branch = resolveRouteComponents(forColour, panels);
         if (isReportRefusal(branch)) {
           stageLedgerRefusals.push(`${fabricName}${combo ? ` · ${combo}` : ""}: ${branch.refused}`);
@@ -2790,7 +2882,7 @@ export async function yarnFabricRequirementReport(
            sleeve of the same cloth take DIFFERENT ladders now (the sleeve skips
            the print stage), so they cannot be summed into one weight first. */
         const printed = printedGroup(printLines, fabricId, combo, panels);
-        const branchKey = `${part}|${[...branch].sort().join(",")}|${printed ? "P" : ""}`;
+        const branchKey = `${part}|${layout}|${[...branch].sort().join(",")}|${printed ? "P" : ""}`;
         const held = byBranch.get(branchKey) ?? {
           net: 0,
           nos: 0,
@@ -2801,6 +2893,7 @@ export async function yarnFabricRequirementReport(
           printed,
           panels: new Set<string>(),
           part,
+          layout,
           sets: [],
         };
         held.sets.push({ panels: [...panels], net, nos, garments, consWt, dias, colour, bySize });
@@ -2827,11 +2920,15 @@ export async function yarnFabricRequirementReport(
          bands the section. */
       const fabricColourFor = (part: string) =>
         ydComboFor(part)?.ydComboName ?? (solidColours && solidColours.size === 1 ? [...solidColours][0] : null);
-      const formLabel = layoutTypeLabel(widthFormByFabric.get(fabricId)) || null;
+      const fabricFormLabel = layoutTypeLabel(widthFormByFabric.get(fabricId)) || null;
       const gsm = resolveGsm(fabricId, combo);
       const nosUomCode = countUnitOf(fabricId);
 
-      for (const { net, nos, garments, consWt, dias, branch, printed, panels, part, sets } of byBranch.values()) {
+      for (const { net, nos, garments, consWt, dias, branch, printed, panels, part, layout, sets } of byBranch.values()) {
+        /* THIS BRANCH'S OWN ROLL FORM (0697) — a fabric cut both ways prints
+           `/ Open Width` on one section's lines and `/ Tubular` on the other's,
+           where the per-fabric label could only name whichever entry came last. */
+        const formLabel = (layout ? layoutTypeLabel(layout) : "") || fabricFormLabel;
         const ydCombo = ydComboFor(part);
         const fabricColour = fabricColourFor(part);
         const mixingText = mixingTextFor(fabricId, combo, part);
@@ -2844,7 +2941,7 @@ export async function yarnFabricRequirementReport(
         const component = branch.length
           ? branch.map((id) => componentNames.get(id) ?? "(component not found)").join(", ")
           : null;
-        const ladder = comboUpliftBreakdown(route, combo, branch, source, printed);
+        const ladder = comboUpliftBreakdown(route, combo, branch, source, printed, layout || null);
         if (isReportRefusal(ladder)) {
           // an out-of-range loss: nothing to ladder, not a report crash — but said
           stageLedgerRefusals.push(`${fabricName}${combo ? ` · ${combo}` : ""}: ${ladder.refused}`);

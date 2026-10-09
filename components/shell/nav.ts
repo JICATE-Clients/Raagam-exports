@@ -86,7 +86,7 @@ export const NAV: NavItem[] = [
       // SAMPLE COSTING (2026-10-07, doc/sample/sample-costing-specification.md)
       // — the next child after Sample Entry: the legacy Product Cost Sheet as
       // one document per sample style line, on `cost_sheets` (0688).
-      { href: "/sales/sample-costing", label: "Sample Costing" },
+      { href: "/sales/sample-costing", label: "Costing" },
       { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
       { href: "/sales/sq-details", label: "SQ Details" },
       { href: "/sales/pipeline-orders", label: "Pipeline & Seasonal" },

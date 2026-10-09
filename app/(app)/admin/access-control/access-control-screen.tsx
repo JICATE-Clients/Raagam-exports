@@ -174,6 +174,13 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
   function saveUser() {
     if (!user) return;
     const email = user.email;
+    // UNIT IS MANDATORY (user 2026-10-09). Fail here with the same sentence the
+    // server uses, so the operator is not sent through a round trip to learn it.
+    const noUnit = !user.is_super_admin && !user.access?.all_locations && (user.access?.location_ids ?? []).length === 0;
+    if (userActive && noUnit) {
+      toastError("Unit is required — allocate at least one unit in the Units column before giving access.");
+      return;
+    }
     start(async () => {
       const res = await saveUserAccess({
         email,
@@ -349,7 +356,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
       /* UNITS IN THE LIST, NOT IN THE EDITOR (user 2026-10-01: "unit field
          move to the front table … can allocate per person multiple
          location"). Several units per person, saved from the row. */
-      header: "Units",
+      header: "Units *",
       cell: (u) => (
         <UnitsCell
           key={`${u.id}:${u.access?.all_locations ? "all" : (u.access?.location_ids ?? []).join(",")}`}
@@ -690,8 +697,13 @@ function UnitsCell({
   const [dirty, setDirty] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useUnsavedGuard(dirty || saving);
+  // The ticks waiting for the debounce, so leaving the page flushes them
+  // instead of dropping them (a tick in the last 900 ms was silently lost).
+  const pending = useRef<string[] | null>(null);
+  const latest = useRef({ user, saveUnits: null as null | ((next: string[]) => Promise<unknown>) });
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
+    if (pending.current) void latest.current.saveUnits?.(pending.current);
   }, []);
 
   if (user.is_super_admin) return <span className="text-sm text-muted-foreground">Every unit</span>;
@@ -705,21 +717,31 @@ function UnitsCell({
       .map((id) => ({ id, label: "(inactive unit)", inactive: true })),
   ];
 
-  function save(next: string[]) {
+  function saveUnits(next: string[]) {
     const all = next.includes(ALL_UNITS);
+    return saveUserAccess({
+      email: user.email,
+      active: user.access?.is_active ?? true,
+      note: user.access?.note ?? null,
+      tree: user.tree,
+      locations: { all, ids: all ? [] : next },
+    });
+  }
+  latest.current = { user, saveUnits };
+
+  function save(next: string[]) {
+    pending.current = null;
     start(async () => {
-      const res = await saveUserAccess({
-        email: user.email,
-        active: user.access?.is_active ?? true,
-        note: user.access?.note ?? null,
-        tree: user.tree,
-        locations: { all, ids: all ? [] : next },
-      });
+      const res = await saveUnits(next);
       setDirty(false);
       if (res.ok) {
         success(`Units saved for ${user.full_name ?? user.email}`);
         router.refresh();
-      } else toastError(res.error);
+      } else {
+        // The ticks on screen must be what is stored: put them back.
+        setValues(stored);
+        toastError(res.error);
+      }
     });
   }
 
@@ -728,9 +750,16 @@ function UnitsCell({
     // narrows to that unit.
     const tickedAll = next.includes(ALL_UNITS) && !values.includes(ALL_UNITS);
     const resolved = tickedAll ? [ALL_UNITS] : next.filter((v) => v !== ALL_UNITS);
+    // UNIT IS MANDATORY (user 2026-10-09): un-ticking the last unit is refused,
+    // the tick stays. The server refuses it too (`saveUserAccess`).
+    if (resolved.length === 0 && (user.access?.is_active ?? true)) {
+      toastError("Unit is required — keep at least one unit.");
+      return;
+    }
     setValues(resolved);
     setDirty(true);
     if (timer.current) clearTimeout(timer.current);
+    pending.current = resolved;
     timer.current = setTimeout(() => save(resolved), UNITS_SAVE_DELAY_MS);
   }
 

@@ -71,12 +71,15 @@ function groupBy<T extends Row>(rows: T[], key: string): Map<string, T[]> {
 export async function loadOrderProgress(
   sb: SB,
   today: string,
-  opts: { salesOrderId?: string } = {},
+  opts: { salesOrderId?: string; salesOrderIds?: readonly string[] } = {},
 ): Promise<ProgressRow[]> {
   // ---- Round 1: which REs have an Order Entry document at all.
   let soIds: string[];
   if (opts.salesOrderId) {
     soIds = [opts.salesOrderId];
+  } else if (opts.salesOrderIds) {
+    // The Season Report already knows its REs — it must not pay for every order.
+    soIds = [...new Set(opts.salesOrderIds)];
   } else {
     const { data, error } = await sb.from("garment_order_amendments").select("sales_order_id").not("sales_order_id", "is", null);
     fail("Order documents", error);

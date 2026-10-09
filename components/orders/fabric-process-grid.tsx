@@ -129,6 +129,7 @@ export function FabricProcessGrid({
   fabricIsYarnDyed = false,
   looseFabricRoute = false,
   fabricIsPieceDyed = false,
+  fabricLayouts,
   source = "yarn_knit",
   canCreate = false,
   canEdit = false,
@@ -212,6 +213,14 @@ export function FabricProcessGrid({
   /** Is THIS fabric piece-dyed (Solid / Printed)? Withholds the WASH stage
    *  (client 2026-09-23, `washStageBlocked`). Defaults `false` (never withhold). */
   fabricIsPieceDyed?: boolean;
+  /** The cloth LAYOUTS this fabric is cut in — 'open_width' / 'tubular', read
+   *  off its Components lines (0696). The Process ▾ withholds a step tagged
+   *  with the OTHER layout (COMPACTING [TUBULAR] on an Open Width fabric). It
+   *  narrows the OFFERED list only: it is not part of `gatesFor`, so the Save
+   *  gate and the inline twins — which a layout-tagged step can never be the
+   *  subject of, since none is a stage's base — stay exactly as they were. A
+   *  held value survives. Omitted/empty = withhold nothing. */
+  fabricLayouts?: readonly string[];
   /**
    * WHERE THIS FABRIC COMES FROM (0564) — the Source ▾ on the panel above.
    *
@@ -663,6 +672,7 @@ export function FabricProcessGrid({
             const narrowed = processesForFabric(processes, {
               currentValue: r.process_id,
               ...gatesFor(r),
+              layouts: fabricLayouts,
               /* 0563 — the two stage narrowings. Both are OPTIONAL opts that
                  default to no narrowing, so a row with no Stage named yet sees
                  exactly the list this grid offered before they existed. */

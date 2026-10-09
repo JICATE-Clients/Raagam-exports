@@ -71,6 +71,8 @@
  */
 import {
   comboUplift,
+  stageCoversLayout,
+  stagesForGroup,
   deriveYarnRows,
   isRefusal,
   stageProblem,
@@ -1123,6 +1125,75 @@ check(
   qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), NO_ROUTES, NO_OWN_STAGES, 2)),
   1000,
 );
+
+// ---------------------------------------------------------------------------
+// 13. THE CLOTH LAYOUT IS A BRANCH AXIS (0697) — a fabric cut Open Width AND
+//     Tubular runs a route in each, and the two must never be stacked
+// ---------------------------------------------------------------------------
+{
+  const SHARED = { loss_pct: 2, combo: null as string | null };
+  const OPEN_ONLY = { loss_pct: 10, combo: null as string | null, layout: "open_width" };
+  const TUBE_ONLY = { loss_pct: 5, combo: null as string | null, layout: "tubular" };
+  const route = new Map([["pique", [SHARED, OPEN_ONLY, TUBE_ONLY]]]);
+  const slice = (g: number, layout: string | null | undefined): FabricGross => ({
+    ...gross("pique", g),
+    ...(layout === undefined ? {} : { layout }),
+  });
+  const r2 = (n: number) => Number(n.toFixed(2));
+
+  check("covers: an untagged step treats every layout", stageCoversLayout(null, "tubular"), true);
+  check("covers: a tagged step treats its own layout", stageCoversLayout("tubular", "tubular"), true);
+  check("covers: a tagged step does NOT treat the other layout", stageCoversLayout("tubular", "open_width"), false);
+  check("covers: group layout UNSTATED (null) drops a tagged step", stageCoversLayout("tubular", null), false);
+  check("covers: group layout UNDEFINED does not filter (a resolved route's second pass)", stageCoversLayout("tubular", undefined), true);
+
+  const openOnly = 600 / ((1 - 0.1) * (1 - 0.02));
+  const tubeOnly = 400 / ((1 - 0.05) * (1 - 0.02));
+  const both = [slice(600, "open_width"), slice(400, "tubular")];
+  check(
+    "each layout is grossed by its own route: 600 Open Width + 400 Tubular",
+    qtyOf(yarnPurchase(COTTON, both, map(PIQUE), route, NO_OWN_STAGES, 2)),
+    r2(openOnly + tubeOnly),
+  );
+  refute(
+    "...and NOT stacked: every step on every weight is the over-purchase",
+    qtyOf(yarnPurchase(COTTON, both, map(PIQUE), route, NO_OWN_STAGES, 2)),
+    r2(1000 / ((1 - 0.1) * (1 - 0.05) * (1 - 0.02))),
+  );
+  check(
+    "a slice with NO layout is grossed by the shared steps only (the under-count, never the stack)",
+    qtyOf(yarnPurchase(COTTON, [slice(1000, null)], map(PIQUE), route, NO_OWN_STAGES, 2)),
+    r2(1000 / (1 - 0.02)),
+  );
+  check(
+    "a slice that never named a layout (pre-0697 caller) behaves the same",
+    qtyOf(yarnPurchase(COTTON, [slice(1000, undefined)], map(PIQUE), route, NO_OWN_STAGES, 2)),
+    r2(1000 / (1 - 0.02)),
+  );
+  check(
+    "every existing route is untagged, so it grosses exactly as before",
+    qtyOf(yarnPurchase(COTTON, [slice(1000, "tubular")], map(PIQUE), routes("pique", [stage(10)]), NO_OWN_STAGES, 2)),
+    /* the pre-0697 answer, from a slice that names no layout at all — a purchase
+       rounds UP to the unit's precision, so this is not a hand-rounded figure */
+    qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), routes("pique", [stage(10)]), NO_OWN_STAGES, 2)),
+  );
+  check(
+    "stagesForGroup: Open Width keeps shared + open steps",
+    (stagesForGroup(route.get("pique")!, "", [], "yarn_knit", undefined, "open_width") as { loss_pct: number }[]).map((x) => x.loss_pct),
+    [2, 10],
+  );
+  check(
+    "stagesForGroup: layout omitted does not filter (second pass over a resolved route)",
+    (stagesForGroup(route.get("pique")!, "", [], "yarn_knit") as { loss_pct: number }[]).map((x) => x.loss_pct),
+    [2, 10, 5],
+  );
+  const resolved = stagesForGroup(route.get("pique")!, "", [], "yarn_knit", undefined, "tubular") as { loss_pct: number }[];
+  check(
+    "comboUplift over an already-resolved route keeps its tagged steps (no layout to filter by)",
+    Number((comboUplift(resolved as never, "") as number).toFixed(6)),
+    Number((1 / ((1 - 0.02) * (1 - 0.05))).toFixed(6)),
+  );
+}
 
 console.log(failed === 0 ? "\nOK — every yarn-process vector holds." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

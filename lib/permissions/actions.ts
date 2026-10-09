@@ -96,6 +96,31 @@ export async function saveUserAccess(input: {
   if (!email) return { ok: false, error: "Choose the user." };
 
   const s = await createClient();
+
+  // UNIT IS MANDATORY (user 2026-10-09): access that is switched ON must reach
+  // at least one unit, or the person signs in to a screen with no data and
+  // nothing saying why (0680: the allocation is the only source of a unit).
+  // The units are judged as they will be AFTER this save — the ones sent, or,
+  // when `locations` is omitted (Status switch, bulk), the ones already stored.
+  // A super admin reaches every unit regardless, so is exempt. Switching
+  // access OFF is never refused: the way out must stay open.
+  if (input.active) {
+    const { data: prof } = await s.from("profiles").select("is_super_admin").ilike("email", email).maybeSingle();
+    if (!(prof as { is_super_admin?: boolean } | null)?.is_super_admin) {
+      let hasUnit: boolean;
+      if (input.locations) {
+        hasUnit = input.locations.all || input.locations.ids.length > 0;
+      } else {
+        const [{ data: acc }, { data: locs }] = await Promise.all([
+          s.from("user_access").select("all_locations").eq("user_email", email).maybeSingle(),
+          s.from("user_access_locations").select("location_id").eq("user_email", email).limit(1),
+        ]);
+        hasUnit = !!(acc as { all_locations?: boolean } | null)?.all_locations || ((locs as unknown[] | null)?.length ?? 0) > 0;
+      }
+      if (!hasUnit) return { ok: false, error: "Unit is required — allocate at least one unit before giving access." };
+    }
+  }
+
   const { error } = await s.rpc("save_user_permissions", {
     p_email: email,
     p_tree: payloadFromTree(input.tree, screenCatalog()),
