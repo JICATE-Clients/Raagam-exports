@@ -55,18 +55,21 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
     status: m.statusLabel,
     margin: M,
   });
+  // 1 · HEADER — the RAAGAM COSTING FORMAT's top block. A fact with no value prints no cell.
   y = drawOrderFacts(
     doc,
     y,
     [
-      { label: "Customer", value: m.customer },
-      { label: "Style", value: m.style, sub: m.sampleNo },
+      { label: "Buyer / importer", value: m.customer },
+      { label: "Description", value: m.description || m.style, sub: m.sampleNo },
+      { label: "Fabric", value: m.fabricFacts.structure, sub: m.fabricFacts.gsm },
+      { label: "Composition", value: m.fabricFacts.composition },
       { label: "Season", value: m.season },
       { label: "Currency", value: m.currency ? `${m.currency}${m.exchangeRate ? ` @ ₹ ${fx(m.exchangeRate)}` : ""}` : null },
       { label: "Ship mode", value: m.shipMode },
-      { label: "Sizes", value: m.sizes.map((x) => x.label).join(", ") },
-    ],
-    { margin: M, cols: 6 },
+      { label: "Size group", value: m.sizeGroup },
+    ].filter((x) => x.value) as { label: string; value: string | null; sub?: string | null }[],
+    { margin: M, cols: 4 },
   );
 
   // THE APPROVAL LINE (client 2026-10-09: "where is the approver"): how this
@@ -215,7 +218,98 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
     cursor = end();
   };
 
-  // Sizes: the whole story per size, in both currencies.
+  const multi = m.pieceCount > 1;
+  // 2 · COMPONENT CONSUMPTION
+  card(
+    "Component consumption (grams)",
+    [...(multi ? ["Piece"] : []), "Component", "Fabric", ...m.weights.sizeLabels, "Loss %"],
+    [
+      ...m.weights.rows.map((r) => [...(multi ? [r.piece] : []), r.component, r.fabric, ...r.grams.map((g) => (g == null ? "" : String(g))), r.lossPct]),
+      [...(multi ? [""] : []), "Fabric cost ₹", "", ...m.sizes.map((x) => fx(x.fabric)), ""],
+    ],
+    m.weights.sizeLabels.map((_, i) => i + (multi ? 3 : 2)),
+  );
+  // 3 · FABRIC PROCESSING COST
+  card(
+    "Fabric processing cost (₹ / kg)",
+    ["Fabric", "Yarn", "Knitting", "Dyeing", "Finishing", "Special", "Loss %", "Price / kg"],
+    m.fabrics.map((f) => [f.name, f.direct ? "" : fx(f.yarn), f.direct ? "" : fx(f.knitting), f.direct ? "" : fx(f.dyeing), f.direct ? "" : fx(f.finishing), f.direct ? "" : fx(f.special), f.direct ? "Direct" : fx(f.lossPct), fx(f.price)]),
+    [1, 2, 3, 4, 5, 6, 7],
+  );
+  // 4 · THE THREE PANELS: fabric & garment processes · CMT · trims
+  card(
+    "Fabric & garment processes (₹ / pc)",
+    [...(multi ? ["Piece"] : []), "Line", "Rate ₹"],
+    [
+      [...(multi ? [""] : []), `Fabric cost${m.sizes.length > 1 ? ` · ${s.label}` : ""}`, fx(s.fabric)],
+      ...m.ops.filter((o) => o.kind !== "CMT").map((o) => [...(multi ? [o.piece] : []), o.name, fx(o.rate)]),
+    ],
+    [multi ? 2 : 1],
+    fx(s.fabric + s.process + s.testing),
+  );
+  card(
+    "CMT operations (₹ / pc)",
+    [...(multi ? ["Piece"] : []), "Operation", "Rate ₹"],
+    m.ops.filter((o) => o.kind === "CMT").map((o) => [...(multi ? [o.piece] : []), o.name, fx(o.rate)]),
+    [multi ? 2 : 1],
+    fx(s.cmt),
+  );
+  card(
+    "Trims & accessories",
+    [...(multi ? ["Piece"] : []), "Trim", "Pricing", "Consumption", "Cost ₹"],
+    m.trims.map((t) => [...(multi ? [t.piece] : []), t.name, t.pricing, t.qty, fx(t.cost)]),
+    [multi ? 3 : 2, multi ? 4 : 3],
+    fx(s.trims),
+  );
+  // 5 · GARMENT COST — one column per size
+  const gc = (label: string, f: (x: SizeFigures) => number): RowInput => [label, ...m.sizes.map((x) => fx(f(x)))];
+  card(
+    "Garment cost (₹ / pc)",
+    ["Line", ...m.sizes.map((x) => (m.sizes.length > 1 ? x.label : "₹"))],
+    [
+      gc("Fabric cost", (x) => x.fabric),
+      gc("CMT", (x) => x.cmt),
+      gc("Garment processes & testing", (x) => x.process + x.testing),
+      gc("Trims", (x) => x.trims),
+      gc("Factory base cost", (x) => x.net),
+      gc(`Rejection ${m.terms.wastage}%`, (x) => x.wastage),
+      gc(`Overhead ${m.terms.overhead}%`, (x) => x.overhead),
+      gc("Bank charges & other overheads", (x) => x.bank + x.extraOverhead),
+      gc("Total cost", (x) => x.grossCost),
+      gc(`Profit ${m.terms.margin}%`, (x) => x.margin),
+      ...(m.terms.freight + m.terms.insurance > 0 ? [gc("Freight & insurance (on the price)", () => (m.terms.freight + m.terms.insurance) * m.pieceCount)] : []),
+      ...(m.sizes.some((x) => x.priceAdj - x.discount !== 0) ? [gc("Price charges & discount", (x) => x.priceAdj - x.discount)] : []),
+      gc("Price", (x) => x.price),
+    ],
+    m.sizes.map((_, i) => i + 1),
+  );
+  card(
+    "Overheads & extra charges",
+    ["Line", "Type", "Value", ...m.sizes.map((x) => (m.sizes.length > 1 ? `${x.label} ₹` : `₹ / ${m.unitWord}`))],
+    m.overheads.map((o) => [
+      `${o.name.toUpperCase()}${o.side === "price" ? " (price)" : ""}`,
+      o.type,
+      o.value,
+      ...o.perSize.map((v) => `${o.side === "price" ? (v >= 0 ? "+" : "-") : ""}${fx(Math.abs(v))}`),
+    ]),
+    m.sizes.map((_, i) => i + 2),
+  );
+  // 6 · COMMERCIAL QUOTE & NEGOTIATION
+  const quotedNow = s.quoted ?? s.calc;
+  const gap = m.targetPrice != null && quotedNow != null ? Math.round((quotedNow - m.targetPrice) * 100) / 100 : null;
+  card(
+    "Commercial quote & negotiation",
+    ["", `${ccy} / ${m.unitWord}`.trim()],
+    [
+      ["Calculated price", s.calc == null ? "—" : fx(s.calc)],
+      ["Quoted price", quotedNow == null ? "—" : fx(quotedNow)],
+      ...(m.targetPrice != null ? [["Buyer target price", fx(m.targetPrice)]] : []),
+      ...(gap != null ? [["Difference to target", gap === 0 ? "on target" : `${gap > 0 ? "+" : "-"}${fx(Math.abs(gap))} ${gap > 0 ? "over" : "under"}`]] : []),
+      ...(m.commissionPct > 0 ? [["Commission %", `${fx(m.commissionPct)} %`]] : []),
+      ...(m.terms.discount > 0 ? [["LC discount %", `${fx(m.terms.discount)} %`]] : []),
+    ],
+    [1],
+  );
   card(
     "Price by size",
     ["Size", "Net ₹", "Gross cost ₹", "Price ₹", `Calc ${ccy}`, `Quoted ${ccy}`, "Quoted ₹", "Margin %"],
@@ -230,46 +324,6 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
       x.effectiveMarginPct == null ? "—" : `${fx(x.effectiveMarginPct)}%`,
     ]),
     [1, 2, 3, 4, 5, 6, 7],
-  );
-  card(
-    "Fabric rates (₹ / kg)",
-    ["Fabric", "Yarn", "Knitting", "Dyeing", "Finishing", "Special", "Loss %", "Price / kg"],
-    m.fabrics.map((f) => [f.name, f.direct ? "" : fx(f.yarn), f.direct ? "" : fx(f.knitting), f.direct ? "" : fx(f.dyeing), f.direct ? "" : fx(f.finishing), f.direct ? "" : fx(f.special), f.direct ? "Direct" : fx(f.lossPct), fx(f.price)]),
-    [1, 2, 3, 4, 5, 6, 7],
-  );
-  card(
-    "Garment weight (grams)",
-    [...(m.pieceCount > 1 ? ["Piece"] : []), "Component", "Fabric", ...m.weights.sizeLabels, "Loss %"],
-    [
-      ...m.weights.rows.map((r) => [...(m.pieceCount > 1 ? [r.piece] : []), r.component, r.fabric, ...r.grams.map((g) => (g == null ? "" : String(g))), r.lossPct]),
-      [...(m.pieceCount > 1 ? [""] : []), "Fabric cost ₹", "", ...m.sizes.map((x) => fx(x.fabric)), ""],
-    ],
-    m.weights.sizeLabels.map((_, i) => i + (m.pieceCount > 1 ? 3 : 2)),
-  );
-  card(
-    "CMT & embellishment (₹ / pc)",
-    [...(m.pieceCount > 1 ? ["Piece"] : []), "Operation", "Kind", "Rate ₹"],
-    m.ops.map((o) => [...(m.pieceCount > 1 ? [o.piece] : []), o.name, o.kind, fx(o.rate)]),
-    [m.pieceCount > 1 ? 3 : 2],
-    fx(s.cmt + s.process + s.testing),
-  );
-  card(
-    "Trims & accessories",
-    [...(m.pieceCount > 1 ? ["Piece"] : []), "Trim", "Pricing", "Consumption", "Cost ₹"],
-    m.trims.map((t) => [...(m.pieceCount > 1 ? [t.piece] : []), t.name, t.pricing, t.qty, fx(t.cost)]),
-    [m.pieceCount > 1 ? 3 : 2, m.pieceCount > 1 ? 4 : 3],
-    fx(s.trims),
-  );
-  card(
-    "Overheads & extra charges",
-    ["Line", "Type", "Value", ...m.sizes.map((x) => (m.sizes.length > 1 ? `${x.label} ₹` : `₹ / ${m.unitWord}`))],
-    m.overheads.map((o) => [
-      `${o.name.toUpperCase()}${o.side === "price" ? " (price)" : ""}`,
-      o.type,
-      o.value,
-      ...o.perSize.map((v) => `${o.side === "price" ? (v >= 0 ? "+" : "-") : ""}${fx(Math.abs(v))}`),
-    ]),
-    m.sizes.map((_, i) => i + 2),
   );
   // WHERE THIS COSTING STANDS IN THE NEGOTIATION (client 2026-10-09). Internal, so
   // the margin each revision carried is here; empty (and so skipped) when never revised.
@@ -328,7 +382,7 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   const blank = () => rows.push([]);
   const ccy = m.currency ?? "";
 
-  add(["Sample Cost Sheet (internal)", m.costingNo, m.revision, m.statusLabel], ["Customer", m.customer], ["Style", m.style, m.sampleNo], ["Season", m.season], ["Currency", ccy, "Exchange rate", m.exchangeRate]);
+  add(["Sample Cost Sheet (internal)", m.costingNo, m.revision, m.statusLabel], ["Buyer / importer", m.customer], ["Description", m.description || m.style, m.sampleNo], ["Fabric", m.fabricFacts.structure, m.fabricFacts.gsm, m.fabricFacts.composition], ["Season", m.season], ["Size group", m.sizeGroup], ["Currency", ccy, "Exchange rate", m.exchangeRate]);
   blank();
   add(["PRICE BY SIZE", "Net ₹", "Gross cost ₹", "Price ₹", `Calculated ${ccy}`, `Quoted ${ccy}`, "Quoted ₹", "Margin %"]);
   m.sizes.forEach((x) => add([x.label, fx(x.net), fx(x.grossCost), fx(x.price), x.calc == null ? "" : x.calc.toFixed(4), x.quoted == null ? "" : x.quoted.toFixed(4), fx(inr(m, x.quoted)), x.effectiveMarginPct == null ? "" : fx(x.effectiveMarginPct)]));
@@ -365,6 +419,13 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   blank();
   add(["OVERHEADS & EXTRA CHARGES", "Type", "Value", ...m.sizes.map((x) => `${x.label} ₹`)]);
   m.overheads.forEach((o) => add([`${o.name}${o.side === "price" ? " (price)" : ""}`, o.type, o.value, ...o.perSize.map((v) => fx(v))]));
+  blank();
+  const quotedNow2 = m.sizes[0] ? (m.sizes[0].quoted ?? m.sizes[0].calc) : null;
+  add(["COMMERCIAL QUOTE & NEGOTIATION", `${ccy} / ${m.unitWord}`.trim()]);
+  add(["Calculated price", m.sizes[0]?.calc == null ? "" : fx(m.sizes[0].calc)], ["Quoted price", quotedNow2 == null ? "" : fx(quotedNow2)]);
+  if (m.targetPrice != null) add(["Buyer target price", fx(m.targetPrice)], ["Difference to target", quotedNow2 == null ? "" : fx(quotedNow2 - m.targetPrice)]);
+  if (m.commissionPct > 0) add(["Commission %", fx(m.commissionPct)]);
+  if (m.terms.discount > 0) add(["LC discount %", fx(m.terms.discount)]);
 
   const csv = "﻿" + rows.map((r) => r.map(q).join(",")).join("\r\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));

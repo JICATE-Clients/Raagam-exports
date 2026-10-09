@@ -326,6 +326,8 @@ const blankHeader = (): CostingHeaderDraft => ({
   ship_mode: "",
   freight_per_pc: "",
   insurance_per_pc: "",
+  buyer_target_price: "",
+  commission_pct: "",
   notes: "",
 });
 
@@ -754,6 +756,8 @@ export function SampleCostingScreen({
       ship_mode: d.header.ship_mode,
       freight_per_pc: d.header.freight_per_pc,
       insurance_per_pc: d.header.insurance_per_pc,
+      buyer_target_price: d.header.buyer_target_price,
+      commission_pct: d.header.commission_pct,
     });
     setPieces(nextPieces);
     setFabrics(nextFabrics.length ? nextFabrics : [blankFabric()]);
@@ -3035,6 +3039,15 @@ export function SampleCostingScreen({
             </Field>
             <Field label="Insurance / pc ₹" w="range" htmlFor="sc-ins">
               <NumInput id="sc-ins" value={header.insurance_per_pc} onChange={(e) => setH({ insurance_per_pc: e.target.value })} />
+            </Field>
+            {/* OPTIONAL COMMERCIAL TERMS (RAAGAM COSTING FORMAT.xlsx, 2026-10-09): the buyer's
+                target, printed beside the quote with the gap, and the agent's commission,
+                which rides on the price. Both blank = not in play. */}
+            <Field label={`Buyer target ${ccy ?? ""} / ${unitWord}`.trim()} w="range" htmlFor="sc-target">
+              <NumInput id="sc-target" value={header.buyer_target_price} onChange={(e) => setH({ buyer_target_price: e.target.value })} />
+            </Field>
+            <Field label="Commission %" w="range" htmlFor="sc-commission">
+              <NumInput id="sc-commission" value={header.commission_pct} onChange={(e) => setH({ commission_pct: e.target.value })} />
             </Field>
             {/* QUOTED PRICE AND ITS "In ₹" ARE ONE UNIT (user 2026-10-09: "put it
                 beside the Quoted Price field"). One flex item, so if the row has to
