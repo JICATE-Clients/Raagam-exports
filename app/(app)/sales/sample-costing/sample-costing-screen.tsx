@@ -1846,7 +1846,7 @@ export function SampleCostingScreen({
     // Cost ₹ · ✕. It was sizes across the top; the data is the same
     // (`line.cells[size]`, `loss[size]`), only the axis is turned.
     const track = [
-      "92px",
+      "112px",
       ...(multiPiece ? ["112px"] : []),
       "168px",
       "200px",
@@ -1860,7 +1860,7 @@ export function SampleCostingScreen({
     const bandCell = "flex min-h-11 items-center border-b border-border bg-primary-soft px-2 text-xs";
     const addSizeRow = (
       <FieldRow gap="row" align="end">
-        {offered.length ? (
+        {offered.length && !matrixCols.length ? (
           <Field label="Add a size" w="term" htmlFor="sc-add-size">
             <Select id="sc-add-size" value="" onChange={(e) => addSize(e.target.value)}>
               <option value="">+ Add size…</option>
@@ -2057,7 +2057,23 @@ export function SampleCostingScreen({
                 {/* THE SIZE'S SUBTOTAL ROW: its Loss %, and what the band adds up to. */}
                 {c ? (
                   <>
-                    <div className={`${bandCell} border-r`} />
+                    {/* "ADD A SIZE" STANDS UNDER THE LAST SIZE, in the Size column's own cell of
+                        this band's subtotal row (user 2026-10-09: "size kku keela empty space
+                        irukkula anga venum"). That cell was blank; the dropdown now fills it, so
+                        it reads as the next size's slot. The labelled field below the table
+                        goes with it. */}
+                    <div className={`${bandCell} border-r px-1`}>
+                      {bi === bands.length - 1 && offered.length ? (
+                        <Select aria-label="Add a size" id="sc-add-size" value="" onChange={(e) => addSize(e.target.value)}>
+                          <option value="">+ Size</option>
+                          {offered.map((z) => (
+                            <option key={z} value={z}>
+                              {z}
+                            </option>
+                          ))}
+                        </Select>
+                      ) : null}
+                    </div>
                     <div data-loss-row className={`${bandCell} gap-2 font-semibold text-muted-foreground`} style={{ gridColumn: `span ${ID_COLS}` }}>
                       <span className="whitespace-nowrap">Loss %</span>
                       <div className="w-16">
