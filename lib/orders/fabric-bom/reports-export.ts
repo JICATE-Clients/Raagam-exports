@@ -294,6 +294,30 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
       "",
     ]);
   }
+  /* One subtotal per roll form above the grand total (0696) — the same rows the
+     on-screen register prints, in the colour-subtotal look. Absent from a
+     snapshot frozen before the field existed. */
+  for (const t of data.layoutTotals ?? []) {
+    totalAt.push(body.length);
+    kinds.push({ kind: "colour" });
+    body.push([
+      `${t.form} — subtotal`,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      fmtNumber(t.cutQty),
+      "",
+      "",
+      fmtNumber(t.netReqWt),
+      "",
+      fmtNumber(t.grossWt),
+      "",
+    ]);
+  }
   totalAt.push(body.length);
   kinds.push({ kind: "grand" });
   body.push([
@@ -423,7 +447,7 @@ export async function exportEntryRegisterPdf(
       head: [["Class", "Item", "Colour", "Component", "Stage", "Process", "Loss %"]],
       body: data.stageLedger.map((r) => [
         r.className,
-        r.itemName,
+        r.layoutForm ? `${r.itemName} / ${r.layoutForm}` : r.itemName,
         r.combo ?? "",
         r.componentName ?? "",
         r.stageName ?? "",

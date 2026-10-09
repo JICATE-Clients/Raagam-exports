@@ -28,8 +28,11 @@ import {
   BILLING_ON,
   GARMENT_KINDS,
   GARMENT_KIND_LABEL,
+  PROCESS_LAYOUTS,
+  PROCESS_LAYOUT_LABEL,
   type BillingOn,
   type GarmentKind,
+  type ProcessLayout,
   type Process,
   type ProcessInput,
 } from "@/lib/masters/process-types";
@@ -59,6 +62,7 @@ const BLANK = {
   for_garments: false,
   for_components: false,
   garment_kind: "" as "" | GarmentKind,
+  layout: "" as "" | ProcessLayout,
   no_planning: false,
   is_conversion: false,
   has_sub_categories: false,
@@ -253,6 +257,7 @@ export function ProcessMasterScreen({
       for_garments: r.for_garments,
       for_components: r.for_components,
       garment_kind: r.garment_kind ?? "",
+      layout: r.layout ?? "",
       no_planning: r.no_planning,
       is_conversion: r.is_conversion,
       has_sub_categories: r.has_sub_categories,
@@ -303,6 +308,8 @@ export function ProcessMasterScreen({
     // Un-ticking Garments drops the kind with it: a process that is no longer a
     // garment process must not keep turning up in Sample Costing's pickers.
     if (key === "for_garments" && !checked) set({ garment_kind: "" });
+    // Same for the cloth layout: it only steers Fabric BOM ▸ Fabric Process.
+    if (key === "for_fabric" && !checked) set({ layout: "" });
     if ((key === "for_fabric" || key === "for_yarn") && checked && stageRows.length === 0)
       setStageRows([blankStage(newKey())]);
   }
@@ -353,6 +360,7 @@ export function ProcessMasterScreen({
         for_garments: form.for_garments,
         for_components: form.for_components,
         garment_kind: form.garment_kind ? form.garment_kind : null,
+        layout: form.layout ? form.layout : null,
         no_planning: form.no_planning,
         is_conversion: form.is_conversion,
         has_sub_categories: form.has_sub_categories,
@@ -694,6 +702,24 @@ export function ProcessMasterScreen({
                       label={GARMENT_KIND_LABEL[k]}
                       checked={form.garment_kind === k}
                       onChange={(v) => set({ garment_kind: v ? k : "" })}
+                    />
+                  ))
+                : null}
+              {/* WHICH CLOTH LAYOUT THIS STEP IS FOR (0696) — "Compacting
+                  [Open Width]" vs "[Tubular]". Neither switch on means either,
+                  the ordinary case. Fabric BOM ▸ Fabric Process withholds a
+                  layout-specific step from a fabric cut only in the other
+                  layout. One column holds it, so the switches are mutually
+                  exclusive, like the garment kind above. Shown while Fabric is
+                  ticked, or while a layout is already held. */}
+              {form.for_fabric || form.layout
+                ? PROCESS_LAYOUTS.map((l) => (
+                    <Toggle
+                      key={l}
+                      id={`pr-layout-${l}`}
+                      label={`${PROCESS_LAYOUT_LABEL[l]} only`}
+                      checked={form.layout === l}
+                      onChange={(v) => set({ layout: v ? l : "" })}
                     />
                   ))
                 : null}
