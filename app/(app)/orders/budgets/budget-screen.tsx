@@ -36,7 +36,8 @@ import { OverrideBanner, useOverrideCommit, type OverrideSaveRequest } from "@/c
 import { areaOverride } from "@/lib/orders/overrides/override-modules";
 import type { OverrideEditState } from "@/lib/orders/overrides/types";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useTabResume } from "@/lib/workspace-tabs";
 import {
   Coins,
   Copy,
@@ -745,6 +746,9 @@ export function BudgetScreen({
   /* OPEN ONE BUDGET FROM A LINK — `?open=<budget id>` (0616, the Amendment
      Entry page's "Open budget"). Above every early return, like every hook. */
   useOpenIntent((budgetId) => openExisting(budgetId));
+  // The top-navigation tab reopens THIS budget, not the list (user 2026-10-09).
+  const tabPath = usePathname();
+  useTabResume(tabPath, mode === "edit" && editId ? `?open=${editId}` : null);
   /* EMBEDDED IN THE AMENDMENT WORKSPACE (2026-09-23) — with the Manual Entry
      Needed jump (`openLine` / `openField`) landed after the rows arrive. */
   useEmbeddedEditor({

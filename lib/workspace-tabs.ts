@@ -40,6 +40,21 @@ export interface WorkspaceTab {
    *  data-shape change later. */
   icon?: string;
   dirty?: boolean;
+  /** WHERE IN THE SCREEN THE OPERATOR LEFT OFF, as a query string (`?open=<id>`).
+   *  The tab is keyed by pathname, but a screen's editor is usually local state, so
+   *  switching back to the tab used to land on the LIST. A screen that can reopen its
+   *  record from a URL (`useOpenIntent`) reports it with `useTabResume`, and
+   *  `activate` pushes `href + resume`. Absent = the plain screen. */
+  resume?: string;
+  /** THE SCREEN'S OWN QUERY STRING as last seen (`?status=draft`, a filter, a tab),
+   *  tracked by the bar for EVERY tab so leaving and returning lands where the
+   *  operator was whenever that place is in the URL. One-shot intents (`new`,
+   *  `open`, `costFor`, `draft`) are never stored: replaying them would open a
+   *  blank form or re-run an action. `resume` wins over it when both exist. */
+  search?: string;
+  /** When this tab was last the active one (ms). Lets a MODULE row in the sidebar
+   *  find the screen the operator was last on inside that module. */
+  seenAt?: number;
 }
 
 interface WorkspaceTabsState {
@@ -91,6 +106,15 @@ function persist(): void {
 }
 
 function setState(next: WorkspaceTabsState): void {
+  // Stamp the tab that is active NOW, so "the last screen in this module" is a
+  // fact the store holds, not something a click has to guess.
+  if (next.activeId) {
+    const now = Date.now();
+    next = {
+      ...next,
+      tabs: next.tabs.map((t) => (t.id === next.activeId && (t.seenAt ?? 0) + 1000 < now ? { ...t, seenAt: now } : t)),
+    };
+  }
   state = next;
   persist();
   emit();
@@ -151,6 +175,28 @@ function setTabDirty(id: string, dirty: boolean): void {
   const tab = state.tabs.find((t) => t.id === id);
   if (!tab || !!tab.dirty === dirty) return;
   setState({ ...state, tabs: state.tabs.map((t) => (t.id === id ? { ...t, dirty } : t)) });
+}
+
+function setTabResume(href: string, resume: string | null): void {
+  const tab = findByHref(href);
+  if (!tab || (tab.resume ?? null) === resume) return;
+  setState({
+    ...state,
+    tabs: state.tabs.map((t) => (t.id === tab.id ? { ...t, resume: resume ?? undefined } : t)),
+  });
+}
+
+const ONE_SHOT = ["new", "open", "costFor", "draft"];
+
+function setTabSearch(href: string, query: string): void {
+  const tab = findByHref(href);
+  if (!tab) return;
+  const p = new URLSearchParams(query);
+  for (const k of ONE_SHOT) p.delete(k);
+  const qs = p.toString();
+  const next = qs ? `?${qs}` : undefined;
+  if (tab.search === next) return;
+  setState({ ...state, tabs: state.tabs.map((t) => (t.id === tab.id ? { ...t, search: next } : t)) });
 }
 
 function removeTab(id: string): { nextActiveHref: string | null } {
@@ -218,7 +264,7 @@ export function useWorkspaceTabs() {
       const tab = state.tabs.find((t) => t.id === id);
       if (!tab) return;
       setState({ ...state, activeId: id });
-      router.push(tab.href);
+      router.push(tab.href + (tab.resume ?? tab.search ?? ""));
     },
     close(id: string) {
       const { nextActiveHref } = removeTab(id);
@@ -267,6 +313,54 @@ export function useRegisterWorkspaceTab(opts: {
     const tab = findByHref(href);
     if (tab) setTabDirty(tab.id, !!dirty);
   }, [href, dirty]);
+}
+
+/**
+ * A MODULE ROW OPENS WHERE THE OPERATOR LEFT IT (user 2026-10-09: leaving Order
+ * Entry from page 1 and coming back through the navigation should show page 1,
+ * not the module's default page). Finds the most recently active tab under the
+ * module's route and goes to it, resume and query string included; with none,
+ * it is the plain `openTab` it always was. Clicking the module you are ALREADY
+ * in keeps the old behaviour (its landing page) — `inside` says so.
+ */
+export function useOpenModule() {
+  const router = useRouter();
+  const openTab = useOpenWorkspaceTab();
+  return (opts: { href: string; title: string; icon?: string; inside: boolean }) => {
+    if (!opts.inside && opts.href !== "/") {
+      const prefix = opts.href.endsWith("/") ? opts.href : `${opts.href}/`;
+      const last = state.tabs
+        .filter((t) => t.href.startsWith(prefix))
+        .sort((a, b) => (b.seenAt ?? 0) - (a.seenAt ?? 0))[0];
+      if (last) {
+        setState({ ...state, activeId: last.id });
+        router.push(last.href + (last.resume ?? last.search ?? ""));
+        return;
+      }
+    }
+    openTab(opts);
+  };
+}
+
+/** The bar's own: keep the active tab's query string current. */
+export function useTrackTabSearch(href: string, query: string): void {
+  useEffect(() => {
+    setTabSearch(href, query);
+  }, [href, query]);
+}
+
+/**
+ * Tell the tab bar where in this screen the operator is, so coming back to the
+ * tab through the top navigation lands THERE and not on the screen's list
+ * (user 2026-10-09: leaving Order Entry from record no. 1 and returning should
+ * reopen record no. 1). `resume` is a query string the screen already answers on
+ * load (`?open=<id>`), or `null` while it is on its list. Deliberately does NOT
+ * clear on unmount: the whole point is that it outlives the screen.
+ */
+export function useTabResume(href: string, resume: string | null): void {
+  useEffect(() => {
+    setTabResume(href, resume);
+  }, [href, resume]);
 }
 
 /**
@@ -325,7 +419,13 @@ export function useOpenWorkspaceTab() {
       router.push(opts.href);
       return;
     }
+    // A SCREEN THE OPERATOR ALREADY HAS OPEN COMES BACK AS THEY LEFT IT (user 2026-10-09:
+    // "take them back to the exact screen they were on when they last exited"): the
+    // sidebar row for Order Entry used to push the bare route, i.e. its list, even
+    // though the tab remembered order no. 1. A link that carries its own query
+    // (`?new=1`) is an explicit request and is left alone.
+    const kept = opts.href.includes("?") ? undefined : findByHref(opts.href);
     registerTab(opts);
-    router.push(opts.href);
+    router.push(opts.href + (kept?.resume ?? kept?.search ?? ""));
   };
 }

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAppUser } from "@/lib/auth/permission-context";
-import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
+import { useOpenModule } from "@/lib/workspace-tabs";
 import { cn } from "@/lib/utils";
 import { activeModule, visibleModules, type NavItem } from "./navigation-config";
 import { SidebarItem } from "./SidebarItem";
@@ -73,7 +73,7 @@ const CLOSE_DELAY_MS = 400;
 export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
   const pathname = usePathname();
   const user = useAppUser();
-  const openTab = useOpenWorkspaceTab();
+  const openTab = useOpenModule();
   const [expanded, setExpanded] = useState(false);
   const timer = useRef<number | null>(null);
   const asideRef = useRef<HTMLElement>(null);
@@ -269,7 +269,7 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                       )}
                       onClick={(e) => {
                         e.preventDefault();
-                        openTab({ href: item.href, title: item.label });
+                        openTab({ href: item.href, title: item.label, inside: isActive });
                       }}
                     />
                   </div>
