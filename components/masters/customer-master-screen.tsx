@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
-import { Field, FIELD_WIDTH, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Field, FIELD_WIDTH, FIELD_WIDTH_CSS, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -1876,7 +1876,10 @@ export function CustomerMasterScreen({
                     </FieldRow>
 
                     {/* contacts */}
-                    <div className="mt-6">
+                    {/* Spreadsheet look (erp-sheet-grid, 2026-10-09): gridlines, cell is
+                        the box. Fixed column widths + md:w-fit (erp-table-fit);
+                        `md:` so the mobile cards keep the full width. */}
+                    <div className="mt-6 md:w-fit max-w-full [&_table]:table-fixed" data-grid-style="sheet">
                       <ChildGrid<ContactRow>
                         lockExisting
                         label="Contacts"
@@ -1885,44 +1888,46 @@ export function CustomerMasterScreen({
                         onAdd={addContact}
                         onRemove={(c) => removeContact(c.key)}
                         addLabel="+ Add contact"
+                        removeHeader="Actions"
+                        tableFrom="5xl"
                         columns={[
                           {
                             header: "Department",
-                            className: "min-w-[160px]",
+                            width: FIELD_WIDTH_CSS.code,
                             cell: (c) => (
                               <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                             ),
                           },
                           {
                             header: "Contact Name",
-                            className: "min-w-[130px]",
+                            width: FIELD_WIDTH_CSS.term,
                             cell: (c) => <Input uppercase value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="h-8 text-sm" />,
                           },
                           {
                             header: "Designation",
-                            className: "min-w-[160px]",
+                            width: FIELD_WIDTH_CSS.code,
                             cell: (c) => (
                               <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                             ),
                           },
                           {
                             header: "Land Line",
-                            className: "min-w-[110px]",
+                            width: FIELD_WIDTH_CSS.range,
                             cell: (c) => <Input value={c.land_line} onChange={(e) => setContactAt(c.key, { land_line: e.target.value })} className="h-8 text-sm" />,
                           },
                           {
                             header: "Mobile",
-                            className: "min-w-[110px]",
+                            width: FIELD_WIDTH_CSS.range,
                             cell: (c) => <Input value={c.mobile} onChange={(e) => setContactAt(c.key, { mobile: e.target.value })} className="h-8 text-sm" />,
                           },
                           {
                             header: "Email ID",
-                            className: "min-w-[170px]",
+                            width: FIELD_WIDTH_CSS.party,
                             cell: (c) => <ValidatedInput format="email" value={c.email_id} onChange={(e) => setContactAt(c.key, { email_id: e.target.value })} className="h-8 text-sm" />,
                           },
                           {
                             header: "Internal Dept.",
-                            className: "min-w-[170px]",
+                            width: FIELD_WIDTH_CSS.code,
                             cell: (c) => (
                               <LookupDialogPicker kind="internal_department" label="Internal Department" options={internalDepartments} value={c.internal_department_id || null} onChange={(id) => setContactAt(c.key, { internal_department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                             ),
