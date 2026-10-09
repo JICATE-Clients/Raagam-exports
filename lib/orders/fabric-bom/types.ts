@@ -500,6 +500,9 @@ export interface FabricBomProcess {
    *  (0528) — both null is the unified route. See `FabricProcessRow`. */
   combo: string | null;
   component_id: string | null;
+  /** 'open_width' | 'tubular' | null — the cloth layout this step belongs to
+   *  when the fabric is cut both ways (0697). Null = every layout. */
+  layout?: string | null;
   sno: number;
   /** `config_lookups` kind 'fabric_stage' — GREY, DYED. */
   stage_id: string | null;

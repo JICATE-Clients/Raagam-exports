@@ -49,7 +49,7 @@
 import { z } from "zod";
 import { capsTextNullable } from "@/lib/validation/formats";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
-import { isRouteStart, narrowToStage } from "./stage-routes";
+import { isRouteStart, layoutAllows, narrowToStage } from "./stage-routes";
 import type { FabricStageRole } from "./stage-routes";
 
 /* THE STAGE ROUTE RULE LIVES NEXT DOOR (0563), AND IS RE-EXPORTED HERE so that
@@ -128,6 +128,10 @@ export type FabricProcessOption = {
    *  from every route except a linked loose fabric's (`looseFabricRoute`).
    *  Optional so fixtures and IWO rows written before it read as "not". */
   is_unravelling?: boolean;
+  /** Which cloth layout this step is for (0696) — 'open_width' | 'tubular', or
+   *  null/absent = either. `processesForFabric` withholds a step from a fabric
+   *  cut only in the other layout (`layoutAllows`). */
+  layout?: "open_width" | "tubular" | null;
   /** Is this process a PRINT step (AOP, rotary, bit printing, …)? (0528) —
    *  `processesForFabric` reads it to refuse "Print" until the order has
    *  declared a Roll form print / AOP. */
@@ -295,6 +299,12 @@ export type FabricProcessRow = {
    */
   combo: string | null;
   component_id: string | null;
+  /** WHICH CLOTH LAYOUT this step belongs to — 'open_width' | 'tubular' — when
+   *  the fabric is cut both ways and the Fabric Process tab draws one card per
+   *  layout (0697). Null = every layout, which is every route saved before it
+   *  and every fabric cut one way. OPTIONAL so IWO Fabric BOM (own table, no such
+   *  column) builds well-formed rows that simply are not layout-split. */
+  layout?: string | null;
   /** GREY / DYED — the state the fabric ENTERS this step in, not the step. */
   stage_id: string | null;
   process_id: string | null;
@@ -333,12 +343,13 @@ export type FabricProcessRow = {
 export const blankFabricProcess = (
   key: string,
   itemId: string,
-  group: { combo?: string | null; component_id?: string | null } = {},
+  group: { combo?: string | null; component_id?: string | null; layout?: string | null } = {},
 ): FabricProcessRow => ({
   key,
   item_id: itemId,
   combo: group.combo ?? null,
   component_id: group.component_id ?? null,
+  layout: group.layout ?? null,
   stage_id: null,
   process_id: null,
   sub_category_id: null,
@@ -427,6 +438,9 @@ export function processesForFabric(
     /** 0633 — is this a linked LOOSE FABRIC's route? Only then is CONVERSION
      *  (unravelling) offered. Default false. Mirrors `gatedForStage`. */
     looseFabricRoute?: boolean;
+    /** 0696 — the layouts this fabric is cut in. A layout-tagged process of the
+     *  other layout is withheld; omitted/empty withholds nothing. */
+    layouts?: readonly string[];
     /* NO `usedInStage` HERE, deliberately. "A stage runs each process once"
        is enforced by the picker's own `usedIds` (`processesUsedInStage`),
        which keeps a taken process VISIBLE, greyed "(already added)", rather
@@ -458,7 +472,8 @@ export function processesForFabric(
         !p.is_unravelling &&
         (printDeclared || !p.is_print) &&
         (!fabricIsYarnDyed || !p.is_dyeing) &&
-        (routeStartAllowed || !isRouteStart(p)),
+        (routeStartAllowed || !isRouteStart(p)) &&
+        layoutAllows(p, opts.layouts),
     ),
     { stageId: opts.stageId, isFirstOfStage: opts.isFirstOfStage },
   );
@@ -823,6 +838,9 @@ export const fabricBomProcessInput = z.object({
      `combo`; see `FabricProcessRow`. */
   combo: capsTextNullable(),
   component_id: z.string().uuid().nullable().default(null),
+  /* 0697 — the cloth layout this step belongs to. `.default(null)` so a payload
+     written before it existed lands on "every layout". */
+  layout: z.enum(["open_width", "tubular"]).nullable().default(null),
   sno: z.coerce.number().int().nonnegative().default(0),
   stage_id: z.string().uuid().nullable().default(null),
   process_id: z.string().uuid().nullable().default(null),

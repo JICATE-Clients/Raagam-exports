@@ -171,6 +171,7 @@ import {
   panelGroupKey,
   panelKey,
   panelSection,
+  layoutTypeLabel,
   sortPanelsByCoordinate,
   /* MOVED OUT OF THIS FILE (2026-09-03), unchanged. The Fabric Process tab's
      fabric row summarises N lines the same way — one structure type, one roll
@@ -844,21 +845,48 @@ export function ComponentMapBody({
      the grid below draws a heading wherever the coordinate changes. The
      ordinal follows the sorted list, so numbering runs 1..n across the style
      (option A: one number per row, never restarting per coordinate). */
-  const gridPanels: PanelRow[] = useMemo(
-    () =>
-      sortPanelsByCoordinate(panels, decls, styleRefNo).map((g) => ({
-        ...g,
-        key: g.panel_uid,
-        addr: g.key,
-      })),
-    [panels, decls, styleRefNo],
-  );
+  /* WHICH CLOTH LAYOUT A PANEL IS CUT IN (0697, client: "list Open Width and
+     Tubular separately") — read off its colourways' own Type ('open' /
+     'tubular'), the field this tab already carries. "" when no colourway has
+     answered yet or they disagree: such a panel keeps to the coordinate
+     heading alone rather than being filed under a layout it only partly has. */
+  const panelLayout = (g: PanelGroup): "" | "open_width" | "tubular" => {
+    const forms = new Set(g.lines.map((l) => l.fabric_form).filter(Boolean));
+    if (forms.size !== 1) return "";
+    return forms.has("open") ? "open_width" : forms.has("tubular") ? "tubular" : "";
+  };
+  /** Open Width first, then Tubular, then not stated — inside one coordinate. */
+  const LAYOUT_RANK: Record<string, number> = { open_width: 0, tubular: 1, "": 2 };
+
+  /* THIS IS GROUPING, NOT FILTERING. Every part is still offered every
+     component (the client removed layout-based filtering on 2026-09-05, 0533);
+     the rail only lists the parts under a second heading, so the two cloths read
+     as two groups, the way Manual's entries do. */
+  const gridPanels: PanelRow[] = useMemo(() => {
+    const sorted = sortPanelsByCoordinate(panels, decls, styleRefNo);
+    // Coordinate order is the order's own; remember where each section starts.
+    const sectionAt = new Map<string, number>();
+    for (const g of sorted) {
+      const k = panelSection(g).key;
+      if (!sectionAt.has(k)) sectionAt.set(k, sectionAt.size);
+    }
+    return sorted
+      .map((g, i) => ({ g, i }))
+      .sort(
+        (a, b) =>
+          (sectionAt.get(panelSection(a.g).key) ?? 0) - (sectionAt.get(panelSection(b.g).key) ?? 0) ||
+          LAYOUT_RANK[panelLayout(a.g)] - LAYOUT_RANK[panelLayout(b.g)] ||
+          a.i - b.i,
+      )
+      .map(({ g }) => ({ ...g, key: g.panel_uid, addr: g.key }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panels, decls, styleRefNo]);
 
   /** How many panels each rail heading covers — "TOP · 4". */
   const sectionCounts = useMemo(() => {
     const m = new Map<string, number>();
     for (const g of gridPanels) {
-      const k = panelSection(g).key;
+      const k = `${panelSection(g).key}|${panelLayout(g)}`;
       m.set(k, (m.get(k) ?? 0) + 1);
     }
     return m;
@@ -1581,10 +1609,15 @@ export function ComponentMapBody({
               : s.kind === "unstated"
                 ? "Coordinate not stated"
                 : "Choose a component";
-          const n = sectionCounts.get(s.key) ?? 0;
+          const layout = panelLayout(p);
+          const n = sectionCounts.get(`${s.key}|${layout}`) ?? 0;
           return {
-            key: s.key,
-            label: <Truncated className="block">{label}</Truncated>,
+            key: `${s.key}|${layout}`,
+            label: (
+              <Truncated className="block">
+                {layout ? `${label} · ${layoutTypeLabel(layout)}` : label}
+              </Truncated>
+            ),
             meta: `${n} ${n === 1 ? "part" : "parts"}`,
           };
         }}

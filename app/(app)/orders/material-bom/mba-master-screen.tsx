@@ -1706,6 +1706,21 @@ export function MbaMasterScreen({
    * clear would never fire. The question is whether the material stands on its
    * own merits under the new category.
    */
+  /**
+   * THE CATEGORY MASTER'S DEFAULT EXCESS % (`categories.wastage_per`, the legacy
+   * FrmItemCategory field: Fabric 3-5%, Buttons 2%, Elastic 5%). A plain
+   * function, not a memo -- one `find` over the accessory categories, and it
+   * keeps this clear of the hooks-above-early-return rule.
+   *
+   * NULL WHEN THE MASTER HOLDS NOTHING USEFUL. 0 is the column's default, so a
+   * category nobody priced reads 0 -- filling it would stamp "0" on every line
+   * and look like an answer.
+   */
+  const categoryExcess = (category_id: string | null): number | null => {
+    const w = data.categories.find((c) => c.id === category_id)?.wastage_per;
+    return w != null && Number(w) > 0 ? Number(w) : null;
+  };
+
   const pickCategory = (r: ItemRow, category_id: string | null) => {
     const stillOffered =
       !r.item_id ||
@@ -4575,6 +4590,7 @@ export function MbaMasterScreen({
       className: "min-w-[160px]",
       required: true,
       cell: (r) => (
+        <div>
         <RecordPicker
           label="Material"
           items={materialsFor(r.category_id, r.item_id)}
@@ -4629,8 +4645,13 @@ export function MbaMasterScreen({
            * nobody exercises by hand.
            */
           onChange={(id) => {
+            /* EXCESS % FROM THE CATEGORY MASTER, ONLY WHILE BLANK -- the same
+               guard the unit prefill states: an Excess the operator typed is
+               theirs, and a swap of material must not overwrite it. */
+            const masterExcess = id && !r.excess_pct.trim() ? categoryExcess(r.category_id) : null;
             updItem(r.key, {
               item_id: id,
+              ...(masterExcess != null ? { excess_pct: String(masterExcess) } : {}),
               ...uomPatchForMaterial(
                 r,
                 id,
@@ -4659,6 +4680,20 @@ export function MbaMasterScreen({
           required
           compact
         />
+        {/* THE INDICATOR: visible only while the line's Excess % is still the
+            category master's figure, so it disappears the moment the operator
+            types their own -- it never claims a number the master did not give. */}
+        {r.item_id &&
+        categoryExcess(r.category_id) != null &&
+        Number(r.excess_pct) === categoryExcess(r.category_id) ? (
+          <p
+            className="mt-0.5 text-[10px] text-muted-foreground"
+            title="Default Excess % from the Item Category master. Type a different value in Excess % to override."
+          >
+            Excess {r.excess_pct}% from category
+          </p>
+        ) : null}
+        </div>
       ),
     },
     {

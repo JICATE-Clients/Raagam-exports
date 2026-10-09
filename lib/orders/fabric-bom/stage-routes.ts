@@ -192,7 +192,30 @@ export type FabricStageGates = {
    *  (unravelling, `is_unravelling`) offered. Default false: every ordinary
    *  cloth's route withholds it — a body fabric is cut, never unravelled. */
   looseFabricRoute?: boolean;
+  /** The cloth LAYOUTS this fabric is cut in ('open_width' | 'tubular'), read
+   *  off its Components lines (0696). A process tagged with the OTHER layout is
+   *  withheld (`layoutAllows`). Empty / omitted = unknown, withhold nothing —
+   *  and a fabric cut BOTH ways lists both, so nothing is withheld either. */
+  layouts?: readonly string[];
 };
+
+/**
+ * MAY THIS PROCESS RUN ON A FABRIC CUT IN THESE LAYOUTS? (0696.)
+ *
+ * A process with no `layout` is for either and always passes. A tagged one
+ * passes unless the fabric's layouts are KNOWN and none of them is its own — so
+ * COMPACTING [TUBULAR] is withheld from a fabric cut only Open Width, while a
+ * fabric with no Open/Tubular chosen yet, or cut both ways, sees everything.
+ * That "unknown means everything" default is the same promise `printDeclared`
+ * and `fabricIsYarnDyed` make: an unfilled call site keeps what it always had.
+ */
+export function layoutAllows(
+  p: { layout?: string | null } | undefined,
+  layouts: readonly string[] | undefined,
+): boolean {
+  if (!p?.layout || !layouts || layouts.length === 0) return true;
+  return layouts.includes(p.layout);
+}
 
 /**
  * DOES THIS PROCESS START A FABRIC ROUTE? — a step that brings the cloth into
@@ -231,7 +254,8 @@ function gatedForStage(
       !p.is_unravelling &&
       (printDeclared || !p.is_print) &&
       (!fabricIsYarnDyed || !p.is_dyeing) &&
-      (routeStartAllowed || !isRouteStart(p)),
+      (routeStartAllowed || !isRouteStart(p)) &&
+      layoutAllows(p, gates.layouts),
   );
 }
 
@@ -882,7 +906,10 @@ export function stageRouteProblems(
        as a literal byte without turning this file binary to every text tool
        (see `routeKeyOf` in `./processes.ts`, fixed 2026-09-18). An array
        encoding needs no separator at all. */
-    const key = JSON.stringify([r.item_id, r.combo ?? "", r.component_id ?? ""]);
+    /* THE LAYOUT IS A BRANCH TOO (0697): a fabric cut Open Width AND Tubular runs
+       a route in each, and judged as one the second layout's KNITTING would read
+       as "Step 1 only" broken and its stages as regressing. */
+    const key = JSON.stringify([r.item_id, r.combo ?? "", r.component_id ?? "", r.layout ?? ""]);
     const at = branches.get(key);
     if (at) at.push(r);
     else branches.set(key, [r]);

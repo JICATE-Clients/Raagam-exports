@@ -1356,6 +1356,7 @@ type HeaderForm = {
   po_date: string;
   merchandiser_id: string | null;
   season: string;
+  amend_year: string;
   delivery_date: string;
   excess_pct: string;
   pack: boolean;
@@ -1432,6 +1433,7 @@ const BLANK: HeaderForm = {
   po_date: "",
   merchandiser_id: null,
   season: "",
+  amend_year: "",
   delivery_date: "",
   excess_pct: "",
   pack: false,
@@ -4479,6 +4481,7 @@ export function GarmentOrderScreen({
       po_date: r.po_date ?? "",
       merchandiser_id: r.merchandiser_id,
       season: r.season ?? "",
+      amend_year: r.amend_year ? String(r.amend_year) : "",
       delivery_date: r.delivery_date ?? "",
       excess_pct: r.excess_pct ? String(r.excess_pct) : "",
       pack: r.pack,
@@ -4646,6 +4649,7 @@ export function GarmentOrderScreen({
       po_date: form.po_date || null,
       merchandiser_id: form.merchandiser_id,
       season: form.season || null,
+      amend_year: numOrNull(form.amend_year),
       delivery_date: form.delivery_date || null,
       excess_pct: numOrNull(form.excess_pct) ?? 0,
       rejection_rule_id: form.rejection_rule_id,
@@ -6043,15 +6047,27 @@ export function GarmentOrderScreen({
               : "Garment orders — styles, colours, prices, packing, quantities & logistics."
           }
           actions={
-            perms.canCreate && !amending ? (
+            !amending ? (
               <div className="flex flex-wrap items-center gap-2">
-                {/* Upload Buyer PO (doc/order/digitalisation-plan.md §2): read
-                    the buyer's PO into a draft, review it, then come back here
-                    with `?draft=` — see `useDraftIntent` above. */}
-                <Button variant="outline" onClick={() => router.push("/orders/po-import")}>
-                  Upload Buyer PO
+                {/* SEASON REPORT (client 2026-10-09: "I could not find the option
+                    to download the season-wise report"). The report lives under
+                    Order Management, but the person looking for it is on this
+                    list, so the door is here too. Open to anyone who can see
+                    orders — it needs no create right. */}
+                <Button variant="outline" onClick={() => router.push("/orders/season-report")}>
+                  Season Report
                 </Button>
-                <Button onClick={openAdd}>New Garment Order</Button>
+                {perms.canCreate && (
+                  <>
+                    {/* Upload Buyer PO (doc/order/digitalisation-plan.md §2): read
+                        the buyer's PO into a draft, review it, then come back here
+                        with `?draft=` — see `useDraftIntent` above. */}
+                    <Button variant="outline" onClick={() => router.push("/orders/po-import")}>
+                      Upload Buyer PO
+                    </Button>
+                    <Button onClick={openAdd}>New Garment Order</Button>
+                  </>
+                )}
               </div>
             ) : undefined
           }
@@ -14436,6 +14452,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               style_no: styleNoForRef(e.target.value),
             })
           }
+          /* PO No AUTO-FETCH (client 2026-10-09): leaving Ref No copies it into
+             this row's PO No when that is still blank. Only on a multi-PO order,
+             where the column is on screen; the PO No stays fully editable, and
+             a value already typed is never overwritten. */
+          onBlur={() => {
+            const ref = r.style_ref_no.trim();
+            if (form.multi_order && ref && !r.po_no.trim()) {
+              setQty(r.key, { po_no: ref });
+            }
+          }}
         />
       ),
     },
@@ -23122,6 +23148,22 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   <option key={o} value={o}>{o}</option>
                 ))}
               </Select>
+            </Field>
+            {/* YEAR, BESIDE SEASON (client 2026-10-09: "in order info add season
+                near new field year"). Reinstates the `Yr` withdrawn 2026-08-14;
+                the `amend_year` column never left. Optional — it blocks nothing,
+                so it is in neither the star list nor `sectionValidity`. Four
+                digits at most: a number input would otherwise take a six-digit
+                year and report itself valid (AGENTS.md date-year cap). */}
+            <Field label="Year" w="num" htmlFor="hd-year">
+              <Input
+                id="hd-year"
+                type="number"
+                min={2000}
+                max={2100}
+                value={form.amend_year}
+                onChange={(e) => set({ amend_year: e.target.value.slice(0, 4) })}
+              />
             </Field>
             {/**
               * ## SUPERSEDED 2026-08-26 — THE SPANS BELOW ARE HISTORY

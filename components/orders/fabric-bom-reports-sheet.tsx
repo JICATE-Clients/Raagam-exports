@@ -463,6 +463,23 @@ function EntryRegisterView({
           {data.groups.map((group, gi) => (
             <EntryColourRows key={group.combo ?? "unassigned"} group={group} viewMode={viewMode} band={gi % 2 === 1} />
           ))}
+          {/* ONE SUBTOTAL PER ROLL FORM, above the grand total (0696). Open
+              Width and Tubular cloth are cut, dia'd and bought apart, so the
+              register says what each needs before it adds them. Absent from a
+              snapshot frozen before the field existed, and when no entry states
+              a form — nothing to split then. */}
+          {(data.layoutTotals ?? []).map((t) => (
+            <tr key={t.form} className="font-semibold" style={totalRowStyle()}>
+              <Td colSpan={3} className="truncate font-semibold">{t.form.toUpperCase()} — SUBTOTAL</Td>
+              <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
+              <Td right mono className="font-semibold">{fmtNumber(t.cutQty)}</Td>
+              <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
+              <Td right mono className="font-semibold">{fmtNumber(t.netReqWt)}</Td>
+              <Td>{""}</Td>
+              <Td right mono className="font-semibold">{fmtNumber(t.grossWt)}</Td>
+              <Td>{""}</Td>
+            </tr>
+          ))}
           <tr className="font-semibold" style={totalRowStyle()}>
             <Td colSpan={3} className="truncate font-semibold">GRAND TOTAL</Td>
             <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
@@ -499,7 +516,7 @@ function EntryRegisterView({
           {data.stageLedger.map((r, i) => (
             <tr key={i} style={stripeRow(i)}>
               <Td>{r.className}</Td>
-              <Td>{r.itemName}</Td>
+              <Td>{r.layoutForm ? `${r.itemName} / ${r.layoutForm}` : r.itemName}</Td>
               <Td>{r.combo ?? "—"}</Td>
               <Td>{r.componentName ?? "—"}</Td>
               {/* The stage as the Yarn report's badge (GREIGE / DYED …). */}

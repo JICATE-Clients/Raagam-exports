@@ -1110,6 +1110,52 @@ console.log("\n--- 14. Knitting is Step 1 only; a yarn-dyed fabric's DYED stage 
   );
 }
 
+// ===========================================================================
+console.log("\n--- 20. Open Width / Tubular — a step tagged with the OTHER layout is withheld (0696) ---");
+// ===========================================================================
+{
+  /* The live master's own two layout-specific rows, tagged as 0696 tags them,
+     beside two untagged steps (STENTERING is deliberately left untagged). */
+  const COMP_OW: FabricProcessOption = { ...COMPACTING_OW, layout: "open_width" };
+  const COMP_TUB: FabricProcessOption = { ...COMPACTING_TUB, layout: "tubular" };
+  const M696 = [KNITTING, STENTERING, COMP_OW, COMP_TUB];
+  const ALL = names(M696);
+
+  check("layouts omitted: nothing withheld (every existing call site)", offered(M696, {}), ALL);
+  check("layouts empty (no form chosen yet): nothing withheld", offered(M696, { layouts: [] }), ALL);
+  check(
+    "Open Width fabric: COMPACTING [TUBULAR] is withheld, the rest stay",
+    offered(M696, { layouts: ["open_width"] }),
+    ["COMPACTING [OPEN WIDTH]", "KNITTING", "STENTERING"],
+  );
+  check(
+    "Tubular fabric: COMPACTING [OPEN WIDTH] is withheld, the rest stay",
+    offered(M696, { layouts: ["tubular"] }),
+    ["COMPACTING [TUBULAR]", "KNITTING", "STENTERING"],
+  );
+  check("cut BOTH ways: nothing withheld", offered(M696, { layouts: ["open_width", "tubular"] }), ALL);
+  check(
+    "a HELD withheld step survives (never silently dropped)",
+    offered(M696, { layouts: ["open_width"], currentValue: COMP_TUB.id }).includes("COMPACTING [TUBULAR]"),
+    true,
+  );
+  check(
+    "an UNTAGGED step is offered whatever the layout",
+    offered(M696, { layouts: ["tubular"] }).includes("STENTERING"),
+    true,
+  );
+  refute(
+    "non-vacuous: a layout DOES change the list",
+    offered(M696, { layouts: ["open_width"] }),
+    ALL,
+  );
+  check(
+    "the gate composes with the stage narrowing: Dyed stage, Tubular fabric",
+    offered(M696, { layouts: ["tubular"], stageId: DYED }),
+    ["COMPACTING [TUBULAR]", "STENTERING"],
+  );
+}
+
 console.log(
   failed === 0 ? "\nOK — every fabric stage-route vector holds." : `\n${failed} FAILED`,
 );

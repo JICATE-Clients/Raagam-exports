@@ -2520,11 +2520,13 @@ export const amendmentInput = z.object({
    */
   merchandiser_id: z.string().uuid("Merchandiser is required"),
   season: nullableText,
-  // `amend_year` WITHDRAWN 2026-08-14 (client): the year is already on the
-  // linked Style Master, so the order asked for it twice. Its COLUMN and stored
-  // values remain — and it left this input, which is the half that stops an
-  // update writing NULL over them. Row type keeps `amend_year` so a saved value
-  // still loads and still shows anywhere that reads the record.
+  // `amend_year` REINSTATED 2026-10-09 (client: "in order info add season
+  // near new field year"). It was withdrawn 2026-08-14 because the year is
+  // also on the linked Style Master. `.optional()` is deliberate: a caller
+  // that does not send it (PO import, a revision seed) leaves undefined, which
+  // the writer omits, instead of NULLing a stored year — the very reason it was
+  // dropped from this input in the first place. Not mandatory.
+  amend_year: numN.optional(),
   delivery_date: nullableText,
   /**
    * ORDER RECEIVED DATE — reinstated on Order Info (client 2026-09-09).

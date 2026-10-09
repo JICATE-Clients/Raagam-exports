@@ -538,6 +538,7 @@ function normalizeProcesses(
       item_id: p.item_id,
       combo: p.combo ?? null,
       component_id: p.component_id ?? null,
+      layout: p.layout ?? null,
       sno,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
@@ -1002,6 +1003,9 @@ function routesByFabricOf(
          read as ONE route and every panel's steps compounded onto every
          weight — see `stagesForGroup`. */
       component_id: p.component_id ?? null,
+      /* 0697 — the cloth layout this step belongs to; the engine's third branch
+         axis (`stageCoversLayout`). */
+      layout: p.layout ?? null,
       loss_pct: p.loss_pct ?? null,
       /* 0606 — per-colourway losses, resolved by `stagesForGroup`; the same
          gate `normalizeProcesses` stores through, so the stored purchase is
@@ -1905,6 +1909,10 @@ function fabricGrossOf(
      yarn is grossed by that part's own stripes (`shadeDyeFactor`). The bucket
      is already per ENTRY, so two parts of one cloth never share one. */
   const partByEntry = new Map(entries.map((e) => [e.id, e.yd_part ?? null]));
+  /* WHICH CLOTH LAYOUT EACH ENTRY IS CUT IN (0697) — the entry's `width_form`, so
+     a fabric cut Open Width AND Tubular is grossed by each layout's own route
+     (`stageCoversLayout`) and the two are never stacked. */
+  const layoutByEntry = new Map(entries.map((e) => [e.id, e.width_form ?? null]));
   /* KEYED BY (entry, COLOURWAY) SINCE 0504, not by entry alone. A stage may
      treat PURPLE and not GREEN, so the yarn has to be weighed per colourway
      before any loss is applied — summing an entry's slices into one figure first
@@ -1934,6 +1942,7 @@ function fabricGrossOf(
       gross: qty == null ? null : (held?.gross ?? 0) + Number(qty),
       uom_id: (r.consumption_uom_id as string | null) ?? null,
       component_ids: componentsByEntry.get(key) ?? [],
+      layout: layoutByEntry.get(key) ?? null,
       /* 2026-09-19 — an unprinted slice is not grossed by the print stage. */
       printed: printedGroup(printLines, itemId, combo, componentsByEntry.get(key) ?? []),
       /* THE STORED REASON, so the saved yarn row refuses in the SAME words the
@@ -2253,6 +2262,7 @@ async function stageRouteProblem(
       item_id: r.item_id,
       combo: r.combo ?? null,
       component_id: r.component_id ?? null,
+      layout: r.layout ?? null,
       stage_id: r.stage_id ?? null,
       process_id: r.process_id ?? null,
       loss_for_id: r.loss_for_id ?? null,
