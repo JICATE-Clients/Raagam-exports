@@ -252,158 +252,69 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
       </div>
 
       <div className="pad">
-        <section className="hero">
-          <div className="title">
-            <div className="thumb">
-              {model.thumbUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={model.thumbUrl} alt="" />
-              ) : (
-                <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round" aria-hidden>
-                  <path d="M22 8l-14 8 6 12 6-3v31h24V25l6 3 6-12-14-8c-2 5-6 7-10 7s-8-2-10-7z" />
-                </svg>
-              )}
-            </div>
+        {/* 1 · HEADER — the RAAGAM COSTING FORMAT's top block (client 2026-10-09). Only the
+            lines this costing has a value for print: an empty "Buying Agent" row is chrome. */}
+        <section className="blk hdrblk" aria-label="Header">
+          <div className="hdr-title">
             <div className="min0">
-              <div className="eyebrow">Style{model.season ? ` · ${model.season}` : ""}</div>
-              <h2>{model.style ?? "—"}</h2>
+              <div className="eyebrow">Garment costing{model.season ? ` · ${model.season}` : ""}</div>
+              <h2>{model.description || model.style || "—"}</h2>
               <div className="chips">
                 {model.sampleNo ? (
                   <span className="chip">
                     Sample <b>{model.sampleNo}</b>
                   </span>
                 ) : null}
-                <span className="chip">
-                  {model.isSet ? "SET" : "PCS"}
-                  {model.sizes.length > 1 || model.sizes[0]?.size ? (
-                    <>
-                      {" · sizes "}
-                      <b>{model.sizes.map((x) => x.label).join(", ")}</b>
-                    </>
-                  ) : null}
-                </span>
+                <span className="chip">{model.isSet ? "SET" : "PCS"}</span>
                 {model.shipMode ? (
                   <span className="chip">
                     Ship <b>{model.shipMode}</b>
                   </span>
                 ) : null}
               </div>
-              <dl className="facts">
-                <div>
-                  <dt>Customer</dt>
-                  <dd>{model.customer ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt>Currency</dt>
-                  <dd>
-                    {ccy || "—"}
-                    {model.exchangeRate ? ` @ ₹ ${fx(model.exchangeRate)}` : ""}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Enquiry</dt>
-                  <dd>{model.enquiryNo ?? "—"}</dd>
-                </div>
-              </dl>
             </div>
           </div>
-
-          <div className="quote">
-            <div className="quote-top">
-              <div>
-                <div className="eyebrow">{s.quoted != null ? "Quoted" : "Calculated"} FOB per {model.unitWord}</div>
-                <div className="big">{s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"}</div>
-                {inrOf(s.quoted ?? s.calc) != null ? (
-                  <div className="inr">
-                    ₹ {money(inrOf(s.quoted ?? s.calc))} <small>per {model.unitWord} · at ₹ {fx(model.exchangeRate)} / {ccy}</small>
-                  </div>
-                ) : null}
-                <div className="sub">
-                  {s.calc != null ? `Calculated ${s.calc.toFixed(4)}` : "Add the exchange rate to see the price"}
-                  {delta != null && Math.abs(delta) > 0.00005 && s.deltaPct != null ? ` · ${delta >= 0 ? "+" : ""}${delta.toFixed(4)} (${delta >= 0 ? "+" : ""}${s.deltaPct.toFixed(2)}%)` : ""}
+          <div className="hdr-grid">
+            <dl className="spec">
+              {(
+                [
+                  ["Buyer / importer", model.customer],
+                  ["Enquiry", model.enquiryNo],
+                  ["Style", model.style && model.description && model.style !== model.description ? model.style : null],
+                  ["Fabric", model.fabricFacts.structure],
+                  ["GSM / counts", model.fabricFacts.gsm],
+                  ["Composition", model.fabricFacts.composition],
+                ] as const
+              ).map(([k, v]) => (v ? (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
                 </div>
-              </div>
-            </div>
-            <div>
-              <div className="gauge-head">
-                <span>Margin on the quote{model.sizes.length > 1 ? ` · ${s.label}` : ""}</span>
-                <b>{eff == null ? "—" : `${eff.toFixed(2)}%`}</b>
-              </div>
-              <div className="track" aria-hidden>
-                <div className="tick" style={{ left: `${(FLOOR_PCT / 30) * 100}%` }}>
-                  <span>{FLOOR_PCT}% floor</span>
+              ) : null))}
+            </dl>
+            <dl className="spec">
+              {(
+                [
+                  ["Date", model.date ? fmtDate(model.date) : null],
+                  ["Currency", ccy ? `${ccy}${model.exchangeRate ? ` @ ₹ ${fx(model.exchangeRate)}` : ""}` : null],
+                  ["Size group", model.sizeGroup],
+                  ["Pieces", model.pieceCount > 1 ? String(model.pieceCount) : null],
+                ] as const
+              ).map(([k, v]) => (v ? (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
                 </div>
-                <div className="tick" style={{ left: `${(MARGIN_TARGET_PCT / 30) * 100}%` }}>
-                  <span>{MARGIN_TARGET_PCT}% target</span>
-                </div>
-                {pin != null ? (
-                  <div className="pin" style={{ left: `${pin}%` }}>
-                    <span>{eff?.toFixed(1)}%</span>
-                    <i />
-                  </div>
-                ) : null}
-              </div>
-              <div className="scale">
-                <span>0%</span>
-                <span>{MARGIN_RED_BELOW_PCT}%</span>
-                <span>30%</span>
-              </div>
-            </div>
+              ) : null))}
+            </dl>
           </div>
         </section>
 
-        {model.belowFloor ? (
-          <div className="banner">
-            <b>{model.status === "approved" ? "Approved under the floor." : "Needs the MD."}</b> The lowest size{model.lowestSize ? ` (${model.lowestSize})` : ""} earns {fx(model.lowestMarginPct)}%, under the {FLOOR_PCT}% floor.
+        <section className="blk" aria-label="Price charts">
+          <div className="sec-h">
+            <h3>Where the price comes from</h3>
+            <span>charts for the figures below</span>
           </div>
-        ) : null}
-        {model.status === "rejected" && model.decisionRemark ? (
-          <div className="banner">
-            <b>Sent back for rework:</b> {model.decisionRemark}
-          </div>
-        ) : null}
-
-        <section className="kpis">
-          <div className="kpi">
-            <label>Net cost</label>
-            <div className="v">₹ {money(s.net)}</div>
-            <div className="n">before rejection and overhead</div>
-          </div>
-          <div className="kpi">
-            <label>Gross cost</label>
-            <div className="v">₹ {money(s.grossCost)}</div>
-            <div className="n">what a {model.unitWord} costs us</div>
-          </div>
-          <div className="kpi">
-            <label>Price</label>
-            <div className="v">₹ {money(s.price)}</div>
-            <div className="n">gross cost + margin{s.priceAdj ? " ± price charges" : ""}</div>
-          </div>
-          {inrOf(s.quoted ?? s.calc) != null ? (
-            <div className="kpi">
-              <label>FOB in rupees</label>
-              <div className="v">₹ {money(inrOf(s.quoted ?? s.calc))}</div>
-              <div className="n">{ccy} {fx(s.quoted ?? s.calc)} × {fx(model.exchangeRate)}</div>
-            </div>
-          ) : null}
-          <div className="kpi">
-            <label>Margin earned</label>
-            <div className="v">₹ {money(s.margin)}</div>
-            <div className="n" style={edit ? { display: "flex", alignItems: "center", gap: 6 } : undefined}>
-              {edit ? (
-                <>
-                  <Ed w="w-16" label="Margin % of net" value={edit.draft.header.margin_pct} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, margin_pct: v } })} />
-                  <span>% of net</span>
-                </>
-              ) : (
-                `${model.terms.margin}% of net`
-              )}
-            </div>
-          </div>
-        </section>
-
-        <hr />
-
         <section className="two">
           <div className="sec">
             <div className="sec-h">
@@ -464,9 +375,6 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
             </div>
           </div>
         </section>
-
-        <hr />
-
         <section className="sec">
           <div className="sec-h">
             <h3>The working</h3>
@@ -559,149 +467,12 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
             ) : null}
           </div>
         </section>
+        </section>
 
-        {edit ? (
-          <section className="sec">
-            <div className="sec-h">
-              <h3>Terms &amp; quote</h3>
-              <span>exchange rate, discount, freight, insurance and the quoted price</span>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", alignItems: "center" }}>
-              {(
-                [
-                  ["Exchange rate", "exchange_rate"],
-                  ["Discount %", "discount_pct"],
-                  ["Freight / pc", "freight_per_pc"],
-                  ["Insurance / pc", "insurance_per_pc"],
-                ] as const
-              ).map(([label, field]) => (
-                <label key={field} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span className="dim">{label}</span>
-                  <Ed w="w-20" label={label} value={edit.draft.header[field]} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, [field]: v } })} />
-                </label>
-              ))}
-              {edit.draft.pieces.flatMap((p) =>
-                model.sizes.map((x) => {
-                  const k = quoteKey(p.key, x.size);
-                  return (
-                    <label key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <span className="dim">Quote{edit.draft.pieces.length > 1 ? ` ${p.piece_name || "piece"}` : ""}{model.sizes.length > 1 ? ` ${x.label}` : ""}</span>
-                      <Ed w="w-24" label={`Quoted price ${x.label}`} value={edit.draft.quotes[k] ?? ""} onChange={(v) => { edit.onQuote?.(k); edit.onChange({ ...edit.draft, quotes: { ...edit.draft.quotes, [k]: v } }); }} />
-                    </label>
-                  );
-                }),
-              )}
-            </div>
-          </section>
-        ) : null}
-
-        <section className="sec">
-          <div className="sec-h">
-            <h3>Full detail</h3>
-            <span>every line behind the figures above</span>
-          </div>
-
+        <section className="blk" aria-label="Component consumption">
           <details open>
             <summary>
-              Fabric rates <span>₹ per kg</span>
-            </summary>
-            <div className="scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Fabric</th>
-                    <th className="r">Yarn</th>
-                    <th className="r">Knitting</th>
-                    <th className="r">Dyeing</th>
-                    <th className="r">Finishing</th>
-                    <th className="r">Special</th>
-                    <th className="r">Loss %</th>
-                    <th className="r">Price / kg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {model.fabrics.flatMap((f) => {
-                    /* THE DRAFT ROW THIS LINE IS — present only while revising, when its
-                       cells turn into inputs. A direct fabric edits its Price / kg; a built
-                       fabric edits its Yarn (when it has no blend) and its Loss %, and the
-                       yarns / processes behind it open as a line of inputs beneath. */
-                    const d = edit?.draft.fabrics.find((x) => x.key === f.key);
-                    const blend = d ? !d.is_direct && hasYarnMix(d) : false;
-                    const rows = [
-                      <tr key={f.key}>
-                        <td>
-                          {d && edit?.options ? (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                              <Pick label="Fabric structure" value={d.fabric_id} empty={d.quality || "Fabric structure"} options={edit.options.fabrics} w="w-40" onPick={(id, name) => setFabric(f.key, { fabric_id: id, quality: name })} />
-                              <RemoveX label={f.name} onClick={() => edit.onChange({ ...edit.draft, fabrics: edit.draft.fabrics.filter((x) => x.key !== f.key) })} />
-                            </span>
-                          ) : (
-                            f.name
-                          )}
-                        </td>
-                        <td className="r">
-                          {f.direct ? "" : d && !blend ? <Ed label={`${f.name} — yarn rate ₹/kg`} value={d.yarn_rate} onChange={(v) => setFabric(f.key, { yarn_rate: v })} /> : money(f.yarn)}
-                        </td>
-                        <td className="r">{f.direct ? "" : money(f.knitting)}</td>
-                        <td className="r">{f.direct ? "" : money(f.dyeing)}</td>
-                        <td className="r">{f.direct ? "" : money(f.finishing)}</td>
-                        <td className="r">{f.direct ? "" : money(f.special)}</td>
-                        <td className="r">
-                          {f.direct ? "Direct" : d ? <Ed w="w-20" label={`${f.name} — process loss %`} value={d.process_loss_pct} onChange={(v) => setFabric(f.key, { process_loss_pct: v })} /> : fx(f.lossPct)}
-                        </td>
-                        <td className="r">
-                          {f.direct && d ? <Ed label={`${f.name} — direct rate ₹/kg`} value={d.direct_rate} onChange={(v) => setFabric(f.key, { direct_rate: v })} /> : <b>{money(f.price)}</b>}
-                        </td>
-                      </tr>,
-                    ];
-                    if (d && edit) {
-                      const opts = edit.options;
-                      rows.push(
-                        <tr key={`${f.key}-parts`} className="sub">
-                          <td colSpan={8}>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "center" }}>
-                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                <input type="checkbox" checked={d.is_direct} onChange={(e) => setFabric(f.key, { is_direct: e.target.checked })} />
-                                <span className="dim">Direct rate (bought-in)</span>
-                              </label>
-                              {!d.is_direct ? (
-                                <>
-                                  {d.yarns.map((y, k) => (
-                                    <span key={y.key} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                      {opts ? <Pick label="Yarn" value={y.item_id} empty={y.yarn_name || `Yarn ${k + 1}`} options={opts.yarns} w="w-40" onPick={(id, name) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { item_id: id, yarn_name: name }) })} /> : <span className="dim">{y.yarn_name || `Yarn ${k + 1}`}</span>}
-                                      <Ed w="w-16" label={`${y.yarn_name || "Yarn"} share %`} value={y.mix_pct} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { mix_pct: v }) })} />
-                                      <span className="dim">%</span>
-                                      <Ed w="w-20" label={`${y.yarn_name || "Yarn"} rate ₹/kg`} value={y.rate} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { rate: v }) })} />
-                                      <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
-                                    </span>
-                                  ))}
-                                  {opts ? <Pick label="Add yarn" value={null} empty="+ Yarn" options={opts.yarns} w="w-28" onPick={(id, name) => setFabric(f.key, { yarns: [...d.yarns, { ...newYarnMix(), item_id: id, yarn_name: name }] })} /> : null}
-                                  {d.processes.map((q, k) => (
-                                    <span key={q.key} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                      {opts ? <Pick label="Process" value={q.process_id} empty={q.process_name || `Process ${k + 1}`} options={opts.processes} w="w-40" onPick={(id, name) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { process_id: id, process_name: name }) })} /> : <span className="dim">{q.process_name || `Process ${k + 1}`}</span>}
-                                      <Ed w="w-20" label={`${q.process_name || "Process"} rate ₹/kg`} value={q.rate} onChange={(v) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { rate: v }) })} />
-                                      <RemoveX label={q.process_name || "process"} onClick={() => setFabric(f.key, { processes: d.processes.filter((x) => x.key !== q.key) })} />
-                                    </span>
-                                  ))}
-                                  {opts ? <Pick label="Add process" value={null} empty="+ Process" options={opts.processes} w="w-28" onPick={(id, name) => setFabric(f.key, { processes: [...d.processes, { ...newFabricProcess(), process_id: id, process_name: name }] })} /> : null}
-                                </>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>,
-                      );
-                    }
-                    return rows;
-                  })}
-                </tbody>
-              </table>
-              {edit?.options ? <AddFabric draft={edit.draft} onChange={edit.onChange} options={edit.options} /> : null}
-            </div>
-          </details>
-
-          <details open>
-            <summary>
-              Garment weight <span>grams, sizes across</span>
+              Component consumption <span>grams per size, with loss %</span>
             </summary>
             <div className="scroll">
               <table>
@@ -761,11 +532,126 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
               {edit?.options ? <AddWeight draft={edit.draft} onChange={edit.onChange} options={edit.options} sizes={model.sizes.map((x) => x.size)} /> : null}
             </div>
           </details>
+        </section>
 
-          {model.ops.length || edit?.options ? (
+        <section className="blk fabblk" aria-label="Fabric processing cost">
+          <div>
             <details open>
               <summary>
-                CMT &amp; embellishment <span>₹ {money(s.cmt + s.process + s.testing)} / {model.unitWord}</span>
+                Fabric processing cost <span>₹ per kg · yarn, knitting, dyeing, finishing, loss</span>
+              </summary>
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fabric</th>
+                      <th className="r">Yarn</th>
+                      <th className="r">Knitting</th>
+                      <th className="r">Dyeing</th>
+                      <th className="r">Finishing</th>
+                      <th className="r">Special</th>
+                      <th className="r">Loss %</th>
+                      <th className="r">Price / kg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {model.fabrics.flatMap((f) => {
+                      /* THE DRAFT ROW THIS LINE IS — present only while revising, when its
+                         cells turn into inputs. A direct fabric edits its Price / kg; a built
+                         fabric edits its Yarn (when it has no blend) and its Loss %, and the
+                         yarns / processes behind it open as a line of inputs beneath. */
+                      const d = edit?.draft.fabrics.find((x) => x.key === f.key);
+                      const blend = d ? !d.is_direct && hasYarnMix(d) : false;
+                      const rows = [
+                        <tr key={f.key}>
+                          <td>
+                            {d && edit?.options ? (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                <Pick label="Fabric structure" value={d.fabric_id} empty={d.quality || "Fabric structure"} options={edit.options.fabrics} w="w-40" onPick={(id, name) => setFabric(f.key, { fabric_id: id, quality: name })} />
+                                <RemoveX label={f.name} onClick={() => edit.onChange({ ...edit.draft, fabrics: edit.draft.fabrics.filter((x) => x.key !== f.key) })} />
+                              </span>
+                            ) : (
+                              f.name
+                            )}
+                          </td>
+                          <td className="r">
+                            {f.direct ? "" : d && !blend ? <Ed label={`${f.name} — yarn rate ₹/kg`} value={d.yarn_rate} onChange={(v) => setFabric(f.key, { yarn_rate: v })} /> : money(f.yarn)}
+                          </td>
+                          <td className="r">{f.direct ? "" : money(f.knitting)}</td>
+                          <td className="r">{f.direct ? "" : money(f.dyeing)}</td>
+                          <td className="r">{f.direct ? "" : money(f.finishing)}</td>
+                          <td className="r">{f.direct ? "" : money(f.special)}</td>
+                          <td className="r">
+                            {f.direct ? "Direct" : d ? <Ed w="w-20" label={`${f.name} — process loss %`} value={d.process_loss_pct} onChange={(v) => setFabric(f.key, { process_loss_pct: v })} /> : fx(f.lossPct)}
+                          </td>
+                          <td className="r">
+                            {f.direct && d ? <Ed label={`${f.name} — direct rate ₹/kg`} value={d.direct_rate} onChange={(v) => setFabric(f.key, { direct_rate: v })} /> : <b>{money(f.price)}</b>}
+                          </td>
+                        </tr>,
+                      ];
+                      if (d && edit) {
+                        const opts = edit.options;
+                        rows.push(
+                          <tr key={`${f.key}-parts`} className="sub">
+                            <td colSpan={8}>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "center" }}>
+                                <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                  <input type="checkbox" checked={d.is_direct} onChange={(e) => setFabric(f.key, { is_direct: e.target.checked })} />
+                                  <span className="dim">Direct rate (bought-in)</span>
+                                </label>
+                                {!d.is_direct ? (
+                                  <>
+                                    {d.yarns.map((y, k) => (
+                                      <span key={y.key} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                        {opts ? <Pick label="Yarn" value={y.item_id} empty={y.yarn_name || `Yarn ${k + 1}`} options={opts.yarns} w="w-40" onPick={(id, name) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { item_id: id, yarn_name: name }) })} /> : <span className="dim">{y.yarn_name || `Yarn ${k + 1}`}</span>}
+                                        <Ed w="w-16" label={`${y.yarn_name || "Yarn"} share %`} value={y.mix_pct} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { mix_pct: v }) })} />
+                                        <span className="dim">%</span>
+                                        <Ed w="w-20" label={`${y.yarn_name || "Yarn"} rate ₹/kg`} value={y.rate} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { rate: v }) })} />
+                                        <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
+                                      </span>
+                                    ))}
+                                    {opts ? <Pick label="Add yarn" value={null} empty="+ Yarn" options={opts.yarns} w="w-28" onPick={(id, name) => setFabric(f.key, { yarns: [...d.yarns, { ...newYarnMix(), item_id: id, yarn_name: name }] })} /> : null}
+                                    {d.processes.map((q, k) => (
+                                      <span key={q.key} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                        {opts ? <Pick label="Process" value={q.process_id} empty={q.process_name || `Process ${k + 1}`} options={opts.processes} w="w-40" onPick={(id, name) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { process_id: id, process_name: name }) })} /> : <span className="dim">{q.process_name || `Process ${k + 1}`}</span>}
+                                        <Ed w="w-20" label={`${q.process_name || "Process"} rate ₹/kg`} value={q.rate} onChange={(v) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { rate: v }) })} />
+                                        <RemoveX label={q.process_name || "process"} onClick={() => setFabric(f.key, { processes: d.processes.filter((x) => x.key !== q.key) })} />
+                                      </span>
+                                    ))}
+                                    {opts ? <Pick label="Add process" value={null} empty="+ Process" options={opts.processes} w="w-28" onPick={(id, name) => setFabric(f.key, { processes: [...d.processes, { ...newFabricProcess(), process_id: id, process_name: name }] })} /> : null}
+                                  </>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>,
+                        );
+                      }
+                      return rows;
+                    })}
+                  </tbody>
+                </table>
+                {edit?.options ? <AddFabric draft={edit.draft} onChange={edit.onChange} options={edit.options} /> : null}
+              </div>
+            </details>
+          </div>
+            <aside className="photo" aria-label="Style sketch or photo">
+              {model.thumbUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={model.thumbUrl} alt="" />
+              ) : (
+                <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round" aria-hidden>
+                  <path d="M22 8l-14 8 6 12 6-3v31h24V25l6 3 6-12-14-8c-2 5-6 7-10 7s-8-2-10-7z" />
+                </svg>
+              )}
+              <span>Sketch / photo</span>
+            </aside>
+        </section>
+
+        <section className="tri" aria-label="Fabric, CMT and trims">
+          {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
+            <details open>
+              <summary>
+                Fabric &amp; garment processes <span>₹ {money(s.fabric + s.process + s.testing)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
                 <table>
@@ -773,12 +659,16 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
                     <tr>
                       {model.pieceCount > 1 ? <th>Piece</th> : null}
                       <th>Operation</th>
-                      <th>Kind</th>
                       <th className="r">Rate ₹</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {model.ops.map((o, i) => (
+                    <tr>
+                      {model.pieceCount > 1 ? <td /> : null}
+                      <td>Fabric cost{model.sizes.length > 1 ? ` · ${s.label}` : ""}</td>
+                      <td className="r">{money(s.fabric)}</td>
+                    </tr>
+                    {model.ops.filter((o) => o.kind !== "CMT").map((o, i) => (
                       <tr key={i}>
                         {model.pieceCount > 1 ? <td>{o.piece}</td> : null}
                         <td>
@@ -799,7 +689,6 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
                             o.name
                           )}
                         </td>
-                        <td className="dim">{o.kind}</td>
                         <td className="r">
                           {(() => {
                             const piece = edit?.draft.pieces.find((x) => x.key === o.pieceKey);
@@ -814,8 +703,8 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
                       </tr>
                     ))}
                     <tr className="total">
-                      <td colSpan={model.pieceCount > 1 ? 3 : 2}>CMT, embellishment &amp; testing</td>
-                      <td className="r">{money(s.cmt + s.process + s.testing)}</td>
+                      <td colSpan={model.pieceCount > 1 ? 2 : 1}>Fabric, processes &amp; testing</td>
+                      <td className="r">{money(s.fabric + s.process + s.testing)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -823,7 +712,65 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
               </div>
             </details>
           ) : null}
-
+          {model.ops.some((o) => o.kind === "CMT") || edit?.options ? (
+            <details open>
+              <summary>
+                CMT operations <span>₹ {money(s.cmt)} / {model.unitWord}</span>
+              </summary>
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      {model.pieceCount > 1 ? <th>Piece</th> : null}
+                      <th>Operation</th>
+                      <th className="r">Rate ₹</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {model.ops.filter((o) => o.kind === "CMT").map((o, i) => (
+                      <tr key={i}>
+                        {model.pieceCount > 1 ? <td>{o.piece}</td> : null}
+                        <td>
+                          {edit && o.field === "line" && o.lineKey ? (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              {o.name}
+                              <RemoveX
+                                label={o.name}
+                                onClick={() =>
+                                  edit.onChange({
+                                    ...edit.draft,
+                                    pieces: edit.draft.pieces.map((x) => (x.key === o.pieceKey ? { ...x, lines: x.lines.filter((l) => l.key !== o.lineKey) } : x)),
+                                  })
+                                }
+                              />
+                            </span>
+                          ) : (
+                            o.name
+                          )}
+                        </td>
+                        <td className="r">
+                          {(() => {
+                            const piece = edit?.draft.pieces.find((x) => x.key === o.pieceKey);
+                            if (!edit || !piece) return money(o.rate);
+                            const label = `${o.name}${o.piece ? ` (${o.piece})` : ""} — rate ₹`;
+                            if (o.field === "cmt") return <Ed label={label} value={piece.cmt} onChange={(v) => setPiece(piece.key, { cmt: v })} />;
+                            if (o.field === "testing") return <Ed label={label} value={piece.testing_cost} onChange={(v) => setPiece(piece.key, { testing_cost: v })} />;
+                            const line = piece.lines.find((l) => l.key === o.lineKey);
+                            return line ? <Ed label={label} value={line.rate} onChange={(v) => setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { rate: v }) })} /> : money(o.rate);
+                          })()}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td colSpan={model.pieceCount > 1 ? 2 : 1}>CMT</td>
+                      <td className="r">{money(s.cmt)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                {edit?.options ? <AddOperation draft={edit.draft} onChange={edit.onChange} options={edit.options} /> : null}
+              </div>
+            </details>
+          ) : null}
           {model.trims.length || edit?.options ? (
             <details open>
               <summary>
@@ -900,7 +847,71 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
               </div>
             </details>
           ) : null}
+        </section>
 
+        <section className="blk" aria-label="Garment cost">
+          <details open>
+            <summary>
+              Garment cost <span>₹ per {model.unitWord}{model.sizes.length > 1 ? " · every size" : ""}</span>
+            </summary>
+            <div className="scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Line</th>
+                    {model.sizes.map((x) => (
+                      <th key={x.label} className="r">{model.sizes.length > 1 ? x.label : "₹"}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(
+                    [
+                      ["Fabric cost", (x: SizeFigures) => x.fabric, false],
+                      ["CMT", (x: SizeFigures) => x.cmt, false],
+                      ["Garment processes & testing", (x: SizeFigures) => x.process + x.testing, false],
+                      ["Trims", (x: SizeFigures) => x.trims, false],
+                      ["Factory base cost", (x: SizeFigures) => x.net, true],
+                      [`Rejection ${model.terms.wastage}%`, (x: SizeFigures) => x.wastage, false],
+                      [`Overhead ${model.terms.overhead}%`, (x: SizeFigures) => x.overhead, false],
+                      ["Bank charges & other overheads", (x: SizeFigures) => x.bank + x.extraOverhead, false],
+                      ["Total cost", (x: SizeFigures) => x.grossCost, true],
+                      [`Profit ${model.terms.margin}%`, (x: SizeFigures) => x.margin, false],
+                    ] as const
+                  ).map(([label, pick, strong]) => (
+                    <tr key={label} className={strong ? "total" : undefined}>
+                      <td>{label}</td>
+                      {model.sizes.map((x) => (
+                        <td key={x.label} className="r">{money(pick(x))}</td>
+                      ))}
+                    </tr>
+                  ))}
+                  {model.terms.freight + model.terms.insurance > 0 ? (
+                    <tr>
+                      <td>Freight &amp; insurance <span className="dim">(on the price, not earned)</span></td>
+                      {model.sizes.map((x) => (
+                        <td key={x.label} className="r">{money((model.terms.freight + model.terms.insurance) * model.pieceCount)}</td>
+                      ))}
+                    </tr>
+                  ) : null}
+                  {model.sizes.some((x) => x.priceAdj - x.discount !== 0) ? (
+                    <tr>
+                      <td>Price charges &amp; discount</td>
+                      {model.sizes.map((x) => (
+                        <td key={x.label} className="r">{x.priceAdj - x.discount >= 0 ? "+" : "−"}{money(Math.abs(x.priceAdj - x.discount))}</td>
+                      ))}
+                    </tr>
+                  ) : null}
+                  <tr className="total">
+                    <td>Price ₹</td>
+                    {model.sizes.map((x) => (
+                      <td key={x.label} className="r">{money(x.price)}</td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
           <details open>
             <summary>
               Overheads &amp; extra charges <span>₹ {money(s.bank + s.wastage + s.overhead + s.extraOverhead)} / {model.unitWord}</span>
@@ -991,11 +1002,193 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
           </details>
         </section>
 
-        {/* WHERE THIS COSTING STANDS IN THE NEGOTIATION (client 2026-10-09: "the
-            sample rev will happen in the report"). Every revision of this Costing
-            No, the one on this page marked; INTERNAL, so the margin each carried
-            is here — the buyer's Quotation prints prices only. Absent for a
-            costing that was never revised. */}
+        <section className="blk" aria-label="Commercial quote and negotiation">
+          <div className="sec-h">
+            <h3>Commercial quote &amp; negotiation</h3>
+            <span>price, target, commission and the revisions behind it</span>
+          </div>
+        {model.belowFloor ? (
+          <div className="banner">
+            <b>{model.status === "approved" ? "Approved under the floor." : "Needs the MD."}</b> The lowest size{model.lowestSize ? ` (${model.lowestSize})` : ""} earns {fx(model.lowestMarginPct)}%, under the {FLOOR_PCT}% floor.
+          </div>
+        ) : null}
+        {model.status === "rejected" && model.decisionRemark ? (
+          <div className="banner">
+            <b>Sent back for rework:</b> {model.decisionRemark}
+          </div>
+        ) : null}
+
+          <div className="comm">
+          <div className="quote">
+            <div className="quote-top">
+              <div>
+                <div className="eyebrow">{s.quoted != null ? "Quoted" : "Calculated"} FOB per {model.unitWord}</div>
+                <div className="big">{s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"}</div>
+                {inrOf(s.quoted ?? s.calc) != null ? (
+                  <div className="inr">
+                    ₹ {money(inrOf(s.quoted ?? s.calc))} <small>per {model.unitWord} · at ₹ {fx(model.exchangeRate)} / {ccy}</small>
+                  </div>
+                ) : null}
+                <div className="sub">
+                  {s.calc != null ? `Calculated ${s.calc.toFixed(4)}` : "Add the exchange rate to see the price"}
+                  {delta != null && Math.abs(delta) > 0.00005 && s.deltaPct != null ? ` · ${delta >= 0 ? "+" : ""}${delta.toFixed(4)} (${delta >= 0 ? "+" : ""}${s.deltaPct.toFixed(2)}%)` : ""}
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="gauge-head">
+                <span>Margin on the quote{model.sizes.length > 1 ? ` · ${s.label}` : ""}</span>
+                <b>{eff == null ? "—" : `${eff.toFixed(2)}%`}</b>
+              </div>
+              <div className="track" aria-hidden>
+                <div className="tick" style={{ left: `${(FLOOR_PCT / 30) * 100}%` }}>
+                  <span>{FLOOR_PCT}% floor</span>
+                </div>
+                <div className="tick" style={{ left: `${(MARGIN_TARGET_PCT / 30) * 100}%` }}>
+                  <span>{MARGIN_TARGET_PCT}% target</span>
+                </div>
+                {pin != null ? (
+                  <div className="pin" style={{ left: `${pin}%` }}>
+                    <span>{eff?.toFixed(1)}%</span>
+                    <i />
+                  </div>
+                ) : null}
+              </div>
+              <div className="scale">
+                <span>0%</span>
+                <span>{MARGIN_RED_BELOW_PCT}%</span>
+                <span>30%</span>
+              </div>
+            </div>
+          </div>
+          <div className="box neg">
+            <h4>
+              Negotiation <span>{ccy || "price"} per {model.unitWord}{model.sizes.length > 1 ? ` · size ${s.label}` : ""}</span>
+            </h4>
+            <table>
+              <tbody>
+                <tr>
+                  <td>Calculated price</td>
+                  <td className="r">{s.calc != null ? fx(s.calc, 2) : "—"}</td>
+                </tr>
+                <tr>
+                  <td>Quoted price</td>
+                  <td className="r"><b>{s.quoted != null ? fx(s.quoted, 2) : s.calc != null ? fx(s.calc, 2) : "—"}</b></td>
+                </tr>
+                {edit || model.targetPrice != null ? (
+                  <tr>
+                    <td>Buyer target price</td>
+                    <td className="r">
+                      {edit ? <Ed w="w-24" label="Buyer target price" value={edit.draft.header.buyer_target_price} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, buyer_target_price: v } })} /> : fx(model.targetPrice, 2)}
+                    </td>
+                  </tr>
+                ) : null}
+                {(() => {
+                  const target = edit ? Number(edit.draft.header.buyer_target_price) || null : model.targetPrice;
+                  const price = s.quoted ?? s.calc;
+                  if (target == null || price == null) return null;
+                  const gap = Math.round((price - target) * 100) / 100;
+                  return (
+                    <tr>
+                      <td>Difference to target</td>
+                      <td className="r" style={{ color: gap > 0 ? "var(--cs-bad)" : "var(--cs-good)", fontWeight: 800 }}>
+                        {gap === 0 ? "on target" : `${gap > 0 ? "+" : "−"}${fx(Math.abs(gap), 2)} ${gap > 0 ? "over" : "under"}`}
+                      </td>
+                    </tr>
+                  );
+                })()}
+                {edit || model.commissionPct > 0 ? (
+                  <tr>
+                    <td>Commission %</td>
+                    <td className="r">
+                      {edit ? <Ed w="w-24" label="Commission %" value={edit.draft.header.commission_pct} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, commission_pct: v } })} /> : `${fx(model.commissionPct)} %`}
+                    </td>
+                  </tr>
+                ) : null}
+                {edit || model.terms.discount > 0 ? (
+                  <tr>
+                    <td>LC discount %</td>
+                    <td className="r">
+                      {edit ? <Ed w="w-24" label="LC discount %" value={edit.draft.header.discount_pct} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, discount_pct: v } })} /> : `${fx(model.terms.discount)} %`}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          </div>
+        <section className="kpis">
+          <div className="kpi">
+            <label>Net cost</label>
+            <div className="v">₹ {money(s.net)}</div>
+            <div className="n">before rejection and overhead</div>
+          </div>
+          <div className="kpi">
+            <label>Gross cost</label>
+            <div className="v">₹ {money(s.grossCost)}</div>
+            <div className="n">what a {model.unitWord} costs us</div>
+          </div>
+          <div className="kpi">
+            <label>Price</label>
+            <div className="v">₹ {money(s.price)}</div>
+            <div className="n">gross cost + margin{s.priceAdj ? " ± price charges" : ""}</div>
+          </div>
+          {inrOf(s.quoted ?? s.calc) != null ? (
+            <div className="kpi">
+              <label>FOB in rupees</label>
+              <div className="v">₹ {money(inrOf(s.quoted ?? s.calc))}</div>
+              <div className="n">{ccy} {fx(s.quoted ?? s.calc)} × {fx(model.exchangeRate)}</div>
+            </div>
+          ) : null}
+          <div className="kpi">
+            <label>Margin earned</label>
+            <div className="v">₹ {money(s.margin)}</div>
+            <div className="n" style={edit ? { display: "flex", alignItems: "center", gap: 6 } : undefined}>
+              {edit ? (
+                <>
+                  <Ed w="w-16" label="Margin % of net" value={edit.draft.header.margin_pct} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, margin_pct: v } })} />
+                  <span>% of net</span>
+                </>
+              ) : (
+                `${model.terms.margin}% of net`
+              )}
+            </div>
+          </div>
+        </section>
+        {edit ? (
+          <section className="sec">
+            <div className="sec-h">
+              <h3>Terms &amp; quote</h3>
+              <span>exchange rate, discount, freight, insurance and the quoted price</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", alignItems: "center" }}>
+              {(
+                [
+                  ["Exchange rate", "exchange_rate"],
+                  ["Discount %", "discount_pct"],
+                  ["Freight / pc", "freight_per_pc"],
+                  ["Insurance / pc", "insurance_per_pc"],
+                ] as const
+              ).map(([label, field]) => (
+                <label key={field} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span className="dim">{label}</span>
+                  <Ed w="w-20" label={label} value={edit.draft.header[field]} onChange={(v) => edit.onChange({ ...edit.draft, header: { ...edit.draft.header, [field]: v } })} />
+                </label>
+              ))}
+              {edit.draft.pieces.flatMap((p) =>
+                model.sizes.map((x) => {
+                  const k = quoteKey(p.key, x.size);
+                  return (
+                    <label key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <span className="dim">Quote{edit.draft.pieces.length > 1 ? ` ${p.piece_name || "piece"}` : ""}{model.sizes.length > 1 ? ` ${x.label}` : ""}</span>
+                      <Ed w="w-24" label={`Quoted price ${x.label}`} value={edit.draft.quotes[k] ?? ""} onChange={(v) => { edit.onQuote?.(k); edit.onChange({ ...edit.draft, quotes: { ...edit.draft.quotes, [k]: v } }); }} />
+                    </label>
+                  );
+                }),
+              )}
+            </div>
+          </section>
+        ) : null}
         {model.history.length > 0 ? (
           <section className="sec">
             <div className="sec-h">
@@ -1039,6 +1232,8 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
             </div>
           </section>
         ) : null}
+        </section>
+
 
         <div className="sign">
           <div><b />Prepared by</div>
@@ -1105,6 +1300,38 @@ const CSS = `
 .cs-sheet .pin i { display:block; width:4px; height:100%; margin-inline:auto; background:var(--cs-ink); border-radius:2px; box-shadow:0 0 0 2px #fff; }
 .cs-sheet .pin span { position:absolute; bottom:32px; left:50%; transform:translateX(-50%); background:var(--cs-ink); color:#fff; font-size:11px; font-weight:700; padding:1px 7px; border-radius:6px; white-space:nowrap; }
 .cs-sheet .scale { display:flex; justify-content:space-between; margin-top:22px; font-size:10.5px; color:var(--cs-muted); }
+.cs-sheet .blk { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.cs-sheet .hdrblk { gap:8px; }
+.cs-sheet .hdr-title h2 { font-size:20px; line-height:1.15; letter-spacing:-.01em; margin-block:2px 6px; font-weight:800; }
+.cs-sheet .hdr-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px 28px; }
+@media (max-width:760px){ .cs-sheet .hdr-grid { grid-template-columns:1fr; } }
+.cs-sheet .spec { margin:0; display:flex; flex-direction:column; border:1px solid var(--cs-rule); border-radius:10px; overflow:hidden; }
+.cs-sheet .spec > div { display:grid; grid-template-columns:130px minmax(0,1fr); gap:10px; padding:5px 12px; border-bottom:1px solid var(--cs-rule); }
+.cs-sheet .spec > div:last-child { border-bottom:0; }
+.cs-sheet .spec dt { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--cs-muted); font-weight:700; align-self:center; }
+.cs-sheet .spec dd { margin:0; font-weight:600; font-size:13px; min-width:0; overflow-wrap:anywhere; }
+.cs-sheet .fabblk { display:grid; grid-template-columns:minmax(0,1fr) 150px; gap:12px; align-items:stretch; }
+@media (max-width:860px){ .cs-sheet .fabblk { grid-template-columns:1fr; } }
+.cs-sheet .photo { border:1px dashed var(--cs-rule); border-radius:12px; background:var(--cs-soft); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-height:130px; overflow:hidden; color:var(--cs-muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; }
+.cs-sheet .photo img { width:100%; height:100%; object-fit:cover; flex:1; } .cs-sheet .photo svg { width:46px; height:46px; color:var(--cs-brand); opacity:.7; }
+.cs-sheet .tri { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr); gap:12px; align-items:start; }
+@media (max-width:1100px){ .cs-sheet .tri { grid-template-columns:1fr; } }
+.cs-sheet .comm { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:14px; align-items:start; }
+@media (max-width:860px){ .cs-sheet .comm { grid-template-columns:1fr; } }
+/* COMPACT — the commercial block is read at a glance, so it is one short band, not a poster. */
+.cs-sheet .comm .quote { padding:8px 12px; gap:4px; border-radius:10px; }
+.cs-sheet .comm .quote-top .big { font-size:24px; margin-top:1px; }
+.cs-sheet .comm .quote-top .inr { font-size:13px; margin-top:0; }
+.cs-sheet .comm .quote-top .sub { font-size:11.5px; margin-top:1px; }
+.cs-sheet .comm .gauge-head { font-size:12px; } .cs-sheet .comm .gauge-head b { font-size:15px; }
+.cs-sheet .comm .track { height:8px; margin-top:20px; }
+.cs-sheet .comm .tick { top:-4px; bottom:-4px; } .cs-sheet .comm .tick span { top:16px; font-size:10px; }
+.cs-sheet .comm .pin { top:-8px; height:24px; } .cs-sheet .comm .pin span { bottom:26px; font-size:10.5px; }
+.cs-sheet .comm .scale { margin-top:16px; font-size:10px; }
+.cs-sheet .comm .box { padding:6px 10px; gap:4px; }
+.cs-sheet .blk .kpis { grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:6px; }
+.cs-sheet .blk .kpi { padding:5px 10px; border-radius:8px; } .cs-sheet .blk .kpi .v { font-size:15px; } .cs-sheet .blk .kpi .n { font-size:11px; }
+.cs-sheet .neg table td { padding:5px 4px; } .cs-sheet .neg table td:first-child { color:var(--cs-muted); }
 .cs-sheet .banner { border:1px solid var(--cs-warn); background:var(--cs-warn-tint); border-radius:6px; padding:9px 12px; font-size:13px; }
 .cs-sheet .banner b { color:var(--cs-warn); }
 .cs-sheet .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; }

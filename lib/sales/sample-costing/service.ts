@@ -433,7 +433,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     .from("cost_sheets")
     .select(
       "id, code, version, status, is_draft, parent_cost_sheet_id, decision_remark, opportunity_id, style_id, costing_date, " +
-        "currency_code, exchange_rate, margin_pct, garment_waste_pct, overhead_pct, discount_pct, ship_mode, freight_per_pc, insurance_per_pc, notes, extra_charges, " +
+        "currency_code, exchange_rate, margin_pct, garment_waste_pct, overhead_pct, discount_pct, ship_mode, freight_per_pc, insurance_per_pc, buyer_target_price, commission_pct, notes, extra_charges, " +
         "pieces:sample_costing_pieces(*, lines:sample_costing_piece_processes(sno, kind, process_id, process_name, rate)), " +
         "fabrics:sample_costing_fabrics(*, processes:sample_costing_fabric_processes(sno, process_id, process_name, rate), " +
         "yarns:sample_costing_fabric_yarns(sno, item_id, yarn_name, mix_pct, rate)), " +
@@ -549,6 +549,8 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
         ship_mode: g("ship_mode"),
         freight_per_pc: gnum("freight_per_pc"),
         insurance_per_pc: gnum("insurance_per_pc"),
+        buyer_target_price: gnum("buyer_target_price"),
+        commission_pct: gnum("commission_pct"),
         notes: g("notes"),
       },
       pieces,

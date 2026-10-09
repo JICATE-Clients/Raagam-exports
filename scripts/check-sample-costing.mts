@@ -381,10 +381,10 @@ eq("extras: the target solver reads them (139 leaves 20 %)", xs?.marginPct ?? nu
 
 // ---- revise on the report (client 2026-10-09: "fabric rate, CMT and margin … the report should update immediately") ----
 {
-  const draft = (over: { fabricRate?: string; cmt?: string; margin?: string; exchange?: string; quote?: string } = {}): CostingDraft => ({
+  const draft = (over: { fabricRate?: string; cmt?: string; margin?: string; exchange?: string; quote?: string; commission?: string; target?: string } = {}): CostingDraft => ({
     header: {
       opportunity_id: "o", style_id: "s", costing_date: "2026-10-09", currency_code: "USD", exchange_rate: over.exchange ?? "95",
-      margin_pct: over.margin ?? "25", garment_waste_pct: "", overhead_pct: "", discount_pct: "", ship_mode: "", freight_per_pc: "", insurance_per_pc: "", notes: "",
+      margin_pct: over.margin ?? "25", garment_waste_pct: "", overhead_pct: "", discount_pct: "", ship_mode: "", freight_per_pc: "", insurance_per_pc: "", buyer_target_price: over.target ?? "", commission_pct: over.commission ?? "", notes: "",
     },
     pieces: [{ key: "p", piece_name: "PIECE", coordinate_id: null, cmt: over.cmt ?? "50", cmt_direct: true, lines: [], testing_cost: "", bank_cost: "" }],
     fabrics: [{ key: "f", fabric_id: null, quality: "JERSEY", yarn_rate: "", yarns: [], knitting_rate: "", dyeing_rate: "", finishing_rate: "", process_loss_pct: "", is_direct: true, direct_rate: over.fabricRate ?? "450", processes: [] }],
@@ -402,6 +402,17 @@ eq("extras: the target solver reads them (139 leaves 20 %)", xs?.marginPct ?? nu
   eq("revise: a larger margin gives a higher quoted price", priceOf(draft({ margin: "30" })) > base, true);
   eq("revise: it replaces a typed quote that no longer matches the costs", priceOf(draft({ quote: "9.99", fabricRate: "400" })) !== 9.99, true);
   eq("revise: with no exchange rate nothing can be calculated, so a typed quote is kept", withCalculatedQuotes(draft({ exchange: "", quote: "4.30" })).quotes["p|"] === "4.30", true);
+  // ---- RAAGAM COSTING FORMAT (2026-10-09): commission rides on the price; the target never does ----
+  eq("commission: blank leaves the price exactly as it was", priceOf(draft({ commission: "" })), base);
+  eq("commission: 0 leaves the price exactly as it was", priceOf(draft({ commission: "0" })), base);
+  eq("commission: 5 % raises the price", priceOf(draft({ commission: "5" })) > base, true);
+  eq("commission: 10 % raises it more than 5 %", priceOf(draft({ commission: "10" })) > priceOf(draft({ commission: "5" })), true);
+  eq("target: the buyer's target is shown beside the price, never inside it", priceOf(draft({ target: "3.00" })), base);
+  eq(
+    "held: a quote the merchandiser typed is kept while every other costs move",
+    withCalculatedQuotes(draft({ quote: "9.99", fabricRate: "400" }), new Set(["p|"])).quotes["p|"],
+    "9.99",
+  );
   const original = draft({ quote: "4.30" });
   const copy = cloneDraft(original);
   copy.header.margin_pct = "1";

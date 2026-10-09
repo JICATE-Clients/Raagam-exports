@@ -132,7 +132,9 @@ export function buildScreenCatalog(): CatalogModule[] {
     } else {
       const screens: CatalogScreen[] = [];
       if (ROOT_SCREENS.has(item.href)) screens.push(rootScreen());
-      for (const c of item.children ?? []) screens.push({ key: c.href, label: c.label, module: item.module });
+      for (const c of [...(item.children ?? []), ...(OFF_MENU_SCREENS[item.href] ?? [])]) {
+        screens.push({ key: c.href, label: c.label, module: item.module });
+      }
       if (screens.length === 0) screens.push(rootScreen());
       submodules.push({ key: `${item.href}#screens`, label: item.label, screens });
     }
@@ -143,6 +145,24 @@ export function buildScreenCatalog(): CatalogModule[] {
   }
   return out;
 }
+
+/**
+ * SCREENS THAT LEFT THE SIDEBAR BUT NOT THE APP (user 2026-10-09: Sample's
+ * Opportunities & Costing, SQ Details, Pipeline & Seasonal and Catalogues &
+ * Pricing came off the menu). Their routes still answer, so they stay screens
+ * here: dropping them would make each one fall back to the module grant — a
+ * role kept out of SQ Details by a screen tick could then open it by URL — and
+ * would orphan any screen rows already stored for them. Appended after the
+ * module's sidebar children, under the same sub-module.
+ */
+const OFF_MENU_SCREENS: Readonly<Record<string, readonly { href: string; label: string }[]>> = {
+  "/sales": [
+    { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
+    { href: "/sales/sq-details", label: "SQ Details" },
+    { href: "/sales/pipeline-orders", label: "Pipeline & Seasonal" },
+    { href: "/sales/catalogues", label: "Catalogues & Pricing" },
+  ],
+};
 
 /**
  * PAGES WITH NO REGISTRY ROW THAT BELONG TO A SCREEN — a sub-screen opened

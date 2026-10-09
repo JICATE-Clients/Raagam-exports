@@ -73,6 +73,12 @@ export type CostingHeaderDraft = {
   ship_mode: string;
   freight_per_pc: string;
   insurance_per_pc: string;
+  /** 0701. What the buyer says they will pay, in the costing's currency — held beside
+   *  the quote so the sheet can print the gap. Optional; blank = none given. */
+  buyer_target_price: string;
+  /** 0701. The agent's commission, % of the price. Optional; blank counts as 0. It rides
+   *  on the price as a Price & quote percent row (see `costingInputOf`). */
+  commission_pct: string;
   notes: string;
 };
 
@@ -287,7 +293,9 @@ export function costingInputOf(d: CostingDraft): CostingInput {
     trims: live.trims,
     terms: d.header,
     quotes: d.quotes,
-    extras: live.extras,
+    // COMMISSION IS A PRICE-SIDE PERCENT, so it is fed to the engine as the row it already
+    // knows how to price — calc.ts stays exactly as it was. Blank / 0 adds nothing.
+    extras: (Number(d.header.commission_pct) || 0) > 0 ? [...live.extras, { key: "commission", name: "Commission", section: "price", kind: "pct", value: d.header.commission_pct, sign: "add" as const }] : live.extras,
   };
 }
 
@@ -422,7 +430,7 @@ export function costingProblems(d: CostingDraft, opts: { draft?: boolean } = {})
       out.push({ section: "consumption", fieldId: costingFieldId.weightGrams(w.key), label: "Weight", message: "A weight or allowance cannot be negative." });
     }
   }
-  if ([h.margin_pct, h.garment_waste_pct, h.overhead_pct, h.discount_pct, h.freight_per_pc, h.insurance_per_pc].some(negative)) {
+  if ([h.margin_pct, h.garment_waste_pct, h.overhead_pct, h.discount_pct, h.freight_per_pc, h.insurance_per_pc, h.buyer_target_price, h.commission_pct].some(negative)) {
     out.push({ section: "quotation", label: "Terms", message: "Margin, wastage, overhead, discount, freight and insurance cannot be negative." });
   }
 
@@ -473,6 +481,8 @@ export const costingDraftSchema = z.object({
     ship_mode: z.union([z.literal(""), z.literal("sea"), z.literal("air")]),
     freight_per_pc: numStr,
     insurance_per_pc: numStr,
+    buyer_target_price: numStr,
+    commission_pct: numStr,
     notes: s,
   }),
   pieces: z
@@ -581,6 +591,8 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
       ship_mode: d.header.ship_mode,
       freight_per_pc: d.header.freight_per_pc.trim(),
       insurance_per_pc: d.header.insurance_per_pc.trim(),
+      buyer_target_price: d.header.buyer_target_price.trim(),
+      commission_pct: d.header.commission_pct.trim(),
       notes: caps(d.header.notes),
       is_draft: opts.isDraft,
       summary: head

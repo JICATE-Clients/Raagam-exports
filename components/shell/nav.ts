@@ -87,10 +87,16 @@ export const NAV: NavItem[] = [
       // — the next child after Sample Entry: the legacy Product Cost Sheet as
       // one document per sample style line, on `cost_sheets` (0688).
       { href: "/sales/sample-costing", label: "Costing" },
-      { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
-      { href: "/sales/sq-details", label: "SQ Details" },
-      { href: "/sales/pipeline-orders", label: "Pipeline & Seasonal" },
-      { href: "/sales/catalogues", label: "Catalogues & Pricing" },
+      // GROUPING (2026-10-09, doc/sample/product-grouping-specification.md) —
+      // the next child after Costing: sample styles of one season that share
+      // a fabric structure and yarn blend, batched into one MOQ purchase (0702).
+      { href: "/sales/sample-grouping", label: "Grouping" },
+      // OPPORTUNITIES & COSTING, SQ DETAILS, PIPELINE & SEASONAL and CATALOGUES
+      // & PRICING LEFT THE SIDEBAR (user 2026-10-09: "remove the opportunities
+      // to catalogue and price 4 child from sample entry"). Sample Entry and
+      // Costing are the module now. The routes are NOT deleted — "a screen
+      // that loses its sidebar row keeps its URL" (AGENTS.md), so a bookmark
+      // or a link from another screen still lands.
     ],
   },
   {

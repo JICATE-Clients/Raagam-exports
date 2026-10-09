@@ -78,6 +78,18 @@ export type CostSheetModel = {
   enquiryNo: string | null;
   sampleNo: string | null;
   style: string | null;
+  /** The style's description — the workbook's "Description" line. */
+  description: string | null;
+  /** The header facts of the RAAGAM COSTING FORMAT: the first fabric's structure, the GSM the
+   *  weights were taken at, and the blend its yarn mix spells out. Each is null when nothing
+   *  was entered, and the sheet then prints no line for it. */
+  fabricFacts: { structure: string | null; gsm: string | null; composition: string | null };
+  /** The sizes the costing covers, as the workbook's "Size Group" line. */
+  sizeGroup: string | null;
+  /** What the buyer says they will pay, per piece in the costing's currency; null = not given. */
+  targetPrice: number | null;
+  /** The agent's commission, % of the price; 0 = none. */
+  commissionPct: number;
   season: string | null;
   thumbUrl: string | null;
   currency: string | null;
@@ -321,6 +333,19 @@ export function buildCostSheetModel(
     enquiryNo: enq?.code ?? null,
     sampleNo: style?.sample_no ?? null,
     style: style?.name ?? null,
+    description: style?.description ?? null,
+    fabricFacts: {
+      structure: fabrics[0]?.name ?? null,
+      gsm: [...new Set(live.weights.map((w) => num(w.gsm)).filter((g): g is number => g != null && g > 0))].map((g) => `${g} GSM`).join(" / ") || null,
+      composition:
+        live.fabrics
+          .flatMap((f) => f.yarns.filter((y) => num(y.mix_pct) != null && (y.yarn_name ?? "").trim()))
+          .map((y) => `${num(y.mix_pct)}% ${y.yarn_name.trim()}`)
+          .join(" + ") || null,
+    },
+    sizeGroup: sizes.length > 1 || sizes[0]?.size ? sizes.map((x) => x.label).join(", ") : null,
+    targetPrice: num(h.buyer_target_price),
+    commissionPct: num(h.commission_pct) ?? 0,
     season: [enq?.season, enq?.season_year].filter(Boolean).join(" ") || null,
     thumbUrl: style?.thumb_url ?? null,
     currency: h.currency_code,
