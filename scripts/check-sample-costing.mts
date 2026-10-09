@@ -27,6 +27,8 @@ import {
   type PieceInput,
 } from "../lib/sales/sample-costing/calc.ts";
 import { linesToWeights, weightsToLines } from "../lib/sales/sample-costing/matrix.ts";
+import { buildRevisionHistory, type RevisionSource } from "../lib/sales/sample-costing/revision-history.ts";
+import { historyForBuyer } from "../lib/sales/sample-costing/quotation.ts";
 import { cleanSizes, offeredSizes, sizesNotInStyle } from "../lib/sales/sample-costing/style-sizes.ts";
 
 let failed = 0;
@@ -339,6 +341,39 @@ eq("extras: absent rows change nothing", costingSummary({ ...xIn, extras: undefi
 eq("extras: the set total sums them", costingSummary({ ...xIn, pieces: [piece({ key: "x", cmt: "100" }), piece({ key: "y", cmt: "100" })] }).groups[0].total.extraOverhead, 30);
 const xs = solveTarget({ net: 100 }, xTerms, 139, 1, 0, xExtras);
 eq("extras: the target solver reads them (139 leaves 20 %)", xs?.marginPct ?? null, 20);
+
+// ---- revision history (client 2026-10-09: "the sample rev will happen in the report") ----
+{
+  const rev = (id: string, version: number, o: { target?: number | null; computed?: number | null; margin?: number | null } = {}): RevisionSource => ({
+    id,
+    version,
+    status: "approved",
+    is_draft: false,
+    costing_date: "2026-10-08",
+    computed_fob: o.computed ?? null,
+    target_fob: o.target ?? null,
+    profit_loss_pct: o.margin ?? null,
+    currency_code: "USD",
+  });
+  eq("history: a costing never revised has none (a one-row table says nothing)", buildRevisionHistory([rev("a", 1, { target: 4.3 })], "a").length, 0);
+  const h = buildRevisionHistory([rev("c", 3, { target: 3.9 }), rev("a", 1, { target: 4.3 }), rev("b", 2, { target: 4.1 })], "c");
+  eq("history: every revision is listed", h.length, 3);
+  eq("history: oldest first however the rows arrive (Rev 0 leads)", h[0].version, 1);
+  eq("history: exactly one row is 'this report'", h.filter((r) => r.current).length, 1);
+  eq("history: and it is the one asked for", h[2].current, true);
+  eq("history: the first revision has no change", h[0].changePct, null);
+  eq("history: 4.30 → 4.10 is −4.7 %", h[1].changePct, -4.7, 1);
+  eq("history: 4.10 → 3.90 is −4.9 %", h[2].changePct, -4.9, 1);
+  const fallback = buildRevisionHistory([rev("a", 1, { computed: 3.9453 }), rev("b", 2, { computed: 3.5 })], "b");
+  eq("history: an unquoted revision carries its calculated price, to the cent", fallback[0].price, 3.95);
+  const gap = buildRevisionHistory([rev("a", 1, { target: 4 }), rev("b", 2), rev("c", 3, { target: 3.6 })], "c");
+  eq("history: an unpriced revision shows no price", gap[1].price, null);
+  eq("history: …and the next change is measured from the last PRICED one (4.00 → 3.60)", gap[2].changePct, -10, 1);
+  const withMargin = buildRevisionHistory([rev("a", 1, { target: 4.3, margin: 31.5 }), rev("b", 2, { target: 4.1, margin: 27.9 })], "b");
+  eq("internal history carries each revision's margin", withMargin[0].marginPct, 31.5, 1);
+  eq("quotation history: the margin is stripped, so the buyer's page cannot print it", historyForBuyer(withMargin).some((r) => "marginPct" in r), false);
+  eq("quotation history: the price survives", historyForBuyer(withMargin)[1].price, 4.1);
+}
 
 if (failed) {
   console.error(`\n${failed} sample-costing vector(s) FAILED`);

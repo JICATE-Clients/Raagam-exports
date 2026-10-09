@@ -8,6 +8,7 @@ import { quoteKey } from "./calc";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import { rateMemoryKey } from "./types";
+import type { RevisionSource } from "./revision-history";
 import type { CostingListRow, CostingRecord, CostingStatus, ExtraChargeDraft, FabricDraft, PieceDraft, TrimDraft, WeightDraft } from "./types";
 
 /**
@@ -697,4 +698,33 @@ async function getQuoteRates(): Promise<Record<string, number>> {
     if (!held || from > held.from) best.set(r.currency_code, { from, rate });
   }
   return Object.fromEntries([...best].map(([k, v]) => [k, v.rate]));
+}
+
+/**
+ * EVERY REVISION OF ONE COSTING NO, for the reports' revision history (client
+ * 2026-10-09). One query, keyed on the code every revision shares; the superseded
+ * ones are read too, since they are the point. A failed read THROWS: an empty
+ * history would print as "never revised", which is a real and unremarkable answer.
+ */
+export async function getCostingRevisionSources(code: string | null): Promise<RevisionSource[]> {
+  if (!code) return [];
+  const s = await createClient();
+  const { data, error } = await s
+    .from("cost_sheets")
+    .select("id, version, status, is_draft, costing_date, computed_fob, target_fob, profit_loss_pct, currency_code")
+    .eq("code", code)
+    .eq("costing_type", "sample")
+    .order("version", { ascending: true });
+  if (error) throw new Error(`Could not load this costing's revisions: ${error.message}`);
+  const rows = ((data ?? []) as unknown as (Omit<RevisionSource, "computed_fob" | "target_fob" | "profit_loss_pct"> & {
+    computed_fob: number | string | null;
+    target_fob: number | string | null;
+    profit_loss_pct: number | string | null;
+  })[]).map((r) => ({
+    ...r,
+    computed_fob: r.computed_fob == null ? null : Number(r.computed_fob),
+    target_fob: r.target_fob == null ? null : Number(r.target_fob),
+    profit_loss_pct: r.profit_loss_pct == null ? null : Number(r.profit_loss_pct),
+  }));
+  return rows;
 }

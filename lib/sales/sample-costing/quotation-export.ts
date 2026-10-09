@@ -31,6 +31,8 @@ import {
 } from "@/lib/orders/report-pdf-kit";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { CostingSummary } from "./calc";
+import { offered, priceText, type QuotationHistoryRow } from "./quotation";
+import { changeText } from "./revision-history";
 
 export type QuotationSheet = {
   costingNo: string | null;
@@ -49,11 +51,12 @@ export type QuotationSheet = {
   sizeName: (size: string | null) => string;
   summary: CostingSummary;
   approved: boolean;
+  /** Every revision of this Costing No — price and date only, never the margin. */
+  history?: QuotationHistoryRow[];
 };
 
-const price = (v: number | null, ccy: string | null) => (v == null ? "—" : `${ccy ?? ""} ${v.toFixed(2)}`.trim());
-/** The price the buyer is offered: the quoted one, else the calculated one. */
-const offered = (quoted: number | null, calc: number | null) => quoted ?? (calc == null ? null : Math.round(calc * 100) / 100);
+/* One rule for the price a buyer is offered, shared with the on-screen quotation. */
+const price = priceText;
 
 export async function exportQuotationPdf(
   q: QuotationSheet,
@@ -157,6 +160,35 @@ export async function exportQuotationPdf(
       if (d.section === "body" && totals.has(d.row.index)) d.cell.styles.fontStyle = "bold";
     },
   });
+
+  /* WHERE THIS QUOTATION STANDS IN THE NEGOTIATION (client 2026-10-09) — Rev 0 →
+     Rev 1 → Rev 2 with the price each carried and how it moved. Prices only: the
+     model this reads has the margin stripped out. Absent for a costing that was
+     never revised. */
+  if (q.history && q.history.length > 0) {
+    const afterPrice = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+    const histTop = drawCardHeader(doc, M, afterPrice + 16, CW, BRAND, "Revision history");
+    autoTable(doc, {
+      startY: histTop,
+      margin: { left: M, right: M, top: 40 },
+      theme: "plain",
+      styles: cardTableStyles(),
+      headStyles: cardTableHead(),
+      head: [["Revision", "Date", "Status", `Price (${q.currency ?? ""})`, "Change"]],
+      body: q.history.map((r) => [
+        r.current ? `${r.label}  (this quotation)` : r.label,
+        r.date ? fmtDate(r.date) : "—",
+        r.statusLabel,
+        r.price == null ? "—" : r.price.toFixed(2),
+        changeText(r.changePct),
+      ]),
+      columnStyles: { 3: { halign: "right" }, 4: { halign: "right" } },
+      didParseCell: (d) => {
+        paintRow(d as Parameters<typeof paintRow>[0], { tone: BRAND });
+        if (d.section === "body" && q.history?.[d.row.index]?.current) d.cell.styles.fontStyle = "bold";
+      },
+    });
+  }
 
   const end = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   doc.setFont("helvetica", "normal");
