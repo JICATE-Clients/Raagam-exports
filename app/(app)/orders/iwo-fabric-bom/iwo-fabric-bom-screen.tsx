@@ -97,6 +97,7 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
+import { SampleWorkOrderCreate } from "@/components/orders/sample-work-order-create";
 import { sectionValidity } from "@/lib/screens/validity";
 import { IWO_FOR_LABELS, IWO_STATUSES, IWO_STATUS_LABELS } from "@/lib/orders/internal-work-orders/types";
 import { KNIT_TYPE_OPTIONS, type IwoFabricBom, type PaletteSection } from "@/lib/orders/iwo-fabric-bom/types";
@@ -502,10 +503,14 @@ export function IwoFabricBomScreen({
   tasks,
   data,
   perms,
+  sample = false,
 }: {
   tasks: IwoFabricBomTask[];
   data: IwoFabricBomFormData;
   perms: Perms;
+  /** Sample ▸ Fabric Plan (0704): the same screen over the SAMPLE work orders
+   *  only. Closing stays on this list, and a new work order is raised in place. */
+  sample?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -524,7 +529,8 @@ export function IwoFabricBomScreen({
 
     setMode("list");
 
-    router.push("/orders/internal-work-orders");
+    // Sample ▸ Fabric Plan is its own sidebar row, so closing returns to its list.
+    if (!sample) router.push("/orders/internal-work-orders");
 
   }
   const [editId, setEditId] = useState<string | null>(null);
@@ -2291,7 +2297,19 @@ export function IwoFabricBomScreen({
               no Internal Work Order For Yarn or Fabric waiting, the I.WO No list
               is empty and every section below has nothing to build on; the
               button opens a new work order on its own screen (`?new=1`). */}
-          {!form.iwo_id && iwoItems.length === 0 && (
+          {/* SAMPLE: the work order is raised right here (0704), so the plan
+              never sends the operator out of the Sample module. */}
+          {sample && !form.iwo_id && perms.canCreate && (
+            <SampleWorkOrderCreate
+              forOptions={["fabric", "yarn"]}
+              idPrefix="ifb"
+              onCreated={(id) => {
+                setForm((f) => ({ ...f, iwo_id: id }));
+                router.refresh();
+              }}
+            />
+          )}
+          {!sample && !form.iwo_id && iwoItems.length === 0 && (
             <div className="mt-3">
               <p className="text-sm text-muted-foreground">
                 No Internal Work Order For Yarn or Fabric is waiting for a BOM.
@@ -2706,8 +2724,12 @@ export function IwoFabricBomScreen({
     <>
       <div className="space-y-4">
         <PageHeader
-          title="IWO Fabric Plan"
-          description="The Fabric Plan for an Internal Work Order For Yarn or Fabric — no garment breakdown; the weight is typed."
+          title={sample ? "Fabric Plan" : "IWO Fabric Plan"}
+          description={
+            sample
+              ? "The yarn and fabric plan for a sample work order — the same plan as Orders ▸ IWO Fabric Plan, listing the work orders raised from Sample."
+              : "The Fabric Plan for an Internal Work Order For Yarn or Fabric — no garment breakdown; the weight is typed."
+          }
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Fabric Plan</Button> : undefined}
         />
         <FilterBar
@@ -2726,7 +2748,9 @@ export function IwoFabricBomScreen({
           getKey={(t) => t.id}
           empty={
             !tasks.length
-              ? "No Internal Work Orders For Yarn or Fabric at this unit yet."
+              ? sample
+                ? "No sample work orders For Yarn or Fabric at this unit yet — + New Fabric Plan raises one."
+                : "No Internal Work Orders For Yarn or Fabric at this unit yet."
               : quick.value
                 ? `No ${quick.value} work orders${listFacets.activeCount || listQuery ? " match these filters" : ""}.`
                 : "No work orders match these filters."

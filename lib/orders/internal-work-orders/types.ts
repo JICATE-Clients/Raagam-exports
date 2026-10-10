@@ -56,7 +56,8 @@ export const isIwoFor = (v: string | null | undefined): v is IwoFor =>
 
 export interface InternalWorkOrder {
   id: string;
-  /** U2/IWO/2627/0005 — assigned by `assign_iwo_number()` on insert. */
+  /** U2/IWO/2627/0005, or SIW/26-27/0001 for a sample work order (0705) —
+   *  assigned by `assign_iwo_number()` on insert. */
   code: string | null;
   /** The old RE No link (0578) — KEPT, no longer written (0597). */
   sales_order_id: string | null;
@@ -92,6 +93,10 @@ export const iwoInput = z.object({
   reference_no: capsTextNullable(),
   deli_date: z.string().nullable().default(null),
   remarks: capsTextNullable(),
+  // RAISED FROM THE SAMPLE MODULE (0704). Read on CREATE only — `headerOf`
+  // leaves it out, so editing the header can never move a work order between
+  // the Orders and the Sample plan lists.
+  is_sample: z.boolean().default(false),
 });
 
 /** `z.input`, not `z.infer` — what callers SEND, before the action parses it;

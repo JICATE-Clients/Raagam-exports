@@ -60,7 +60,7 @@ export async function saveInternalWorkOrder(
 
     const { data, error } = await supabase
       .from("internal_work_orders")
-      .insert({ ...headerOf(p), location_id: loc.locationId })
+      .insert({ ...headerOf(p), is_sample: p.is_sample, location_id: loc.locationId })
       .select("id")
       .single();
     if (error || !data) {
@@ -93,6 +93,8 @@ export async function saveInternalWorkOrder(
 /**
  * The I.WO No a new work order dated `iwoDate` WOULD receive — so the box shows
  * U2/IWO/2627/0005 while it is being entered, as the legacy screen does.
+ * A SAMPLE work order is numbered SIW/26-27/0001 instead (0705) — see
+ * `previewSampleIwoNumber`.
  *
  * THE DATABASE COMPOSES IT (`peek_iwo_number`, 0580), sharing `iwo_no_format()`
  * and `fiscal_year_segment()` with the trigger that assigns; building the
@@ -111,6 +113,22 @@ export async function previewIwoNumber(iwoDate: string | null): Promise<string |
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("peek_iwo_number", {
     p_location_id: loc.locationId,
+    p_on: iwoDate && iwoDate.trim() ? iwoDate : null,
+  });
+  if (error) return null;
+  return typeof data === "string" && data ? data : null;
+}
+
+/**
+ * The number a new SAMPLE work order would receive — SIW/26-27/0001 (0705).
+ * The twin of `previewIwoNumber` for the Sample series, which carries no unit,
+ * so no location is resolved. Same contract: a prediction, never a
+ * reservation; null when the read is refused.
+ */
+export async function previewSampleIwoNumber(iwoDate: string | null): Promise<string | null> {
+  if (!(await can("orders", "create"))) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("peek_sample_iwo_number", {
     p_on: iwoDate && iwoDate.trim() ? iwoDate : null,
   });
   if (error) return null;

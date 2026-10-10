@@ -35,6 +35,7 @@ import { Boxes, CalendarRange, ClipboardList, Layers, Users, Workflow } from "lu
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { SampleWorkOrderCreate } from "@/components/orders/sample-work-order-create";
 import { Field, FieldRow, FIELD_WIDTH_CSS, fieldWidthStep, RequiredScope } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
@@ -278,11 +279,15 @@ export function IwoMaterialBomScreen({
   data,
   perms,
   masterPerms,
+  sample = false,
 }: {
   tasks: IwoMaterialBomTask[];
   data: IwoMaterialBomFormData;
   perms: Perms;
   masterPerms: MasterPerms;
+  /** Sample ▸ Accessories Plan (0704): the same screen over the SAMPLE work
+   *  orders only. Closing stays on this list, and a new work order is raised in place. */
+  sample?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -301,7 +306,8 @@ export function IwoMaterialBomScreen({
 
     setMode("list");
 
-    router.push("/orders/internal-work-orders");
+    // Sample ▸ Accessories Plan is its own sidebar row, so closing returns to its list.
+    if (!sample) router.push("/orders/internal-work-orders");
 
   }
   const [editId, setEditId] = useState<string | null>(null);
@@ -973,7 +979,18 @@ export function IwoMaterialBomScreen({
           </FieldRow>
 
           {/* NOTHING TO PICK — a state of the data, said with the way out. */}
-          {!form.iwo_id && iwoItems.length === 0 && (
+          {/* SAMPLE: the work order is raised right here (0704). */}
+          {sample && !form.iwo_id && perms.canCreate && (
+            <SampleWorkOrderCreate
+              forOptions={["accessories"]}
+              idPrefix="imb"
+              onCreated={(id) => {
+                setForm((f) => ({ ...f, iwo_id: id }));
+                router.refresh();
+              }}
+            />
+          )}
+          {!sample && !form.iwo_id && iwoItems.length === 0 && (
             <div className="mt-3">
               <p className="text-sm text-muted-foreground">
                 No Internal Work Order For Accessories is waiting for an Accessories Plan.
@@ -1223,8 +1240,12 @@ export function IwoMaterialBomScreen({
     <>
       <div className="space-y-4">
         <PageHeader
-          title="IWO Accessories Plan"
-          description="The Accessories Plan for an Internal Work Order For Accessories — no garment breakdown; the quantity is typed."
+          title={sample ? "Accessories Plan" : "IWO Accessories Plan"}
+          description={
+            sample
+              ? "The trims and accessories plan for a sample work order — the same plan as Orders ▸ IWO Accessories Plan, listing the work orders raised from Sample."
+              : "The Accessories Plan for an Internal Work Order For Accessories — no garment breakdown; the quantity is typed."
+          }
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Accessories Plan</Button> : undefined}
         />
         <FilterBar
@@ -1243,7 +1264,9 @@ export function IwoMaterialBomScreen({
           getKey={(t) => t.id}
           empty={
             !tasks.length
-              ? "No Internal Work Orders For Accessories at this unit yet."
+              ? sample
+                ? "No sample work orders For Accessories at this unit yet — + New Accessories Plan raises one."
+                : "No Internal Work Orders For Accessories at this unit yet."
               : quick.value
                 ? `No ${quick.value} work orders${listFacets.activeCount || listQuery ? " match these filters" : ""}.`
                 : "No work orders match these filters."
