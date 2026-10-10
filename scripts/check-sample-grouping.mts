@@ -155,7 +155,7 @@ const c = (over: Partial<Parameters<typeof groupingProblem>[0][number]> = {}) =>
 });
 eq("two alike batch", groupingProblem([c(), c({ label: "PRD/26-27/0002", season: "q1 " })]), null);
 eq("nothing ticked", groupingProblem([]), "Tick the styles to batch first.");
-eq("already grouped", groupingProblem([c({ group_code: "GRP/Q1-26/001" })]), "PRD/26-27/0001 is already in GRP/Q1-26/001.");
+eq("already grouped", groupingProblem([c({ group_code: "SWO/26-27/0001" })]), "PRD/26-27/0001 is already in SWO/26-27/0001.");
 eq("no kilos", groupingProblem([c({ kg: null })]), "PRD/26-27/0001 has no garment weight on its costing, so it has no kilos to batch.");
 eq("no year", groupingProblem([c({ season_year: null })]), "PRD/26-27/0001 has no Season and Year — set them on Sample Entry first.");
 eq("two seasons", groupingProblem([c(), c({ season: "Q2" })]), "A group is one season — every style picked must share the Season and Year.");
@@ -171,18 +171,18 @@ eq("two blends", groupingProblem([c(), c({ blend_key: "95% COTTON / 5% ELASTANE"
       cand("b", { kg: 5, season: "q 1" }),
       cand("rib", { fabric_structure_id: "rib", kg: 1 }),
       cand("odd", { blend_key: "OTHER", kg: 3 }),
-      cand("done", { group_code: "GRP/Q1-26/009" }),
+      cand("done", { group_code: "SWO/26-27/0009" }),
       cand("noKg", { kg: null }),
       cand("noYear", { season_year: null }),
     ],
-    [{ id: "g1", group_code: "GRP/Q1-26/001", season: "Q1", season_year: 2026, fabric_structure_id: "rib", blend_key: "100% COTTON", netKg: 4 }],
+    [{ id: "g1", group_code: "SWO/26-27/0001", season: "Q1", season_year: 2026, fabric_structure_id: "rib", blend_key: "100% COTTON", netKg: 4 }],
   );
   eq(
     "auto-group: two alike batch (season spacing ignored); a lone rib joins its waiting Draft",
     proposals.map((p) => [p.candidates.map((x) => x.key), p.netKg, p.into?.code ?? null]),
     [
       [["a", "b"], 7, null],
-      [["rib"], 1, "GRP/Q1-26/001"],
+      [["rib"], 1, "SWO/26-27/0001"],
     ],
   );
   eq("auto-group: a lone style with nothing to join is listed, not proposed", alone.map((x) => x.key), ["odd"]);
