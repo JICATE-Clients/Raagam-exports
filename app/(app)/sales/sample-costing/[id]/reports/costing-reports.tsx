@@ -19,6 +19,7 @@ import type { RevisionHistoryRow } from "@/lib/sales/sample-costing/revision-his
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import { saveSampleCosting, submitSampleCosting } from "@/lib/sales/sample-costing/actions";
 import { fmtNumber } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 
 /**
  * Costing ▸ Reports — one door, two documents, and now the place a price is
@@ -92,6 +93,9 @@ export function CostingReports({
   const [message, setMessage] = useState<{ tone: "error" | "ok"; text: string } | null>(null);
 
   const revising = draft != null;
+  // A revision is typed work: a silent deploy must not reload it away, nor land
+  // mid-save and lose the outcome (AGENTS.md "Auto-reload guard").
+  useUnsavedGuard(revising || saving);
   const nextVersion = source.record.version + 1;
   // The draft as it will be SAVED — price following the costs, unless held.
   const effective = draft ? withCalculatedQuotes(draft, held) : null;
