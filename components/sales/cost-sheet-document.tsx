@@ -103,6 +103,10 @@ export function CostSheetDocument({
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
   const [idx, setIdx] = useState(lowest);
+  // REPORT OR CHARTS, NEVER BOTH (client 2026-10-10: "both chart and report as text
+  // in same page — give it toggle"). The text report is the costing format, so it
+  // opens first; Print prints the view on screen, the PDF is unaffected.
+  const [view, setView] = useState<SheetView>("report");
   const [busy, setBusy] = useState<"pdf" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const s = model.sizes[idx] ?? model.sizes[0];
@@ -126,6 +130,15 @@ export function CostSheetDocument({
       <DocumentPrintStyles scope="cs" />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm print:hidden">
         {lead}
+        <ToggleGroup<SheetView>
+          label="Show"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "report", label: "Report" },
+            { value: "charts", label: "Charts" },
+          ]}
+        />
         {model.sizes.length > 1 ? (
           <ToggleGroup<string>
             label="Size shown"
@@ -157,12 +170,14 @@ export function CostSheetDocument({
           {trail}
         </div>
       </div>
-      <Sheet model={model} s={s} idx={idx} edit={edit} />
+      <Sheet model={model} s={s} idx={idx} edit={edit} view={view} />
     </div>
   );
 }
 
-function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures; idx: number; edit?: CostSheetEdit }) {
+type SheetView = "report" | "charts";
+
+function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFigures; idx: number; edit?: CostSheetEdit; view: SheetView }) {
   const setFabric = (key: string, patch: Partial<FabricDraft>) => edit?.onChange({ ...edit.draft, fabrics: patchBy(edit.draft.fabrics, key, patch) });
   const setPiece = (key: string, patch: Partial<PieceDraft>) => edit?.onChange({ ...edit.draft, pieces: patchBy(edit.draft.pieces, key, patch) });
   const eff = s.effectiveMarginPct;
@@ -212,7 +227,9 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
   const partTotal = parts.reduce((t, p) => t + p.value, 0) || 1;
   const R = 46;
   const C = 2 * Math.PI * R;
-  let off = 0;
+  // Each slice starts where the ones before it end — computed up front, not by a
+  // counter mutated inside the render's map.
+  const offs = parts.map((_, i) => parts.slice(0, i).reduce((t, p) => t + (p.value / partTotal) * C, 0));
 
   const worst = model.sizes.reduce((m, x) => Math.max(m, x.price), 1) * 1.02;
 
@@ -266,6 +283,18 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
                   </span>
                 ) : null}
                 <span className="chip">{model.isSet ? "SET" : "PCS"}</span>
+                {/* CHARTS FIT ONE SCREEN, so the two spec tables give way to their two
+                    facts that matter at a glance; the Report keeps the full block. */}
+                {view === "charts" && model.customer ? (
+                  <span className="chip">
+                    Buyer <b>{model.customer}</b>
+                  </span>
+                ) : null}
+                {view === "charts" && model.fabricFacts.structure ? (
+                  <span className="chip">
+                    Fabric <b>{model.fabricFacts.structure}</b>
+                  </span>
+                ) : null}
                 {model.shipMode ? (
                   <span className="chip">
                     Ship <b>{model.shipMode}</b>
@@ -274,6 +303,7 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
               </div>
             </div>
           </div>
+          {view === "report" ? (
           <div className="hdr-grid">
             <dl className="spec">
               {(
@@ -308,14 +338,12 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
               ) : null))}
             </dl>
           </div>
+          ) : null}
         </section>
 
-        <section className="blk" aria-label="Price charts">
-          <div className="sec-h">
-            <h3>Where the price comes from</h3>
-            <span>charts for the figures below</span>
-          </div>
-        <section className="two">
+        {view === "charts" ? (
+        <section className="dash" aria-label="Price charts">
+          <div className="col">
           <div className="sec">
             <div className="sec-h">
               <h3>How the price is built</h3>
@@ -339,6 +367,8 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
               ))}
             </div>
           </div>
+          </div>
+          <div className="col">
           <div className="sec">
             <div className="sec-h">
               <h3>Where the price goes</h3>
@@ -347,13 +377,9 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
             <div className="donut">
               <svg viewBox="0 0 120 120" role="img" aria-label="Share of the price by cost group">
                 <circle cx="60" cy="60" r={R} fill="none" stroke="var(--cs-soft)" strokeWidth="16" />
-                {parts.map((p) => {
+                {parts.map((p, i) => {
                   const len = (p.value / partTotal) * C;
-                  const el = (
-                    <circle key={p.label} cx="60" cy="60" r={R} fill="none" stroke={TONE_VAR[p.tone]} strokeWidth="16" strokeDasharray={`${Math.max(len - 1.2, 0)} ${C}`} strokeDashoffset={-off} transform="rotate(-90 60 60)" />
-                  );
-                  off += len;
-                  return el;
+                  return <circle key={p.label} cx="60" cy="60" r={R} fill="none" stroke={TONE_VAR[p.tone]} strokeWidth="16" strokeDasharray={`${Math.max(len - 1.2, 0)} ${C}`} strokeDashoffset={-offs[i]} transform="rotate(-90 60 60)" />;
                 })}
                 <text x="60" y="57" textAnchor="middle" fontSize="7.5" fontWeight="600" style={{ fill: "var(--cs-muted)" }}>
                   PRICE ₹
@@ -374,13 +400,34 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
               </div>
             </div>
           </div>
-        </section>
-        <section className="sec">
-          <div className="sec-h">
-            <h3>The working</h3>
-            <span>fabric, weight and size comparison</span>
+            {model.sizes.length > 1 ? (
+              <div className="box">
+                <h4>
+                  Size comparison <span>quote and margin</span>
+                </h4>
+                <div>
+                  {model.sizes.map((x) => (
+                    <div className="hb cmp" key={x.label}>
+                      <b>{x.label}</b>
+                      <div className="lane">
+                        <div className="bar" style={{ left: 0, width: `${(x.grossCost / worst) * 100}%`, background: "var(--cs-over)" }} />
+                        <div className="bar" style={{ left: `${(x.grossCost / worst) * 100}%`, width: `${(Math.max(x.price - x.grossCost, 0) / worst) * 100}%`, background: "var(--cs-margin)" }} />
+                      </div>
+                      <span className="v">
+                        {x.quoted != null ? `${ccy} ${fx(x.quoted)}` : "—"}
+                        {inrOf(x.quoted) != null ? ` · ₹ ${money(inrOf(x.quoted))}` : ""} · {x.effectiveMarginPct == null ? "—" : `${x.effectiveMarginPct.toFixed(1)}%`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="keys">
+                  <span><i style={{ background: "var(--cs-over)" }} />Gross cost</span>
+                  <span><i style={{ background: "var(--cs-margin)" }} />Margin and price charges</span>
+                </div>
+              </div>
+            ) : null}
           </div>
-          <div className="cards">
+          <div className="col">
             {model.fabrics.map((f) => {
               const sub = f.yarn + f.knitting + f.dyeing + f.finishing + f.special;
               const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
@@ -439,36 +486,12 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
                 {s.grams} g, {s.gramsWithLoss} g with loss, fabric ₹ {money(s.fabric)}
               </div>
             </div>
-            {model.sizes.length > 1 ? (
-              <div className="box">
-                <h4>
-                  Size comparison <span>quote and margin</span>
-                </h4>
-                <div>
-                  {model.sizes.map((x) => (
-                    <div className="hb cmp" key={x.label}>
-                      <b>{x.label}</b>
-                      <div className="lane">
-                        <div className="bar" style={{ left: 0, width: `${(x.grossCost / worst) * 100}%`, background: "var(--cs-over)" }} />
-                        <div className="bar" style={{ left: `${(x.grossCost / worst) * 100}%`, width: `${(Math.max(x.price - x.grossCost, 0) / worst) * 100}%`, background: "var(--cs-margin)" }} />
-                      </div>
-                      <span className="v">
-                        {x.quoted != null ? `${ccy} ${fx(x.quoted)}` : "—"}
-                        {inrOf(x.quoted) != null ? ` · ₹ ${money(inrOf(x.quoted))}` : ""} · {x.effectiveMarginPct == null ? "—" : `${x.effectiveMarginPct.toFixed(1)}%`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <div className="keys">
-                  <span><i style={{ background: "var(--cs-over)" }} />Gross cost</span>
-                  <span><i style={{ background: "var(--cs-margin)" }} />Margin and price charges</span>
-                </div>
-              </div>
-            ) : null}
           </div>
         </section>
-        </section>
+        ) : null}
 
+        {view === "report" ? (
+        <>
         <section className="blk" aria-label="Component consumption">
           <details open>
             <summary>
@@ -1233,13 +1256,16 @@ function Sheet({ model, s, idx, edit }: { model: CostSheetModel; s: SizeFigures;
           </section>
         ) : null}
         </section>
+        </>
+        ) : null}
 
-
-        <div className="sign">
-          <div><b />Prepared by</div>
-          <div><b />Checked by</div>
-          <div><b />Approved by</div>
-        </div>
+        {view === "report" ? (
+          <div className="sign">
+            <div><b />Prepared by</div>
+            <div><b />Checked by</div>
+            <div><b />Approved by</div>
+          </div>
+        ) : null}
       </div>
       <footer className="foot">
         <span>Internal document. For the buyer, use the Quotation.</span>
@@ -1343,6 +1369,17 @@ const CSS = `
 .cs-sheet .sec { display:flex; flex-direction:column; gap:8px; min-width:0; }
 .cs-sheet .sec-h { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .cs-sheet .sec-h h3 { font-size:15px; font-weight:800; } .cs-sheet .sec-h span { color:var(--cs-muted); font-size:12.5px; }
+/* THE CHARTS VIEW IS ONE SCREEN (client 2026-10-10: "why can't we fit in single
+   screen"): build | split + sizes | fabric + weight, side by side, instead of
+   stacked bands. Two columns on a narrow pane, one on a phone. */
+.cs-sheet .dash { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:start; }
+@media (max-width:1100px){ .cs-sheet .dash { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:700px){ .cs-sheet .dash { grid-template-columns:1fr; } }
+.cs-sheet .dash .col { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.cs-sheet .dash .box { padding:8px 10px; gap:6px; }
+.cs-sheet .dash .donut { gap:12px; } .cs-sheet .dash .donut svg { width:112px; height:112px; }
+.cs-sheet .dash .wf-row { grid-template-columns:132px minmax(0,1fr) 62px; }
+.cs-sheet .dash .hb.cmp { grid-template-columns:24px minmax(0,1fr) auto; }
 .cs-sheet .two { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:18px; }
 @media (max-width:860px){ .cs-sheet .two { grid-template-columns:1fr; } }
 .cs-sheet .wf { display:flex; flex-direction:column; gap:3px; }
