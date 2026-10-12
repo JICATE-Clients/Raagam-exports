@@ -21,7 +21,9 @@
  * list `ContextSidebar` (components/navigation/) now renders as the level-2
  * sidebar. Keeping both was exactly the duplication the two-level nav was
  * built to avoid, so this bar shows open tabs and nothing the sidebar
- * already owns.
+ * already owns. The switcher's DROPDOWN does list them again (user
+ * 2026-10-12, `siblingScreens`) — one menu away, not a second always-on row,
+ * and it covers Master Data's hub entities, which the sidebar never lists.
  *
  * WHY A HUB PAGE NEVER BECOMES A TAB. Drilling Orders → Order Management →
  * Order Entry crosses three routes: the module root, the group's own hub
@@ -54,7 +56,7 @@ import { isHubRoute } from "@/lib/nav/module-groups";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
-import { isPlainLeftClick, navEntry, navLabel, visibleModules } from "@/components/navigation/navigation-config";
+import { isPlainLeftClick, isRouteActive, navEntry, navLabel, siblingScreens, visibleModules } from "@/components/navigation/navigation-config";
 import { cn } from "@/lib/utils";
 
 /** Last-resort title for a route NAV doesn't know about (a dynamic `[id]`
@@ -202,6 +204,8 @@ export function WorkspaceTabsBar() {
     .slice(-2)
     .reverse();
 
+  const siblings = isHomeActive ? null : siblingScreens(user, pathname);
+
   const homeItem: DropdownItem[] = showHome
     ? [{ label: "Home", icon: LayoutDashboard, onClick: goHome, checked: isHomeActive, section: "Open screens" }]
     : [];
@@ -214,6 +218,17 @@ export function WorkspaceTabsBar() {
         onClick: () => activate(t.id),
         checked: t.href === pathname,
         section: "Open screens",
+      }),
+    ),
+    // The current sub-module's screens (user 2026-10-12) — one pick to a
+    // neighbour; the screen on view is ticked here as well as above.
+    ...(siblings?.rows ?? []).map(
+      (r): DropdownItem => ({
+        label: r.label,
+        icon: iconForPath(r.href, modules),
+        onClick: () => openTab({ href: r.href, title: r.label }),
+        checked: isRouteActive(pathname, r.href),
+        section: siblings!.label,
       }),
     ),
     {

@@ -1337,10 +1337,16 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
 
         {view === "report" ? signBlock : null}
       </div>
-      <footer className="foot">
-        <span>Internal document. For the buyer, use the Quotation.</span>
-        <span>{model.costingNo ?? ""} · {model.revision}</span>
-      </footer>
+      {/* In TABS the footer belongs to the last tab only (user 2026-10-12: "ella tab
+          layum katta venda, quote and sign off la mattum") — it closes the document,
+          and under Details or Fabric it is a closing line in the middle. The full
+          page keeps it, where it really is the end. */}
+      {view !== "tabs" || tab === tabDefs.length - 1 ? (
+        <footer className="foot">
+          <span>Internal document. For the buyer, use the Quotation.</span>
+          <span>{model.costingNo ?? ""} · {model.revision}</span>
+        </footer>
+      ) : null}
     </article>
   );
 }
@@ -1496,10 +1502,14 @@ const CSS = `
 .cs-sheet .sign div { border-top:1px solid var(--cs-ink); padding-top:6px; font-size:12px; color:var(--cs-muted); } .cs-sheet .sign b { display:block; min-height:1.6em; }
 .cs-sheet .foot { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; color:var(--cs-muted); font-size:11.5px; padding:8px 18px; border-top:1px solid var(--cs-rule); background:var(--cs-soft); }
 .cs-sheet .ctabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--cs-rule); }
-.cs-sheet .ctab { border:1px solid transparent; border-bottom:0; background:transparent; border-radius:8px 8px 0 0; padding:7px 16px 8px; margin-bottom:-1px; display:flex; flex-direction:column; align-items:flex-start; color:var(--cs-muted); font-weight:700; font-size:13px; cursor:pointer; text-align:left; }
-.cs-sheet .ctab small { font-weight:500; font-size:11.5px; font-variant-numeric:tabular-nums; }
+.cs-sheet .ctab { border:1px solid transparent; border-bottom:0; background:transparent; border-radius:8px 8px 0 0; padding:7px 16px 8px; margin-bottom:-1px; display:flex; flex-direction:column; align-items:flex-start; color:var(--cs-muted); cursor:pointer; text-align:left; gap:1px; }
+/* The NAME is ink and heavy on every tab, not only the open one (user 2026-10-12: "tab field name lam
+   therira mari bold") — muted grey at 700 read as disabled. The hint under it stays muted. */
+.cs-sheet .ctab > span { color:var(--cs-ink); font-weight:800; font-size:14px; letter-spacing:.01em; }
+.cs-sheet .ctab small { color:var(--cs-muted); font-weight:500; font-size:11.5px; font-variant-numeric:tabular-nums; }
 .cs-sheet .ctab:hover { background:var(--cs-soft); color:var(--cs-ink); }
-.cs-sheet .ctab[aria-selected="true"] { color:var(--cs-brand-ink); background:#fff; border-color:var(--cs-rule); border-bottom:1px solid #fff; }
+.cs-sheet .ctab[aria-selected="true"] { color:var(--cs-brand-ink); background:#fff; border-color:var(--cs-rule); border-bottom:1px solid #fff; box-shadow:inset 0 3px 0 var(--cs-brand); }
+.cs-sheet .ctab[aria-selected="true"] > span { color:var(--cs-brand-ink); }
 .cs-sheet .ctab:focus-visible { outline:2px solid var(--cs-brand); outline-offset:-2px; }
 .cs-sheet .tpanel { display:flex; flex-direction:column; gap:12px; }
 .cs-sheet .tpanel section[aria-label="Garment cost"] { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:12px; align-items:start; }

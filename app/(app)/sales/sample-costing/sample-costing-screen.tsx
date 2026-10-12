@@ -62,9 +62,9 @@ import {
   RefreshCw,
   Ruler,
   Users,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -2258,23 +2258,13 @@ export function SampleCostingScreen({
               onChange={(e) => setPieceLines(pc.key, (xs) => xs.map((x) => (x.key === r.key ? { ...x, rate: e.target.value } : x)))}
             />
           </div>
-          {/* ✕ ON ROW HOVER / FOCUS only (user 2026-10-09: "delete icon remove, mouse hover
-              panna x vara mari"). Hidden at rest, not removed: it stays in the DOM and the
-              tab-free focus order, so Ctrl+Del (`data-row-remove`) and screen readers
-              still reach it. */}
-          {/* button-shape: exempt -- a 20px ✕ chip revealed on row hover */}
-          <button
-            type="button"
-            data-row-remove
-            tabIndex={-1}
-            aria-label="Remove this embellishment"
-            title="Remove"
+          {/* ✕ ON ROW HOVER only (user 2026-10-09: "delete icon remove, mouse hover panna
+              x vara mari"). THE reference for `RowHoverRemove` — every table's hover ✕
+              is this one component (erp-row-hover-remove skill, 2026-10-12). */}
+          <RowHoverRemove
+            label="Remove this embellishment"
             onClick={() => setPieceLines(pc.key, (xs) => xs.filter((x) => x.key !== r.key))}
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-control text-muted-foreground opacity-0 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100 [tr:hover_&]:opacity-100"
-          >
-            {/* the picker's own compact clear glyph: `FieldAffordance` GLYPH.compact, h-3 w-3 */}
-            <X className="h-3 w-3" aria-hidden />
-          </button>
+          />
         </div>
       </td>
     </>
