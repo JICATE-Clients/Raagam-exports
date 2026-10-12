@@ -1708,12 +1708,13 @@ export function IwoFabricBomScreen({
    * Colors) + num 72 (Detail) = 976 + 72 chrome = 1048 <= 1155.
    */
   const allocationColumns: ChildGridColumn<LineRow>[] = [
-    ...(swo
+    // ALWAYS on a sample plan (greyed until the SWO is picked); never on Orders.
+    ...(sample
       ? [
           {
             header: "SMP No",
             width: FIELD_WIDTH_CSS.term,
-            required: true,
+            required: !!swo,
             cell: (r: LineRow) => smpPicker(r),
           },
         ]
@@ -1906,8 +1907,13 @@ export function IwoFabricBomScreen({
     return (
       <Select
         compact
-        required
+        required={!!swo}
+        // Before an SWO is picked the box is SHOWN, greyed, saying why (user
+        // 2026-10-12: "the field is not on screen before Structure, why") —
+        // a column that only appears later reads as a column that is missing.
+        disabled={!swo}
         aria-label="SMP No"
+        title={swo ? undefined : "Pick the SWO on the Fabric Plan tab first — its samples are listed here."}
         value={value}
         onChange={(e) => {
           const id = e.target.value;
@@ -1917,7 +1923,7 @@ export function IwoFabricBomScreen({
         }}
         className={cn(held && "text-danger")}
       >
-        <option value="" />
+        <option value="">{swo ? "" : "Pick the SWO first"}</option>
         {(swo?.samples ?? []).map((x) => (
           <option key={x.style_id} value={x.style_id}>
             {`${[x.smp_no, x.style_name].filter(Boolean).join(" · ")} (${kg(x.kg)} kg)`}
