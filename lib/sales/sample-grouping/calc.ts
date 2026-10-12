@@ -219,10 +219,27 @@ export const sameGroupKey = (a: GroupKey, b: GroupKey) =>
   a.fabric_structure_id === b.fabric_structure_id &&
   a.blend_key === b.blend_key;
 
+/** Same Season AND Year — the one part of the key that is still a refusal
+ *  (client spec "Grouping & SWO", 2026-10-12: "10 to 20 sample entries from
+ *  a season"). */
+export const sameSeasonYear = (
+  a: { season: string; season_year: number | null },
+  b: { season: string; season_year: number | null },
+) => sameSeason(a.season, b.season) && a.season_year === b.season_year;
+
 /**
  * Why these candidates cannot be batched together, or null. The first reason
  * found, worded for the operator. Read by the selection bar AND the server
  * action, so a group the screen offers is a group the server accepts.
+ *
+ * STRUCTURE AND BLEND ARE THE PLANNER'S CALL, NOT A REFUSAL (client spec
+ * "Grouping & SWO", 2026-10-12). Until then a group had to share one costing
+ * structure AND one yarn blend exactly. The spec reverses that on purpose: an
+ * early costing is a generic estimate, often without the exact blend code or
+ * colour, so a rule keyed on it refuses batches the planner knows are sound
+ * ("identical OR COMPATIBLE yarn blends, fabric structures, or dyeing
+ * colors"). A mix is now SAID (`groupingMix`) and the planner decides. The
+ * season is still refused: an SWO is bought for one season's samples.
  */
 export function groupingProblem(
   picked: readonly (GroupKey & { label: string; kg: number | null; group_code: string | null })[],
@@ -235,17 +252,47 @@ export function groupingProblem(
   const noSeason = picked.find((c) => !c.season.trim() || c.season_year == null);
   if (noSeason) return `${noSeason.label} has no Season and Year — set them on Sample Entry first.`;
   const first = picked[0];
-  const odd = picked.find((c) => !sameGroupKey(c, first));
-  if (odd) {
-    if (!sameSeason(odd.season, first.season) || odd.season_year !== first.season_year) {
-      return "A group is one season — every style picked must share the Season and Year.";
-    }
-    if (odd.fabric_structure_id !== first.fabric_structure_id) {
-      return "A group is one fabric structure — every style picked must use the same one.";
-    }
-    return "A group is one yarn blend — every style picked must be knitted from the same yarn.";
+  if (picked.some((c) => !sameSeasonYear(c, first))) {
+    return "A group is one season — every style picked must share the Season and Year.";
   }
   return null;
+}
+
+/**
+ * THE ADVISORY — what a selection mixes, or null when every style shares one
+ * structure and one blend. Shown beside the Create button, never blocking it.
+ */
+export function groupingMix(picked: readonly { fabric_structure_id: string | null; blend_key: string }[]): string | null {
+  const structures = new Set(picked.map((c) => c.fabric_structure_id ?? "")).size;
+  const blends = new Set(picked.map((c) => c.blend_key)).size;
+  const parts = [
+    structures > 1 ? `${structures} fabric structures` : "",
+    blends > 1 ? `${blends} yarn blends` : "",
+  ].filter(Boolean);
+  return parts.length ? `Mixes ${parts.join(" and ")} — batch them only if they can be bought and knitted as one lot.` : null;
+}
+
+/**
+ * THE GROUP'S HEADER, from its styles — what the SWO says it buys. One
+ * structure / blend across the styles reads as itself; a mix lists each once
+ * in the order first met, joined by " + " (the structure id is then null —
+ * there is no one category to point at). Recomputed whenever a Draft's
+ * styles change, so the header never claims a blend a style no longer has.
+ */
+export function groupHeaderOf(
+  items: readonly { fabric_structure_id: string | null; fabric_structure: string | null; yarn_blend: string; blend_key: string }[],
+): { fabric_structure_id: string | null; fabric_structure: string | null; yarn_blend: string; blend_key: string } {
+  const uniq = <T,>(xs: T[]) => [...new Set(xs)];
+  const ids = uniq(items.map((i) => i.fabric_structure_id ?? ""));
+  const names = uniq(items.map((i) => (i.fabric_structure ?? "").trim()).filter(Boolean));
+  const keys = uniq(items.map((i) => i.blend_key).filter(Boolean));
+  const labels = uniq(items.map((i) => i.yarn_blend.trim()).filter(Boolean));
+  return {
+    fabric_structure_id: ids.length === 1 && ids[0] ? ids[0] : null,
+    fabric_structure: names.length ? names.join(" + ") : null,
+    yarn_blend: labels.join(" + "),
+    blend_key: keys.join(" + "),
+  };
 }
 
 /** "1.375" — kilos to three places, trailing zeros trimmed past one. */
@@ -316,4 +363,42 @@ export function proposeGroups<C extends GroupKey & { key: string; kg: number | n
       b.netKg - a.netKg,
   );
   return { proposals, alone };
+}
+
+// ---------------------------------------------------------------------------
+// The cutting basis — what each sample is released on receipt (user 2026-10-12)
+// ---------------------------------------------------------------------------
+/**
+ * THE FABRIC PLAN FIRST, THE COSTING AS FALLBACK. Once the SWO's work order is
+ * planned on Sample ▸ Fabric Plan, each Fabric Consumption row names its SMP
+ * (0707), and Σ of those rows' Req Wt is what the planner actually split the
+ * cloth by — so that is the sample's cutting weight. A sample the plan has no
+ * rows for keeps its costing figure, and says so ("Derived from Costing (plan
+ * unset)"), rather than being released nothing. Cutting waste % goes on top in
+ * `releasedCuttingKg`, as before.
+ *
+ * The plan is keyed by STYLE; an SWO item is a style's fabric of one
+ * structure + blend, so a style batched in two fabrics is two items. Its plan
+ * kilos then split across those items in proportion to their costing kilos —
+ * every planned gram is released, none twice.
+ */
+export type CuttingBasis = { kg: number; source: "plan" | "costing" };
+
+export function cuttingBasis(
+  items: readonly { style_id: string; calculated_weight_kg: number }[],
+  planKgByStyle: Readonly<Record<string, number>>,
+): CuttingBasis[] {
+  const costingOfStyle = new Map<string, number>();
+  const countOfStyle = new Map<string, number>();
+  for (const it of items) {
+    costingOfStyle.set(it.style_id, (costingOfStyle.get(it.style_id) ?? 0) + it.calculated_weight_kg);
+    countOfStyle.set(it.style_id, (countOfStyle.get(it.style_id) ?? 0) + 1);
+  }
+  return items.map((it) => {
+    const plan = planKgByStyle[it.style_id];
+    if (!(plan != null && plan > 0)) return { kg: it.calculated_weight_kg, source: "costing" };
+    const total = costingOfStyle.get(it.style_id) ?? 0;
+    const share = total > 0 ? it.calculated_weight_kg / total : 1 / (countOfStyle.get(it.style_id) ?? 1);
+    return { kg: round(plan * share, 3), source: "plan" };
+  });
 }

@@ -11,11 +11,13 @@ import {
   DEFAULT_MOQ_KG,
   distributeProblem,
   fmtKg,
+  groupHeaderOf,
   groupNetKg,
   groupingProblem,
   moqOrderWeight,
+  cuttingBasis,
   releasedCuttingKg,
-  sameGroupKey,
+  sameSeasonYear,
 } from "./calc";
 import { getGroupingData } from "./service";
 import { candidateKey, GROUP_STATUS_LABEL, groupTermsInput, type GroupingCandidate, type GroupRow, type GroupStatus, type GroupTermsInput } from "./types";
@@ -71,7 +73,8 @@ async function refreshDraft(g: GroupRow, all: GroupingCandidate[]): Promise<stri
   const byKey = new Map(all.map((c) => [c.key, c]));
   const kg: number[] = [];
   for (const it of g.items) {
-    const c = byKey.get(candidateKey(it.style_id, g.fabric_structure_id, g.blend_key));
+    // The item's OWN key (0707): a group may mix structures and blends.
+    const c = byKey.get(candidateKey(it.style_id, it.fabric_structure_id, it.blend_key));
     if (!c || c.kg == null) {
       kg.push(it.calculated_weight_kg);
       continue;
@@ -91,9 +94,19 @@ async function refreshDraft(g: GroupRow, all: GroupingCandidate[]): Promise<stri
     }
   }
   const net = groupNetKg(kg);
+  // The header says what the SWO buys — recomputed from its styles, so a mix
+  // reads as a mix and a removed style's blend leaves with it.
+  const header = groupHeaderOf(
+    g.items.map((it) => ({
+      fabric_structure_id: it.fabric_structure_id,
+      fabric_structure: it.fabric_structure,
+      yarn_blend: it.yarn_blend ?? it.blend_key,
+      blend_key: it.blend_key,
+    })),
+  );
   const { error } = await s
     .from("sample_product_groups")
-    .update({ net_required_weight_kg: net, moq_purchased_weight_kg: moqOrderWeight(net, g.moq_kg, g.batch_kg) })
+    .update({ ...header, net_required_weight_kg: net, moq_purchased_weight_kg: moqOrderWeight(net, g.moq_kg, g.batch_kg) })
     .eq("id", g.id)
     .eq("status", "draft");
   return error ? error.message : null;
@@ -126,6 +139,7 @@ export async function createSampleGroup(keys: string[]): Promise<CreateResult> {
   if (problem) return { ok: false, error: problem };
 
   const first = picked[0];
+  const header = groupHeaderOf(picked);
   const net = groupNetKg(picked.map((c) => c.kg));
   const s = await createClient();
   const { data: res, error } = await s.rpc("create_sample_group", {
@@ -134,10 +148,7 @@ export async function createSampleGroup(keys: string[]): Promise<CreateResult> {
         season_id: first.season_id,
         season: first.season,
         season_year: first.season_year,
-        fabric_structure_id: first.fabric_structure_id,
-        fabric_structure: first.fabric_structure,
-        yarn_blend: first.yarn_blend,
-        blend_key: first.blend_key,
+        ...header,
         moq_kg: DEFAULT_MOQ_KG,
         batch_kg: DEFAULT_BATCH_KG,
         net_required_weight_kg: net,
@@ -175,8 +186,9 @@ export async function addToSampleGroup(groupId: string, keys: string[]): Promise
   if (typeof picked === "string") return { ok: false, error: picked };
   const problem = forProblem(picked);
   if (problem) return { ok: false, error: problem };
-  if (!sameGroupKey(picked[0], group)) {
-    return { ok: false, error: `${group.group_code} is ${group.fabric_structure ?? "another structure"} · ${group.yarn_blend} for ${group.season} ${group.season_year} — these styles do not match it.` };
+  // Season and year only (0707) — a structure or blend mix is the planner's call.
+  if (!sameSeasonYear(picked[0], group)) {
+    return { ok: false, error: `${group.group_code} is for ${group.season} ${group.season_year} — these styles are another season.` };
   }
   const s = await createClient();
   const { error } = await s.from("sample_group_items").insert(
@@ -282,7 +294,7 @@ export async function approveSampleGroup(groupId: string): Promise<Result> {
   if (missing) {
     return {
       ok: false,
-      error: `${[missing.sample_no, missing.style_name].filter(Boolean).join(" · ")} is no longer costed in ${group.fabric_structure ?? "this fabric"} · ${group.yarn_blend} — remove it, or fix its costing.`,
+      error: `${[missing.sample_no, missing.style_name].filter(Boolean).join(" · ")} is no longer costed in the fabric it was batched for — remove it, or fix its costing.`,
     };
   }
   const err = await refreshDraft(group, data.candidates);
@@ -304,7 +316,12 @@ export async function reopenSampleGroup(groupId: string): Promise<Result> {
  * Created through the IW screen's own action, so it takes the session's unit
  * and needs Orders ▸ Create like any IW.
  */
-export async function raiseSampleGroupIw(groupId: string): Promise<{ ok: true; iwoId: string } | { ok: false; error: string }> {
+export async function raiseSampleGroupIw(
+  groupId: string,
+  /** From Sample ▸ Fabric Plan (0707): the planner may raise the SWO's work
+   *  order For Yarn instead, and name its delivery date. Grouping sends neither. */
+  opts: { iwo_for?: "fabric" | "yarn"; deli_date?: string | null } = {},
+): Promise<{ ok: true; iwoId: string } | { ok: false; error: string }> {
   if (!(await can("sales", "edit"))) return { ok: false, error: "You do not have permission to change a sample group." };
   if (!(await can("orders", "create"))) return { ok: false, error: "Raising an IW needs Orders ▸ Create — ask someone who can raise work orders." };
   const found = await groupById(groupId);
@@ -321,7 +338,7 @@ export async function raiseSampleGroupIw(groupId: string): Promise<{ ok: true; i
     .not("delivery_date", "is", null)
     .order("delivery_date", { ascending: true })
     .limit(1);
-  const deli = (dates?.[0] as { delivery_date: string } | undefined)?.delivery_date ?? null;
+  const deli = opts.deli_date || ((dates?.[0] as { delivery_date: string } | undefined)?.delivery_date ?? null);
   const styles = group.items.map((it) => it.sample_no ?? it.style_name).filter(Boolean).join(", ");
   const remarks =
     `SAMPLE GROUP ${group.group_code}: ${group.fabric_structure ?? ""} · ${group.yarn_blend} — ` +
@@ -329,7 +346,7 @@ export async function raiseSampleGroupIw(groupId: string): Promise<{ ok: true; i
 
   const iw = await saveInternalWorkOrder(null, {
     iwo_date: today(),
-    iwo_for: "fabric",
+    iwo_for: opts.iwo_for ?? "fabric",
     reference_no: group.group_code,
     deli_date: deli,
     remarks: remarks.slice(0, 1000),
@@ -339,6 +356,7 @@ export async function raiseSampleGroupIw(groupId: string): Promise<{ ok: true; i
   if (!iw.ok) return iw;
   const moved = await moveStatus(groupId, "approved", "po_raised", { iwo_id: iw.iwoId });
   if (!moved.ok) return moved;
+  revalidatePath("/sales/sample-fabric-plan");
   return { ok: true, iwoId: iw.iwoId };
 }
 
@@ -382,14 +400,16 @@ export async function distributeSampleGroup(groupId: string): Promise<Result> {
   if (typeof found === "string") return { ok: false, error: found };
   const { group } = found;
   if (group.status !== "fabric_received") return { ok: false, error: "Mark the fabric received before distributing it." };
-  const kg = group.items.map((it) => it.calculated_weight_kg);
-  const problem = distributeProblem(group.moq_purchased_weight_kg, kg, group.cutting_waste_pct);
+  // The Fabric Plan's SMP rows first, the costing where the plan names none
+  // (user 2026-10-12) — the same basis the group sheet shows.
+  const basis = cuttingBasis(group.items, group.plan_kg_by_style);
+  const problem = distributeProblem(group.moq_purchased_weight_kg, basis.map((b) => b.kg), group.cutting_waste_pct);
   if (problem) return { ok: false, error: problem };
   const s = await createClient();
-  for (const it of group.items) {
+  for (const [i, it] of group.items.entries()) {
     const { error } = await s
       .from("sample_group_items")
-      .update({ allocated_fabric_kg: releasedCuttingKg(it.calculated_weight_kg, group.cutting_waste_pct) })
+      .update({ allocated_fabric_kg: releasedCuttingKg(basis[i].kg, group.cutting_waste_pct) })
       .eq("id", it.id);
     if (error) return { ok: false, error: error.message };
   }

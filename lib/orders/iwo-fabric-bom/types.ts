@@ -70,6 +70,8 @@ export interface IwoFabricBomLineRow {
   req_kgs: number | null;
   /** PRINT-stage lines only (0599): a name from the Roll form prints panel. */
   print_name: string | null;
+  /** Sample Fabric Plan (0707): the SWO sample style this weight is for. */
+  sample_style_id: string | null;
   notes: string | null;
 }
 
@@ -247,6 +249,9 @@ export const iwoFabricBomLineInput = z.object({
   // PRINT-stage lines (0599) — a name from the Roll form prints panel, capitals
   // like the panel. Whether one is owed is `lines.ts`'s: it needs the stage.
   print_name: capsTextNullable(),
+  // Sample Fabric Plan (0707) — the SWO sample style (SMP line). Whether one is
+  // owed is `lines.ts`'s: it needs the work order's SWO.
+  sample_style_id: z.string().uuid().nullable().default(null),
 });
 
 export type IwoFabricBomLineInput = z.input<typeof iwoFabricBomLineInput>;

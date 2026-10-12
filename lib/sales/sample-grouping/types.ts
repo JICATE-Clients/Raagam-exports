@@ -75,6 +75,12 @@ export type GroupItemRow = {
   style_name: string;
   customer: string | null;
   components: string;
+  /** The item's OWN structure and blend (0707: a group may mix them — the
+   *  planner's call). Labels from the live costing; null once it is gone. */
+  fabric_structure_id: string | null;
+  fabric_structure: string | null;
+  blend_key: string;
+  yarn_blend: string | null;
   sample_qty_pcs: number;
   /** Stored at the last Draft change; frozen once approved. */
   calculated_weight_kg: number;
@@ -106,6 +112,9 @@ export type GroupRow = {
   created_by: string | null;
   created_by_name?: string | null;
   items: GroupItemRow[];
+  /** Σ Req Wt per sample style on the SWO's Fabric Plan (0707) — the cutting
+   *  basis `cuttingBasis` reads first. Empty until the plan names its SMPs. */
+  plan_kg_by_style: Record<string, number>;
 };
 
 export type GroupingData = {

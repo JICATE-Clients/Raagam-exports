@@ -74,6 +74,9 @@ type CostDb = {
   weights: (StoredWeight & { component_id: string | null; component_ids: string[] | null })[] | null;
 };
 
+/** The SWO's Fabric Plan as the cutting basis reads it (0707). */
+type PlanBom = { lines: { sample_style_id: string | null; req_kgs: Num }[] | null };
+
 type GroupDb = {
   id: string;
   group_code: string;
@@ -93,7 +96,10 @@ type GroupDb = {
   remarks: string | null;
   created_at: string;
   created_by: string | null;
-  iwo: { code: string | null } | { code: string | null }[] | null;
+  iwo:
+    | { code: string | null; bom: PlanBom | PlanBom[] | null }
+    | { code: string | null; bom: PlanBom | PlanBom[] | null }[]
+    | null;
   items:
     | {
         id: string;
@@ -161,7 +167,9 @@ async function readGroups(): Promise<GroupDb[]> {
     .select(
       "id, group_code, season, season_year, fabric_structure_id, fabric_structure, yarn_blend, blend_key, moq_kg, batch_kg, " +
         "cutting_waste_pct, net_required_weight_kg, moq_purchased_weight_kg, status, iwo_id, remarks, created_at, created_by, " +
-        "iwo:internal_work_orders!iwo_id(code), " +
+        // The plan's SMP rows — the cutting basis (user 2026-10-12). One FK each
+        // way (iwo_fabric_boms.iwo_id is unique), so the embeds are unambiguous.
+        "iwo:internal_work_orders!iwo_id(code, bom:iwo_fabric_boms(lines:iwo_fabric_bom_lines(sample_style_id, req_kgs))), " +
         "items:sample_group_items(id, style_id, sample_entry_id, fabric_structure_id, blend_key, component_name, sample_qty_pcs, calculated_weight_kg, allocated_fabric_kg, created_at)",
     )
     .order("created_at", { ascending: true });
@@ -203,6 +211,18 @@ function piecesOf(st: StyleDb): { bySize: Record<string, number>; total: number 
   }
   const split = Object.values(bySize).reduce((t, q) => t + q, 0);
   return { bySize, total: split > 0 ? split : Math.max(0, n(st.sample_qty) ?? 0) };
+}
+
+/** Σ Req Wt per sample style on the plan. A plan in another unit is invisible
+ *  under RLS and reads as "plan unset" — the costing fallback, said on screen. */
+function planKgByStyle(bom: PlanBom | PlanBom[] | null): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const l of one(bom)?.lines ?? []) {
+    const kg = n(l.req_kgs);
+    if (!l.sample_style_id || kg == null) continue;
+    out[l.sample_style_id] = Math.round(((out[l.sample_style_id] ?? 0) + kg) * 1000) / 1000;
+  }
+  return out;
 }
 
 /** Every candidate, every group and the styles not yet costed — one read. */
@@ -314,6 +334,10 @@ export async function getGroupingData(): Promise<GroupingData> {
           sample_no: st?.sample_no ?? null,
           style_name: st?.name ?? "",
           customer: one(st?.opp?.customer)?.name ?? null,
+          fabric_structure_id: it.fabric_structure_id,
+          fabric_structure: live?.fabric_structure ?? null,
+          blend_key: it.blend_key,
+          yarn_blend: live?.yarn_blend ?? null,
           components: status === "draft" && live ? live.components : it.component_name,
           sample_qty_pcs: status === "draft" && live ? live.sample_qty_pcs : it.sample_qty_pcs,
           calculated_weight_kg: n(it.calculated_weight_kg) ?? 0,
@@ -339,6 +363,7 @@ export async function getGroupingData(): Promise<GroupingData> {
       status,
       iwo_id: g.iwo_id,
       iwo_code: one(g.iwo)?.code ?? null,
+      plan_kg_by_style: planKgByStyle(one(g.iwo)?.bom ?? null),
       remarks: g.remarks,
       created_at: g.created_at,
       created_by: g.created_by,
@@ -347,4 +372,39 @@ export async function getGroupingData(): Promise<GroupingData> {
   });
 
   return { candidates, groups: await withCreators(groups), uncosted };
+}
+
+/**
+ * THE SWOs WAITING FOR THEIR WORK ORDER (0707) — approved, no IW yet. What the
+ * Sample ▸ Fabric Plan's "new work order" box offers in place of a typed RE
+ * No: the spec's Fabric Plan header IS the SWO number, and raising it there
+ * runs `raiseSampleGroupIw`, the same action as Grouping's button, so the two
+ * paths cannot disagree about which SWO a work order belongs to.
+ */
+export type SwoAwaitingIw = { id: string; code: string; label: string; samples: number; buy_kg: number };
+
+export async function listSwosAwaitingIw(): Promise<SwoAwaitingIw[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("sample_product_groups")
+    .select("id, group_code, fabric_structure, yarn_blend, moq_purchased_weight_kg, items:sample_group_items(style_id)")
+    .eq("status", "approved")
+    .is("iwo_id", null)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Could not load the SWOs awaiting a work order: ${error.message}`);
+  type Row = {
+    id: string;
+    group_code: string;
+    fabric_structure: string | null;
+    yarn_blend: string;
+    moq_purchased_weight_kg: number | string | null;
+    items: { style_id: string }[] | null;
+  };
+  return ((data ?? []) as unknown as Row[]).map((g) => ({
+    id: g.id,
+    code: g.group_code,
+    label: [g.fabric_structure, g.yarn_blend].filter(Boolean).join(" · "),
+    samples: new Set((g.items ?? []).map((it) => it.style_id)).size,
+    buy_kg: Number(g.moq_purchased_weight_kg ?? 0) || 0,
+  }));
 }

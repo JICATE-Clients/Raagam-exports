@@ -1,6 +1,7 @@
 import { requirePermission, can } from "@/lib/auth/server";
 import { getIwoFabricBomFormData, listIwoFabricBomTasks } from "@/lib/orders/iwo-fabric-bom/service";
 import { IwoFabricBomScreen } from "@/app/(app)/orders/iwo-fabric-bom/iwo-fabric-bom-screen";
+import { listSwosAwaitingIw } from "@/lib/sales/sample-grouping/service";
 
 /**
  * Sample ▸ Fabric Plan (user 2026-10-09) — the IWO Fabric Plan, same screen and
@@ -16,13 +17,15 @@ import { IwoFabricBomScreen } from "@/app/(app)/orders/iwo-fabric-bom/iwo-fabric
 export default async function SampleFabricPlanPage() {
   await requirePermission("sales", "view");
 
-  const [tasks, data, canCreate, canEdit, canDelete] = await Promise.all([
+  const [tasks, data, swos, canCreate, canEdit, canDelete] = await Promise.all([
     listIwoFabricBomTasks({ sampleOnly: true }),
     getIwoFabricBomFormData(),
+    // The SWOs a new work order is raised against (0707) — the plan's header IS the SWO.
+    listSwosAwaitingIw(),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
   ]);
 
-  return <IwoFabricBomScreen sample tasks={tasks} data={data} perms={{ canCreate, canEdit, canDelete }} />;
+  return <IwoFabricBomScreen sample swos={swos} tasks={tasks} data={data} perms={{ canCreate, canEdit, canDelete }} />;
 }

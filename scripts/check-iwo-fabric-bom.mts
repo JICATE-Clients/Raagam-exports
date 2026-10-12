@@ -822,6 +822,46 @@ check("§18 load folds each fabric's lines", /cells: foldPlanCells\(rs\)/.test(s
 check("§18 the Save gate refuses an undeclared weight", /staleBlockers\.map/.test(screenSrc), true);
 check("§18 the attribute and the sheet are gone", /plan_by|openBreakup|FabricBreakupSheet/.test(screenSrc), false);
 
+// §19 THE SWO's SMP (0707; client spec "Grouping & SWO", 2026-10-12) — on a
+// Sample Work Order's plan every line names the sample it is for, two samples
+// on one cloth are two lines (not a duplicate), and a Stage merge never sums
+// two samples' weights into one.
+{
+  const S1 = "style-1";
+  const S2 = "style-2";
+  const swoSet = new Set([S1, S2]);
+  const smsgs = (ls: ReturnType<typeof fl>[], set: ReadonlySet<string> | null) =>
+    iwoFabricLineProblems(ls, () => null, rank, set).map((p) => p.message);
+  check("§19 a production IWO owes no SMP", smsgs([fl({})], null), []);
+  check("§19 an SWO line with no SMP is refused", smsgs([fl({})], swoSet), [
+    "Fabric line 1: choose the SMP No — every weight on a sample work order is for one sample.",
+  ]);
+  check("§19 an SMP outside the SWO is refused", smsgs([fl({ sample_style_id: "other" })], swoSet), [
+    "Fabric line 1: the SMP No picked is not batched in this SWO — pick one of its samples.",
+  ]);
+  check("§19 two SMPs on one cloth and dia are two lines, not a duplicate", smsgs([fl({ sample_style_id: S1 }), fl({ sample_style_id: S2 })], swoSet), []);
+  check("§19 the same SMP twice IS a duplicate", smsgs([fl({ sample_style_id: S1 }), fl({ sample_style_id: S1 })], swoSet), [
+    "Fabric line 2: the same SMP, fabric, colour and dia are on line 1 — put the weight on one line.",
+  ]);
+  const two: PlanCells = {
+    a: { color_name: "WHITE", finish_dia: "74", print_name: "", req_kgs: "2.1", sample_style_id: S1 },
+    b: { color_name: "RED", finish_dia: "74", print_name: "", req_kgs: "3.5", sample_style_id: S2 },
+    c: { color_name: "RED", finish_dia: "74", print_name: "", req_kgs: "1", sample_style_id: S1 },
+  };
+  check(
+    "§19 to GREIGE merges per dia PER SMP: S1 sums its two rows, S2 stands alone",
+    Object.values(planCellsForStage(two, 0)).map((c) => [c.sample_style_id, c.finish_dia, c.req_kgs]),
+    [[S1, "74", "3.1"], [S2, "74", "3.5"]],
+  );
+  check("§19 expand carries the SMP and fold brings it back", Object.values(foldPlanCells(expandPlanCells(two))).map((c) => c.sample_style_id), [S1, S2, S1]);
+  check(
+    "§19 a row with only an SMP picked is a real line (refused for its weight)",
+    expandPlanCells({ a: { color_name: "", finish_dia: "", print_name: "", req_kgs: "", sample_style_id: S1 } }).map((f) => [f.sample_style_id, f.req_kgs]),
+    [[S1, null]],
+  );
+  check("§19 the screen passes the SWO's styles to the rules", /fabricStageRank,\s*swoStyleIds,/.test(screenSrc), true);
+}
+
 if (failed) {
   console.error(`\n${failed} IWO Fabric Plan vector(s) failed.`);
   process.exit(1);

@@ -17,6 +17,7 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
+  cuttingBasis,
   distributeProblem,
   excessToStock,
   fmtKg,
@@ -118,7 +119,15 @@ export function GroupSheet({
   const waste = numOr(terms.waste, 0);
   const net = draft ? groupNetKg(group.items.map(kgOf)) : group.net_required_weight_kg;
   const buy = draft ? moqOrderWeight(net, moq, batch) : group.moq_purchased_weight_kg;
-  const styleKg = group.items.map(kgOf);
+  /* THE CUTTING BASIS (user 2026-10-12): each sample's Fabric Plan rows first,
+     its costing where the plan names none — the same `cuttingBasis` Distribute
+     runs, so what this sheet shows is what gets released. */
+  const basis = cuttingBasis(
+    group.items.map((it) => ({ style_id: it.style_id, calculated_weight_kg: kgOf(it) })),
+    group.plan_kg_by_style,
+  );
+  const basisOf = (it: GroupItemRow) => basis[group.items.indexOf(it)] ?? { kg: kgOf(it), source: "costing" as const };
+  const styleKg = basis.map((b) => b.kg);
   const release = groupNetKg(styleKg.map((k) => releasedCuttingKg(k, waste)));
   const toStock = excessToStock(buy, styleKg, waste);
   const shortfall = distributeProblem(buy, styleKg, waste);
@@ -153,19 +162,35 @@ export function GroupSheet({
 
   const set = (k: keyof Terms) => (e: React.ChangeEvent<HTMLInputElement>) => setTerms((t) => ({ ...t, [k]: e.target.value }));
 
+  /** An SWO may mix structures or blends (0707, the planner's call) — then
+   *  each sample says which fabric its kilos are of. */
+  const mixed = new Set(group.items.map((it) => `${it.fabric_structure_id ?? ""}|${it.blend_key}`)).size > 1;
   const itemColumns: Column<GroupItemRow>[] = [
     {
-      header: "Sample No",
+      // The SMP number leads — what the SWO is a container of (client spec 2026-10-12).
+      header: "SMP No",
       cell: (it) => (
         <span className="font-mono text-xs">
-          {it.sample_no ?? "—"}
-          {it.enquiry_no ? <span className="block text-[11px] text-muted-foreground">{it.enquiry_no}</span> : null}
+          {it.enquiry_no ?? "—"}
+          {it.sample_no ? <span className="block text-[11px] text-muted-foreground">{it.sample_no}</span> : null}
         </span>
       ),
     },
     { header: "Style", cell: (it) => <Truncated className="block max-w-[12rem] text-xs font-medium">{it.style_name || "—"}</Truncated> },
     { header: "Buyer", cell: (it) => <Truncated className="block max-w-[10rem] text-xs">{it.customer ?? "—"}</Truncated> },
     { header: "Components", cell: (it) => <Truncated className="block max-w-[10rem] text-xs">{it.components || "—"}</Truncated> },
+    ...(mixed
+      ? [
+          {
+            header: "Fabric · yarn",
+            cell: (it: GroupItemRow) => (
+              <Truncated className="block max-w-[14rem] text-xs">
+                {[it.fabric_structure, it.yarn_blend ?? it.blend_key].filter(Boolean).join(" · ")}
+              </Truncated>
+            ),
+          },
+        ]
+      : []),
     { header: "Qty (pcs)", align: "right", cell: (it) => <span className="block text-right font-mono tabular-nums text-xs">{it.sample_qty_pcs}</span> },
     {
       header: "Net kg",
@@ -182,7 +207,21 @@ export function GroupSheet({
     {
       header: "Release kg",
       align: "right",
-      cell: (it) => <span className="block text-right font-mono tabular-nums text-xs">{fmtKg(releasedCuttingKg(kgOf(it), waste))}</span>,
+      cell: (it) => {
+        const b = basisOf(it);
+        return (
+          <span className="block text-right font-mono tabular-nums text-xs">
+            {fmtKg(releasedCuttingKg(b.kg, waste))}
+            {/* Once the SWO has a work order, the plan is the source — a sample
+                it names nothing for falls back to its costing, and says so. */}
+            {group.iwo_id ? (
+              <span className={`block font-sans text-[11px] ${b.source === "plan" ? "text-muted-foreground" : "text-warning"}`}>
+                {b.source === "plan" ? "From Fabric Plan" : "Derived from Costing (plan unset)"}
+              </span>
+            ) : null}
+          </span>
+        );
+      },
     },
     {
       header: "Allocated kg",

@@ -53,7 +53,24 @@ export type IwoFabricBomTask = {
   created_by: string | null;
   created_at: string;
   bom: IwoFabricBom | null;
+  /** The Sample Work Order this work order was raised for (0707) — its SWO
+   *  number stands where the RE No stands on a production plan, and its
+   *  samples are what Fabric Consumption's SMP No offers. Null otherwise. */
+  swo: IwoSwo | null;
 };
+
+/** One SWO sample line as the plan offers it. */
+export type IwoSwoSample = {
+  style_id: string;
+  /** SMP/26-27/0001 — the sample entry (enquiry) number. */
+  smp_no: string | null;
+  /** PRD/26-27/0001 — the style line's own number. */
+  sample_no: string | null;
+  style_name: string;
+  /** Net kilos the SWO batched for it (its costing), for the planner to read. */
+  kg: number;
+};
+export type IwoSwo = { id: string; code: string; samples: IwoSwoSample[] };
 
 /** `sampleOnly` — Sample ▸ Fabric Plan lists only the work orders the
  *  Sample module raised (0704); the Orders route lists every one, samples
@@ -124,7 +141,65 @@ export async function listIwoFabricBomTasks(opts: { sampleOnly?: boolean } = {})
         : null,
     };
   });
-  return withCreators(rows);
+  const swoByIwo = await swosOf(supabase, rows.map((r) => r.id));
+  return withCreators(rows.map((r) => ({ ...r, swo: swoByIwo.get(r.id) ?? null })));
+}
+
+/**
+ * EACH WORK ORDER'S SWO, in one read (0707). A failed read THROWS — a plan
+ * shown without its SWO would offer no SMP picker while the action still
+ * owes one on every line.
+ */
+async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
+  const out = new Map<string, IwoSwo>();
+  if (!iwoIds.length) return out;
+  const { data, error } = await s
+    .from("sample_product_groups")
+    .select(
+      "id, group_code, iwo_id, " +
+        "items:sample_group_items(style_id, calculated_weight_kg, created_at, " +
+        "style:styles!style_id(sample_no, name), opp:opportunities!sample_entry_id(code))",
+    )
+    .in("iwo_id", iwoIds);
+  if (error) throw new Error(`IWO Fabric Plan: could not read the SWOs: ${error.message}`);
+  type One<T> = T | T[] | null;
+  const one = <T,>(v: One<T>): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+  type Row = {
+    id: string;
+    group_code: string;
+    iwo_id: string;
+    items:
+      | {
+          style_id: string;
+          calculated_weight_kg: number | string | null;
+          created_at: string;
+          style: One<{ sample_no: string | null; name: string | null }>;
+          opp: One<{ code: string | null }>;
+        }[]
+      | null;
+  };
+  for (const g of (data ?? []) as unknown as Row[]) {
+    // A style batched in two fabrics is two items of one SWO — one SMP pick.
+    const seen = new Map<string, IwoSwoSample>();
+    for (const it of [...(g.items ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+      const kg = Number(it.calculated_weight_kg ?? 0) || 0;
+      const held = seen.get(it.style_id);
+      if (held) {
+        held.kg = Math.round((held.kg + kg) * 1000) / 1000;
+        continue;
+      }
+      const st = one(it.style);
+      seen.set(it.style_id, {
+        style_id: it.style_id,
+        smp_no: one(it.opp)?.code ?? null,
+        sample_no: st?.sample_no ?? null,
+        style_name: st?.name ?? "",
+        kg,
+      });
+    }
+    out.set(g.iwo_id, { id: g.id, code: g.group_code, samples: [...seen.values()] });
+  }
+  return out;
 }
 
 /**

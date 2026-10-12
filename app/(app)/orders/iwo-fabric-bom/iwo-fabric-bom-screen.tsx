@@ -98,6 +98,7 @@ import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { SampleWorkOrderCreate } from "@/components/orders/sample-work-order-create";
+import type { SwoAwaitingIw } from "@/lib/sales/sample-grouping/service";
 import { sectionValidity } from "@/lib/screens/validity";
 import { IWO_FOR_LABELS, IWO_STATUSES, IWO_STATUS_LABELS } from "@/lib/orders/internal-work-orders/types";
 import { KNIT_TYPE_OPTIONS, type IwoFabricBom, type PaletteSection } from "@/lib/orders/iwo-fabric-bom/types";
@@ -504,6 +505,7 @@ export function IwoFabricBomScreen({
   data,
   perms,
   sample = false,
+  swos,
 }: {
   tasks: IwoFabricBomTask[];
   data: IwoFabricBomFormData;
@@ -511,6 +513,9 @@ export function IwoFabricBomScreen({
   /** Sample ▸ Fabric Plan (0704): the same screen over the SAMPLE work orders
    *  only. Closing stays on this list, and a new work order is raised in place. */
   sample?: boolean;
+  /** Sample ▸ Fabric Plan (0707): the approved SWOs with no work order yet —
+   *  what the in-place "new work order" box raises against. */
+  swos?: SwoAwaitingIw[];
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -593,7 +598,7 @@ export function IwoFabricBomScreen({
     return tasks.filter((t) => {
       if (!facetMatches(t)) return false;
       if (!needle) return true;
-      return [t.code, t.reference_no, t.remarks].some((v) => (v ?? "").toLowerCase().includes(needle));
+      return [t.code, t.reference_no, t.swo?.code, t.remarks].some((v) => (v ?? "").toLowerCase().includes(needle));
     });
   }, [tasks, listQuery, facetMatches]);
   const quick = useQuickStatus(bomWord, {
@@ -604,6 +609,16 @@ export function IwoFabricBomScreen({
   const qm = quick.matches;
   const listed = useMemo(() => base.filter(qm), [base, qm]);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
+  /** THE SWO THIS WORK ORDER WAS RAISED FOR (0707; client spec "Grouping &
+   *  SWO", 2026-10-12) — null on a production IWO. Its number stands where
+   *  the RE No stands, and every Fabric Consumption row then names one of its
+   *  samples (SMP No), so the release on receipt is per sample. */
+  const swo = picked?.swo ?? null;
+  const swoStyleIds = swo ? new Set(swo.samples.map((x) => x.style_id)) : null;
+  const swoSampleLabel = (id: string) => {
+    const x = swo?.samples.find((y) => y.style_id === id);
+    return x ? [x.smp_no, x.style_name].filter(Boolean).join(" · ") || "Sample" : "";
+  };
 
   /** The IWO picker offers work orders WITHOUT a BOM — one BOM per IWO (0581);
    *  the one this BOM already names always survives. */
@@ -1102,6 +1117,7 @@ export function IwoFabricBomScreen({
     expanded.map((x) => x.facts),
     (id) => fabricTypeOf(id),
     fabricStageRank,
+    swoStyleIds,
   )
     .flatMap((p) => {
       const at = expanded[p.row - 1];
@@ -1152,11 +1168,15 @@ export function IwoFabricBomScreen({
     colours: fabricColourNames,
     dias: familyDias(diaDeclarations, lineKnitCode(l)),
     prints: printNames,
+    samples: swo ? swo.samples.map((x) => x.style_id) : undefined,
   });
   /** The rows the panels no longer name — kept, tagged, refused (plan.ts). */
   const staleBlockers = lines.flatMap((l, i) =>
     stalePlanRows(l.cells, planAxesFor(l)).map((r) => {
-      const what = [r.color_name, r.finish_dia, r.print_name].filter(Boolean).join(" · ") || "a row with no colour or dia";
+      const what =
+        [r.sample_style_id ? swoSampleLabel(r.sample_style_id) || "a sample not in this SWO" : "", r.color_name, r.finish_dia, r.print_name]
+          .filter(Boolean)
+          .join(" · ") || "a row with no colour or dia";
       const kgs = r.req_kgs.trim();
       return {
         row: i + 1,
@@ -1454,8 +1474,9 @@ export function IwoFabricBomScreen({
     { header: "Date", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.iwo_date)}</span> },
     { header: "For", cell: (t) => <span className="text-sm">{IWO_FOR_LABELS[t.iwo_for] ?? "—"}</span> },
     {
-      header: "RE No",
-      cell: (t) => <span className="font-mono text-xs">{t.reference_no ?? "—"}</span>,
+      // A sample work order answers to its SWO (0707), not an RE.
+      header: sample ? "SWO No" : "RE No",
+      cell: (t) => <span className="font-mono text-xs">{t.swo?.code ?? t.reference_no ?? "—"}</span>,
     },
     { header: "Deli Dt", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.deli_date)}</span> },
     {
@@ -1590,7 +1611,7 @@ export function IwoFabricBomScreen({
 
   /** What Fabric Consumption's own cells still owe — `lineProblems`, the rules
    *  Save runs, narrowed to the fields the cards show. */
-  const CONSUMPTION_FIELDS = new Set(["stage_id", "print_name", "color_name", "finish_dia", "req_kgs", "gsm"]);
+  const CONSUMPTION_FIELDS = new Set(["stage_id", "sample_style_id", "print_name", "color_name", "finish_dia", "req_kgs", "gsm"]);
   const consumptionNeeds = lineProblems.filter((p) => CONSUMPTION_FIELDS.has(p.field));
 
   /** ONE STAGE PER FABRIC (Phase 2's rule): choosing it on one line sets it on
@@ -1762,9 +1783,9 @@ export function IwoFabricBomScreen({
    * and nothing is pre-filled. Until then (09-22) the rows were derived, one
    * per colour × EVERY family dia, which put dias nobody chose on the card.
    *
-   * WIDTHS (check:grid-budget): term 176 (Colour) + code 144 (Print) + hug 88
-   * (Finish Dia) + range 112 (Req Wt) + range 112 (Gross Yarn) = 632 + 72
-   * chrome (`#` + ✕) = 704 <= 1155. Colour and Print are drawn only on the
+   * WIDTHS (check:grid-budget): term 176 (SMP No, an SWO's plan only, 0707) +
+   * term 176 (Colour) + code 144 (Print) + hug 88 (Finish Dia) + range 112
+   * (Req Wt) + range 112 (Gross Yarn) = 808 + 72 chrome (`#` + ✕) = 880 <= 1155. Colour and Print are drawn only on the
    * stages that ask for them, so a GREIGE card is dia · weight · gross.
    *
    * REQUIRED EXACTLY WHERE `lines.ts` REFUSES WITHOUT IT — Colour and Finish
@@ -1807,7 +1828,42 @@ export function IwoFabricBomScreen({
       </Select>
     );
   };
+  /** THE SMP NO PICKER (0707) — the SWO's samples, each with the kilos the
+   *  SWO batched for it, so the planner splits the cloth by what each sample
+   *  needs. A held sample the SWO no longer batches stays selectable as
+   *  itself, tagged — never shown blank (the "Disabled rows" rule). */
+  const smpPicker = (l: LineRow, r: PlanDisplayRow) => {
+    const value = r.sample_style_id ?? "";
+    const held = value && !swoStyleIds?.has(value) ? value : "";
+    return (
+      <Select
+        compact
+        aria-label="SMP No"
+        value={value}
+        onChange={(e) => setCell(l, r, { sample_style_id: e.target.value })}
+        className={cn(held && "text-danger")}
+      >
+        <option value="" />
+        {(swo?.samples ?? []).map((x) => (
+          <option key={x.style_id} value={x.style_id}>
+            {`${[x.smp_no, x.style_name].filter(Boolean).join(" · ")} (${kg(x.kg)} kg)`}
+          </option>
+        ))}
+        {held && <option value={held}>(not in this SWO)</option>}
+      </Select>
+    );
+  };
   const consumptionColumns = (l: LineRow, rank: number | null, axes: PlanAxes): ChildGridColumn<PlanDisplayRow>[] => [
+    ...(swo
+      ? [
+          {
+            header: "SMP No",
+            width: FIELD_WIDTH_CSS.term,
+            required: true,
+            cell: (r: PlanDisplayRow) => smpPicker(l, r),
+          },
+        ]
+      : []),
     ...(rank !== 0
       ? [
           {
@@ -1847,7 +1903,7 @@ export function IwoFabricBomScreen({
         <Input
           className="h-8 text-right"
           inputMode="decimal"
-          aria-label={`Req Wt (KGS) — ${[r.color_name, r.finish_dia, r.print_name].filter(Boolean).join(" · ") || "this fabric"}`}
+          aria-label={`Req Wt (KGS) — ${[r.sample_style_id ? swoSampleLabel(r.sample_style_id) : "", r.color_name, r.finish_dia, r.print_name].filter(Boolean).join(" · ") || "this fabric"}`}
           value={r.req_kgs}
           onChange={(e) => setCell(l, r, { req_kgs: e.target.value })}
         />
@@ -1873,6 +1929,11 @@ export function IwoFabricBomScreen({
    *  that renders its own row must declare required twice"). */
   const cardRowMobile = (l: LineRow, r: PlanDisplayRow, rank: number | null, axes: PlanAxes) => (
     <FieldGrid>
+      {swo && (
+        <Field label="SMP No" size="sm" required>
+          {smpPicker(l, r)}
+        </Field>
+      )}
       {rank !== 0 && (
         <Field label="Colour" size="sm" required={rank != null}>
           {axisPicker(r, "Colour", r.color_name, axes.colours, comboKey, (v) => setCell(l, r, { color_name: v }))}
@@ -2285,8 +2346,10 @@ export function IwoFabricBomScreen({
             <Field label="For" className="w-[110px]" htmlFor="ifb-for">
               <Input id="ifb-for" readOnly value={picked ? IWO_FOR_LABELS[picked.iwo_for] : ""} />
             </Field>
-            <Field label="RE No" className="w-[170px]" htmlFor="ifb-re">
-              <Input id="ifb-re" readOnly value={picked?.reference_no ?? ""} />
+            {/* A SAMPLE WORK ORDER'S HEADER IS ITS SWO (client spec, 2026-10-12):
+                the RE No / FAR No of a bulk order mean nothing here. */}
+            <Field label={swo || sample ? "SWO No" : "RE No"} className="w-[170px]" htmlFor="ifb-re">
+              <Input id="ifb-re" readOnly value={swo?.code ?? picked?.reference_no ?? ""} />
             </Field>
             <Field label="Deli Dt" className="w-[130px]" htmlFor="ifb-deli">
               <Input id="ifb-deli" readOnly value={picked?.deli_date ? fmtDate(picked.deli_date) : ""} />
@@ -2303,6 +2366,7 @@ export function IwoFabricBomScreen({
             <SampleWorkOrderCreate
               forOptions={["fabric", "yarn"]}
               idPrefix="ifb"
+              swos={swos ?? []}
               onCreated={(id) => {
                 setForm((f) => ({ ...f, iwo_id: id }));
                 router.refresh();
