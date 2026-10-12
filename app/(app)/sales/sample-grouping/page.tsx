@@ -8,19 +8,18 @@ import { GroupingScreen } from "./grouping-screen";
  * (doc/sample/product-grouping-specification.md; tables 0702 / 0703).
  * The next child after Costing: a style's kilos come from its costing.
  *
- * `?view=summary|detailed&season=&year=` — the screen keeps them current, so a
- * refresh or a shared link opens the same season in the same view.
+ * `?season=&year=` — the screen keeps them current, so a refresh or a shared
+ * link opens the same season.
  */
 export default async function SampleGroupingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; season?: string; year?: string }>;
+  searchParams: Promise<{ season?: string; year?: string }>;
 }) {
   await requirePermission("sales", "view");
   const sp = await searchParams;
   const y = Number(sp.year);
   const initial = {
-    view: sp.view === "detailed" ? ("detailed" as const) : ("summary" as const),
     season: (sp.season ?? "").trim(),
     year: Number.isInteger(y) && y >= 2000 && y <= 2100 ? String(y) : "",
   };

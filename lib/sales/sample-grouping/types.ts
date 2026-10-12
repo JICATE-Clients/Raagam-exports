@@ -108,6 +108,8 @@ export type GroupRow = {
   iwo_id: string | null;
   iwo_code: string | null;
   remarks: string | null;
+  /** The planner's own name for the SWO (0712); NULL shows the SWO number. */
+  description: string | null;
   created_at: string;
   created_by: string | null;
   created_by_name?: string | null;

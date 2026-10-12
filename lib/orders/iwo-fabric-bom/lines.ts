@@ -195,10 +195,10 @@ export function iwoFabricLineProblems(
       }
     }
     if (sampleStyleIds) {
-      // Filed under "lines": the SMP is picked on Fabric Allocation (user 2026-10-12).
-      if (!l.sample_style_id) need("sample_style_id", "lines", "choose the SMP No — every weight on a sample work order is for one sample.");
+      // Filed under "consumption": the SMP is picked per Fabric Consumption row (client 2026-10-12).
+      if (!l.sample_style_id) need("sample_style_id", "consumption", "choose the SMP No — every weight on a sample work order is for one sample.");
       else if (!sampleStyleIds.has(l.sample_style_id)) {
-        need("sample_style_id", "lines", "the SMP No picked is not batched in this SWO — pick one of its samples.");
+        need("sample_style_id", "consumption", "the SMP No picked is not batched in this SWO — pick one of its samples.");
       }
     }
     const print = (l.print_name ?? "").trim().toUpperCase();

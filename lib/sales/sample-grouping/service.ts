@@ -94,6 +94,7 @@ type GroupDb = {
   status: string;
   iwo_id: string | null;
   remarks: string | null;
+  description: string | null;
   created_at: string;
   created_by: string | null;
   iwo:
@@ -166,7 +167,7 @@ async function readGroups(): Promise<GroupDb[]> {
     .from("sample_product_groups")
     .select(
       "id, group_code, season, season_year, fabric_structure_id, fabric_structure, yarn_blend, blend_key, moq_kg, batch_kg, " +
-        "cutting_waste_pct, net_required_weight_kg, moq_purchased_weight_kg, status, iwo_id, remarks, created_at, created_by, " +
+        "cutting_waste_pct, net_required_weight_kg, moq_purchased_weight_kg, status, iwo_id, remarks, description, created_at, created_by, " +
         // The plan's SMP rows — the cutting basis (user 2026-10-12). One FK each
         // way (iwo_fabric_boms.iwo_id is unique), so the embeds are unambiguous.
         "iwo:internal_work_orders!iwo_id(code, bom:iwo_fabric_boms(lines:iwo_fabric_bom_lines(sample_style_id, req_kgs))), " +
@@ -365,6 +366,7 @@ export async function getGroupingData(): Promise<GroupingData> {
       iwo_code: one(g.iwo)?.code ?? null,
       plan_kg_by_style: planKgByStyle(one(g.iwo)?.bom ?? null),
       remarks: g.remarks,
+      description: g.description,
       created_at: g.created_at,
       created_by: g.created_by,
       items,

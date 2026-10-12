@@ -41,6 +41,8 @@ export interface IwoMbItemSliceRow {
   id: string;
   item_line_id: string;
   sno: number;
+  /** Sample Accessories Plan (0711): the SWO sample (SMP) this row is for. */
+  sample_style_id?: string | null;
   item_color_id: string | null;
   size: string | null;
   planned_qty: number;
@@ -107,6 +109,8 @@ export interface IwoMaterialBom {
 const uuidN = z.string().uuid().nullable().default(null);
 
 export const iwoMbItemSliceInput = z.object({
+  // Sample Accessories Plan (0711) — the SWO sample (SMP) this row is for.
+  sample_style_id: uuidN,
   item_color_id: uuidN,
   // Typed, so capitals (AGENTS.md, CAPITALS) — an IWO has no size range to pick from.
   size: capsTextNullable(),
