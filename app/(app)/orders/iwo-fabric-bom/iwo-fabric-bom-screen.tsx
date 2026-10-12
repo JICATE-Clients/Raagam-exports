@@ -2892,7 +2892,7 @@ export function IwoFabricBomScreen({
           title={sample ? "Fabric Plan" : "IWO Fabric Plan"}
           description={
             sample
-              ? "The yarn and fabric plan for a sample work order — the same plan as Orders ▸ IWO Fabric Plan, listing the work orders raised from Sample."
+              ? "The yarn and fabric plan for a sample work order — the same plan the Orders module opens as the IWO Fabric Plan, listing the work orders raised from Sample."
               : "The Fabric Plan for an Internal Work Order For Yarn or Fabric — no garment breakdown; the weight is typed."
           }
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Fabric Plan</Button> : undefined}

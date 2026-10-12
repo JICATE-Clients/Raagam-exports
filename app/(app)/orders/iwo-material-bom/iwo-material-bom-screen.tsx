@@ -29,7 +29,7 @@
  * the same function the save calls. The preview is the stored figure.
  */
 
-import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Boxes, CalendarRange, ClipboardList, Layers, Users, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
+import { sampleFillLines } from "@/lib/orders/iwo-material-bom/sample-fill";
+import { loadSwoCostingTrims, type SwoSampleTrims } from "@/lib/orders/iwo-material-bom/sample-fill-actions";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
@@ -84,6 +86,7 @@ import {
   isBlankIwoMbProcess,
   iwoMbProblems,
   iwoMbQuantity,
+  isBlankIwoMbLine,
   keptIwoMbLines,
   keptIwoMbProcesses,
   plannedQtyOf,
@@ -107,6 +110,9 @@ const newKey = () => `k${keySeq++}`;
  *  a half-typed "12." is not rewritten under the caret. */
 type ItemRow = {
   key: string;
+  /** Sample Accessories Plan (0710): the SWO sample (SMP) this line is for —
+   *  "" = none / a production IWO. */
+  sample_style_id: string;
   category_id: string | null;
   item_id: string | null;
   consumption_uom_id: string | null;
@@ -138,6 +144,7 @@ type ProcRow = {
 // EVERY SEED IS BLANK — the save drops an untouched row by testing what is typed.
 const blankItem = (): ItemRow => ({
   key: newKey(),
+  sample_style_id: "",
   category_id: null,
   item_id: null,
   specification: "",
@@ -173,6 +180,7 @@ const num = (v: string): number | null => {
 const str = (n: number | null | undefined) => (n == null ? "" : String(n));
 
 const itemFacts = (l: ItemRow): IwoMbLineFacts => ({
+  sample_style_id: l.sample_style_id || null,
   category_id: l.category_id,
   item_id: l.item_id,
   specification: l.specification.trim() || null,
@@ -298,6 +306,11 @@ export function IwoMaterialBomScreen({
   const [isPending, start] = useTransition();
   /** Raising an SWO's accessories work order from the SWO No picker. */
   const [swoRaising, startSwo] = useTransition();
+  /** The SWO's samples and their costing trims (0710) — what SMP No lists and
+   *  what "fill from costing" reads. Keyed by the work order it was read for,
+   *  so a stale answer for another plan is never used. */
+  const [swoTrims, setSwoTrims] = useState<{ iwoId: string; data: SwoSampleTrims } | null>(null);
+  const [filling, startFill] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
 
@@ -399,6 +412,105 @@ export function IwoMaterialBomScreen({
     setForm((f) => ({ ...f, ...patch }));
     setDirty(true);
   };
+
+  // ---- SWO samples + fill from costing (0710; user 2026-10-12) ---------------
+  const swoId = sample ? (picked?.swo?.id ?? null) : null;
+  const trims = swoTrims && swoTrims.iwoId === form.iwo_id ? swoTrims.data : null;
+  const swoStyleIds = swoId && trims ? new Set(trims.samples.map((x) => x.style_id)) : null;
+
+  /** The costing's lines as grid rows — the same unit prefill a material pick
+   *  runs, so a filled line is exactly what picking that material would give. */
+  const rowsFromCosting = (t: SwoSampleTrims) => {
+    const { lines, skipped } = sampleFillLines(t.samples);
+    const rows = lines.map((l) => {
+      const base: ItemRow = {
+        ...blankItem(),
+        sample_style_id: l.style_id,
+        category_id: t.category_of[l.item_id] ?? materialById.get(l.item_id)?.category_id ?? null,
+        item_id: l.item_id,
+        planned_qty: String(l.planned_qty),
+      };
+      // The units `uomOptionsFor` (below) would offer a fresh row: the base
+      // unit, and the purchase unit when the material declares an alternate.
+      const m = materialById.get(l.item_id);
+      const allowed = [m?.base_uom_id, m?.has_alternate_uom ? m.purchase_uom_id : null].filter((x): x is string => !!x);
+      const units = allowed.length ? allowed : data.uoms.filter((u) => !u.inactive).map((u) => u.id);
+      return { ...base, ...uomPatchForMaterial(base, l.item_id, units, data.conversions) };
+    });
+    return { rows, skipped };
+  };
+
+  /**
+   * READ THE SWO WHEN THE PLAN NAMES ONE, and on a NEW plan whose grid is
+   * still blank, FILL IT (user 2026-10-12: "auto-populate on SWO selection").
+   * A saved plan is never refilled here — that is the button's job — and a
+   * grid the planner has typed into is never overwritten.
+   */
+  useEffect(() => {
+    if (!sample || !form.iwo_id || !swoId) return;
+    if (swoTrims?.iwoId === form.iwo_id) return;
+    const iwoId = form.iwo_id;
+    let cancelled = false;
+    loadSwoCostingTrims(iwoId).then((res) => {
+      if (cancelled) return;
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      setSwoTrims({ iwoId, data: res.data });
+      if (editId) return;
+      setItems((xs) => {
+        if (!xs.every((x) => isBlankIwoMbLine(itemFacts(x)))) return xs;
+        const { rows, skipped } = rowsFromCosting(res.data);
+        if (skipped.length) toastError(`Not filled from costing: ${skipped.join("; ")}.`);
+        return rows.length ? rows : xs;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read only when the plan's work order or its SWO changes
+  }, [sample, form.iwo_id, swoId, editId]);
+
+  /**
+   * REFILL FROM COSTING — on demand, and a MERGE, never a wipe: a line of the
+   * same (SMP, material) takes the costing's Planned Qty, a trim the grid does
+   * not hold yet is added, and every other line — the planner's own additions,
+   * a split line — is left exactly as it is. Nothing is saved until Save.
+   */
+  const refillFromCosting = () => {
+    if (!form.iwo_id) return;
+    const iwoId = form.iwo_id;
+    startFill(async () => {
+      const res = await loadSwoCostingTrims(iwoId);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      setSwoTrims({ iwoId, data: res.data });
+      const { rows, skipped } = rowsFromCosting(res.data);
+      let updated = 0;
+      let added = 0;
+      setItems((xs) => {
+        const kept = xs.filter((x) => !isBlankIwoMbLine(itemFacts(x)));
+        const next = [...kept];
+        for (const r of rows) {
+          const i = next.findIndex((x) => x.sample_style_id === r.sample_style_id && x.item_id === r.item_id && x.attribute === "item");
+          if (i >= 0) {
+            if (next[i].planned_qty !== r.planned_qty) updated++;
+            next[i] = { ...next[i], planned_qty: r.planned_qty };
+          } else {
+            added++;
+            next.push(r);
+          }
+        }
+        return next.length ? next : [blankItem()];
+      });
+      setDirty(true);
+      success(`Refilled from costing — ${updated} updated, ${added} added. Save to keep it.`);
+      if (skipped.length) toastError(`Not filled from costing: ${skipped.join("; ")}.`);
+    });
+  };
   const patchItem = (key: string, patch: Partial<ItemRow>) => {
     setItems((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
     setDirty(true);
@@ -428,6 +540,7 @@ export function IwoMaterialBomScreen({
     setForm({ iwo_id: t.id, bom_date: b.bom_date });
     const is = b.iwo_material_bom_items.map((r) => ({
       key: newKey(),
+      sample_style_id: r.sample_style_id ?? "",
       category_id: r.category_id,
       item_id: r.item_id,
       specification: r.specification ?? "",
@@ -485,7 +598,7 @@ export function IwoMaterialBomScreen({
 
   // ---- validity ----------------------------------------------------------------
 
-  const problems = iwoMbProblems(items.map(itemFacts), procs.map(procFacts));
+  const problems = iwoMbProblems(items.map(itemFacts), procs.map(procFacts), swoStyleIds);
 
   const validity = sectionValidity({
     sections: [{ key: "bom" }, { key: "items" }, { key: "processes" }, { key: "requirement" }],
@@ -669,6 +782,40 @@ export function IwoMaterialBomScreen({
    * left on 2026-09-22 (file header).
    */
   const itemColumns: ChildGridColumn<ItemRow>[] = [
+    /* SMP NO FIRST (0710; user 2026-10-12, as on Fabric Allocation): only
+       the picked SWO's samples, greyed until one is picked; never on Orders. */
+    ...(sample
+      ? [
+          {
+            header: "SMP No",
+            required: !!swoStyleIds,
+            width: FIELD_WIDTH_CSS.term,
+            cell: (r: ItemRow) => {
+              const held = r.sample_style_id && !swoStyleIds?.has(r.sample_style_id) ? r.sample_style_id : "";
+              return (
+                <Select
+                  compact
+                  className={cn("h-8", held && "text-danger")}
+                  aria-label="SMP No"
+                  required={!!swoStyleIds}
+                  disabled={!swoStyleIds}
+                  title={swoStyleIds ? undefined : "Pick the SWO first — its samples are listed here."}
+                  value={r.sample_style_id}
+                  onChange={(e) => patchItem(r.key, { sample_style_id: e.target.value })}
+                >
+                  <option value="">{swoStyleIds ? "" : "Pick the SWO first"}</option>
+                  {(trims?.samples ?? []).map((x) => (
+                    <option key={x.style_id} value={x.style_id}>
+                      {`${x.label} (${x.pieces} pcs)`}
+                    </option>
+                  ))}
+                  {held && <option value={held}>(not in this SWO)</option>}
+                </Select>
+              );
+            },
+          },
+        ]
+      : []),
     {
       header: "Category",
       width: FIELD_WIDTH_CSS.hug,
@@ -1063,6 +1210,19 @@ export function IwoMaterialBomScreen({
       done: items.some((l) => !!l.item_id),
       content: (
         <SectionBody title="Items">
+          {/* REFILL FROM COSTING (user 2026-10-12) — on an SWO's plan only, a
+              merge with the latest costing trims; see `refillFromCosting`. */}
+          {sample && swoStyleIds && (
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {trims?.swo_code}: {trims?.samples.length ?? 0} sample{trims?.samples.length === 1 ? "" : "s"} — lines start from each
+                sample&apos;s costing trims (qty per garment × pieces).
+              </span>
+              <Button type="button" variant="outline" disabled={filling} onClick={refillFromCosting} className="ml-auto">
+                {filling ? "Refilling…" : "Refill from Costing"}
+              </Button>
+            </div>
+          )}
           {/* ONE-LINE CARDS AT THE TABLE'S OWN WIDTHS (see `itemColumns`' note),
               in one frame (`flatRows`). Labels and `required` are read off
               `itemColumns`, on the `Field` AND on the control. A split line
@@ -1290,7 +1450,7 @@ export function IwoMaterialBomScreen({
           title={sample ? "Accessories Plan" : "IWO Accessories Plan"}
           description={
             sample
-              ? "The trims and accessories plan for a sample work order — the same plan as Orders ▸ IWO Accessories Plan, listing the work orders raised from Sample."
+              ? "The trims and accessories plan for a sample work order — the same plan the Orders module opens as the IWO Accessories Plan, listing the work orders raised from Sample."
               : "The Accessories Plan for an Internal Work Order For Accessories — no garment breakdown; the quantity is typed."
           }
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Accessories Plan</Button> : undefined}

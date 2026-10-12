@@ -50,6 +50,8 @@ export interface IwoMbItemRow {
   id: string;
   bom_id: string;
   sno: number;
+  /** Sample Accessories Plan (0710): the SWO sample style (SMP line) this line is for. */
+  sample_style_id?: string | null;
   category_id: string | null;
   item_id: string;
   specification: string | null;
@@ -112,6 +114,9 @@ export const iwoMbItemSliceInput = z.object({
 });
 
 export const iwoMbItemInput = z.object({
+  // Sample Accessories Plan (0710) — the SWO sample (SMP). Owed only on an
+  // SWO's accessories work order; `iwoMbProblems` says so, given the SWO.
+  sample_style_id: uuidN,
   category_id: uuidN,
   item_id: z.string().uuid({ message: "Choose the material" }),
   // "Brand / Specs" — capitals in the schema (AGENTS.md, CAPITALS).

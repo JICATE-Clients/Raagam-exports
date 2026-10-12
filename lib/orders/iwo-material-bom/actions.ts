@@ -25,6 +25,7 @@ const PATHS = ["/orders/iwo-material-bom", "/orders/internal-work-orders"];
 /** The payload's lines/processes in the rules' shape (the schema's defaults
  *  already applied, so every field is present). */
 const lineFacts = (l: NonNullable<IwoMaterialBomParsed["items"]>[number]) => ({
+  sample_style_id: l.sample_style_id,
   category_id: l.category_id,
   item_id: l.item_id,
   specification: l.specification ?? null,
@@ -41,6 +42,25 @@ const lineFacts = (l: NonNullable<IwoMaterialBomParsed["items"]>[number]) => ({
   send_out: l.send_out,
   is_foc: l.is_foc,
 });
+
+/**
+ * THE SWO AN ACCESSORIES WORK ORDER WAS RAISED FOR (0709 `accessories_iwo_id`)
+ * — its styles, the only SMPs its lines may name. Null = not an SWO's. A
+ * failed read refuses: null would quietly waive the SMP rule.
+ */
+async function swoAccessoryStyleIds(
+  s: Awaited<ReturnType<typeof createClient>>,
+  iwoId: string,
+): Promise<Set<string> | null | string> {
+  const { data, error } = await s
+    .from("sample_product_groups")
+    .select("id, items:sample_group_items(style_id)")
+    .eq("accessories_iwo_id", iwoId)
+    .maybeSingle();
+  if (error) return `Could not read the work order's SWO: ${error.message}`;
+  if (!data) return null;
+  return new Set(((data as { items: { style_id: string }[] | null }).items ?? []).map((it) => it.style_id));
+}
 
 /**
  * Write the items and processes the payload CARRIES (absent = untouched).
@@ -100,6 +120,7 @@ async function writeChildren(s: Db, bomId: string, p: IwoMaterialBomParsed): Pro
       return {
         bom_id: bomId,
         sno: i + 1,
+        sample_style_id: l.sample_style_id,
         category_id: l.category_id,
         item_id: l.item_id,
         specification: l.specification || null,
@@ -182,13 +203,16 @@ export async function saveIwoMaterialBom(bomId: string | null, payload: IwoMater
   const p = parsed.data;
   if (p.bom_date > today()) return { ok: false, error: "The BOM date cannot be in the future." };
 
-  // THE SAME RULES THE SAVE BUTTON READ (rules.ts), run again here.
+  const s = await createClient();
+  // THE SAME RULES THE SAVE BUTTON READ (rules.ts), run again here — with the
+  // SWO's samples read off the database (0709/0710), never off the payload.
   if (p.items && p.processes) {
-    const problem = iwoMbProblems(p.items.map(lineFacts), p.processes)[0];
+    const swo = await swoAccessoryStyleIds(s, p.iwo_id);
+    if (typeof swo === "string") return { ok: false, error: swo };
+    const problem = iwoMbProblems(p.items.map(lineFacts), p.processes, swo)[0];
     if (problem) return { ok: false, error: problem.message };
   }
 
-  const s = await createClient();
   const header = { iwo_id: p.iwo_id, bom_date: p.bom_date, is_draft: p.is_draft, remark: p.remark || null };
 
   let id: string;

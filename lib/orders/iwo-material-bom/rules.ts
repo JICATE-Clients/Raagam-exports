@@ -42,6 +42,8 @@ export type IwoMbSliceFacts = {
 };
 
 export type IwoMbLineFacts = {
+  /** 0710 — the SWO sample (SMP) the line is for; see `sampleStyleIds`. */
+  sample_style_id?: string | null;
   category_id: string | null;
   item_id: string | null;
   specification: string | null;
@@ -97,6 +99,7 @@ export function plannedQtyOf(l: IwoMbLineFacts): number | null {
 }
 
 export const isBlankIwoMbLine = (l: IwoMbLineFacts): boolean =>
+  !l.sample_style_id &&
   !l.category_id &&
   !l.item_id &&
   !l.specification?.trim() &&
@@ -134,6 +137,12 @@ export type IwoMbProblem = { section: "items" | "processes"; message: string };
 export function iwoMbProblems(
   lines: readonly IwoMbLineFacts[],
   processes: readonly IwoMbProcessFacts[],
+  /**
+   * THE SWO'S STYLES, when this is an SWO's accessories work order (0710; user
+   * 2026-10-12). Then every line owes its SMP, one the SWO batches — the
+   * Fabric Plan's rule (`iwoFabricLineProblems`). Null = a production IWO.
+   */
+  sampleStyleIds: ReadonlySet<string> | null = null,
 ): IwoMbProblem[] {
   const out: IwoMbProblem[] = [];
   let kept = 0;
@@ -141,6 +150,12 @@ export function iwoMbProblems(
     if (isBlankIwoMbLine(l)) return;
     kept++;
     const at = `Line ${i + 1}`;
+    if (sampleStyleIds) {
+      if (!l.sample_style_id) out.push({ section: "items", message: `${at}: choose the SMP No — every accessory on a sample work order is for one sample.` });
+      else if (!sampleStyleIds.has(l.sample_style_id)) {
+        out.push({ section: "items", message: `${at}: the SMP No picked is not batched in this SWO — pick one of its samples.` });
+      }
+    }
     if (!l.item_id) out.push({ section: "items", message: `${at}: choose the material.` });
     if (!l.consumption_uom_id) out.push({ section: "items", message: `${at}: choose the Cons. Uom (the unit Planned Qty is in).` });
     const attribute = l.attribute ?? "item";

@@ -33,6 +33,7 @@ export async function raiseIwoDyeingOrder(
   input: { vendor_id: string; expected_date: string | null },
 ): Promise<Result> {
   if (!(await can("stores", "create"))) {
+    // nav-path: exempt -- "Stores ▸ Create" names the permission, not a menu row
     return { ok: false, error: "Raising a dyeing work order needs Stores ▸ Create — ask someone who raises process orders." };
   }
   if (!input.vendor_id) return { ok: false, error: "Choose the dye house." };

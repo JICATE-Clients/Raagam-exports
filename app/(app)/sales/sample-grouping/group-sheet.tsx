@@ -285,6 +285,7 @@ export function GroupSheet({
                 Raise IW
               </Button>
             ) : (
+              // nav-path: exempt -- "Orders ▸ Create" names the permission, not a menu row
               <span className="text-sm text-muted-foreground">Raising its IW needs Orders ▸ Create.</span>
             )}
           </>

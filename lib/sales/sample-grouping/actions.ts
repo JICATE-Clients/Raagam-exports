@@ -323,6 +323,7 @@ export async function raiseSampleGroupIw(
   opts: { iwo_for?: "fabric" | "yarn"; deli_date?: string | null } = {},
 ): Promise<{ ok: true; iwoId: string } | { ok: false; error: string }> {
   if (!(await can("sales", "edit"))) return { ok: false, error: "You do not have permission to change a sample group." };
+  // nav-path: exempt -- "Orders ▸ Create" names the permission, not a menu row
   if (!(await can("orders", "create"))) return { ok: false, error: "Raising an IW needs Orders ▸ Create — ask someone who can raise work orders." };
   const found = await groupById(groupId);
   if (typeof found === "string") return { ok: false, error: found };
@@ -374,6 +375,7 @@ export async function approveAndRaiseSampleGroupIw(
   groupId: string,
 ): Promise<{ ok: true; iwoId: string } | { ok: false; error: string }> {
   if (!(await can("orders", "create"))) {
+    // nav-path: exempt -- "Orders ▸ Create" names the permission, not a menu row
     return { ok: false, error: "Raising an IW needs Orders ▸ Create — approve the group on its own, and ask someone who can raise work orders." };
   }
   const approved = await approveSampleGroup(groupId);
