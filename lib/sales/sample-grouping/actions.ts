@@ -9,14 +9,11 @@ import { saveInternalWorkOrder } from "@/lib/orders/internal-work-orders/actions
 import {
   DEFAULT_BATCH_KG,
   DEFAULT_MOQ_KG,
-  distributeProblem,
   fmtKg,
   groupHeaderOf,
   groupNetKg,
   groupingProblem,
   moqOrderWeight,
-  cuttingBasis,
-  releasedCuttingKg,
   sameSeasonYear,
 } from "./calc";
 import { getGroupingData } from "./service";
@@ -29,8 +26,8 @@ import { candidateKey, GROUP_STATUS_LABEL, groupTermsInput, type GroupingCandida
  * kilos: each action re-reads the costings (`getGroupingData`) and takes the
  * figures from there, so a stale tab cannot batch yesterday's weight.
  *
- * A GROUP MOVES FORWARD ONE STEP AT A TIME — Draft → Approved → IW raised →
- * Fabric received → Completed — and every status write is conditional on the
+ * A GROUP MOVES FORWARD ONE STEP AT A TIME — Draft → Approved → IW raised
+ * (Fabric received → Completed were dropped 2026-10-12) — and every status write is conditional on the
  * status it expects (`.eq("status", from)`), so two operators pressing the
  * same button cannot both move it. The database refuses the rest (0702): a
  * group past Draft keeps its styles and cannot be deleted.
@@ -67,8 +64,10 @@ async function groupById(id: string): Promise<{ data: Awaited<ReturnType<typeof 
  * MOQ purchase. A style whose candidate has gone keeps its last figures —
  * Approve refuses it until it is removed or re-costed.
  */
-async function refreshDraft(g: GroupRow, all: GroupingCandidate[]): Promise<string | null> {
-  if (g.status !== "draft") return null;
+/** Re-weigh a group from its costings. A Draft follows them on every save; any
+ *  status re-weighs when its samples change (`anyStatus`, 0713). */
+async function refreshDraft(g: GroupRow, all: GroupingCandidate[], anyStatus = false): Promise<string | null> {
+  if (g.status !== "draft" && !anyStatus) return null;
   const s = await createClient();
   const byKey = new Map(all.map((c) => [c.key, c]));
   const kg: number[] = [];
@@ -108,7 +107,7 @@ async function refreshDraft(g: GroupRow, all: GroupingCandidate[]): Promise<stri
     .from("sample_product_groups")
     .update({ ...header, net_required_weight_kg: net, moq_purchased_weight_kg: moqOrderWeight(net, g.moq_kg, g.batch_kg) })
     .eq("id", g.id)
-    .eq("status", "draft");
+    .eq("status", g.status);
   return error ? error.message : null;
 }
 
@@ -181,7 +180,6 @@ export async function addToSampleGroup(groupId: string, keys: string[]): Promise
   const found = await groupById(groupId);
   if (typeof found === "string") return { ok: false, error: found };
   const { data, group } = found;
-  if (group.status !== "draft") return { ok: false, error: `${group.group_code} is ${GROUP_STATUS_LABEL[group.status]} — styles can be added only while it is Draft.` };
   const picked = pick(data.candidates, keys);
   if (typeof picked === "string") return { ok: false, error: picked };
   const problem = forProblem(picked);
@@ -210,7 +208,7 @@ export async function addToSampleGroup(groupId: string, keys: string[]): Promise
   }
   const after = await groupById(groupId);
   if (typeof after !== "string") {
-    const err = await refreshDraft(after.group, after.data.candidates);
+    const err = await refreshDraft(after.group, after.data.candidates, true);
     if (err) return { ok: false, error: err };
   }
   await writeAudit({ action: "sample_group.styles_added", entityType: "sample_product_group", entityId: groupId });
@@ -223,12 +221,11 @@ export async function removeFromSampleGroup(groupId: string, itemId: string): Pr
   const found = await groupById(groupId);
   if (typeof found === "string") return { ok: false, error: found };
   const { data, group } = found;
-  if (group.status !== "draft") return { ok: false, error: `${group.group_code} is past Draft — its styles can no longer change.` };
   if (group.items.length <= 1) return { ok: false, error: "This is the group's only style — delete the group instead." };
   const s = await createClient();
   const { error } = await s.from("sample_group_items").delete().eq("id", itemId).eq("group_id", groupId);
   if (error) return { ok: false, error: error.message };
-  const err = await refreshDraft({ ...group, items: group.items.filter((it) => it.id !== itemId) }, data.candidates);
+  const err = await refreshDraft({ ...group, items: group.items.filter((it) => it.id !== itemId) }, data.candidates, true);
   if (err) return { ok: false, error: err };
   await writeAudit({ action: "sample_group.style_removed", entityType: "sample_product_group", entityId: groupId });
   revalidatePath(PATH);
@@ -263,6 +260,27 @@ export async function saveSampleGroupTerms(groupId: string, terms: GroupTermsInp
     const err = await refreshDraft({ ...group, moq_kg: t.moq_kg, batch_kg: t.batch_kg }, data.candidates);
     if (err) return { ok: false, error: err };
   }
+  await writeAudit({ action: "sample_group.updated", entityType: "sample_product_group", entityId: groupId });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+/**
+ * The SWO's Description (0712). The box opens on the SWO number; saving that
+ * number back unchanged, or clearing the box, stores NULL — the number is a
+ * display default, never a copy kept in a second column. Capitals, as every
+ * stored value (AGENTS.md "CAPITALS").
+ */
+export async function saveSampleGroupDescription(groupId: string, description: string): Promise<Result> {
+  if (!(await can("sales", "edit"))) return { ok: false, error: "You do not have permission to change a sample group." };
+  const text = description.trim().toUpperCase().slice(0, 500);
+  const s = await createClient();
+  const { data: row, error: readErr } = await s.from("sample_product_groups").select("group_code").eq("id", groupId).maybeSingle();
+  if (readErr) return { ok: false, error: readErr.message };
+  if (!row) return { ok: false, error: "This group no longer exists." };
+  const value = !text || text === row.group_code ? null : text;
+  const { error } = await s.from("sample_product_groups").update({ description: value }).eq("id", groupId);
+  if (error) return { ok: false, error: error.message };
   await writeAudit({ action: "sample_group.updated", entityType: "sample_product_group", entityId: groupId });
   revalidatePath(PATH);
   return { ok: true };
@@ -385,35 +403,6 @@ export async function approveAndRaiseSampleGroupIw(
   return raised;
 }
 
-export async function markSampleGroupFabricReceived(groupId: string): Promise<Result> {
-  if (!(await can("sales", "edit"))) return { ok: false, error: "You do not have permission to change a sample group." };
-  return moveStatus(groupId, "po_raised", "fabric_received", { fabric_received_at: new Date().toISOString() });
-}
-
-/**
- * §5.3 — release each style's cutting weight (its kilos × (1 + cutting waste
- * %)); what is left stays in the sample fabric stock. Refused when the
- * purchase cannot cover the release, rather than allocating fabric that was
- * never bought.
- */
-export async function distributeSampleGroup(groupId: string): Promise<Result> {
-  if (!(await can("sales", "edit"))) return { ok: false, error: "You do not have permission to change a sample group." };
-  const found = await groupById(groupId);
-  if (typeof found === "string") return { ok: false, error: found };
-  const { group } = found;
-  if (group.status !== "fabric_received") return { ok: false, error: "Mark the fabric received before distributing it." };
-  // The Fabric Plan's SMP rows first, the costing where the plan names none
-  // (user 2026-10-12) — the same basis the group sheet shows.
-  const basis = cuttingBasis(group.items, group.plan_kg_by_style);
-  const problem = distributeProblem(group.moq_purchased_weight_kg, basis.map((b) => b.kg), group.cutting_waste_pct);
-  if (problem) return { ok: false, error: problem };
-  const s = await createClient();
-  for (const [i, it] of group.items.entries()) {
-    const { error } = await s
-      .from("sample_group_items")
-      .update({ allocated_fabric_kg: releasedCuttingKg(basis[i].kg, group.cutting_waste_pct) })
-      .eq("id", it.id);
-    if (error) return { ok: false, error: error.message };
-  }
-  return moveStatus(groupId, "fabric_received", "completed", { distributed_at: new Date().toISOString() });
-}
+// Fabric received → Distribute were removed on 2026-10-12 (user: "no need
+// that route — just here the group will be created"). An SWO's flow now ends
+// at IW raised; the fabric is followed on its Fabric Plan.

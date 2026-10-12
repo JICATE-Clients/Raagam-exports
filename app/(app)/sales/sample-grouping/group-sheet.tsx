@@ -2,12 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Check, PackageCheck, Split, Undo2, X } from "lucide-react";
+import { Check, Plus, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Field, FieldRow } from "@/components/ui/field";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -17,120 +17,65 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
-  cuttingBasis,
-  distributeProblem,
-  excessToStock,
-  fmtKg,
-  groupNetKg,
-  moqOrderWeight,
-  purchaseBasis,
-  releasedCuttingKg,
-} from "@/lib/sales/sample-grouping/calc";
-import {
   GROUP_STATUS_LABEL,
   GROUP_STATUS_TONE,
+  type GroupingCandidate,
   type GroupItemRow,
   type GroupRow,
 } from "@/lib/sales/sample-grouping/types";
 import {
+  addToSampleGroup,
   approveAndRaiseSampleGroupIw,
   approveSampleGroup,
-  distributeSampleGroup,
-  markSampleGroupFabricReceived,
   raiseSampleGroupIw,
   removeFromSampleGroup,
   reopenSampleGroup,
-  saveSampleGroupTerms,
+  saveSampleGroupDescription,
 } from "@/lib/sales/sample-grouping/actions";
 
 /**
- * ONE GROUP — its terms, its styles and the one next step (spec §2's flow:
- * group → MOQ → IW → fabric received → distribute to the styles).
+ * ONE GROUP — its description, its samples and the one next step.
  *
- * A `Sheet`, not a rail editor: four fields and a READ-ONLY table of styles —
- * every figure in it comes from the costings, so there is no grid to type into
- * (the skill's tree: ≤ 7 fields, no child grid). `md`, because the styles
- * table is eight columns wide.
+ * THE SWO IS MADE HERE AND ENDS AT ITS IW (user 2026-10-12: "remove that
+ * distribute to fabric — no need that route — just here the group will be
+ * created"). Fabric received → Distribute are gone; the fabric is followed on
+ * the SWO's Fabric Plan. The terms (MOQ / batch / cutting waste) and the kg
+ * figures came off the sheet the same day — the stored defaults (0702: 60 /
+ * 30 / 0) still size the purchase on the server.
  *
- * WHAT CAN CHANGE WHEN, and the server says the same (actions.ts, 0702):
- *   MOQ / Batch     — Draft only: they decide what is bought.
- *   Cutting waste / Remarks — until the fabric is distributed: they decide
- *                     what is released.
- *   Styles          — Draft only; past it the database refuses.
+ * NO FACTS LINE (user 2026-10-12, "remove it"): Season / Structure / Yarn
+ * blend / IW are gone from the top; the IW opens from the list's row icon.
  *
- * ONE FILLED BUTTON (AGENTS.md "Buttons"): Save while there are unsaved
- * changes, else the next step. The step is HIDDEN while dirty, so a step never
- * runs on terms the operator has typed but not saved.
+ * ONE TYPED FIELD: Description (0712). It opens on the SWO number and the
+ * operator may rewrite it; saving the number unchanged stores NULL, so the
+ * number is a default, never a stale copy.
+ *
+ * ONE FILLED BUTTON (AGENTS.md "Buttons"): Save while the description is
+ * changed, else the next step — hidden while dirty, so a step never runs over
+ * an unsaved edit.
  */
-
-const label10 = "text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground";
-
-type Terms = { moq: string; batch: string; waste: string; remarks: string };
-const termsOf = (g: GroupRow): Terms => ({
-  moq: String(g.moq_kg),
-  batch: String(g.batch_kg),
-  waste: String(g.cutting_waste_pct),
-  remarks: g.remarks ?? "",
-});
-const numOr = (v: string, fallback: number) => {
-  const x = Number(v);
-  return v.trim() !== "" && Number.isFinite(x) ? x : fallback;
-};
-
-function termsProblems(t: Terms): Partial<Record<keyof Terms, string>> {
-  const out: Partial<Record<keyof Terms, string>> = {};
-  const moq = Number(t.moq);
-  const batch = Number(t.batch);
-  const waste = Number(t.waste || "0");
-  if (!t.moq.trim() || !(moq > 0)) out.moq = "MOQ must be more than 0 kg.";
-  if (!t.batch.trim() || !(batch > 0)) out.batch = "Batch must be more than 0 kg.";
-  if (!Number.isFinite(waste) || waste < 0) out.waste = "Cutting waste cannot be negative.";
-  else if (waste >= 100) out.waste = "Cutting waste must be under 100 %.";
-  return out;
-}
 
 export function GroupSheet({
   group,
+  addable,
   perms,
   onClose,
 }: {
   group: GroupRow;
+  /** Ungrouped, weighed samples of this SWO's season — what "+ Add" offers. */
+  addable: GroupingCandidate[];
   perms: { canEdit: boolean; canRaiseIw: boolean };
   onClose: () => void;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [terms, setTerms] = useState<Terms>(() => termsOf(group));
-  const saved = termsOf(group);
-  const dirty = (Object.keys(terms) as (keyof Terms)[]).some((k) => terms[k].trim() !== saved[k].trim());
+  const savedDesc = group.description ?? group.group_code;
+  const [desc, setDesc] = useState(savedDesc);
+  const dirty = desc.trim().toUpperCase() !== savedDesc.trim().toUpperCase();
   useUnsavedGuard(dirty || isPending);
 
-  const draft = group.status === "draft";
-  const done = group.status === "completed";
-  const problems = termsProblems(terms);
-  const hasProblem = Object.keys(problems).length > 0;
-
-  // The figures, live: a Draft follows its costings and its unsaved MOQ / batch;
-  // past Draft the stored (frozen) figures are the purchase.
-  const kgOf = (it: GroupItemRow) => (draft && it.live_kg != null ? it.live_kg : it.calculated_weight_kg);
-  const moq = numOr(terms.moq, group.moq_kg);
-  const batch = numOr(terms.batch, group.batch_kg);
-  const waste = numOr(terms.waste, 0);
-  const net = draft ? groupNetKg(group.items.map(kgOf)) : group.net_required_weight_kg;
-  const buy = draft ? moqOrderWeight(net, moq, batch) : group.moq_purchased_weight_kg;
-  /* THE CUTTING BASIS (user 2026-10-12): each sample's Fabric Plan rows first,
-     its costing where the plan names none — the same `cuttingBasis` Distribute
-     runs, so what this sheet shows is what gets released. */
-  const basis = cuttingBasis(
-    group.items.map((it) => ({ style_id: it.style_id, calculated_weight_kg: kgOf(it) })),
-    group.plan_kg_by_style,
-  );
-  const basisOf = (it: GroupItemRow) => basis[group.items.indexOf(it)] ?? { kg: kgOf(it), source: "costing" as const };
-  const styleKg = basis.map((b) => b.kg);
-  const release = groupNetKg(styleKg.map((k) => releasedCuttingKg(k, waste)));
-  const toStock = excessToStock(buy, styleKg, waste);
-  const shortfall = distributeProblem(buy, styleKg, waste);
+  const [adding, setAdding] = useState("");
 
   const run = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, said: string) =>
     startTransition(async () => {
@@ -142,25 +87,6 @@ export function GroupSheet({
       success(said);
       router.refresh();
     });
-
-  const save = () => {
-    if (hasProblem) {
-      toastError(Object.values(problems)[0] as string);
-      return;
-    }
-    run(
-      () =>
-        saveSampleGroupTerms(group.id, {
-          moq_kg: terms.moq,
-          batch_kg: terms.batch,
-          cutting_waste_pct: terms.waste || "0",
-          remarks: terms.remarks,
-        }),
-      `${group.group_code} saved.`,
-    );
-  };
-
-  const set = (k: keyof Terms) => (e: React.ChangeEvent<HTMLInputElement>) => setTerms((t) => ({ ...t, [k]: e.target.value }));
 
   /** An SWO may mix structures or blends (0707, the planner's call) — then
    *  each sample says which fabric its kilos are of. */
@@ -177,8 +103,6 @@ export function GroupSheet({
       ),
     },
     { header: "Style", cell: (it) => <Truncated className="block max-w-[12rem] text-xs font-medium">{it.style_name || "—"}</Truncated> },
-    { header: "Buyer", cell: (it) => <Truncated className="block max-w-[10rem] text-xs">{it.customer ?? "—"}</Truncated> },
-    { header: "Components", cell: (it) => <Truncated className="block max-w-[10rem] text-xs">{it.components || "—"}</Truncated> },
     ...(mixed
       ? [
           {
@@ -192,46 +116,9 @@ export function GroupSheet({
         ]
       : []),
     { header: "Qty (pcs)", align: "right", cell: (it) => <span className="block text-right font-mono tabular-nums text-xs">{it.sample_qty_pcs}</span> },
-    {
-      header: "Net kg",
-      align: "right",
-      cell: (it) =>
-        draft && it.live_missing ? (
-          <span className="block text-right text-xs text-danger" title="This style's costing no longer has this fabric — remove it, or fix the costing.">
-            Not costed
-          </span>
-        ) : (
-          <span className="block text-right font-mono tabular-nums text-xs">{fmtKg(kgOf(it))}</span>
-        ),
-    },
-    {
-      header: "Release kg",
-      align: "right",
-      cell: (it) => {
-        const b = basisOf(it);
-        return (
-          <span className="block text-right font-mono tabular-nums text-xs">
-            {fmtKg(releasedCuttingKg(b.kg, waste))}
-            {/* Once the SWO has a work order, the plan is the source — a sample
-                it names nothing for falls back to its costing, and says so. */}
-            {group.iwo_id ? (
-              <span className={`block font-sans text-[11px] ${b.source === "plan" ? "text-muted-foreground" : "text-warning"}`}>
-                {b.source === "plan" ? "From Fabric Plan" : "Derived from Costing (plan unset)"}
-              </span>
-            ) : null}
-          </span>
-        );
-      },
-    },
-    {
-      header: "Allocated kg",
-      align: "right",
-      cell: (it) => (
-        <span className="block text-right font-mono tabular-nums text-xs">{it.allocated_fabric_kg != null ? fmtKg(it.allocated_fabric_kg) : "—"}</span>
-      ),
-    },
   ];
-  if (draft && perms.canEdit) {
+  // Samples stay editable at every status (0713, user 2026-10-12).
+  if (perms.canEdit) {
     itemColumns.push(
       rowActionsColumn((it) => (
         <RowActions
@@ -252,7 +139,7 @@ export function GroupSheet({
     );
   }
 
-  /** The one next step, by status. Hidden while there are unsaved changes. */
+  /** The one next step, by status. Hidden while the description is unsaved. */
   const step = (() => {
     if (!perms.canEdit || dirty) return null;
     switch (group.status) {
@@ -290,30 +177,10 @@ export function GroupSheet({
             )}
           </>
         );
-      case "po_raised":
-        return (
-          <Button size="md" disabled={isPending} onClick={() => run(() => markSampleGroupFabricReceived(group.id), `${group.group_code}: fabric received.`)}>
-            <PackageCheck className="h-4 w-4" />
-            Fabric received
-          </Button>
-        );
-      case "fabric_received":
-        return (
-          <Button size="md" disabled={isPending || !!shortfall} onClick={() => run(() => distributeSampleGroup(group.id), `${group.group_code} distributed to its styles.`)}>
-            <Split className="h-4 w-4" />
-            Distribute fabric
-          </Button>
-        );
       default:
         return null;
     }
   })();
-
-  const facts: [string, string][] = [
-    ["Season", `${group.season} ${group.season_year}`],
-    ["Structure", group.fabric_structure ?? "—"],
-    ["Yarn blend", group.yarn_blend],
-  ];
 
   return (
     <Sheet
@@ -332,8 +199,8 @@ export function GroupSheet({
             {dirty ? "Cancel" : "Close"}
           </Button>
           {dirty ? (
-            <Button size="md" disabled={isPending} onClick={save}>
-              {isPending ? "Saving…" : "Save group"}
+            <Button size="md" disabled={isPending} onClick={() => run(() => saveSampleGroupDescription(group.id, desc), `${group.group_code} saved.`)}>
+              {isPending ? "Saving…" : "Save"}
             </Button>
           ) : null}
           {step}
@@ -341,68 +208,42 @@ export function GroupSheet({
       }
     >
       <div className="space-y-5">
-        <dl className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-          {facts.map(([k, v]) => (
-            <div key={k} className="flex min-w-0 items-baseline gap-2">
-              <dt className={label10}>{k}</dt>
-              <dd className="m-0 text-sm font-medium">
-                <Truncated className="block max-w-[22rem]">{v}</Truncated>
-              </dd>
-            </div>
-          ))}
-          {group.iwo_id ? (
-            <div className="flex items-baseline gap-2">
-              <dt className={label10}>IW</dt>
-              <dd className="m-0 text-sm font-medium">
-                <Link href={`/sales/sample-fabric-plan?open=${group.iwo_id}`} className="font-mono text-primary hover:underline">
-                  {group.iwo_code ?? "Open"}
-                </Link>
-              </dd>
-            </div>
-          ) : null}
-        </dl>
-
-        {/* 88 hug ×2 + 112 range + 288 name + 3 × 12 gap = 612px → max-w-[40rem]. */}
-        <section className="max-w-[40rem]">
-          <FieldRow align="start">
-            <Field label="MOQ (kg)" w="hug" required error={problems.moq} htmlFor="grp-moq">
-              <Input id="grp-moq" type="number" inputMode="decimal" min={0} className="text-right tabular-nums" value={terms.moq} onChange={set("moq")} readOnly={!draft || !perms.canEdit} />
-            </Field>
-            <Field label="Batch (kg)" w="hug" required error={problems.batch} htmlFor="grp-batch">
-              <Input id="grp-batch" type="number" inputMode="decimal" min={0} className="text-right tabular-nums" value={terms.batch} onChange={set("batch")} readOnly={!draft || !perms.canEdit} />
-            </Field>
-            <Field label="Cutting waste %" w="range" error={problems.waste} htmlFor="grp-waste">
-              <Input id="grp-waste" type="number" inputMode="decimal" min={0} className="text-right tabular-nums" value={terms.waste} onChange={set("waste")} readOnly={done || !perms.canEdit} />
-            </Field>
-            <Field label="Remarks" w="name" htmlFor="grp-remarks">
-              <Input id="grp-remarks" value={terms.remarks} onChange={set("remarks")} readOnly={done || !perms.canEdit} />
-            </Field>
-          </FieldRow>
+        {/* name-step width: a short batch name, not prose. */}
+        <section className="max-w-[24rem]">
+          <Field label="Description" w="name" htmlFor="grp-desc">
+            <Input id="grp-desc" value={desc} onChange={(e) => setDesc(e.target.value)} readOnly={!perms.canEdit} maxLength={500} />
+          </Field>
         </section>
 
-        {/* THE BATCH, IN ONE LINE (spec §5): net → bought → released → left in stock. */}
-        <dl className="flex flex-wrap items-baseline gap-x-6 gap-y-2 border-y border-border py-3">
-          <div className="flex items-baseline gap-2">
-            <dt className={label10}>Net</dt>
-            <dd className="m-0 font-mono text-sm font-semibold tabular-nums">{fmtKg(net)} kg</dd>
+
+        {perms.canEdit && addable.length ? (
+          <div className="flex items-center gap-2">
+            <Select value={adding} onChange={(e) => setAdding(e.target.value)} aria-label="Add a sample" className="w-72">
+              <option value="">Add a sample…</option>
+              {addable.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {[c.enquiry_no, c.style_name].filter(Boolean).join(" · ")}
+                </option>
+              ))}
+            </Select>
+            {/* toolbar-size: exempt -- an inline add beside a picker inside the sheet, not a header row */}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isPending || !adding}
+              onClick={() =>
+                run(async () => {
+                  const res = await addToSampleGroup(group.id, [adding]);
+                  if (res.ok) setAdding("");
+                  return res;
+                }, `Added to ${group.group_code}.`)
+              }
+            >
+              <Plus className="h-4 w-4" />
+              Add
+            </Button>
           </div>
-          <div className="flex items-baseline gap-2">
-            <dt className={label10}>Buy</dt>
-            <dd className="m-0 font-mono text-sm font-semibold tabular-nums text-primary">
-              {fmtKg(buy, 1)} kg
-              <span className="ml-1 font-sans text-xs font-normal text-muted-foreground">{purchaseBasis(net, draft ? moq : group.moq_kg, draft ? batch : group.batch_kg)}</span>
-            </dd>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <dt className={label10}>Release</dt>
-            <dd className="m-0 font-mono text-sm tabular-nums">{fmtKg(release)} kg</dd>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <dt className={label10}>To sample stock</dt>
-            <dd className={`m-0 font-mono text-sm tabular-nums ${toStock < 0 ? "text-danger" : ""}`}>{fmtKg(toStock)} kg</dd>
-          </div>
-        </dl>
-        {shortfall && group.status !== "completed" ? <p className="text-sm text-danger">{shortfall}</p> : null}
+        ) : null}
 
         <div className="w-fit max-w-full">
           <DataTable columns={withCreatedColumns(itemColumns, group.items)} rows={group.items} getKey={(it) => it.id} compact paginate={false} empty="No styles in this group." />
