@@ -44,6 +44,9 @@ export type IwoFabricLineFacts = {
   /** Sample Fabric Plan (0707): the sample style (SMP line) of the SWO this
    *  weight is for. Owed only on an SWO's plan — see `sampleStyleIds`. */
   sample_style_id?: string | null;
+  /** Sample Fabric Plan (0714): the garment part a dia is for (FRONT + BACK,
+   *  SLEEVE …) — part of the duplicate key, never owed. */
+  part?: string | null;
   stage_id: string | null;
   req_kgs: number | null;
 };
@@ -205,13 +208,15 @@ export function iwoFabricLineProblems(
     // The SMP is the fifth axis (0707): two samples weighing one cloth in one
     // colour and dia are two lines, never a duplicate.
     const smp = l.sample_style_id ?? "";
-    const key = `${l.item_id}|${colour}|${(l.finish_dia ?? "").trim().toUpperCase()}|${print}|${smp}`;
+    // …and the PART the sixth (0714): one sample may cut the same dia for two parts.
+    const part = (l.part ?? "").trim().toUpperCase();
+    const key = `${l.item_id}|${colour}|${(l.finish_dia ?? "").trim().toUpperCase()}|${print}|${smp}|${part}`;
     const dup = rowOfKey.get(key);
     if (dup) {
       need(
         "finish_dia",
         "consumption",
-        `the same ${smp ? "SMP, " : ""}fabric, colour${print ? ", dia and print" : " and dia"} are on line ${dup} — put the weight on one line.`,
+        `the same ${smp ? "SMP, " : ""}fabric, ${part ? "part, " : ""}colour${print ? ", dia and print" : " and dia"} are on line ${dup} — put the weight on one line.`,
       );
     } else rowOfKey.set(key, row);
   });

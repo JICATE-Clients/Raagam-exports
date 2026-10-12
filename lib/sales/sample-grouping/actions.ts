@@ -399,7 +399,7 @@ export async function approveAndRaiseSampleGroupIw(
   const approved = await approveSampleGroup(groupId);
   if (!approved.ok) return approved;
   const raised = await raiseSampleGroupIw(groupId);
-  if (!raised.ok) return { ok: false, error: `The group is approved, but its IW was not raised: ${raised.error} Use Raise IW to try again.` };
+  if (!raised.ok) return { ok: false, error: `The group is approved, but its IW was not raised: ${raised.error} Use Raise SWO to try again.` };
   return raised;
 }
 

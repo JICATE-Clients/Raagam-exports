@@ -87,13 +87,25 @@ export type PlanCell = {
    *  under the wrong colour. Not stored — the stored grain is unchanged, and
    *  `foldPlanCells` re-derives it from adjacent lines on load. */
   sub?: boolean;
+  /** Sample Fabric Plan (0714): the garment part this dia is for (FRONT +
+   *  BACK, SLEEVE, RIB NECK). Stored; absent on a production card. */
+  part?: string;
+  /** Sample Fabric Plan, sample-first view (2026-10-12): which "fabric row"
+   *  of a sample this dia belongs to — the rows of one (SMP, fabric, colour,
+   *  print) entered through one Dia & weight popup. Client-only, never
+   *  stored: a loaded cell has none and is grouped by its SMP / Colour /
+   *  Print (`grpOf`). */
+  grp?: string;
 };
 
 /** The row's SMP, "" when none. */
 const smpOf = (c: PlanCell) => c.sample_style_id ?? "";
 /** The merge key's fifth part — empty without an SMP, so a production card's
  *  merged rows keep the keys they always had. */
-const smpSuffix = (c: PlanCell) => (smpOf(c) ? "\u0000" + smpOf(c) : "");
+const smpSuffix = (c: PlanCell) =>
+  (smpOf(c) ? "\u0000" + smpOf(c) : "") +
+  // …and per PART (0714): a sleeve's weight is never summed into the body's.
+  (c.part?.trim() ? "\u0000p" + comboKey(c.part) : "");
 /** What a dia sub-row shares with its head — SMP, Colour, Print. */
 const runKey = (c: PlanCell) => [smpOf(c), comboKey(c.color_name), comboKey(c.print_name)].join("\u0000");
 /** Does this run name anything a dia could be added under? */
@@ -137,6 +149,7 @@ export type PlanFacts = {
   finish_dia: string | null;
   req_kgs: number | null;
   sample_style_id?: string | null;
+  part?: string | null;
 };
 
 /** A stored line as `foldPlanCells` reads it — numbers, as the DB holds them. */
@@ -146,6 +159,7 @@ export type StoredPlanLine = {
   finish_dia: string | null;
   req_kgs: number | null;
   sample_style_id?: string | null;
+  part?: string | null;
 };
 
 const num = (v: string): number | null => {
@@ -305,7 +319,7 @@ export function removePlanRow(cells: PlanCells, key: CellKey): PlanCells {
 }
 
 const isBlankCell = (c: PlanCell) =>
-  !c.color_name.trim() && !c.finish_dia.trim() && !c.print_name.trim() && !c.req_kgs.trim() && !smpOf(c);
+  !c.color_name.trim() && !c.finish_dia.trim() && !c.print_name.trim() && !c.req_kgs.trim() && !smpOf(c) && !c.part?.trim();
 
 /** The one placeholder an empty card expands to — every field null (a row with
  *  a dia and no weight is a real line, refused by name). */
@@ -315,8 +329,9 @@ export const isPlaceholderFacts = (f: {
   finish_dia?: string | null;
   print_name?: string | null;
   sample_style_id?: string | null;
+  part?: string | null;
 }): boolean =>
-  f.req_kgs == null && f.color_name == null && f.finish_dia == null && f.print_name == null && f.sample_style_id == null;
+  f.req_kgs == null && f.color_name == null && f.finish_dia == null && f.print_name == null && f.sample_style_id == null && f.part == null;
 
 /**
  * THE CARD'S ROWS → THE STORED-LINE FACTS, one per row that holds anything, in
@@ -335,6 +350,9 @@ export function expandPlanCells(cells: PlanCells): PlanFacts[] {
       finish_dia: text(c.finish_dia),
       req_kgs: num(c.req_kgs),
       sample_style_id: smpOf(c) || null,
+      // Only a sample card's cell carries a part key (0714) — a production
+      // card's facts keep 0707's exact shape.
+      ...("part" in c ? { part: text(c.part ?? "") } : {}),
     });
   }
   return out.length ? out : [{ color_name: null, print_name: null, finish_dia: null, req_kgs: null, sample_style_id: null }];
@@ -357,6 +375,7 @@ export function foldPlanCells(lines: readonly StoredPlanLine[]): PlanCells {
       req_kgs: str(r.req_kgs),
       // Only an SWO's line carries the key (0707) — a production fold is unchanged.
       ...(r.sample_style_id ? { sample_style_id: r.sample_style_id } : {}),
+      ...(r.part ? { part: r.part } : {}),
     };
     /* A line straight after one of the same SMP / Colour / Print is a further
        dia of it — the save writes a card's rows in order (`sno`), so a run
@@ -434,4 +453,121 @@ export function planReqKgs(cells: PlanCells): number | null {
  *  and what a COLOR WISE loss step lists. */
 export function plannedColours(cells: PlanCells): string[] {
   return [...new Set(Object.values(cells).map((c) => comboKey(c.color_name)).filter(Boolean))];
+}
+
+// ---------------------------------------------------------------------------
+// THE SAMPLE-FIRST VIEW (user 2026-10-12, plan "SMP-wise Fabric Consumption")
+// ---------------------------------------------------------------------------
+//
+// A sample plan is entered SAMPLE BY SAMPLE: pick an SMP, list the fabrics it
+// takes (one row per fabric · colour · print), and give each row its dias and
+// weights in a popup — Part · Finish Dia · Weight. The per-fabric `cells`
+// above stay the model (one cell per dia, one stored line per cell), so the
+// rules, the yarn engine, the save and every reader are untouched; these
+// helpers only read and edit one sample's slice of one fabric's cells.
+
+/** The fabric row a dia belongs to: its explicit `grp`, else its SMP /
+ *  Colour / Print (a loaded line has no `grp`). */
+export const grpOf = (c: PlanCell): string => c.grp ?? runKey(c);
+
+/** One sample's fabric row on one fabric — the cells (one per dia) entered
+ *  through one popup, with the Colour / Print they share. */
+export type SmpGroup = { grp: string; keys: CellKey[]; color_name: string; print_name: string };
+
+/** A sample's fabric rows on one fabric, in the order their first dia was added. */
+export function smpGroups(cells: PlanCells, smp: string): SmpGroup[] {
+  const out: SmpGroup[] = [];
+  const at = new Map<string, SmpGroup>();
+  for (const [key, c] of Object.entries(cells)) {
+    if (smpOf(c) !== smp) continue;
+    const g = grpOf(c);
+    const held = at.get(g);
+    if (held) held.keys.push(key);
+    else {
+      const next: SmpGroup = { grp: g, keys: [key], color_name: c.color_name, print_name: c.print_name };
+      at.set(g, next);
+      out.push(next);
+    }
+  }
+  return out;
+}
+
+const freshKey = (cells: PlanCells): CellKey => {
+  let n = Object.keys(cells).length;
+  while (`r${n}` in cells) n++;
+  return `r${n}`;
+};
+
+/** "+ Add fabric" for a sample — a new fabric row holding ONE blank dia, so
+ *  the popup never opens on a bare "+ Add". Returns the new row's `grp`. */
+export function addSmpGroup(cells: PlanCells, smp: string): { cells: PlanCells; grp: string } {
+  const key = freshKey(cells);
+  const grp = `g:${key}`;
+  return { cells: { ...cells, [key]: { ...BLANK_CELL, sample_style_id: smp, part: "", grp } }, grp };
+}
+
+/** "+ Add dia" inside the popup — a new dia carrying the row's SMP, Colour
+ *  and Print, placed after the row's last dia. */
+export function addSmpDia(cells: PlanCells, grp: string): PlanCells {
+  const entries = Object.entries(cells);
+  const members = entries.filter(([, c]) => grpOf(c) === grp);
+  if (!members.length) return cells;
+  const [lastKey, head] = members[members.length - 1];
+  const key = freshKey(cells);
+  const added: PlanCell = {
+    ...BLANK_CELL,
+    color_name: head.color_name,
+    print_name: head.print_name,
+    sample_style_id: smpOf(head),
+    part: "",
+    grp,
+  };
+  const out: Record<CellKey, PlanCell> = {};
+  for (const [k, c] of entries) {
+    out[k] = c;
+    if (k === lastKey) out[key] = added;
+  }
+  return out;
+}
+
+/** The row's Colour / Print, set on every dia of it. Each member is pinned
+ *  to the row's `grp` first, so a loaded row (grouped by its colour) stays
+ *  one row while its colour changes. */
+export function patchSmpGroup(cells: PlanCells, grp: string, patch: Pick<Partial<PlanCell>, "color_name" | "print_name">): PlanCells {
+  const out: Record<CellKey, PlanCell> = {};
+  for (const [k, c] of Object.entries(cells)) out[k] = grpOf(c) === grp ? { ...c, grp, ...patch } : c;
+  return out;
+}
+
+/** One dia's Part / Finish Dia / Weight. */
+export function patchSmpDia(cells: PlanCells, key: CellKey, patch: Pick<Partial<PlanCell>, "part" | "finish_dia" | "req_kgs">): PlanCells {
+  const held = cells[key];
+  if (!held) return cells;
+  return { ...cells, [key]: { ...held, grp: grpOf(held), ...patch } };
+}
+
+/** ✕ on a dia in the popup. The row's last dia is never removed this way — a
+ *  row with no dia would vanish from the sample; remove the row instead. */
+export function removeSmpDia(cells: PlanCells, key: CellKey): PlanCells {
+  const held = cells[key];
+  if (!held) return cells;
+  const g = grpOf(held);
+  if (Object.values(cells).filter((c) => grpOf(c) === g).length <= 1) return cells;
+  const next: Record<CellKey, PlanCell> = { ...cells };
+  delete next[key];
+  return next;
+}
+
+/** ✕ on a sample's fabric row — every dia of it goes. */
+export function removeSmpGroup(cells: PlanCells, grp: string): PlanCells {
+  const out: Record<CellKey, PlanCell> = {};
+  for (const [k, c] of Object.entries(cells)) if (grpOf(c) !== grp) out[k] = c;
+  return out;
+}
+
+/** A sample's planned kg across every fabric — the rail's "planned of costing". */
+export function smpReqKgs(cellsByFabric: readonly PlanCells[], smp: string): number {
+  let sum = 0;
+  for (const cells of cellsByFabric) for (const c of Object.values(cells)) if (smpOf(c) === smp) sum += num(c.req_kgs) ?? 0;
+  return Number.isFinite(sum) ? Number(sum.toFixed(4)) : 0;
 }

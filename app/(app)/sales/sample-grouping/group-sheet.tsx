@@ -146,11 +146,13 @@ export function GroupSheet({
       case "draft":
         // ONE CLICK (user 2026-10-09): approve and raise the IW together. Someone
         // who cannot raise IWs still approves — the IW is then raised by
-        // someone who can, from the Approved group's own "Raise IW".
+        // someone who can, from the Approved group's own "Raise SWO".
+        // Labelled SWO, not IW (user 2026-10-12): the operator knows the batch by
+        // its SWO number; the SIW work order stays underneath.
         return perms.canRaiseIw ? (
-          <Button size="md" disabled={isPending} onClick={() => run(() => approveAndRaiseSampleGroupIw(group.id), `${group.group_code} approved and its IW raised.`)}>
+          <Button size="md" disabled={isPending} onClick={() => run(() => approveAndRaiseSampleGroupIw(group.id), `${group.group_code} approved and raised.`)}>
             <Check className="h-4 w-4" />
-            Approve &amp; Raise IW
+            Approve &amp; Raise SWO
           </Button>
         ) : (
           <Button size="md" disabled={isPending} onClick={() => run(() => approveSampleGroup(group.id), `${group.group_code} approved — the batch is fixed.`)}>
@@ -168,8 +170,8 @@ export function GroupSheet({
             {/* Said in words, not as a disabled button's title — a disabled
                 control gets no hover, so that reason could never be read. */}
             {perms.canRaiseIw ? (
-              <Button size="md" disabled={isPending} onClick={() => run(() => raiseSampleGroupIw(group.id), `IW raised for ${group.group_code}.`)}>
-                Raise IW
+              <Button size="md" disabled={isPending} onClick={() => run(() => raiseSampleGroupIw(group.id), `${group.group_code} raised.`)}>
+                Raise SWO
               </Button>
             ) : (
               // nav-path: exempt -- "Orders ▸ Create" names the permission, not a menu row

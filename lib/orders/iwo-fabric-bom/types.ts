@@ -72,6 +72,8 @@ export interface IwoFabricBomLineRow {
   print_name: string | null;
   /** Sample Fabric Plan (0707): the SWO sample style this weight is for. */
   sample_style_id: string | null;
+  /** Sample Fabric Plan (0714): the garment part this dia is for. */
+  part: string | null;
   notes: string | null;
 }
 
@@ -252,6 +254,8 @@ export const iwoFabricBomLineInput = z.object({
   // Sample Fabric Plan (0707) — the SWO sample style (SMP line). Whether one is
   // owed is `lines.ts`'s: it needs the work order's SWO.
   sample_style_id: z.string().uuid().nullable().default(null),
+  // Sample Fabric Plan (0714) — the garment part a dia is for; capitals.
+  part: capsTextNullable(),
 });
 
 export type IwoFabricBomLineInput = z.input<typeof iwoFabricBomLineInput>;

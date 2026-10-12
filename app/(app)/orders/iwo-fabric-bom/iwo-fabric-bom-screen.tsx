@@ -98,7 +98,6 @@ import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { raiseSampleGroupIw } from "@/lib/sales/sample-grouping/actions";
-import { IwoDyeingOrder } from "@/components/orders/iwo-dyeing-order";
 import type { SwoAwaitingIw } from "@/lib/sales/sample-grouping/service";
 import { sectionValidity } from "@/lib/screens/validity";
 import { IWO_FOR_LABELS, IWO_STATUSES, IWO_STATUS_LABELS } from "@/lib/orders/internal-work-orders/types";
@@ -164,9 +163,19 @@ import {
 } from "@/lib/orders/iwo-fabric-bom/lines";
 import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
+import { SmpDiaSheet } from "./smp-dia-sheet";
 import {
   addPlanDia,
   addPlanRow,
+  addSmpDia,
+  addSmpGroup,
+  grpOf,
+  patchSmpDia,
+  patchSmpGroup,
+  removeSmpDia,
+  removeSmpGroup,
+  smpGroups,
+  smpReqKgs,
   canAddDia,
   derivePlanRows,
   expandPlanCells,
@@ -510,7 +519,6 @@ export function IwoFabricBomScreen({
   perms,
   sample = false,
   swos,
-  dyeing,
 }: {
   tasks: IwoFabricBomTask[];
   data: IwoFabricBomFormData;
@@ -521,9 +529,6 @@ export function IwoFabricBomScreen({
   /** Sample ▸ Fabric Plan (0707): the approved SWOs with no work order yet —
    *  what the in-place "new work order" box raises against. */
   swos?: SwoAwaitingIw[];
-  /** Sample ▸ Fabric Plan (0708): the dye houses, and whether this person may
-   *  raise a dyeing work order (Stores ▸ Create). Absent = no dyeing block. */
-  dyeing?: { vendors: { id: string; name: string }[]; canRaise: boolean };
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -541,7 +546,7 @@ export function IwoFabricBomScreen({
    *  opened from the work order, so that is where closing it returns. */
 
   function leaveEditor() {
-
+    setNeedsAsked(false);
     setMode("list");
 
     // Sample ▸ Fabric Plan is its own sidebar row, so closing returns to its list.
@@ -573,6 +578,18 @@ export function IwoFabricBomScreen({
    *  is open (or null), and the button it grew from. */
   const [ydFor, setYdFor] = useState<string | null>(null);
   const [ydOrigin, setYdOrigin] = useState<SheetOrigin | null>(null);
+  /** Sample plan, Fabric Consumption sample by sample (2026-10-12): the SMP
+   *  open on the right, each sample's fabric rows not yet given a fabric, and
+   *  the fabric row whose Dia & weight popup is open (+ the button it grew from). */
+  const [smpOpen, setSmpOpen] = useState<string | null>(null);
+  const [smpPending, setSmpPending] = useState<Record<string, string[]>>({});
+  const [diaFor, setDiaFor] = useState<{ lineKey: string; grp: string } | null>(null);
+  const [diaOrigin, setDiaOrigin] = useState<SheetOrigin | null>(null);
+  /** Sample plan: has the operator pressed Save with something still owed?
+   *  Until then the "Still needed before Save" list stays hidden (user
+   *  2026-10-12: "why is this showing always — just trigger it when needed").
+   *  The red rings on the owed boxes still show from the start. */
+  const [needsAsked, setNeedsAsked] = useState(false);
   /** Every fabric's Yarn Dyed rows in two lists, keyed by `item_id` — the
    *  order screen's shape, so the payload sends them all with no popup open. */
   const [ydRepeats, setYdRepeats] = useState<YdRepeat[]>([]);
@@ -680,9 +697,6 @@ export function IwoFabricBomScreen({
   };
 
   const fabricById = useMemo(() => new Map(data.fabrics.map((f) => [f.id, f])), [data.fabrics]);
-  /** The master's DYEING steps (`processes.is_dyeing`) — what the dyeing
-   *  work order's loss is read from (0708). */
-  const dyeingProcessIds = useMemo(() => new Set(data.processes.filter((p) => p.is_dyeing).map((p) => p.id)), [data.processes]);
   const fabricTypeOf = (itemId: string | null) => (itemId ? (fabricById.get(itemId)?.fabric_type ?? null) : null);
 
   // ---- open ------------------------------------------------------------------
@@ -708,6 +722,7 @@ export function IwoFabricBomScreen({
   }
 
   function openTask(t: IwoFabricBomTask) {
+    setNeedsAsked(false);
     const b = t.bom;
     if (!b) return openNew(t.id);
     setEditId(b.id);
@@ -1184,6 +1199,20 @@ export function IwoFabricBomScreen({
             : "enter a weight on at least one row."
         }`;
       }
+      /* A SAMPLE PLAN NAMES THE SAMPLE AND THE FABRIC (2026-10-12): its
+         Consumption is entered sample by sample, so "Fabric line 2" points at
+         nothing on screen. A fabric no sample uses is said as that. */
+      if (sample) {
+        const l = lines[row - 1];
+        const fabricName = (l?.item_id ? fabricById.get(l.item_id)?.name : null) ?? `Fabric line ${row}`;
+        if (at && isPlaceholderFacts(at.facts)) {
+          message = `${fabricName}: no sample uses this fabric yet — add it to a sample under Fabric Consumption, or remove it from Fabric Allocation.`;
+        } else {
+          const smp = at?.facts.sample_style_id;
+          const who = smp ? `${swoSampleLabel(smp) || "A sample not in this SWO"} · ${fabricName}` : fabricName;
+          message = message.replace(/^Fabric line \d+:/, `${who}:`);
+        }
+      }
       return [{ ...p, row, message }];
     })
     // Two cells of one row failing the same test are ONE thing to fix.
@@ -1341,6 +1370,7 @@ export function IwoFabricBomScreen({
   });
 
   const revealFirstProblem = () => {
+    setNeedsAsked(true);
     const p = validity.first;
     if (!p) return;
     toastError(p.message);
@@ -1350,6 +1380,7 @@ export function IwoFabricBomScreen({
   // ---- save ------------------------------------------------------------------
 
   function submit(asDraft: boolean) {
+    setNeedsAsked(true);
     if (!form.iwo_id) return;
     // A Yarn work order has only the Yarn Colour panel on screen (2026-09-20).
     const paletteSections = yarnMode ? (["yarn"] as const) : (["fabric", "yarn", "print"] as const);
@@ -2083,6 +2114,348 @@ export function IwoFabricBomScreen({
     </FieldGrid>
   );
 
+  // ---- Fabric Consumption, sample by sample (a sample plan only) -------------
+  /*
+   * THE SAMPLE FIRST, ITS FABRICS BESIDE IT (user 2026-10-12, plan "SMP-wise
+   * Fabric Consumption" v3). The per-fabric cards asked for the SMP on every
+   * row; a planner thinks the other way round — pick a sample, then say what
+   * it takes. So a sample plan lists the SWO's samples on the left (planned
+   * kg against the costing's) and the open sample's fabric rows on the right:
+   * Fabric · Colour · [Print] · Dia & weight · Req Wt · Gross Yarn. A row's
+   * dias and weights are entered in a popup (`SmpDiaSheet`), each dia naming
+   * its PART — Fabric BOM ▸ Manual's shape — and Req Wt is their sum.
+   *
+   * NOTHING BELOW THE VIEW MOVED. The per-fabric `cells` stay the model (one
+   * cell per dia, one stored line per cell); `smpGroups` and friends (plan.ts)
+   * read and edit one sample's slice of them. Save, the rules, the yarn
+   * engine, the budget and Grouping's cutting basis read what they always did.
+   *
+   * A row starts with no fabric (a pending row, client state only) and the
+   * Fabric box offers what Fabric Allocation lists — Allocation stays the list
+   * of what is bought. Choosing one makes the row real, with one blank dia.
+   */
+  type SmpRow = { key: string; lineKey: string | null; grp: string | null };
+  const allocatedLines = lines.filter((l) => !!l.item_id);
+  const smpIds = swo ? swo.samples.map((x) => x.style_id) : [];
+  const smpCur = smpOpen && smpIds.includes(smpOpen) ? smpOpen : (smpIds[0] ?? null);
+  const fabricNameOf = (l: LineRow) => (l.item_id ? (fabricById.get(l.item_id)?.name ?? "") : "");
+  const smpRowsFor = (smp: string): SmpRow[] => {
+    const real: SmpRow[] = allocatedLines.flatMap((l) =>
+      smpGroups(l.cells, smp).map((g) => ({ key: `${l.key}|${g.grp}`, lineKey: l.key, grp: g.grp })),
+    );
+    const pending: SmpRow[] = (smpPending[smp] ?? []).map((k) => ({ key: k, lineKey: null, grp: null }));
+    const rows = [...real, ...pending];
+    // Editable sub-tables open with a row (AGENTS.md): a sample with nothing
+    // planned shows one row standing ready, its Fabric box first.
+    return rows.length ? rows : [{ key: `seed:${smp}`, lineKey: null, grp: null }];
+  };
+  const smpHit = (r: SmpRow) => {
+    if (!r.lineKey || !r.grp || !smpCur) return null;
+    const l = lines.find((x) => x.key === r.lineKey);
+    const g = l ? smpGroups(l.cells, smpCur).find((x) => x.grp === r.grp) : undefined;
+    return l && g ? { l, g } : null;
+  };
+  const groupKgOf = (l: LineRow, keys: readonly string[]) =>
+    keys.reduce((a, k) => a + (num(l.cells[k]?.req_kgs ?? "") || 0), 0);
+  const groupGrossOf = (l: LineRow, keys: readonly string[]) =>
+    keys.reduce((a, k) => {
+      const c = l.cells[k];
+      return a + (c ? (grossOf(l.item_id, num(c.req_kgs), c.color_name || null) ?? 0) : 0);
+    }, 0);
+  /** The one dia a fabric's knit family lists, if just one — filled in on a new
+   *  dia so the planner is not asked to pick from a list of one (the Order
+   *  module's `diaOptionsFor` rule). */
+  const onlyDiaOf = (l: LineRow) => {
+    const fam = familyDias(diaDeclarations, lineKnitCode(l));
+    return fam.length === 1 ? fam[0] : "";
+  };
+  const withOnlyDia = (l: LineRow, before: PlanCells, after: PlanCells) => {
+    const dia = onlyDiaOf(l);
+    if (!dia) return after;
+    let next = after;
+    for (const k of Object.keys(after)) if (!(k in before)) next = patchSmpDia(next, k, { finish_dia: dia });
+    return next;
+  };
+  const pickSmpFabric = (smp: string, r: SmpRow, lineKey: string) => {
+    const l = lines.find((x) => x.key === lineKey);
+    if (!l) return;
+    const { cells } = addSmpGroup(l.cells, smp);
+    patchLine(l.key, { cells: withOnlyDia(l, l.cells, cells) });
+    setSmpPending((prev) => ({ ...prev, [smp]: (prev[smp] ?? []).filter((k) => k !== r.key) }));
+  };
+  const anyPrintStage = allocatedLines.some((l) => fabricStageRank(l.stage_id) === 2);
+  /** A Colour / Print box over a panel's names; a held value the panel no
+   *  longer lists stays on the row as itself, tagged ("Disabled rows"). */
+  const smpAxisSelect = (label: string, value: string, options: readonly string[], onPick: (v: string) => void) => {
+    const held = value.trim() && !options.some((o) => comboKey(o) === comboKey(value)) ? value : "";
+    return (
+      <Select
+        compact
+        required
+        aria-label={label}
+        value={held || options.find((o) => comboKey(o) === comboKey(value)) || ""}
+        onChange={(e) => onPick(e.target.value)}
+        className={cn(held && "text-danger")}
+      >
+        <option value="" />
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+        {held && <option value={held}>{held} (not declared)</option>}
+      </Select>
+    );
+  };
+  /**
+   * STAGE / FORM / GSM INSIDE THE SAMPLE'S ROWS (user 2026-10-12: Allocation in
+   * plan v3, then a strip above the samples, then "it should come inside the
+   * sample entry, not outside"). They are still the FABRIC's — one Stage per
+   * fabric is a rule (its route and yarn are shared) — so a change on one
+   * sample's row is set on every row of that fabric, in every sample
+   * (`setFabricStage`, `patchLine`), and the next sample shows it already set.
+   *
+   * WIDTHS (check:grid-budget): term 176 (Fabric) + code 144 (Stage) + hug 88
+   * (Form) + num 72 (GSM) + term 176 (Colour) + code 144 (Dia & weight) +
+   * range 112 (Req Wt) + range 112 (Gross Yarn) = 1024, + 72 chrome = 1096 <=
+   * 1155. A printed fabric adds code 144 (Print); the grid scrolls then.
+   */
+  const smpColumns = (smp: string): ChildGridColumn<SmpRow>[] => [
+    {
+      header: "Fabric",
+      width: FIELD_WIDTH_CSS.term,
+      cell: (r) => {
+        const hit = smpHit(r);
+        if (hit) {
+          return <Truncated className="block text-sm font-medium">{fabricNameOf(hit.l)}</Truncated>;
+        }
+        return (
+          <Select compact aria-label="Fabric" value="" onChange={(e) => e.target.value && pickSmpFabric(smp, r, e.target.value)}>
+            <option value="">{allocatedLines.length ? "" : "Add a fabric on Fabric Allocation first"}</option>
+            {allocatedLines.map((l) => (
+              <option key={l.key} value={l.key}>
+                {fabricNameOf(l)}
+              </option>
+            ))}
+          </Select>
+        );
+      },
+    },
+    {
+      header: "Stage",
+      required: true,
+      width: FIELD_WIDTH_CSS.code,
+      cell: (r) => {
+        const hit = smpHit(r);
+        if (!hit) return null;
+        return (
+          <LookupDialogPicker
+            kind="fabric_stage"
+            label="Stage"
+            compact
+            required
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            options={data.fabricStages}
+            value={hit.l.stage_id}
+            onChange={(id) => setFabricStage(hit.l, id)}
+          />
+        );
+      },
+    },
+    {
+      header: "Form",
+      width: FIELD_WIDTH_CSS.hug,
+      cell: (r) => {
+        const hit = smpHit(r);
+        if (!hit) return null;
+        return (
+          <Select compact aria-label="Form" value={hit.l.fabric_form} onChange={(e) => patchLine(hit.l.key, { fabric_form: e.target.value })}>
+            <option value="" />
+            {FABRIC_FORM_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        );
+      },
+    },
+    {
+      header: "GSM",
+      align: "right",
+      width: FIELD_WIDTH_CSS.num,
+      cell: (r) => {
+        const hit = smpHit(r);
+        if (!hit) return null;
+        return (
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            aria-label="GSM"
+            value={hit.l.gsm}
+            onChange={(e) => patchLine(hit.l.key, { gsm: e.target.value })}
+          />
+        );
+      },
+    },
+    {
+      header: "Colour",
+      width: FIELD_WIDTH_CSS.term,
+      cell: (r) => {
+        const hit = smpHit(r);
+        if (!hit) return null;
+        const rank = fabricStageRank(hit.l.stage_id);
+        // Greige is one lot, dyed later — no colour to pick (`lines.ts`).
+        if (rank == null) return <span className="text-xs text-muted-foreground">Pick the Stage first</span>;
+        if (rank === 0) return <span className="text-xs text-muted-foreground">Greige</span>;
+        return smpAxisSelect("Colour", hit.g.color_name, fabricColourNames, (v) =>
+          patchLine(hit.l.key, { cells: patchSmpGroup(hit.l.cells, hit.g.grp, { color_name: v }) }),
+        );
+      },
+    },
+    ...(anyPrintStage
+      ? [
+          {
+            header: "Print",
+            width: FIELD_WIDTH_CSS.code,
+            cell: (r: SmpRow) => {
+              const hit = smpHit(r);
+              if (!hit || fabricStageRank(hit.l.stage_id) !== 2) return null;
+              return smpAxisSelect("Print", hit.g.print_name, printNames, (v) =>
+                patchLine(hit.l.key, { cells: patchSmpGroup(hit.l.cells, hit.g.grp, { print_name: v }) }),
+              );
+            },
+          },
+        ]
+      : []),
+    {
+      header: "Dia & weight",
+      width: FIELD_WIDTH_CSS.code,
+      cell: (r) => {
+        const hit = smpHit(r);
+        if (!hit) return null;
+        const ds = [...new Set(hit.g.keys.map((k) => (hit.l.cells[k]?.finish_dia ?? "").trim()).filter(Boolean))];
+        const owes = groupKgOf(hit.l, hit.g.keys) <= 0;
+        return (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-row-open
+            className={cn(owes && "border-danger text-danger")}
+            aria-label={`Dia & weight — ${fabricNameOf(hit.l)}${hit.g.color_name ? ` · ${hit.g.color_name}` : ""}`}
+            onClick={(ev) => {
+              setDiaOrigin(ev.currentTarget.getBoundingClientRect());
+              setDiaFor({ lineKey: hit.l.key, grp: hit.g.grp });
+            }}
+          >
+            {ds.length ? `${ds.join(" · ")} ▸` : "Add dia ▸"}
+          </Button>
+        );
+      },
+    },
+    {
+      // Read-only: the popup's weights, summed.
+      header: "Req Wt (KGS)",
+      align: "right",
+      width: FIELD_WIDTH_CSS.range,
+      total: { kind: "sum", of: (r) => { const hit = smpHit(r); return hit ? groupKgOf(hit.l, hit.g.keys) : 0; }, format: kg },
+      cell: (r) => {
+        const hit = smpHit(r);
+        return hit ? <span className="text-sm tabular-nums">{kg(groupKgOf(hit.l, hit.g.keys))}</span> : null;
+      },
+    },
+    {
+      header: "Gross Yarn (KGS)",
+      align: "right",
+      width: FIELD_WIDTH_CSS.range,
+      total: { kind: "sum", of: (r) => { const hit = smpHit(r); return hit ? groupGrossOf(hit.l, hit.g.keys) : 0; }, format: kg },
+      cell: (r) => {
+        const hit = smpHit(r);
+        if (!hit) return null;
+        const g = groupGrossOf(hit.l, hit.g.keys);
+        return <span className="text-sm tabular-nums">{g > 0 ? kg(g) : <span className="text-muted-foreground">—</span>}</span>;
+      },
+    },
+  ];
+  const smpConsumption = () => {
+    if (!swo) {
+      return (
+        <p className="text-sm text-muted-foreground">Pick the SWO on the Fabric Plan section first — its samples are listed here.</p>
+      );
+    }
+    const cur = swo.samples.find((x) => x.style_id === smpCur) ?? null;
+    return (
+      <div className="flex flex-col gap-4 md:flex-row md:items-start">
+        {/* THE SAMPLES — every SMP in the SWO from the start, planned kg
+            against its costing kg: green once met, amber while short. */}
+        <nav aria-label="Samples" className="space-y-1 md:w-56 md:shrink-0">
+          {swo.samples.map((x) => {
+            const planned = smpReqKgs(lines.map((l) => l.cells), x.style_id);
+            const met = x.kg > 0 && planned >= x.kg - 0.0005;
+            const on = x.style_id === smpCur;
+            return (
+              <button
+                key={x.style_id}
+                type="button"
+                aria-current={on ? "true" : undefined}
+                onClick={() => setSmpOpen(x.style_id)}
+                className={cn(
+                  "block w-full rounded-control border px-3 py-2 text-left",
+                  on ? "border-primary bg-surface" : "border-transparent hover:bg-surface-muted",
+                )}
+              >
+                <span className="flex items-center gap-1.5 font-mono text-xs">
+                  <span aria-hidden className={cn("size-2 shrink-0 rounded-full", met ? "bg-success" : "bg-warning")} />
+                  {x.smp_no ?? x.sample_no ?? "—"}
+                </span>
+                <Truncated className="block text-xs">{x.style_name}</Truncated>
+                <span className="block text-[11px] text-muted-foreground">{`${kg(planned)} of ${kg(x.kg)} kg`}</span>
+              </button>
+            );
+          })}
+        </nav>
+        {cur && (
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b pb-2 text-sm">
+              <span className="font-mono font-semibold">{cur.smp_no ?? cur.sample_no ?? "—"}</span>
+              <span className="font-semibold">{cur.style_name}</span>
+              <span className="text-muted-foreground">{`Costing ${kg(cur.kg)} kg`}</span>
+            </div>
+            {!allocatedLines.length ? (
+              <div>
+                <p className="text-sm text-muted-foreground">Name a fabric on Fabric Allocation first — a sample&apos;s rows pick from those fabrics.</p>
+                <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => shellRef.current?.goToSection("lines")}>
+                  Go to Fabric Allocation
+                </Button>
+              </div>
+            ) : (
+              <ChildGrid<SmpRow>
+                key={cur.style_id}
+                columns={smpColumns(cur.style_id)}
+                rows={smpRowsFor(cur.style_id)}
+                flatRows
+                addLabel="+ Add fabric"
+                onAdd={() => setSmpPending((prev) => ({ ...prev, [cur.style_id]: [...(prev[cur.style_id] ?? []), `p${newKey()}`] }))}
+                onRemove={(r) => {
+                  const hit = smpHit(r);
+                  if (hit) patchLine(hit.l.key, { cells: removeSmpGroup(hit.l.cells, hit.g.grp) });
+                  else setSmpPending((prev) => ({ ...prev, [cur.style_id]: (prev[cur.style_id] ?? []).filter((k) => k !== r.key) }));
+                }}
+                totalsLabel="Sample total"
+              />
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+  /** The fabric row whose Dia & weight popup is open, and its dias. */
+  const diaLine = diaFor ? (lines.find((l) => l.key === diaFor.lineKey) ?? null) : null;
+  const diaKeys = diaLine && diaFor ? Object.keys(diaLine.cells).filter((k) => grpOf(diaLine.cells[k]) === diaFor.grp) : [];
+  const diaHead = diaKeys.length && diaLine ? diaLine.cells[diaKeys[0]] : null;
+
   // ---- Yarn Lines (For = Yarn, step 4) -----------------------------------------
 
   const patchYarnLine = (key: string, patch: Partial<YarnLineRow>) => {
@@ -2532,20 +2905,12 @@ export function IwoFabricBomScreen({
             </div>
           )}
 
-          {/* THE SWO's DYEING WORK ORDER (client decision 2026-10-12) — computed
-              from the SAVED plan; Issue = greige, Return = finished. */}
-          {sample && dyeing && picked && picked.iwo_for === "fabric" && (
-            <IwoDyeingOrder
-              iwoId={picked.id}
-              bom={picked.bom}
-              isDyeing={(id) => dyeingProcessIds.has(id)}
-              fabricName={(id) => fabricById.get(id)?.name ?? ""}
-              orders={picked.dyeing_orders}
-              vendors={dyeing.vendors}
-              canRaise={dyeing.canRaise}
-              dirty={dirty}
-            />
-          )}
+          {/* NO DYEING WORK ORDER BOX (user 2026-10-12: "no need this one").
+              a4ecda7 put one here — Issue = greige, Return = finished, raised
+              as a Stores process order — and the client dropped it the same
+              day. The calculation (`lib/orders/iwo-fabric-bom/dyeing.ts`, its
+              §20 vectors), `raiseIwoDyeingOrder` and 0708's columns are left
+              in place, unused, so it can come back without re-deriving it. */}
 
           {/* ONE ROW OF FOUR, as on the order screen. A flex row, not
               grid-cols-4, so this file declares no grid of its own. On the
@@ -2674,6 +3039,10 @@ export function IwoFabricBomScreen({
       done: lines.some((l) => (planReqKgs(l.cells) ?? 0) > 0),
       content: (
         <SectionBody title="Fabric Consumption">
+          {sample ? (
+            <div className="[&_[data-required-empty]]:ring-1 [&_[data-required-empty]]:ring-danger">{smpConsumption()}</div>
+          ) : (
+            <>
           {!lines.some((l) => l.item_id) && (
             <div>
               <p className="text-sm text-muted-foreground">
@@ -2795,7 +3164,12 @@ export function IwoFabricBomScreen({
               );
             })}
           </div>
-          {consumptionNeeds.length > 0 && (
+            </>
+          )}
+          {/* A sample plan lists what is owed only once Save was pressed with
+              something missing; a production plan keeps it on screen (its
+              2026-09-20 "where will it ask" note above). */}
+          {consumptionNeeds.length > 0 && (!sample || needsAsked) && (
             <div className="mt-2 rounded-md border border-danger bg-danger-soft px-3 py-2 text-xs text-danger">
               <div className="font-semibold">Still needed before Save</div>
               <ul className="mt-0.5 space-y-0.5">
@@ -3027,6 +3401,32 @@ export function IwoFabricBomScreen({
         }}
       />
 
+      {sample && (
+        <SmpDiaSheet
+          open={!!diaLine && diaKeys.length > 0}
+          onClose={() => setDiaFor(null)}
+          origin={diaOrigin}
+          title={[
+            diaHead?.sample_style_id ? swoSampleLabel(diaHead.sample_style_id) : "",
+            diaLine ? fabricNameOf(diaLine) : "",
+            diaHead?.color_name ?? "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          rows={diaKeys.map((k) => {
+            const c = diaLine!.cells[k];
+            return { key: k, part: c.part ?? "", finish_dia: c.finish_dia, req_kgs: c.req_kgs };
+          })}
+          dias={diaLine ? familyDias(diaDeclarations, lineKnitCode(diaLine)) : []}
+          diaRequired={(fabricStageRank(diaLine?.stage_id ?? null) ?? 0) >= 1}
+          onPatch={(k, patch) => diaLine && patchLine(diaLine.key, { cells: patchSmpDia(diaLine.cells, k, patch) })}
+          onAdd={() => {
+            if (!diaLine || !diaFor) return;
+            patchLine(diaLine.key, { cells: withOnlyDia(diaLine, diaLine.cells, addSmpDia(diaLine.cells, diaFor.grp)) });
+          }}
+          onRemove={(k) => diaLine && patchLine(diaLine.key, { cells: removeSmpDia(diaLine.cells, k) })}
+        />
+      )}
       <YarnShadesSheet
         open={!!shadeLine}
         onClose={() => setShadesFor(null)}
