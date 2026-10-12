@@ -31,11 +31,12 @@
  * return"). Keep it that way.
  */
 
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTabResume } from "@/lib/workspace-tabs";
 import { useOpenIntent } from "@/lib/use-open-intent";
-import { Boxes, Calculator, ClipboardList, Package, Palette, Shirt, Users, CalendarRange, Layers, Trash2 } from "lucide-react";
+import { Boxes, Calculator, ClipboardList, Package, Palette, Shirt, Users, CalendarRange, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -1003,18 +1004,12 @@ export function SampleEntryScreen({
                       onChange={(next) => patchCombo(s, c.key, { combo: next.name })}
                     />
                   </div>
+                  {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
                   {s.combos.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      data-row-remove
-                      className="shrink-0 text-muted-foreground hover:text-danger"
-                      aria-label="Remove combo"
+                    <RowHoverRemove
+                      label="Remove combo"
                       onClick={() => patchStyle(s.key, { combos: s.combos.filter((x) => x.key !== c.key) })}
-                    >
-                      <Trash2 className="h-4 w-4 shrink-0" />
-                    </Button>
+                    />
                   )}
                 </div>
                 {sizes.map((z) => (
@@ -1962,7 +1957,6 @@ export function SampleEntryScreen({
               onAdd={addQty}
               onRemove={removeQty}
               addLabel="+ Add quantity"
-              removeHeader="Actions"
             />
           </div>
           <FieldRow className="mt-3">

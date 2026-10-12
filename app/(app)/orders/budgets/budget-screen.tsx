@@ -3056,7 +3056,6 @@ export function BudgetScreen({
         onAdd={() => addCost("yarn")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3074,7 +3073,6 @@ export function BudgetScreen({
         onAdd={() => addCost("fabric")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3092,7 +3090,6 @@ export function BudgetScreen({
         onAdd={() => addCost("material")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3110,7 +3107,6 @@ export function BudgetScreen({
         onAdd={() => addCost("yarn_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3128,7 +3124,6 @@ export function BudgetScreen({
         onAdd={() => addCost("material_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3148,7 +3143,6 @@ export function BudgetScreen({
         onAdd={() => addCost("garment_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3166,7 +3160,6 @@ export function BudgetScreen({
         onAdd={() => addCost("cmt")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3183,7 +3176,6 @@ export function BudgetScreen({
         onAdd={() => addCost("expense")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3200,7 +3192,6 @@ export function BudgetScreen({
         onAdd={() => addCost("income")}
         onRemove={removeCost}
         addLabel="+ Add line"
-        removeHeader="Actions"
       />
   );
 
@@ -3482,7 +3473,6 @@ export function BudgetScreen({
             lockRow={pulledRowLocked}
             onAdd={() => false}
             onRemove={removeCost}
-            removeHeader="Actions"
           />
         </div>
       )}

@@ -881,7 +881,6 @@ export function YarnProcessGrid({
          one thing is the drift AGENTS.md keeps recording. The whole vocabulary
          moved with the button, not just the button. */
       addLabel="+ Add process"
-      removeHeader="Actions"
     />
     </div>
     {/* THE CONVERSION DETAILS POPUP — legacy's [Click] ▸ Details (user
@@ -931,7 +930,6 @@ export function YarnProcessGrid({
               hideAdd={readOnly}
               hideRemove={readOnly}
               addLabel="+ Add colour"
-              removeHeader="Actions"
               onAdd={() => writeDetails(looseRow, (rows) => [...rows, blankDetail("")])}
               onRemove={(g) => {
                 const at = detailRowsOf(looseRow).findIndex((x) => x.key === g.key);

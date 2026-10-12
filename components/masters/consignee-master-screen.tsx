@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, DownloadCloud, MapPin, SlidersHorizontal, TriangleAlert, User, X } from "lucide-react";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
+import { Bell, DownloadCloud, MapPin, SlidersHorizontal, TriangleAlert, User } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -2137,16 +2138,8 @@ export function ConsigneeMasterScreen({
                             <span className="text-xs font-medium text-muted-foreground">
                               Contact #{i + 1}
                             </span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-muted-foreground hover:text-danger"
-                              onClick={() => removeContact(c.key)}
-                              aria-label="Remove contact"
-                            >
-                              <X className="h-4 w-4 shrink-0" />
-                            </Button>
+                            {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
+                            <RowHoverRemove label="Remove contact" onClick={() => removeContact(c.key)} />
                           </div>
                           {/* ONE wrapping `FieldRow` per contact, laid out by
                               WIDTH — see `CONTACT_FIELD_W` for the steps and the
@@ -2425,7 +2418,7 @@ export function ConsigneeMasterScreen({
                       {/* No inner scroll — see ChildGrid's `pageSize` note. */}
                       <div className="space-y-2">
                       {markings.map((m, i) => (
-                        <div key={m.key} className="flex items-center gap-2">
+                        <div key={m.key} data-hover-row className="flex items-center gap-2">
                           <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">
                             {i + 1}
                           </span>
@@ -2442,16 +2435,8 @@ export function ConsigneeMasterScreen({
                             onChange={(e) => setMarkingAt(m.key, e.target.value)}
                             className="w-72 shrink-0"
                           />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="shrink-0 text-muted-foreground hover:text-danger"
-                            onClick={() => removeMarking(m.key)}
-                            aria-label="Remove marking"
-                          >
-                            <X className="h-4 w-4 shrink-0" />
-                          </Button>
+                          {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
+                          <RowHoverRemove label="Remove marking" onClick={() => removeMarking(m.key)} />
                         </div>
                       ))}
                       </div>
@@ -2581,16 +2566,8 @@ export function ConsigneeMasterScreen({
                           <span className="text-xs font-medium text-muted-foreground">
                             Notify #{i + 1}
                           </span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="text-muted-foreground hover:text-danger"
-                            onClick={() => removeNotifyRef(n.key)}
-                            aria-label="Remove notify party"
-                          >
-                            <X className="h-4 w-4 shrink-0" />
-                          </Button>
+                          {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
+                          <RowHoverRemove label="Remove notify party" onClick={() => removeNotifyRef(n.key)} />
                         </div>
                         {/* ONE `FieldRow`, laid out by WIDTH — see
                             `NOTIFY_FIELD_W` for the two steps and the 300px line

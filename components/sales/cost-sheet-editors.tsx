@@ -1,7 +1,8 @@
 "use client";
 
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { useState, type ReactNode } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CostingDraft } from "@/lib/sales/sample-costing/types";
 import { newExtra, newFabric, newPieceLine, newTrim, newWeightRows } from "@/lib/sales/sample-costing/revision-draft";
@@ -74,21 +75,10 @@ export function EdText({ value, onChange, label, w = "w-40" }: { value: string; 
   );
 }
 
-/** A row's ✕ — never the keyboard's Tab stop (the contract's Remove), always on the mouse. */
+/** A row's ✕ — the app-wide hover ✕ (user 2026-10-12, erp-row-hover-remove):
+ *  hidden until the pointer is on its `<tr>`, never a Tab stop, Ctrl+Del-able. */
 export function RemoveX({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      tabIndex={-1}
-      data-row-remove
-      aria-label={`Remove ${label}`}
-      title={`Remove ${label}`}
-      onClick={onClick}
-      className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[#b8c4cc] bg-white text-[#5b6b78] hover:text-[#c0392b]"
-    >
-      <X className="h-3.5 w-3.5" />
-    </button>
-  );
+  return <RowHoverRemove label={`Remove ${label}`} onClick={onClick} />;
 }
 
 function AddRow({ children, add, addLabel, disabled }: { children?: ReactNode; add: () => void; addLabel: string; disabled?: boolean }) {

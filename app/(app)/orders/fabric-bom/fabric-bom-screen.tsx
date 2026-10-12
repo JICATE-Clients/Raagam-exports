@@ -59,6 +59,7 @@ import {
   CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 /* A Combobox, so the Manual sheet's Table width cell PICKS rather than accepts:
@@ -833,7 +834,6 @@ function PaletteTable<T extends { key: string }>({
             {columns.map((c) => (
               <col key={c.header} />
             ))}
-            <col className="w-14" />
           </colgroup>
           <thead>
             <tr>
@@ -843,7 +843,6 @@ function PaletteTable<T extends { key: string }>({
                   {c.header}
                 </th>
               ))}
-              <th className="text-center text-[12.5px] font-semibold text-foreground">Actions</th>
             </tr>
           </thead>
           {/* THE TWO MARKERS THAT MAKE THIS A GRID TO THE KEYBOARD. `gridKeyNav`
@@ -856,22 +855,20 @@ function PaletteTable<T extends { key: string }>({
                 <td className="text-center text-xs tabular-nums text-muted-foreground">
                   {i + 1}
                 </td>
-                {columns.map((c, ci) => (
-                  <td key={c.header}>{c.cell(row, ci)}</td>
-                ))}
-                <td className="text-center">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-row-remove
-                    aria-label={`Remove ${label.toLowerCase()} row ${i + 1}`}
-                    className="px-1 text-danger hover:text-danger"
-                    onClick={() => onRemove(row)}
-                  >
-                    {"✕"}
-                  </Button>
-                </td>
+                {/* NO ACTIONS COLUMN (user 2026-10-12, `erp-row-hover-remove`): the
+                    row's ✕ rides in its LAST cell and shows only on row hover. */}
+                {columns.map((c, ci) =>
+                  ci === columns.length - 1 ? (
+                    <td key={c.header}>
+                      <div className="flex items-center gap-1 pr-1">
+                        <div className="min-w-0 flex-1">{c.cell(row, ci)}</div>
+                        <RowHoverRemove label={`Remove ${label.toLowerCase()} row ${i + 1}`} onClick={() => onRemove(row)} />
+                      </div>
+                    </td>
+                  ) : (
+                    <td key={c.header}>{c.cell(row, ci)}</td>
+                  ),
+                )}
               </tr>
             ))}
           </tbody>
@@ -5726,11 +5723,12 @@ export function FabricBomScreen({
     Components: "minmax(6.75rem,1.1fr)",
     "Assort Color": "minmax(6rem,0.9fr)",
   };
-  /** The ✕ track, headed "Actions" since 2026-10-03 (`erp-sheet-grid`):
-   *  the word at 12px plus the sheet cell's 8px insets needs 4rem, and the
-   *  32px chip box sits centred in it. The floors above sum to 53.75rem
-   *  (2026-10-05; see the note on the three heading floors). */
-  const MANUAL_REMOVE_TRACK = "4rem";
+  /** The ✕ track — UNHEADED, the 20px hover chip plus the cell's insets
+   *  (user 2026-10-12, `erp-row-hover-remove`: "ella table la irukka action
+   *  field ayum eduthuttu"). It was a 4rem "Actions" column from 2026-10-03.
+   *  The floors above sum to 53.75rem (2026-10-05; see the note on the three
+   *  heading floors). */
+  const MANUAL_REMOVE_TRACK = "1.75rem";
   const manualGridCols = (withRemove: boolean) =>
     [
       ...manualEntryColumns.map((c) => MANUAL_TRACK[c.header] ?? "minmax(6rem,1fr)"),
@@ -6335,12 +6333,10 @@ export function FabricBomScreen({
                     </div>
                   ))}
                   {manualEntries.length > 1 && (
-                    /* The ✕ column's header — "Actions", as on every sheet
-                       grid (`erp-sheet-grid`: a named header for EVERY
-                       column). Same track as the cell below it. */
-                    <div className={cn("flex min-w-0 items-end leading-tight", GRID_HEADER_TEXT, "text-xs")}>
-                      Actions
-                    </div>
+                    /* The ✕ track's header cell — EMPTY since the Actions
+                       heading went (2026-10-12). Kept so the band's tracks
+                       still line up with the body's. */
+                    <div aria-hidden />
                   )}
                 </div>
                 {/* THE BODY BAND — one control per column, `RequiredScope`
@@ -6396,16 +6392,10 @@ export function FabricBomScreen({
                       longer apply for us since it draws no ✕ here: the last
                       fabric cannot be removed. */}
                   {manualEntries.length > 1 && (
-                    /* `MANUAL_REMOVE_TRACK` (4rem) sizes this cell; the sheet's
-                       cell inset centres the 32px box that holds the 28px chip. */
+                    /* The hover ✕ (2026-10-12) — shown while the pointer is on
+                       this band (`[data-sheet-row]`), as on every grid. */
                     <div className="flex items-center justify-center">
-                      <div className="flex h-8 w-8 items-center justify-center">
-                        <RowRemoveChip
-                          inFlow
-                          label="Remove fabric"
-                          onClick={() => removeManualEntry(e)}
-                        />
-                      </div>
+                      <RowHoverRemove label="Remove fabric" onClick={() => removeManualEntry(e)} />
                     </div>
                   )}
                 </div>
@@ -9881,7 +9871,6 @@ export function FabricBomScreen({
           <div data-grid-style="sheet" className="[&_table]:table-fixed">
           <ChildGrid<LineRow>
             columns={lineColumns}
-            removeHeader="Actions"
             /* ONE ROW PER ALLOCATION, not per panel — see `allocationRows`.
                `lines` is still what Save writes and what Components reads; this
                tab asks a different question of the same array. On a

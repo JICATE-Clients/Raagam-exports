@@ -27,6 +27,22 @@ import { cn } from "@/lib/utils";
  * target look) — this is for a ✕ riding INSIDE a value cell, beside the input.
  * The `erp-row-hover-remove` skill has the rule and the placement.
  */
+/**
+ * THE REVEAL, ONE STRING FOR EVERY ROW ✕ — invisible at rest, shown while the
+ * pointer is on the ROW that owns it: a `<tr>`, a `[data-grid-row]` (ChildGrid's
+ * table, inline and card rows), a `[data-sheet-row]` band, or — for a
+ * hand-built row that is none of those — `[data-hover-row]`, a marker that
+ * means ONLY "reveal my ✕" and carries no keyboard meaning (never use
+ * `data-grid-row` for that: it puts the row on the arrow/Tab axis). Also shown on
+ * keyboard focus, and always on a screen with no hover (touch), where a
+ * hover-only ✕ could never be reached. `RowRemoveChip` (ChildGrid's card-corner
+ * chip) reads this same string, so no ✕ in the app is visible at rest (user
+ * 2026-10-12: "mouse hover pannamaye x theriyuthu sila table la — apdi
+ * irukka kudathu").
+ */
+export const ROW_HOVER_REVEAL =
+  "opacity-0 focus-visible:opacity-100 [tr:hover_&]:opacity-100 [[data-grid-row]:hover_&]:opacity-100 [[data-sheet-row]:hover_&]:opacity-100 [[data-hover-row]:hover_&]:opacity-100 [@media(hover:none)]:opacity-100";
+
 export function RowHoverRemove({
   label,
   onClick,
@@ -50,9 +66,9 @@ export function RowHoverRemove({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-control text-muted-foreground opacity-0",
-        "hover:bg-danger-soft hover:text-danger focus-visible:opacity-100 disabled:pointer-events-none",
-        "[tr:hover_&]:opacity-100 [[data-grid-row]:hover_&]:opacity-100 [@media(hover:none)]:opacity-100",
+        "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-control text-muted-foreground",
+        "hover:bg-danger-soft hover:text-danger disabled:pointer-events-none",
+        ROW_HOVER_REVEAL,
         className,
       )}
     >

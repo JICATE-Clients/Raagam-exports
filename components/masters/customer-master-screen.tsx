@@ -1892,7 +1892,6 @@ export function CustomerMasterScreen({
                         onAdd={addContact}
                         onRemove={(c) => removeContact(c.key)}
                         addLabel="+ Add contact"
-                        removeHeader="Actions"
                         tableFrom="5xl"
                         columns={[
                           {

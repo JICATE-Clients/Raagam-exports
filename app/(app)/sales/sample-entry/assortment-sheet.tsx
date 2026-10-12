@@ -30,7 +30,7 @@
  * Pack / No of Cartons / Master CTN fields went with that copy; their stored
  * values pass through a save untouched.
  */
-import { Trash2 } from "lucide-react";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -273,17 +273,11 @@ export function AssortmentSheet({
                               clearable
                             />
                           </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            data-row-remove
-                            className="shrink-0 text-muted-foreground hover:text-danger"
-                            aria-label="Remove assortment line"
+                          {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
+                          <RowHoverRemove
+                            label="Remove assortment line"
                             onClick={() => setLines(lines.filter((x) => x.key !== l.key))}
-                          >
-                            <Trash2 className="h-4 w-4 shrink-0" />
-                          </Button>
+                          />
                         </div>
                         <Truncated className="text-[10px] leading-tight text-border-strong">
                           {ls?.description.trim() ?? ""}

@@ -6950,7 +6950,6 @@ export function MbaMasterScreen({
                     .map((c) => ({ ...c, width: FIELD_WIDTH_CSS[procFieldW(c.header)] }))}
                   rows={g.rows}
                   tableAlways
-                  removeHeader="Actions"
                   /* NO `seedRow`. One blank row per material would put a card
                      under every line the moment the tab opened — eleven
                      materials, eleven empty forms. `normalizeProcesses` drops

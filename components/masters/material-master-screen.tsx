@@ -1745,7 +1745,6 @@ export function MaterialMasterScreen({
              reach it (erp-sheet-grid); `tableAlways` with every column sized
              is the table that hugs: Yarn `name` + Mixing % ≈ 440px. */
           tableAlways
-          removeHeader="Actions"
           /* The blend status ("83% of 100%") that sat on the Composition
              card's header; the card is gone (design D), so it rides here. */
           badge={fabricMixHeader ?? undefined}
@@ -1805,7 +1804,6 @@ export function MaterialMasterScreen({
         badge={pctBadge}
         /* A sheet table since 2026-10-05 — see the Fabric variant above. */
         tableAlways
-        removeHeader="Actions"
         rows={mixings}
         onAdd={addMix}
         onRemove={(m) => delMix(m.key)}
@@ -2879,7 +2877,6 @@ export function MaterialMasterScreen({
                       /* A sheet table since 2026-10-05 (was `inlineCards`,
                          which has no <table> for the sheet look to rule). */
                       tableAlways
-                      removeHeader="Actions"
                       columns={[
                         {
                           header: "Alt qty",

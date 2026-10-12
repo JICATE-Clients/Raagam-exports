@@ -1,5 +1,6 @@
 "use client";
 
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { PenTool } from "lucide-react";
 import { OrderCadTab } from "@/components/orders/cad/order-cad-tab";
 import { clearPendingCad, NEW_ORDER_CAD, pendingCadProblem, savePendingCad } from "@/components/orders/cad/cad-pending";
@@ -22,7 +23,6 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { useTabResume } from "@/lib/workspace-tabs";
 import {
-  Trash2,
   Shirt,
   Palette,
   Layers,
@@ -14405,7 +14405,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       }
       /* toolbar-size: exempt -- a ChildGrid "+ Add", not a header row. */
       addLabel="+ Add line"
-      removeHeader="Actions"
     />
   );
 
@@ -15537,22 +15536,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                           />
                         </div>
                       )}
+                      {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
                       {packMode && !l.is_pack_row ? null : (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          data-row-remove
-                          className="shrink-0 text-muted-foreground hover:text-danger"
+                        <RowHoverRemove
+                          label="Remove assortment line"
                           onClick={() =>
                             mutAssort(q.key, (ls) =>
                               ls.filter((x) => x.key !== l.key),
                             )
                           }
-                          aria-label="Remove assortment line"
-                        >
-                          <Trash2 className="h-4 w-4 shrink-0" />
-                        </Button>
+                        />
                       )}
                     </div>
                     {/* THE STYLE NAME SURVIVES AS A LINE, NOT A 288px COLUMN.
@@ -16697,44 +16690,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 wrapper: on a phone it takes the row under the fields and pushes
                 its contents to the trailing edge. */}
             <div className="col-span-2 flex items-center justify-end gap-1 sm:col-span-1 sm:justify-start min-[1250px]:!py-0">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              data-row-remove
-              /* THE ROW'S LAST CELL, and it must sit level with the CONTROLS
-                 rather than with the label row above them. Only the FIRST part
-                 carries the column titles, so a ✕ that aligns to anything but
-                 the controls sits right on every row except that one, where the
-                 titles push the controls ~20px down.
-
-                 `self-end` IS WHAT STATES THAT NOW, AND IT USED TO BE THE ROW'S
-                 `items-end` (operator instruction, 2026-09-18: align the row on
-                 `items-center`). The row aligns its FIELDS centre-to-centre,
-                 which for five one-control-tall cells is the same picture it
-                 already had; this one child opts back out, because on row 0 it is
-                 the only child that is NOT label-plus-control, and centring it
-                 against the tall ones would park it on the seam between a label
-                 and its box. Same statement as before, made per-child instead of
-                 per-row — do not "simplify" it away by dropping `self-end`.
-
-                 ON A PHONE THE ROW IS TWO COLUMNS, so the five children fill
-                 two rows and leave this one auto-placed at the START of a
-                 third — a ✕ under Coordinate, reading as that field's control.
-                 `col-span-2 justify-self-end` gives it the row and pushes it to
-                 the trailing edge, which is where it sits on the wide track. It
-                 is a cells-and-alignment statement only: `data-row-remove`, the
-                 handler and Ctrl+Del are untouched. */
-              className="shrink-0 text-muted-foreground hover:text-danger"
+            {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). Same cell as
+                the bin it replaces, so the 2026-09-18 alignment notes on this
+                cell still hold. */}
+            <RowHoverRemove
+              label="Remove component"
               onClick={() =>
                 mutComps(r.key, st.key, (cs) =>
                   cs.filter((x) => x.key !== c.key),
                 )
               }
-              aria-label="Remove component"
-            >
-              <Trash2 className="h-4 w-4 shrink-0" />
-            </Button>
+            />
             {/* INLINE ON THE LAST PART, BESIDE ITS ✕ (see `PART_TRACK`'s sixth
                 track). `self-end` for the ✕'s reason: on part 0 the other
                 cells carry a label band, and this sits level with their
@@ -19163,7 +19129,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             mutComponents(r.key, (cs) => cs.filter((x) => x.key !== c.key))
           }
           addLabel="+ Add component"
-          removeHeader="Actions"
         />
         </div>
       </Field>
@@ -20171,7 +20136,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={() => addDyeing("yarn")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add yarn dyeing"
-                removeHeader="Actions"
               />
             </div>
             {/* Fabric dyeing */}
@@ -20185,7 +20149,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add fabric dyeing"
-                removeHeader="Actions"
               />
             </div>
             {/* Roll form prints */}
@@ -20200,7 +20163,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={addPrint}
                 onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add roll form print"
-                removeHeader="Actions"
               />
             </div>
             {/* ROLL FORM PRINTS AND STRUCTURES WERE HERE, AND CAME OFF THE TAB
@@ -20285,7 +20247,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             onAdd={addCombo}
             onRemove={(r) => setCombos((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add combo"
-            removeHeader="Actions"
           />
           </div>
         </>
@@ -20360,7 +20321,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={addPackType}
                 onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add pack type"
-                removeHeader="Actions"
               />
               </div>
             </>
@@ -21511,7 +21471,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             onAdd={() => setQuantities((xs) => [...xs, blankQuantity()])}
             onRemove={(r) => setQuantities((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add quantity"
-            removeHeader="Actions"
           />
           </div>
           {/**
@@ -22321,7 +22280,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={() => setTaApprovalRows((xs) => [...xs, blankTaApprovalRow()])}
                 onRemove={(r) => setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add approval"
-                removeHeader="Actions"
               />
               </div>
               {/* SHOW AND FLAG (see `taApprovalProblems`'s own comment) — RED,

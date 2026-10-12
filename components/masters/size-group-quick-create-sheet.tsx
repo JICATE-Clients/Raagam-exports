@@ -16,8 +16,9 @@
 // rather than waived — `onAddOverride` is the escape hatch it contemplates.
 // Precedent: YarnQuickCreateSheet, GarmentQuickCreateSheet, CategoryQuickCreateSheet.
 
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normName } from "@/lib/masters/name-dictionary";
 import { Button } from "@/components/ui/button";
@@ -173,7 +174,7 @@ export function SizeGroupQuickCreateSheet({
             const dup = duplicateSizeKeys.has(normName(s.name));
             return (
               <div key={s.key}>
-                <div className="flex items-center gap-2">
+                <div data-hover-row className="flex items-center gap-2">
                   <Input
                     uppercase
                     aria-label={`Size ${i + 1}`}
@@ -190,17 +191,12 @@ export function SizeGroupQuickCreateSheet({
                     aria-invalid={dup ? true : undefined}
                     className={cn(dup && "border-danger")}
                   />
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    aria-label={`Remove size ${i + 1}`}
-                    data-row-remove
+                  {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
+                  <RowHoverRemove
+                    label={`Remove size ${i + 1}`}
                     disabled={sizes.length === 1}
                     onClick={() => setSizes((xs) => xs.filter((x) => x.key !== s.key))}
-                    className="rounded p-1 text-muted-foreground hover:text-danger disabled:opacity-30"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                  />
                 </div>
                 {/* Both copies flagged, not only the later one. */}
                 {dup && <p className="mt-1 text-xs text-danger">Already listed in this group</p>}
