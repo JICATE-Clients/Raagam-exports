@@ -1,5 +1,6 @@
 "use client";
 
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
@@ -178,22 +179,8 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
                       }
                     />
                   </div>
-                  {lines.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      /* Ctrl+Del finds a row's remove by this marker or by an
-                         aria-label starting "Remove"; a bare × had neither, so
-                         the row was mouse-only to delete. */
-                      data-row-remove
-                      aria-label="Remove line"
-                      className="text-danger hover:text-danger shrink-0"
-                      onClick={() => removeLine(idx)}
-                    >
-                      ×
-                    </Button>
-                  )}
+                  {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
+                  {lines.length > 1 && <RowHoverRemove label="Remove line" onClick={() => removeLine(idx)} />}
                 </div>
               ))}
             </div>

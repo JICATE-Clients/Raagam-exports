@@ -62,6 +62,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarRange, ClipboardList, Layers, ListChecks, Scale, Shirt, Spool, Users, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid, FieldRow, FIELD_WIDTH_CSS, RequiredScope } from "@/components/ui/field";
@@ -371,7 +372,6 @@ function PaletteTable<T extends { key: string }>({
             {columns.map((c) => (
               <col key={c.header} />
             ))}
-            <col className="w-14" />
           </colgroup>
           <thead>
             <tr>
@@ -381,29 +381,26 @@ function PaletteTable<T extends { key: string }>({
                   {c.header}
                 </th>
               ))}
-              <th className="text-center text-[12.5px] font-semibold text-foreground">Actions</th>
             </tr>
           </thead>
           <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
             {rows.map((row, i) => (
               <tr key={row.key} data-grid-row>
                 <td className="text-center text-xs tabular-nums text-muted-foreground">{i + 1}</td>
-                {columns.map((c, ci) => (
-                  <td key={c.header}>{c.cell(row, ci)}</td>
-                ))}
-                <td className="text-center">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-row-remove
-                    aria-label={`Remove ${label.toLowerCase()} row ${i + 1}`}
-                    className="px-1 text-danger hover:text-danger"
-                    onClick={() => onRemove(row)}
-                  >
-                    {"✕"}
-                  </Button>
-                </td>
+                {/* NO ACTIONS COLUMN (user 2026-10-12, `erp-row-hover-remove`): the
+                    row's ✕ rides in its LAST cell and shows only on row hover. */}
+                {columns.map((c, ci) =>
+                  ci === columns.length - 1 ? (
+                    <td key={c.header}>
+                      <div className="flex items-center gap-1 pr-1">
+                        <div className="min-w-0 flex-1">{c.cell(row, ci)}</div>
+                        <RowHoverRemove label={`Remove ${label.toLowerCase()} row ${i + 1}`} onClick={() => onRemove(row)} />
+                      </div>
+                    </td>
+                  ) : (
+                    <td key={c.header}>{c.cell(row, ci)}</td>
+                  ),
+                )}
               </tr>
             ))}
           </tbody>

@@ -1,5 +1,6 @@
 "use client";
 
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -445,7 +446,8 @@ function StylesTab({
                       <div className="flex-1"><Label>Combo</Label><Input value={c.combo} onChange={(e) => updateCombo(ci, "combo", e.target.value)} /></div>
                       <div className="w-28"><Label>Cut Qty</Label><Input type="number" value={c.order_qty} onChange={(e) => updateCombo(ci, "order_qty", e.target.value)} /></div>
                       <div className="w-28"><Label>Exp Qty</Label><Input type="number" value={c.expected_order_qty} onChange={(e) => updateCombo(ci, "expected_order_qty", e.target.value)} /></div>
-                      <Button type="button" variant="ghost" size="sm" data-row-remove aria-label="Remove combo" className="text-red-600" onClick={() => removeCombo(ci)}>Remove</Button>
+                      {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove); h-9 centres it on the inputs. */}
+                      <span className="flex h-9 items-center"><RowHoverRemove label="Remove combo" onClick={() => removeCombo(ci)} /></span>
                     </div>
                     <div className="ml-4">
                       <div className="flex items-center justify-between mb-1">

@@ -1046,7 +1046,6 @@ export function FabricProcessGrid({
       onAdd={() => onChange([...rows, blankFabricProcess(newKey(), itemId)])}
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
       addLabel="+ Add process"
-      removeHeader={sheet ? "Actions" : undefined}
     />
   );
   /* Every column declares a width, so `table-fixed` only stops the split

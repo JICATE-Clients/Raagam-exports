@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { focusFirstField, focusField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { useModalGuard, confirmDiscard } from "@/lib/reload-guard";
+import { useBelowTabStrip } from "@/lib/ui/use-below-tab-strip";
 
 // Ref-counts open Sheets so a nested Sheet's cleanup doesn't clear the scroll
 // lock a still-open outer Sheet depends on (e.g. a field picker inside an
@@ -465,6 +466,12 @@ export function Sheet({
   // dismissing a nested picker returns the cursor to the trigger that opened it.
   const openerRef = useRef<HTMLElement | null>(null);
 
+  // A full-screen editor (size="lg") opens BELOW the app's tab strip, never over
+  // it (user 2026-10-12) — scrim and panel both, so the strip stays clickable.
+  const fullPage = fullScreen && size === "lg";
+  const scrimRef = useRef<HTMLDivElement>(null);
+  useBelowTabStrip([scrimRef, containerRef], open && fullPage);
+
   // Ctrl/⌘+S saves the open editor by activating the primary footer button.
   // Only the full-screen entity editors (size="lg") opt in — nested pickers /
   // small config dialogs (size="sm") keep browser Ctrl+S. Topmost registration
@@ -695,10 +702,12 @@ export function Sheet({
       <div aria-hidden={!open} inert={!open} data-skin={skin ?? undefined}>
       {/* scrim */}
       <div
+        ref={scrimRef}
         onClick={onClose}
         style={{ zIndex: zIndexBase }}
         className={cn(
           "fixed inset-0 bg-black/50 transition-opacity duration-200",
+          fullPage && "md:top-[var(--below-strip-top,0px)] md:left-[var(--below-strip-left,0px)]",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       />
@@ -834,7 +843,7 @@ export function Sheet({
             aria-modal="true"
             style={{ zIndex: zIndexBase + 1 }}
             className={cn(
-              "fixed inset-0 flex flex-col bg-surface transition-all duration-200 ease-out",
+              "fixed inset-0 flex flex-col bg-surface transition-[opacity,transform] duration-200 ease-out md:top-[var(--below-strip-top,0px)] md:left-[var(--below-strip-left,0px)]",
               open ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0",
             )}
           >

@@ -3,7 +3,8 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileUp, Plus, RotateCcw, Save, X } from "lucide-react";
+import { FileUp, Plus, RotateCcw, Save } from "lucide-react";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
@@ -459,8 +460,8 @@ export function PoImportScreen({
                             })}
                             <th className="px-1 py-1 text-right font-medium" style={{ width: FIELD_WIDTH_CSS.num }}>Total</th>
                             <th className="px-1 py-1 font-medium" style={{ width: FIELD_WIDTH_CSS.num }}>Price</th>
-                            <th className="px-1 py-1 font-medium" style={{ width: FIELD_WIDTH_CSS.code }}>Delivery</th>
-                            <th className="w-8" />
+                            {/* + 1.75rem: the row's hover ✕ rides in this cell (no ✕ column). */}
+                            <th className="px-1 py-1 font-medium" style={{ width: `calc(${FIELD_WIDTH_CSS.code} + 1.75rem)` }}>Delivery</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -515,27 +516,25 @@ export function PoImportScreen({
                                   />
                                 </td>
                                 <td className="px-1 py-1">
-                                  <Input
-                                    type="date"
-                                    min="2000-01-01"
-                                    max="2099-12-31"
-                                    value={l.delivery_date ?? ""}
-                                    className={warn(`lines.${i}.delivery_date`)}
-                                    onChange={(e) => setLine(i, { delivery_date: e.target.value || null })}
-                                  />
-                                </td>
-                                <td className="px-1 py-1">
-                                  <button
-                                    type="button"
-                                    data-row-remove
-                                    aria-label={`Remove line ${i + 1}`}
-                                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                                    onClick={() =>
-                                      edit((s) => ({ ...s, draft: { ...s.draft, lines: s.draft.lines.filter((_, j) => j !== i) } }))
-                                    }
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </button>
+                                  <div className="flex items-center gap-1 pr-1">
+                                    <div className="min-w-0 flex-1">
+                                      <Input
+                                        type="date"
+                                        min="2000-01-01"
+                                        max="2099-12-31"
+                                        value={l.delivery_date ?? ""}
+                                        className={warn(`lines.${i}.delivery_date`)}
+                                        onChange={(e) => setLine(i, { delivery_date: e.target.value || null })}
+                                      />
+                                    </div>
+                                    {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
+                                    <RowHoverRemove
+                                      label={`Remove line ${i + 1}`}
+                                      onClick={() =>
+                                        edit((s) => ({ ...s, draft: { ...s.draft, lines: s.draft.lines.filter((_, j) => j !== i) } }))
+                                      }
+                                    />
+                                  </div>
                                 </td>
                               </tr>
                             );

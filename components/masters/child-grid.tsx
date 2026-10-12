@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ROW_HOVER_REVEAL, RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { FIELD_SPAN, FIELD_TRACK, RequiredScope, useLocked } from "@/components/ui/field";
 import { LABEL_METRICS } from "@/components/ui/label";
 import { Truncated } from "@/components/ui/truncated";
@@ -11,6 +12,10 @@ import { usePagination } from "@/lib/use-pagination";
 import { atCaretEdge, enterInGrid, focusField, isOffTabPath, landOnAddedRow } from "@/lib/focus";
 import { fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+/** What the row's hover ✕ adds to the column it rides in: `gap-1` (4) + the
+ *  20px chip + `pr-1` (4) = 28px. See `removeCol`. */
+const REMOVE_IN_CELL_W = "1.75rem";
 
 /**
  * The body track for `across="compact"` — fixed 9rem cells that wrap, instead of
@@ -230,7 +235,14 @@ export function RowRemoveChip({
          It still fits the gutter: `pr-10` reserves 40px and a 28px chip inset
          6px occupies 34 of them. */
       className={cn(
-        "flex h-7 w-7 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger",
+        /* HOVER-ONLY, AND THE EMBELLISHMENT SIZE (user 2026-10-12: "mouse hover
+           panna mattum x … crt and changes module la irukka mari"). The 28px BOX
+           stays — every `top` derived below is measured for it — but it is now
+           transparent, and what it draws is the 20px chip with a 12px ✕ inside
+           (the span below), hidden until the pointer is on this card's row.
+           `ROW_HOVER_REVEAL` is the same string `RowHoverRemove` uses. */
+        "group/rm flex h-7 w-7 items-center justify-center bg-transparent p-0 text-muted-foreground hover:bg-transparent",
+        ROW_HOVER_REVEAL,
         /* IN THE FLOW, the row centres it (`flex items-center`) and `shrink-0`
            keeps the 28px circle a circle beside a field that can grow. Both
            `top` rules below stand down with the `absolute` they belong to. */
@@ -298,7 +310,9 @@ export function RowRemoveChip({
           the chip went to 28px: it is the size every other row-level delete on
           these screens draws at, and 14px inside a 28px circle read as small
           rather than as compact. */}
-      <X className="h-4 w-4 shrink-0" />
+      <span className="flex h-5 w-5 items-center justify-center rounded-control group-hover/rm:bg-danger-soft group-hover/rm:text-danger">
+        <X className="h-3 w-3 shrink-0" />
+      </span>
     </Button>
   );
 }
@@ -1502,7 +1516,6 @@ export function ChildGrid<T extends { key: string }>({
   centerHeaders = false,
   lockExisting = false,
   hideRemove: ownHideRemove = false,
-  removeHeader,
   keepOne = true,
   lockRow,
   inlineCards = false,
@@ -1887,14 +1900,6 @@ export function ChildGrid<T extends { key: string }>({
    * second rule.
    */
   hideRemove?: boolean;
-  /**
-   * A heading for the ✕ column ("Actions"). Blank by default — an unlabelled
-   * track reads as chrome on a dense grid. A spreadsheet-styled grid
-   * (`data-grid-style="sheet"`, globals.css) names every column, so it names
-   * this one too, and the track widens to 4rem to hold the word with room either side. Table
-   * layout only.
-   */
-  removeHeader?: string;
   /**
    * THE LAST ROW CANNOT BE DELETED — for a grid the record cannot be saved
    * without (client 2026-08-31: "every tab must retain a minimum of one active
@@ -2755,7 +2760,7 @@ export function ChildGrid<T extends { key: string }>({
    * the same literals the `<colgroup>` below states.
    */
   const hugWidth = hugsContent
-    ? `calc(${[!hideIndex && "2.5rem", ...columns.map((c) => c.width), !hideRemove && (removeHeader ? "4rem" : "2rem")]
+    ? `calc(${[!hideIndex && "2.5rem", ...columns.map((c) => c.width), !hideRemove && REMOVE_IN_CELL_W]
         .filter(Boolean)
         .join(" + ")})`
     : undefined;
@@ -2903,6 +2908,37 @@ export function ChildGrid<T extends { key: string }>({
    * `hideIndex` tracks follow.
    */
   const removeColumn = !hideRemove;
+  /**
+   * THE TABLE HAS NO ACTIONS COLUMN ANY MORE (user 2026-10-12: "ella table la
+   * irukka action field ayum eduthuttu global aa mouse hover panna x katra mari
+   * vai — sample costing la cmt and charges field la irukka mariye"). The row's
+   * ✕ is `RowHoverRemove` — Embellishment's 20px chip, invisible until the
+   * pointer is on the row — riding INSIDE the row's last real column, after its
+   * control. The `<col>`, `<th>`, `<td>` and totals cell the ✕ used to own are
+   * gone, and with them the `removeHeader` prop and its "Actions" heading.
+   *
+   * THAT COLUMN GROWS BY THE CHIP (`REMOVE_IN_CELL_W`) rather than its control
+   * shrinking by it: a declared width is the FIELD's width (`FIELD_WIDTH_CSS`),
+   * and a Qty box that lost 28px to a hidden ✕ would truncate a value it was
+   * sized to hold. A `spanRows` column is skipped — it renders on the first row
+   * only, so a ✕ there would reach one row of the group.
+   *
+   * Every row reserves the slot, ✕ or not (`locked`), for the reason the inline
+   * layout's track records: a stored line and a fresh one on two widths.
+   * Ctrl+Del is unchanged — `gridKeyNav` finds `[data-row-remove]` in the row.
+   */
+  let removeCol = -1;
+  if (!hideRemove) for (let ci = columns.length - 1; ci >= 0; ci--) if (!columns[ci].spanRows) { removeCol = ci; break; }
+  const colWidth = (c: ChildGridColumn<T>, ci: number) =>
+    c.width && ci === removeCol ? `calc(${c.width} + ${REMOVE_IN_CELL_W})` : c.width;
+  const cellWithRemove = (row: T, content: ReactNode) => (
+    <div className="flex items-start gap-1 pr-1">
+      <div className="min-w-0 flex-1">{content}</div>
+      <span className="flex min-h-8 w-5 shrink-0 items-center">
+        {!locked(row) && <RowHoverRemove label="Remove row" onClick={() => onRemove(row)} />}
+      </span>
+    </div>
+  );
 
   return (
     // TWO ELEMENTS, TWO JOBS — the outer one is the CONTAINER-QUERY element and
@@ -3022,9 +3058,8 @@ export function ChildGrid<T extends { key: string }>({
             <colgroup>
               {!hideIndex && <col style={{ width: "2.5rem" }} />}
               {columns.map((c, i) => (
-                <col key={i} style={c.width ? { width: c.width } : undefined} />
+                <col key={i} style={c.width ? { width: colWidth(c, i) } : undefined} />
               ))}
-              {removeColumn && <col style={{ width: removeHeader ? "4rem" : "2rem" }} />}
             </colgroup>
             {/* `hideHeader` — a caller with several structurally-identical
                 grids stacked in a row (Fabric Process's one-grid-per-group
@@ -3065,7 +3100,7 @@ export function ChildGrid<T extends { key: string }>({
                     // anything in the table layout at all. It was previously read
                     // ONLY by the card layouts, which is why setting it on a table
                     // grid appeared to do nothing.
-                    style={c.width ? { width: c.width } : undefined}
+                    style={c.width ? { width: colWidth(c, i) } : undefined}
                     className={cn(
                       // DARKER AND A HALF-STEP BIGGER than the muted 12px this
                       // was (client, 2026-08-18). On a fourteen-column row of
@@ -3087,17 +3122,6 @@ export function ChildGrid<T extends { key: string }>({
                     {c.required && <span className="ml-0.5 text-danger">*</span>}
                   </th>
                 ))}
-                {/* 48px, NOT 32 (operator, 2026-09-17: the ✕ sat flush against
-                    this column's left border). The button below is a fixed 32px
-                    square; `w-8` left it no room at all, and under a caller's
-                    `table-fixed` (Order Entry ▸ Styles ▸ Components) the old
-                    40px `sm` button overflowed the 32px track and hugged its
-                    left line. 48px is the square plus 8px each side. */}
-                {removeColumn && (
-                  <th className={cn("border-l border-border px-1 py-2 text-center", removeHeader ? "w-16 min-w-16" : "w-12 min-w-12", removeHeader && GRID_HEADER_TEXT, removeHeader && headerClassName)}>
-                    {removeHeader}
-                  </th>
-                )}
               </tr>
             </thead>
             )}
@@ -3176,41 +3200,20 @@ export function ChildGrid<T extends { key: string }>({
                         c.className,
                       )}
                     >
-                      <RequiredScope required={c.required} label={c.header}>
-                        {c.cell(row, i)}
-                      </RequiredScope>
+                      {ci === removeCol ? (
+                        cellWithRemove(
+                          row,
+                          <RequiredScope required={c.required} label={c.header}>
+                            {c.cell(row, i)}
+                          </RequiredScope>,
+                        )
+                      ) : (
+                        <RequiredScope required={c.required} label={c.header}>
+                          {c.cell(row, i)}
+                        </RequiredScope>
+                      )}
                     </td>
                   ))}
-                  {removeColumn && (
-                  <td className="w-12 min-w-12 border-l border-border px-2 py-1.5 align-top">
-                    {/* The border is the cell's; the ✕ is centred in a flex box
-                        padded away from it — see the `<th>` above. */}
-                    <div className="flex h-8 items-center justify-center">
-                    {!locked(row) && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      // Reached by Ctrl+Del (see `removeRowKey`) and the mouse, not
-                      // by Tab — Tab is the typing path and this is an action.
-                      //
-                      // It carried `tabIndex={-1}` for three days to get that
-                      // (2026-08-01). That fixed this component and left the ~22
-                      // screens that hand-roll a grid row untouched, which is how
-                      // the same report came back. `cycleTab` now targets fields on
-                      // every surface, so the marker is all this needs — and being
-                      // focusable again keeps it in screen-reader order.
-                      data-row-remove
-                      className="h-8 w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
-                      onClick={() => onRemove(row)}
-                      aria-label="Remove row"
-                    >
-                      <X className="h-4 w-4 shrink-0" />
-                    </Button>
-                    )}
-                    </div>
-                  </td>
-                  )}
                 </tr>
                 );
               })}
@@ -3256,7 +3259,6 @@ export function ChildGrid<T extends { key: string }>({
                       {renderTotal(c.total, rows)}
                     </td>
                   ))}
-                  {removeColumn && <td className="border-l border-border" />}
                 </tr>
               </tfoot>
             )}
@@ -3311,20 +3313,9 @@ export function ChildGrid<T extends { key: string }>({
                       `w-4` is the icon's own width — the button is `px-0` here,
                       unlike the inline layout's `w-8` — so a record that still
                       has its ✕ is unchanged. */}
-                  <span className="flex w-4 shrink-0 items-center">
-                  {!locked(row) && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      data-row-remove // Ctrl+Del / mouse — see the table layout's note
-                      className="shrink-0 px-0 text-muted-foreground hover:text-danger"
-                      onClick={() => onRemove(row)}
-                      aria-label="Remove row"
-                    >
-                      <X className="h-4 w-4 shrink-0" />
-                    </Button>
-                  )}
+                  {/* The hover ✕ (2026-10-12) — see `removeCol`. */}
+                  <span className="flex w-5 shrink-0 items-center">
+                  {!locked(row) && <RowHoverRemove label="Remove row" onClick={() => onRemove(row)} />}
                   </span>
                 </div>
               );
@@ -3437,7 +3428,7 @@ export function ChildGrid<T extends { key: string }>({
                     see the note there: `hideRemove` takes all three away
                     together, or the headings sit 40px left of the cells
                     they name. */}
-                {removeColumn && <span className="w-8 shrink-0" />}
+                {removeColumn && <span className="w-5 shrink-0" />}
               </div>
             )}
             {view.map((row, localI) => {
@@ -3542,20 +3533,10 @@ export function ChildGrid<T extends { key: string }>({
                     space. The three `w-8` tracks leave together, the way
                     `hideIndex`'s three `w-4` tracks do. */}
                 {removeColumn && (
-                <span className="flex min-h-9 w-8 shrink-0 items-center @2xl/editor:min-h-8">
-                  {!locked(row) && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-row-remove // Ctrl+Del / mouse — see the note on the table layout above
-                    className="w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
-                    onClick={() => onRemove(row)}
-                    aria-label="Remove row"
-                  >
-                    <X className="h-4 w-4 shrink-0" />
-                  </Button>
-                  )}
+                /* The hover ✕ (2026-10-12) — the track is the 20px chip now, and
+                   the header band's and totals row's spacers follow it (`w-5`). */
+                <span className="flex min-h-9 w-5 shrink-0 items-center @2xl/editor:min-h-8">
+                  {!locked(row) && <RowHoverRemove label="Remove row" onClick={() => onRemove(row)} />}
                 </span>
                 )}
               </div>
@@ -3596,7 +3577,7 @@ export function ChildGrid<T extends { key: string }>({
                     see the note there: `hideRemove` takes all three away
                     together, or the headings sit 40px left of the cells
                     they name. */}
-                {removeColumn && <span className="w-8 shrink-0" />}
+                {removeColumn && <span className="w-5 shrink-0" />}
               </div>
             )}
           </div>
@@ -4180,9 +4161,7 @@ export function ChildGrid<T extends { key: string }>({
                 <div className="flex items-center gap-2">
                   <Truncated className="text-sm font-medium text-foreground">{summary}</Truncated>
                   {!locked(row) && (
-                    <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
-                      <X className="h-4 w-4 shrink-0" />
-                    </Button>
+                    <RowHoverRemove label="Remove row" className="ml-auto" onClick={() => onRemove(row)} />
                   )}
                 </div>
               )}

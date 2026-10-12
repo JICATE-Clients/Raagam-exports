@@ -1333,7 +1333,6 @@ export function CadScreen({
               mutWeights((xs) => xs.filter((x) => x.layout_key !== r.key));
             }}
             addLabel="+ Add marker"
-            removeHeader="Actions"
           />
           </div>
         </SectionBody>
@@ -1386,7 +1385,6 @@ export function CadScreen({
             }
             onRemove={(r) => mutWeights((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add panel"
-            removeHeader="Actions"
           />
           </div>
         </SectionBody>

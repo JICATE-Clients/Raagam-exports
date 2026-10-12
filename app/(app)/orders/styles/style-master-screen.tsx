@@ -1905,7 +1905,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                   onAdd={() => mutComps((xs) => [...xs, blankComp()])}
                   onRemove={(r) => mutComps((xs) => xs.filter((x) => x.key !== r.key))}
                   addLabel="+ Add component"
-                  removeHeader="Actions"
                 />
               </div>
             </Field>

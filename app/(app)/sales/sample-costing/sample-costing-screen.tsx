@@ -1451,7 +1451,6 @@ export function SampleCostingScreen({
                   tableAlways
                   narrow
                   keepOne
-                  removeHeader="Actions"
                   totalsLabel="Blend"
                   addLabel="+ Add yarn"
                   onAdd={() => setMix(f, (xs) => [...xs, blankYarn()])}
@@ -1483,7 +1482,6 @@ export function SampleCostingScreen({
                   tableAlways
                   narrow
                   keepOne
-                  removeHeader="Actions"
                   totalsLabel="Total"
                   addLabel="+ Add process"
                   onAdd={() => setProc(f, (xs) => [...xs, blankProcess()])}
@@ -1664,7 +1662,6 @@ export function SampleCostingScreen({
         tableAlways
         narrow
         keepOne
-        removeHeader="Actions"
         addLabel="+ Add fabric"
         onAdd={() => mutFabrics((xs) => [...xs, blankFabric()])}
         onRemove={(f) => mutFabrics((xs) => xs.filter((x) => x.key !== f.key))}
@@ -1926,16 +1923,8 @@ export function SampleCostingScreen({
                             <>
                               <span className={MATRIX_SIZE_TOKEN}>{colLabel(c)}</span>
                               {sizeCols.length > 1 && c !== ALL_SIZES ? (
-                                // button-shape: exempt -- a 20px ✕ chip beside the size
-                                <button
-                                  type="button"
-                                  tabIndex={-1}
-                                  aria-label={`Remove size ${c}`}
-                                  onClick={() => removeSize(c)}
-                                  className="inline-flex h-5 w-5 items-center justify-center rounded-control text-[11px] text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                                >
-                                  ✕
-                                </button>
+                                // Hover ✕ (user 2026-10-12, erp-row-hover-remove).
+                                <RowHoverRemove label={`Remove size ${c}`} onClick={() => removeSize(c)} />
                               ) : null}
                             </>
                           ) : (
@@ -2045,18 +2034,12 @@ export function SampleCostingScreen({
                       <div className={CELL} />
                       <div className={`${CELL} justify-end pr-1`}>
                         {bi === 0 && lines.length > 1 ? (
-                          <Tooltip label="Remove this component from every size">
-                            {/* button-shape: exempt -- the row's ✕, a 28px icon square (data-row-remove for Ctrl+Del) */}
-                            <button
-                              type="button"
-                              data-row-remove
-                              aria-label="Remove component"
-                              onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-control text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                            >
-                              ✕
-                            </button>
-                          </Tooltip>
+                          /* Hover ✕ (user 2026-10-12, erp-row-hover-remove); the label
+                             carries what the old tooltip said. */
+                          <RowHoverRemove
+                            label="Remove this component from every size"
+                            onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
+                          />
                         ) : null}
                       </div>
                     </div>
@@ -2719,7 +2702,6 @@ export function SampleCostingScreen({
           rows={own}
           tableAlways
           keepOne={false}
-          removeHeader="Actions"
           addLabel="+ Add charge"
           onAdd={() => mutExtras((xs) => [...xs, blankExtra(section)])}
           onRemove={(r) => mutExtras((xs) => xs.filter((x) => x.key !== r.key))}
@@ -2873,7 +2855,6 @@ export function SampleCostingScreen({
             rows={trims}
             tableAlways
             keepOne
-            removeHeader="Actions"
             addLabel="+ Add trim"
             onAdd={() => mutTrims((xs) => [...xs, blankTrim(xs[xs.length - 1]?.piece_key ?? pieces[0]?.key ?? "")])}
             onRemove={(r) => mutTrims((xs) => xs.filter((x) => x.key !== r.key))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -338,16 +338,8 @@ export function ExchangeRateMasterScreen({
                         ? ` · ${currencyName.get(l.currency_code)}`
                         : ""}
                     </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground hover:text-danger"
-                      onClick={() => removeLine(l.key)}
-                      aria-label="Remove row"
-                    >
-                      <X className="h-4 w-4 shrink-0" />
-                    </Button>
+                    {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
+                    <RowHoverRemove label="Remove row" onClick={() => removeLine(l.key)} />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
