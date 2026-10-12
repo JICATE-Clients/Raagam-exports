@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -233,6 +233,32 @@ export type MasterListShellProps<Row> = {
    * and passes `rows` already narrowed. Omitted, nothing here changes.
    */
   filterLeading?: ReactNode;
+  /**
+   * ADD AND EDIT IN THE TABLE (user 2026-10-12: Size Groups, "table la kondu
+   * va") - the listing row itself becomes the editor, the move Destination,
+   * Zone and Categories made the same day. The SCREEN owns the form state and
+   * renders inputs in its own column cells while `editingKey` is that row; the
+   * shell does the four things only it can reach:
+   *
+   * - `newRow`, when set, is drawn as the FIRST row of the page (the blank row
+   *   "+ Add" puts at the top). `getKey(newRow)` must equal `editingKey`.
+   * - the editing row's actions cell becomes `actionsCell` (the check / cross),
+   *   and its Status switch is left out - a row being typed has no status yet.
+   * - the editing row is TOP-aligned, so a cell that grows lines (a child list)
+   *   does not sit the other cells halfway down it.
+   * - `onKeyDown` on the desktop table, for Ctrl+S / Escape.
+   *
+   * "+ Add" stays enabled-or-not by the screen's own `onAdd`; the shell greys it
+   * while a row is open, so a second blank row cannot be stacked. DESKTOP ONLY -
+   * the phone's cards have no cells to type into, so a screen opens its sheet
+   * there (`isDesktopTable()`).
+   */
+  inline?: {
+    editingKey: string | null;
+    newRow?: Row | null;
+    actionsCell: ReactNode;
+    onKeyDown?: (e: KeyboardEvent<HTMLDivElement>) => void;
+  };
 };
 
 /**
@@ -273,6 +299,7 @@ export function MasterListShell<Row>({
   onPanelReset,
   filterLeading,
   bulkActions,
+  inline,
 }: MasterListShellProps<Row>) {
   const hasDraft = useMemo(
     () => !!statusOf && rows.some((r) => statusOf(r) === "draft"),
@@ -420,6 +447,7 @@ export function MasterListShell<Row>({
     ];
   }, [dataColumns, actions, autoView, onView, nameOf, perms.canEdit, perms.canDelete, isPending]);
 
+
   /**
    * DIM A ROW THAT IS SWITCHED OFF.
    *
@@ -446,6 +474,34 @@ export function MasterListShell<Row>({
     return (r: Row) =>
       isInactive(r as Deactivatable) ? "[&>td:not(:last-child)]:opacity-60" : undefined;
   }, [actions]);
+
+  /* THE EDITING ROW'S CELLS - see `inline`. Wrapped after the fact so the
+     column assembly above stays the one place columns are decided. */
+  const editingKey = inline?.editingKey ?? null;
+  const inlineActions = inline?.actionsCell;
+  const hasActionsColumn = !!actions || autoView;
+  const shownColumns = useMemo(() => {
+    if (editingKey === null) return tableColumns;
+    const last = tableColumns.length - 1;
+    return tableColumns.map((c, i): Column<Row> => {
+      if (hasActionsColumn && i === last) {
+        return {
+          ...c,
+          // Two icon buttons need the room while a row is being edited.
+          className: "w-24",
+          cell: (r) => (getKey(r) === editingKey ? inlineActions : c.cell(r)),
+        };
+      }
+      if (/^\s*status\s*$/i.test(c.header ?? "")) {
+        return { ...c, cell: (r) => (getKey(r) === editingKey ? null : c.cell(r)) };
+      }
+      return c;
+    });
+  }, [tableColumns, editingKey, inlineActions, hasActionsColumn, getKey]);
+  const shownRowClassName = useMemo(() => {
+    if (editingKey === null) return rowClassName;
+    return (r: Row) => (getKey(r) === editingKey ? "[&>td]:align-top" : rowClassName?.(r));
+  }, [editingKey, rowClassName, getKey]);
 
   /**
    * THE STATUS AS A PILL, for the read-only view sheet.
@@ -614,7 +670,7 @@ export function MasterListShell<Row>({
           )}
           {toolbarExtra}
           {perms.canCreate && onAdd && addLabel && (
-            <Button size="md" onClick={onAdd}>
+            <Button size="md" disabled={editingKey !== null} onClick={onAdd}>
               {addLabel}
             </Button>
           )}
@@ -622,7 +678,10 @@ export function MasterListShell<Row>({
       </div>
 
       {/* Dimmed while the deferred filter catches up — see useMasterFilter. */}
-      <div className={cn("hidden space-y-3 transition-opacity md:block", isStale && "opacity-60")}>
+      <div
+        className={cn("hidden space-y-3 transition-opacity md:block", isStale && "opacity-60")}
+        onKeyDown={inline?.onKeyDown}
+      >
         {!bulkEntityKey && bulkActions && (
           <SelectionBar count={selectedRows.length} onClear={sel.clear}>
             {bulkActions(selectedRows, sel.clear)}
@@ -641,11 +700,11 @@ export function MasterListShell<Row>({
           />
         )}
         <DataTable
-          columns={tableColumns}
-          rows={pg.paged}
+          columns={shownColumns}
+          rows={inline?.newRow ? [inline.newRow, ...pg.paged] : pg.paged}
           paginate={false}
           getKey={(r) => getKey(r)}
-          rowClassName={rowClassName}
+          rowClassName={shownRowClassName}
           empty={empty}
           selectable={selecting}
           selectedKeys={selecting ? sel.selectedKeys : undefined}
@@ -718,4 +777,11 @@ export function MasterListShell<Row>({
       )}
     </div>
   );
+}
+
+/** Is the desktop table on screen (`md`, 768px and up)? Read in an event
+ *  handler, never in render - a screen with an `inline` row opens it there and
+ *  its sheet on a phone, where the cards have no cells to type into. */
+export function isDesktopTable(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
 }
