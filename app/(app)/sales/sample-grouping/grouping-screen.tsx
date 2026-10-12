@@ -24,10 +24,11 @@ import {
   batchingSaving,
   fmtKg,
   groupNetKg,
+  groupingMix,
   groupingProblem,
   moqOrderWeight,
   purchaseBasis,
-  sameGroupKey,
+  sameSeasonYear,
   seasonKey,
 } from "@/lib/sales/sample-grouping/calc";
 import {
@@ -191,9 +192,12 @@ export function GroupingScreen({
 
   const picked = data.candidates.filter((c) => sel.selectedKeys.has(c.key));
   const pickProblem = picked.length ? groupingProblem(picked.map((c) => ({ ...c, label: styleLabel(c) }))) : null;
+  /** What the ticks mix — said, never refused (client spec 2026-10-12: the
+   *  planner judges which blends and structures are compatible). */
+  const pickMix = !pickProblem && picked.length ? groupingMix(picked) : null;
   const pickedNet = groupNetKg(picked.map((c) => c.kg));
-  /** Draft groups these ticks could join — same season, year, structure and blend. */
-  const joinable = !pickProblem && picked.length ? data.groups.filter((g) => g.status === "draft" && sameGroupKey(picked[0], g)) : [];
+  /** Draft SWOs these ticks could join — the same season and year (0707). */
+  const joinable = !pickProblem && picked.length ? data.groups.filter((g) => g.status === "draft" && sameSeasonYear(picked[0], g)) : [];
 
   // ---- Summary: the groups ---------------------------------------------------
   const groupFacets = useFacetFilter(scopedGroups, GROUP_FACETS);
@@ -255,11 +259,13 @@ export function GroupingScreen({
   // ---- columns -----------------------------------------------------------------
   const candidateColumns: Column<GroupingCandidate>[] = [
     {
-      header: "Sample No",
+      // THE SMP NUMBER LEADS (client spec 2026-10-12: planners pick "SMP
+      // numbers"); the style line's own PRD number sits beneath it.
+      header: "SMP No",
       cell: (c) => (
         <span className="font-mono text-xs">
-          {c.sample_no ?? "—"}
-          {c.enquiry_no ? <span className="block text-[11px] text-muted-foreground">{c.enquiry_no}</span> : null}
+          {c.enquiry_no ?? "—"}
+          {c.sample_no ? <span className="block text-[11px] text-muted-foreground">{c.sample_no}</span> : null}
         </span>
       ),
     },
@@ -368,7 +374,7 @@ export function GroupingScreen({
     <div className="space-y-4">
       <PageHeader
         title="Grouping"
-        description="Batch sample styles of one season that share a fabric and a yarn into one purchase — rounded to the mill's MOQ, then released back to each style for cutting."
+        description="Pick the season's samples that can share a yarn and fabric lot into one Sample Work Order (SWO) — bought at the mill's MOQ, then released back to each sample for cutting."
         actions={
           <>
             {/* AUTO-GROUP (user 2026-10-09) — proposes the batches the season's
@@ -473,7 +479,7 @@ export function GroupingScreen({
               empty={
                 scopedGroups.length
                   ? "No groups match the search or filters."
-                  : "No groups for this season yet — open Detailed, tick styles that share a fabric and yarn, and create one."
+                  : "No SWOs for this season yet — open Detailed, tick the samples that can share a yarn and fabric lot, and create one."
               }
             />
           </div>
@@ -483,7 +489,7 @@ export function GroupingScreen({
           <FilterBar
             search={query}
             onSearch={setQuery}
-            searchPlaceholder="Search Sample No, style, buyer, fabric or yarn…"
+            searchPlaceholder="Search SMP No, style, buyer, fabric or yarn…"
             activeCount={candFacets.activeCount}
             onReset={candFacets.activeCount ? candFacets.reset : undefined}
             panel={candFacets.panel}
@@ -519,6 +525,7 @@ export function GroupingScreen({
             <span className={`mr-2 text-sm ${pickProblem ? "text-danger" : "text-muted-foreground"}`}>
               {pickProblem ?? `${fmtKg(pickedNet)} kg net → buys ${fmtKg(moqOrderWeight(pickedNet), 1)} kg at the 60 kg MOQ`}
             </span>
+            {pickMix ? <span className="mr-2 text-sm text-warning">{pickMix}</span> : null}
             {perms.canCreate && !pickProblem ? (
               // toolbar-size: exempt -- the selection bar is not the header row; every button in it is sm together
               <Button size="sm" disabled={isPending} onClick={create}>

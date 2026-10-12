@@ -35,6 +35,8 @@ export interface ProcessOrder {
   status: ProcStatus;
   /** 0609 — the order (RE No) this job-work is for, when one was named. */
   sales_order_id?: string | null;
+  /** 0708 — the Internal Work Order (an SWO's sample IW) it was raised from. */
+  iwo_id?: string | null;
   order_date: string | null;
   expected_date: string | null;
   currency_code: string | null;
@@ -54,6 +56,9 @@ export interface ProcessOrderLine {
   description: string;
   sent_qty: number;
   received_qty: number;
+  /** 0708 — the target FINISHED weight expected back; null when not stated.
+   *  On a dyeing line `sent_qty` is then the greige weight issued. */
+  return_qty?: number | null;
   uom_id: string | null;
   rate: number;
   amount: number;

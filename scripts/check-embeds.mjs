@@ -91,6 +91,11 @@ const AMBIGUOUS = {
   notification_event_cc: { profiles: ["user_id", "created_by"] },
   // 0676 gave the dispatch log `recalled_by` beside 0673's `actor_id`.
   notification_dispatches: { profiles: ["actor_id", "recalled_by"] },
+  // 0709 gave an SWO its accessories work order (`accessories_iwo_id`) beside
+  // 0702's fabric one (`iwo_id`). Both directions, declared the day it lands;
+  // the grouping service already names `!iwo_id`.
+  sample_product_groups: { internal_work_orders: ["iwo_id", "accessories_iwo_id"] },
+  internal_work_orders: { sample_product_groups: ["iwo_id", "accessories_iwo_id"] },
 };
 
 /* KNOWN GAP, MEASURED 2026-09-11 AND DELIBERATELY NOT CLOSED HERE.

@@ -71,7 +71,21 @@ export const cellKey = (colour: string | null | undefined, dia: string | null | 
 /** One weighted cell as the card edits it — the axes as DECLARED (capitals,
  *  like the panels), the weight as TYPED (text, so "12." is not rewritten
  *  under the caret). */
-export type PlanCell = { color_name: string; finish_dia: string; print_name: string; req_kgs: string };
+export type PlanCell = {
+  color_name: string;
+  finish_dia: string;
+  print_name: string;
+  req_kgs: string;
+  /** Sample Fabric Plan (0707): the SWO sample style (SMP line) the row is
+   *  for — "" when none. Optional so a production card never has to say it. */
+  sample_style_id?: string;
+};
+
+/** The row's SMP, "" when none. */
+const smpOf = (c: PlanCell) => c.sample_style_id ?? "";
+/** The merge key's fifth part — empty without an SMP, so a production card's
+ *  merged rows keep the keys they always had. */
+const smpSuffix = (c: PlanCell) => (smpOf(c) ? "\u0000" + smpOf(c) : "");
 
 /** A fabric's rows, by row key. Empty = the card shows its one seeded blank
  *  row, which becomes a real row on the first pick or keystroke. */
@@ -87,6 +101,9 @@ export type PlanAxes = {
   colours: readonly string[];
   dias: readonly string[];
   prints: readonly string[];
+  /** An SWO's sample styles (0707) — what the SMP No picker offers. Absent on
+   *  a production IWO, where the row has no SMP to judge. */
+  samples?: readonly string[];
 };
 
 /** One row of the card. `declared` false = a row holding a colour / dia /
@@ -99,6 +116,7 @@ export type PlanFacts = {
   print_name: string | null;
   finish_dia: string | null;
   req_kgs: number | null;
+  sample_style_id?: string | null;
 };
 
 /** A stored line as `foldPlanCells` reads it — numbers, as the DB holds them. */
@@ -107,6 +125,7 @@ export type StoredPlanLine = {
   print_name: string | null;
   finish_dia: string | null;
   req_kgs: number | null;
+  sample_style_id?: string | null;
 };
 
 const num = (v: string): number | null => {
@@ -147,9 +166,11 @@ function isDeclared(c: PlanCell, axes: PlanAxes): boolean {
   if (axes.rank == null) return true;
   const colourOk = axes.rank === 0 ? true : inList(c.color_name, axes.colours, comboKey);
   const printOk = axes.rank === 2 ? inList(c.print_name, axes.prints, comboKey) : true;
-  return colourOk && printOk && inList(c.finish_dia, axes.dias, diaKey);
+  const smpOk = !axes.samples || !smpOf(c) || axes.samples.includes(smpOf(c));
+  return colourOk && printOk && smpOk && inList(c.finish_dia, axes.dias, diaKey);
 }
 
+// No `sample_style_id` key: a production card's cells keep 0599's exact shape.
 const BLANK_CELL: PlanCell = { color_name: "", finish_dia: "", print_name: "", req_kgs: "" };
 
 /**
@@ -197,7 +218,7 @@ export function removePlanRow(cells: PlanCells, key: CellKey): PlanCells {
 }
 
 const isBlankCell = (c: PlanCell) =>
-  !c.color_name.trim() && !c.finish_dia.trim() && !c.print_name.trim() && !c.req_kgs.trim();
+  !c.color_name.trim() && !c.finish_dia.trim() && !c.print_name.trim() && !c.req_kgs.trim() && !smpOf(c);
 
 /** The one placeholder an empty card expands to — every field null (a row with
  *  a dia and no weight is a real line, refused by name). */
@@ -206,7 +227,9 @@ export const isPlaceholderFacts = (f: {
   color_name?: string | null;
   finish_dia?: string | null;
   print_name?: string | null;
-}): boolean => f.req_kgs == null && f.color_name == null && f.finish_dia == null && f.print_name == null;
+  sample_style_id?: string | null;
+}): boolean =>
+  f.req_kgs == null && f.color_name == null && f.finish_dia == null && f.print_name == null && f.sample_style_id == null;
 
 /**
  * THE CARD'S ROWS → THE STORED-LINE FACTS, one per row that holds anything, in
@@ -219,9 +242,15 @@ export function expandPlanCells(cells: PlanCells): PlanFacts[] {
   const out: PlanFacts[] = [];
   for (const c of Object.values(cells)) {
     if (isBlankCell(c)) continue;
-    out.push({ color_name: text(c.color_name), print_name: text(c.print_name), finish_dia: text(c.finish_dia), req_kgs: num(c.req_kgs) });
+    out.push({
+      color_name: text(c.color_name),
+      print_name: text(c.print_name),
+      finish_dia: text(c.finish_dia),
+      req_kgs: num(c.req_kgs),
+      sample_style_id: smpOf(c) || null,
+    });
   }
-  return out.length ? out : [{ color_name: null, print_name: null, finish_dia: null, req_kgs: null }];
+  return out.length ? out : [{ color_name: null, print_name: null, finish_dia: null, req_kgs: null, sample_style_id: null }];
 }
 
 /**
@@ -239,6 +268,8 @@ export function foldPlanCells(lines: readonly StoredPlanLine[]): PlanCells {
       finish_dia: r.finish_dia ?? "",
       print_name: r.print_name ?? "",
       req_kgs: str(r.req_kgs),
+      // Only an SWO's line carries the key (0707) — a production fold is unchanged.
+      ...(r.sample_style_id ? { sample_style_id: r.sample_style_id } : {}),
     };
   }
   return out;
@@ -276,13 +307,14 @@ export function planCellsForStage(cells: PlanCells, rank: number | null): PlanCe
   if (rank === 0) {
     next = mergeCells(
       next,
-      (c) => cellKey("", c.finish_dia, ""),
+      // Merged per SMP (0707): two samples' weights are never summed into one.
+      (c) => cellKey("", c.finish_dia, "") + smpSuffix(c),
       (c) => ({ ...c, color_name: "", print_name: "" }),
     );
   } else if (rank !== 2) {
     next = mergeCells(
       next,
-      (c) => cellKey(c.color_name, c.finish_dia, ""),
+      (c) => cellKey(c.color_name, c.finish_dia, "") + smpSuffix(c),
       (c) => ({ ...c, print_name: "" }),
     );
   }

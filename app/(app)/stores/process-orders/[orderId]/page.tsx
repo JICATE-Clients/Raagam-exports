@@ -49,16 +49,40 @@ export default async function ProcessOrderDetailPage({
     reNo = (data as { order_number: string | null } | null)?.order_number ?? null;
   }
 
+  /* 0708 — the work order (an SWO's sample IW) a dyeing order was raised
+     from, by its number. */
+  let iwoCode: string | null = null;
+  if (order.iwo_id) {
+    const sb = await createClient();
+    const { data } = await sb.from("internal_work_orders").select("code").eq("id", order.iwo_id).maybeSingle();
+    iwoCode = (data as { code: string | null } | null)?.code ?? null;
+  }
+  /* BOTH WEIGHTS (client decision 2026-10-12): when a line states what comes
+     back, Sent is the GREIGE issued — what the dye house processes and
+     invoices — and Return is the FINISHED weight stores checks on receipt. */
+  const hasReturn = order.lines.some((l) => l.return_qty != null);
+
   const lineColumns: Column<ProcessOrderLine>[] = [
     {
       header: "Description",
       cell: (r) => <span className="text-sm">{r.description}</span>,
     },
     {
-      header: "Sent Qty",
+      header: hasReturn ? "Issue Qty (greige)" : "Sent Qty",
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.sent_qty)}</span>,
     },
+    ...(hasReturn
+      ? [
+          {
+            header: "Return Qty (finished)",
+            align: "right" as const,
+            cell: (r: ProcessOrderLine) => (
+              <span className="tabular-nums text-sm">{r.return_qty != null ? fmtNumber(r.return_qty) : "—"}</span>
+            ),
+          },
+        ]
+      : []),
     {
       header: "Received Qty",
       align: "right",
@@ -68,7 +92,8 @@ export default async function ProcessOrderDetailPage({
       header: "Outstanding",
       align: "right",
       cell: (r) => {
-        const bal = Math.max(0, r.sent_qty - r.received_qty);
+        // Against what comes BACK when the line says (0708: finished, not greige).
+        const bal = Math.max(0, (r.return_qty ?? r.sent_qty) - r.received_qty);
         return (
           <span className={bal > 0 ? "tabular-nums text-sm text-warning" : "tabular-nums text-sm text-success"}>
             {fmtNumber(bal)}
@@ -123,6 +148,16 @@ export default async function ProcessOrderDetailPage({
                 )}
               </dd>
             </div>
+            {order.iwo_id ? (
+              <div>
+                <dt className="text-xs text-muted-foreground">Work Order</dt>
+                <dd>
+                  <Link href={`/sales/sample-fabric-plan?open=${order.iwo_id}`} className="text-primary hover:underline">
+                    {iwoCode ?? "—"}
+                  </Link>
+                </dd>
+              </div>
+            ) : null}
             <div>
               <dt className="text-xs text-muted-foreground">Order Date</dt>
               <dd>{order.order_date ? fmtDate(order.order_date) : "--"}</dd>

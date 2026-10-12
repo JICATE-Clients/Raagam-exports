@@ -134,6 +134,7 @@ async function writeChildren(
       stage_id: l.stage_id,
       req_kgs: l.req_kgs,
       print_name: l.print_name || null,
+      sample_style_id: l.sample_style_id,
     }));
     if (rows.length) {
       const { error } = await s.from("iwo_fabric_bom_lines").insert(rows);
@@ -142,7 +143,7 @@ async function writeChildren(
         if (error.code === "23514") return "A fabric line names an item that is not a fabric.";
         // 0599's (fabric, colour, dia, print) index — `lines.ts` says it first, by row.
         if (error.code === "23505") {
-          return "The same fabric, colour, dia and print are on two lines — put the weight on one line.";
+          return "The same SMP, fabric, colour, dia and print are on two lines — put the weight on one line.";
         }
         return error.message;
       }
@@ -920,6 +921,24 @@ async function fabricTypesOf(s: Db, ids: string[]): Promise<Map<string, string |
 }
 
 /**
+ * THE SWO A WORK ORDER WAS RAISED FOR (0707) — the styles its Sample Work Order
+ * batches, which are the only SMPs its Fabric Consumption may name, and which
+ * every line then owes. Read off `sample_product_groups.iwo_id` (unique since
+ * 0707), never off the payload. Null = not an SWO's work order. A failed read
+ * refuses: null would quietly waive the SMP rule.
+ */
+async function swoStyleIdsOf(s: Db, iwoId: string): Promise<Set<string> | null | string> {
+  const { data, error } = await s
+    .from("sample_product_groups")
+    .select("id, items:sample_group_items(style_id)")
+    .eq("iwo_id", iwoId)
+    .maybeSingle();
+  if (error) return `Could not read the work order's SWO: ${error.message}`;
+  if (!data) return null;
+  return new Set(((data as { items: { style_id: string }[] | null }).items ?? []).map((it) => it.style_id));
+}
+
+/**
  * The line rules, run AGAIN on the server (`lines.ts`), with each fabric's type
  * read off `items` — never off the payload, which decides whether Mixing Uom is
  * owed. A failed lookup refuses the save: an empty map would read every cloth
@@ -927,6 +946,8 @@ async function fabricTypesOf(s: Db, ids: string[]): Promise<Map<string, string |
  */
 async function lineProblem(s: Db, bomId: string | null, p: IwoFabricBomParsed): Promise<string | null> {
   if (!p.lines) return null;
+  const swo = await swoStyleIdsOf(s, p.iwo_id);
+  if (typeof swo === "string") return swo;
   const ids = [...new Set(keptIwoFabricLines(p.lines).map((l) => l.item_id))];
   const typeById = new Map<string, string | null>();
   if (ids.length) {
@@ -954,6 +975,7 @@ async function lineProblem(s: Db, bomId: string | null, p: IwoFabricBomParsed): 
       const st = stageById.get(id);
       return st ? stageRank(st) : null;
     },
+    swo,
   )[0];
   if (first) return first.message;
   return diaKnitProblemOf(s, bomId, p);

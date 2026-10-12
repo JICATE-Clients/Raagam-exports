@@ -41,6 +41,9 @@ export type IwoFabricLineFacts = {
   finish_dia?: string | null;
   /** A PRINT-stage line's print, from the Roll form prints panel (0599). */
   print_name?: string | null;
+  /** Sample Fabric Plan (0707): the sample style (SMP line) of the SWO this
+   *  weight is for. Owed only on an SWO's plan — see `sampleStyleIds`. */
+  sample_style_id?: string | null;
   stage_id: string | null;
   req_kgs: number | null;
 };
@@ -50,6 +53,7 @@ export type IwoFabricLineField =
   | "color_name"
   | "finish_dia"
   | "print_name"
+  | "sample_style_id"
   | "stage_id"
   | "req_kgs"
   | "gsm"
@@ -82,6 +86,7 @@ export const isBlankIwoFabricLine = (l: IwoFabricLineFacts): boolean =>
   l.gsm == null &&
   !l.finish_dia?.trim() &&
   !l.print_name?.trim() &&
+  !l.sample_style_id &&
   !l.stage_id &&
   l.req_kgs == null;
 
@@ -116,6 +121,14 @@ export function iwoFabricLineProblems(
   lines: readonly IwoFabricLineFacts[],
   fabricTypeOf: (itemId: string) => string | null,
   stageRankOf: (stageId: string) => number | null = () => null,
+  /**
+   * THE SWO'S STYLES, when this plan is a Sample Work Order's (0707; client
+   * spec "Grouping & SWO", 2026-10-12). Then every line owes its SMP — the
+   * release on receipt is per sample, so a weight with no SMP is fabric
+   * bought for nobody — and only a style the SWO batches may be named.
+   * Null / omitted = a production IWO: the axis does not exist there.
+   */
+  sampleStyleIds: ReadonlySet<string> | null = null,
 ): IwoFabricLineProblem[] {
   const out: IwoFabricLineProblem[] = [];
   /** The first line (1-based) each fabric was seen on, with its stage. */
@@ -181,14 +194,24 @@ export function iwoFabricLineProblems(
         );
       }
     }
+    if (sampleStyleIds) {
+      // Filed under "lines": the SMP is picked on Fabric Allocation (user 2026-10-12).
+      if (!l.sample_style_id) need("sample_style_id", "lines", "choose the SMP No — every weight on a sample work order is for one sample.");
+      else if (!sampleStyleIds.has(l.sample_style_id)) {
+        need("sample_style_id", "lines", "the SMP No picked is not batched in this SWO — pick one of its samples.");
+      }
+    }
     const print = (l.print_name ?? "").trim().toUpperCase();
-    const key = `${l.item_id}|${colour}|${(l.finish_dia ?? "").trim().toUpperCase()}|${print}`;
+    // The SMP is the fifth axis (0707): two samples weighing one cloth in one
+    // colour and dia are two lines, never a duplicate.
+    const smp = l.sample_style_id ?? "";
+    const key = `${l.item_id}|${colour}|${(l.finish_dia ?? "").trim().toUpperCase()}|${print}|${smp}`;
     const dup = rowOfKey.get(key);
     if (dup) {
       need(
         "finish_dia",
         "consumption",
-        `the same fabric, colour${print ? ", dia and print" : " and dia"} are on line ${dup} — put the weight on one line.`,
+        `the same ${smp ? "SMP, " : ""}fabric, colour${print ? ", dia and print" : " and dia"} are on line ${dup} — put the weight on one line.`,
       );
     } else rowOfKey.set(key, row);
   });

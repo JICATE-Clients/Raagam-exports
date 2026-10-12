@@ -53,7 +53,30 @@ export type IwoFabricBomTask = {
   created_by: string | null;
   created_at: string;
   bom: IwoFabricBom | null;
+  /** The Sample Work Order this work order was raised for (0707) — its SWO
+   *  number stands where the RE No stands on a production plan, and its
+   *  samples are what Fabric Consumption's SMP No offers. Null otherwise. */
+  swo: IwoSwo | null;
+  /** Dyeing work orders raised from this plan (0708), cancelled ones included
+   *  so the list says what happened to them. */
+  dyeing_orders: { id: string; code: string | null; status: string }[];
 };
+
+/** One SWO sample line as the plan offers it. */
+export type IwoSwoSample = {
+  style_id: string;
+  /** SMP/26-27/0001 — the sample entry (enquiry) number. */
+  smp_no: string | null;
+  /** PRD/26-27/0001 — the style line's own number. */
+  sample_no: string | null;
+  style_name: string;
+  /** Net kilos the SWO batched for it (its costing), for the planner to read. */
+  kg: number;
+  /** The fabric structures (categories) it was costed in — Fabric Allocation
+   *  fills an empty Structure when there is exactly one. */
+  structure_ids: string[];
+};
+export type IwoSwo = { id: string; code: string; samples: IwoSwoSample[] };
 
 /** `sampleOnly` — Sample ▸ Fabric Plan lists only the work orders the
  *  Sample module raised (0704); the Orders route lists every one, samples
@@ -66,6 +89,8 @@ export async function listIwoFabricBomTasks(opts: { sampleOnly?: boolean } = {})
     .from("internal_work_orders")
     .select(
       "id, code, iwo_date, iwo_for, reference_no, deli_date, remarks, status, created_by, created_at, " +
+        // 0708 — the dyeing orders raised from this plan. One FK (iwo_id), so the embed is unambiguous.
+        "process_orders(id, code, status, process_type, created_at), " +
         "iwo_fabric_boms(*, iwo_fabric_bom_palette(*), iwo_fabric_bom_dias(*), iwo_fabric_bom_lines(*), " +
         "iwo_fabric_bom_processes(*), iwo_fabric_bom_yarns(*, iwo_fabric_bom_yarn_stages(*), iwo_fabric_bom_yarn_shades(*)), " +
         // Details ▸ Yarn Dyed Details (0599). Each yd table has one FK to its
@@ -79,15 +104,20 @@ export async function listIwoFabricBomTasks(opts: { sampleOnly?: boolean } = {})
     .order("created_at", { ascending: true });
   if (error) throw new Error(`IWO Fabric Plan: ${error.message}`);
 
-  type Raw = Omit<IwoFabricBomTask, "bom"> & {
+  type Raw = Omit<IwoFabricBomTask, "bom" | "swo" | "dyeing_orders"> & {
     iwo_fabric_boms: IwoFabricBom | IwoFabricBom[] | null;
+    process_orders: { id: string; code: string | null; status: string; process_type: string; created_at: string }[] | null;
   };
-  const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_fabric_boms, ...r }) => {
+  const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_fabric_boms, process_orders, ...r }) => {
     // A one-to-one embed can arrive as an object or a one-element array
     // depending on how PostgREST resolves it; survive both.
     const b = Array.isArray(iwo_fabric_boms) ? (iwo_fabric_boms[0] ?? null) : iwo_fabric_boms;
     return {
       ...r,
+      dyeing_orders: (process_orders ?? [])
+        .filter((p) => p.process_type === "dyeing")
+        .sort((x, y) => x.created_at.localeCompare(y.created_at))
+        .map(({ id, code, status }) => ({ id, code, status })),
       bom: b
         ? {
             ...b,
@@ -124,7 +154,68 @@ export async function listIwoFabricBomTasks(opts: { sampleOnly?: boolean } = {})
         : null,
     };
   });
-  return withCreators(rows);
+  const swoByIwo = await swosOf(supabase, rows.map((r) => r.id));
+  return withCreators(rows.map((r) => ({ ...r, swo: swoByIwo.get(r.id) ?? null })));
+}
+
+/**
+ * EACH WORK ORDER'S SWO, in one read (0707). A failed read THROWS — a plan
+ * shown without its SWO would offer no SMP picker while the action still
+ * owes one on every line.
+ */
+async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
+  const out = new Map<string, IwoSwo>();
+  if (!iwoIds.length) return out;
+  const { data, error } = await s
+    .from("sample_product_groups")
+    .select(
+      "id, group_code, iwo_id, " +
+        "items:sample_group_items(style_id, fabric_structure_id, calculated_weight_kg, created_at, " +
+        "style:styles!style_id(sample_no, name), opp:opportunities!sample_entry_id(code))",
+    )
+    .in("iwo_id", iwoIds);
+  if (error) throw new Error(`IWO Fabric Plan: could not read the SWOs: ${error.message}`);
+  type One<T> = T | T[] | null;
+  const one = <T,>(v: One<T>): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+  type Row = {
+    id: string;
+    group_code: string;
+    iwo_id: string;
+    items:
+      | {
+          style_id: string;
+          fabric_structure_id: string | null;
+          calculated_weight_kg: number | string | null;
+          created_at: string;
+          style: One<{ sample_no: string | null; name: string | null }>;
+          opp: One<{ code: string | null }>;
+        }[]
+      | null;
+  };
+  for (const g of (data ?? []) as unknown as Row[]) {
+    // A style batched in two fabrics is two items of one SWO — one SMP pick.
+    const seen = new Map<string, IwoSwoSample>();
+    for (const it of [...(g.items ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+      const kg = Number(it.calculated_weight_kg ?? 0) || 0;
+      const held = seen.get(it.style_id);
+      if (held) {
+        held.kg = Math.round((held.kg + kg) * 1000) / 1000;
+        if (it.fabric_structure_id && !held.structure_ids.includes(it.fabric_structure_id)) held.structure_ids.push(it.fabric_structure_id);
+        continue;
+      }
+      const st = one(it.style);
+      seen.set(it.style_id, {
+        style_id: it.style_id,
+        smp_no: one(it.opp)?.code ?? null,
+        sample_no: st?.sample_no ?? null,
+        style_name: st?.name ?? "",
+        kg,
+        structure_ids: it.fabric_structure_id ? [it.fabric_structure_id] : [],
+      });
+    }
+    out.set(g.iwo_id, { id: g.id, code: g.group_code, samples: [...seen.values()] });
+  }
+  return out;
 }
 
 /**

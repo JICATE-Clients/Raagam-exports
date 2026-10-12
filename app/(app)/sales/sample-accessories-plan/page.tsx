@@ -1,5 +1,9 @@
 import { requirePermission, can } from "@/lib/auth/server";
-import { getIwoMaterialBomFormData, listIwoMaterialBomTasks } from "@/lib/orders/iwo-material-bom/service";
+import {
+  getIwoMaterialBomFormData,
+  listIwoMaterialBomTasks,
+  listSwosAwaitingAccessoriesIw,
+} from "@/lib/orders/iwo-material-bom/service";
 import { IwoMaterialBomScreen } from "@/app/(app)/orders/iwo-material-bom/iwo-material-bom-screen";
 
 /**
@@ -11,12 +15,17 @@ import { IwoMaterialBomScreen } from "@/app/(app)/orders/iwo-material-bom/iwo-ma
  * The page answers to the Sample row (`sales:view`); writes are work-order
  * writes, so Create / Edit / Delete are the Orders permissions the IWO actions
  * check. The Colour and Size pickers edit a master list, hence `masters`.
+ *
+ * THE HEADER IS THE SWO (0709; user 2026-10-12, screenshot 3437): `swos` are
+ * the SWOs with no accessories work order yet, offered beside the plans
+ * already raised in the one SWO No picker.
  */
 export default async function SampleAccessoriesPlanPage() {
   await requirePermission("sales", "view");
 
-  const [tasks, data, canCreate, canEdit, canDelete, mCreate, mEdit] = await Promise.all([
+  const [tasks, swos, data, canCreate, canEdit, canDelete, mCreate, mEdit] = await Promise.all([
     listIwoMaterialBomTasks({ sampleOnly: true }),
+    listSwosAwaitingAccessoriesIw(),
     getIwoMaterialBomFormData(),
     can("orders", "create"),
     can("orders", "edit"),
@@ -28,6 +37,7 @@ export default async function SampleAccessoriesPlanPage() {
   return (
     <IwoMaterialBomScreen
       sample
+      swos={swos}
       tasks={tasks}
       data={data}
       perms={{ canCreate, canEdit, canDelete }}

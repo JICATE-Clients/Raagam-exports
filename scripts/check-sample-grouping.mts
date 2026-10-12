@@ -11,10 +11,13 @@
  */
 import {
   batchingSaving,
+  cuttingBasis,
   blendOf,
   distributeProblem,
   excessToStock,
+  groupHeaderOf,
   groupNetKg,
+  groupingMix,
   groupingProblem,
   moqOrderWeight,
   proposeGroups,
@@ -159,8 +162,62 @@ eq("already grouped", groupingProblem([c({ group_code: "SWO/26-27/0001" })]), "P
 eq("no kilos", groupingProblem([c({ kg: null })]), "PRD/26-27/0001 has no garment weight on its costing, so it has no kilos to batch.");
 eq("no year", groupingProblem([c({ season_year: null })]), "PRD/26-27/0001 has no Season and Year — set them on Sample Entry first.");
 eq("two seasons", groupingProblem([c(), c({ season: "Q2" })]), "A group is one season — every style picked must share the Season and Year.");
-eq("two structures", groupingProblem([c(), c({ fabric_structure_id: "rib" })]), "A group is one fabric structure — every style picked must use the same one.");
-eq("two blends", groupingProblem([c(), c({ blend_key: "95% COTTON / 5% ELASTANE" })]), "A group is one yarn blend — every style picked must be knitted from the same yarn.");
+// Client spec "Grouping & SWO" (2026-10-12): structure and blend are the
+// PLANNER's call — a mix is said, never refused. Only the season refuses.
+eq("two structures are allowed", groupingProblem([c(), c({ fabric_structure_id: "rib" })]), null);
+eq("two blends are allowed", groupingProblem([c(), c({ blend_key: "95% COTTON / 5% ELASTANE" })]), null);
+eq("alike: no advisory", groupingMix([c(), c()]), null);
+eq(
+  "mix: the advisory names both axes",
+  groupingMix([c(), c({ fabric_structure_id: "rib", blend_key: "95% COTTON / 5% ELASTANE" })]),
+  "Mixes 2 fabric structures and 2 yarn blends — batch them only if they can be bought and knitted as one lot.",
+);
+// The header a mixed SWO stores: each value once, first-met order, no single structure id.
+eq(
+  "header: one structure, one blend reads as itself",
+  groupHeaderOf([
+    { fabric_structure_id: "sj", fabric_structure: "SINGLE JERSEY", yarn_blend: "100% COTTON", blend_key: "100% COTTON" },
+    { fabric_structure_id: "sj", fabric_structure: "SINGLE JERSEY", yarn_blend: "100% COTTON", blend_key: "100% COTTON" },
+  ]),
+  { fabric_structure_id: "sj", fabric_structure: "SINGLE JERSEY", yarn_blend: "100% COTTON", blend_key: "100% COTTON" },
+);
+eq(
+  "header: a mix lists each once and points at no one structure",
+  groupHeaderOf([
+    { fabric_structure_id: "sj", fabric_structure: "SINGLE JERSEY", yarn_blend: "100% COTTON", blend_key: "100% COTTON" },
+    { fabric_structure_id: "rib", fabric_structure: "1X1 RIB", yarn_blend: "100% COTTON", blend_key: "100% COTTON" },
+    { fabric_structure_id: "sj", fabric_structure: "SINGLE JERSEY", yarn_blend: "95% COTTON / 5% ELASTANE", blend_key: "95% COTTON / 5% ELASTANE" },
+  ]),
+  {
+    fabric_structure_id: null,
+    fabric_structure: "SINGLE JERSEY + 1X1 RIB",
+    yarn_blend: "100% COTTON + 95% COTTON / 5% ELASTANE",
+    blend_key: "100% COTTON + 95% COTTON / 5% ELASTANE",
+  },
+);
+
+// The cutting basis (user 2026-10-12): the Fabric Plan's SMP rows first, the
+// costing where the plan names none; a style in two fabrics splits its plan
+// kilos by its costing shares.
+eq(
+  "cutting basis: plan first, costing fallback, split by share",
+  cuttingBasis(
+    [
+      { style_id: "s1", calculated_weight_kg: 2 },
+      { style_id: "s2", calculated_weight_kg: 1.5 },
+      { style_id: "s3", calculated_weight_kg: 1 },
+      { style_id: "s3", calculated_weight_kg: 3 },
+    ],
+    { s1: 2.1, s3: 8 },
+  ),
+  [
+    { kg: 2.1, source: "plan" },
+    { kg: 1.5, source: "costing" },
+    { kg: 2, source: "plan" },
+    { kg: 6, source: "plan" },
+  ],
+);
+eq("cutting basis: a zero plan row is 'plan unset'", cuttingBasis([{ style_id: "s1", calculated_weight_kg: 2 }], { s1: 0 }), [{ kg: 2, source: "costing" }]);
 
 // Auto-group: what the screen proposes.
 {

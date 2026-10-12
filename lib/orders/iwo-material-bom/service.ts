@@ -39,6 +39,10 @@ export type IwoMaterialBomTask = {
   created_by: string | null;
   created_at: string;
   bom: IwoMaterialBom | null;
+  /** The SWO this work order plans accessories for (0709
+   *  `sample_product_groups.accessories_iwo_id`) — what Sample ▸ Accessories
+   *  Plan shows in place of the I.WO No. Null on a production work order. */
+  swo: { id: string; code: string } | null;
 };
 
 /** `sampleOnly` — Sample ▸ Accessories Plan lists only the work orders the
@@ -62,7 +66,7 @@ export async function listIwoMaterialBomTasks(opts: { sampleOnly?: boolean } = {
     .order("created_at", { ascending: true });
   if (error) throw new Error(`IWO Accessories Plan: ${error.message}`);
 
-  type Raw = Omit<IwoMaterialBomTask, "bom"> & { iwo_material_boms: IwoMaterialBom | IwoMaterialBom[] | null };
+  type Raw = Omit<IwoMaterialBomTask, "bom" | "swo"> & { iwo_material_boms: IwoMaterialBom | IwoMaterialBom[] | null };
   const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_material_boms, ...r }) => {
     // A one-to-one embed can arrive as an object or a one-element array.
     const b = Array.isArray(iwo_material_boms) ? (iwo_material_boms[0] ?? null) : iwo_material_boms;
@@ -82,7 +86,45 @@ export async function listIwoMaterialBomTasks(opts: { sampleOnly?: boolean } = {
         : null,
     };
   });
-  return withCreators(rows);
+  const swoByIwo = await accessoriesSwosOf(s, rows.map((r) => r.id));
+  return withCreators(rows.map((r) => ({ ...r, swo: swoByIwo.get(r.id) ?? null })));
+}
+
+/** Each work order's SWO, in one read (0709). A failed read THROWS — the
+ *  sample list would otherwise show every plan without its SWO number. */
+async function accessoriesSwosOf(
+  s: Awaited<ReturnType<typeof createClient>>,
+  iwoIds: string[],
+): Promise<Map<string, { id: string; code: string }>> {
+  const out = new Map<string, { id: string; code: string }>();
+  if (!iwoIds.length) return out;
+  const { data, error } = await s
+    .from("sample_product_groups")
+    .select("id, group_code, accessories_iwo_id")
+    .in("accessories_iwo_id", iwoIds);
+  if (error) throw new Error(`IWO Accessories Plan: could not read the SWOs: ${error.message}`);
+  for (const g of (data ?? []) as { id: string; group_code: string; accessories_iwo_id: string }[]) {
+    out.set(g.accessories_iwo_id, { id: g.id, code: g.group_code });
+  }
+  return out;
+}
+
+/**
+ * THE SWOs WITH NO ACCESSORIES WORK ORDER YET (0709) — any SWO past Draft
+ * whose `accessories_iwo_id` is empty. What the Accessories Plan's SWO No
+ * picker offers beside the plans already raised; picking one runs
+ * `raiseSampleGroupAccessoriesIw`.
+ */
+export async function listSwosAwaitingAccessoriesIw(): Promise<{ id: string; code: string }[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("sample_product_groups")
+    .select("id, group_code")
+    .neq("status", "draft")
+    .is("accessories_iwo_id", null)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Could not load the SWOs awaiting an accessories work order: ${error.message}`);
+  return ((data ?? []) as { id: string; group_code: string }[]).map((g) => ({ id: g.id, code: g.group_code }));
 }
 
 /** Everything the editor's pickers offer — the order Material BOM's own
