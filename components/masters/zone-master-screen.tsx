@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { Check, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
@@ -21,6 +22,8 @@ import { deletedToast } from "@/lib/masters/delete-message";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
@@ -46,6 +49,32 @@ const BLANK = {
   zone_short_name: "",
   zone_name: "",
   inactive: false,
+};
+
+/**
+ * ADD AND EDIT HAPPEN IN THE TABLE (user 2026-10-12: "zone name field a table la
+ * kondu va") - the same move Destination made the same day. "+ Add Zone" puts a
+ * blank row at the TOP of the listing, the row menu's Edit turns a row's Zone
+ * Name and Areas cells into inputs, and the check / cross in the actions cell
+ * commit or drop it (Ctrl+S / Escape too). The Areas cell holds the zone's area
+ * lines, one input each, with a hover remove and "+ Add area" - a zone's areas
+ * are part of the zone, so they are edited where it is.
+ *
+ * The new row is a SENTINEL in `rows`, not a second table: `DataTable` stays the
+ * one renderer, so the columns and the Created cells line up by construction.
+ *
+ * DESKTOP ONLY. Below `md` the listing is stacked cards with no columns to type
+ * into, so a phone still opens the sheet - same fields, same `submit()`.
+ */
+const NEW_ID = "__new__";
+const NEW_ROW: Zone = {
+  id: NEW_ID,
+  zone_short_name: null,
+  zone_name: "",
+  inactive: false,
+  created_at: "",
+  updated_at: "",
+  areas: [],
 };
 
 /**
@@ -348,6 +377,8 @@ export function ZoneMasterScreen({
      `lib/masters/active-registry.ts`. */
   const { setStatus, isPending: statusPending } = useBlockAction("zone");
   const [open, setOpen] = useState(false);
+  // TRUE while the desktop table holds an editing row (new, or `editId`).
+  const [inline, setInline] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
   const [childRows, setChildRows] = useState<ChildRow[]>([]);
@@ -391,31 +422,47 @@ export function ZoneMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.zone_name ?? "").filter(Boolean),
     seed: ZONE_NAMES,
-    enabled: open,
+    enabled: open || inline,
     onApply: (v) => setForm((f) => ({ ...f, zone_name: v })),
   });
 
-  function openAdd() {
+  // The Sheet registers itself with the reload guard; an inline row is a plain
+  // table row, so it has to say so.
+  useUnsavedGuard(inline || isPending);
+
+  function close() {
+    setOpen(false);
+    setInline(false);
+  }
+  /** `inTable` - desktop edits in the listing, a phone in the sheet. */
+  function openAdd(inTable = false) {
     setEditId(null);
     setForm(BLANK);
-    setChildRows([]);
-    setOpen(true);
+    // The table's Areas cell opens with a line ready to type (default-row rule);
+    // the sheet's ChildGrid keeps its own "+ Add area".
+    setChildRows(inTable ? [{ key: nextKey(), area_name: "" }] : []);
+    if (inTable) setInline(true);
+    else setOpen(true);
   }
-  function openEdit(r: Zone) {
+  function openEdit(r: Zone, inTable = false) {
     setEditId(r.id);
     setForm({
       zone_short_name: r.zone_short_name ?? "",
       zone_name: r.zone_name,
       inactive: r.inactive,
     });
-    setChildRows(
-      (r.areas ?? []).map((a) => ({
-        key: nextKey(),
-        area_name: a.area_name ?? "",
-      })),
-    );
-    setOpen(true);
+    const areas = (r.areas ?? []).map((a) => ({
+      key: nextKey(),
+      area_name: a.area_name ?? "",
+    }));
+    setChildRows(inTable && areas.length === 0 ? [{ key: nextKey(), area_name: "" }] : areas);
+    if (inTable) setInline(true);
+    else setOpen(true);
   }
+
+  const isEditingRow = (r: Zone) =>
+    inline && (editId === null ? r.id === NEW_ID : r.id === editId);
+  const canSave = !isPending && !!form.zone_name.trim() && !dupError;
 
   function addChildRow() {
     setChildRows((rs) => [...rs, { key: nextKey(), area_name: "" }]);
@@ -446,7 +493,7 @@ export function ZoneMasterScreen({
         : await createZone(payload, children);
       if (res.ok) {
         success(editId ? "Zone updated." : "Zone added.");
-        setOpen(false);
+        close();
         router.refresh();
       } else {
         error(res.error);
@@ -473,15 +520,72 @@ export function ZoneMasterScreen({
   }
 
   const columns: Column<Zone>[] = [
-    { header: "Zone Name", cell: (r) => <span className="text-sm">{r.zone_name}</span> },
+    {
+      header: "Zone Name",
+      cell: (r) =>
+        isEditingRow(r) ? (
+          <div className={BOX_W}>
+            <Input
+              id="zn-name"
+              uppercase
+              autoFocus
+              required
+              className={INPUT_BOX}
+              value={form.zone_name}
+              onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
+              // Down into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
+              {...dupFieldProps(dupError, "zn-name")}
+            />
+            <DuplicateError error={dupError} id="zn-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
+              activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
+              onApply={(v) => setForm((f) => ({ ...f, zone_name: v }))}
+            />
+          </div>
+        ) : (
+          <span className="text-sm">{r.zone_name}</span>
+        ),
+    },
     {
       header: "Areas",
       align: "right",
-      cell: (r) => (
-        <span className="tabular-nums text-sm text-muted-foreground">
-          {r.areas?.length || "---"}
-        </span>
-      ),
+      cell: (r) =>
+        isEditingRow(r) ? (
+          /* One input per area, the same 180px box as Zone Name. The remove
+             chip rides beside each input and shows on hover (RowHoverRemove);
+             "+ Add area" is the add control, marked `data-row-add` so Enter off
+             the last area lands on it. Blank lines are dropped by `submit()`. */
+          <div className="ml-auto flex w-fit flex-col items-start gap-1 text-left">
+            {childRows.map((c, i) => (
+              <div key={c.key} data-hover-row className="flex items-center gap-1">
+                <Input
+                  uppercase
+                  aria-label={`Area ${i + 1}`}
+                  className={INPUT_BOX}
+                  value={c.area_name}
+                  onChange={(e) => updateChild(c.key, e.target.value)}
+                />
+                <RowHoverRemove
+                  label={`Remove area ${i + 1}`}
+                  // The last line stays: the cell never empties to a bare button.
+                  disabled={childRows.length === 1}
+                  onClick={() => removeChildRow(c.key)}
+                />
+              </div>
+            ))}
+            <Button size="sm" variant="ghost" data-row-add onClick={addChildRow}>
+              + Add area
+            </Button>
+          </div>
+        ) : (
+          <span className="tabular-nums text-sm text-muted-foreground">
+            {r.areas?.length || "---"}
+          </span>
+        ),
     },
     {
       /* A SWITCH, NOT A PILL (client 2026-09-11) — one click calls the status
@@ -494,19 +598,31 @@ export function ZoneMasterScreen({
          it and the `isInactive` read are all `StatusToggle`'s. */
       header: "Status",
       className: "w-32",
-      cell: (r) => (
-        <StatusToggle
-          row={r}
-          label={r.zone_name}
-          // Blocking is the destructive direction and `setMasterActive` gates it
-          // as `delete` server-side.
-          disabled={!perms.canDelete || isPending || statusPending}
-          onChange={(active) => setStatus(r, active, { label: r.zone_name })}
-        />
-      ),
+      cell: (r) =>
+        // A row not yet saved has no status to switch.
+        r.id === NEW_ID ? null : (
+          <StatusToggle
+            row={r}
+            label={r.zone_name}
+            // Blocking is the destructive direction and `setMasterActive` gates it
+            // as `delete` server-side.
+            disabled={!perms.canDelete || isPending || statusPending}
+            onChange={(active) => setStatus(r, active, { label: r.zone_name })}
+          />
+        ),
     },
     rowActionsColumn(
-      (r) => (
+      (r) =>
+        isEditingRow(r) ? (
+          <div className="flex justify-end gap-1">
+            <Button size="icon" aria-label="Save" title="Save (Ctrl+S)" disabled={!canSave} onClick={submit}>
+              <Check />
+            </Button>
+            <Button size="icon" variant="outline" aria-label="Cancel" title="Cancel (Esc)" onClick={close}>
+              <X />
+            </Button>
+          </div>
+        ) : (
         /* One ⋮ per row instead of three inline icons: View, Edit, a rule, then
            Delete behind a confirm dialog. The View is automatic —
            `rowActionsColumn` publishes the row and the menu reads it, exactly as
@@ -519,14 +635,15 @@ export function ZoneMasterScreen({
            blocked zone is exactly as meaningful as deleting a live one. */
         <TableRowActionsMenu
           label={r.zone_name}
-          onEdit={() => openEdit(r)}
+          onEdit={() => openEdit(r, true)}
           onDelete={() => remove(r)}
-          canEdit={perms.canEdit}
+          canEdit={perms.canEdit && !inline}
           canDelete={perms.canDelete}
           isPending={isPending}
         />
-      ),
-      ROW_ACTIONS_MENU_WIDTH,
+        ),
+      // Two icon buttons need the room while a row is being edited.
+      inline ? "w-24" : ROW_ACTIONS_MENU_WIDTH,
     ),
   ];
 
@@ -573,25 +690,54 @@ export function ZoneMasterScreen({
         <div className="flex flex-1 items-center justify-end gap-2">
           <DataIoToolbar entityKey="zones" rows={filtered} canExport={perms.canExport} />
           {perms.canCreate && (
-            <Button size="md" onClick={openAdd}>
-              + Add Zone
-            </Button>
+            <>
+              {/* One per layout - the table row exists only from `md`. */}
+              <Button size="md" className="hidden md:inline-flex" disabled={inline} onClick={() => openAdd(true)}>
+                + Add Zone
+              </Button>
+              <Button size="md" className="md:hidden" onClick={() => openAdd()}>
+                + Add Zone
+              </Button>
+            </>
           )}
         </div>
       </div>
 
       {/* desktop table */}
-      <div className="hidden md:block">
+      <div
+        className="hidden md:block"
+        // Ctrl+S saves and Escape drops the editing row. preventDefault so the
+        // app's Escape ladder does not ALSO unwind a layer behind it.
+        onKeyDown={(e) => {
+          if (!inline || e.defaultPrevented) return;
+          if (e.key === "Escape") {
+            e.preventDefault();
+            close();
+          } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+            e.preventDefault();
+            if (canSave) submit();
+          }
+        }}
+      >
         {/* `rowClassName` dims a switched-off row's DATA cells and leaves the
             last one alone — the ⋮ must stay legible on a dimmed row, and
             `opacity` on the `<tr>` would take it down with the text. Same rule
             `MasterListShell` applies to the listings it owns. */}
         <DataTable
           columns={withCreatedColumns(columns, pg.paged)}
-          rows={pg.paged}
+          rows={inline && editId === null ? [NEW_ROW, ...pg.paged] : pg.paged}
           paginate={false}
           getKey={(r) => r.id}
-          rowClassName={(r) => (isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined)}
+          rowClassName={(r) =>
+            // The editing row is TOP-aligned (user 2026-10-12, screenshot 151258):
+            // the Areas cell grows a line per area, and the table's `align-middle`
+            // sat Zone Name halfway down it instead of level with the first area.
+            isEditingRow(r)
+              ? "[&>td]:align-top"
+              : isInactive(r)
+                ? "[&>td:not(:last-child)]:opacity-60"
+                : undefined
+          }
           empty="No zone records yet."
         />
       </div>
@@ -643,7 +789,7 @@ export function ZoneMasterScreen({
       {/* editor */}
       <Sheet
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={close}
         title={editId ? "Edit Zone" : "New Zone"}
         footer={
           /* `mr-auto` inside the Sheet footer's `justify-end` row: the auto margin
@@ -656,12 +802,12 @@ export function ZoneMasterScreen({
             className="mr-auto flex w-full items-center justify-end gap-2"
             style={{ maxWidth: FORM_W }}
           >
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
+            <Button variant="outline" size="md" onClick={close}>
               Cancel
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.zone_name.trim() || !!dupError}
+              disabled={!canSave}
               onClick={submit}
             >
               {isPending ? "Saving..." : "Save"}

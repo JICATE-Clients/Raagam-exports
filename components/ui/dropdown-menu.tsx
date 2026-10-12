@@ -220,7 +220,10 @@ export function DropdownMenu({
               const heading =
                 item.section && item.section !== items[i - 1]?.section ? item.section : null;
               return (
-                <div key={`${item.section ?? ""}:${item.label}`}>
+                // The index is part of the key: two open screens can share a label
+                // ("Materials" twice in Open screens), and the menu is rebuilt
+                // whole on every open, so position is a stable identity.
+                <div key={`${i}:${item.section ?? ""}:${item.label}`}>
                   {/* Skipped at index 0 - a rule there would only thicken the
                       menu's own top border. Same reasoning as the heading. */}
                   {item.separatorBefore && i > 0 && (

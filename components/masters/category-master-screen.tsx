@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,8 +12,10 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { RowHoverRemove } from "@/components/ui/row-hover-remove";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { Toggle } from "@/components/ui/toggle";
-import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { useBlockAction } from "@/components/masters/use-block-action";
 import { StatusToggle } from "@/components/ui/status-toggle";
@@ -100,6 +103,25 @@ const SUB_NAME_W = FIELD_WIDTH_CSS.party;
  */
 const FORM_W = "max-w-[39.5rem]";
 
+/**
+ * ADD AND EDIT HAPPEN IN THE TABLE (user 2026-10-12, screenshot 152214: "this
+ * 2 field table la kondu varanum") - Item Class and Name typed straight into the
+ * listing, the move Destination and Zone made the same day. "+ Add Category"
+ * puts a blank row at the TOP, Edit turns a row's cells into inputs, and the
+ * check / cross in the actions cell commit or drop it (Ctrl+S / Escape too).
+ *
+ * THE CLASS'S OWN QUESTIONS COME WITH IT, in the row: Category Type (Yarn) and
+ * Fabric Structure (Fabric) in the Type cell, and Has Sub Categories with its
+ * lines under the Name. Each is required while it shows, and a required field
+ * the row could not show would make the category unsaveable from the table -
+ * the "required-but-invisible" trap `missingRequired` below records.
+ *
+ * The new row is a SENTINEL in `rows`, not a second table. DESKTOP ONLY: below
+ * `md` the listing is stacked cards, so a phone still opens the sheet - same
+ * fields, same `submit()`.
+ */
+const NEW_ID = "__new__";
+
 /** A Sub Category row being edited. `id` is null for a row the user just added;
  *  carrying the real id back lets updateCategory reconcile instead of
  *  re-creating rows that materials point at (0349). */
@@ -139,6 +161,8 @@ export function CategoryMasterScreen({
   const { setStatus, isPending: statusPending } = useBlockAction("category");
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  // TRUE while the desktop table holds an editing row (new, or `editId`).
+  const [inline, setInline] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
 
@@ -382,14 +406,24 @@ export function CategoryMasterScreen({
    */
   const [triedSave, setTriedSave] = useState(false);
 
-  function openAdd() {
+  // The Sheet registers itself with the reload guard; an inline row is a plain
+  // table row, so it has to say so.
+  useUnsavedGuard(inline || isPending);
+
+  function close() {
+    setOpen(false);
+    setInline(false);
+  }
+  /** `inTable` - desktop edits in the listing, a phone in the sheet. */
+  function openAdd(inTable = false) {
     setEditId(null);
     setForm(BLANK);
     setSubs([]);
     setTriedSave(false);
-    setOpen(true);
+    if (inTable) setInline(true);
+    else setOpen(true);
   }
-  function openEdit(r: Category) {
+  function openEdit(r: Category, inTable = false) {
     setEditId(r.id);
     setForm({
       item_class_id: r.item_class_id,
@@ -412,8 +446,14 @@ export function CategoryMasterScreen({
     });
     setSubs((r.sub_categories ?? []).map((c) => ({ key: newKey(), id: c.id, name: c.name })));
     setTriedSave(false);
-    setOpen(true);
+    if (inTable) setInline(true);
+    else setOpen(true);
   }
+
+  const isEditingRow = (r: Category) =>
+    inline && (editId === null ? r.id === NEW_ID : r.id === editId);
+  /** The blank row "+ Add Category" puts at the top of the table. */
+  const newRow = { ...BLANK, id: NEW_ID, created_at: "", sub_categories: [] } as unknown as Category;
 
   function submit() {
     /**
@@ -432,6 +472,8 @@ export function CategoryMasterScreen({
      */
     if (missingRequired.length > 0) {
       setTriedSave(true);
+      // The table row has no footer to carry the sentence, so it is a toast.
+      if (inline) error(`${missingRequired[0].label} is required.`);
       focusFirstMissing();
       return;
     }
@@ -464,7 +506,7 @@ export function CategoryMasterScreen({
       const res = editId ? await updateCategory(editId, payload) : await createCategory(payload);
       if (res.ok) {
         success(editId ? "Category updated." : "Category added.");
-        setOpen(false);
+        close();
         router.refresh();
       } else {
         error(res.error);
@@ -487,16 +529,137 @@ export function CategoryMasterScreen({
   const columns: Column<Category>[] = [
     {
       header: "Item Class",
-      cell: (r) => <span className="text-sm">{classLabel.get(r.item_class_id) ?? "—"}</span>,
+      cell: (r) =>
+        isEditingRow(r) ? (
+          <div className={FIELD_WIDTH[FIELD_W.item_class]}>
+            <Select
+              id="cat-item-class"
+              autoFocus
+              required
+              value={form.item_class_id}
+              onChange={(e) => setForm({ ...form, item_class_id: e.target.value })}
+              className="h-8 text-sm"
+            >
+              <option value=""></option>
+              {itemClasses
+                .filter((c) => c.is_active || c.id === form.item_class_id)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </Select>
+          </div>
+        ) : (
+          <span className="text-sm">{classLabel.get(r.item_class_id) ?? "—"}</span>
+        ),
     },
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
+    {
+      header: "Name",
+      cell: (r) =>
+        isEditingRow(r) ? (
+          <div className={`${FIELD_WIDTH[FIELD_W.name]} space-y-1.5`}>
+            <Input
+              id="cat-name"
+              uppercase
+              required
+              title={form.name || undefined}
+              className="h-8 text-sm"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              {...dupFieldProps(dupError, "cat-name")}
+              onKeyDown={nameSuggest.onKeyDown}
+            />
+            <DuplicateError error={dupError} id="cat-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
+              activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
+              onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+            />
+            {/* Has Sub Categories and its lines, under the Name as in the sheet
+                - asked only once there is a name (see the sheet's note). */}
+            {showSubCategories && nameEntered && (
+              <Toggle
+                id="cat-has-subs"
+                label="Has Sub Categories"
+                checked={form.has_sub_categories}
+                onChange={toggleSubCategories}
+              />
+            )}
+            {showSubCategories && nameEntered && form.has_sub_categories && (
+              <div className="space-y-1">
+                {subs.map((c, i) => (
+                  <div key={c.key} data-hover-row className="flex items-center gap-1">
+                    <Input
+                      uppercase
+                      aria-label={`Sub category ${i + 1}`}
+                      className="h-8 text-sm"
+                      value={c.name}
+                      onChange={(e) => setSubAt(c.key, { name: e.target.value })}
+                    />
+                    <RowHoverRemove
+                      label={`Remove sub category ${i + 1}`}
+                      // The last line stays while the toggle is on.
+                      disabled={subs.length === 1}
+                      onClick={() => removeSub(c.key)}
+                    />
+                  </div>
+                ))}
+                <Button size="sm" variant="ghost" data-row-add onClick={addSub}>
+                  + Add sub category
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className="text-sm">{r.name ?? "—"}</span>
+        ),
+    },
     {
       header: "Type",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {r.made ?? (r.fabric_structure_id ? fabricStructureLabel.get(r.fabric_structure_id) : null) ?? "—"}
-        </span>
-      ),
+      cell: (r) =>
+        isEditingRow(r) ? (
+          showCategoryType ? (
+            <div className={FIELD_WIDTH[FIELD_W.made]}>
+              <Select
+                id="cat-made"
+                aria-label="Category Type"
+                required
+                value={form.made}
+                onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
+                className="h-8 text-sm"
+              >
+                <option value=""></option>
+                {MADE_TYPES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : showFabricStructure ? (
+            <div id="cat-fabric-structure" className={FIELD_WIDTH[FIELD_W.fabric_structure]}>
+              <LookupDialogPicker
+                kind="fabric_structure"
+                compact
+                required
+                label="Fabric Structure"
+                options={fabricStructures}
+                value={form.fabric_structure_id}
+                onChange={(v) => setForm({ ...form, fabric_structure_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+              />
+            </div>
+          ) : null
+        ) : (
+          <span className="text-sm text-muted-foreground">
+            {r.made ?? (r.fabric_structure_id ? fabricStructureLabel.get(r.fabric_structure_id) : null) ?? "—"}
+          </span>
+        ),
     },
     {
       /* A SWITCH, not a pill (client 2026-09-26: "velya table la active
@@ -505,25 +668,41 @@ export function CategoryMasterScreen({
          direction, so it is gated on delete, as `setMasterActive` is. */
       header: "Status",
       className: "w-32",
-      cell: (r) => (
-        <StatusToggle
-          row={r}
-          label={r.name}
-          disabled={!perms.canDelete || statusPending}
-          onChange={(active) => setStatus(r, active, { label: r.name })}
-        />
-      ),
+      cell: (r) =>
+        // A row not yet saved has no status to switch.
+        r.id === NEW_ID ? null : (
+          <StatusToggle
+            row={r}
+            label={r.name}
+            disabled={!perms.canDelete || statusPending}
+            onChange={(active) => setStatus(r, active, { label: r.name })}
+          />
+        ),
     },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.name}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
+    rowActionsColumn(
+      (r) =>
+        isEditingRow(r) ? (
+          <div className="flex justify-end gap-1">
+            <Button size="icon" aria-label="Save" title="Save (Ctrl+S)" disabled={isPending || !!dupError} onClick={submit}>
+              <Check />
+            </Button>
+            <Button size="icon" variant="outline" aria-label="Cancel" title="Cancel (Esc)" onClick={close}>
+              <X />
+            </Button>
+          </div>
+        ) : (
+          <RowActions
+            label={r.name}
+            onEdit={() => openEdit(r, true)}
+            onDelete={() => remove(r)}
+            canEdit={perms.canEdit && !inline}
+            canDelete={perms.canDelete}
+            isPending={isPending}
+          />
+        ),
+      // Two icon buttons need the room while a row is being edited.
+      inline ? "w-24" : undefined,
+    ),
   ];
 
   return (
@@ -608,17 +787,45 @@ export function CategoryMasterScreen({
         <div className="flex flex-1 items-center justify-end gap-2">
           <DataIoToolbar entityKey="categories" rows={filtered} canExport={perms.canExport} />
           {perms.canCreate && (
-            <Button size="md" onClick={openAdd}>
-              + Add Category
-            </Button>
+            <>
+              {/* One per layout - the table row exists only from `md`. */}
+              <Button size="md" className="hidden md:inline-flex" disabled={inline} onClick={() => openAdd(true)}>
+                + Add Category
+              </Button>
+              <Button size="md" className="md:hidden" onClick={() => openAdd()}>
+                + Add Category
+              </Button>
+            </>
           )}
         </div>
       </div>
 
       {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged}
-        paginate={false} getKey={(r) => r.id} empty="No category records yet." />
+      <div
+        className="hidden md:block"
+        // Ctrl+S saves and Escape drops the editing row. preventDefault so the
+        // app's Escape ladder does not ALSO unwind a layer behind it.
+        onKeyDown={(e) => {
+          if (!inline || e.defaultPrevented) return;
+          if (e.key === "Escape") {
+            e.preventDefault();
+            close();
+          } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+            e.preventDefault();
+            if (!isPending && !dupError) submit();
+          }
+        }}
+      >
+        <DataTable
+          columns={withCreatedColumns(columns, rows)}
+          rows={inline && editId === null ? [newRow, ...pg.paged] : pg.paged}
+          paginate={false}
+          getKey={(r) => r.id}
+          // The editing row is TOP-aligned: its Name cell can grow sub-category
+          // lines, and `align-middle` would sit the other cells halfway down it.
+          rowClassName={(r) => (isEditingRow(r) ? "[&>td]:align-top" : undefined)}
+          empty="No category records yet."
+        />
       </div>
 
       {/* mobile cards */}
@@ -666,7 +873,7 @@ export function CategoryMasterScreen({
       {/* editor */}
       <Sheet
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={close}
         title={editId ? "Edit Category" : "New Category"}
         footer={
           /* `mr-auto` parks this box at the footer's left, so the buttons end
@@ -699,7 +906,7 @@ export function CategoryMasterScreen({
                 {missingRequired.length > 1 ? ` (+${missingRequired.length - 1} more)` : ""}
               </button>
             )}
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
+            <Button variant="outline" size="md" onClick={close}>
               Cancel
             </Button>
             <Button
@@ -716,6 +923,8 @@ export function CategoryMasterScreen({
           </div>
         }
       >
+        {/* Only while open: the table row uses the same field ids. */}
+        {open && (
         <div className="space-y-4">
           {/* ONE CARD, ITEM CLASS AND NAME ON ONE ROW (client 2026-09-26: "item
               class and item name one line and one row"). This was two cards —
@@ -926,6 +1135,7 @@ export function CategoryMasterScreen({
             {/* No Inactive switch — Active / Inactive is the listing's Status switch now (`useBlockAction` above, client 2026-09-26). */}
           </DetailSection>
         </div>
+        )}
       </Sheet>
     </div>
   );

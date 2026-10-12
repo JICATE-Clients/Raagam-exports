@@ -2,15 +2,18 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normName } from "@/lib/masters/name-dictionary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldRow, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldRow, FIELD_WIDTH, FIELD_WIDTH_CSS, type FieldWidth } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
-import { MasterListShell } from "@/components/masters/master-list-shell";
+import { MasterListShell, isDesktopTable } from "@/components/masters/master-list-shell";
+import { ChipListInput } from "@/components/ui/chip-list-input";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useBlockAction } from "@/components/masters/use-block-action";
@@ -90,6 +93,28 @@ const SIZES_W = "w-[12rem] max-w-full";
  */
 const FORM_W = "max-w-[29rem]";
 
+/**
+ * ADD AND EDIT HAPPEN IN THE TABLE (user 2026-10-12, screenshot 160018: "table
+ * la kondu va") - the Name and the Sizes typed straight into the listing row,
+ * the move Destination, Zone and Categories made the same day. "+ Add Size
+ * Group" puts a blank row at the TOP, Edit turns a row's Name and Sizes cells
+ * into inputs, and the check / cross commit or drop it (Ctrl+S / Escape too).
+ * The Sizes cell is ONE box holding the sizes as chips, in order (`ChipListInput`).
+ * `MasterListShell`'s `inline` prop does the table half.
+ *
+ * DESKTOP ONLY. Below `md` the listing is cards, so a phone still opens the
+ * sheet - same fields, same `submit()`.
+ */
+const NEW_ID = "__new__";
+const NEW_ROW = {
+  id: NEW_ID,
+  size_group_no: null,
+  size_group_name: "",
+  inactive: false,
+  created_at: "",
+  sizes: [],
+} as unknown as SizeGroup;
+
 export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perms: Perms }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -101,9 +126,13 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
   const [isPending, start] = useTransition();
 
   const [open, setOpen] = useState(false);
+  // TRUE while the desktop table holds an editing row (new, or `editId`).
+  const [inline, setInline] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
   const [childRows, setChildRows] = useState<ChildRow[]>([]);
+  // The size typed into the table row's chip box and not yet Entered.
+  const [sizeDraft, setSizeDraft] = useState("");
   const keyRef = useRef(0);
   const nextKey = () => `sg-${++keyRef.current}`;
 
@@ -155,40 +184,9 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
       .map((r) => r.size_group_name ?? "")
       .filter(Boolean),
     seed: [],
-    enabled: open,
+    enabled: open || inline,
     onApply: (v) => setForm((f) => ({ ...f, size_group_name: v })),
   });
-
-  const columns: Column<SizeGroup>[] = [
-    {
-      header: "Name",
-      cell: (r) => <span className="text-sm">{r.size_group_name ?? "—"}</span>,
-    },
-    {
-      header: "Sizes",
-      cell: (r) => (
-        // The whole point of a group, so it is the column worth showing: the set
-        // itself, in order, rather than a count the operator has to open to read.
-        <span className="text-sm text-muted-foreground">
-          {[...(r.sizes ?? [])]
-            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-            .map((s) => s.size_name)
-            .join(" · ") || "—"}
-        </span>
-      ),
-    },
-    {
-      header: "Status",
-      cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>
-          {r.inactive ? "Inactive" : "Active"}
-        </StatusPill>
-      ),
-    },
-    // No Created column here — MasterListShell splices the Created Date / User
-    // pair itself and strips a hand-rolled one. `listSizeGroups` already runs
-    // through `withCreators()`.
-  ];
 
   /**
    * THE SAME SIZE TWICE IN ONE GROUP, caught as it is typed.
@@ -216,6 +214,84 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
   }, [childRows]);
 
   const hasDuplicateSize = duplicateSizeKeys.size > 0;
+
+  const isEditingRow = (r: SizeGroup) =>
+    inline && (editId === null ? r.id === NEW_ID : r.id === editId);
+
+  const columns: Column<SizeGroup>[] = [
+    {
+      header: "Name",
+      cell: (r) =>
+        isEditingRow(r) ? (
+          <div className={FIELD_WIDTH[FIELD_W.name]}>
+            <Input
+              id="sg-name"
+              uppercase
+              autoFocus
+              required
+              className="h-8 text-sm"
+              value={form.size_group_name}
+              onChange={(e) => setForm({ ...form, size_group_name: e.target.value })}
+              placeholder="MENS TOP S-XXL"
+              // Down into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
+              {...dupFieldProps(dupError, "sg-name")}
+            />
+            <DuplicateError error={dupError} id="sg-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
+              activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
+              onApply={(v) => setForm((f) => ({ ...f, size_group_name: v }))}
+            />
+          </div>
+        ) : (
+          <span className="text-sm">{r.size_group_name ?? "—"}</span>
+        ),
+    },
+    {
+      header: "Sizes",
+      cell: (r) =>
+        isEditingRow(r) ? (
+          /* ONE BOX, SIZES AS CHIPS (user 2026-10-12, option B of the "Size
+             Group Row Options" artifact) - the row stays one line instead of
+             growing a line per size. Chip order IS the size order. A size typed
+             and not yet Entered is `sizeDraft`, which Save and Ctrl+S read. */
+          <ChipListInput
+            id="sg-sizes"
+            label="size"
+            placeholder="Type a size, Enter"
+            className="w-[22rem]"
+            values={childRows.map((c) => c.size_name).filter((v) => v.trim())}
+            onChange={(next) => setChildRows(next.map((v) => ({ key: nextKey(), size_name: v })))}
+            draft={sizeDraft}
+            onDraftChange={setSizeDraft}
+            same={(x, y) => normName(x) === normName(y)}
+          />
+        ) : (
+        // The whole point of a group, so it is the column worth showing: the set
+        // itself, in order, rather than a count the operator has to open to read.
+        <span className="text-sm text-muted-foreground">
+          {[...(r.sizes ?? [])]
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+            .map((s) => s.size_name)
+            .join(" · ") || "—"}
+        </span>
+        ),
+    },
+    {
+      header: "Status",
+      cell: (r) => (
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
+        </StatusPill>
+      ),
+    },
+    // No Created column here — MasterListShell splices the Created Date / User
+    // pair itself and strips a hand-rolled one. `listSizeGroups` already runs
+    // through `withCreators()`.
+  ];
 
   const childColumns: ChildGridColumn<ChildRow>[] = [
     {
@@ -259,11 +335,26 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
     },
   ];
 
+  // The Sheet registers itself with the reload guard; an inline row is a plain
+  // table row, so it has to say so.
+  useUnsavedGuard(inline || isPending);
+
+  function close() {
+    setOpen(false);
+    setInline(false);
+  }
+  /** Desktop edits in the listing row, a phone in the sheet. */
+  function show() {
+    setSizeDraft("");
+    if (isDesktopTable()) setInline(true);
+    else setOpen(true);
+  }
+
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
     setChildRows([{ key: nextKey(), size_name: "" }]);
-    setOpen(true);
+    show();
   }
 
   function openEdit(r: SizeGroup) {
@@ -280,21 +371,25 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
         .map((s) => ({ key: nextKey(), size_name: s.size_name })),
     );
-    setOpen(true);
+    // An empty group opens with a box ready to type (default-row rule).
+    if (!r.sizes?.length) setChildRows([{ key: nextKey(), size_name: "" }]);
+    show();
   }
 
   function submit() {
     start(async () => {
       // The grid's own order IS the sort order; the action renumbers 1..n.
-      const children = childRows
-        .filter((c) => c.size_name.trim())
-        .map((c, i) => ({ size_name: c.size_name.trim(), sort_order: i + 1 }));
+      // A size still in the row's chip box counts, unless it repeats one.
+      const draft = inline ? sizeDraft.trim().toUpperCase() : "";
+      const names = childRows.map((c) => c.size_name.trim()).filter(Boolean);
+      if (draft && !names.some((n) => normName(n) === normName(draft))) names.push(draft);
+      const children = names.map((size_name, i) => ({ size_name, sort_order: i + 1 }));
       const res = editId
         ? await updateSizeGroup(editId, form, children)
         : await createSizeGroup(form, children);
       if (res.ok) {
         success(editId ? "Size group updated" : "Size group created");
-        setOpen(false);
+        close();
         router.refresh();
       } else {
         toastError(res.error);
@@ -350,17 +445,43 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
         }}
         empty="No size groups yet. Use “+ Add Size Group” to create the first."
         isPending={isPending || statusPending}
+        inline={{
+          editingKey: inline ? (editId ?? NEW_ID) : null,
+          newRow: inline && editId === null ? NEW_ROW : null,
+          actionsCell: (
+            <div className="flex justify-end gap-1">
+              <Button size="icon" aria-label="Save" title="Save (Ctrl+S)" disabled={isPending || !canSave} onClick={submit}>
+                <Check />
+              </Button>
+              <Button size="icon" variant="outline" aria-label="Cancel" title="Cancel (Esc)" onClick={close}>
+                <X />
+              </Button>
+            </div>
+          ),
+          // Ctrl+S saves and Escape drops the editing row. preventDefault so the
+          // app's Escape ladder does not ALSO unwind a layer behind it.
+          onKeyDown: (e) => {
+            if (!inline || e.defaultPrevented) return;
+            if (e.key === "Escape") {
+              e.preventDefault();
+              close();
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+              e.preventDefault();
+              if (!isPending && canSave) submit();
+            }
+          },
+        }}
       />
 
       <Sheet
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={close}
         title={editId ? "Edit Size Group" : "New Size Group"}
         footer={
           /* `mr-auto` parks this box at the footer's left, so the buttons end
              where the Sizes card ends — FORM_W is the pair's width. */
           <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
+            <Button variant="outline" size="md" onClick={close}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !canSave} onClick={submit}>
@@ -371,6 +492,8 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
       >
         {/* Side by side, top-aligned: the Sizes card grows downward as rows are
             added, and the Details card stays put beside its first row. */}
+        {/* Only while open: the table row uses the same field ids. */}
+        {open && (
         <div className="flex flex-wrap items-start gap-3">
         <DetailSection label="Details" cols={1} className={DETAILS_W}>
           <FieldRow>
@@ -418,6 +541,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
           />
         </DetailSection>
         </div>
+        )}
       </Sheet>
     </>
   );
