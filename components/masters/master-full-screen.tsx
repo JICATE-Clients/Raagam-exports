@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1304,6 +1305,59 @@ export function MasterFullScreen({
     }
   }
 
+  /**
+   * THE APP'S NAVIGATION BAR STAYS ON SCREEN ABOVE AN OVERLAY EDITOR (user
+   * 2026-10-12, screenshots 122448 / 120127: Vendor ▸ New hid the "Consignee
+   * · 17 open ▾ · Recent: Customer · Notify" strip that every list page shows).
+   * `fixed inset-0` drew the editor over the whole window, so the operator lost
+   * ‹ ›, the open-screens switcher and Recent the moment they pressed + Add.
+   *
+   * The overlay now starts at the strip's bottom-left corner instead. Measured,
+   * not hard-coded, because WHERE `inset-0` resolves to depends on the theme:
+   * a glass appearance puts `backdrop-filter` on `[data-work-panel]`, which makes
+   * the panel the overlay's containing block, while the default theme leaves it
+   * the viewport. So the offset is taken RELATIVE to wherever the box currently
+   * sits (its rect minus the offset already applied) — one sum, both cases.
+   *
+   * A ResizeObserver on the strip re-measures when the sidebar stands down for
+   * the editor (`useEditorPresence` commits a render later, and the strip
+   * widening is what announces it), and on any window resize.
+   *
+   * `md:` only, via the classes below: on a phone the editor is still a
+   * full-screen takeover, where a 56px strip would cost a sixth of the screen.
+   * Dropdowns from the strip portal at z-150 and the search palette at z-100,
+   * both above this z-80, so the strip is fully usable while the editor is up.
+   */
+  useLayoutEffect(() => {
+    if (!open || mount !== "overlay") return;
+    const root = rootRef.current;
+    const strip = document.querySelector<HTMLElement>("[data-tab-strip]");
+    if (!root || !strip) return;
+    const measure = () => {
+      const applied = (name: string) => parseFloat(root.style.getPropertyValue(name)) || 0;
+      const r = root.getBoundingClientRect();
+      const s = strip.getBoundingClientRect();
+      // A hidden strip (phone, or a screen that renders none) measures 0×0.
+      if (s.height === 0) {
+        root.style.removeProperty("--mfs-top");
+        root.style.removeProperty("--mfs-left");
+        return;
+      }
+      const originTop = r.top - applied("--mfs-top");
+      const originLeft = r.left - applied("--mfs-left");
+      root.style.setProperty("--mfs-top", `${Math.max(0, s.bottom - originTop)}px`);
+      root.style.setProperty("--mfs-left", `${Math.max(0, s.left - originLeft)}px`);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(strip);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [open, mount]);
+
   if (!open) return null;
 
   const overlay = mount === "overlay";
@@ -1346,7 +1400,8 @@ export function MasterFullScreen({
       className={cn(
         "flex flex-col bg-background",
         overlay
-          ? "fixed inset-0 z-[80]"
+          ? // Below the app's tab strip, not over it — see the measuring effect.
+            "fixed inset-0 z-[80] md:top-[var(--mfs-top,0px)] md:left-[var(--mfs-left,0px)]"
           : /**
              * FILLS ITS SCROLLPORT, rather than sizing to its content.
              *

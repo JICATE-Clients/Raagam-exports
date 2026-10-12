@@ -10,6 +10,8 @@ import { NAV, type NavItem, type SubNavItem } from "@/components/shell/nav";
 import { owningNavHref } from "@/lib/nav/module-groups";
 import { hasPermission, type AppUser } from "@/lib/auth/types";
 import { screenOfPath } from "@/lib/permissions/screen-catalog";
+import { SUBMODULES } from "@/lib/masters/submodules";
+import { mastersEntityLinks } from "@/lib/masters/masters-nav";
 
 export { NAV };
 export type { NavItem, SubNavItem };
@@ -135,4 +137,41 @@ export function visibleModules(user: NavUser): NavItem[] {
   return NAV.filter((i) => hasPermission(user, i.module, "view")).map((i) =>
     i.children ? { ...i, children: visibleChildren(user, i.children) } : i,
   );
+}
+
+/**
+ * THE SCREENS BESIDE THE ONE ON VIEW (user 2026-10-12, on the tab switcher:
+ * "navigation sub field kkulayum poganum") — the switcher lists the current
+ * sub-module's other screens, so Consignee → Customer is one pick, not a trip
+ * back through the hub.
+ *
+ * Master Data answers from its own registry (`mastersEntityLinks`), because its
+ * entities live on hub pages, not in NAV; every other module from the NAV group
+ * holding the current screen, or its flat rows when it has no groups. A hub
+ * page or a route in no list answers `null`. Permission-filtered the same way
+ * as every other nav surface.
+ */
+export function siblingScreens(
+  user: NavUser,
+  pathname: string,
+): { label: string; rows: { href: string; label: string }[] } | null {
+  const seg = pathname.split("/");
+  if (seg[1] === "masters" && seg[3]) {
+    const sub = SUBMODULES.find((s) => s.slug === seg[2]);
+    if (!sub) return null;
+    const rows = mastersEntityLinks(sub.slug)
+      .filter((e) => screenVisible(user, e.href))
+      .map((e) => ({ href: e.href, label: e.label }));
+    return rows.some((r) => isRouteActive(pathname, r.href)) ? { label: sub.label, rows } : null;
+  }
+
+  const mod = activeModule(pathname, visibleModules(user));
+  if (!mod?.children?.length) return null;
+  for (const c of mod.children) {
+    if (c.children?.length && activeChildHref(pathname, c.children)) {
+      return { label: c.label, rows: c.children };
+    }
+  }
+  const flat = mod.children.filter((c) => !c.children?.length);
+  return activeChildHref(pathname, flat) ? { label: mod.label, rows: flat } : null;
 }

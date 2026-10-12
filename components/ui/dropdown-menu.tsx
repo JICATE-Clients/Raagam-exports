@@ -144,6 +144,14 @@ export function DropdownMenu({
     };
   }, [open, measure]);
 
+  // A long menu scrolls (max-h), so ↑/↓ must keep the highlighted item in view.
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current
+      ?.querySelectorAll<HTMLElement>('[role^="menuitem"]')
+      [active]?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
   function activate(item: DropdownItem) {
     if (item.disabled) return;
     setOpen(false);
@@ -200,7 +208,7 @@ export function DropdownMenu({
             tabIndex={-1}
             onKeyDown={onMenuKeyDown}
             style={{ position: "fixed", top: pos.top, left: pos.left, width: 176, zIndex: 150 }}
-            className="overflow-hidden rounded-md border border-border bg-surface py-1 shadow-lg focus:outline-none"
+            className="max-h-[min(70vh,32rem)] overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-lg focus:outline-none"
           >
             {items.map((item, i) => {
               const Icon = item.icon;
@@ -212,7 +220,7 @@ export function DropdownMenu({
               const heading =
                 item.section && item.section !== items[i - 1]?.section ? item.section : null;
               return (
-                <div key={item.label}>
+                <div key={`${item.section ?? ""}:${item.label}`}>
                   {/* Skipped at index 0 - a rule there would only thicken the
                       menu's own top border. Same reasoning as the heading. */}
                   {item.separatorBefore && i > 0 && (

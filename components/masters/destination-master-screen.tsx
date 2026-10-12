@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { Check, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
-import { DetailSection } from "@/components/masters/detail-section";
+import { Field, FIELD_WIDTH, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { StatusToggle } from "@/components/ui/status-toggle";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { isInactive } from "@/lib/masters/inactive";
 import { useBlockAction } from "@/components/masters/use-block-action";
 import { useToast } from "@/components/ui/toast";
@@ -37,6 +38,32 @@ import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 const BLANK = { short_name: "", country_id: "", name: "", inactive: false };
+
+/**
+ * ADD AND EDIT HAPPEN IN THE TABLE (user 2026-10-12, screenshot 120817: "table
+ * laye add pandra mari" — Name and Country typed straight into the listing).
+ * Two fields and no children: a sheet opened over a 1180px pane to hold a 268px
+ * row was a trip away from the list for nothing. "+ Add Destination" puts a
+ * blank row at the TOP of the table, ⋮ ▸ Edit turns that row's two cells into
+ * inputs, and ✓ / ✕ in the actions cell commit or drop it (Ctrl+S / Escape too).
+ *
+ * The new row is a SENTINEL in `rows`, not a second table: `DataTable` stays the
+ * one renderer, so columns, widths and the Created cells line up by
+ * construction. `created_at: ""` renders as "—" through `fmtDate`.
+ *
+ * DESKTOP ONLY. Below `md` the listing is stacked cards with no columns to type
+ * into, so a phone still opens the sheet — same fields, same `submit()`.
+ */
+const NEW_ID = "__new__";
+const NEW_ROW: Destination = {
+  id: NEW_ID,
+  short_name: null,
+  country_id: "",
+  name: null,
+  inactive: false,
+  created_at: "",
+  updated_at: "",
+};
 
 /**
  * WIDTHS, NOT TWELFTHS (client 2026-09-08: tighten Name to ~135px and Country
@@ -78,41 +105,23 @@ const FIELD_W = {
 } satisfies Record<string, FieldWidth>;
 
 /**
- * HOW WIDE THE FORM IS — the DETAILS card AND the footer's buttons, from ONE
- * declaration, so the buttons end exactly where the card does rather than
- * approximately (client 2026-09-08: "align the Cancel/Save buttons to match this
- * width", then "resize the main card container to match" the narrowed fields).
+ * HOW WIDE THE FORM IS — the footer's buttons end where the field row ends.
  *
- * DERIVED, NOT PICKED — the same sum the sibling Country master writes out, and
- * for the same reason: narrowing the FIELDS does not narrow the CARD, because
- * `DetailSection` is a block box and goes on filling the sheet's 1180px while
- * its content stops short. The row is the two widths plus the one 12px gap
- * `FIELD_ROW` puts between them:
+ * NO CARD AROUND THE FIELDS ANY MORE (user 2026-10-12, screenshot 120817: take
+ * the fields out of the "Details" box). A two-field form inside a captioned,
+ * bordered `DetailSection` was a box drawing one row — the same call Zone made
+ * when its section lost its caption. So the cap is now the ROW itself:
  *
  *   144 + 112           = 256   the controls (FIELD_W above)
  *   + 1 × 12            =  12   gap-x-3
- *   = 268                       the content row
- *   + 2 × 8             =  16   the card's own `@2xl/editor:p-2`
- *   + 2 × 1             =   2   its border
- *   = 286                       the card, hugging exactly
+ *   = 268                       16.75rem
  *
- * 18.5rem (296px) leaves 10px of slack over that, deliberately and for the
- * reason the Country master records: at the NON-compact density the padding is
- * `p-2.5` rather than `p-2`, costing 4px more, and `FIELD_ROW` is `flex-wrap` —
- * so a cap that hugs at one density drops Country onto a second line at the
- * other. Slack is invisible; a wrap is not.
- *
- * THIS SUPERSEDES AN EARLIER 380px, which was a number the client gave for this
- * card BEFORE the fields beneath it were narrowed. At 380 the row ended 94px
- * inside the card's right edge — the same "extra empty space" the field
- * narrowing was asked for, one box out. Do not restore it as a correction.
- *
- * BOTH READERS TAKE THIS SAME STRING, which is the only reason the buttons line
- * up with the card's right edge rather than approximately so. Change the number
- * here and the card and the footer move together; hand a second copy to either
- * one and they drift the first time a field width changes.
+ * The 18.5rem it replaces carried the card's padding, border and 10px of
+ * density slack; with no card there is nothing for that slack to absorb, and
+ * the cap is read only by the footer — the row itself is a content-width flex
+ * row in a 1180px pane, so it cannot wrap at this width.
  */
-const FORM_W = "max-w-[18.5rem]";
+const FORM_W = "max-w-[16.75rem]";
 
 /**
  * Legacy "Destination" master (Associates). Short Name · Country (required,
@@ -136,6 +145,8 @@ export function DestinationMasterScreen({
   const { setStatus, isPending: statusPending } = useBlockAction("destination");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  // TRUE while the desktop table holds an editing row (new, or `editId`).
+  const [inline, setInline] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
 
@@ -179,7 +190,7 @@ export function DestinationMasterScreen({
       ...countries.map((c) => c.name),
     ],
     seed: COUNTRY_NAMES,
-    enabled: open,
+    enabled: open || inline,
     // Enter applies the highlighted chip; see the hook.
     onApply: (v) => set({ name: v }),
   });
@@ -196,12 +207,22 @@ export function DestinationMasterScreen({
     );
   }, [rows, query, countryLabel]);
 
-  function openAdd() {
+  // The Sheet registers itself with the reload guard; an inline row is a plain
+  // table row, so it has to say so.
+  useUnsavedGuard(inline || isPending);
+
+  function close() {
+    setOpen(false);
+    setInline(false);
+  }
+  /** `inTable` — desktop edits in the listing, a phone in the sheet. */
+  function openAdd(inTable = false) {
     setEditId(null);
     setForm(BLANK);
-    setOpen(true);
+    if (inTable) setInline(true);
+    else setOpen(true);
   }
-  function openEdit(r: Destination) {
+  function openEdit(r: Destination, inTable = false) {
     setEditId(r.id);
     setForm({
       short_name: r.short_name ?? "",
@@ -209,8 +230,13 @@ export function DestinationMasterScreen({
       name: r.name ?? "",
       inactive: r.inactive,
     });
-    setOpen(true);
+    if (inTable) setInline(true);
+    else setOpen(true);
   }
+
+  const isEditingRow = (r: Destination) =>
+    inline && (editId === null ? r.id === NEW_ID : r.id === editId);
+  const canSave = !isPending && !!form.country_id && !!form.name.trim() && !dupError;
 
   function submit() {
     startTransition(async () => {
@@ -226,7 +252,7 @@ export function DestinationMasterScreen({
       const res = editId ? await updateDestination(editId, payload) : await createDestination(payload);
       if (res.ok) {
         success(editId ? "Destination updated." : "Destination added.");
-        setOpen(false);
+        close();
         router.refresh();
       } else {
         error(res.error);
@@ -247,10 +273,57 @@ export function DestinationMasterScreen({
   }
 
   const columns: Column<Destination>[] = [
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
+    {
+      header: "Name",
+      cell: (r) =>
+        isEditingRow(r) ? (
+          <div className={FIELD_WIDTH[FIELD_W.name]}>
+            <Input
+              id="de-name"
+              uppercase
+              autoFocus
+              required
+              className="h-8 text-sm"
+              value={form.name}
+              onChange={(e) => set({ name: e.target.value })}
+              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
+              {...dupFieldProps(dupError, "de-name")}
+            />
+            <DuplicateError error={dupError} id="de-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
+              activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
+              onApply={(v) => set({ name: v })}
+            />
+          </div>
+        ) : (
+          <span className="text-sm">{r.name ?? "—"}</span>
+        ),
+    },
     {
       header: "Country",
-      cell: (r) => <span className="text-sm text-muted-foreground">{countryLabel.get(r.country_id) ?? "—"}</span>,
+      cell: (r) =>
+        isEditingRow(r) ? (
+          /* `code` (144px), not the sheet's `range`: a table cell has no reason
+             to clip "UNITED ARAB EMIRATES" to 8 characters — see FIELD_W. */
+          <div className={FIELD_WIDTH.code}>
+            <CountryPicker
+              id="de-country"
+              compact
+              countries={countries}
+              value={form.country_id || null}
+              onChange={(id) => set({ country_id: id })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              required
+            />
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground">{countryLabel.get(r.country_id) ?? "—"}</span>
+        ),
     },
     {
       /* A SWITCH, NOT A PILL (client 2026-09-11) — one click calls the status
@@ -263,33 +336,46 @@ export function DestinationMasterScreen({
          it and the `isInactive` read are all `StatusToggle`'s. */
       header: "Status",
       className: "w-32",
-      cell: (r) => (
-        <StatusToggle
-          row={r}
-          label={r.name}
-          // Blocking is the destructive direction and `setMasterActive` gates it
-          // as `delete` server-side.
-          disabled={!perms.canDelete || isPending || statusPending}
-          onChange={(active) => setStatus(r, active, { label: r.name ?? undefined })}
-        />
-      ),
+      cell: (r) =>
+        // A row not yet saved has no status to switch.
+        r.id === NEW_ID ? null : (
+          <StatusToggle
+            row={r}
+            label={r.name}
+            // Blocking is the destructive direction and `setMasterActive` gates it
+            // as `delete` server-side.
+            disabled={!perms.canDelete || isPending || statusPending}
+            onChange={(active) => setStatus(r, active, { label: r.name ?? undefined })}
+          />
+        ),
     },
     rowActionsColumn(
-      (r) => (
+      (r) =>
+        isEditingRow(r) ? (
+          <div className="flex justify-end gap-1">
+            <Button size="icon" aria-label="Save" title="Save (Ctrl+S)" disabled={!canSave} onClick={submit}>
+              <Check />
+            </Button>
+            <Button size="icon" variant="outline" aria-label="Cancel" title="Cancel (Esc)" onClick={close}>
+              <X />
+            </Button>
+          </div>
+        ) : (
         /* One ⋮ per row instead of three inline icons: View, Edit, a rule, then
            Delete behind a confirm dialog. The View is automatic — `rowActionsColumn`
            publishes the row and the menu reads it, exactly as `RowActions` did
            here before, so the eye this screen already had is not lost. */
         <TableRowActionsMenu
           label={r.name}
-          onEdit={() => openEdit(r)}
+          onEdit={() => openEdit(r, true)}
           onDelete={() => remove(r)}
-          canEdit={perms.canEdit}
+          canEdit={perms.canEdit && !inline}
           canDelete={perms.canDelete}
           isPending={isPending || statusPending}
         />
-      ),
-      ROW_ACTIONS_MENU_WIDTH,
+        ),
+      // Two icon buttons need the room while a row is being edited.
+      inline ? "w-24" : ROW_ACTIONS_MENU_WIDTH,
     ),
   ];
 
@@ -306,21 +392,41 @@ export function DestinationMasterScreen({
         />
         <div className="flex-1" />
         {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Destination
-          </Button>
+          <>
+            {/* One per layout — the table row exists only from `md`. */}
+            <Button size="md" className="hidden md:inline-flex" disabled={inline} onClick={() => openAdd(true)}>
+              + Add Destination
+            </Button>
+            <Button size="md" className="md:hidden" onClick={() => openAdd()}>
+              + Add Destination
+            </Button>
+          </>
         )}
       </div>
 
       {/* desktop table */}
-      <div className="hidden md:block">
+      <div
+        className="hidden md:block"
+        // Ctrl+S saves and Escape drops the editing row. preventDefault so the
+        // app's Escape ladder does not ALSO unwind a layer behind it.
+        onKeyDown={(e) => {
+          if (!inline || e.defaultPrevented) return;
+          if (e.key === "Escape") {
+            e.preventDefault();
+            close();
+          } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+            e.preventDefault();
+            if (canSave) submit();
+          }
+        }}
+      >
         {/* `rowClassName` dims a switched-off row's DATA cells and leaves the
             last one alone — the ⋮ must stay legible on a dimmed row, and
             `opacity` on the `<tr>` would take it down with the text. Same rule
             `MasterListShell` applies to the listings it owns. */}
         <DataTable
           columns={withCreatedColumns(columns, filtered)}
-          rows={filtered}
+          rows={inline && editId === null ? [NEW_ROW, ...filtered] : filtered}
           getKey={(r) => r.id}
           rowClassName={(r) =>
             isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined
@@ -365,32 +471,29 @@ export function DestinationMasterScreen({
       {/* editor */}
       <Sheet
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={close}
         title={editId ? "Edit Destination" : "New Destination"}
         footer={
           /* `mr-auto` inside the Sheet footer's own `justify-end` row: the auto
              margin eats the free space on the RIGHT, so this box sits at the left
              edge and the buttons — right-aligned within it — end exactly where the
-             card above them ends. Without it they stay pinned to the 1180px pane,
-             a screen-width away from a 296px form. Same string as the card. */
+             field row above them ends. Without it they stay pinned to the 1180px
+             pane, a screen-width away from a 268px form. */
           <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
+            <Button variant="outline" size="md" onClick={close}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.country_id || !form.name.trim() || !!dupError} onClick={submit}>
+            <Button size="md" disabled={!canSave} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </div>
         }
       >
-        {/* Two fields plus a flag — one flat section (LAYOUT.md §4). `cols={1}`
-            because the fields no longer sit on the twelfths track: each
-            `FieldRow` below is a content-width flex row and the section just
-            stacks them. Widths come from FIELD_W at the top of this file. */}
-        <DetailSection label="Details" cols={1} className={FORM_W}>
-          {/* The two inputs, one row. `FIELD_ROW` brings `gap-x-3` (12px) and
+        {/* Two fields, straight in the sheet — no "Details" card (user
+            2026-10-12; see FORM_W). Widths come from FIELD_W at the top of this
+            file. The two inputs, one row. `FIELD_ROW` brings `gap-x-3` (12px) and
               `items-end`, so the two controls sit on one line even if a label
-              wraps inside its narrower cell. */}
+            wraps inside its narrower cell. */}
           <FieldRow>
             <Field label="Name" w={FIELD_W.name} required htmlFor="de-name">
               <Input
@@ -449,7 +552,6 @@ export function DestinationMasterScreen({
 
               It was also the field that gave this section two shapes: edit-only,
               it left a hole on New and a lone switch on Edit. */}
-        </DetailSection>
       </Sheet>
     </div>
   );

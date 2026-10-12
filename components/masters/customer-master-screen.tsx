@@ -1877,9 +1877,13 @@ export function CustomerMasterScreen({
 
                     {/* contacts */}
                     {/* Spreadsheet look (erp-sheet-grid, 2026-10-09): gridlines, cell is
-                        the box. Fixed column widths + md:w-fit (erp-table-fit);
-                        `md:` so the mobile cards keep the full width. */}
-                    <div className="mt-6 md:w-fit max-w-full [&_table]:table-fixed" data-grid-style="sheet">
+                        the box. Fixed column widths; the table hugs them through
+                        ChildGrid's OWN scroll wrapper (`tableFrom` → hug). No
+                        `w-fit` HERE: ChildGrid's root is an `@container`, which has
+                        no intrinsic width, so a fit-content wrapper collapsed to
+                        ~0 and the 7 columns fell to stacked cards in a ~250px
+                        strip (user 2026-10-12, screenshot 115630). */}
+                    <div className="mt-6 [&_table]:table-fixed" data-grid-style="sheet">
                       <ChildGrid<ContactRow>
                         lockExisting
                         label="Contacts"
