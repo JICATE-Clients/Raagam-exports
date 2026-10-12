@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { Download, FileSpreadsheet, Printer } from "lucide-react";
 import { AddCharge, AddFabric, AddOperation, AddTrim, AddWeight, EdText, Pick, RemoveX, type EditOptions } from "@/components/sales/cost-sheet-editors";
@@ -135,7 +135,8 @@ export function CostSheetDocument({
           value={view}
           onChange={setView}
           options={[
-            { value: "report", label: "Report" },
+            { value: "report", label: "Full page" },
+            { value: "tabs", label: "Tabs" },
             { value: "charts", label: "Charts" },
           ]}
         />
@@ -175,9 +176,10 @@ export function CostSheetDocument({
   );
 }
 
-type SheetView = "report" | "charts";
+type SheetView = "tabs" | "report" | "charts";
 
 function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFigures; idx: number; edit?: CostSheetEdit; view: SheetView }) {
+  const [tab, setTab] = useState(0);
   const setFabric = (key: string, patch: Partial<FabricDraft>) => edit?.onChange({ ...edit.draft, fabrics: patchBy(edit.draft.fabrics, key, patch) });
   const setPiece = (key: string, patch: Partial<PieceDraft>) => edit?.onChange({ ...edit.draft, pieces: patchBy(edit.draft.pieces, key, patch) });
   const eff = s.effectiveMarginPct;
@@ -233,265 +235,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
 
   const worst = model.sizes.reduce((m, x) => Math.max(m, x.price), 1) * 1.02;
 
-  return (
-    <article className="cs-sheet">
-      <style>{CSS}</style>
-      <header className="mast">
-        <div className="brand">
-          {model.company.logo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={model.company.logo} alt="" className="logo" />
-          ) : (
-            <div className="mark">{(model.company.name ?? "R").slice(0, 1)}</div>
-          )}
-          <div>
-            <b>{model.company.name ?? "Raagam"}</b>
-            {model.company.unit ? <span>{model.company.unit}</span> : null}
-          </div>
-        </div>
-        <div className="docid">
-          <span>Sample Cost Sheet · internal</span>
-          <span className="no">
-            {model.costingNo ?? "—"} · {model.revision}
-          </span>
-          <span>{model.date ? fmtDate(model.date) : ""}</span>
-          <span className={`pill ${stateClass}`}>{model.statusLabel}</span>
-        </div>
-      </header>
-
-      {/* THE APPROVAL LINE (client 2026-10-09: "where is the approver") — how this
-          costing was approved and by whom: automatically on submit when every quote
-          clears the floor, else the MD by name. INTERNAL; the Quotation says only
-          "Approved on …". */}
-      <div className="apv" data-tone={model.approval.tone}>
-        <b>Approval: {model.approval.text}</b>
-        {model.approval.detail ? <span>{model.approval.detail}</span> : null}
-      </div>
-
-      <div className="pad">
-        {/* 1 · HEADER — the RAAGAM COSTING FORMAT's top block (client 2026-10-09). Only the
-            lines this costing has a value for print: an empty "Buying Agent" row is chrome. */}
-        <section className="blk hdrblk" aria-label="Header">
-          <div className="hdr-title">
-            <div className="min0">
-              <div className="eyebrow">Garment costing{model.season ? ` · ${model.season}` : ""}</div>
-              <h2>{model.description || model.style || "—"}</h2>
-              <div className="chips">
-                {model.sampleNo ? (
-                  <span className="chip">
-                    Sample <b>{model.sampleNo}</b>
-                  </span>
-                ) : null}
-                <span className="chip">{model.isSet ? "SET" : "PCS"}</span>
-                {/* CHARTS FIT ONE SCREEN, so the two spec tables give way to their two
-                    facts that matter at a glance; the Report keeps the full block. */}
-                {view === "charts" && model.customer ? (
-                  <span className="chip">
-                    Buyer <b>{model.customer}</b>
-                  </span>
-                ) : null}
-                {view === "charts" && model.fabricFacts.structure ? (
-                  <span className="chip">
-                    Fabric <b>{model.fabricFacts.structure}</b>
-                  </span>
-                ) : null}
-                {model.shipMode ? (
-                  <span className="chip">
-                    Ship <b>{model.shipMode}</b>
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </div>
-          {view === "report" ? (
-          <div className="hdr-grid">
-            <dl className="spec">
-              {(
-                [
-                  ["Buyer / importer", model.customer],
-                  ["Enquiry", model.enquiryNo],
-                  ["Style", model.style && model.description && model.style !== model.description ? model.style : null],
-                  ["Fabric", model.fabricFacts.structure],
-                  ["GSM / counts", model.fabricFacts.gsm],
-                  ["Composition", model.fabricFacts.composition],
-                ] as const
-              ).map(([k, v]) => (v ? (
-                <div key={k}>
-                  <dt>{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ) : null))}
-            </dl>
-            <dl className="spec">
-              {(
-                [
-                  ["Date", model.date ? fmtDate(model.date) : null],
-                  ["Currency", ccy ? `${ccy}${model.exchangeRate ? ` @ ₹ ${fx(model.exchangeRate)}` : ""}` : null],
-                  ["Size group", model.sizeGroup],
-                  ["Pieces", model.pieceCount > 1 ? String(model.pieceCount) : null],
-                ] as const
-              ).map(([k, v]) => (v ? (
-                <div key={k}>
-                  <dt>{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ) : null))}
-            </dl>
-          </div>
-          ) : null}
-        </section>
-
-        {view === "charts" ? (
-        <section className="dash" aria-label="Price charts">
-          <div className="col">
-          <div className="sec">
-            <div className="sec-h">
-              <h3>How the price is built</h3>
-              <span>
-                ₹ per {model.unitWord}
-                {model.sizes.length > 1 ? ` · size ${s.label}` : ""}
-              </span>
-            </div>
-            <div className="wf">
-              {wfRows.map((r) => (
-                <div key={r.label} className={`wf-row${r.total ? " tot" : ""}`}>
-                  <span className="lab">{r.label}</span>
-                  <div className="lane">
-                    <div className="bar" style={{ left: `${(r.start / wfMax) * 100}%`, width: `${(r.width / wfMax) * 100}%`, background: r.total ? "var(--cs-brand)" : TONE_VAR[r.tone as keyof typeof TONE_VAR] }} />
-                  </div>
-                  <span className="val">
-                    {!r.total && r.value < 0 ? "−" : ""}
-                    {money(r.width)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-          </div>
-          <div className="col">
-          <div className="sec">
-            <div className="sec-h">
-              <h3>Where the price goes</h3>
-              <span>share of the ₹ price</span>
-            </div>
-            <div className="donut">
-              <svg viewBox="0 0 120 120" role="img" aria-label="Share of the price by cost group">
-                <circle cx="60" cy="60" r={R} fill="none" stroke="var(--cs-soft)" strokeWidth="16" />
-                {parts.map((p, i) => {
-                  const len = (p.value / partTotal) * C;
-                  return <circle key={p.label} cx="60" cy="60" r={R} fill="none" stroke={TONE_VAR[p.tone]} strokeWidth="16" strokeDasharray={`${Math.max(len - 1.2, 0)} ${C}`} strokeDashoffset={-offs[i]} transform="rotate(-90 60 60)" />;
-                })}
-                <text x="60" y="57" textAnchor="middle" fontSize="7.5" fontWeight="600" style={{ fill: "var(--cs-muted)" }}>
-                  PRICE ₹
-                </text>
-                <text x="60" y="71" textAnchor="middle" fontSize="14" fontWeight="800">
-                  {money(partTotal)}
-                </text>
-              </svg>
-              <div className="lg">
-                {parts.map((p) => (
-                  <div key={p.label}>
-                    <i style={{ background: TONE_VAR[p.tone] }} />
-                    <span>{p.label}</span>
-                    <span className="p">{((p.value / partTotal) * 100).toFixed(1)}%</span>
-                    <span className="a">{money(p.value)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-            {model.sizes.length > 1 ? (
-              <div className="box">
-                <h4>
-                  Size comparison <span>quote and margin</span>
-                </h4>
-                <div>
-                  {model.sizes.map((x) => (
-                    <div className="hb cmp" key={x.label}>
-                      <b>{x.label}</b>
-                      <div className="lane">
-                        <div className="bar" style={{ left: 0, width: `${(x.grossCost / worst) * 100}%`, background: "var(--cs-over)" }} />
-                        <div className="bar" style={{ left: `${(x.grossCost / worst) * 100}%`, width: `${(Math.max(x.price - x.grossCost, 0) / worst) * 100}%`, background: "var(--cs-margin)" }} />
-                      </div>
-                      <span className="v">
-                        {x.quoted != null ? `${ccy} ${fx(x.quoted)}` : "—"}
-                        {inrOf(x.quoted) != null ? ` · ₹ ${money(inrOf(x.quoted))}` : ""} · {x.effectiveMarginPct == null ? "—" : `${x.effectiveMarginPct.toFixed(1)}%`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <div className="keys">
-                  <span><i style={{ background: "var(--cs-over)" }} />Gross cost</span>
-                  <span><i style={{ background: "var(--cs-margin)" }} />Margin and price charges</span>
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <div className="col">
-            {model.fabrics.map((f) => {
-              const sub = f.yarn + f.knitting + f.dyeing + f.finishing + f.special;
-              const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
-              const base = f.direct ? (f.price ?? 1) : Math.max(sub + loss, 1);
-              const seg = (v: number) => `${(v / base) * 100}%`;
-              return (
-                <div className="box" key={f.name}>
-                  <h4>
-                    Fabric rate <span>{f.name}</span>
-                  </h4>
-                  <div className="big2">
-                    ₹ {money(f.price)} <small>per kg{f.direct ? " · direct rate" : f.lossPct ? ` · incl. ${f.lossPct}% process loss` : ""}</small>
-                  </div>
-                  {f.direct ? null : (
-                    <>
-                      <div className="stack" aria-hidden>
-                        <i style={{ width: seg(f.yarn), background: "var(--cs-fabric)" }} />
-                        <i style={{ width: seg(f.knitting), background: "var(--cs-cmt)" }} />
-                        <i style={{ width: seg(f.dyeing), background: "var(--cs-over)" }} />
-                        <i style={{ width: seg(f.finishing + f.special), background: "var(--cs-trims)" }} />
-                        <i style={{ width: seg(loss), background: "var(--cs-muted)", opacity: 0.5 }} />
-                      </div>
-                      <div className="keys">
-                        <span><i style={{ background: "var(--cs-fabric)" }} />Yarn <b>{money(f.yarn)}</b></span>
-                        <span><i style={{ background: "var(--cs-cmt)" }} />Knitting <b>{money(f.knitting)}</b></span>
-                        <span><i style={{ background: "var(--cs-over)" }} />Dyeing <b>{money(f.dyeing)}</b></span>
-                        <span><i style={{ background: "var(--cs-trims)" }} />Finishing{f.special ? " + special" : ""} <b>{money(f.finishing + f.special)}</b></span>
-                        <span><i style={{ background: "var(--cs-muted)", opacity: 0.5 }} />Loss <b>{money(loss)}</b></span>
-                      </div>
-                      {f.mixNote ? <div className="sub">{f.mixNote}</div> : null}
-                    </>
-                  )}
-                </div>
-              );
-            })}
-            <div className="box">
-              <h4>
-                Garment weight <span>grams{model.sizes.length > 1 ? ` · size ${s.label}` : ""}</span>
-              </h4>
-              <div>
-                {model.weights.rows.map((r, i) => {
-                  const g = r.grams[idx] ?? r.grams.find((x) => x != null) ?? null;
-                  const top = Math.max(...model.weights.rows.map((x) => x.grams[idx] ?? 0), 1);
-                  return (
-                    <div className="hb" key={`${r.component}-${i}`}>
-                      <span className="dim">{r.component || r.fabric || "Component"}</span>
-                      <div className="lane">
-                        <div className="bar" style={{ left: 0, width: `${((g ?? 0) / top) * 100}%`, background: "var(--cs-fabric)" }} />
-                      </div>
-                      <span className="v">{g == null ? "—" : `${g} g`}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="sub">
-                {s.grams} g, {s.gramsWithLoss} g with loss, fabric ₹ {money(s.fabric)}
-              </div>
-            </div>
-          </div>
-        </section>
-        ) : null}
-
-        {view === "report" ? (
-        <>
+  const secConsumption = (
         <section className="blk" aria-label="Component consumption">
           <details open>
             <summary>
@@ -556,7 +300,9 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
             </div>
           </details>
         </section>
+  );
 
+  const secFabric = (
         <section className="blk fabblk" aria-label="Fabric processing cost">
           <div>
             <details open>
@@ -669,7 +415,9 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
               <span>Sketch / photo</span>
             </aside>
         </section>
+  );
 
+  const secTri = (
         <section className="tri" aria-label="Fabric, CMT and trims">
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
             <details open>
@@ -871,7 +619,9 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
             </details>
           ) : null}
         </section>
+  );
 
+  const secGarment = (
         <section className="blk" aria-label="Garment cost">
           <details open>
             <summary>
@@ -1024,7 +774,9 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
             </div>
           </details>
         </section>
+  );
 
+  const secCommercial = (
         <section className="blk" aria-label="Commercial quote and negotiation">
           <div className="sec-h">
             <h3>Commercial quote &amp; negotiation</h3>
@@ -1256,16 +1008,334 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
           </section>
         ) : null}
         </section>
-        </>
-        ) : null}
+  );
 
-        {view === "report" ? (
+  const signBlock = (
           <div className="sign">
             <div><b />Prepared by</div>
             <div><b />Checked by</div>
             <div><b />Approved by</div>
           </div>
+  );
+
+  const specGrid = (
+          <div className="hdr-grid">
+            <dl className="spec">
+              {(
+                [
+                  ["Buyer / importer", model.customer],
+                  ["Enquiry", model.enquiryNo],
+                  ["Style", model.style && model.description && model.style !== model.description ? model.style : null],
+                  ["Fabric", model.fabricFacts.structure],
+                  ["GSM / counts", model.fabricFacts.gsm],
+                  ["Composition", model.fabricFacts.composition],
+                ] as const
+              ).map(([k, v]) => (v ? (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                </div>
+              ) : null))}
+            </dl>
+            <dl className="spec">
+              {(
+                [
+                  ["Date", model.date ? fmtDate(model.date) : null],
+                  ["Currency", ccy ? `${ccy}${model.exchangeRate ? ` @ ₹ ${fx(model.exchangeRate)}` : ""}` : null],
+                  ["Size group", model.sizeGroup],
+                  ["Pieces", model.pieceCount > 1 ? String(model.pieceCount) : null],
+                ] as const
+              ).map(([k, v]) => (v ? (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                </div>
+              ) : null))}
+            </dl>
+          </div>
+  );
+
+  const tabDefs = [
+    { label: "Details", hint: "buyer & style" },
+    { label: "Fabric", hint: `₹ ${money(s.fabric)} / ${model.unitWord}` },
+    { label: "Operations & trims", hint: `₹ ${money(s.cmt + s.process + s.testing + s.trims)} / ${model.unitWord}` },
+    { label: "Cost & overheads", hint: `₹ ${money(s.grossCost)} total` },
+    { label: "Quote & sign-off", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}` },
+  ];
+  const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const n = (tab + (e.key === "ArrowRight" ? 1 : tabDefs.length - 1)) % tabDefs.length;
+    setTab(n);
+    document.getElementById(`cs-tab-${n}`)?.focus();
+  };
+
+  return (
+    <article className="cs-sheet">
+      <style>{CSS}</style>
+      <header className="mast">
+        <div className="brand">
+          {model.company.logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={model.company.logo} alt="" className="logo" />
+          ) : (
+            <div className="mark">{(model.company.name ?? "R").slice(0, 1)}</div>
+          )}
+          <div>
+            <b>{model.company.name ?? "Raagam"}</b>
+            {model.company.unit ? <span>{model.company.unit}</span> : null}
+          </div>
+        </div>
+        <div className="docid">
+          <span>Sample Cost Sheet · internal</span>
+          <span className="no">
+            {model.costingNo ?? "—"} · {model.revision}
+          </span>
+          <span>{model.date ? fmtDate(model.date) : ""}</span>
+          <span className={`pill ${stateClass}`}>{model.statusLabel}</span>
+        </div>
+      </header>
+
+      {/* THE APPROVAL LINE (client 2026-10-09: "where is the approver") — how this
+          costing was approved and by whom: automatically on submit when every quote
+          clears the floor, else the MD by name. INTERNAL; the Quotation says only
+          "Approved on …". */}
+      <div className="apv" data-tone={model.approval.tone}>
+        <b>Approval: {model.approval.text}</b>
+        {model.approval.detail ? <span>{model.approval.detail}</span> : null}
+      </div>
+
+      <div className="pad">
+        {/* 1 · HEADER — the RAAGAM COSTING FORMAT's top block (client 2026-10-09). Only the
+            lines this costing has a value for print: an empty "Buying Agent" row is chrome. */}
+        <section className="blk hdrblk" aria-label="Header">
+          <div className="hdr-title">
+            <div className="min0">
+              <div className="eyebrow">Garment costing{model.season ? ` · ${model.season}` : ""}</div>
+              <h2>{model.description || model.style || "—"}</h2>
+              <div className="chips">
+                {model.sampleNo ? (
+                  <span className="chip">
+                    Sample <b>{model.sampleNo}</b>
+                  </span>
+                ) : null}
+                <span className="chip">{model.isSet ? "SET" : "PCS"}</span>
+                {/* CHARTS FIT ONE SCREEN, so the two spec tables give way to their two
+                    facts that matter at a glance; the Report keeps the full block. */}
+                {view === "charts" && model.customer ? (
+                  <span className="chip">
+                    Buyer <b>{model.customer}</b>
+                  </span>
+                ) : null}
+                {view === "charts" && model.fabricFacts.structure ? (
+                  <span className="chip">
+                    Fabric <b>{model.fabricFacts.structure}</b>
+                  </span>
+                ) : null}
+                {model.shipMode ? (
+                  <span className="chip">
+                    Ship <b>{model.shipMode}</b>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          {view === "report" ? specGrid : null}
+        </section>
+
+        {view === "charts" ? (
+        <section className="dash" aria-label="Price charts">
+          <div className="col">
+          <div className="sec">
+            <div className="sec-h">
+              <h3>How the price is built</h3>
+              <span>
+                ₹ per {model.unitWord}
+                {model.sizes.length > 1 ? ` · size ${s.label}` : ""}
+              </span>
+            </div>
+            <div className="wf">
+              {wfRows.map((r) => (
+                <div key={r.label} className={`wf-row${r.total ? " tot" : ""}`}>
+                  <span className="lab">{r.label}</span>
+                  <div className="lane">
+                    <div className="bar" style={{ left: `${(r.start / wfMax) * 100}%`, width: `${(r.width / wfMax) * 100}%`, background: r.total ? "var(--cs-brand)" : TONE_VAR[r.tone as keyof typeof TONE_VAR] }} />
+                  </div>
+                  <span className="val">
+                    {!r.total && r.value < 0 ? "−" : ""}
+                    {money(r.width)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          </div>
+          <div className="col">
+          <div className="sec">
+            <div className="sec-h">
+              <h3>Where the price goes</h3>
+              <span>share of the ₹ price</span>
+            </div>
+            <div className="donut">
+              <svg viewBox="0 0 120 120" role="img" aria-label="Share of the price by cost group">
+                <circle cx="60" cy="60" r={R} fill="none" stroke="var(--cs-soft)" strokeWidth="16" />
+                {parts.map((p, i) => {
+                  const len = (p.value / partTotal) * C;
+                  return <circle key={p.label} cx="60" cy="60" r={R} fill="none" stroke={TONE_VAR[p.tone]} strokeWidth="16" strokeDasharray={`${Math.max(len - 1.2, 0)} ${C}`} strokeDashoffset={-offs[i]} transform="rotate(-90 60 60)" />;
+                })}
+                <text x="60" y="57" textAnchor="middle" fontSize="7.5" fontWeight="600" style={{ fill: "var(--cs-muted)" }}>
+                  PRICE ₹
+                </text>
+                <text x="60" y="71" textAnchor="middle" fontSize="14" fontWeight="800">
+                  {money(partTotal)}
+                </text>
+              </svg>
+              <div className="lg">
+                {parts.map((p) => (
+                  <div key={p.label}>
+                    <i style={{ background: TONE_VAR[p.tone] }} />
+                    <span>{p.label}</span>
+                    <span className="p">{((p.value / partTotal) * 100).toFixed(1)}%</span>
+                    <span className="a">{money(p.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+            {model.sizes.length > 1 ? (
+              <div className="box">
+                <h4>
+                  Size comparison <span>quote and margin</span>
+                </h4>
+                <div>
+                  {model.sizes.map((x) => (
+                    <div className="hb cmp" key={x.label}>
+                      <b>{x.label}</b>
+                      <div className="lane">
+                        <div className="bar" style={{ left: 0, width: `${(x.grossCost / worst) * 100}%`, background: "var(--cs-over)" }} />
+                        <div className="bar" style={{ left: `${(x.grossCost / worst) * 100}%`, width: `${(Math.max(x.price - x.grossCost, 0) / worst) * 100}%`, background: "var(--cs-margin)" }} />
+                      </div>
+                      <span className="v">
+                        {x.quoted != null ? `${ccy} ${fx(x.quoted)}` : "—"}
+                        {inrOf(x.quoted) != null ? ` · ₹ ${money(inrOf(x.quoted))}` : ""} · {x.effectiveMarginPct == null ? "—" : `${x.effectiveMarginPct.toFixed(1)}%`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="keys">
+                  <span><i style={{ background: "var(--cs-over)" }} />Gross cost</span>
+                  <span><i style={{ background: "var(--cs-margin)" }} />Margin and price charges</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="col">
+            {model.fabrics.map((f) => {
+              const sub = f.yarn + f.knitting + f.dyeing + f.finishing + f.special;
+              const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
+              const base = f.direct ? (f.price ?? 1) : Math.max(sub + loss, 1);
+              const seg = (v: number) => `${(v / base) * 100}%`;
+              return (
+                <div className="box" key={f.name}>
+                  <h4>
+                    Fabric rate <span>{f.name}</span>
+                  </h4>
+                  <div className="big2">
+                    ₹ {money(f.price)} <small>per kg{f.direct ? " · direct rate" : f.lossPct ? ` · incl. ${f.lossPct}% process loss` : ""}</small>
+                  </div>
+                  {f.direct ? null : (
+                    <>
+                      <div className="stack" aria-hidden>
+                        <i style={{ width: seg(f.yarn), background: "var(--cs-fabric)" }} />
+                        <i style={{ width: seg(f.knitting), background: "var(--cs-cmt)" }} />
+                        <i style={{ width: seg(f.dyeing), background: "var(--cs-over)" }} />
+                        <i style={{ width: seg(f.finishing + f.special), background: "var(--cs-trims)" }} />
+                        <i style={{ width: seg(loss), background: "var(--cs-muted)", opacity: 0.5 }} />
+                      </div>
+                      <div className="keys">
+                        <span><i style={{ background: "var(--cs-fabric)" }} />Yarn <b>{money(f.yarn)}</b></span>
+                        <span><i style={{ background: "var(--cs-cmt)" }} />Knitting <b>{money(f.knitting)}</b></span>
+                        <span><i style={{ background: "var(--cs-over)" }} />Dyeing <b>{money(f.dyeing)}</b></span>
+                        <span><i style={{ background: "var(--cs-trims)" }} />Finishing{f.special ? " + special" : ""} <b>{money(f.finishing + f.special)}</b></span>
+                        <span><i style={{ background: "var(--cs-muted)", opacity: 0.5 }} />Loss <b>{money(loss)}</b></span>
+                      </div>
+                      {f.mixNote ? <div className="sub">{f.mixNote}</div> : null}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            <div className="box">
+              <h4>
+                Garment weight <span>grams{model.sizes.length > 1 ? ` · size ${s.label}` : ""}</span>
+              </h4>
+              <div>
+                {model.weights.rows.map((r, i) => {
+                  const g = r.grams[idx] ?? r.grams.find((x) => x != null) ?? null;
+                  const top = Math.max(...model.weights.rows.map((x) => x.grams[idx] ?? 0), 1);
+                  return (
+                    <div className="hb" key={`${r.component}-${i}`}>
+                      <span className="dim">{r.component || r.fabric || "Component"}</span>
+                      <div className="lane">
+                        <div className="bar" style={{ left: 0, width: `${((g ?? 0) / top) * 100}%`, background: "var(--cs-fabric)" }} />
+                      </div>
+                      <span className="v">{g == null ? "—" : `${g} g`}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="sub">
+                {s.grams} g, {s.gramsWithLoss} g with loss, fabric ₹ {money(s.fabric)}
+              </div>
+            </div>
+          </div>
+        </section>
         ) : null}
+
+        {/* FULL PAGE: the report exactly as it was, every section stacked. */}
+        {view === "report" ? (
+          <>
+            {secConsumption}
+            {secFabric}
+            {secTri}
+            {secGarment}
+            {secCommercial}
+          </>
+        ) : null}
+
+        {/* TABS (client 2026-10-12): the same sections one at a time, each read at full size and nothing to
+            scroll. Header, approval line and footer stay put. */}
+        {view === "tabs" ? (
+          <>
+            <div className="ctabs" role="tablist" aria-label="Report sections" onKeyDown={onTabKey}>
+              {tabDefs.map((t, i) => (
+                <button key={t.label} type="button" role="tab" id={`cs-tab-${i}`} aria-selected={tab === i} aria-controls="cs-tabpanel" tabIndex={tab === i ? 0 : -1} className="ctab" onClick={() => setTab(i)}>
+                  <span>{t.label}</span>
+                  <small>{t.hint}</small>
+                </button>
+              ))}
+            </div>
+            <div className="tpanel" role="tabpanel" id="cs-tabpanel" aria-labelledby={`cs-tab-${tab}`}>
+              {tab === 0 ? specGrid : null}
+              {tab === 1 ? (
+                <>
+                  {secConsumption}
+                  {secFabric}
+                </>
+              ) : null}
+              {tab === 2 ? secTri : null}
+              {tab === 3 ? secGarment : null}
+              {tab === 4 ? (
+                <>
+                  {secCommercial}
+                  {signBlock}
+                </>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+
+        {view === "report" ? signBlock : null}
       </div>
       <footer className="foot">
         <span>Internal document. For the buyer, use the Quotation.</span>
@@ -1425,6 +1495,15 @@ const CSS = `
 .cs-sheet .sign { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:20px; padding-top:2px; }
 .cs-sheet .sign div { border-top:1px solid var(--cs-ink); padding-top:6px; font-size:12px; color:var(--cs-muted); } .cs-sheet .sign b { display:block; min-height:1.6em; }
 .cs-sheet .foot { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; color:var(--cs-muted); font-size:11.5px; padding:8px 18px; border-top:1px solid var(--cs-rule); background:var(--cs-soft); }
+.cs-sheet .ctabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--cs-rule); }
+.cs-sheet .ctab { border:1px solid transparent; border-bottom:0; background:transparent; border-radius:8px 8px 0 0; padding:7px 16px 8px; margin-bottom:-1px; display:flex; flex-direction:column; align-items:flex-start; color:var(--cs-muted); font-weight:700; font-size:13px; cursor:pointer; text-align:left; }
+.cs-sheet .ctab small { font-weight:500; font-size:11.5px; font-variant-numeric:tabular-nums; }
+.cs-sheet .ctab:hover { background:var(--cs-soft); color:var(--cs-ink); }
+.cs-sheet .ctab[aria-selected="true"] { color:var(--cs-brand-ink); background:#fff; border-color:var(--cs-rule); border-bottom:1px solid #fff; }
+.cs-sheet .ctab:focus-visible { outline:2px solid var(--cs-brand); outline-offset:-2px; }
+.cs-sheet .tpanel { display:flex; flex-direction:column; gap:12px; }
+.cs-sheet .tpanel section[aria-label="Garment cost"] { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:12px; align-items:start; }
+@media (max-width:900px){ .cs-sheet .tpanel section[aria-label="Garment cost"] { grid-template-columns:1fr; } }
 @media print {
   .cs-sheet { border:0; border-radius:0; }
   .cs-sheet details > summary { pointer-events:none; }

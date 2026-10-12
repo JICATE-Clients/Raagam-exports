@@ -2158,9 +2158,17 @@ export function SampleEntryScreen({
           scroll bar vendam"): Customer and Created User are the two long values, so
           they carry a max width and end in "…" (Customer reveals the whole name on
           hover) instead of widening the row past the pane. */}
-      <div className="w-fit max-w-full [&_.overflow-x-auto]:overflow-x-hidden [&_td:nth-last-child(2)]:max-w-[8rem] [&_td:nth-last-child(2)]:truncate">
+      {/* THE ROW ICONS MUST NEVER BE CUT (user 2026-10-09, live at 125% zoom: the calculator /
+          pencil / bin were clipped to a sliver). Below a 1900px viewport the two Created
+          columns step aside and the frame scrolls instead of hiding the overflow; the
+          no-scrollbar look stays on a wide screen where everything fits. */}
+      <div className="w-fit max-w-full min-[1900px]:[&_.overflow-x-auto]:overflow-x-hidden [&_td:nth-last-child(2)]:max-w-[8rem] [&_td:nth-last-child(2)]:truncate">
         <DataTable
-          columns={hugCreated(withCreatedColumns(listColumns, filtered))}
+          columns={hugCreated(withCreatedColumns(listColumns, filtered)).map((c) =>
+            c.header === "Created Date" || c.header === "Created User"
+              ? { ...c, className: [c.className, "max-[1899px]:hidden"].filter(Boolean).join(" ") }
+              : c,
+          )}
           rows={filtered}
           // TIGHT ROWS, px-2 py-1 (user 2026-10-08: remove the sideways scrollbar,
           // "innum compact"). `compact` kept px-3 and, with Created Date / User
