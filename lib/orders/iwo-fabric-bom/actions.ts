@@ -135,6 +135,7 @@ async function writeChildren(
       req_kgs: l.req_kgs,
       print_name: l.print_name || null,
       sample_style_id: l.sample_style_id,
+      part: l.part || null,
     }));
     if (rows.length) {
       const { error } = await s.from("iwo_fabric_bom_lines").insert(rows);
@@ -885,7 +886,7 @@ async function storedLineFacts(s: Db, bomId: string | null) {
   if (!bomId) return [];
   const { data } = await s
     .from("iwo_fabric_bom_lines")
-    .select("structure_id, item_id, color_name, fabric_form, mixing_uom_id, no_of_colors, gsm, finish_dia, stage_id, req_kgs, print_name")
+    .select("structure_id, item_id, color_name, fabric_form, mixing_uom_id, no_of_colors, gsm, finish_dia, stage_id, req_kgs, print_name, sample_style_id, part")
     .eq("bom_id", bomId);
   return (data ?? []) as {
     structure_id: string | null;
@@ -899,6 +900,8 @@ async function storedLineFacts(s: Db, bomId: string | null) {
     stage_id: string | null;
     req_kgs: number | null;
     print_name: string | null;
+    sample_style_id: string | null;
+    part: string | null;
   }[];
 }
 
