@@ -35,7 +35,7 @@ import { Boxes, CalendarRange, ClipboardList, Layers, Users, Workflow } from "lu
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { SampleWorkOrderCreate } from "@/components/orders/sample-work-order-create";
+import { raiseSampleGroupAccessoriesIw } from "@/lib/sales/sample-grouping/accessories-actions";
 import { Field, FieldRow, FIELD_WIDTH_CSS, fieldWidthStep, RequiredScope } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
@@ -280,6 +280,7 @@ export function IwoMaterialBomScreen({
   perms,
   masterPerms,
   sample = false,
+  swos,
 }: {
   tasks: IwoMaterialBomTask[];
   data: IwoMaterialBomFormData;
@@ -288,10 +289,15 @@ export function IwoMaterialBomScreen({
   /** Sample ▸ Accessories Plan (0704): the same screen over the SAMPLE work
    *  orders only. Closing stays on this list, and a new work order is raised in place. */
   sample?: boolean;
+  /** Sample ▸ Accessories Plan (0709): the SWOs with no accessories work order
+   *  yet — offered in the SWO No picker, which raises one when picked. */
+  swos?: { id: string; code: string }[];
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
+  /** Raising an SWO's accessories work order from the SWO No picker. */
+  const [swoRaising, startSwo] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
 
@@ -342,7 +348,7 @@ export function IwoMaterialBomScreen({
     return tasks.filter((t) => {
       if (!facetMatches(t)) return false;
       if (!needle) return true;
-      return [t.code, t.reference_no].some((v) => (v ?? "").toLowerCase().includes(needle));
+      return [t.code, t.reference_no, t.swo?.code].some((v) => (v ?? "").toLowerCase().includes(needle));
     });
   }, [tasks, listQuery, facetMatches]);
   const quick = useQuickStatus(bomWord, {
@@ -361,6 +367,33 @@ export function IwoMaterialBomScreen({
   const iwoItems: PickerItem[] = tasks
     .filter((t) => !t.bom || t.id === form.iwo_id)
     .map((t) => ({ id: t.id, code: t.code, name: t.code ?? "(unnumbered)", inactive: false }));
+  /**
+   * SAMPLE: THE HEADER IS THE SWO (0709; user 2026-10-12, screenshot 3437 —
+   * "Swo number from grouping, Date* … remove the remaining all the fields").
+   * One list, two kinds of row: an SWO whose accessories work order exists and
+   * has no plan yet (its id IS the work order's), and an SWO past Draft with
+   * none (`swo:` + group id), which `pickSwo` raises first. A sample work order
+   * raised before 0709 has no SWO and keeps its SIW number.
+   */
+  const swoItems: PickerItem[] = [
+    ...iwoItems.map((it) => ({ ...it, code: null, name: taskById.get(it.id)?.swo?.code ?? it.name })),
+    ...(swos ?? []).map((g) => ({ id: `swo:${g.id}`, code: null, name: g.code, inactive: false })),
+  ];
+  const pickSwo = (id: string | null) => {
+    if (!id || !id.startsWith("swo:")) {
+      set({ iwo_id: id });
+      return;
+    }
+    startSwo(async () => {
+      const res = await raiseSampleGroupAccessoriesIw(id.slice(4));
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      set({ iwo_id: res.iwoId });
+      router.refresh();
+    });
+  };
 
   const set = (patch: Partial<Form>) => {
     setForm((f) => ({ ...f, ...patch }));
@@ -458,7 +491,7 @@ export function IwoMaterialBomScreen({
     sections: [{ key: "bom" }, { key: "items" }, { key: "processes" }, { key: "requirement" }],
     values: form,
     fields: [
-      { section: "bom", id: "imb-iwo", label: "I.WO No", required: true, empty: (f) => !f.iwo_id },
+      { section: "bom", id: "imb-iwo", label: sample ? "SWO No" : "I.WO No", required: true, empty: (f) => !f.iwo_id },
       { section: "bom", id: "imb-date", label: "Date", required: true, empty: (f) => !f.bom_date },
     ],
     extra: [
@@ -529,19 +562,23 @@ export function IwoMaterialBomScreen({
 
   const columns: Column<IwoMaterialBomTask>[] = [
     {
-      header: "I.WO No",
+      // A sample plan is known by its SWO (0709) — the SIW number stays
+      // underneath and is shown only for a work order raised before it.
+      header: sample ? "SWO No" : "I.WO No",
       cell: (t) => (
         <button
           type="button"
           onClick={() => (t.bom ? perms.canEdit : perms.canCreate) && openTask(t)}
           className="font-mono text-xs font-medium text-primary hover:underline"
         >
-          {t.code ?? "—"}
+          {(sample ? (t.swo?.code ?? t.code) : t.code) ?? "—"}
         </button>
       ),
     },
     { header: "Date", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.iwo_date)}</span> },
-    { header: "RE No", cell: (t) => <span className="font-mono text-xs">{t.reference_no ?? "—"}</span> },
+    ...(sample
+      ? []
+      : [{ header: "RE No", cell: (t: IwoMaterialBomTask) => <span className="font-mono text-xs">{t.reference_no ?? "—"}</span> }]),
     { header: "Deli Dt", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.deli_date)}</span> },
     {
       header: "Accessories Plan",
@@ -947,19 +984,34 @@ export function IwoMaterialBomScreen({
               Order stood. Everything but the IWO and the Date is READ from the
               IWO — a readOnly field never holds the cursor. */}
           <FieldRow className="[&_input]:h-9">
-            <Field label="I.WO No" required className="w-full max-w-[240px]" htmlFor="imb-iwo">
-              <RecordPicker
-                id="imb-iwo"
-                label="I.WO No"
-                compact
-                items={iwoItems}
-                value={form.iwo_id}
-                // LOCKED ONCE NAMED: lines typed against one work order must
-                // never be re-pointed at another.
-                disabled={!!form.iwo_id}
-                onChange={(id) => set({ iwo_id: id })}
-              />
-            </Field>
+            {sample ? (
+              <Field label="SWO No" required className="w-full max-w-[240px]" htmlFor="imb-iwo">
+                <RecordPicker
+                  id="imb-iwo"
+                  label="SWO No"
+                  compact
+                  items={swoItems}
+                  value={form.iwo_id}
+                  // LOCKED ONCE NAMED, and while its work order is being raised.
+                  disabled={!!form.iwo_id || swoRaising || !perms.canCreate}
+                  onChange={pickSwo}
+                />
+              </Field>
+            ) : (
+              <Field label="I.WO No" required className="w-full max-w-[240px]" htmlFor="imb-iwo">
+                <RecordPicker
+                  id="imb-iwo"
+                  label="I.WO No"
+                  compact
+                  items={iwoItems}
+                  value={form.iwo_id}
+                  // LOCKED ONCE NAMED: lines typed against one work order must
+                  // never be re-pointed at another.
+                  disabled={!!form.iwo_id}
+                  onChange={(id) => set({ iwo_id: id })}
+                />
+              </Field>
+            )}
             <Field label="Date" required className="w-[145px]" htmlFor="imb-date">
               <Input
                 id="imb-date"
@@ -970,26 +1022,21 @@ export function IwoMaterialBomScreen({
                 onChange={(e) => set({ bom_date: e.target.value })}
               />
             </Field>
-            <Field label="RE No" className="w-[170px]" htmlFor="imb-re">
-              <Input id="imb-re" readOnly value={picked?.reference_no ?? ""} />
-            </Field>
-            <Field label="Deli Dt" className="w-[130px]" htmlFor="imb-deli">
-              <Input id="imb-deli" readOnly value={picked?.deli_date ? fmtDate(picked.deli_date) : ""} />
-            </Field>
+            {/* SAMPLE: SWO No and Date only (screenshot 3437). */}
+            {!sample && (
+              <>
+                <Field label="RE No" className="w-[170px]" htmlFor="imb-re">
+                  <Input id="imb-re" readOnly value={picked?.reference_no ?? ""} />
+                </Field>
+                <Field label="Deli Dt" className="w-[130px]" htmlFor="imb-deli">
+                  <Input id="imb-deli" readOnly value={picked?.deli_date ? fmtDate(picked.deli_date) : ""} />
+                </Field>
+              </>
+            )}
           </FieldRow>
 
           {/* NOTHING TO PICK — a state of the data, said with the way out. */}
-          {/* SAMPLE: the work order is raised right here (0704). */}
-          {sample && !form.iwo_id && perms.canCreate && (
-            <SampleWorkOrderCreate
-              forOptions={["accessories"]}
-              idPrefix="imb"
-              onCreated={(id) => {
-                setForm((f) => ({ ...f, iwo_id: id }));
-                router.refresh();
-              }}
-            />
-          )}
+          {/* SAMPLE: no create box — picking an SWO raises its work order (0709). */}
           {!sample && !form.iwo_id && iwoItems.length === 0 && (
             <div className="mt-3">
               <p className="text-sm text-muted-foreground">
@@ -1252,7 +1299,7 @@ export function IwoMaterialBomScreen({
           leading={quick.segment}
           search={listQuery}
           onSearch={setListQuery}
-          searchPlaceholder="Search I.WO No or RE No…"
+          searchPlaceholder={sample ? "Search SWO No…" : "Search I.WO No or RE No…"}
           activeCount={listFacets.activeCount}
           onReset={listFacets.activeCount ? listFacets.reset : undefined}
           panel={listFacets.panel}
@@ -1265,7 +1312,7 @@ export function IwoMaterialBomScreen({
           empty={
             !tasks.length
               ? sample
-                ? "No sample work orders For Accessories at this unit yet — + New Accessories Plan raises one."
+                ? "No accessories plans at this unit yet — + New Accessories Plan, then pick the SWO."
                 : "No Internal Work Orders For Accessories at this unit yet."
               : quick.value
                 ? `No ${quick.value} work orders${listFacets.activeCount || listQuery ? " match these filters" : ""}.`
@@ -1286,11 +1333,11 @@ export function IwoMaterialBomScreen({
         }
         header={{
           initials: "MB",
-          title: picked?.code ?? "New Accessories Plan",
+          title: (sample ? (picked?.swo?.code ?? picked?.code) : picked?.code) ?? "New Accessories Plan",
           badges: dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null,
           meta: (
             <>
-              <span>{picked ? "For Accessories" : "No work order chosen"}</span>
+              <span>{picked ? "For Accessories" : sample ? "No SWO chosen" : "No work order chosen"}</span>
               {form.bom_date && <span>· {fmtDate(form.bom_date)}</span>}
             </>
           ),
