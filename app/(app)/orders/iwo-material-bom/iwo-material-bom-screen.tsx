@@ -86,6 +86,7 @@ import {
   isBlankIwoMbProcess,
   iwoMbProblems,
   iwoMbQuantity,
+  hasIwoMbRows,
   isBlankIwoMbLine,
   keptIwoMbLines,
   keptIwoMbProcesses,
@@ -110,9 +111,6 @@ const newKey = () => `k${keySeq++}`;
  *  a half-typed "12." is not rewritten under the caret. */
 type ItemRow = {
   key: string;
-  /** Sample Accessories Plan (0710): the SWO sample (SMP) this line is for —
-   *  "" = none / a production IWO. */
-  sample_style_id: string;
   category_id: string | null;
   item_id: string | null;
   consumption_uom_id: string | null;
@@ -144,7 +142,6 @@ type ProcRow = {
 // EVERY SEED IS BLANK — the save drops an untouched row by testing what is typed.
 const blankItem = (): ItemRow => ({
   key: newKey(),
-  sample_style_id: "",
   category_id: null,
   item_id: null,
   specification: "",
@@ -179,8 +176,10 @@ const num = (v: string): number | null => {
 };
 const str = (n: number | null | undefined) => (n == null ? "" : String(n));
 
-const itemFacts = (l: ItemRow): IwoMbLineFacts => ({
-  sample_style_id: l.sample_style_id || null,
+/** `perSmp` — a SAMPLE plan (0711): the line is the SWO's consolidated
+ *  accessory and its quantity is the Σ of the per-SMP rows under it. */
+const itemFacts = (l: ItemRow, perSmp = false): IwoMbLineFacts => ({
+  per_smp: perSmp,
   category_id: l.category_id,
   item_id: l.item_id,
   specification: l.specification.trim() || null,
@@ -190,7 +189,12 @@ const itemFacts = (l: ItemRow): IwoMbLineFacts => ({
   uom_conversion_id: l.uom_conversion_id,
   planned_qty: num(l.planned_qty),
   attribute: l.attribute,
-  slices: l.slices.map((sl) => ({ item_color_id: sl.item_color_id, size: sl.size.trim() || null, planned_qty: num(sl.planned_qty) })),
+  slices: l.slices.map((sl) => ({
+    sample_style_id: sl.sample_style_id || null,
+    item_color_id: sl.item_color_id,
+    size: sl.size.trim() || null,
+    planned_qty: num(sl.planned_qty),
+  })),
   moq: num(l.moq),
   round_to: num(l.round_to),
   is_advised: l.is_advised,
@@ -417,25 +421,42 @@ export function IwoMaterialBomScreen({
   const swoId = sample ? (picked?.swo?.id ?? null) : null;
   const trims = swoTrims && swoTrims.iwoId === form.iwo_id ? swoTrims.data : null;
   const swoStyleIds = swoId && trims ? new Set(trims.samples.map((x) => x.style_id)) : null;
+  /** What the SMP No picker under every line offers (0711) — null while no SWO
+   *  is read, so the column shows greyed; undefined on a production IWO. */
+  const smpOptions = sample
+    ? swoStyleIds
+      ? (trims?.samples ?? []).map((x) => ({ id: x.style_id, label: `${x.label} (${x.pieces} pcs)` }))
+      : null
+    : undefined;
+  /** Every reader of a line goes through this, so a sample plan's quantity is
+   *  always Σ its SMP rows — the screen, Save and the action read one rule. */
+  const facts = (l: ItemRow) => itemFacts(l, sample);
+  /** A new line: on a sample plan it opens with one SMP row standing ready
+   *  (AGENTS.md, editable sub-tables open with a row). */
+  const newItem = (): ItemRow => (sample ? { ...blankItem(), slices: [blankBreakupRow(newKey)] } : blankItem());
 
   /** The costing's lines as grid rows — the same unit prefill a material pick
    *  runs, so a filled line is exactly what picking that material would give. */
   const rowsFromCosting = (t: SwoSampleTrims) => {
     const { lines, skipped } = sampleFillLines(t.samples);
-    const rows = lines.map((l) => {
+    /* THE SWO'S CONSOLIDATED ACCESSORY (0711): the costing gives one figure
+       per (SMP, material); the grid holds ONE line per material with a row per
+       SMP beneath it — a button on both samples is bought once. */
+    const byMaterial = new Map<string, typeof lines>();
+    for (const l of lines) byMaterial.set(l.item_id, [...(byMaterial.get(l.item_id) ?? []), l]);
+    const rows = [...byMaterial].map(([itemId, ls]) => {
       const base: ItemRow = {
         ...blankItem(),
-        sample_style_id: l.style_id,
-        category_id: t.category_of[l.item_id] ?? materialById.get(l.item_id)?.category_id ?? null,
-        item_id: l.item_id,
-        planned_qty: String(l.planned_qty),
+        category_id: t.category_of[itemId] ?? materialById.get(itemId)?.category_id ?? null,
+        item_id: itemId,
+        slices: ls.map((l) => ({ ...blankBreakupRow(newKey), sample_style_id: l.style_id, planned_qty: String(l.planned_qty) })),
       };
       // The units `uomOptionsFor` (below) would offer a fresh row: the base
       // unit, and the purchase unit when the material declares an alternate.
-      const m = materialById.get(l.item_id);
+      const m = materialById.get(itemId);
       const allowed = [m?.base_uom_id, m?.has_alternate_uom ? m.purchase_uom_id : null].filter((x): x is string => !!x);
       const units = allowed.length ? allowed : data.uoms.filter((u) => !u.inactive).map((u) => u.id);
-      return { ...base, ...uomPatchForMaterial(base, l.item_id, units, data.conversions) };
+      return { ...base, ...uomPatchForMaterial(base, itemId, units, data.conversions) };
     });
     return { rows, skipped };
   };
@@ -460,7 +481,7 @@ export function IwoMaterialBomScreen({
       setSwoTrims({ iwoId, data: res.data });
       if (editId) return;
       setItems((xs) => {
-        if (!xs.every((x) => isBlankIwoMbLine(itemFacts(x)))) return xs;
+        if (!xs.every((x) => isBlankIwoMbLine(facts(x)))) return xs;
         const { rows, skipped } = rowsFromCosting(res.data);
         if (skipped.length) toastError(`Not filled from costing: ${skipped.join("; ")}.`);
         return rows.length ? rows : xs;
@@ -473,10 +494,12 @@ export function IwoMaterialBomScreen({
   }, [sample, form.iwo_id, swoId, editId]);
 
   /**
-   * REFILL FROM COSTING — on demand, and a MERGE, never a wipe: a line of the
-   * same (SMP, material) takes the costing's Planned Qty, a trim the grid does
-   * not hold yet is added, and every other line — the planner's own additions,
-   * a split line — is left exactly as it is. Nothing is saved until Save.
+   * REFILL FROM COSTING — on demand, and a MERGE, never a wipe: under an Item
+   * wise line of the same material, the row of the same SMP takes the
+   * costing's Planned Qty and a missing SMP row is added; a material the grid
+   * does not hold yet is added as a line; every other line and row — the
+   * planner's own additions, a colour / size split — is left exactly as it
+   * is. Nothing is saved until Save.
    */
   const refillFromCosting = () => {
     if (!form.iwo_id) return;
@@ -492,19 +515,30 @@ export function IwoMaterialBomScreen({
       let updated = 0;
       let added = 0;
       setItems((xs) => {
-        const kept = xs.filter((x) => !isBlankIwoMbLine(itemFacts(x)));
+        const kept = xs.filter((x) => !isBlankIwoMbLine(facts(x)));
         const next = [...kept];
         for (const r of rows) {
-          const i = next.findIndex((x) => x.sample_style_id === r.sample_style_id && x.item_id === r.item_id && x.attribute === "item");
-          if (i >= 0) {
-            if (next[i].planned_qty !== r.planned_qty) updated++;
-            next[i] = { ...next[i], planned_qty: r.planned_qty };
-          } else {
-            added++;
+          const i = next.findIndex((x) => x.item_id === r.item_id && x.attribute === "item");
+          if (i < 0) {
+            added += r.slices.length;
             next.push(r);
+            continue;
           }
+          // The rows anyone typed on, plus the costing's — a blank seed row goes.
+          const slices = next[i].slices.filter((sl) => !!(sl.sample_style_id || sl.item_color_id || sl.size.trim() || sl.planned_qty.trim()));
+          for (const sl of r.slices) {
+            const j = slices.findIndex((x) => x.sample_style_id === sl.sample_style_id);
+            if (j >= 0) {
+              if (slices[j].planned_qty !== sl.planned_qty) updated++;
+              slices[j] = { ...slices[j], planned_qty: sl.planned_qty };
+            } else {
+              added++;
+              slices.push(sl);
+            }
+          }
+          next[i] = { ...next[i], slices };
         }
-        return next.length ? next : [blankItem()];
+        return next.length ? next : [newItem()];
       });
       setDirty(true);
       success(`Refilled from costing — ${updated} updated, ${added} added. Save to keep it.`);
@@ -527,7 +561,7 @@ export function IwoMaterialBomScreen({
   function openNew(iwoId: string | null) {
     setEditId(null);
     setForm({ iwo_id: iwoId, bom_date: today() });
-    setItems([blankItem()]);
+    setItems([newItem()]);
     setProcs([blankProc()]);
     setDirty(false);
     setMode("edit");
@@ -540,7 +574,6 @@ export function IwoMaterialBomScreen({
     setForm({ iwo_id: t.id, bom_date: b.bom_date });
     const is = b.iwo_material_bom_items.map((r) => ({
       key: newKey(),
-      sample_style_id: r.sample_style_id ?? "",
       category_id: r.category_id,
       item_id: r.item_id,
       specification: r.specification ?? "",
@@ -550,11 +583,15 @@ export function IwoMaterialBomScreen({
       uom_conversion_id: r.uom_conversion_id,
       planned_qty: str(r.planned_qty),
       attribute: r.attribute ?? "item",
-      slices: (r.iwo_material_bom_item_slices ?? []).map((sl) => ({
+      slices: (r.iwo_material_bom_item_slices ?? []).map((sl, j, all) => ({
         key: newKey(),
+        sample_style_id: sl.sample_style_id ?? "",
         item_color_id: sl.item_color_id,
         size: sl.size ?? "",
         planned_qty: str(sl.planned_qty),
+        // A row straight after one of the same SMP is a further colour / size
+        // of it (0711) — saved in order, so the run comes back as typed.
+        sub: j > 0 && !!sl.sample_style_id && all[j - 1].sample_style_id === sl.sample_style_id,
       })),
       moq: str(r.moq),
       round_to: str(r.round_to),
@@ -571,7 +608,8 @@ export function IwoMaterialBomScreen({
       vendor_id: r.vendor_id,
     }));
     // `[]` means "no lines yet" and opens ready to type, same as a new record.
-    setItems(is.length ? is : [blankItem()]);
+    // A sample plan's line with no rows yet opens with one standing ready.
+    setItems(is.length ? is.map((x) => (sample && x.slices.length === 0 ? { ...x, slices: [blankBreakupRow(newKey)] } : x)) : [newItem()]);
     setProcs(ps.length ? ps : [blankProc()]);
     setDirty(false);
     setMode("edit");
@@ -588,7 +626,7 @@ export function IwoMaterialBomScreen({
 
   const quantityFor = (l: ItemRow) =>
     iwoMbQuantity(
-      itemFacts(l),
+      facts(l),
       procs
         .filter((p) => p.item_id && p.item_id === l.item_id && !isBlankIwoMbProcess(procFacts(p)))
         .map((p) => ({ loss_pct: num(p.loss_pct) })),
@@ -598,7 +636,7 @@ export function IwoMaterialBomScreen({
 
   // ---- validity ----------------------------------------------------------------
 
-  const problems = iwoMbProblems(items.map(itemFacts), procs.map(procFacts), swoStyleIds);
+  const problems = iwoMbProblems(items.map(facts), procs.map(procFacts), swoStyleIds);
 
   const validity = sectionValidity({
     sections: [{ key: "bom" }, { key: "items" }, { key: "processes" }, { key: "requirement" }],
@@ -637,7 +675,7 @@ export function IwoMaterialBomScreen({
       iwo_id: form.iwo_id,
       bom_date: form.bom_date,
       is_draft: asDraft,
-      items: keptIwoMbLines(items.map(itemFacts))
+      items: keptIwoMbLines(items.map(facts))
         .filter((l) => !!l.item_id)
         .map((l) => ({ ...l, item_id: l.item_id as string, slices: [...(l.slices ?? [])] })),
       processes: keptIwoMbProcesses(procs.map(procFacts))
@@ -782,40 +820,11 @@ export function IwoMaterialBomScreen({
    * left on 2026-09-22 (file header).
    */
   const itemColumns: ChildGridColumn<ItemRow>[] = [
-    /* SMP NO FIRST (0710; user 2026-10-12, as on Fabric Allocation): only
-       the picked SWO's samples, greyed until one is picked; never on Orders. */
-    ...(sample
-      ? [
-          {
-            header: "SMP No",
-            required: !!swoStyleIds,
-            width: FIELD_WIDTH_CSS.term,
-            cell: (r: ItemRow) => {
-              const held = r.sample_style_id && !swoStyleIds?.has(r.sample_style_id) ? r.sample_style_id : "";
-              return (
-                <Select
-                  compact
-                  className={cn("h-8", held && "text-danger")}
-                  aria-label="SMP No"
-                  required={!!swoStyleIds}
-                  disabled={!swoStyleIds}
-                  title={swoStyleIds ? undefined : "Pick the SWO first — its samples are listed here."}
-                  value={r.sample_style_id}
-                  onChange={(e) => patchItem(r.key, { sample_style_id: e.target.value })}
-                >
-                  <option value="">{swoStyleIds ? "" : "Pick the SWO first"}</option>
-                  {(trims?.samples ?? []).map((x) => (
-                    <option key={x.style_id} value={x.style_id}>
-                      {`${x.label} (${x.pieces} pcs)`}
-                    </option>
-                  ))}
-                  {held && <option value={held}>(not in this SWO)</option>}
-                </Select>
-              );
-            },
-          },
-        ]
-      : []),
+    /* NO SMP NO ON THE LINE (0711; client 2026-10-12, the Fabric Plan's
+       Allocation / Consumption split, reversing 82b3ce6): a sample plan's
+       line is the SWO's consolidated accessory, bought once for the group.
+       Which sample takes how much is the rows UNDER the line, one SMP each
+       (`BreakupGrid`'s `samples`), and the line's Planned Qty is their sum. */
     {
       header: "Category",
       width: FIELD_WIDTH_CSS.hug,
@@ -884,7 +893,7 @@ export function IwoMaterialBomScreen({
             const attribute = e.target.value as IwoMbAttribute;
             patchItem(r.key, {
               attribute,
-              slices: attribute !== "item" && r.slices.length === 0 ? [blankBreakupRow(newKey)] : r.slices,
+              slices: (sample || attribute !== "item") && r.slices.length === 0 ? [blankBreakupRow(newKey)] : r.slices,
             });
           }}
         >
@@ -917,7 +926,7 @@ export function IwoMaterialBomScreen({
       align: "right",
       width: FIELD_WIDTH_CSS.hug,
       cell: (r) => {
-        if (r.attribute === "item") {
+        if (!hasIwoMbRows(facts(r))) {
           return decimalCell(r.planned_qty, "Planned Qty", (v) => patchItem(r.key, { planned_qty: v }), true);
         }
         /* UNDER A SPLIT ATTRIBUTE THE CELL IS Σ THE ROWS BENEATH, read-only —
@@ -926,7 +935,7 @@ export function IwoMaterialBomScreen({
            requiredness is enforced on the rows' own cells and the Save gate;
            `tabIndex={-1}` comes with `readOnly`, so Tab goes from Cons. Uom
            straight on to Pur. Uom and reaches the rows after the line. */
-        const total = plannedQtyOf(itemFacts(r));
+        const total = plannedQtyOf(facts(r));
         return (
           <Input
             className="h-8 text-right"
@@ -1085,7 +1094,7 @@ export function IwoMaterialBomScreen({
         <span className="tabular-nums text-sm">
           {(() => {
             // The line's own figure, or Σ its breakup (0614) — one reader.
-            const planned = plannedQtyOf(itemFacts(r.line));
+            const planned = plannedQtyOf(facts(r.line));
             return planned != null ? `${fmtNumber(planned)} ${uomCode(r.line.consumption_uom_id)}` : "";
           })()}
         </span>
@@ -1250,7 +1259,7 @@ export function IwoMaterialBomScreen({
               const q = name ? quantityFor(row) : null;
               const state = !name ? "idle" : q && isRefusal(q) ? "warn" : "ok";
               const attr = row.attribute !== "item" ? IWO_MB_ATTRIBUTE_LABELS[row.attribute] : null;
-              const planned = plannedQtyOf(itemFacts(row));
+              const planned = plannedQtyOf(facts(row));
               return (
                 <div className="flex items-center gap-2.5">
                   <span
@@ -1293,7 +1302,7 @@ export function IwoMaterialBomScreen({
                row's line box (a `Label` with no children has none). */
             renderFoldedRow={(row, i) => {
               const material = itemColumns.find((c) => c.header === "Material")!;
-              const planned = plannedQtyOf(itemFacts(row));
+              const planned = plannedQtyOf(facts(row));
               const summary = [
                 row.attribute !== "item" ? IWO_MB_ATTRIBUTE_LABELS[row.attribute] : null,
                 planned != null ? `${fmtNumber(planned)} ${uomCode(row.consumption_uom_id)}`.trim() : null,
@@ -1341,8 +1350,9 @@ export function IwoMaterialBomScreen({
                     </Field>
                   ))}
                 </FieldRow>
-                {row.attribute !== "item" && (
+                {hasIwoMbRows(facts(row)) && (
                   <BreakupGrid
+                    samples={smpOptions}
                     attribute={row.attribute}
                     uomCode={uomCode(row.consumption_uom_id)}
                     rows={row.slices}
@@ -1372,13 +1382,13 @@ export function IwoMaterialBomScreen({
             onAdd={() => {
               const last = items[items.length - 1];
               if (last) {
-                const missing = iwoMbProblems([itemFacts(last)], []).filter((p) => p.section === "items");
+                const missing = iwoMbProblems([facts(last)], [], swoStyleIds).filter((p) => p.section === "items");
                 if (missing.length) {
                   toastError(missing[0].message.replace(/^Line 1/, "The open line"));
                   return false;
                 }
               }
-              setItems((xs) => [...xs, blankItem()]);
+              setItems((xs) => [...xs, newItem()]);
               setDirty(true);
             }}
             onRemove={(r) => {

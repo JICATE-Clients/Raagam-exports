@@ -165,7 +165,9 @@ import {
 import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
 import {
+  addPlanDia,
   addPlanRow,
+  canAddDia,
   derivePlanRows,
   expandPlanCells,
   familyDias,
@@ -214,11 +216,6 @@ type Form = { iwo_id: string | null; bom_date: string };
  */
 type LineRow = {
   key: string;
-  /** Sample Fabric Plan (0707; user 2026-10-12, screenshot 3436): the SWO
-   *  sample this fabric row is for — picked on Fabric Allocation before the
-   *  Structure, from the SWO's own samples. "" = none / a production IWO.
-   *  Stamped on every stored line the row expands to. */
-  sample_style_id: string;
   structure_id: string | null;
   item_id: string | null;
   fabric_form: string;
@@ -240,7 +237,6 @@ type LineRow = {
 
 const blankLine = (): LineRow => ({
   key: newKey(),
-  sample_style_id: "",
   structure_id: null,
   item_id: null,
   fabric_form: "",
@@ -303,9 +299,8 @@ const expandLine = (l: LineRow): IwoFabricLineFacts[] =>
     no_of_colors: num(l.no_of_colors),
     gsm: num(l.gsm),
     stage_id: l.stage_id,
+    // The SMP is each consumption ROW's (client 2026-10-12), carried in `f`.
     ...f,
-    // The ROW's sample (0707) — every line it expands to is for that SMP.
-    sample_style_id: l.sample_style_id || null,
   }));
 /** The expanded lines with the SCREEN row each came from, so a rule's "Fabric
  *  line N" names the row the operator sees, not the stored line's ordinal. */
@@ -739,18 +734,17 @@ export function IwoFabricBomScreen({
     const ls: LineRow[] = [];
     const groups = new Map<string, IwoFabricBom["iwo_fabric_bom_lines"]>();
     for (const r of b.iwo_fabric_bom_lines ?? []) {
-      // ONE ROW PER (FABRIC, SMP) on an SWO's plan (0707) — the SMP is the
-      // allocation row's, so two samples on one cloth are two rows.
-      const gk = `${r.item_id}|${r.sample_style_id ?? ""}`;
-      const held = groups.get(gk);
+      // ONE ROW PER FABRIC on an SWO's plan too (client 2026-10-12): the SMP
+      // is each consumption row's, so two samples on one cloth are two rows
+      // of ONE card, never two allocation rows.
+      const held = groups.get(r.item_id);
       if (held) held.push(r);
-      else groups.set(gk, [r]);
+      else groups.set(r.item_id, [r]);
     }
     for (const rs of groups.values()) {
       const r = rs[0];
       ls.push({
         key: newKey(),
-        sample_style_id: r.sample_style_id ?? "",
         structure_id: r.structure_id,
         item_id: r.item_id,
         fabric_form: r.fabric_form ?? "",
@@ -758,8 +752,7 @@ export function IwoFabricBomScreen({
         no_of_colors: str(r.no_of_colors),
         gsm: str(r.gsm),
         stage_id: r.stage_id,
-        // The SMP lives on the row, not the cells.
-        cells: foldPlanCells(rs.map((x) => ({ ...x, sample_style_id: null }))),
+        cells: foldPlanCells(rs),
       });
     }
     setLines(ls.length ? ls : [blankLine()]);
@@ -1180,8 +1173,7 @@ export function IwoFabricBomScreen({
          placeholder's colour / dia / print problems dropped: they are about
          a stored line that does not exist yet, and the card offers no box to
          answer them in. The action refuses with the same first sentence. */
-      // The row's SMP is stamped on its placeholder too (0707) — still a placeholder.
-      if (at && isPlaceholderFacts({ ...at.facts, sample_style_id: null })) {
+      if (at && isPlaceholderFacts(at.facts)) {
         if (p.field !== "req_kgs") return [];
         const l = lines[row - 1];
         const rank = l ? fabricStageRank(l.stage_id) : null;
@@ -1666,7 +1658,7 @@ export function IwoFabricBomScreen({
 
   /** What Fabric Consumption's own cells still owe — `lineProblems`, the rules
    *  Save runs, narrowed to the fields the cards show. */
-  const CONSUMPTION_FIELDS = new Set(["stage_id", "print_name", "color_name", "finish_dia", "req_kgs", "gsm"]);
+  const CONSUMPTION_FIELDS = new Set(["stage_id", "sample_style_id", "print_name", "color_name", "finish_dia", "req_kgs", "gsm"]);
   const consumptionNeeds = lineProblems.filter((p) => CONSUMPTION_FIELDS.has(p.field));
 
   /** ONE STAGE PER FABRIC (Phase 2's rule): choosing it on one line sets it on
@@ -1703,22 +1695,16 @@ export function IwoFabricBomScreen({
    * names the cloth; Consumption plans it — and since 2026-09-22 it does not
    * ask for a colour or a dia at all: its rows are derived from the panels.
    *
-   * WIDTHS (check:grid-budget): term 176 (SMP No, an SWO's plan only) + term
-   * 176 + name 288 + hug 88 (Type) + hug 88 (Mixing Uom) + hug 88 (No Of
-   * Colors) + num 72 (Detail) = 976 + 72 chrome = 1048 <= 1155.
+   * NO SMP NO HERE EITHER (client 2026-10-12, reversing the same morning's
+   * a4ecda7): Allocation is the SWO's consolidated cloth — structure, fabric,
+   * blend — bought and dyed as one batch for the whole group. Which sample
+   * each kilo is for is Fabric Consumption's, one SMP per row.
+   *
+   * WIDTHS (check:grid-budget): term 176 + name 288 + hug 88 (Type) + hug 88
+   * (Mixing Uom) + hug 88 (No Of Colors) + num 72 (Detail) = 800 + 72 chrome =
+   * 872 <= 1155.
    */
   const allocationColumns: ChildGridColumn<LineRow>[] = [
-    // ALWAYS on a sample plan (greyed until the SWO is picked); never on Orders.
-    ...(sample
-      ? [
-          {
-            header: "SMP No",
-            width: FIELD_WIDTH_CSS.term,
-            required: !!swo,
-            cell: (r: LineRow) => smpPicker(r),
-          },
-        ]
-      : []),
     {
       header: "Structure",
       width: FIELD_WIDTH_CSS.term,
@@ -1851,9 +1837,18 @@ export function IwoFabricBomScreen({
    *
    * WIDTHS (check:grid-budget): term 176 (Colour) + code 144 (Print) + hug 88
    * (Finish Dia) + range 112 (Req Wt) + range 112 (Gross Yarn) = 632 + 72
-   * chrome (`#` + ✕) = 704 <= 1155. (The SMP is the card's, from Fabric
-   * Allocation — user 2026-10-12.) Colour and Print are drawn only on the
-   * stages that ask for them, so a GREIGE card is dia · weight · gross.
+   * chrome (`#` + ✕) = 704 <= 1155. A SAMPLE plan adds term 176 (SMP No)
+   * first and num 72 (Add Dia) last = 880 + 72 = 952 <= 1155. Colour and
+   * Print are drawn only on the stages that ask for them, so a GREIGE card is
+   * dia · weight · gross.
+   *
+   * SMP NO IS EACH ROW'S (client 2026-10-12): the planner picks the sample
+   * first, then its Colour, Dia and weight — so on receipt stores release
+   * each sample's own kilos to its cutting table (Grouping's cutting basis
+   * reads Σ Req Wt per SMP). A colour cut at two dias is ONE head row and
+   * a dia SUB-ROW under it ("+ Add Dia"), never the colour picked twice:
+   * the sub-row shows the head's SMP / Colour / Print and takes only its
+   * Finish Dia and weight (plan.ts `addPlanDia`).
    *
    * REQUIRED EXACTLY WHERE `lines.ts` REFUSES WITHOUT IT — Colour and Finish
    * Dia from a dyed stage up, Print on a PRINT stage — so the star, the cursor
@@ -1895,14 +1890,14 @@ export function IwoFabricBomScreen({
       </Select>
     );
   };
-  /** THE SMP NO PICKER (0707; user 2026-10-12, screenshot 3436) — on Fabric
-   *  Allocation, before the Structure, offering ONLY the samples of the SWO
-   *  picked on the Fabric Plan tab, each with the kilos the SWO batched for
-   *  it. Picking one fills an empty Structure with the one fabric structure
-   *  that sample was costed in. A held sample the SWO no longer batches stays
-   *  selectable as itself, tagged — never shown blank ("Disabled rows"). */
-  const smpPicker = (l: LineRow) => {
-    const value = l.sample_style_id;
+  /** THE SMP NO PICKER (0707; client 2026-10-12) — on each Fabric Consumption
+   *  row, offering ONLY the samples of the SWO picked on the Fabric Plan tab,
+   *  each with the kilos the SWO batched for it. Picking one fills the
+   *  fabric's empty Structure with the one structure that sample was costed
+   *  in. A held sample the SWO no longer batches stays selectable as itself,
+   *  tagged — never shown blank ("Disabled rows"). */
+  const smpPicker = (l: LineRow, r: PlanDisplayRow) => {
+    const value = r.sample_style_id ?? "";
     const held = value && !swoStyleIds?.has(value) ? value : "";
     return (
       <Select
@@ -1919,7 +1914,8 @@ export function IwoFabricBomScreen({
           const id = e.target.value;
           const own = swo?.samples.find((x) => x.style_id === id)?.structure_ids ?? [];
           const fill = !l.structure_id && own.length === 1 && data.structures.some((st) => st.id === own[0]) ? own[0] : null;
-          patchLine(l.key, fill ? { sample_style_id: id, structure_id: fill } : { sample_style_id: id });
+          const cells = setPlanCell(l.cells, r, { sample_style_id: id });
+          patchLine(l.key, fill ? { cells, structure_id: fill } : { cells });
         }}
         className={cn(held && "text-danger")}
       >
@@ -1933,7 +1929,46 @@ export function IwoFabricBomScreen({
       </Select>
     );
   };
+  /** A dia sub-row (sample plan only) — its SMP / Colour / Print are the head
+   *  row's, so the cell holds no box: nothing to re-pick, nothing to hold. */
+  const isSub = (r: PlanDisplayRow) => sample && r.follows;
+  const subCell = <span aria-hidden className="pl-2 text-muted-foreground">↳</span>;
+  /** "+ Add Dia" — on the LAST row of a colour's run, so the new dia lands
+   *  under the ones it joins. `data-row-open` puts it on the row's axis for
+   *  Tab, Enter and ← → (the Detail button's marker), so it is reachable
+   *  without the mouse. */
+  const addDiaButton = (l: LineRow, r: PlanDisplayRow) => {
+    if (!r.runEnd) return null;
+    const reason = canAddDia(r) ? null : "Pick the SMP No or Colour first";
+    const what = [r.sample_style_id ? swoSampleLabel(r.sample_style_id) : "", r.color_name, r.print_name].filter(Boolean).join(" · ");
+    return (
+      <span title={reason ?? undefined} className="inline-block">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-row-open
+          disabled={!!reason}
+          aria-label={reason ? `Add Dia — ${reason}` : `Add another Finish Dia under ${what}`}
+          onClick={() => patchLine(l.key, { cells: addPlanDia(l.cells, r.key) })}
+        >
+          + Dia
+        </Button>
+      </span>
+    );
+  };
   const consumptionColumns = (l: LineRow, rank: number | null, axes: PlanAxes): ChildGridColumn<PlanDisplayRow>[] => [
+    // ALWAYS on a sample plan (greyed until the SWO is picked); never on Orders.
+    ...(sample
+      ? [
+          {
+            header: "SMP No",
+            width: FIELD_WIDTH_CSS.term,
+            required: !!swo,
+            cell: (r: PlanDisplayRow) => (isSub(r) ? subCell : smpPicker(l, r)),
+          },
+        ]
+      : []),
     ...(rank !== 0
       ? [
           {
@@ -1941,7 +1976,9 @@ export function IwoFabricBomScreen({
             width: FIELD_WIDTH_CSS.term,
             required: rank != null,
             cell: (r: PlanDisplayRow) =>
-              axisPicker(r, "Colour", r.color_name, axes.colours, comboKey, (v) => setCell(l, r, { color_name: v })),
+              isSub(r)
+                ? subCell
+                : axisPicker(r, "Colour", r.color_name, axes.colours, comboKey, (v) => setCell(l, r, { color_name: v })),
           },
         ]
       : []),
@@ -1952,7 +1989,9 @@ export function IwoFabricBomScreen({
             width: FIELD_WIDTH_CSS.code,
             required: true,
             cell: (r: PlanDisplayRow) =>
-              axisPicker(r, "Print", r.print_name, axes.prints, comboKey, (v) => setCell(l, r, { print_name: v })),
+              isSub(r)
+                ? subCell
+                : axisPicker(r, "Print", r.print_name, axes.prints, comboKey, (v) => setCell(l, r, { print_name: v })),
           },
         ]
       : []),
@@ -1992,6 +2031,15 @@ export function IwoFabricBomScreen({
         return <span className="text-sm tabular-nums">{g == null ? <span className="text-muted-foreground">—</span> : kg(g)}</span>;
       },
     },
+    ...(sample
+      ? [
+          {
+            header: "Add Dia",
+            width: FIELD_WIDTH_CSS.num,
+            cell: (r: PlanDisplayRow) => addDiaButton(l, r),
+          },
+        ]
+      : []),
   ];
   /** The card's rows below the table breakpoint — the same cells, stacked.
    *  `required` is declared on each `Field` as well: a grid that renders its
@@ -1999,12 +2047,22 @@ export function IwoFabricBomScreen({
    *  that renders its own row must declare required twice"). */
   const cardRowMobile = (l: LineRow, r: PlanDisplayRow, rank: number | null, axes: PlanAxes) => (
     <FieldGrid>
-      {rank !== 0 && (
+      {isSub(r) && (
+        <p className="text-xs text-muted-foreground">
+          ↳ another dia of {[r.sample_style_id ? swoSampleLabel(r.sample_style_id) : "", r.color_name, r.print_name].filter(Boolean).join(" · ")}
+        </p>
+      )}
+      {sample && !isSub(r) && (
+        <Field label="SMP No" size="sm" required={!!swo}>
+          {smpPicker(l, r)}
+        </Field>
+      )}
+      {rank !== 0 && !isSub(r) && (
         <Field label="Colour" size="sm" required={rank != null}>
           {axisPicker(r, "Colour", r.color_name, axes.colours, comboKey, (v) => setCell(l, r, { color_name: v }))}
         </Field>
       )}
-      {rank === 2 && (
+      {rank === 2 && !isSub(r) && (
         <Field label="Print" size="sm" required>
           {axisPicker(r, "Print", r.print_name, axes.prints, comboKey, (v) => setCell(l, r, { print_name: v }))}
         </Field>
@@ -2021,6 +2079,7 @@ export function IwoFabricBomScreen({
           onChange={(e) => setCell(l, r, { req_kgs: e.target.value })}
         />
       </Field>
+      {sample && addDiaButton(l, r)}
     </FieldGrid>
   );
 
@@ -2664,12 +2723,11 @@ export function IwoFabricBomScreen({
                    The grid keeps `ChildGrid`'s default @lg switch, since a
                    `tableFrom` tier (1024px up) would force the card wider than
                    its own table for no gain. */
-                <div key={l.key} className="max-w-[44rem] rounded-md border">
+                /* A SAMPLE card adds SMP No (176) and Add Dia (72): 880 + 40
+                   + 24 = 944px <= 59rem = 944px. */
+                <div key={l.key} className={cn(sample ? "max-w-[59rem]" : "max-w-[44rem]", "rounded-md border")}>
                   <div className="border-b px-3 py-2">
                     <div className="flex items-baseline gap-2">
-                      {l.sample_style_id && (
-                        <span className="shrink-0 font-mono text-xs font-medium text-primary">{swoSampleLabel(l.sample_style_id) || "SMP?"}</span>
-                      )}
                       <Truncated className="text-sm font-semibold">{fabric?.name ?? ""}</Truncated>
                       <span className="shrink-0 text-xs text-muted-foreground">
                         {[family, fabricTypeOf(l.item_id)].filter(Boolean).join(" · ")}

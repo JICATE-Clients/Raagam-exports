@@ -379,6 +379,49 @@ check(
   true,
 );
 
+// §12 A SAMPLE PLAN'S LINE IS THE SWO'S, ITS ROWS ARE THE SAMPLES' (0711;
+// client 2026-10-12 — the Fabric Plan's Allocation / Consumption split). The
+// line names a material once; every row under it names its SMP; the line's
+// Planned Qty is Σ the rows under EVERY attribute, Item wise included.
+{
+  const S1 = "style-1";
+  const S2 = "style-2";
+  const swo = new Set([S1, S2]);
+  const row = (smp: string | null, qty: number | null, size: string | null = null) => ({
+    sample_style_id: smp,
+    item_color_id: null,
+    size,
+    planned_qty: qty,
+  });
+  const msgs = (l: IwoMbLineFacts) => iwoMbProblems([l], [], swo).map((p) => p.message);
+  const two = line({ per_smp: true, planned_qty: null, slices: [row(S1, 60), row(S2, 30)] });
+  check("§12 Item wise on a sample plan reads Σ the SMP rows", plannedQtyOf(two), 90);
+  check("§12 one material, two samples — nothing to refuse", msgs(two), []);
+  check("§12 a line with no SMP row is refused in the samples' words", msgs(line({ per_smp: true, planned_qty: 5, slices: [] })), [
+    "Line 1: add a row under the line for each sample that uses it — its SMP No and Planned Qty.",
+  ]);
+  check("§12 a row with no SMP is refused", msgs(line({ per_smp: true, slices: [row(null, 10)] })), [
+    "Line 1, SMP row 1: choose the SMP No — every quantity on a sample work order is for one sample.",
+  ]);
+  check("§12 an SMP outside the SWO is refused", msgs(line({ per_smp: true, slices: [row("other", 10)] })), [
+    "Line 1, SMP row 1: the SMP No picked is not batched in this SWO — pick one of its samples.",
+  ]);
+  check("§12 the same SMP twice under Item wise is one sample typed twice", msgs(line({ per_smp: true, slices: [row(S1, 10), row(S1, 5)] })), [
+    "Line 1, SMP row 2: this sample is already on another row — merge them.",
+  ]);
+  check(
+    "§12 one SMP in two sizes is two rows, not a duplicate",
+    msgs(line({ per_smp: true, attribute: "size", slices: [row(S1, 10, "S"), row(S1, 5, "M"), row(S2, 5, "S")] })),
+    [],
+  );
+  check(
+    "§12 the SWO's SMP rows are owed even if the payload drops per_smp",
+    msgs(line({ per_smp: false, planned_qty: 5, slices: [] })),
+    ["Line 1: add a row under the line for each sample that uses it — its SMP No and Planned Qty."],
+  );
+  check("§12 a production line is untouched — no SMP asked", iwoMbProblems([line({})], [], null).map((p) => p.message), []);
+}
+
 if (failed) {
   console.error(`\n${failed} IWO Accessories Plan vector(s) failed.`);
   process.exit(1);

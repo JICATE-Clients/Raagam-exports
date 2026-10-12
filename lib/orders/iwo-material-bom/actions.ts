@@ -12,6 +12,7 @@ import {
   iwoMbQuantity,
   keptIwoMbLines,
   keptIwoMbProcesses,
+  hasIwoMbRows,
   keptIwoMbSlices,
   plannedQtyOf,
   type UomFacts,
@@ -24,8 +25,11 @@ const PATHS = ["/orders/iwo-material-bom", "/orders/internal-work-orders"];
 
 /** The payload's lines/processes in the rules' shape (the schema's defaults
  *  already applied, so every field is present). */
-const lineFacts = (l: NonNullable<IwoMaterialBomParsed["items"]>[number]) => ({
+const lineFacts = (perSmp: boolean) => (l: NonNullable<IwoMaterialBomParsed["items"]>[number]) => ({
   sample_style_id: l.sample_style_id,
+  // An SWO's plan (0711): the rows under every line are the samples' shares —
+  // decided from the SWO read off the database, never from the payload.
+  per_smp: perSmp,
   category_id: l.category_id,
   item_id: l.item_id,
   specification: l.specification ?? null,
@@ -35,7 +39,12 @@ const lineFacts = (l: NonNullable<IwoMaterialBomParsed["items"]>[number]) => ({
   uom_conversion_id: l.uom_conversion_id,
   planned_qty: l.planned_qty,
   attribute: l.attribute,
-  slices: l.slices.map((s) => ({ item_color_id: s.item_color_id, size: s.size ?? null, planned_qty: s.planned_qty })),
+  slices: l.slices.map((s) => ({
+    sample_style_id: s.sample_style_id,
+    item_color_id: s.item_color_id,
+    size: s.size ?? null,
+    planned_qty: s.planned_qty,
+  })),
   moq: l.moq,
   round_to: l.round_to,
   is_advised: l.is_advised,
@@ -74,7 +83,7 @@ async function swoAccessoryStyleIds(
  * first; nothing is keyed to a line id (process rows name the MATERIAL), so a
  * delete-then-insert loses nothing.
  */
-async function writeChildren(s: Db, bomId: string, p: IwoMaterialBomParsed): Promise<string | null> {
+async function writeChildren(s: Db, bomId: string, p: IwoMaterialBomParsed, perSmp: boolean): Promise<string | null> {
   if (!p.items && !p.processes) return null;
   if (!p.items || !p.processes) {
     // The quantity of a line depends on the process rows naming it; writing
@@ -82,7 +91,7 @@ async function writeChildren(s: Db, bomId: string, p: IwoMaterialBomParsed): Pro
     return "Items and Processes must be saved together — reopen the BOM and save again.";
   }
   // Into the rules’ shape first (every field present), then the blank filter.
-  const lines = keptIwoMbLines(p.items.map(lineFacts));
+  const lines = keptIwoMbLines(p.items.map(lineFacts(perSmp)));
   const procs = keptIwoMbProcesses(p.processes);
 
   const [uomRes, convRes] = await Promise.all([
@@ -157,12 +166,13 @@ async function writeChildren(s: Db, bomId: string, p: IwoMaterialBomParsed): Pro
        with the line: `on delete cascade` off the delete-and-reinsert above. */
     const lineIdBySno = new Map(((inserted ?? []) as { id: string; sno: number }[]).map((r) => [r.sno, r.id]));
     const sliceRows = lines.flatMap((l, i) => {
-      if (l.attribute === "item") return [];
+      if (!hasIwoMbRows(l)) return [];
       const lineId = lineIdBySno.get(i + 1);
       if (!lineId) return [];
       return keptIwoMbSlices(l.slices).map((sl, j) => ({
         item_line_id: lineId,
         sno: j + 1,
+        sample_style_id: sl.sample_style_id ?? null,
         item_color_id: sl.item_color_id,
         size: sl.size?.trim() || null,
         planned_qty: sl.planned_qty,
@@ -206,10 +216,12 @@ export async function saveIwoMaterialBom(bomId: string | null, payload: IwoMater
   const s = await createClient();
   // THE SAME RULES THE SAVE BUTTON READ (rules.ts), run again here — with the
   // SWO's samples read off the database (0709/0710), never off the payload.
+  let perSmp = false;
   if (p.items && p.processes) {
     const swo = await swoAccessoryStyleIds(s, p.iwo_id);
     if (typeof swo === "string") return { ok: false, error: swo };
-    const problem = iwoMbProblems(p.items.map(lineFacts), p.processes, swo)[0];
+    perSmp = !!swo;
+    const problem = iwoMbProblems(p.items.map(lineFacts(perSmp)), p.processes, swo)[0];
     if (problem) return { ok: false, error: problem.message };
   }
 
@@ -243,7 +255,7 @@ export async function saveIwoMaterialBom(bomId: string | null, payload: IwoMater
     if (error) return { ok: false, error: error.message };
   }
 
-  const childErr = await writeChildren(s, id, p);
+  const childErr = await writeChildren(s, id, p, perSmp);
   if (childErr) return { ok: false, error: childErr };
 
   await writeAudit({

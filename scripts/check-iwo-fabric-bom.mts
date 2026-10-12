@@ -23,7 +23,9 @@ import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase, iwoYarnShades }
 import { dyeingWorkOrderLines } from "../lib/orders/iwo-fabric-bom/dyeing.ts";
 import {
   cellKey,
+  addPlanDia,
   addPlanRow,
+  canAddDia,
   derivePlanRows,
   expandPlanCells,
   familyDias,
@@ -820,7 +822,10 @@ check("§18 plannedColours — the gross buckets", plannedColours(typed), ["WHIT
 // the wiring
 check("§18 a Stage change re-plans the cells", /planCellsForStage\(x\.cells, rank\)/.test(screenSrc), true);
 check("§18 load folds each fabric's lines", /cells: foldPlanCells\(rs[).]/.test(screenSrc), true);
-check("§19 load groups lines per (fabric, SMP) — the SMP is the allocation row's", /`\$\{r\.item_id\}\|\$\{r\.sample_style_id \?\? ""\}`/.test(screenSrc), true);
+// The SMP is each consumption ROW's (client 2026-10-12, reversing a4ecda7):
+// one allocation row per fabric, the SMP folded into its cells.
+check("§19 load groups lines per FABRIC — the SMP is the consumption row's", /groups\.get\(r\.item_id\)/.test(screenSrc), true);
+check("§19 Fabric Allocation carries no SMP No column", /const allocationColumns[\s\S]*?\];/.exec(screenSrc)?.[0].includes("SMP No"), false);
 check("§18 the Save gate refuses an undeclared weight", /staleBlockers\.map/.test(screenSrc), true);
 check("§18 the attribute and the sheet are gone", /plan_by|openBreakup|FabricBreakupSheet/.test(screenSrc), false);
 
@@ -862,6 +867,53 @@ check("§18 the attribute and the sheet are gone", /plan_by|openBreakup|FabricBr
     [[S1, null]],
   );
   check("§19 the screen passes the SWO's styles to the rules", /fabricStageRank,\s*swoStyleIds,/.test(screenSrc), true);
+}
+
+// §21 "+ ADD DIA" (client 2026-10-12): a colour cut at two dias is a head row
+// and a dia sub-row, never the colour picked twice. The sub-row carries the
+// head's SMP / Colour / Print, follows the head when it is re-picked, and is
+// still its own stored line — so the rules, the engine and Grouping see the
+// same grain as before.
+{
+  const S1 = "style-1";
+  const S2 = "style-2";
+  const navy: PlanCells = {
+    a: { color_name: "NAVY", finish_dia: "30", print_name: "", req_kgs: "2.5", sample_style_id: S1 },
+    b: { color_name: "GREY", finish_dia: "28", print_name: "", req_kgs: "1.2", sample_style_id: S2 },
+  };
+  const ax: PlanAxes = { rank: 1, colours: ["NAVY", "GREY"], dias: ["24", "28", "30"], prints: [], samples: [S1, S2] };
+  const withDia = addPlanDia(navy, "a");
+  check(
+    "§21 the new dia lands straight under its head, carrying SMP + Colour, dia and weight blank",
+    Object.values(withDia).map((c) => [c.sample_style_id, c.color_name, c.finish_dia, c.req_kgs, !!c.sub]),
+    [[S1, "NAVY", "30", "2.5", false], [S1, "NAVY", "", "", true], [S2, "GREY", "28", "1.2", false]],
+  );
+  const shown = derivePlanRows(withDia, ax);
+  check("§21 the sub-row reads as a continuation; the run ends on it", shown.map((r) => [r.follows, r.runEnd]), [[false, false], [true, true], [false, true]]);
+  const typed = setPlanCell(withDia, { key: Object.keys(withDia)[1] }, { finish_dia: "24", req_kgs: "0.8" });
+  const repicked = setPlanCell(typed, { key: "a" }, { color_name: "GREY" });
+  check("§21 re-picking the head's Colour carries to its dias, not to the next run", Object.values(repicked).map((c) => c.color_name), ["GREY", "GREY", "GREY"]);
+  check(
+    "§21 a second dia under the run goes after the first one",
+    Object.values(addPlanDia(typed, "a")).map((c) => c.finish_dia),
+    ["30", "24", "", "28"],
+  );
+  check(
+    "§21 each dia is its own stored line",
+    expandPlanCells(typed).map((f) => [f.sample_style_id, f.color_name, f.finish_dia, f.req_kgs]),
+    [[S1, "NAVY", "30", 2.5], [S1, "NAVY", "24", 0.8], [S2, "GREY", "28", 1.2]],
+  );
+  check(
+    "§21 load folds adjacent lines of one SMP + Colour back into a run",
+    Object.values(foldPlanCells(expandPlanCells(typed))).map((c) => !!c.sub),
+    [false, true, false],
+  );
+  check(
+    "§21 removing the head leaves its dia standing as a row of its own",
+    derivePlanRows(removePlanRow(typed, "a"), ax).map((r) => [r.finish_dia, r.follows]),
+    [["24", false], ["28", false]],
+  );
+  check("§21 a bare row offers no Add Dia", canAddDia({ color_name: "", finish_dia: "30", print_name: "", req_kgs: "" }), false);
 }
 
 // §20 THE DYEING WORK ORDER (client decision 2026-10-12): Issue = greige =

@@ -36,14 +36,27 @@ import { attributeHasColour, attributeHasSize, IWO_MB_ATTRIBUTE_LABELS, type Iwo
 /** One item line as these rules read it. Numbers may be NaN (typed text). */
 /** One breakup row as the rules read it (0614). */
 export type IwoMbSliceFacts = {
+  /** 0711 — the SWO sample (SMP) this row is for, on a sample plan. */
+  sample_style_id?: string | null;
   item_color_id: string | null;
   size: string | null;
   planned_qty: number | null;
 };
 
 export type IwoMbLineFacts = {
-  /** 0710 — the SWO sample (SMP) the line is for; see `sampleStyleIds`. */
+  /** 0710 — the SWO sample (SMP) the line was for. Since 0711 the SMP is the
+   *  ROWS' (`per_smp`), so a sample plan's line carries none; kept for a
+   *  caller that still sends it. */
   sample_style_id?: string | null;
+  /**
+   * 0711 (client 2026-10-12) — A SAMPLE PLAN'S LINE IS THE SWO'S CONSOLIDATED
+   * ACCESSORY, and the rows under it are the samples' shares: every row names
+   * its SMP, the line's Planned Qty is their sum, whatever the Attribute.
+   * Under `item` that is one row per SMP; under a colour / size attribute an
+   * SMP may own several rows. Set by the screen AND the action from the SWO —
+   * never trusted from a payload.
+   */
+  per_smp?: boolean;
   category_id: string | null;
   item_id: string | null;
   specification: string | null;
@@ -74,7 +87,7 @@ export type IwoMbProcessFacts = {
 
 /** A breakup row nobody typed on — dropped by the save, never counted. */
 export const isBlankIwoMbSlice = (s: IwoMbSliceFacts): boolean =>
-  !s.item_color_id && !s.size?.trim() && s.planned_qty == null;
+  !s.sample_style_id && !s.item_color_id && !s.size?.trim() && s.planned_qty == null;
 
 /** The rows that count — `slices` minus the blanks (0614). */
 export const keptIwoMbSlices = <T extends IwoMbSliceFacts>(rows: readonly T[] | undefined): T[] =>
@@ -90,9 +103,13 @@ export const keptIwoMbSlices = <T extends IwoMbSliceFacts>(rows: readonly T[] | 
  * row carries a quantity, so "enter the Planned Qty" still fires rather than a
  * 0 reading as an answer.
  */
+/** Does the line's quantity live in the rows under it — a split attribute
+ *  (0614), or a sample plan's per-SMP rows (0711)? */
+export const hasIwoMbRows = (l: Pick<IwoMbLineFacts, "attribute" | "per_smp">): boolean =>
+  (l.attribute ?? "item") !== "item" || !!l.per_smp;
+
 export function plannedQtyOf(l: IwoMbLineFacts): number | null {
-  const attribute = l.attribute ?? "item";
-  if (attribute === "item") return l.planned_qty;
+  if (!hasIwoMbRows(l)) return l.planned_qty;
   const rows = keptIwoMbSlices(l.slices).filter((s) => s.planned_qty != null);
   if (rows.length === 0) return null;
   return Number(rows.reduce((a, s) => a + (s.planned_qty as number), 0).toFixed(4));
@@ -150,16 +167,12 @@ export function iwoMbProblems(
     if (isBlankIwoMbLine(l)) return;
     kept++;
     const at = `Line ${i + 1}`;
-    if (sampleStyleIds) {
-      if (!l.sample_style_id) out.push({ section: "items", message: `${at}: choose the SMP No — every accessory on a sample work order is for one sample.` });
-      else if (!sampleStyleIds.has(l.sample_style_id)) {
-        out.push({ section: "items", message: `${at}: the SMP No picked is not batched in this SWO — pick one of its samples.` });
-      }
-    }
     if (!l.item_id) out.push({ section: "items", message: `${at}: choose the material.` });
     if (!l.consumption_uom_id) out.push({ section: "items", message: `${at}: choose the Cons. Uom (the unit Planned Qty is in).` });
     const attribute = l.attribute ?? "item";
-    if (attribute === "item") {
+    // On an SWO's plan the SMP rows are owed even if a payload says otherwise.
+    const perSmp = !!sampleStyleIds || !!l.per_smp;
+    if (!hasIwoMbRows({ attribute, per_smp: perSmp })) {
       if (l.planned_qty == null) out.push({ section: "items", message: `${at}: enter the Planned Qty.` });
       else if (!(l.planned_qty > 0)) out.push({ section: "items", message: `${at}: Planned Qty must be a number more than 0.` });
     } else {
@@ -178,20 +191,34 @@ export function iwoMbProblems(
          not starred, not held and not refused. A blank colour is therefore
          also outside the duplicate test: two pending rows may be two colours
          not yet fixed, and refusing them would force a guess. */
-      const label = IWO_MB_ATTRIBUTE_LABELS[attribute];
+      const label = perSmp ? "SMP" : IWO_MB_ATTRIBUTE_LABELS[attribute];
       const rows = keptIwoMbSlices(l.slices);
       if (rows.length === 0) {
-        out.push({ section: "items", message: `${at}: ${label} — add at least one row under the line, with its Planned Qty.` });
+        out.push({
+          section: "items",
+          message: perSmp
+            ? `${at}: add a row under the line for each sample that uses it — its SMP No and Planned Qty.`
+            : `${at}: ${label} — add at least one row under the line, with its Planned Qty.`,
+        });
       }
       const seen = new Set<string>();
       rows.forEach((s, j) => {
         const row = `${at}, ${label} row ${j + 1}`;
+        /* EVERY ROW NAMES ITS SAMPLE (0711) — the Fabric Plan's rule, one
+           level down: the line is the SWO's, the row is the SMP's. */
+        if (perSmp) {
+          if (!s.sample_style_id) out.push({ section: "items", message: `${row}: choose the SMP No — every quantity on a sample work order is for one sample.` });
+          else if (sampleStyleIds && !sampleStyleIds.has(s.sample_style_id)) {
+            out.push({ section: "items", message: `${row}: the SMP No picked is not batched in this SWO — pick one of its samples.` });
+          }
+        }
         if (attributeHasSize(attribute) && !s.size?.trim()) out.push({ section: "items", message: `${row}: enter the Size.` });
         if (s.planned_qty == null) out.push({ section: "items", message: `${row}: enter the Planned Qty.` });
         else if (!(s.planned_qty > 0)) out.push({ section: "items", message: `${row}: Planned Qty must be a number more than 0.` });
-        const key = `${attributeHasColour(attribute) ? (s.item_color_id ?? "") : ""}|${attributeHasSize(attribute) ? (s.size ?? "").trim().toUpperCase() : ""}`;
+        const key = `${perSmp ? (s.sample_style_id ?? "") : ""}|${attributeHasColour(attribute) ? (s.item_color_id ?? "") : ""}|${attributeHasSize(attribute) ? (s.size ?? "").trim().toUpperCase() : ""}`;
         if ((attributeHasColour(attribute) ? s.item_color_id : true) && (attributeHasSize(attribute) ? s.size?.trim() : true)) {
-          if (seen.has(key)) out.push({ section: "items", message: `${row}: this ${label.toLowerCase().replace(/ wise$/, "")} is already on another row — merge them.` });
+          const what = perSmp ? (attribute === "item" ? "sample" : "sample and " + IWO_MB_ATTRIBUTE_LABELS[attribute].toLowerCase().replace(/ wise$/, "")) : label.toLowerCase().replace(/ wise$/, "");
+          if (seen.has(key)) out.push({ section: "items", message: `${row}: this ${what} is already on another row — merge them.` });
           seen.add(key);
         }
       });
@@ -243,7 +270,7 @@ export function iwoMbQuantity<C extends PackRow>(
   // The line's own figure, or Σ its breakup (0614) — one reader, `plannedQtyOf`.
   const planned = plannedQtyOf(line);
   if (planned == null || !(planned > 0)) {
-    return { refused: (line.attribute ?? "item") === "item" ? "Enter the Planned Qty" : "Enter the Planned Qty on each row under the line" };
+    return { refused: hasIwoMbRows(line) ? "Enter the Planned Qty on each row under the line" : "Enter the Planned Qty" };
   }
 
   const lossRows: ProcessLossRow[] = processLoss.map((p, i) => ({

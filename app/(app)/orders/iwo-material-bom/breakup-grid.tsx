@@ -52,13 +52,28 @@
  *
  * WIDTHS (check:grid-budget): code 144 (Item Color) + code 144 (Size) + range
  * 112 (Planned Qty) = 400, and 472 with the grid's chrome — a `tableAlways`
- * grid, which is safe because it is a third of the narrowest pane. The grid's
+ * grid, which is safe because it is a third of the narrowest pane. A SAMPLE
+ * plan adds term 176 (SMP No) first and hug 88 (Add) last = 664 + 72 = 736,
+ * still well inside it.
+ *
+ * ON A SAMPLE PLAN THESE ROWS ARE THE SAMPLES' SHARES (0711, client
+ * 2026-10-12 — the Fabric Plan's Allocation / Consumption split applied to
+ * accessories). The line is the SWO's consolidated accessory; every row here
+ * names its SMP, and the rows are there under EVERY attribute — under Item
+ * wise it is one row per sample. A sample needing several colours or sizes
+ * of the accessory gets them as SUB-ROWS under its SMP ("+ Colour" /
+ * "+ Size", the Fabric Plan's "+ Add Dia"): the SMP is shown once, on the
+ * head row, and never re-picked. `sub` is a hint, not a link — a row reads as
+ * a continuation only while its SMP still equals the row above, so removing
+ * the head can never strand one under the wrong sample. The grid's
  * own card is the ONE frame; the caption lives in its `label` row (see the
  * note at the render).
  */
 
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -74,10 +89,20 @@ import {
 import { isBlankIwoMbSlice } from "@/lib/orders/iwo-material-bom/rules";
 
 /** One breakup row as the grid edits it — Planned Qty held as the TEXT typed. */
-export type BreakupRow = { key: string; item_color_id: string | null; size: string; planned_qty: string };
+export type BreakupRow = {
+  key: string;
+  /** 0711 — the SWO sample (SMP) this row is for; "" = none / production. */
+  sample_style_id: string;
+  item_color_id: string | null;
+  size: string;
+  planned_qty: string;
+  /** A further colour / size of the SMP on the row above (sample plan only). */
+  sub?: boolean;
+};
 
 export const blankBreakupRow = (newKey: () => string): BreakupRow => ({
   key: newKey(),
+  sample_style_id: "",
   item_color_id: null,
   size: "",
   planned_qty: "",
@@ -99,6 +124,7 @@ export function BreakupGrid({
   newKey,
   open,
   onToggle,
+  samples,
 }: {
   attribute: IwoMbAttribute;
   /** The line's Cons. Uom, named beside the total. */
@@ -114,24 +140,66 @@ export function BreakupGrid({
   newKey: () => string;
   open: boolean;
   onToggle: () => void;
+  /** A SAMPLE plan (0711): the SWO's samples, what SMP No offers — `null`
+   *  while no SWO is picked (the column shows, greyed, saying why). Absent on
+   *  a production IWO: no SMP column at all. */
+  samples?: { id: string; label: string }[] | null;
 }) {
+  const perSmp = samples !== undefined;
   const patch = (key: string, p: Partial<BreakupRow>) => onChange(rows.map((r) => (r.key === key ? { ...r, ...p } : r)));
   const withColour = attributeHasColour(attribute);
   const withSize = attributeHasSize(attribute);
-  const label = IWO_MB_ATTRIBUTE_LABELS[attribute];
+  const attrLabel = IWO_MB_ATTRIBUTE_LABELS[attribute];
+  const label = perSmp ? (attribute === "item" ? "Samples" : `Samples · ${attrLabel}`) : attrLabel;
+
+  /** A sub-row of the SMP above (the header note). */
+  const follows = (i: number) => perSmp && i > 0 && !!rows[i]?.sub && rows[i].sample_style_id === rows[i - 1].sample_style_id;
+  const runEnd = (i: number) => !follows(i + 1);
+  /** The head row and the sub-rows straight after it. */
+  const runOf = (i: number) => {
+    const out = [i];
+    for (let j = i + 1; j < rows.length && follows(j); j++) out.push(j);
+    return out;
+  };
+  /** The head of the run a row belongs to — where its SMP lives. */
+  const headOf = (i: number) => {
+    let h = i;
+    while (h > 0 && follows(h)) h--;
+    return h;
+  };
+  /** Re-picking a head's SMP carries to its sub-rows, so the run never splits. */
+  const setSmp = (i: number, id: string) => {
+    const run = new Set(runOf(i).map((j) => rows[j].key));
+    onChange(rows.map((r) => (run.has(r.key) ? { ...r, sample_style_id: id } : r)));
+  };
+  /** "+ Colour" / "+ Size" — a new row under the SMP, after its last one. */
+  const addUnder = (head: number) => {
+    const run = runOf(head);
+    const at = run[run.length - 1] + 1;
+    const added: BreakupRow = { ...blankBreakupRow(newKey), sample_style_id: rows[head].sample_style_id, sub: true };
+    onChange([...rows.slice(0, at), added, ...rows.slice(at)]);
+  };
+  const subMark = <span aria-hidden className="pl-2 text-muted-foreground">↳</span>;
   const qty = (n: number) => `${fmtNumber(n)}${uomCode ? ` ${uomCode}` : ""}`;
 
   /* THE SAME TEST THE SAVE RUNS, read here for the caption: which row still
      owes a value. A row nobody typed on owes nothing (the save drops it) —
      unless it is the ONLY row, since a split line with no kept row is a line
      with no Planned Qty. */
-  const kept = rows.filter((r) => !isBlankIwoMbSlice({ item_color_id: r.item_color_id, size: r.size, planned_qty: num(r.planned_qty) }));
-  const owing = kept.findIndex((r) => (withSize && !r.size.trim()) || num(r.planned_qty) == null);
+  const kept = rows.filter(
+    (r) =>
+      !isBlankIwoMbSlice({ sample_style_id: r.sample_style_id || null, item_color_id: r.item_color_id, size: r.size, planned_qty: num(r.planned_qty) }),
+  );
+  const owes = (r: BreakupRow) =>
+    perSmp && !r.sample_style_id ? "its SMP No" : withSize && !r.size.trim() ? "a Size" : num(r.planned_qty) == null ? "its Planned Qty" : null;
+  const owing = kept.findIndex((r) => owes(r) != null);
   const owed =
     kept.length === 0
-      ? "add a row with its Planned Qty"
+      ? perSmp
+        ? "add a row for each sample, with its Planned Qty"
+        : "add a row with its Planned Qty"
       : owing >= 0
-        ? `row ${rows.indexOf(kept[owing]) + 1} needs ${withSize && !kept[owing].size.trim() ? "a Size" : "its Planned Qty"}`
+        ? `row ${rows.indexOf(kept[owing]) + 1} needs ${owes(kept[owing])}`
         : null;
   const total = kept.reduce((a, r) => a + (num(r.planned_qty) ?? 0), 0);
 
@@ -151,6 +219,39 @@ export function BreakupGrid({
     id.startsWith("text:") ? id.slice(5) : (sizes.find((s) => s.id === id)?.name ?? "");
 
   const breakupColumns: ChildGridColumn<BreakupRow>[] = [
+    ...(perSmp
+      ? [
+          {
+            header: "SMP No",
+            required: !!samples,
+            width: FIELD_WIDTH_CSS.term,
+            cell: (r: BreakupRow, i: number) => {
+              if (follows(i)) return subMark;
+              const held = r.sample_style_id && !samples?.some((x) => x.id === r.sample_style_id) ? r.sample_style_id : "";
+              return (
+                <Select
+                  compact
+                  className={cn("h-8", held && "text-danger")}
+                  aria-label="SMP No"
+                  required={!!samples}
+                  disabled={!samples}
+                  title={samples ? undefined : "Pick the SWO first — its samples are listed here."}
+                  value={r.sample_style_id}
+                  onChange={(e) => setSmp(i, e.target.value)}
+                >
+                  <option value="">{samples ? "" : "Pick the SWO first"}</option>
+                  {(samples ?? []).map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.label}
+                    </option>
+                  ))}
+                  {held && <option value={held}>(not in this SWO)</option>}
+                </Select>
+              );
+            },
+          },
+        ]
+      : []),
     ...(withColour
       ? [
           {
@@ -210,6 +311,41 @@ export function BreakupGrid({
         />
       ),
     },
+    /* "+ COLOUR" / "+ SIZE" — on the LAST row of an SMP's run, so the new row
+       lands under the ones it joins. Only where an SMP can own several rows
+       (a colour / size attribute); under Item wise one row per sample is the
+       whole answer. `data-row-open` puts it on the row's axis for Tab, Enter
+       and the arrows, as the caption is. */
+    ...(perSmp && attribute !== "item"
+      ? [
+          {
+            header: "Add",
+            // hug, not num: "+ Colour" wraps to two lines in 72px.
+            width: FIELD_WIDTH_CSS.hug,
+            cell: (_r: BreakupRow, i: number) => {
+              if (!runEnd(i)) return null;
+              const head = headOf(i);
+              const what = withColour && !withSize ? "Colour" : withSize && !withColour ? "Size" : "Row";
+              const reason = rows[head].sample_style_id ? null : "Pick the SMP No first";
+              return (
+                <span title={reason ?? undefined} className="inline-block">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-row-open
+                    disabled={!!reason}
+                    aria-label={reason ? `Add ${what} — ${reason}` : `Add another ${what.toLowerCase()} for this sample`}
+                    onClick={() => addUnder(head)}
+                  >
+                    + {what}
+                  </Button>
+                </span>
+              );
+            },
+          },
+        ]
+      : []),
   ];
 
   /* THE CAPTION IS THE FOLD, and it is a `data-row-open` control so Tab,
@@ -242,7 +378,7 @@ export function BreakupGrid({
       </span>
     </button>
   );
-  const warning = owed ? <span className="text-[11px] font-normal normal-case tracking-normal text-warning">{owed}</span> : null;
+  const warning = owed ? <span className="pl-3 text-[11px] font-normal normal-case tracking-normal text-warning">{owed}</span> : null;
 
   /* ONE FRAME — THE GRID'S OWN (user 2026-09-22, screenshot 3015: "excess
      border"). The first cut wrapped caption, grid and "+ Add row" in a second

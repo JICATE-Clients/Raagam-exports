@@ -87,7 +87,15 @@ export async function listIwoMaterialBomTasks(opts: { sampleOnly?: boolean } = {
     };
   });
   const swoByIwo = await accessoriesSwosOf(s, rows.map((r) => r.id));
-  return withCreators(rows.map((r) => ({ ...r, swo: swoByIwo.get(r.id) ?? null })));
+  const tasks = rows.map((r) => ({ ...r, swo: swoByIwo.get(r.id) ?? null }));
+  /* SAMPLE ▸ ACCESSORIES PLAN LISTS BY SWO, as the Fabric Plan does (user
+     2026-10-12: "creating its own SIW number, but it also needs to fetch the
+     SWO number like the fabric plan"). A sample work order no SWO names was
+     raised by the in-place box before 0709 — it can never be planned against
+     an SWO, and its row could only ever show an SIW number. It stays in the
+     database and on Orders ▸ Internal Work Orders; it is just not a sample
+     plan's row. */
+  return withCreators(opts.sampleOnly ? tasks.filter((t) => t.swo) : tasks);
 }
 
 /** Each work order's SWO, in one read (0709). A failed read THROWS — the

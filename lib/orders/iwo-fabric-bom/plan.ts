@@ -79,6 +79,14 @@ export type PlanCell = {
   /** Sample Fabric Plan (0707): the SWO sample style (SMP line) the row is
    *  for — "" when none. Optional so a production card never has to say it. */
   sample_style_id?: string;
+  /** "+ Add Dia" (client 2026-10-12): this row is a further Finish Dia of the
+   *  row above — same SMP, Colour and Print, shown once on the head row and
+   *  never re-picked here. A HINT, not a link: the row only reads as a
+   *  continuation while its SMP / Colour / Print still equal the row above
+   *  (`derivePlanRows`), so a removal or a Stage merge can never strand one
+   *  under the wrong colour. Not stored — the stored grain is unchanged, and
+   *  `foldPlanCells` re-derives it from adjacent lines on load. */
+  sub?: boolean;
 };
 
 /** The row's SMP, "" when none. */
@@ -86,6 +94,10 @@ const smpOf = (c: PlanCell) => c.sample_style_id ?? "";
 /** The merge key's fifth part — empty without an SMP, so a production card's
  *  merged rows keep the keys they always had. */
 const smpSuffix = (c: PlanCell) => (smpOf(c) ? "\u0000" + smpOf(c) : "");
+/** What a dia sub-row shares with its head — SMP, Colour, Print. */
+const runKey = (c: PlanCell) => [smpOf(c), comboKey(c.color_name), comboKey(c.print_name)].join("\u0000");
+/** Does this run name anything a dia could be added under? */
+const runNamed = (c: PlanCell) => !!(smpOf(c) || c.color_name.trim() || c.print_name.trim());
 
 /** A fabric's rows, by row key. Empty = the card shows its one seeded blank
  *  row, which becomes a real row on the first pick or keystroke. */
@@ -108,7 +120,15 @@ export type PlanAxes = {
 
 /** One row of the card. `declared` false = a row holding a colour / dia /
  *  print the panels no longer name; shown, tagged, refused on Save. */
-export type PlanDisplayRow = PlanCell & { key: CellKey; declared: boolean };
+export type PlanDisplayRow = PlanCell & {
+  key: CellKey;
+  declared: boolean;
+  /** A further dia of the row above (`sub` AND the same SMP / Colour / Print):
+   *  its SMP, Colour and Print are the head's, shown once, not re-picked. */
+  follows: boolean;
+  /** The last row of its SMP / Colour / Print run — where "+ Add Dia" sits. */
+  runEnd: boolean;
+};
 
 /** One stored line's plan fields, as `lines.ts` reads them. */
 export type PlanFacts = {
@@ -180,8 +200,30 @@ const BLANK_CELL: PlanCell = { color_name: "", finish_dia: "", print_name: "", r
  */
 export function derivePlanRows(cells: PlanCells, axes: PlanAxes): PlanDisplayRow[] {
   const entries = Object.entries(cells);
-  if (entries.length === 0) return [{ ...BLANK_CELL, key: SEED_ROW_KEY, declared: true }];
-  return entries.map(([key, c]) => ({ ...c, key, declared: isDeclared(c, axes) }));
+  if (entries.length === 0) return [{ ...BLANK_CELL, key: SEED_ROW_KEY, declared: true, follows: false, runEnd: true }];
+  const follows = entries.map(([, c], i) => i > 0 && !!c.sub && runKey(c) === runKey(entries[i - 1][1]));
+  return entries.map(([key, c], i) => ({
+    ...c,
+    key,
+    declared: isDeclared(c, axes),
+    follows: follows[i],
+    runEnd: !follows[i + 1],
+  }));
+}
+
+/** The rows a head row's SMP / Colour / Print stand for — itself and the dia
+ *  sub-rows straight after it. */
+function runOf(cells: PlanCells, key: CellKey): CellKey[] {
+  const keys = Object.keys(cells);
+  const at = keys.indexOf(key);
+  if (at < 0) return [key];
+  const out = [key];
+  for (let i = at + 1; i < keys.length; i++) {
+    const c = cells[keys[i]];
+    if (!c.sub || runKey(c) !== runKey(cells[keys[i - 1]])) break;
+    out.push(keys[i]);
+  }
+  return out;
 }
 
 /** The card's rows the panels no longer name — the message, and the blocker. */
@@ -195,8 +237,53 @@ export const stalePlanRows = (cells: PlanCells, axes: PlanAxes): PlanDisplayRow[
  */
 export function setPlanCell(cells: PlanCells, row: Pick<PlanDisplayRow, "key">, patch: Partial<PlanCell>): PlanCells {
   const held = cells[row.key] ?? BLANK_CELL;
-  return { ...cells, [row.key]: { ...held, ...patch } };
+  const next: Record<CellKey, PlanCell> = { ...cells, [row.key]: { ...held, ...patch } };
+  /* A HEAD'S SMP / COLOUR / PRINT ARE ITS DIA SUB-ROWS' TOO — re-picked once
+     on the head, carried to every dia under it, so the run never splits. */
+  const shared: Partial<PlanCell> = {};
+  if ("sample_style_id" in patch) shared.sample_style_id = patch.sample_style_id;
+  if ("color_name" in patch) shared.color_name = patch.color_name;
+  if ("print_name" in patch) shared.print_name = patch.print_name;
+  if (Object.keys(shared).length && row.key in cells) {
+    for (const k of runOf(cells, row.key).slice(1)) next[k] = { ...next[k], ...shared };
+  }
+  return next;
 }
+
+/**
+ * "+ Add Dia" (client 2026-10-12: Navy Blue needing both 30" Open Width and
+ * 24" Tubular, without re-selecting Navy Blue) — a new row carrying the run's
+ * SMP, Colour and Print, its Finish Dia and weight blank, placed straight after
+ * the run's last dia. Still one stored line per (colour, dia, print, SMP), so
+ * every reader downstream — rules, yarn engine, dyeing order, Grouping's
+ * cutting basis — is untouched.
+ */
+export function addPlanDia(cells: PlanCells, key: CellKey): PlanCells {
+  const base: PlanCells = Object.keys(cells).length ? cells : { [SEED_ROW_KEY]: BLANK_CELL };
+  const head = base[key];
+  if (!head) return base;
+  const run = runOf(base, key);
+  const last = run[run.length - 1];
+  let n = Object.keys(base).length;
+  while (`r${n}` in base) n++;
+  const added: PlanCell = {
+    ...BLANK_CELL,
+    color_name: head.color_name,
+    print_name: head.print_name,
+    ...(smpOf(head) ? { sample_style_id: smpOf(head) } : {}),
+    sub: true,
+  };
+  const out: Record<CellKey, PlanCell> = {};
+  for (const [k, c] of Object.entries(base)) {
+    out[k] = c;
+    if (k === last) out[`r${n}`] = added;
+  }
+  return out;
+}
+
+/** Can "+ Add Dia" be offered under this row — does its run name an SMP, a
+ *  Colour or a Print to carry? A bare row has nothing; that is "+ Add row". */
+export const canAddDia = (c: PlanCell): boolean => runNamed(c);
 
 /** "+ Add" — a new blank row, AFTER the seeded one if the card was empty (the
  *  operator may already be standing in it). Keys `r1`, `r2`, … never reused
@@ -263,7 +350,7 @@ export function foldPlanCells(lines: readonly StoredPlanLine[]): PlanCells {
   let i = 0;
   for (const r of lines) {
     if (r.req_kgs == null) continue;
-    out[`s${i++}`] = {
+    const cell: PlanCell = {
       color_name: r.color_name ?? "",
       finish_dia: r.finish_dia ?? "",
       print_name: r.print_name ?? "",
@@ -271,6 +358,13 @@ export function foldPlanCells(lines: readonly StoredPlanLine[]): PlanCells {
       // Only an SWO's line carries the key (0707) — a production fold is unchanged.
       ...(r.sample_style_id ? { sample_style_id: r.sample_style_id } : {}),
     };
+    /* A line straight after one of the same SMP / Colour / Print is a further
+       dia of it — the save writes a card's rows in order (`sno`), so a run
+       comes back as it was typed. Only a NAMED run folds: two greige lines
+       holding nothing but a dia stay two rows. */
+    const prev = i > 0 ? out[`s${i - 1}`] : undefined;
+    if (prev && runNamed(cell) && runKey(prev) === runKey(cell)) cell.sub = true;
+    out[`s${i++}`] = cell;
   }
   return out;
 }
