@@ -20,6 +20,7 @@ import {
   type FabricComposition,
 } from "../lib/orders/fabric-bom/yarn-process.ts";
 import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase, iwoYarnShades } from "../lib/orders/iwo-fabric-bom/yarn.ts";
+import { dyeingWorkOrderLines } from "../lib/orders/iwo-fabric-bom/dyeing.ts";
 import {
   cellKey,
   addPlanRow,
@@ -818,7 +819,8 @@ check("§18 plannedColours — the gross buckets", plannedColours(typed), ["WHIT
 
 // the wiring
 check("§18 a Stage change re-plans the cells", /planCellsForStage\(x\.cells, rank\)/.test(screenSrc), true);
-check("§18 load folds each fabric's lines", /cells: foldPlanCells\(rs\)/.test(screenSrc), true);
+check("§18 load folds each fabric's lines", /cells: foldPlanCells\(rs[).]/.test(screenSrc), true);
+check("§19 load groups lines per (fabric, SMP) — the SMP is the allocation row's", /`\$\{r\.item_id\}\|\$\{r\.sample_style_id \?\? ""\}`/.test(screenSrc), true);
 check("§18 the Save gate refuses an undeclared weight", /staleBlockers\.map/.test(screenSrc), true);
 check("§18 the attribute and the sheet are gone", /plan_by|openBreakup|FabricBreakupSheet/.test(screenSrc), false);
 
@@ -860,6 +862,46 @@ check("§18 the attribute and the sheet are gone", /plan_by|openBreakup|FabricBr
     [[S1, null]],
   );
   check("§19 the screen passes the SWO's styles to the rules", /fabricStageRank,\s*swoStyleIds,/.test(screenSrc), true);
+}
+
+// §20 THE DYEING WORK ORDER (client decision 2026-10-12): Issue = greige =
+// finished ÷ (1 − dyeing loss), Return = finished. Only coloured lines of a
+// fabric whose route dyes; only the DYEING steps' loss; per colour through
+// the engine's own `lossForCombo`; one line per (fabric, colour) across SMPs.
+{
+  const DYE = "p-dye";
+  const KNIT = "p-knit";
+  const isDye = (id: string) => id === DYE;
+  const route = [
+    { item_id: "f1", process_id: KNIT, loss_pct: 5 },
+    { item_id: "f1", process_id: DYE, loss_pct: 10, color_losses: { navy: 12.5 } },
+  ];
+  const got = dyeingWorkOrderLines(
+    [
+      { item_id: "f1", color_name: "WHITE", req_kgs: 9 },
+      { item_id: "f1", color_name: "NAVY", req_kgs: 3.5 },
+      { item_id: "f1", color_name: "navy ", req_kgs: 3.5 },
+      { item_id: "f1", color_name: null, req_kgs: 20 },
+      { item_id: "f2", color_name: "RED", req_kgs: 4 },
+    ],
+    route,
+    isDye,
+  );
+  check(
+    "§20 greige = finished ÷ (1 − DYEING loss): knitting's 5% is not in it; NAVY sums across lines at its colour-wise 12.5%",
+    got.map((l) => [l.color_name, l.finished_kg, l.loss_pct, l.greige_kg]),
+    [["WHITE", 9, 10, 10], ["NAVY", 7, 12.5, 8]],
+  );
+  check("§20 a greige line and a fabric whose route never dyes are not sent", got.map((l) => l.item_id), ["f1", "f1"]);
+  check(
+    "§20 two dyeing steps compound, and the greige rounds UP to the gram",
+    dyeingWorkOrderLines(
+      [{ item_id: "f1", color_name: "BLACK", req_kgs: 2.1 }],
+      [{ item_id: "f1", process_id: DYE, loss_pct: 3 }, { item_id: "f1", process_id: DYE, loss_pct: 2 }],
+      isDye,
+    ).map((l) => [l.loss_pct, l.greige_kg]),
+    [[4.94, 2.21]],
+  );
 }
 
 if (failed) {

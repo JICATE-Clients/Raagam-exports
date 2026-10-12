@@ -57,6 +57,9 @@ export type IwoFabricBomTask = {
    *  number stands where the RE No stands on a production plan, and its
    *  samples are what Fabric Consumption's SMP No offers. Null otherwise. */
   swo: IwoSwo | null;
+  /** Dyeing work orders raised from this plan (0708), cancelled ones included
+   *  so the list says what happened to them. */
+  dyeing_orders: { id: string; code: string | null; status: string }[];
 };
 
 /** One SWO sample line as the plan offers it. */
@@ -69,6 +72,9 @@ export type IwoSwoSample = {
   style_name: string;
   /** Net kilos the SWO batched for it (its costing), for the planner to read. */
   kg: number;
+  /** The fabric structures (categories) it was costed in — Fabric Allocation
+   *  fills an empty Structure when there is exactly one. */
+  structure_ids: string[];
 };
 export type IwoSwo = { id: string; code: string; samples: IwoSwoSample[] };
 
@@ -83,6 +89,8 @@ export async function listIwoFabricBomTasks(opts: { sampleOnly?: boolean } = {})
     .from("internal_work_orders")
     .select(
       "id, code, iwo_date, iwo_for, reference_no, deli_date, remarks, status, created_by, created_at, " +
+        // 0708 — the dyeing orders raised from this plan. One FK (iwo_id), so the embed is unambiguous.
+        "process_orders(id, code, status, process_type, created_at), " +
         "iwo_fabric_boms(*, iwo_fabric_bom_palette(*), iwo_fabric_bom_dias(*), iwo_fabric_bom_lines(*), " +
         "iwo_fabric_bom_processes(*), iwo_fabric_bom_yarns(*, iwo_fabric_bom_yarn_stages(*), iwo_fabric_bom_yarn_shades(*)), " +
         // Details ▸ Yarn Dyed Details (0599). Each yd table has one FK to its
@@ -96,15 +104,20 @@ export async function listIwoFabricBomTasks(opts: { sampleOnly?: boolean } = {})
     .order("created_at", { ascending: true });
   if (error) throw new Error(`IWO Fabric Plan: ${error.message}`);
 
-  type Raw = Omit<IwoFabricBomTask, "bom"> & {
+  type Raw = Omit<IwoFabricBomTask, "bom" | "swo" | "dyeing_orders"> & {
     iwo_fabric_boms: IwoFabricBom | IwoFabricBom[] | null;
+    process_orders: { id: string; code: string | null; status: string; process_type: string; created_at: string }[] | null;
   };
-  const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_fabric_boms, ...r }) => {
+  const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_fabric_boms, process_orders, ...r }) => {
     // A one-to-one embed can arrive as an object or a one-element array
     // depending on how PostgREST resolves it; survive both.
     const b = Array.isArray(iwo_fabric_boms) ? (iwo_fabric_boms[0] ?? null) : iwo_fabric_boms;
     return {
       ...r,
+      dyeing_orders: (process_orders ?? [])
+        .filter((p) => p.process_type === "dyeing")
+        .sort((x, y) => x.created_at.localeCompare(y.created_at))
+        .map(({ id, code, status }) => ({ id, code, status })),
       bom: b
         ? {
             ...b,
@@ -157,7 +170,7 @@ async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
     .from("sample_product_groups")
     .select(
       "id, group_code, iwo_id, " +
-        "items:sample_group_items(style_id, calculated_weight_kg, created_at, " +
+        "items:sample_group_items(style_id, fabric_structure_id, calculated_weight_kg, created_at, " +
         "style:styles!style_id(sample_no, name), opp:opportunities!sample_entry_id(code))",
     )
     .in("iwo_id", iwoIds);
@@ -171,6 +184,7 @@ async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
     items:
       | {
           style_id: string;
+          fabric_structure_id: string | null;
           calculated_weight_kg: number | string | null;
           created_at: string;
           style: One<{ sample_no: string | null; name: string | null }>;
@@ -186,6 +200,7 @@ async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
       const held = seen.get(it.style_id);
       if (held) {
         held.kg = Math.round((held.kg + kg) * 1000) / 1000;
+        if (it.fabric_structure_id && !held.structure_ids.includes(it.fabric_structure_id)) held.structure_ids.push(it.fabric_structure_id);
         continue;
       }
       const st = one(it.style);
@@ -195,6 +210,7 @@ async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
         sample_no: st?.sample_no ?? null,
         style_name: st?.name ?? "",
         kg,
+        structure_ids: it.fabric_structure_id ? [it.fabric_structure_id] : [],
       });
     }
     out.set(g.iwo_id, { id: g.id, code: g.group_code, samples: [...seen.values()] });

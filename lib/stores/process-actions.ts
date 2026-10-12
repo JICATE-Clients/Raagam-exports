@@ -328,12 +328,15 @@ export async function postProcessReceipt(receiptId: string): Promise<ActionResul
   // derive process order status
   const { data: allLines } = await supabase
     .from("process_order_lines")
-    .select("sent_qty, received_qty")
+    .select("sent_qty, received_qty, return_qty")
     .eq("process_order_id", procOrderId);
 
   if (allLines && allLines.length > 0) {
-    const typedLines = allLines as { sent_qty: number; received_qty: number }[];
-    const allReceived = typedLines.every((l) => l.received_qty >= l.sent_qty);
+    const typedLines = allLines as { sent_qty: number; received_qty: number; return_qty: number | null }[];
+    // A line that states what comes back (0708 — a dyeing line: greige out,
+    // FINISHED back) is received at its return weight; the process loss
+    // would otherwise keep it "partially received" for ever.
+    const allReceived = typedLines.every((l) => Number(l.received_qty) >= Number(l.return_qty ?? l.sent_qty));
     const anyReceived = typedLines.some((l) => l.received_qty > 0);
     const newStatus = allReceived ? "received" : anyReceived ? "partially_received" : "in_process";
     await supabase

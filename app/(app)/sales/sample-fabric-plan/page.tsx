@@ -2,6 +2,7 @@ import { requirePermission, can } from "@/lib/auth/server";
 import { getIwoFabricBomFormData, listIwoFabricBomTasks } from "@/lib/orders/iwo-fabric-bom/service";
 import { IwoFabricBomScreen } from "@/app/(app)/orders/iwo-fabric-bom/iwo-fabric-bom-screen";
 import { listSwosAwaitingIw } from "@/lib/sales/sample-grouping/service";
+import { getVendorsForPicker } from "@/lib/purchase/po-service";
 
 /**
  * Sample ▸ Fabric Plan (user 2026-10-09) — the IWO Fabric Plan, same screen and
@@ -17,15 +18,22 @@ import { listSwosAwaitingIw } from "@/lib/sales/sample-grouping/service";
 export default async function SampleFabricPlanPage() {
   await requirePermission("sales", "view");
 
-  const [tasks, data, swos, canCreate, canEdit, canDelete] = await Promise.all([
+  const [tasks, data, swos, dyeVendors, canRaiseDyeing, canCreate, canEdit, canDelete] = await Promise.all([
     listIwoFabricBomTasks({ sampleOnly: true }),
     getIwoFabricBomFormData(),
     // The SWOs a new work order is raised against (0707) — the plan's header IS the SWO.
     listSwosAwaitingIw(),
+    // The dyeing work order (0708) is a Stores process order: its processors, and its Create gate.
+    getVendorsForPicker(),
+    can("stores", "create"),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
   ]);
 
-  return <IwoFabricBomScreen sample swos={swos} tasks={tasks} data={data} perms={{ canCreate, canEdit, canDelete }} />;
+  return <IwoFabricBomScreen
+      sample
+      swos={swos}
+      dyeing={{ vendors: dyeVendors.map((v) => ({ id: v.id, name: v.name })), canRaise: canRaiseDyeing }}
+      tasks={tasks} data={data} perms={{ canCreate, canEdit, canDelete }} />;
 }

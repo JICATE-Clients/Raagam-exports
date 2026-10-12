@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -93,18 +92,9 @@ export function SampleWorkOrderCreate({
     });
   }
 
-  // NOTHING TO RAISE AGAINST — said with the way to get one.
-  if (swos && swos.length === 0) {
-    return (
-      <div className="mt-3 rounded-control border border-border p-3 text-sm text-muted-foreground">
-        No approved SWO is waiting for its work order. Batch the samples and approve the SWO on{" "}
-        <Link href="/sales/sample-grouping?view=detailed" className="text-primary underline underline-offset-2">
-          Sample ▸ Grouping
-        </Link>
-        , then raise its work order here.
-      </div>
-    );
-  }
+  // NOTHING TO RAISE AGAINST — the box is simply absent (user 2026-10-12:
+  // the "No approved SWO is waiting…" notice was removed on request).
+  if (swos && swos.length === 0) return null;
 
   return (
     <div className="mt-3 rounded-control border border-border p-3">
