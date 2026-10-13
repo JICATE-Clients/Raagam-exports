@@ -83,6 +83,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import Link from "next/link";
 import { sampleEntryLock } from "@/lib/sales/sample-revisions/actions";
+import { getPdRequest, sendPdRequest } from "@/lib/sales/sample-entry/pd-request-actions";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
 import { isInactive } from "@/lib/masters/inactive";
 import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
@@ -118,6 +119,9 @@ import {
   type SampleHeaderDraft,
   type SampleProblem,
   type StyleDraft,
+  PD_STATUS_LABEL,
+  PD_STATUS_TONE,
+  type PdRequestState,
 } from "@/lib/sales/sample-entry/types";
 import type { SampleEntryFormData } from "@/lib/sales/sample-entry/service";
 import {
@@ -293,6 +297,10 @@ export function SampleEntryScreen({
   /** Why this entry cannot be saved (0716: an approved costing locks the
    *  sample; a Sample Revision opens it) — the database's own sentence. */
   const [lock, setLock] = useState<string | null>(null);
+  /** The latest PD Request to the Sample Department (0719), keyed `forId` so a
+   *  late answer never paints another entry's status. ABOVE the early return
+   *  below (AGENTS.md, hooks above every early return). */
+  const [pd, setPd] = useState<{ forId: string; req: PdRequestState | null } | null>(null);
   const [editCode, setEditCode] = useState<string | null>(null);
   const [header, setHeader] = useState<SampleHeaderDraft>(blankHeader);
   const [styles, setStyles] = useState<StyleDraft[]>([]);
@@ -468,6 +476,7 @@ export function SampleEntryScreen({
   // ---- open -------------------------------------------------------------------
   function openAdd() {
     setLock(null);
+    setPd(null);
     const first = blankStyle();
     setEditId(null);
     setEditCode(null);
@@ -498,7 +507,10 @@ export function SampleEntryScreen({
         toastError(res.error);
         return;
       }
-      setLock(await sampleEntryLock(res.record.id));
+      // One round trip for both: the lock and the PD Request are independent.
+      const [lockMsg, pdReq] = await Promise.all([sampleEntryLock(res.record.id), getPdRequest(res.record.id)]);
+      setLock(lockMsg);
+      setPd({ forId: res.record.id, req: pdReq });
       const seeded = res.record.styles.map(withSeeds);
       const list = seeded.length ? seeded : [blankStyle()];
       setEditId(res.record.id);
@@ -667,6 +679,17 @@ export function SampleEntryScreen({
           <StatusPill tone="info">{`${r.billable_count} billable`}</StatusPill>
         ) : (
           <span className="text-xs text-muted-foreground">Free</span>
+        ),
+    },
+    {
+      // PD REQUEST (0719): where the Sample Department stands on this sample.
+      header: "PD",
+      className: HUG,
+      cell: (r) =>
+        r.pd_status ? (
+          <StatusPill tone={PD_STATUS_TONE[r.pd_status]}>{PD_STATUS_LABEL[r.pd_status]}</StatusPill>
+        ) : (
+          <span className="text-xs text-muted-foreground">Not sent</span>
         ),
     },
     rowActionsColumn((r) => (
@@ -2067,6 +2090,24 @@ export function SampleEntryScreen({
     (x) => !(x.key === "quantities" && !billableStyles.length) && !(x.key === "combos" && header.enquiry_action === "quote"),
   );
 
+  const pdNow = pd && pd.forId === editId ? pd.req : null;
+  const canSendPd =
+    !!editId && !!editCode && !dirty && perms.canEdit && (!pdNow || pdNow.status === "not_acknowledged" || pdNow.status === "cancelled");
+  function sendPd() {
+    if (!editId) return;
+    const id = editId;
+    start(async () => {
+      const res = await sendPdRequest(id, "");
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      success(`PD Request for ${editCode ?? "this sample"} sent to the Sample Department`);
+      setPd({ forId: id, req: await getPdRequest(id) });
+      router.refresh();
+    });
+  }
+
   if (mode === "edit") {
     return (
       <div className="flex h-full flex-col gap-4">
@@ -2101,6 +2142,20 @@ export function SampleEntryScreen({
             {/* No desktop "← Back to list" (user 2026-10-09, button plan Rule
                 1): the footer's Cancel runs the same closeEditor. The phone
                 keeps its ← at the start of this band. */}
+            {/* PD REQUEST (0719, client brief 2026-10-13 §3): the saved entry
+                goes to the Sample Department, who acknowledge it — or not,
+                with a reason — in the approvals inbox. A new request only
+                when none is open; never from unsaved changes. */}
+            {pdNow ? (
+              <StatusPill tone={PD_STATUS_TONE[pdNow.status]}>
+                {`PD: ${PD_STATUS_LABEL[pdNow.status]}${pdNow.status === "not_acknowledged" && pdNow.decision_remark ? ` — ${pdNow.decision_remark}` : ""}`}
+              </StatusPill>
+            ) : null}
+            {canSendPd ? (
+              <Button variant="outline" disabled={isPending} onClick={sendPd}>
+                {pdNow ? "Send PD Request again" : "Send PD Request"}
+              </Button>
+            ) : null}
           </div>
         </div>
 

@@ -422,6 +422,50 @@ check(
   check("§12 a production line is untouched — no SMP asked", iwoMbProblems([line({})], [], null).map((p) => p.message), []);
 }
 
+// ---------------------------------------------------------------------------
+// §13 — A SAMPLE WORK ORDER BUYS ONLY FROM AN APPROVED FABRIC PLAN (0718,
+// client brief 2026-10-13 §2). The refusal comes BEFORE the ceiling, so a
+// within-limit quantity is still refused; a production plan never asks.
+// ---------------------------------------------------------------------------
+{
+  const sample = (status: "open" | "submitted" | "approved" | "returned", revision_no = 0) =>
+    yarnSaved({ bom: { is_draft: false, approval_status: status, revision_no, needs_approval: true } });
+  const within = want([["cotton", 1]]);
+  check(
+    "§13 an unsubmitted sample plan refuses even within the ceiling",
+    iwoCeilingRefusal(sample("open"), within),
+    "Work order U2/IWO/2627/0005's Fabric Plan is not approved yet, so nothing on it can be bought. Submit it for approval on Sample ▸ Fabric Plan first.",
+  );
+  check(
+    "§13 a submitted sample plan refuses, naming the approver",
+    iwoCeilingRefusal(sample("submitted"), within),
+    "Work order U2/IWO/2627/0005's Fabric Plan is with the approver, so nothing on it can be bought until it is approved.",
+  );
+  check(
+    "§13 a plan sent back refuses, naming the rework",
+    iwoCeilingRefusal(sample("returned"), within),
+    "Work order U2/IWO/2627/0005's Fabric Plan was sent back by the approver, so nothing on it can be bought. Rework it on Sample ▸ Fabric Plan and submit it again.",
+  );
+  check(
+    "§13 an open revision pauses purchasing",
+    iwoCeilingRefusal(sample("open", 2), within),
+    "Work order U2/IWO/2627/0005's Fabric Plan is under Revision 2, so purchasing is paused. Submit the revised plan for approval on Sample ▸ Fabric Plan.",
+  );
+  check("§13 an approved sample plan buys up to the ceiling", iwoCeilingRefusal(sample("approved"), within), null);
+  refute("§13 an approved sample plan still holds the ceiling", iwoCeilingRefusal(sample("approved"), want([["cotton", 1200]])), null);
+  check(
+    "§13 a PRODUCTION plan is never asked for approval",
+    iwoCeilingRefusal(yarnSaved({ bom: { is_draft: false, approval_status: "open", revision_no: 0, needs_approval: false } }), within),
+    null,
+  );
+  check(
+    "§13 the PO form's hint agrees before Save",
+    iwoPurchaseHint(sample("submitted")),
+    "Work order U2/IWO/2627/0005's Fabric Plan is with the approver, so nothing on it can be bought until it is approved",
+  );
+  check("§13 an approved sample plan's hint is the usual limit", iwoPurchaseHint(sample("approved")), "Limited to the IWO Fabric Plan's yarn purchase weights");
+}
+
 if (failed) {
   console.error(`\n${failed} IWO Accessories Plan vector(s) failed.`);
   process.exit(1);

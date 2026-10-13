@@ -42,8 +42,8 @@ export async function raiseIwoDyeingOrder(
   const { data: iwo, error: iwoErr } = await s
     .from("internal_work_orders")
     .select(
-      "id, code, location_id, iwo_for, " +
-        "bom:iwo_fabric_boms(is_draft, lines:iwo_fabric_bom_lines(item_id, color_name, req_kgs), " +
+      "id, code, location_id, iwo_for, is_sample, " +
+        "bom:iwo_fabric_boms(is_draft, approval_status, lines:iwo_fabric_bom_lines(item_id, color_name, req_kgs), " +
         "steps:iwo_fabric_bom_processes(item_id, process_id, loss_pct, color_losses))",
     )
     .eq("id", iwoId)
@@ -51,14 +51,26 @@ export async function raiseIwoDyeingOrder(
   if (iwoErr) return { ok: false, error: iwoErr.message };
   type Bom = {
     is_draft: boolean | null;
+    approval_status: string | null;
     lines: { item_id: string; color_name: string | null; req_kgs: number | string | null }[] | null;
     steps: { item_id: string; process_id: string | null; loss_pct: number | string | null; color_losses: Record<string, number> | null }[] | null;
   };
-  const row = iwo as unknown as { id: string; code: string | null; location_id: string | null; bom: Bom | Bom[] | null } | null;
+  const row = iwo as unknown as {
+    id: string;
+    code: string | null;
+    location_id: string | null;
+    is_sample: boolean | null;
+    bom: Bom | Bom[] | null;
+  } | null;
   if (!row) return { ok: false, error: "This work order no longer exists." };
   const bom = Array.isArray(row.bom) ? (row.bom[0] ?? null) : row.bom;
   if (!bom) return { ok: false, error: "Save this work order's Fabric Plan first — the dyeing order is computed from it." };
   if (bom.is_draft) return { ok: false, error: "The Fabric Plan is a draft — save it (not as a draft) before raising its dyeing order." };
+  // 0718 — a SAMPLE plan is processed only once approved (client brief
+  // 2026-10-13 §2: "upon approval the system unlocks … dyeing work orders").
+  if (row.is_sample && bom.approval_status !== "approved") {
+    return { ok: false, error: "The Fabric Plan is not approved yet — submit it for approval on Sample ▸ Fabric Plan before raising its dyeing order." };
+  }
 
   const steps: DyeingRouteStep[] = (bom.steps ?? []).map((st) => ({
     item_id: st.item_id,

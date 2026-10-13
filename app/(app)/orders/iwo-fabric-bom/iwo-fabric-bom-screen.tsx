@@ -102,7 +102,13 @@ import { raiseSampleGroupIw } from "@/lib/sales/sample-grouping/actions";
 import type { SwoAwaitingIw } from "@/lib/sales/sample-grouping/service";
 import { sectionValidity } from "@/lib/screens/validity";
 import { IWO_FOR_LABELS, IWO_STATUSES, IWO_STATUS_LABELS } from "@/lib/orders/internal-work-orders/types";
-import { KNIT_TYPE_OPTIONS, type IwoFabricBom, type PaletteSection } from "@/lib/orders/iwo-fabric-bom/types";
+import {
+  KNIT_TYPE_OPTIONS,
+  fabricPlanApprovalLabel,
+  type FabricPlanApprovalStatus,
+  type IwoFabricBom,
+  type PaletteSection,
+} from "@/lib/orders/iwo-fabric-bom/types";
 import { deleteIwoFabricBom, saveIwoFabricBom } from "@/lib/orders/iwo-fabric-bom/actions";
 import type { IwoFabricBomFormData, IwoFabricBomTask } from "@/lib/orders/iwo-fabric-bom/service";
 import {
@@ -165,6 +171,14 @@ import {
 import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
 import { SmpColourSheet } from "./smp-colour-sheet";
+import { FabricPlanRevisionSheet } from "./fabric-plan-revision-sheet";
+import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
+import type { ApprovalRun, CanActVerdict } from "@/lib/approvals/types";
+import {
+  getFabricPlanApproval,
+  submitSampleFabricPlan,
+  type FabricPlanRevision,
+} from "@/lib/orders/iwo-fabric-bom/approval-actions";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
 import {
   addPlanDia,
@@ -552,6 +566,16 @@ export function IwoFabricBomScreen({
 
   }
   const [editId, setEditId] = useState<string | null>(null);
+  /** SAMPLE PLAN APPROVAL (0718): the open plan's run, whether this user may
+   *  decide it, and its revision log — keyed `forId` so a late answer never
+   *  paints the previous plan's approval under this one. */
+  const [approval, setApproval] = useState<{
+    forId: string;
+    run: ApprovalRun | null;
+    verdict: CanActVerdict | null;
+    revisions: FabricPlanRevision[];
+  } | null>(null);
+  const [revisionOrigin, setRevisionOrigin] = useState<SheetOrigin | null | undefined>(undefined);
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
   const [palette, setPalette] = useState<Palette>(blankPalette);
   const [dias, setDias] = useState<DiaRow[]>([]);
@@ -721,11 +745,20 @@ export function IwoFabricBomScreen({
     setMode("edit");
   }
 
+  function loadApproval(bomId: string) {
+    getFabricPlanApproval(bomId).then(
+      (p) => setApproval({ forId: bomId, run: p.run, verdict: p.verdict, revisions: p.revisions }),
+      () => setApproval(null),
+    );
+  }
+
   function openTask(t: IwoFabricBomTask) {
     setNeedsAsked(false);
     const b = t.bom;
     if (!b) return openNew(t.id);
     setEditId(b.id);
+    setApproval(null);
+    if (sample) loadApproval(b.id);
     setForm({ iwo_id: t.id, bom_date: b.bom_date });
     const of = (section: PaletteSection) => {
       const rows = b.iwo_fabric_bom_palette
@@ -871,9 +904,11 @@ export function IwoFabricBomScreen({
   /** `?open=<iwoId>` — the IWO screen's "Open Fabric BOM" lands here, IN that work
    *  order's BOM (a new one when it has none). Declared after `openTask`, above
    *  any branch; an id this unit cannot see opens nothing. */
-  useOpenIntent((iwoId) => {
-    const t = taskById.get(iwoId);
-    if (t && (t.bom ? perms.canEdit : perms.canCreate)) openTask(t);
+  useOpenIntent((id) => {
+    // A work order id (Grouping's links) or a PLAN id (the approvals inbox,
+    // WORKFLOWS.sample_fabric_plan — its subject is the plan).
+    const t = taskById.get(id) ?? tasks.find((x) => x.bom?.id === id);
+    if (t && (t.bom ? true : perms.canCreate)) openTask(t);
   });
 
   // ---- Yarn Process + Fabric Process (step 3) -------------------------------
@@ -1529,6 +1564,62 @@ export function IwoFabricBomScreen({
     });
   }
 
+  // ---- sample plan approval (0718) ----------------------------------------------
+  //
+  // CLIENT BRIEF 2026-10-13 §2: a sample plan is approved before its yarn is
+  // bought or its fabric processed, and an approved plan changes only through
+  // a Fabric Plan Revision. The DATABASE is the lock (0718's triggers) and the
+  // purchase gate (`planApprovalRefusal`); this is what says so on screen.
+  // Orders ▸ IWO Fabric Plan never shows any of it — `sample` gates it all.
+  const planBom = sample && editId ? (picked?.bom ?? null) : null;
+  const planStatus: FabricPlanApprovalStatus | null = planBom?.approval_status ?? null;
+  const planRev = planBom?.revision_no ?? 0;
+  const planLocked = planStatus === "submitted" || planStatus === "approved";
+  const planLabel = picked?.swo?.code ?? picked?.code ?? "This plan";
+  const panel = approval && approval.forId === editId ? approval : null;
+  /** The approver's Approve / Request Rework, when this user may decide it. */
+  const decide =
+    panel?.run && panel.verdict && panel.run.status === "in_progress" && panel.verdict.can_act ? (
+      <ApprovalActionBar
+        run={panel.run}
+        verdict={panel.verdict}
+        subjectPath="/sales/sample-fabric-plan"
+        rework
+        compact
+        onDone={() => {
+          if (editId) loadApproval(editId);
+          router.refresh();
+        }}
+      />
+    ) : null;
+  /** Submit is the next step once the plan is saved — hidden while there are
+   *  unsaved changes (button plan Rule 2), so only the saved plan is sent. */
+  const canSubmitPlan =
+    !!planBom && !planLocked && !planBom.is_draft && !dirty && perms.canEdit;
+  function submitPlan() {
+    if (!editId) return;
+    start(async () => {
+      const res = await submitSampleFabricPlan(editId);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      success(`${planLabel} sent for approval`);
+      loadApproval(editId);
+      router.refresh();
+    });
+  }
+  const openRevision =
+    planStatus === "open" && planRev > 0 ? panel?.revisions.find((r) => r.revision_no === planRev) : undefined;
+  const planLockMessage =
+    planStatus === "submitted"
+      ? `${planRev ? `Revision ${planRev} is` : "This Fabric Plan is"} with the approver — nothing in it can change until it is approved or sent back, and no yarn can be bought yet.`
+      : planStatus === "approved"
+        ? `Approved${planRev ? ` (Revision ${planRev})` : ""} and locked — yarn can be bought up to its purchase weights and its fabric processed. To change weights or processes, Raise Revision.`
+        : null;
+  const planTone = (st: FabricPlanApprovalStatus, rev: number) =>
+    st === "approved" ? "success" : st === "submitted" ? "info" : st === "returned" || rev > 0 ? "warning" : "neutral";
+
   // ---- the list ----------------------------------------------------------------
 
   const columns: Column<IwoFabricBomTask>[] = [
@@ -1564,6 +1655,12 @@ export function IwoFabricBomScreen({
           <StatusPill tone="neutral">Not started</StatusPill>
         ) : t.bom.is_draft ? (
           <StatusPill tone="info">Draft</StatusPill>
+        ) : sample ? (
+          // A sample plan's state is its APPROVAL (0718): Saved alone says
+          // nothing about whether its yarn may be bought.
+          <StatusPill tone={planTone(t.bom.approval_status, t.bom.revision_no)}>
+            {fabricPlanApprovalLabel(t.bom.approval_status, t.bom.revision_no)}
+          </StatusPill>
         ) : (
           <StatusPill tone="success">Saved</StatusPill>
         ),
@@ -1575,6 +1672,13 @@ export function IwoFabricBomScreen({
         canEdit={t.bom ? perms.canEdit : perms.canCreate}
         onDelete={t.bom ? () => del(t) : undefined}
         canDelete={!!t.bom && perms.canDelete}
+        deleteDisabledReason={
+          t.bom?.approval_status === "approved"
+            ? "An approved Fabric Plan cannot be deleted"
+            : t.bom?.approval_status === "submitted"
+              ? "This Fabric Plan is with the approver"
+              : null
+        }
         deleteLabel="Delete BOM"
         isPending={isPending}
       />
@@ -3388,7 +3492,14 @@ export function IwoFabricBomScreen({
         header={{
           initials: "FB",
           title: (sample ? (picked?.swo?.code ?? picked?.code) : picked?.code) ?? "New Fabric Plan",
-          badges: dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null,
+          badges: (
+            <>
+              {planStatus && planBom && !planBom.is_draft ? (
+                <StatusPill tone={planTone(planStatus, planRev)}>{fabricPlanApprovalLabel(planStatus, planRev)}</StatusPill>
+              ) : null}
+              {dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null}
+            </>
+          ),
           meta: (
             <>
               <span>
@@ -3401,9 +3512,41 @@ export function IwoFabricBomScreen({
                     : "No work order chosen"}
               </span>
               {form.bom_date && <span>· {fmtDate(form.bom_date)}</span>}
+              {/* Why it is open again, or what the approver said — the two
+                  things the planner needs before touching a reopened plan. */}
+              {openRevision ? <span>· Revision {planRev}: {openRevision.reason}</span> : null}
+              {planStatus === "returned" && planBom?.decision_remark ? (
+                <span className="text-warning">· Sent back: {planBom.decision_remark}</span>
+              ) : null}
             </>
           ),
+          right: canSubmitPlan ? (
+            <Button disabled={isPending} onClick={submitPlan}>
+              Submit for Approval
+            </Button>
+          ) : null,
         }}
+        // A SUBMITTED OR APPROVED SAMPLE PLAN IS LOCKED (0718): read-only, one
+        // Close, the reason at the top — and the way on at its right: the
+        // approver's decision, or Raise Revision once approved.
+        locked={
+          planLockMessage
+            ? {
+                message: planLockMessage,
+                action:
+                  decide ??
+                  (planStatus === "approved" && perms.canEdit ? (
+                    <Button
+                      variant="outline"
+                      onClick={(e) => setRevisionOrigin(e.currentTarget.getBoundingClientRect())}
+                    >
+                      Raise Revision
+                    </Button>
+                  ) : undefined),
+              }
+            : false
+        }
+        viewOnly={!!editId && !perms.canEdit}
         // A Yarn IWO BYPASSES the fabric sections (screenshot 2937); a Fabric one
         // has no Yarn Lines grid — its yarns are derived from the cloths.
         sections={sections.filter((sec) =>
@@ -3420,9 +3563,26 @@ export function IwoFabricBomScreen({
           saveLabel: sample ? "Save" : "Save Fabric Plan",
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
+          // Submit is the one filled button once the plan is saved (Rule 2).
+          saveQuiet: canSubmitPlan,
           isPending,
         }}
       />
+
+      {sample && editId && revisionOrigin !== undefined && (
+        <FabricPlanRevisionSheet
+          bomId={editId}
+          planLabel={planLabel}
+          nextRevision={planRev + 1}
+          origin={revisionOrigin}
+          onClose={() => setRevisionOrigin(undefined)}
+          onRaised={() => {
+            setRevisionOrigin(undefined);
+            loadApproval(editId);
+            router.refresh();
+          }}
+        />
+      )}
 
       {sample && colourLine && colourFor && (
         <SmpColourSheet
