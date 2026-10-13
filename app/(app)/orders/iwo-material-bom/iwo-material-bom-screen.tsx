@@ -76,6 +76,7 @@ import { useOpenIntent } from "@/lib/use-open-intent";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import type { ApprovalRun, CanActVerdict } from "@/lib/approvals/types";
 import { PlanRevisionSheet } from "@/components/sales/plan-revision-sheet";
+import { PlanLockFence } from "@/components/sales/plan-lock-fence";
 import type { SheetOrigin } from "@/components/ui/sheet";
 import {
   getAccessoriesPlanApproval,
@@ -749,7 +750,8 @@ export function IwoMaterialBomScreen({
   // ---- sample plan approval (0720) ---------------------------------------------
   // The Fabric Plan's rules, on the trims plan: the DATABASE is the lock and
   // the purchase gate; this says so on screen. `sample` gates all of it.
-  const planBom = sample && editId ? (picked?.bom ?? null) : null;
+  // The lock follows the plan, not the route — see the Fabric Plan's note.
+  const planBom = editId ? (picked?.bom ?? null) : null;
   const planStatus: PlanApprovalStatus | null = planBom?.approval_status ?? null;
   const planRev = planBom?.revision_no ?? 0;
   const planLocked = planStatus === "submitted" || planStatus === "approved";
@@ -771,7 +773,7 @@ export function IwoMaterialBomScreen({
     ) : null;
   /** Submit is the next step once saved — hidden while there are unsaved
    *  changes (button plan Rule 2), so only the saved plan is sent. */
-  const canSubmitPlan = !!planBom && !planLocked && !planBom.is_draft && !dirty && perms.canEdit;
+  const canSubmitPlan = sample && !!planBom && !planLocked && !planBom.is_draft && !dirty && perms.canEdit;
   function submitPlan() {
     if (!editId) return;
     start(async () => {
@@ -1639,7 +1641,9 @@ export function IwoMaterialBomScreen({
           title: (sample ? (picked?.swo?.code ?? picked?.code) : picked?.code) ?? "New Accessories Plan",
           badges: (
             <>
-              {planStatus && planBom && !planBom.is_draft ? (
+              {/* A production plan never has an approval to show; a sample one
+                  shows it on either route. */}
+              {planStatus && planBom && !planBom.is_draft && (sample || planStatus !== "open") ? (
                 <StatusPill tone={planApprovalTone(planStatus, planRev)}>{planApprovalLabel(planStatus, planRev)}</StatusPill>
               ) : null}
               {dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null}
@@ -1656,7 +1660,7 @@ export function IwoMaterialBomScreen({
             </>
           ),
           right:
-            planBom && editId ? (
+            planBom && editId && sample ? (
               <div className="flex items-center gap-2">
                 {!dirty ? (
                   <Button variant="outline" onClick={() => router.push(planReportHref("accessories", editId))}>
@@ -1688,7 +1692,8 @@ export function IwoMaterialBomScreen({
             : false
         }
         viewOnly={!!editId && !perms.canEdit}
-        sections={sections}
+        // NOTHING IN A LOCKED PLAN TAKES INPUT — see PlanLockFence.
+        sections={sections.map((sec) => ({ ...sec, content: <PlanLockFence locked={planLocked}>{sec.content}</PlanLockFence> }))}
         footer={{
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Accessories Plan",
           onCancel: () => leaveEditor(),

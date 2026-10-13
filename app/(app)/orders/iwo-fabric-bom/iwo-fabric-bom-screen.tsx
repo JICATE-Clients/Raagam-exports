@@ -172,6 +172,7 @@ import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
 import { SmpColourSheet } from "./smp-colour-sheet";
 import { PlanRevisionSheet } from "@/components/sales/plan-revision-sheet";
+import { PlanLockFence } from "@/components/sales/plan-lock-fence";
 import { planReportHref } from "@/lib/sales/plan-reports/types";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import type { ApprovalRun, CanActVerdict } from "@/lib/approvals/types";
@@ -1572,7 +1573,11 @@ export function IwoFabricBomScreen({
   // a Fabric Plan Revision. The DATABASE is the lock (0718's triggers) and the
   // purchase gate (`planApprovalRefusal`); this is what says so on screen.
   // Orders ▸ IWO Fabric Plan never shows any of it — `sample` gates it all.
-  const planBom = sample && editId ? (picked?.bom ?? null) : null;
+  // THE LOCK FOLLOWS THE PLAN, NOT THE ROUTE (user 2026-10-13: "without
+  // raising revision I can edit"): Orders ▸ IWO Fabric Plan lists sample plans
+  // too, and a submitted/approved one must be as locked there as here. Only
+  // the Submit button is the Sample route's.
+  const planBom = editId ? (picked?.bom ?? null) : null;
   const planStatus: FabricPlanApprovalStatus | null = planBom?.approval_status ?? null;
   const planRev = planBom?.revision_no ?? 0;
   const planLocked = planStatus === "submitted" || planStatus === "approved";
@@ -1596,6 +1601,7 @@ export function IwoFabricBomScreen({
   /** Submit is the next step once the plan is saved — hidden while there are
    *  unsaved changes (button plan Rule 2), so only the saved plan is sent. */
   const canSubmitPlan =
+    sample &&
     !!planBom && !planLocked && !planBom.is_draft && !dirty && perms.canEdit;
   function submitPlan() {
     if (!editId) return;
@@ -2490,6 +2496,9 @@ export function IwoFabricBomScreen({
                 key={x.style_id}
                 type="button"
                 aria-current={on ? "true" : undefined}
+                // Switching which sample is SHOWN is not an edit — it stays
+                // live on a locked plan (PlanLockFence).
+                data-lock-allow
                 onClick={() => setSmpOpen(x.style_id)}
                 className={cn(
                   "block w-full rounded-control border px-3 py-2 text-left",
@@ -3504,7 +3513,9 @@ export function IwoFabricBomScreen({
           title: (sample ? (picked?.swo?.code ?? picked?.code) : picked?.code) ?? "New Fabric Plan",
           badges: (
             <>
-              {planStatus && planBom && !planBom.is_draft ? (
+              {/* A production plan never has an approval to show; a sample one
+                  shows it on either route. */}
+              {planStatus && planBom && !planBom.is_draft && (sample || planStatus !== "open") ? (
                 <StatusPill tone={planTone(planStatus, planRev)}>{fabricPlanApprovalLabel(planStatus, planRev)}</StatusPill>
               ) : null}
               {dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null}
@@ -3531,7 +3542,7 @@ export function IwoFabricBomScreen({
             </>
           ),
           right:
-            planBom && editId ? (
+            planBom && editId && sample ? (
               <div className="flex items-center gap-2">
                 {/* THE PLAN AS A DOCUMENT (user 2026-10-13) — the report the
                     approver reads on Sample ▸ Plan Approval. */}
@@ -3571,9 +3582,12 @@ export function IwoFabricBomScreen({
         viewOnly={!!editId && !perms.canEdit}
         // A Yarn IWO BYPASSES the fabric sections (screenshot 2937); a Fabric one
         // has no Yarn Lines grid — its yarns are derived from the cloths.
-        sections={sections.filter((sec) =>
-          yarnMode ? !["lines", "consumption", "process"].includes(sec.key) : sec.key !== "yarnLines",
-        )}
+        sections={sections
+          .filter((sec) =>
+            yarnMode ? !["lines", "consumption", "process"].includes(sec.key) : sec.key !== "yarnLines",
+          )
+          // NOTHING IN A LOCKED PLAN TAKES INPUT — see PlanLockFence.
+          .map((sec) => ({ ...sec, content: <PlanLockFence locked={planLocked}>{sec.content}</PlanLockFence> }))}
         footer={{
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Fabric Plan",
           onCancel: () => leaveEditor(),

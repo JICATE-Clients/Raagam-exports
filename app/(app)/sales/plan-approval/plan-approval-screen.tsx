@@ -13,7 +13,6 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Tooltip } from "@/components/ui/tooltip";
-import { Truncated } from "@/components/ui/truncated";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { useQuickStatus } from "@/components/orders/bom-queue";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
@@ -147,10 +146,21 @@ export function PlanApprovalScreen({
       ),
     },
     {
+      // The first SMP and how many more, the season under it — the full list
+      // is the review's (a many-sample SWO in one cell pushed Approve off the
+      // row, 2026-10-13).
       header: "Samples",
-      cell: (r) => <Truncated className="block max-w-[12rem] font-mono text-xs">{r.smpNos.join(", ") || "—"}</Truncated>,
+      className: HUG,
+      cell: (r) => (
+        <span className="block text-sm">
+          <span className="font-mono text-xs">
+            {r.smpNos[0] ?? "—"}
+            {r.smpNos.length > 1 ? <span className="text-muted-foreground">{` +${r.smpNos.length - 1}`}</span> : null}
+          </span>
+          {r.season ? <span className="block text-[11px] text-muted-foreground">{r.season}</span> : null}
+        </span>
+      ),
     },
-    { header: "Season", className: HUG, cell: (r) => <span className="text-sm">{r.season ?? "—"}</span> },
     {
       // The figure an approver weighs first, per kind.
       header: "To buy",
@@ -268,8 +278,10 @@ export function PlanApprovalScreen({
           right={`${filtered.length} of ${rows.length}`}
         />
 
-        {/* AS WIDE AS ITS COLUMNS, not the pane (the order screen's rule). */}
-        <div className="w-fit max-w-full">
+        {/* AS WIDE AS ITS COLUMNS, not the pane (the order screen's rule) —
+            from `md` only: below it the table is stacked cards, and a card
+            shrunk to its content stopped short of the phone's edge. */}
+        <div className="max-w-full md:w-fit">
           <DataTable
             columns={hugCreated(withCreatedColumns(columns, filtered))}
             rows={filtered}
