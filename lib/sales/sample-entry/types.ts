@@ -834,8 +834,41 @@ export type SampleEntryListRow = {
   sample_qty: number;
   billable_count: number;
   is_draft: boolean;
+  /** 0719 — the latest PD Request's state, or null when none was sent. */
+  pd_status: PdRequestStatus | null;
   created_at: string;
   created_by: string | null;
+};
+
+/**
+ * A Product Development request to the Sample Department (0719, client brief
+ * 2026-10-13 §3; spec §7.1). The department answers in the approvals inbox:
+ * Approve = Acknowledged, Reject (with a reason) = Not Acknowledged.
+ */
+export type PdRequestStatus = "requested" | "acknowledged" | "not_acknowledged" | "cancelled";
+
+export const PD_STATUS_LABEL: Record<PdRequestStatus, string> = {
+  requested: "With Sample Dept",
+  acknowledged: "Acknowledged",
+  not_acknowledged: "Not acknowledged",
+  cancelled: "Withdrawn",
+};
+
+export const PD_STATUS_TONE: Record<PdRequestStatus, "info" | "success" | "danger" | "neutral"> = {
+  requested: "info",
+  acknowledged: "success",
+  not_acknowledged: "danger",
+  cancelled: "neutral",
+};
+
+/** The latest request on one enquiry, as the editor shows it. */
+export type PdRequestState = {
+  id: string;
+  status: PdRequestStatus;
+  note: string | null;
+  decision_remark: string | null;
+  decided_at: string | null;
+  created_at: string;
 };
 
 export type SampleEntryRecord = { id: string; code: string | null; header: SampleHeaderDraft; styles: StyleDraft[] };

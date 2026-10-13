@@ -12,6 +12,7 @@ import type { Deactivatable } from "@/lib/masters/inactive";
 import { isUnitKind } from "@/lib/orders/styles/rules";
 import { DEFAULT_SAMPLE_TYPE, INHERITED, headerValueFor } from "./types";
 import type {
+  PdRequestStatus,
   AssortLineDraft,
   ComboDraft,
   QuantityDraft,
@@ -270,6 +271,7 @@ type ListDbRow = {
   title: string | null;
   customer: { name: string | null } | { name: string | null }[] | null;
   styles: { sample_qty: number | null; billable: boolean | null }[] | null;
+  sample_pd_requests: { status: PdRequestStatus; created_at: string }[] | null;
 };
 
 /**
@@ -282,7 +284,9 @@ export async function listSampleEntries(): Promise<SampleEntryListRow[]> {
     .from("opportunities")
     .select(
       "id, code, received_date, customer_id, enquiry_against, enquiry_action, season, season_year, is_draft, " +
-        "created_at, created_by, title, customer:customers!customer_id(name), styles(sample_qty, billable)",
+        "created_at, created_by, title, customer:customers!customer_id(name), styles(sample_qty, billable), " +
+        // 0719 — one FK, so the bare embed is unambiguous; the latest decides the column.
+        "sample_pd_requests(status, created_at)",
     )
     .order("created_at", { ascending: true });
   if (error) throw new Error(`Could not load sample entries: ${error.message}`);
@@ -305,6 +309,8 @@ export async function listSampleEntries(): Promise<SampleEntryListRow[]> {
       sample_qty: styles.reduce((t, x) => t + (Number(x.sample_qty) || 0), 0),
       billable_count: styles.filter((x) => !!x.billable).length,
       is_draft: !!r.is_draft,
+      pd_status:
+        [...(r.sample_pd_requests ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.status ?? null,
       created_at: r.created_at,
       created_by: r.created_by,
     } satisfies SampleEntryListRow;

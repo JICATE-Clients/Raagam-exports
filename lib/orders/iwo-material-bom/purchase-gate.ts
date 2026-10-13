@@ -30,8 +30,15 @@ export type IwoPurchaseCheck = {
   iwo_for: string;
   status: string;
   /** The work order's BOM — Material BOM (Accessories) or Fabric BOM (Yarn /
-   *  Fabric, 0595) — or null when it has none. */
-  bom: { is_draft: boolean } | null;
+   *  Fabric, 0595) — or null when it has none. On a Fabric BOM, 0718 adds its
+   *  approval: `needs_approval` is true on a SAMPLE work order, which buys
+   *  only once its plan is `approved`. Absent on an Accessories BOM. */
+  bom: {
+    is_draft: boolean;
+    approval_status?: "open" | "submitted" | "approved" | "returned";
+    revision_no?: number;
+    needs_approval?: boolean;
+  } | null;
   /** Its Advised materials in S No order, each once per BOM line. */
   advised: { item_id: string; name: string | null }[];
   /**
@@ -96,6 +103,9 @@ export function iwoPurchaseHint(check: IwoPurchaseCheck): string {
   if (check.bom.is_draft) {
     return `Its ${bom} is still a draft — nothing on it can be bought until it is saved`;
   }
+  // 0718 — the hint must agree with the refusal: say it before Save.
+  const approval = planApprovalRefusal(check);
+  if (approval) return approval.replace(/\.$/, "");
   // 0595 — a Yarn / Fabric work order buys yarn, held to the Fabric BOM's weights.
   if (check.iwo_for !== "accessories") return "Limited to the IWO Fabric Plan's yarn purchase weights";
   const names = [...new Set(check.advised.map((a) => a.name?.trim() || "A material"))];
@@ -104,6 +114,29 @@ export function iwoPurchaseHint(check: IwoPurchaseCheck): string {
   const shown = names.slice(0, 3).join(", ");
   const rest = names.length - Math.min(3, names.length);
   return `${limit} — still Advised, cannot be bought: ${shown}${rest > 0 ? ` and ${rest} more` : ""}`;
+}
+
+/**
+ * 0718 — a SAMPLE work order buys yarn only from an APPROVED Fabric Plan
+ * (client brief 2026-10-13 §2: "upon approval the system unlocks yarn
+ * purchasing"). Null when the plan needs no approval or has it. The sentence
+ * names the state, because each one has a different way forward.
+ */
+export function planApprovalRefusal(check: IwoPurchaseCheck): string | null {
+  const b = check.bom;
+  if (!b?.needs_approval || b.approval_status === "approved") return null;
+  const on = cap(theIwo(check.code));
+  const rev = b.revision_no ? ` (Revision ${b.revision_no})` : "";
+  switch (b.approval_status) {
+    case "submitted":
+      return `${on}'s Fabric Plan${rev} is with the approver, so nothing on it can be bought until it is approved.`;
+    case "returned":
+      return `${on}'s Fabric Plan was sent back by the approver, so nothing on it can be bought. Rework it on Sample ▸ Fabric Plan and submit it again.`;
+    default:
+      return b.revision_no
+        ? `${on}'s Fabric Plan is under Revision ${b.revision_no}, so purchasing is paused. Submit the revised plan for approval on Sample ▸ Fabric Plan.`
+        : `${on}'s Fabric Plan is not approved yet, so nothing on it can be bought. Submit it for approval on Sample ▸ Fabric Plan first.`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +183,8 @@ export function iwoCeilingRefusal(
   if (check.bom.is_draft) {
     return `${cap(on)}'s ${bom} is still a draft, so nothing on it is approved to buy yet. Save it (not as a draft) first.`;
   }
+  const approval = planApprovalRefusal(check);
+  if (approval) return approval;
 
   const committed = new Map(check.committed.map((c) => [c.item_id, Number(c.qty) || 0]));
   for (const [itemId, thisPo] of buying) {

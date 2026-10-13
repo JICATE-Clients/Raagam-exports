@@ -32,7 +32,9 @@ export type WorkflowKey =
   | "purchase_order"
   | "hr_fine"
   | "sample_costing"
-  | "sample_revision";
+  | "sample_revision"
+  | "sample_fabric_plan"
+  | "sample_pd_request";
 
 export type WorkflowDecl = {
   key: WorkflowKey;
@@ -107,6 +109,27 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "sample_revisions",
     label: "Sample Revision",
     href: "/sales/sample-revision/:id",
+  },
+  /* 0718 — a sample Fabric Plan (client brief 2026-10-13 §2): approved before
+     its yarn is bought or its fabric processed, then locked. Started by
+     `submitSampleFabricPlan`; decided in `sample_fabric_plan_apply_decision`.
+     The subject is the PLAN (iwo_fabric_boms); the screen's `?open=` accepts
+     a plan id as well as a work order id. */
+  sample_fabric_plan: {
+    key: "sample_fabric_plan",
+    subjectTable: "iwo_fabric_boms",
+    label: "Sample Fabric Plan",
+    href: "/sales/sample-fabric-plan?open=:id",
+  },
+  /* 0719 — a Product Development request to the Sample Department (brief §3,
+     spec §7.1). Approve = Acknowledged, Reject = Not Acknowledged. Started by
+     `sendPdRequest`; the row opens the enquiry, whose id the request carries
+     — `?pd=` resolves the request to it (sample-entry/page.tsx). */
+  sample_pd_request: {
+    key: "sample_pd_request",
+    subjectTable: "sample_pd_requests",
+    label: "Sample PD Request",
+    href: "/sales/sample-entry?pd=:id",
   },
 };
 
