@@ -96,6 +96,10 @@ export const NAV: NavItem[] = [
       // spec step 4, "Fabric & trim internal plan". The same record Orders opens.
       { href: "/sales/sample-fabric-plan", label: "Fabric Plan" },
       { href: "/sales/sample-accessories-plan", label: "Accessories Plan" },
+      // PLAN APPROVAL (user 2026-10-13: "separate approval screen like order
+      // entry") — the Fabric and Accessories Plans sent for approval, each
+      // read as its report before Approve / Request Rework (0718, 0720).
+      { href: "/sales/plan-approval", label: "Plan Approval" },
       // SAMPLE REVISION (0716, doc/sample/sample revion.md) — a locked (costing
       // approved) sample changes only through a revision that goes to the MD.
       { href: "/sales/sample-revision", label: "Revision" },

@@ -464,6 +464,27 @@ check(
     "Work order U2/IWO/2627/0005's Fabric Plan is with the approver, so nothing on it can be bought until it is approved",
   );
   check("§13 an approved sample plan's hint is the usual limit", iwoPurchaseHint(sample("approved")), "Limited to the IWO Fabric Plan's yarn purchase weights");
+
+  // 0720 — the ACCESSORIES plan has the same approval, naming itself.
+  const trims = (status: "open" | "submitted" | "approved" | "returned", revision_no = 0) =>
+    saved({ lines: [LABEL_LINE], bom: { is_draft: false, approval_status: status, revision_no, needs_approval: true } });
+  const one = want([["label", 1]]);
+  check(
+    "§13 an unsubmitted sample Accessories Plan refuses, naming itself",
+    iwoCeilingRefusal(trims("open"), one),
+    "Work order U2/IWO/2627/0005's Accessories Plan is not approved yet, so nothing on it can be bought. Submit it for approval on Sample ▸ Accessories Plan first.",
+  );
+  check(
+    "§13 a submitted sample Accessories Plan refuses",
+    iwoCeilingRefusal(trims("submitted", 1), one),
+    "Work order U2/IWO/2627/0005's Accessories Plan (Revision 1) is with the approver, so nothing on it can be bought until it is approved.",
+  );
+  check("§13 an approved sample Accessories Plan buys", iwoCeilingRefusal(trims("approved"), one), null);
+  check(
+    "§13 a PRODUCTION Accessories Plan is never asked",
+    iwoCeilingRefusal(saved({ lines: [LABEL_LINE], bom: { is_draft: false, needs_approval: false, approval_status: "open" } }), one),
+    null,
+  );
 }
 
 if (failed) {

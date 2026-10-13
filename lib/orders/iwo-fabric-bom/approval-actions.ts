@@ -23,7 +23,7 @@ import { WORKFLOWS } from "@/lib/approvals/workflows";
 
 type Result = { ok: true } | { ok: false; error: string };
 
-const PATHS = ["/sales/sample-fabric-plan", "/orders/iwo-fabric-bom"];
+const PATHS = ["/sales/sample-fabric-plan", "/sales/plan-approval", "/orders/iwo-fabric-bom"];
 const revalidate = () => PATHS.forEach((p) => revalidatePath(p));
 
 /**

@@ -117,7 +117,8 @@ export function iwoPurchaseHint(check: IwoPurchaseCheck): string {
 }
 
 /**
- * 0718 — a SAMPLE work order buys yarn only from an APPROVED Fabric Plan
+ * 0718 / 0720 — a SAMPLE work order buys only from an APPROVED plan: yarn
+ * from its Fabric Plan, trims from its Accessories Plan
  * (client brief 2026-10-13 §2: "upon approval the system unlocks yarn
  * purchasing"). Null when the plan needs no approval or has it. The sentence
  * names the state, because each one has a different way forward.
@@ -126,16 +127,20 @@ export function planApprovalRefusal(check: IwoPurchaseCheck): string | null {
   const b = check.bom;
   if (!b?.needs_approval || b.approval_status === "approved") return null;
   const on = cap(theIwo(check.code));
+  // 0720 — the Accessories Plan has the same approval; each names its own plan
+  // and the Sample screen it is submitted on.
+  const plan = bomLabel(check);
+  const where = `Sample ▸ ${plan}`;
   const rev = b.revision_no ? ` (Revision ${b.revision_no})` : "";
   switch (b.approval_status) {
     case "submitted":
-      return `${on}'s Fabric Plan${rev} is with the approver, so nothing on it can be bought until it is approved.`;
+      return `${on}'s ${plan}${rev} is with the approver, so nothing on it can be bought until it is approved.`;
     case "returned":
-      return `${on}'s Fabric Plan was sent back by the approver, so nothing on it can be bought. Rework it on Sample ▸ Fabric Plan and submit it again.`;
+      return `${on}'s ${plan} was sent back by the approver, so nothing on it can be bought. Rework it on ${where} and submit it again.`;
     default:
       return b.revision_no
-        ? `${on}'s Fabric Plan is under Revision ${b.revision_no}, so purchasing is paused. Submit the revised plan for approval on Sample ▸ Fabric Plan.`
-        : `${on}'s Fabric Plan is not approved yet, so nothing on it can be bought. Submit it for approval on Sample ▸ Fabric Plan first.`;
+        ? `${on}'s ${plan} is under Revision ${b.revision_no}, so purchasing is paused. Submit the revised plan for approval on ${where}.`
+        : `${on}'s ${plan} is not approved yet, so nothing on it can be bought. Submit it for approval on ${where} first.`;
   }
 }
 

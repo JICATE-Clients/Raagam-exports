@@ -34,6 +34,7 @@ export type WorkflowKey =
   | "sample_costing"
   | "sample_revision"
   | "sample_fabric_plan"
+  | "sample_accessories_plan"
   | "sample_pd_request";
 
 export type WorkflowDecl = {
@@ -113,13 +114,23 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
   /* 0718 — a sample Fabric Plan (client brief 2026-10-13 §2): approved before
      its yarn is bought or its fabric processed, then locked. Started by
      `submitSampleFabricPlan`; decided in `sample_fabric_plan_apply_decision`.
-     The subject is the PLAN (iwo_fabric_boms); the screen's `?open=` accepts
-     a plan id as well as a work order id. */
+     The subject is the PLAN (iwo_fabric_boms). The row opens Sample ▸ Plan
+     Approval on it (user 2026-10-13: a separate approval screen, "like order
+     entry") — the plan's report beside Approve / Request Rework. */
   sample_fabric_plan: {
     key: "sample_fabric_plan",
     subjectTable: "iwo_fabric_boms",
     label: "Sample Fabric Plan",
-    href: "/sales/sample-fabric-plan?open=:id",
+    href: "/sales/plan-approval?open=fabric::id",
+  },
+  /* 0720 — the Accessories Plan's twin: approved before its trims are bought.
+     Started by `submitSampleAccessoriesPlan`; decided in
+     `sample_accessories_plan_apply_decision`. */
+  sample_accessories_plan: {
+    key: "sample_accessories_plan",
+    subjectTable: "iwo_material_boms",
+    label: "Sample Accessories Plan",
+    href: "/sales/plan-approval?open=accessories::id",
   },
   /* 0719 — a Product Development request to the Sample Department (brief §3,
      spec §7.1). Approve = Acknowledged, Reject = Not Acknowledged. Started by
