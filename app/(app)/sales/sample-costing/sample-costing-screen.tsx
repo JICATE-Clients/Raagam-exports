@@ -101,6 +101,8 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useFormDraft } from "@/lib/use-form-draft";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useOpenIntent } from "@/lib/use-open-intent";
+import { costingRevisionOf } from "@/lib/sales/sample-revisions/actions";
+import { REVISION_KIND_LABEL, type RevisionKind } from "@/lib/sales/sample-revisions/types";
 import { focusFirstField } from "@/lib/focus";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
@@ -291,7 +293,8 @@ const HEALTH: Record<MarginHealth, { tone: StatusTone; text: string; label: stri
 /** The Pending · Updated · Draft box: a saved sheet is pending until it is
  *  approved (on submit or by the MD), which moves it to Updated. */
 const costingWordOf = (r: CostingListRow): QuickWord =>
-  r.is_draft ? "draft" : r.status === "approved" ? "updated" : "pending";
+  // A sample waiting for its first costing is work still to do — Pending.
+  r.awaiting ? "pending" : r.is_draft ? "draft" : r.status === "approved" ? "updated" : "pending";
 const QUICK_LABEL: Record<QuickWord, string> = { pending: "Pending", updated: "Updated", draft: "Draft" };
 
 const COSTING_FACETS: FacetGroup<CostingListRow>[] = [
@@ -410,11 +413,14 @@ function DeltaBadge({ delta, pctValue }: { delta: number | null; pctValue: numbe
 
 export function SampleCostingScreen({
   rows,
+  awaiting = [],
   data,
   perms,
   nextCostingNo,
 }: {
   rows: CostingListRow[];
+  /** Saved sample styles with no costing yet — listed as "Not costed". */
+  awaiting?: CostingListRow[];
   data: SampleCostingFormData;
   perms: Perms;
   /** Fetched with the page so a new sheet's Costing No is filled on first paint. */
@@ -437,6 +443,8 @@ export function SampleCostingScreen({
   const [revisions, setRevisions] = useState<RevisionRow[]>([]);
   /** Set while the editor holds the NEXT revision of this sheet (not yet saved). */
   const [revisingFrom, setRevisingFrom] = useState<string | null>(null);
+  /** The open Sample Revision this sheet is the proposal of (0716), or null. */
+  const [revOf, setRevOf] = useState<{ id: string; revision_code: string; status: "draft" | "pending"; kinds: RevisionKind[] } | null>(null);
   const [header, setHeader] = useState<CostingHeaderDraft>(blankHeader);
   const [pieces, setPieces] = useState<PieceDraft[]>([]);
   const [fabrics, setFabrics] = useState<FabricDraft[]>([]);
@@ -512,8 +520,10 @@ export function SampleCostingScreen({
 
   // ---- the list's filters ----------------------------------------------------
   const [query, setQuery] = useState("");
-  /** A superseded revision lives behind its successor's Revision picker. */
-  const current = useMemo(() => rows.filter((r) => r.status !== "superseded"), [rows]);
+  /** A superseded revision lives behind its successor's Revision picker. The
+   *  samples with no costing yet stand in the same list, "Not costed" (user
+   *  2026-10-12: "created sample entry, why not listing in sample costing?"). */
+  const current = useMemo(() => [...rows.filter((r) => r.status !== "superseded"), ...awaiting], [rows, awaiting]);
   const facets = useFacetFilter(current, COSTING_FACETS);
   const facetMatches = facets.matches;
   const searched = useMemo(() => {
@@ -880,15 +890,14 @@ export function SampleCostingScreen({
       setMeta({ code: r.code, version: r.version, status: r.status, isDraft: r.is_draft, decisionRemark: r.decision_remark });
       seedAndOpen({ ...r.draft, pieces: r.draft.pieces.length ? r.draft.pieces : [blankPiece("GARMENT", null)] });
       setApproval(null);
-      /* STARTED FROM THE REPORT (client 2026-10-09): the Reports page's Revise
-         button lands here with `?reviseFrom=`, and the sheet opens already as the
-         next revision — exactly what `revise()` does from the editor, under the
-         same two conditions. Anything else opens the costing as it is and says why. */
+      setRevOf(await costingRevisionOf(r.id));
+      /* STARTED FROM THE REPORT'S "Revise" (`?reviseFrom=`). An approved
+         costing is a LOCKED sample since 0716, so revising it is a Sample
+         Revision: the Raise Revision form opens on this sample instead of a
+         free next revision the database would refuse to save. */
       if (opts?.revise) {
         if (r.status === "approved" && perms.canEdit) {
-          setRevisingFrom(r.id);
-          setMeta((m) => ({ ...m, version: m.version + 1, status: "draft", isDraft: false, decisionRemark: null }));
-          setDirty(true);
+          router.push(`/sales/sample-revision?raise=${r.draft.header.opportunity_id ?? ""}`);
         } else {
           toastError("Only an approved costing can be revised, and only by someone who can edit.");
         }
@@ -923,6 +932,16 @@ export function SampleCostingScreen({
     if (only.length === 1) applyStyle(only[0]);
     fillFromCustomer(oppId);
   });
+  /** "Start costing" on a Not costed row — a new sheet on that sample and
+   *  style, the way Sample Entry's "Cost this sample" opens one. */
+  function startCostingFor(r: CostingListRow) {
+    if (!perms.canCreate) return;
+    openAdd();
+    const st = r.style_id ? data.styles.find((x) => x.id === r.style_id) : undefined;
+    setHeader((h) => ({ ...h, opportunity_id: r.opportunity_id, style_id: st?.id ?? null }));
+    if (st) applyStyle(st);
+    fillFromCustomer(r.opportunity_id);
+  }
   /**
    * `?reviseFrom=<id>` (the Reports page's "open the full editor" link) and
    * `?costFor=<enquiry>` (Sample Entry's "Cost this sample") are ONE-SHOT
@@ -1018,10 +1037,12 @@ export function SampleCostingScreen({
    */
   function revise() {
     if (!editId) return;
-    setRevisingFrom(editId);
-    setMeta((m) => ({ ...m, version: m.version + 1, status: "draft", isDraft: false, decisionRemark: null }));
-    setApproval(null);
-    setDirty(true);
+    /* A LOCKED SAMPLE CHANGES THROUGH A SAMPLE REVISION (0716, doc/sample/
+       sample revion.md): an approved costing is the lock, and its next
+       revision is made by the revision, which opens only the modules it names
+       and goes to the MD. So Revise opens the Raise Revision form on this
+       sample; the database refuses a next revision made any other way. */
+    router.push(`/sales/sample-revision?raise=${header.opportunity_id ?? ""}`);
   }
 
   // ---- validity ---------------------------------------------------------------
@@ -1185,13 +1206,22 @@ export function SampleCostingScreen({
   const listColumns: Column<CostingListRow>[] = [
     {
       header: "Costing No",
-      cell: (r) => (
-        <button type="button" onClick={() => openById(r.id)} className="font-mono text-xs font-medium text-primary hover:underline">
-          {r.code ?? "—"}
-        </button>
-      ),
+      cell: (r) =>
+        r.awaiting ? (
+          perms.canCreate ? (
+            <button type="button" onClick={() => startCostingFor(r)} className="text-xs font-medium text-primary hover:underline">
+              Start costing
+            </button>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          )
+        ) : (
+          <button type="button" onClick={() => openById(r.id)} className="font-mono text-xs font-medium text-primary hover:underline">
+            {r.code ?? "—"}
+          </button>
+        ),
     },
-    { header: "Rev", cell: (r) => <span className="tabular-nums text-xs">{revisionShort(r.version)}</span> },
+    { header: "Rev", cell: (r) => <span className="tabular-nums text-xs">{r.awaiting ? "—" : revisionShort(r.version)}</span> },
     { header: "Date", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.costing_date)}</span> },
     { header: "Sample No", cell: (r) => <span className="font-mono text-xs">{r.enquiry_no ?? "—"}</span> },
     { header: "Customer", cell: (r) => <span className="text-xs">{r.customer_name ?? "—"}</span> },
@@ -1223,13 +1253,26 @@ export function SampleCostingScreen({
     {
       header: "Approval",
       cell: (r) =>
-        r.is_draft ? (
+        r.awaiting ? (
+          <StatusPill tone="neutral">Not costed</StatusPill>
+        ) : r.is_draft ? (
           <span className="text-xs text-muted-foreground">Draft</span>
         ) : (
           <StatusPill tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</StatusPill>
         ),
     },
-    rowActionsColumn((r) => (
+    rowActionsColumn((r) =>
+      r.awaiting ? (
+        // No sheet yet: nothing to report or delete — the pencil starts one.
+        <RowActions
+          label={[r.enquiry_no, r.style_name].filter(Boolean).join(" · ")}
+          view={false}
+          onEdit={() => startCostingFor(r)}
+          canEdit={perms.canCreate}
+          canDelete={false}
+          isPending={isPending}
+        />
+      ) : (
       <RowActions
         label={r.code}
         view={false}
@@ -1256,7 +1299,8 @@ export function SampleCostingScreen({
         deleteDisabledReason={lockReason(r)}
         isPending={isPending}
       />
-    )),
+      ),
+    ),
   ];
 
   // ==========================================================================
@@ -2757,12 +2801,21 @@ export function SampleCostingScreen({
                   compact
                   required
                   disabled={!!editId || !!revisingFrom}
-                  items={data.enquiries.map((e) => ({ id: e.id, code: e.code, name: e.name, inactive: e.is_draft && e.id !== header.opportunity_id }))}
+                  /* AN ALREADY-COSTED SAMPLE IS NOT OFFERED AGAIN (client spec
+                     2026-10-12 §3: "once a costing sheet is created for a Sample
+                     Number, filter it out … to prevent duplicate costing"). A
+                     new costing of one is a REVISION of its sheet (Revise), not
+                     a second sheet. The value this sheet already holds always
+                     survives ("Disabled rows"). */
+                  items={data.enquiries
+                    .filter((e) => !e.all_costed || e.id === header.opportunity_id)
+                    .map((e) => ({ id: e.id, code: e.code, name: e.name, inactive: e.is_draft && e.id !== header.opportunity_id }))}
+                  emptyHint="Every saved sample is costed already — open its sheet to revise it."
                   value={header.opportunity_id}
                   onChange={(id) => {
                     setH({ opportunity_id: id, style_id: null });
                     // A one-style enquiry answers the Style question itself.
-                    const only = data.styles.filter((s) => s.opportunity_id === id);
+                    const only = data.styles.filter((s) => s.opportunity_id === id && !s.costed);
                     if (only.length === 1) {
                       setH({ opportunity_id: id, style_id: only[0].id });
                       applyStyle(only[0]);
@@ -2777,7 +2830,10 @@ export function SampleCostingScreen({
                   compact
                   required
                   disabled={!header.opportunity_id || !!editId || !!revisingFrom}
-                  items={enquiryStyles.map((s) => ({ id: s.id, code: s.sample_no, name: [s.sample_no, s.name].filter(Boolean).join(" · ") }))}
+                  // A costed style leaves the list too — the held one always stays.
+                  items={enquiryStyles
+                    .filter((s) => !s.costed || s.id === header.style_id)
+                    .map((s) => ({ id: s.id, code: s.sample_no, name: [s.sample_no, s.name].filter(Boolean).join(" · ") }))}
                   value={header.style_id}
                   onChange={(id) => {
                     setH({ style_id: id });
@@ -3551,9 +3607,11 @@ export function SampleCostingScreen({
 
   const lockMessage = !editable
     ? meta.status === "submitted"
-      ? `With the MD for approval — the lowest margin is under ${MARGIN_FLOOR_PCT}%. It can be changed once approved (Revise) or sent back for rework.`
+      ? revOf
+        ? `With the MD under Sample Revision ${revOf.revision_code} — nothing in it can change until it is decided.`
+        : `With the MD for approval — the lowest margin is under ${MARGIN_FLOOR_PCT}%. It can be changed once approved (Raise Revision) or sent back for rework.`
       : meta.status === "approved"
-        ? "Approved. Revise it to negotiate a new price — the next revision keeps every figure."
+        ? "Approved and locked. To change it, Raise Revision — a Sample Revision opens only the modules it names and goes to the MD."
         : "This revision has been superseded by a later one. Open the latest from Revision."
     : null;
 
@@ -3641,7 +3699,8 @@ export function SampleCostingScreen({
   };
 
   if (mode === "edit") {
-    const canSubmit = !!editId && !revisingFrom && isEditableStatus(meta.status) && !meta.isDraft && perms.canEdit;
+    // A Sample Revision's proposal is sent to the MD by the revision, not here.
+    const canSubmit = !!editId && !revisingFrom && !revOf && isEditableStatus(meta.status) && !meta.isDraft && perms.canEdit;
     const submitNow = canSubmit && !dirty;
     const context = [enquiry?.code, style?.name, enquiry?.customer_name, [enquiry?.season, enquiry?.season_year].filter(Boolean).join(" ")].filter(Boolean);
     return (
@@ -3660,9 +3719,10 @@ export function SampleCostingScreen({
             </span>
             <span className="text-sm font-semibold text-foreground">{meta.code ?? preview ?? "—"}</span>
             <span className="text-xs text-muted-foreground">{revisionShort(meta.version)}</span>
-            {revisingFrom ? (
-              <StatusPill tone="info">New revision</StatusPill>
-            ) : editId ? (
+            {/* No "New revision" pill (client spec 2026-10-12 §7: no extra
+                status labels or revision flags) — the label above already
+                says "Revise Sample Costing" and the Rev number. */}
+            {!revisingFrom && editId ? (
               <StatusPill tone={meta.isDraft ? "neutral" : STATUS_TONE[meta.status]}>{meta.isDraft ? "Draft" : STATUS_LABEL[meta.status]}</StatusPill>
             ) : null}
           </div>
@@ -3693,7 +3753,7 @@ export function SampleCostingScreen({
               ]}
             />
             {meta.status === "approved" && !revisingFrom && perms.canEdit ? (
-              <Button onClick={revise}>Revise</Button>
+              <Button onClick={revise}>Raise Revision</Button>
             ) : null}
             {/* HIDDEN WHILE THERE ARE UNSAVED CHANGES (Rule 2). Save is then
                 the one filled button; once saved, Submit is — so a version
@@ -3706,6 +3766,20 @@ export function SampleCostingScreen({
           </div>
         </div>
 
+        {/* PART OF A SAMPLE REVISION (0716) — which one, what it opens, and
+            where it goes to the MD. A change outside those modules is refused
+            on Save, naming the module. */}
+        {revOf ? (
+          <p className="rounded-md border border-info bg-info-soft px-3 py-2 text-sm">
+            {`This is the proposed costing of Sample Revision ${revOf.revision_code} — open: ${revOf.kinds
+              .filter((k) => k !== "sample_info")
+              .map((k) => REVISION_KIND_LABEL[k])
+              .join(", ")}. Everything else stays as approved. `}
+            <a href={`/sales/sample-revision/${revOf.id}`} className="font-medium text-primary underline underline-offset-2">
+              Send it to the MD from the revision
+            </a>
+          </p>
+        ) : null}
         {whyCard}
         {approval && approval.forId === editId && approval.run && approval.verdict ? (
           <ApprovalActionBar
@@ -3732,7 +3806,9 @@ export function SampleCostingScreen({
             status: dock,
             onCancel: closeEditor,
             onSave: () => submit(false),
-            saveLabel: revisingFrom ? `Save ${revisionShort(meta.version)}` : "Save costing",
+            // ONE PLAIN "Save" (client spec 2026-10-12 §7, Costing · Grouping ·
+            // Fabric Plan) — no "Save costing" / "Save Rev N", no Save as Draft.
+            saveLabel: "Save",
             canSave: validity.canSave,
             // Submit is the next step once saved, so Save steps down (Rule 2).
             saveQuiet: submitNow,
@@ -3756,7 +3832,6 @@ export function SampleCostingScreen({
                 </button>
               </span>
             ) : undefined,
-            onSaveDraft: (editId ? perms.canEdit : perms.canCreate) && !revisingFrom ? () => submit(true) : undefined,
             isPending,
           }}
         />

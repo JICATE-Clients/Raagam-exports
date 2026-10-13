@@ -10,7 +10,7 @@ import type { Currency } from "@/lib/masters/types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Deactivatable } from "@/lib/masters/inactive";
 import { isUnitKind } from "@/lib/orders/styles/rules";
-import { INHERITED, headerValueFor } from "./types";
+import { DEFAULT_SAMPLE_TYPE, INHERITED, headerValueFor } from "./types";
 import type {
   AssortLineDraft,
   ComboDraft,
@@ -60,7 +60,31 @@ export type SampleEntryFormData = {
   fabricStructures: PickerRow[];
   /** Fabric Code — FABRIC-class items, narrowed on the screen by the Structure. */
   fabrics: FabricOption[];
+  /** STYLE → ARTICLE NO (client spec 2026-10-12 §1: "auto-fetch Article No
+   *  when Style Name / No is entered"). Every known pairing, the Garment Style
+   *  master first and earlier sample styles after; one per name (upper-cased). */
+  articles: { name: string; article_no: string }[];
 };
+
+/** The Style → Article No pairings the Style Name box fills from (§1). */
+async function getArticles(): Promise<{ name: string; article_no: string }[]> {
+  const s = await createClient();
+  const [master, earlier] = await Promise.all([
+    s.from("garment_styles").select("style_name, article_no").not("article_no", "is", null),
+    s.from("styles").select("name, article_no").not("article_no", "is", null).order("created_at", { ascending: false }),
+  ]);
+  if (master.error) throw new Error(`Could not load garment styles: ${master.error.message}`);
+  if (earlier.error) throw new Error(`Could not load earlier styles: ${earlier.error.message}`);
+  const out = new Map<string, string>();
+  const add = (name: string | null, art: string | null) => {
+    const k = (name ?? "").trim().toUpperCase();
+    const v = (art ?? "").trim();
+    if (k && v && !out.has(k)) out.set(k, v);
+  };
+  for (const r of (master.data ?? []) as { style_name: string | null; article_no: string | null }[]) add(r.style_name, r.article_no);
+  for (const r of (earlier.data ?? []) as { name: string | null; article_no: string | null }[]) add(r.name, r.article_no);
+  return [...out].map(([name, article_no]) => ({ name, article_no }));
+}
 
 async function classIds(code: string): Promise<Set<string>> {
   const s = await createClient();
@@ -87,7 +111,13 @@ async function getCustomers(): Promise<CustomerOption[]> {
  *  filtered: a season an entry already holds must still resolve. */
 async function getSeasons(): Promise<PickerRow[]> {
   const s = await createClient();
-  const { data, error } = await s.from("seasons").select("id, code:season, name:season_name, inactive").order("season_name");
+  // Same order as Orders' Season box (0717): entry order — Q1–Q4, then the
+  // four named seasons — so both modules list the seasons alike.
+  const { data, error } = await s
+    .from("seasons")
+    .select("id, code:season, name:season_name, inactive")
+    .order("created_at", { ascending: true })
+    .order("season_name", { ascending: true });
   if (error) throw new Error(`Could not load seasons: ${error.message}`);
   return ((data ?? []) as (PickerRow & { name: string | null })[]).map((r) => ({ ...r, name: r.name ?? r.code ?? "" }));
 }
@@ -189,7 +219,7 @@ async function getFabricStructures(): Promise<PickerRow[]> {
 }
 
 export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
-  const [customers, merchandisers, countries, currencies, lookups, consignees, ports, coordinates, fabricStructures, fabrics, seasons, agents] =
+  const [customers, merchandisers, countries, currencies, lookups, consignees, ports, coordinates, fabricStructures, fabrics, seasons, agents, articles] =
     await Promise.all([
       getCustomers(),
       getMerchandisers(),
@@ -203,6 +233,7 @@ export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
       getItemsOfClass("FABRIC"),
       getSeasons(),
       getAgents(),
+      getArticles(),
     ]);
   return {
     customers,
@@ -217,6 +248,7 @@ export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
     fabrics,
     seasons,
     agents,
+    articles,
   };
 }
 
@@ -307,6 +339,8 @@ type StyleDb = Record<string, unknown> & {
         size_bytes: number | null;
       }[]
     | null;
+  /** 0715 — the structures picked, each with its GSM. */
+  structures: { sno: number; structure_id: string | null; gsm: Num }[] | null;
   quantities:
     | (Record<string, unknown> & {
         sno: number;
@@ -333,8 +367,9 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
     .from("opportunities")
     .select(
       "id, code, received_date, enquiry_against, enquiry_action, customer_id, country_id, season_id, season_year, " +
-        "customer_reference, agent_id, receipt_mode, receipt_date, delivery_to, delivery_mode, multi_order, " +
+        "customer_reference, agent_id, receipt_mode, receipt_date, delivery_to, delivery_mode, multi_order, merchandiser_id, " +
         "styles(*, coordinates:sample_style_coordinates(sno, coordinate_id), sizes:style_sizes(sno, garment_size), " +
+        "structures:sample_style_fabric_structures(sno, structure_id, gsm), " +
         "combos:style_combos(sno, combo, sizes:style_combo_sizes(sno, garment_size, order_qty)), " +
         "files:sample_style_files(sno, doc_kind, file_name, storage_path, mime_type, size_bytes), " +
         "quantities:sample_style_quantities(*, lines:sample_quantity_assort_lines(sno, combo, style_ref, no_of_cartons, inners_per_carton, " +
@@ -411,6 +446,12 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
       fabric_structure_id: vid("fabric_structure_id"),
       fabric_id: vid("fabric_id"),
       gsm: v("gsm"),
+      // 0715's rows; a line saved before them reads its one structure + GSM.
+      structures: (() => {
+        const rows = bySno(st.structures).filter((x) => !!x.structure_id);
+        if (rows.length) return rows.map((x) => ({ structure_id: x.structure_id as string, gsm: str(x.gsm) }));
+        return vid("fabric_structure_id") ? [{ structure_id: vid("fabric_structure_id") as string, gsm: v("gsm") }] : [];
+      })(),
       tech_pack: v("tech_pack"),
       customer_reference: v("customer_reference"),
       receipt_mode: v("receipt_mode"),
@@ -458,6 +499,12 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
     delivery_to: g("delivery_to"),
     delivery_mode: g("delivery_mode"),
     multi_order: r.multi_order === true,
+    // Sample Info's Merchandiser (§2): the header's, else — an entry saved while
+    // it was per line — the first line's.
+    merchandiser_id: gid("merchandiser_id") ?? styles.find((x) => !!x.merchandiser_id)?.merchandiser_id ?? null,
+    sample_type: String(bySno(r.styles).find((x) => x.sample_type)?.sample_type ?? DEFAULT_SAMPLE_TYPE),
+    // One Tech Pack status for the entry: the first line that states one.
+    tech_pack: styles.find((x) => !!x.tech_pack)?.tech_pack ?? "",
   };
 
   /* THE SAVE STORES THE RESOLVED VALUE, so on the way back a line value equal

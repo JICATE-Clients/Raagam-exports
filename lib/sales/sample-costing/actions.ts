@@ -26,6 +26,8 @@ import {
   type RevisionRow,
 } from "./types";
 import { getQuoteExchangeRate, getSampleCostingRecord } from "./service";
+import { revisionForCosting } from "@/lib/sales/sample-revisions/service";
+import { costingRevisionProblem } from "@/lib/sales/sample-revisions/scope";
 
 type SaveResult = { ok: true; id: string; code: string | null; version: number } | { ok: false; error: string };
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -52,6 +54,19 @@ export async function saveSampleCosting(
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const problem = costingProblems(parsed.data, { draft: opts.isDraft })[0];
   if (problem) return { ok: false, error: problem.message };
+
+  /* A SAMPLE REVISION'S PROPOSED COSTING (0716) changes only what the revision
+     opens: the approved parent is the yardstick, field group by field group
+     (`costingRevisionProblem`). The database refuses its submit / approve. */
+  if (id) {
+    const rev = await revisionForCosting(id);
+    if (rev) {
+      if (rev.status !== "draft") return { ok: false, error: `Sample Revision ${rev.revision_code} is with the MD — nothing in it can change until it is decided.` };
+      const parent = await getSampleCostingRecord(rev.parent_id);
+      const outOfScope = parent ? costingRevisionProblem(parent.draft, parsed.data as CostingDraft, rev.kinds, rev.revision_code) : null;
+      if (outOfScope) return { ok: false, error: outOfScope };
+    }
+  }
 
   const payload = toCostingPayload(parsed.data, { isDraft: opts.isDraft, parentId: id ? null : (opts.parentId ?? null) });
   const supabase = await createClient();

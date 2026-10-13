@@ -74,6 +74,17 @@ export const DELIVERY_MODES = [
   { value: "SEA", label: "Sea Freight" },
 ] as const satisfies readonly Opt<string>[];
 
+/** Sample Type (client spec 2026-10-12 §2) over 0268's `styles.sample_type`
+ *  codes. Default Fit Sample. Said once on Sample Info, stamped on every line. */
+export const SAMPLE_TYPE_OPTIONS = [
+  { value: "proto", label: "Proto Sample" },
+  { value: "fit", label: "Fit Sample" },
+  { value: "sms", label: "SMS Sample" },
+  { value: "pp", label: "PP Sample" },
+  { value: "top", label: "TOP Sample" },
+] as const satisfies readonly Opt<string>[];
+export const DEFAULT_SAMPLE_TYPE = "fit";
+
 export const TECH_PACK = [
   { value: "not_required", label: "Not Required" },
   { value: "received", label: "Received" },
@@ -131,7 +142,18 @@ export type SampleHeaderDraft = {
   /** Order Entry's "Multi Order" switch (0685): each destination names its own
    *  buyer PO in a PO No column. */
   multi_order: boolean;
+  /** ONE MERCHANDISER FOR THE ENTRY, on Sample Info (client spec 2026-10-12
+   *  §2) — `opportunities.merchandiser_id`, stamped on every style line. */
+  merchandiser_id: string | null;
+  /** Sample Type (§2), default Fit Sample — stamped on every style line. */
+  sample_type: string;
+  /** Tech Pack status — ONE for the entry, beside Sample Type (user
+   *  2026-10-12), stamped on every style line's `tech_pack`. */
+  tech_pack: string;
 };
+
+/** One Fabric Structure picked for a style, with its own GSM (0715). */
+export type StructureDraft = { structure_id: string; gsm: string };
 
 export type CoordinateDraft = { key: string; coordinate_id: string | null };
 
@@ -202,9 +224,13 @@ export type StyleDraft = {
   delivery_date: string;
   merchandiser_id: string | null;
   order_date: string;
+  /** Mirrors `structures[0]` (0715) — what Costing / Grouping still read. */
   fabric_structure_id: string | null;
   fabric_id: string | null;
+  /** Mirrors `structures[0].gsm`. */
   gsm: string;
+  /** Fabric Structure is a MULTI-select, each with its GSM (spec §1, 0715). */
+  structures: StructureDraft[];
   tech_pack: string;
   customer_reference: string;
   receipt_mode: string;
@@ -381,6 +407,10 @@ export function sampleEntryProblems(
   if (!h.received_date) add({ section: "info", fieldId: "se-date", label: "Date", message: "Enter the Date.", strict: false });
   if (!h.customer_id)
     add({ section: "info", fieldId: "se-customer", label: "Customer", message: "Choose the Customer.", strict: false });
+  // Once for the entry, on Sample Info (client spec 2026-10-12 §2) — it was
+  // asked per style line on Product Info until then.
+  if (!h.merchandiser_id)
+    add({ section: "info", fieldId: "se-merch", label: "Merchandiser", message: "Choose the Merchandiser.", strict: true });
 
   const styles = all.filter((s) => !isBlankStyle(s));
   if (styles.length === 0)
@@ -411,8 +441,6 @@ export function sampleEntryProblems(
     if (s.sizes.length === 0)
       add({ section: "styles", ...at, fieldId: `se-st-sizes-${s.key}`, label: "Sizes", message: `${who}: Tick at least one size.`, strict: true });
 
-    if (!s.merchandiser_id)
-      add({ section: "product", ...at, fieldId: "se-pi-merch", label: "Merchandiser", message: `${who}: choose the Merchandiser.`, strict: true });
     if (s.billable) {
       if (!s.currency_code)
         add({ section: "product", ...at, fieldId: "se-pi-currency", label: "Currency", message: `${who} is billable: choose the Currency.`, strict: true });
@@ -423,7 +451,8 @@ export function sampleEntryProblems(
         add({ section: "product", ...at, fieldId: "se-pi-exrate", label: "Exchange Rate", message: `${who} is billable: enter the Exchange Rate.`, strict: true });
     }
 
-    const combos = s.combos.filter((c) => !isBlankCombo(c));
+    // A Quote shows no Combos section (user 2026-10-12) — nothing hidden is owed.
+    const combos = h.enquiry_action === "quote" ? [] : s.combos.filter((c) => !isBlankCombo(c));
     combos.forEach((c, ci) => {
       if (!c.combo.trim())
         add({ section: "combos", ...at, fieldId: `se-cb-name-${c.key}`, label: "Combo", message: `${who}, combo line ${ci + 1}: name the colour.`, strict: false });
@@ -521,6 +550,9 @@ export const sampleEntryInput = z
     delivery_mode: enumOf(DELIVERY_MODES),
     is_draft: z.boolean(),
     multi_order: z.boolean().optional(),
+    merchandiser_id: optUuid,
+    sample_type: enumOf(SAMPLE_TYPE_OPTIONS),
+    tech_pack: enumOf(TECH_PACK),
   }),
   styles: z
     .array(
@@ -540,6 +572,10 @@ export const sampleEntryInput = z
           fabric_structure_id: optUuid,
           fabric_id: optUuid,
           gsm: optNum,
+          sample_type: enumOf(SAMPLE_TYPE_OPTIONS),
+          structures: z
+            .array(z.object({ sno: z.number().int(), structure_id: uuid, gsm: optNum }))
+            .default([]),
           tech_pack: enumOf(TECH_PACK),
           customer_reference: caps(),
           receipt_mode: enumOf(RECEIPT_MODES),
@@ -622,11 +658,11 @@ export const sampleEntryInput = z
        screen's courtesy, this is the guard. Save as Draft waives them; a full
        Save does not. */
     if (p.header.is_draft) return;
+    if (!p.header.merchandiser_id) ctx.addIssue({ code: "custom", message: "Choose the Merchandiser on Sample Info." });
     const { min, max } = COORDINATE_LIMITS.set;
     for (const s of p.styles) {
       const fail = (message: string) => ctx.addIssue({ code: "custom", message });
       if (!(Number(s.sample_qty) > 0)) fail(`${s.name}: enter the Sample Qty.`);
-      if (!s.merchandiser_id) fail(`${s.name}: choose the Merchandiser.`);
       if (s.billable && !s.currency_code) fail(`${s.name}: choose the Currency.`);
       if (s.billable && !(Number(s.price) > 0)) fail(`${s.name}: enter the Price.`);
       if (s.billable && !(Number(s.exchange_rate) > 0)) fail(`${s.name}: enter the Exchange Rate.`);
@@ -668,9 +704,15 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
       delivery_mode: orNull(h.delivery_mode),
       is_draft: isDraft,
       multi_order: h.multi_order,
+      merchandiser_id: h.merchandiser_id,
+      sample_type: orNull(h.sample_type),
+      tech_pack: orNull(h.tech_pack),
     },
     styles: styles.map((s, i) => {
       const eff = (f: InheritedField) => orNull(effectiveValue(s, h, f));
+      // The picked structures, each once; the FIRST is mirrored onto the
+      // line's own fabric_structure_id / gsm for the readers of those (0715).
+      const structures = s.structures.filter((x, xi, all) => !!x.structure_id && all.findIndex((y) => y.structure_id === x.structure_id) === xi);
       return {
         id: s.id,
         sno: i + 1,
@@ -680,12 +722,16 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
         unit_kind: isUnitKind(s.unit_kind) ? s.unit_kind : null,
         sample_qty: orNull(s.sample_qty),
         delivery_date: orNull(s.delivery_date),
-        merchandiser_id: s.merchandiser_id,
+        // Sample Info's Merchandiser and Sample Type, on every line (§2).
+        merchandiser_id: h.merchandiser_id,
+        sample_type: orNull(h.sample_type),
         order_date: orNull(s.order_date),
-        fabric_structure_id: s.fabric_structure_id,
+        fabric_structure_id: structures[0]?.structure_id ?? null,
         fabric_id: s.fabric_id,
-        gsm: orNull(s.gsm),
-        tech_pack: orNull(s.tech_pack),
+        gsm: orNull(structures[0]?.gsm ?? ""),
+        structures: structures.map((x, xi) => ({ sno: xi + 1, structure_id: x.structure_id, gsm: orNull(x.gsm) })),
+        // The entry's Tech Pack status, on every line (user 2026-10-12).
+        tech_pack: orNull(h.tech_pack),
         customer_reference: eff("customer_reference"),
         receipt_mode: orNull(eff("receipt_mode")),
         receipt_date: eff("receipt_date"),

@@ -31,6 +31,7 @@ import type { SamplePickerRow } from "@/lib/orders/styles/service";
 import type { MixingShare } from "./combo-rules";
 import { listCompositionsForPicker, type CompositionPickerRow } from "@/lib/masters/composition-service";
 import { withCreators } from "@/lib/created-by";
+import { listSeasonNames } from "@/lib/masters/season-service";
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
 /**
@@ -932,6 +933,9 @@ export type RejectionRuleOption = {
 
 export type AmendmentFormData = {
   orders: OrderPickerRow[];
+  /** The Season box's list — the Season master's names (0717), shared with
+   *  Sample: Q1–Q4 and SUMMER / WINTER / SPRING / AUTUMN. */
+  seasons: string[];
   /* Carries `dedupe_key`; the picker collapses on it, keeping the held row.
      See `CustomerRow` — the fold cannot happen here. */
   customers: CustomerRow[];
@@ -1714,6 +1718,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     customerApprovalDefaults,
     taOwnerDepartmentsByActivity,
     employeesRaw,
+    seasons,
   ] = await Promise.all([
     getCustomerRows(),
     getMerchandiserRows(),
@@ -1741,8 +1746,10 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getTaOwnerDepartments(),
     // The T&A Task Owner list — HR ▸ Staff with their HR department (0674).
     listOrderPeople(),
+    listSeasonNames(),
   ]);
   return {
+    seasons,
     /**
      * NOT FETCHED ANY MORE (2026-08-31). `getOrderRows()` selected EVERY
      * `sales_orders` row with a `buyers` embed and no limit — 93 today, growing

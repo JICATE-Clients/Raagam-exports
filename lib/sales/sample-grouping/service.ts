@@ -254,7 +254,7 @@ export async function getGroupingData(): Promise<GroupingData> {
     if (!o || o.is_draft) continue;
     const costing = current.get(st.id);
     if (!costing) {
-      uncosted.push({ style_id: st.id, sample_no: st.sample_no, style_name: st.name ?? "", season: seasonOf(o), season_year: o.season_year });
+      uncosted.push({ style_id: st.id, smp_no: o.code ?? null, sample_no: st.sample_no, style_name: st.name ?? "", season: seasonOf(o), season_year: o.season_year });
       continue;
     }
     const pieces = piecesOf(st);

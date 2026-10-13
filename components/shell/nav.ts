@@ -96,6 +96,9 @@ export const NAV: NavItem[] = [
       // spec step 4, "Fabric & trim internal plan". The same record Orders opens.
       { href: "/sales/sample-fabric-plan", label: "Fabric Plan" },
       { href: "/sales/sample-accessories-plan", label: "Accessories Plan" },
+      // SAMPLE REVISION (0716, doc/sample/sample revion.md) — a locked (costing
+      // approved) sample changes only through a revision that goes to the MD.
+      { href: "/sales/sample-revision", label: "Revision" },
       // OPPORTUNITIES & COSTING, SQ DETAILS, PIPELINE & SEASONAL and CATALOGUES
       // & PRICING LEFT THE SIDEBAR (user 2026-10-09: "remove the opportunities
       // to catalogue and price 4 child from sample entry"). Sample Entry and

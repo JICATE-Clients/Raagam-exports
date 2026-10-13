@@ -37,7 +37,8 @@ type Result = { ok: true } | { ok: false; error: string };
 type CreateResult = { ok: true; id: string; code: string } | { ok: false; error: string };
 
 const PATH = "/sales/sample-grouping";
-const labelOf = (c: GroupingCandidate) => [c.sample_no, c.style_name].filter(Boolean).join(" · ") || "This style";
+// Named by its SMP number, never the PRD (client spec 2026-10-12 §5).
+const labelOf = (c: GroupingCandidate) => [c.enquiry_no, c.style_name].filter(Boolean).join(" · ") || "This style";
 
 function pick(all: GroupingCandidate[], keys: readonly string[]): GroupingCandidate[] | string {
   const byKey = new Map(all.map((c) => [c.key, c]));
@@ -312,7 +313,7 @@ export async function approveSampleGroup(groupId: string): Promise<Result> {
   if (missing) {
     return {
       ok: false,
-      error: `${[missing.sample_no, missing.style_name].filter(Boolean).join(" · ")} is no longer costed in the fabric it was batched for — remove it, or fix its costing.`,
+      error: `${[missing.enquiry_no, missing.style_name].filter(Boolean).join(" · ")} is no longer costed in the fabric it was batched for — remove it, or fix its costing.`,
     };
   }
   const err = await refreshDraft(group, data.candidates);
@@ -342,12 +343,12 @@ export async function raiseSampleGroupIw(
 ): Promise<{ ok: true; iwoId: string } | { ok: false; error: string }> {
   if (!(await can("sales", "edit"))) return { ok: false, error: "You do not have permission to change a sample group." };
   // nav-path: exempt -- "Orders ▸ Create" names the permission, not a menu row
-  if (!(await can("orders", "create"))) return { ok: false, error: "Raising an IW needs Orders ▸ Create — ask someone who can raise work orders." };
+  if (!(await can("orders", "create"))) return { ok: false, error: "Raising the SWO needs Orders ▸ Create — ask someone who can raise work orders." };
   const found = await groupById(groupId);
   if (typeof found === "string") return { ok: false, error: found };
   const { group } = found;
-  if (group.status !== "approved") return { ok: false, error: "Approve the group before raising its IW." };
-  if (group.iwo_id) return { ok: false, error: `${group.group_code} already has IW ${group.iwo_code ?? ""}.` };
+  if (group.status !== "approved") return { ok: false, error: "Approve the group before raising its SWO." };
+  if (group.iwo_id) return { ok: false, error: `${group.group_code} is already raised.` };
 
   const s = await createClient();
   const { data: dates } = await s
@@ -358,7 +359,7 @@ export async function raiseSampleGroupIw(
     .order("delivery_date", { ascending: true })
     .limit(1);
   const deli = opts.deli_date || ((dates?.[0] as { delivery_date: string } | undefined)?.delivery_date ?? null);
-  const styles = group.items.map((it) => it.sample_no ?? it.style_name).filter(Boolean).join(", ");
+  const styles = group.items.map((it) => it.enquiry_no ?? it.style_name).filter(Boolean).join(", ");
   const remarks =
     `SAMPLE GROUP ${group.group_code}: ${group.fabric_structure ?? ""} · ${group.yarn_blend} — ` +
     `NET ${fmtKg(group.net_required_weight_kg)} KG, BUY ${fmtKg(group.moq_purchased_weight_kg)} KG. STYLES: ${styles}`;
@@ -394,12 +395,12 @@ export async function approveAndRaiseSampleGroupIw(
 ): Promise<{ ok: true; iwoId: string } | { ok: false; error: string }> {
   if (!(await can("orders", "create"))) {
     // nav-path: exempt -- "Orders ▸ Create" names the permission, not a menu row
-    return { ok: false, error: "Raising an IW needs Orders ▸ Create — approve the group on its own, and ask someone who can raise work orders." };
+    return { ok: false, error: "Raising the SWO needs Orders ▸ Create — approve the group on its own, and ask someone who can raise work orders." };
   }
   const approved = await approveSampleGroup(groupId);
   if (!approved.ok) return approved;
   const raised = await raiseSampleGroupIw(groupId);
-  if (!raised.ok) return { ok: false, error: `The group is approved, but its IW was not raised: ${raised.error} Use Raise SWO to try again.` };
+  if (!raised.ok) return { ok: false, error: `The group is approved, but the SWO was not raised: ${raised.error} Use Raise SWO to try again.` };
   return raised;
 }
 

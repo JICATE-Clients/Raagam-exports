@@ -503,10 +503,11 @@ const freshKey = (cells: PlanCells): CellKey => {
 export function addSmpGroup(cells: PlanCells, smp: string): { cells: PlanCells; grp: string } {
   const key = freshKey(cells);
   const grp = `g:${key}`;
-  return { cells: { ...cells, [key]: { ...BLANK_CELL, sample_style_id: smp, part: "", grp } }, grp };
+  // No `part` (client spec 2026-10-12 §6 removed it): the column stays NULL.
+  return { cells: { ...cells, [key]: { ...BLANK_CELL, sample_style_id: smp, grp } }, grp };
 }
 
-/** "+ Add dia" inside the popup — a new dia carrying the row's SMP, Colour
+/** "+ Dia" on the row's last line — a new dia carrying the row's SMP, Colour
  *  and Print, placed after the row's last dia. */
 export function addSmpDia(cells: PlanCells, grp: string): PlanCells {
   const entries = Object.entries(cells);
@@ -519,7 +520,6 @@ export function addSmpDia(cells: PlanCells, grp: string): PlanCells {
     color_name: head.color_name,
     print_name: head.print_name,
     sample_style_id: smpOf(head),
-    part: "",
     grp,
   };
   const out: Record<CellKey, PlanCell> = {};
@@ -546,7 +546,7 @@ export function patchSmpDia(cells: PlanCells, key: CellKey, patch: Pick<Partial<
   return { ...cells, [key]: { ...held, grp: grpOf(held), ...patch } };
 }
 
-/** ✕ on a dia in the popup. The row's last dia is never removed this way — a
+/** ✕ on a further dia line. The row's last dia is never removed this way — a
  *  row with no dia would vanish from the sample; remove the row instead. */
 export function removeSmpDia(cells: PlanCells, key: CellKey): PlanCells {
   const held = cells[key];

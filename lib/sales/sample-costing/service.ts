@@ -38,6 +38,9 @@ export type CostingStyleOption = {
   /** The sizes the style was ticked with in Sample Entry (`style_sizes`), in
    *  entry order — the only sizes the weights table offers (0693). */
   sizes: string[];
+  /** A sample cost sheet already exists for this style (client spec
+   *  2026-10-12 §3) — a NEW sheet does not offer it again. */
+  costed: boolean;
 };
 
 export type CostingEnquiryOption = {
@@ -49,6 +52,9 @@ export type CostingEnquiryOption = {
   season: string | null;
   season_year: number | null;
   is_draft: boolean;
+  /** Every style of the entry is costed already — the Sample No picker of a
+   *  NEW sheet leaves it out (client spec 2026-10-12 §3). */
+  all_costed: boolean;
 };
 
 export type SampleCostingFormData = {
@@ -159,18 +165,33 @@ const one = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ?
  */
 async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styles: CostingStyleOption[] }> {
   const s = await createClient();
-  const { data, error } = await s
-    .from("opportunities")
-    .select(
-      "id, code, customer_id, title, season, season_year, is_draft, customer:customers!customer_id(name), " +
-        "styles(id, sno, sample_no, name, description, unit_kind, " +
-        "coordinates:sample_style_coordinates(sno, coordinate_id, item:items!coordinate_id(name)), " +
-        "files:sample_style_files(sno, storage_path, mime_type, doc_kind), " +
-        "sizes:style_sizes(sno, garment_size))",
-    )
-    .order("created_at", { ascending: true });
+  const [{ data, error }, sheets] = await Promise.all([
+    s
+      .from("opportunities")
+      .select(
+        "id, code, customer_id, title, season, season_year, is_draft, customer:customers!customer_id(name), " +
+          "styles(id, sno, sample_no, name, description, unit_kind, " +
+          "coordinates:sample_style_coordinates(sno, coordinate_id, item:items!coordinate_id(name)), " +
+          "files:sample_style_files(sno, storage_path, mime_type, doc_kind), " +
+          "sizes:style_sizes(sno, garment_size))",
+      )
+      .order("created_at", { ascending: true }),
+    // WHAT IS ALREADY COSTED (client spec 2026-10-12 §3) — the same reading as
+    // `listSamplesAwaitingCosting`: a sheet naming a style costs that style; a
+    // sheet with no style costs the whole entry. A failed read throws: an
+    // empty answer would offer every costed sample again.
+    s.from("cost_sheets").select("opportunity_id, style_id").eq("costing_type", "sample"),
+  ]);
   if (error) throw new Error(`Could not load sample enquiries: ${error.message}`);
+  if (sheets.error) throw new Error(`Could not load sample costings: ${sheets.error.message}`);
   const rows = (data ?? []) as unknown as EnquiryDb[];
+  const costedStyle = new Set<string>();
+  const costedEntry = new Set<string>();
+  for (const c of (sheets.data ?? []) as { opportunity_id: string | null; style_id: string | null }[]) {
+    if (c.style_id) costedStyle.add(c.style_id);
+    else if (c.opportunity_id) costedEntry.add(c.opportunity_id);
+  }
+  const isCosted = (oppId: string, styleId: string) => costedEntry.has(oppId) || costedStyle.has(styleId);
 
   const imagePath = new Map<string, string>();
   for (const r of rows) {
@@ -201,6 +222,8 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
       season: r.season,
       season_year: r.season_year,
       is_draft: !!r.is_draft,
+      // An entry with no style yet has nothing costed — it stays offered.
+      all_costed: costedEntry.has(r.id) || ((r.styles ?? []).length > 0 && (r.styles ?? []).every((st) => costedStyle.has(st.id))),
     };
   });
   const styles: CostingStyleOption[] = rows.flatMap((r) =>
@@ -222,6 +245,7 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
           .sort((a, b) => a.sno - b.sno)
           .map((z) => (z.garment_size ?? "").trim())
           .filter(Boolean),
+        costed: isCosted(r.id, st.id),
       })),
   );
   return { enquiries, styles };
@@ -371,6 +395,75 @@ export async function listSampleCostings(): Promise<CostingListRow[]> {
       created_at: r.created_at,
       created_by: r.created_by,
     }),
+  );
+  return withCreators(rows);
+}
+
+/**
+ * THE SAMPLES WAITING FOR A COSTING (user 2026-10-12: "created sample entry,
+ * why not listing in sample costing?"). The list above is cost sheets, so a
+ * sample saved on Sample Entry stayed invisible here until someone costed it
+ * from memory. Every saved (non-draft) entry's style with no sample costing of
+ * its own comes back as a "Not costed" row. An entry-level costing (one saved
+ * with no style) counts for every style of that entry.
+ */
+export async function listSamplesAwaitingCosting(): Promise<CostingListRow[]> {
+  const s = await createClient();
+  const [opps, sheets] = await Promise.all([
+    s
+      .from("opportunities")
+      .select("id, code, title, is_draft, created_at, created_by, customer:customers!customer_id(name), styles(id, sno, sample_no, name)")
+      .eq("is_draft", false)
+      .order("created_at", { ascending: true }),
+    s.from("cost_sheets").select("opportunity_id, style_id").eq("costing_type", "sample"),
+  ]);
+  if (opps.error) throw new Error(`Could not load sample entries: ${opps.error.message}`);
+  if (sheets.error) throw new Error(`Could not load sample costings: ${sheets.error.message}`);
+  const costedStyle = new Set<string>();
+  const costedEntry = new Set<string>();
+  for (const c of (sheets.data ?? []) as { opportunity_id: string | null; style_id: string | null }[]) {
+    if (c.style_id) costedStyle.add(c.style_id);
+    else if (c.opportunity_id) costedEntry.add(c.opportunity_id);
+  }
+  type OppDb = {
+    id: string;
+    code: string | null;
+    title: string | null;
+    created_at: string;
+    created_by: string | null;
+    customer: { name: string | null } | { name: string | null }[] | null;
+    styles: { id: string; sno: number | null; sample_no: string | null; name: string | null }[] | null;
+  };
+  const rows: CostingListRow[] = ((opps.data ?? []) as unknown as OppDb[]).flatMap((o) =>
+    costedEntry.has(o.id)
+      ? []
+      : [...(o.styles ?? [])]
+          .sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0))
+          .filter((st) => !costedStyle.has(st.id))
+          .map(
+            (st): CostingListRow => ({
+              id: `await:${st.id}`,
+              code: null,
+              version: 1,
+              status: "draft",
+              is_draft: false,
+              costing_date: null,
+              opportunity_id: o.id,
+              enquiry_no: o.code,
+              customer_name: one(o.customer)?.name ?? o.title ?? null,
+              style_id: st.id,
+              sample_no: st.sample_no,
+              style_name: st.name,
+              currency_code: null,
+              computed_fob: null,
+              target_fob: null,
+              profit_loss_pct: null,
+              // The ENTRY's creation — who raised the sample and when.
+              created_at: o.created_at,
+              created_by: o.created_by,
+              awaiting: true,
+            }),
+          ),
   );
   return withCreators(rows);
 }

@@ -12,6 +12,7 @@ import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { GarmentStyle } from "./types";
 import { withCreators } from "@/lib/created-by";
+import { listSeasonNames } from "@/lib/masters/season-service";
 
 /**
  * A row normalized to {id, code, name} for a RecordPicker.
@@ -325,6 +326,8 @@ export type FabricRow = {
 
 export type StyleFormData = {
   customers: Customer[];
+  /** The Season master's names (0717) — the list Sample Entry offers too. */
+  seasons: string[];
   /* `countries` left with the Country field (client 2026-08-11). It was a
      `listCountries()` on every page load feeding one picker; nothing reads it
      now, and a fetch no caller consumes is work the operator waits for. The
@@ -358,7 +361,7 @@ export type StyleFormData = {
 
 /** Every picker option list the Style editor needs, fetched in parallel. */
 export async function getStyleFormData(): Promise<StyleFormData> {
-  const [customers, uoms, samples, lookups, fabrics, processes, sizeGroups, categories, levies, garments, componentRows] =
+  const [customers, uoms, samples, lookups, fabrics, processes, sizeGroups, categories, levies, garments, componentRows, seasons] =
     await Promise.all([
       listCustomers(),
       getUomRows(),
@@ -371,9 +374,10 @@ export async function getStyleFormData(): Promise<StyleFormData> {
       listLevies(),
       getGarmentRows(),
       getComponentRows(),
+      listSeasonNames(),
     ]);
   return {
     customers, uoms, samples, lookups, fabrics, processes, sizeGroups,
-    categories, levies, garments, componentRows,
+    categories, levies, garments, componentRows, seasons,
   };
 }
