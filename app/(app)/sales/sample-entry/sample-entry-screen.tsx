@@ -81,7 +81,6 @@ import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useCreateIntent } from "@/lib/use-create-intent";
-import { useOpenIntent } from "@/lib/use-open-intent";
 import Link from "next/link";
 import { sampleEntryLock } from "@/lib/sales/sample-revisions/actions";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
@@ -485,11 +484,10 @@ export function SampleEntryScreen({
   });
   /* THE TOP-NAVIGATION TAB REMEMBERS THE OPEN ENQUIRY (user 2026-10-09): leaving from
      an enquiry and coming back through the tab reopens THAT enquiry, not the list.
-     `?open=<id>` is consumed by `useOpenIntent`, which strips it from the URL. */
-  useOpenIntent((id) => {
-    const r = rows.find((x) => x.id === id);
-    if (r) openEdit(r);
-  });
+     `?open=<id>` is consumed by `useOpenIntent`, which strips it from the URL. The
+     same param is a Sample Revision's "Open Sample Entry" — loaded by id, so it
+     opens an enquiry the list does not hold. */
+  useOpenIntent((id) => openEdit({ id } as SampleEntryListRow));
   const tabPath = usePathname();
   useTabResume(tabPath, mode === "edit" && editId ? `?open=${editId}` : null);
 
@@ -516,9 +514,6 @@ export function SampleEntryScreen({
       setMode("edit");
     });
   }
-
-  // `?open=<entry>` — a Sample Revision's "Open Sample Entry".
-  useOpenIntent((id) => openEdit({ id } as SampleEntryListRow));
 
   // ---- the active style line --------------------------------------------------
   const realStyles = styles.filter((s) => !isBlankStyle(s));
