@@ -1,3 +1,4 @@
+import type { PlanApprovalStatus } from "@/lib/sales/plan-reports/types";
 import { z } from "zod";
 import { capsTextNullable } from "@/lib/validation/formats";
 
@@ -96,6 +97,14 @@ export interface IwoMaterialBom {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** 0720 — the sample plan's approval (lib/sales/plan-reports/types.ts).
+   *  Submitted and approved LOCK the plan; a production plan stays `open`. */
+  approval_status: PlanApprovalStatus;
+  revision_no: number;
+  submitted_at: string | null;
+  decided_at: string | null;
+  decision_remark: string | null;
+  approved_at: string | null;
   iwo_material_bom_items: IwoMbItemRow[];
   iwo_material_bom_processes: IwoMbProcessRow[];
 }

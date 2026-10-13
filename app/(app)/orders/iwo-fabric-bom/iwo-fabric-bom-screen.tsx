@@ -171,7 +171,8 @@ import {
 import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
 import { SmpColourSheet } from "./smp-colour-sheet";
-import { FabricPlanRevisionSheet } from "./fabric-plan-revision-sheet";
+import { PlanRevisionSheet } from "@/components/sales/plan-revision-sheet";
+import { planReportHref } from "@/lib/sales/plan-reports/types";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import type { ApprovalRun, CanActVerdict } from "@/lib/approvals/types";
 import {
@@ -3437,7 +3438,11 @@ export function IwoFabricBomScreen({
               <span className="font-mono">{t.swo?.samples.map((x) => x.smp_no ?? x.sample_no).filter(Boolean).join(" · ") || "—"}</span>
             )}
             state={(t): SampleCardState => ({ pending: "pending", draft: "draft", updated: "updated" } as const)[bomWord(t)]}
-            pillText={(t) => (!t.bom ? "Not started" : t.bom.is_draft ? "Draft" : "Saved")}
+            // A saved sample plan's word is its APPROVAL (0718) — "Saved" alone
+            // says nothing about whether its yarn may be bought.
+            pillText={(t) =>
+              !t.bom ? "Not started" : t.bom.is_draft ? "Draft" : fabricPlanApprovalLabel(t.bom.approval_status, t.bom.revision_no)
+            }
             stats={(t) => {
               const planned = (t.bom?.iwo_fabric_bom_lines ?? []).reduce((a, l) => a + (Number(l.req_kgs) || 0), 0);
               const batched = (t.swo?.samples ?? []).reduce((a, x) => a + x.kg, 0);
@@ -3447,12 +3452,17 @@ export function IwoFabricBomScreen({
                 { label: "Deli Dt", value: t.deli_date ? fmtDate(t.deli_date) : "—" },
               ];
             }}
-            onOpen={(t) => (t.bom ? perms.canEdit : perms.canCreate) && openTask(t)}
+            // A saved plan opens for anyone who can see it — the lock and
+            // `viewOnly` decide what they may change.
+            onOpen={(t) => (t.bom ? true : perms.canCreate) && openTask(t)}
             footerNote={hasCreatedInfo(tasks) ? (t) => `Created ${createdMeta(t)}` : undefined}
             canDelete={perms.canDelete}
-            canDeleteRow={(t) => !!t.bom}
+            canDeleteRow={(t) => !!t.bom && t.bom.approval_status !== "submitted" && t.bom.approval_status !== "approved"}
             onDelete={del}
             isPending={isPending}
+            // Updated is done work — a table, as Orders draws it; Pending and
+            // Draft stay cards (user 2026-10-13).
+            table={quick.value === "updated" ? { title: "SWO No", subtitle: "SMP No" } : undefined}
             empty={
               !tasks.length
                 ? "No sample work orders For Yarn or Fabric at this unit yet — + New Fabric Plan raises one."
@@ -3520,11 +3530,23 @@ export function IwoFabricBomScreen({
               ) : null}
             </>
           ),
-          right: canSubmitPlan ? (
-            <Button disabled={isPending} onClick={submitPlan}>
-              Submit for Approval
-            </Button>
-          ) : null,
+          right:
+            planBom && editId ? (
+              <div className="flex items-center gap-2">
+                {/* THE PLAN AS A DOCUMENT (user 2026-10-13) — the report the
+                    approver reads on Sample ▸ Plan Approval. */}
+                {!dirty ? (
+                  <Button variant="outline" onClick={() => router.push(planReportHref("fabric", editId))}>
+                    Report
+                  </Button>
+                ) : null}
+                {canSubmitPlan ? (
+                  <Button disabled={isPending} onClick={submitPlan}>
+                    Submit for Approval
+                  </Button>
+                ) : null}
+              </div>
+            ) : null,
         }}
         // A SUBMITTED OR APPROVED SAMPLE PLAN IS LOCKED (0718): read-only, one
         // Close, the reason at the top — and the way on at its right: the
@@ -3570,7 +3592,8 @@ export function IwoFabricBomScreen({
       />
 
       {sample && editId && revisionOrigin !== undefined && (
-        <FabricPlanRevisionSheet
+        <PlanRevisionSheet
+          kind="fabric"
           bomId={editId}
           planLabel={planLabel}
           nextRevision={planRev + 1}

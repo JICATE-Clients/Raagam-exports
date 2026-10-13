@@ -186,29 +186,11 @@ export interface IwoFabricBomYarnRow {
   iwo_fabric_bom_yarn_shades: IwoFabricBomYarnShadeRow[];
 }
 
-/**
- * A sample Fabric Plan's approval (0718, client brief 2026-10-13 §2):
- * `open` → `submitted` → `approved`, or `returned` by the approver (editable
- * again, resubmit). An approved plan changes only through Raise Revision,
- * which reopens it as the next revision and pauses purchasing until it is
- * approved again.
- */
-export type FabricPlanApprovalStatus = "open" | "submitted" | "approved" | "returned";
-
-/** What the plan list and the editor's badge call each state. */
-export function fabricPlanApprovalLabel(status: FabricPlanApprovalStatus, revisionNo: number): string {
-  const rev = revisionNo > 0 ? `Rev ${revisionNo} ` : "";
-  switch (status) {
-    case "submitted":
-      return `${rev}with approver`.replace(/^./, (c) => c.toUpperCase());
-    case "approved":
-      return revisionNo > 0 ? `Approved · Rev ${revisionNo}` : "Approved";
-    case "returned":
-      return "Sent back";
-    default:
-      return revisionNo > 0 ? `Revision ${revisionNo} open` : "Not submitted";
-  }
-}
+/** A sample Fabric Plan's approval (0718) — one definition for both sample
+ *  plans, in lib/sales/plan-reports/types.ts. */
+export type { PlanApprovalStatus as FabricPlanApprovalStatus } from "@/lib/sales/plan-reports/types";
+export { planApprovalLabel as fabricPlanApprovalLabel } from "@/lib/sales/plan-reports/types";
+import type { PlanApprovalStatus } from "@/lib/sales/plan-reports/types";
 
 export interface IwoFabricBom {
   id: string;
@@ -222,7 +204,7 @@ export interface IwoFabricBom {
   updated_at: string;
   /** 0718 — the sample plan's approval. Submitted and approved LOCK the plan
    *  in the database; a production plan stays `open` for good. */
-  approval_status: FabricPlanApprovalStatus;
+  approval_status: PlanApprovalStatus;
   /** 0718 — 0 until the first Fabric Plan Revision. */
   revision_no: number;
   submitted_at: string | null;

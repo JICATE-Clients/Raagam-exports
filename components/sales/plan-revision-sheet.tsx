@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * RAISE REVISION on an approved sample Fabric Plan (0718, client brief
- * 2026-10-13 §2: "any changes to weights or processes must go through a
- * Fabric Plan Revision").
+ * RAISE REVISION on an approved sample plan — the Fabric Plan (0718, client
+ * brief 2026-10-13 §2: "any changes to weights or processes must go through a
+ * Fabric Plan Revision") and its twin the Accessories Plan (0720).
  *
  * One field, the reason, and it is mandatory — the revision log keeps it
  * beside the yarn weights that had been approved, and the approver reads it
@@ -18,8 +18,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { raiseFabricPlanRevision } from "@/lib/orders/iwo-fabric-bom/approval-actions";
+import { raiseAccessoriesPlanRevision } from "@/lib/orders/iwo-material-bom/approval-actions";
+import { PLAN_KIND_LABEL, type PlanKind } from "@/lib/sales/plan-reports/types";
 
-export function FabricPlanRevisionSheet({
+export function PlanRevisionSheet({
+  kind,
   bomId,
   planLabel,
   nextRevision,
@@ -27,6 +30,7 @@ export function FabricPlanRevisionSheet({
   onClose,
   onRaised,
 }: {
+  kind: PlanKind;
   bomId: string;
   /** The SWO number — what the operator calls the plan. */
   planLabel: string;
@@ -41,7 +45,7 @@ export function FabricPlanRevisionSheet({
 
   function raise() {
     start(async () => {
-      const res = await raiseFabricPlanRevision(bomId, reason);
+      const res = await (kind === "fabric" ? raiseFabricPlanRevision : raiseAccessoriesPlanRevision)(bomId, reason);
       if (!res.ok) {
         toastError(res.error);
         return;
@@ -76,8 +80,7 @@ export function FabricPlanRevisionSheet({
         </Field>
       </FieldGrid>
       <p className="mt-3 text-xs text-muted-foreground">
-        The plan opens for editing and yarn purchasing pauses until the revised plan is approved. The weights approved
-        so far are kept on record.
+        {`The ${PLAN_KIND_LABEL[kind]} opens for editing and its purchasing pauses until the revised plan is approved. The quantities approved so far are kept on record.`}
       </p>
     </Sheet>
   );

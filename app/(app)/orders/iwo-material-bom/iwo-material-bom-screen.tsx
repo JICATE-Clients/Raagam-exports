@@ -73,6 +73,21 @@ import { cn } from "@/lib/utils";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
+import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
+import type { ApprovalRun, CanActVerdict } from "@/lib/approvals/types";
+import { PlanRevisionSheet } from "@/components/sales/plan-revision-sheet";
+import type { SheetOrigin } from "@/components/ui/sheet";
+import {
+  getAccessoriesPlanApproval,
+  submitSampleAccessoriesPlan,
+  type AccessoriesPlanRevision,
+} from "@/lib/orders/iwo-material-bom/approval-actions";
+import {
+  planApprovalLabel,
+  planApprovalTone,
+  planReportHref,
+  type PlanApprovalStatus,
+} from "@/lib/sales/plan-reports/types";
 import { sectionValidity } from "@/lib/screens/validity";
 import { materialsForCategory } from "@/lib/orders/material-bom-amendment/material-options";
 import { uomPatchForMaterial } from "@/lib/orders/material-bom/uom-prefill";
@@ -335,6 +350,15 @@ export function IwoMaterialBomScreen({
 
   }
   const [editId, setEditId] = useState<string | null>(null);
+  /** SAMPLE PLAN APPROVAL (0720, the Fabric Plan's twin): the open plan's run,
+   *  whether this user may decide it, and its revision log — keyed `forId`. */
+  const [approval, setApproval] = useState<{
+    forId: string;
+    run: ApprovalRun | null;
+    verdict: CanActVerdict | null;
+    revisions: AccessoriesPlanRevision[];
+  } | null>(null);
+  const [revisionOrigin, setRevisionOrigin] = useState<SheetOrigin | null | undefined>(undefined);
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
   const [items, setItems] = useState<ItemRow[]>([]);
   const [procs, setProcs] = useState<ProcRow[]>([]);
@@ -568,10 +592,19 @@ export function IwoMaterialBomScreen({
     setMode("edit");
   }
 
+  function loadApproval(bomId: string) {
+    getAccessoriesPlanApproval(bomId).then(
+      (p) => setApproval({ forId: bomId, run: p.run, verdict: p.verdict, revisions: p.revisions }),
+      () => setApproval(null),
+    );
+  }
+
   function openTask(t: IwoMaterialBomTask) {
     const b = t.bom;
     if (!b) return openNew(t.id);
     setEditId(b.id);
+    setApproval(null);
+    if (sample) loadApproval(b.id);
     setForm({ iwo_id: t.id, bom_date: b.bom_date });
     const is = b.iwo_material_bom_items.map((r) => ({
       key: newKey(),
@@ -618,9 +651,10 @@ export function IwoMaterialBomScreen({
 
   /** `?open=<iwoId>` — the IWO screen's "Open Material BOM" lands here, IN that
    *  work order's BOM. Declared after `openTask`, above any branch. */
-  useOpenIntent((iwoId) => {
-    const t = taskById.get(iwoId);
-    if (t && (t.bom ? perms.canEdit : perms.canCreate)) openTask(t);
+  useOpenIntent((id) => {
+    // A work order id, or a PLAN id (Sample ▸ Plan Approval's "Open plan").
+    const t = taskById.get(id) ?? tasks.find((x) => x.bom?.id === id);
+    if (t && (t.bom ? true : perms.canCreate)) openTask(t);
   });
 
   // ---- the quantity chain, previewed with the SAME function the save calls ----
@@ -712,6 +746,54 @@ export function IwoMaterialBomScreen({
 
   // ---- the list ----------------------------------------------------------------
 
+  // ---- sample plan approval (0720) ---------------------------------------------
+  // The Fabric Plan's rules, on the trims plan: the DATABASE is the lock and
+  // the purchase gate; this says so on screen. `sample` gates all of it.
+  const planBom = sample && editId ? (picked?.bom ?? null) : null;
+  const planStatus: PlanApprovalStatus | null = planBom?.approval_status ?? null;
+  const planRev = planBom?.revision_no ?? 0;
+  const planLocked = planStatus === "submitted" || planStatus === "approved";
+  const planLabel = picked?.swo?.code ?? picked?.code ?? "This plan";
+  const panel = approval && approval.forId === editId ? approval : null;
+  const decide =
+    panel?.run && panel.verdict && panel.run.status === "in_progress" && panel.verdict.can_act ? (
+      <ApprovalActionBar
+        run={panel.run}
+        verdict={panel.verdict}
+        subjectPath="/sales/sample-accessories-plan"
+        rework
+        compact
+        onDone={() => {
+          if (editId) loadApproval(editId);
+          router.refresh();
+        }}
+      />
+    ) : null;
+  /** Submit is the next step once saved — hidden while there are unsaved
+   *  changes (button plan Rule 2), so only the saved plan is sent. */
+  const canSubmitPlan = !!planBom && !planLocked && !planBom.is_draft && !dirty && perms.canEdit;
+  function submitPlan() {
+    if (!editId) return;
+    start(async () => {
+      const res = await submitSampleAccessoriesPlan(editId);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      success(`${planLabel} sent for approval`);
+      loadApproval(editId);
+      router.refresh();
+    });
+  }
+  const openRevision =
+    planStatus === "open" && planRev > 0 ? panel?.revisions.find((r) => r.revision_no === planRev) : undefined;
+  const planLockMessage =
+    planStatus === "submitted"
+      ? `${planRev ? `Revision ${planRev} is` : "This Accessories Plan is"} with the approver — nothing in it can change until it is approved or sent back, and no trims can be bought yet.`
+      : planStatus === "approved"
+        ? `Approved${planRev ? ` (Revision ${planRev})` : ""} and locked — trims can be bought up to its purchase quantities. To change them, Raise Revision.`
+        : null;
+
   const columns: Column<IwoMaterialBomTask>[] = [
     {
       // A sample plan is known by its SWO (0709) — the SIW number stays
@@ -739,6 +821,10 @@ export function IwoMaterialBomScreen({
           <StatusPill tone="neutral">Not started</StatusPill>
         ) : t.bom.is_draft ? (
           <StatusPill tone="info">Draft</StatusPill>
+        ) : sample ? (
+          <StatusPill tone={planApprovalTone(t.bom.approval_status, t.bom.revision_no)}>
+            {planApprovalLabel(t.bom.approval_status, t.bom.revision_no)}
+          </StatusPill>
         ) : (
           <StatusPill tone="success">Saved</StatusPill>
         ),
@@ -750,6 +836,13 @@ export function IwoMaterialBomScreen({
         canEdit={t.bom ? perms.canEdit : perms.canCreate}
         onDelete={t.bom ? () => del(t) : undefined}
         canDelete={!!t.bom && perms.canDelete}
+        deleteDisabledReason={
+          t.bom?.approval_status === "approved"
+            ? "An approved Accessories Plan cannot be deleted"
+            : t.bom?.approval_status === "submitted"
+              ? "This Accessories Plan is with the approver"
+              : null
+        }
         deleteLabel="Delete BOM"
         isPending={isPending}
       />
@@ -1487,18 +1580,24 @@ export function IwoMaterialBomScreen({
             title={(t) => <span className="font-mono">{t.swo?.code ?? t.code ?? "—"}</span>}
             subtitle={(t) => <span className="font-mono">{t.swo?.smp_nos.join(" · ") || "—"}</span>}
             state={(t): SampleCardState => ({ pending: "pending", draft: "draft", updated: "updated" } as const)[bomWord(t)]}
-            pillText={(t) => (!t.bom ? "Not started" : t.bom.is_draft ? "Draft" : "Saved")}
+            // A saved sample plan's word is its APPROVAL (0720).
+            pillText={(t) =>
+              !t.bom ? "Not started" : t.bom.is_draft ? "Draft" : planApprovalLabel(t.bom.approval_status, t.bom.revision_no)
+            }
             stats={(t) => [
               { label: "Samples", value: String(t.swo?.smp_nos.length ?? 0) },
               { label: "Trims", value: String(t.bom?.iwo_material_bom_items.length ?? 0), lead: true },
               { label: "Deli Dt", value: t.deli_date ? fmtDate(t.deli_date) : "—" },
             ]}
-            onOpen={(t) => (t.bom ? perms.canEdit : perms.canCreate) && openTask(t)}
+            onOpen={(t) => (t.bom ? true : perms.canCreate) && openTask(t)}
             footerNote={hasCreatedInfo(tasks) ? (t) => `Created ${createdMeta(t)}` : undefined}
             canDelete={perms.canDelete}
-            canDeleteRow={(t) => !!t.bom}
+            canDeleteRow={(t) => !!t.bom && t.bom.approval_status !== "submitted" && t.bom.approval_status !== "approved"}
             onDelete={del}
             isPending={isPending}
+            // Updated is done work — a table, as Orders draws it; Pending and
+            // Draft stay cards (user 2026-10-13).
+            table={quick.value === "updated" ? { title: "SWO No", subtitle: "SMP No" } : undefined}
             empty={
               !tasks.length
                 ? "No accessories plans at this unit yet — + New Accessories Plan, then pick the SWO."
@@ -1538,14 +1637,57 @@ export function IwoMaterialBomScreen({
         header={{
           initials: "MB",
           title: (sample ? (picked?.swo?.code ?? picked?.code) : picked?.code) ?? "New Accessories Plan",
-          badges: dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null,
+          badges: (
+            <>
+              {planStatus && planBom && !planBom.is_draft ? (
+                <StatusPill tone={planApprovalTone(planStatus, planRev)}>{planApprovalLabel(planStatus, planRev)}</StatusPill>
+              ) : null}
+              {dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : null}
+            </>
+          ),
           meta: (
             <>
               <span>{picked ? "For Accessories" : sample ? "No SWO chosen" : "No work order chosen"}</span>
               {form.bom_date && <span>· {fmtDate(form.bom_date)}</span>}
+              {openRevision ? <span>· Revision {planRev}: {openRevision.reason}</span> : null}
+              {planStatus === "returned" && planBom?.decision_remark ? (
+                <span className="text-warning">· Sent back: {planBom.decision_remark}</span>
+              ) : null}
             </>
           ),
+          right:
+            planBom && editId ? (
+              <div className="flex items-center gap-2">
+                {!dirty ? (
+                  <Button variant="outline" onClick={() => router.push(planReportHref("accessories", editId))}>
+                    Report
+                  </Button>
+                ) : null}
+                {canSubmitPlan ? (
+                  <Button disabled={isPending} onClick={submitPlan}>
+                    Submit for Approval
+                  </Button>
+                ) : null}
+              </div>
+            ) : null,
         }}
+        // A SUBMITTED OR APPROVED SAMPLE PLAN IS LOCKED (0720): read-only, one
+        // Close, the reason at the top — and the way on at its right.
+        locked={
+          planLockMessage
+            ? {
+                message: planLockMessage,
+                action:
+                  decide ??
+                  (planStatus === "approved" && perms.canEdit ? (
+                    <Button variant="outline" onClick={(e) => setRevisionOrigin(e.currentTarget.getBoundingClientRect())}>
+                      Raise Revision
+                    </Button>
+                  ) : undefined),
+              }
+            : false
+        }
+        viewOnly={!!editId && !perms.canEdit}
         sections={sections}
         footer={{
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Accessories Plan",
@@ -1555,9 +1697,27 @@ export function IwoMaterialBomScreen({
           saveLabel: "Save Accessories Plan",
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
+          // Submit is the one filled button once the plan is saved (Rule 2).
+          saveQuiet: canSubmitPlan,
           isPending,
         }}
       />
+
+      {sample && editId && revisionOrigin !== undefined && (
+        <PlanRevisionSheet
+          kind="accessories"
+          bomId={editId}
+          planLabel={planLabel}
+          nextRevision={planRev + 1}
+          origin={revisionOrigin}
+          onClose={() => setRevisionOrigin(undefined)}
+          onRaised={() => {
+            setRevisionOrigin(undefined);
+            loadApproval(editId);
+            router.refresh();
+          }}
+        />
+      )}
     </>
   );
 }
