@@ -59,8 +59,17 @@ export function Tabs({
   value,
   onChange,
   side = false,
+  after,
 }: {
   items: TabItem[];
+  /**
+   * A control at the END of the strip, after the last tab — the "+ Add style"
+   * of a document whose tabs ARE its lines (Sample Entry ▸ Styles, user
+   * 2026-10-13: "add style kudutha tab aa varanum"). Not a tab: it takes no
+   * part in the arrow keys' roving stop, and it is drawn in the strip rather
+   * than under the panel so a new line appears where the operator clicked.
+   */
+  after?: ReactNode;
   defaultKey?: string;
   /** Controlled active tab. Supply with `onChange` when a parent needs to jump
    *  the operator somewhere — "Save is blocked, the problem is on Prices". */
@@ -340,6 +349,7 @@ export function Tabs({
             </button>
           );
         })}
+        {after != null && <div className="flex shrink-0 items-center pb-1 pl-1">{after}</div>}
       </div>
       <div className={cn("pt-4", side && "@min-[76.5rem]/tabs:min-w-0 @min-[76.5rem]/tabs:pt-0")} role="tabpanel">
         {current?.content}

@@ -87,12 +87,11 @@ import { SubDetailSheet, useSubSheetOrigin } from "@/components/orders/sub-detai
 import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, RowIconAction } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
+import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdByFacet, createdDateFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { TypeOrPick } from "@/app/(app)/orders/_garment-order/type-or-pick";
@@ -1206,106 +1205,6 @@ export function SampleCostingScreen({
   // ---- the list -----------------------------------------------------------------
   const lockReason = (r: CostingListRow) =>
     isEditableStatus(r.status) ? null : `${STATUS_LABEL[r.status]} — open it to view or revise.`;
-  const listColumns: Column<CostingListRow>[] = [
-    {
-      header: "Costing No",
-      cell: (r) =>
-        r.awaiting ? (
-          perms.canCreate ? (
-            <button type="button" onClick={() => startCostingFor(r)} className="text-xs font-medium text-primary hover:underline">
-              Start costing
-            </button>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )
-        ) : (
-          <button type="button" onClick={() => openById(r.id)} className="font-mono text-xs font-medium text-primary hover:underline">
-            {r.code ?? "—"}
-          </button>
-        ),
-    },
-    { header: "Rev", cell: (r) => <span className="tabular-nums text-xs">{r.awaiting ? "—" : revisionShort(r.version)}</span> },
-    { header: "Date", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.costing_date)}</span> },
-    { header: "Sample No", cell: (r) => <span className="font-mono text-xs">{r.enquiry_no ?? "—"}</span> },
-    { header: "Customer", cell: (r) => <span className="text-xs">{r.customer_name ?? "—"}</span> },
-    {
-      header: "Style",
-      cell: (r) => <span className="text-xs">{[r.sample_no, r.style_name].filter(Boolean).join(" · ") || "—"}</span>,
-    },
-    {
-      header: "Quoted",
-      align: "right",
-      cell: (r) => (
-        <span className="block text-right font-mono tabular-nums text-xs">
-          {r.target_fob != null ? `${r.currency_code ?? ""} ${money(r.target_fob)}` : "—"}
-        </span>
-      ),
-    },
-    {
-      header: "Margin",
-      align: "right",
-      cell: (r) => {
-        const h = marginHealth(r.profit_loss_pct);
-        return (
-          <span className={`block text-right font-mono tabular-nums text-xs ${h ? HEALTH[h].text : ""}`}>
-            {r.profit_loss_pct != null ? `${r.profit_loss_pct.toFixed(1)}%` : "—"}
-          </span>
-        );
-      },
-    },
-    {
-      header: "Approval",
-      cell: (r) =>
-        r.awaiting ? (
-          <StatusPill tone="neutral">Not costed</StatusPill>
-        ) : r.is_draft ? (
-          <span className="text-xs text-muted-foreground">Draft</span>
-        ) : (
-          <StatusPill tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</StatusPill>
-        ),
-    },
-    rowActionsColumn((r) =>
-      r.awaiting ? (
-        // No sheet yet: nothing to report or delete — the pencil starts one.
-        <RowActions
-          label={[r.enquiry_no, r.style_name].filter(Boolean).join(" · ")}
-          view={false}
-          onEdit={() => startCostingFor(r)}
-          canEdit={perms.canCreate}
-          canDelete={false}
-          isPending={isPending}
-        />
-      ) : (
-      <RowActions
-        label={r.code}
-        view={false}
-        /* ONE REPORTS ICON, the shape Order Entry's rows use (client 2026-10-09):
-           it opens Costing ▸ Reports with the Cost Sheet and the Quotation as
-           tabs. The two separate icons — one a page, one a direct PDF download —
-           are gone; nothing downloads until the reader has seen the document. */
-        lead={
-          <RowIconAction
-            label="Reports"
-            name={r.code}
-            icon={FileText}
-            className="text-primary"
-            onClick={() => router.push(`/sales/sample-costing/${r.id}/reports`)}
-          />
-        }
-        menu={perms.canCreate ? [{ label: "Duplicate as a new costing", icon: Copy, onClick: () => duplicateFrom(r.id) }] : undefined}
-        menuAs="icons"
-        onEdit={() => openById(r.id)}
-        canEdit={perms.canEdit}
-        editDisabledReason={lockReason(r)}
-        onDelete={() => del(r)}
-        canDelete={perms.canDelete}
-        deleteDisabledReason={lockReason(r)}
-        isPending={isPending}
-      />
-      ),
-    ),
-  ];
-
   // ==========================================================================
   // FABRIC — ONE ROW PER FABRIC, THE RATE BUILT INLINE UNDER IT (user 2026-10-08)
   // ==========================================================================
@@ -3943,11 +3842,36 @@ export function SampleCostingScreen({
             : `${filtered.length} of ${current.length}`
         }
       />
-      <DataTable
-        columns={withCreatedColumns(listColumns, filtered)}
+      {/* CARDS, THE SAMPLE MODULE'S QUEUE (user 2026-10-13: "accessories la irukka
+          card mari … costing la yum") — the Accessories Plan's card, through the
+          same `SampleCards`. Same rows, search and Pending / Updated / Draft box
+          as the table; Reports and Delete ride the card's footer. */}
+      <SampleCards<CostingListRow>
         rows={filtered}
-        compact
         getKey={(r) => r.id}
+        title={(r) => <span className="font-mono">{r.awaiting ? (r.enquiry_no ?? "—") : (r.code ?? "—")}</span>}
+        subtitle={(r) => (
+          <span>{[r.awaiting ? null : r.enquiry_no, r.customer_name, r.sample_no, r.style_name].filter(Boolean).join(" · ") || "—"}</span>
+        )}
+        state={(r): SampleCardState => ({ pending: "pending", draft: "draft", updated: "updated" } as const)[costingWordOf(r)]}
+        pillText={(r) => (r.awaiting ? "Not costed" : r.is_draft ? "Draft" : STATUS_LABEL[r.status])}
+        stats={(r) => [
+          {
+            label: "Quoted",
+            value: r.target_fob != null ? `${r.currency_code ?? ""} ${money(r.target_fob)}`.trim() : "—",
+            lead: true,
+          },
+          { label: "Margin", value: r.profit_loss_pct != null ? `${r.profit_loss_pct.toFixed(1)}%` : "—" },
+          { label: "Date", value: r.awaiting ? "—" : fmtDate(r.costing_date) },
+        ]}
+        onOpen={(r) => (r.awaiting ? perms.canCreate && startCostingFor(r) : openById(r.id))}
+        footerNote={hasCreatedInfo(filtered) ? (r) => `Created ${createdMeta(r)}` : undefined}
+        canDelete={perms.canDelete}
+        canDeleteRow={(r) => !r.awaiting && !lockReason(r)}
+        onDelete={del}
+        onReports={(r) => router.push(`/sales/sample-costing/${r.id}/reports`)}
+        canReportsRow={(r) => !r.awaiting}
+        isPending={isPending}
         empty={
           !current.length
             ? "No sample costings yet. Use 'New Sample Costing' to cost the first sample."

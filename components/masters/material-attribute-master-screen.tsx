@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
-import { Sheet } from "@/components/ui/sheet";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
@@ -75,10 +75,6 @@ type LineRow = {
  *
  *   Identity — item class 200 + category 200, 1 × 12 gap = 412
  */
-const FIELD_W = {
-  item_class: "party", // 200px — "PACKING ACCESSORIES" is the longest class
-  category: "party", //   200px — picker trigger + its manage icon
-} satisfies Record<string, FieldWidth>;
 
 /**
  * The Attributes panel AND the footer's buttons, from ONE string. The widest
@@ -140,6 +136,9 @@ export function MaterialAttributeMasterScreen({
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  // The editor is an inline panel, not a Sheet, so it no longer registers the
+  // auto-reload guard for us.
+  useUnsavedGuard(open || isPending);
   const [editId, setEditId] = useState<string | null>(null);
   const [itemClassId, setItemClassId] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -628,7 +627,7 @@ export function MaterialAttributeMasterScreen({
         ? await updateMaterialAttribute(editId, payload)
         : await createMaterialAttribute(payload);
       if (res.ok) {
-        success(editId ? "Material attribute updated." : "Material attribute added.");
+        success(editId ? "Material attribute updated." : "Material attribute added. Use Edit to add its attributes.");
         setOpen(false);
         router.refresh();
       } else {
@@ -681,6 +680,8 @@ export function MaterialAttributeMasterScreen({
       />
     )),
   ];
+
+  const tableColumns = withCreatedColumns(columns, pg.paged);
 
   return (
     <div className="space-y-4">
@@ -758,92 +759,27 @@ export function MaterialAttributeMasterScreen({
         </div>
       </div>
 
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged}
-        paginate={false} getKey={(r) => r.id} empty="No material attributes yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {pg.paged.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No material attributes yet.
+      {/* editor — INLINE, above the list, not a Sheet (client 2026-10-13: "item
+          class module reference … table laye add panna"). Same shape as the
+          Item Class master: "+ Add" opens the record where the table is, and
+          Cancel / Save close it. `data-focus-scope` makes it an editor for
+          Tab/Enter (lib/focus.ts); Escape closes it, one layer. */}
+      {open && (
+        <div
+          data-focus-scope
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !e.defaultPrevented) {
+              e.stopPropagation();
+              setOpen(false);
+            }
+          }}
+          // A NEW record is a table row on desktop, so the card is phone-only then.
+          className={cn("overflow-hidden rounded-lg border border-border bg-surface", !editId && "md:hidden")}
+        >
+          <div className="border-b border-border bg-surface-muted/60 px-4 py-2.5 text-sm font-semibold">
+            {editId ? "Edit Material Attribute" : "New Material Attribute"}
           </div>
-        ) : (
-          pg.paged.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="text-[15px] font-semibold text-foreground">
-                {r.item_class_id ? classLabel.get(r.item_class_id) ?? "—" : "—"}
-              </div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                {r.category_id ? categoryName.get(r.category_id) ?? "—" : "No category"}
-              </div>
-              <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
-              <div className="mt-2 text-[13px] text-muted-foreground">
-                {r.lines.length} attribute{r.lines.length === 1 ? "" : "s"}
-              </div>
-            </button>
-          ))
-        )}
-      </div>
-
-      <PaginationBar
-        page={pg.page}
-        pageCount={pg.pageCount}
-        total={pg.total}
-        pageSize={pg.pageSize}
-        onPageChange={pg.setPage}
-        onPageSizeChange={pg.setPageSize}
-      />
-
-      {/* editor */}
-      <Sheet
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editId ? "Edit Material Attribute" : "New Material Attribute"}
-        footer={
-          /* `mr-auto` parks this box at the footer's left, so the buttons end
-             where the Attributes panel ends. Same `FORM_W`. */
-          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              size="md"
-              // Duplicates block the save rather than being silently dropped —
-              // the offending row is already red, so the disabled button has an
-              // explanation on screen.
-              //
-              // `hasStartedBlankLine` is the SAME declaration as the cursor hold
-              // on the Attribute cell, reaching the Save button as AGENTS.md
-              // requires ("one declaration, four enforcers"). The hold alone
-              // only closes the keyboard route: it refuses forward movement, so
-              // a keyboard operator cannot reach Save past a started row with no
-              // attribute — but the mouse was never held, and `submit()` drops
-              // any line with no attribute, so clicking Save still binned the
-              // work in silence. The row also carries its own red message, so
-              // the disabled button has its reason on screen.
-              disabled={
-                isPending ||
-                !itemClassId ||
-                !categoryId ||
-                hasDuplicateLine ||
-                hasDuplicateOption ||
-                hasStartedBlankLine
-              }
-              onClick={submit}
-            >
-              {isPending ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        }
-      >
+          <div className="px-4 py-3">
         <div className="space-y-3">
           {/* Single column, header ABOVE the attributes (client 2026-07-27).
               This used to be `lg:grid-cols-2` with the header on the left and
@@ -864,10 +800,14 @@ export function MaterialAttributeMasterScreen({
               an `IdentityRow` whose fractional tracks stretched both fields
               across the pane. `align="start"` because both fields render a hint
               below the control. */}
-          <FieldRow align="start">
+          {/* Table layer (client 2026-10-13): the two identity fields sit in a
+              one bordered card that ALSO holds the attributes list below, so
+              the two fields are inside the table, not above it. */}
+          <div className={cn("space-y-3 rounded-lg border border-border bg-surface p-3", FORM_W)}>
+          <div className="grid grid-cols-1 overflow-hidden rounded-md border border-border sm:grid-cols-[repeat(2,15rem)]">
             <Field
               label="Item Class"
-              w={FIELD_W.item_class}
+              className="p-2"
               required
               htmlFor="ma-item-class"
               hint="Sewing and Packing only"
@@ -917,7 +857,7 @@ export function MaterialAttributeMasterScreen({
                 note above says it lost. */}
             <Field
               label="Category"
-              w={FIELD_W.category}
+              className="border-t border-border p-2 sm:border-l sm:border-t-0"
               required
               htmlFor="ma-category"
               hint={
@@ -948,10 +888,13 @@ export function MaterialAttributeMasterScreen({
                 fabricStructures={fabricStructures}
               />
             </Field>
-          </FieldRow>
+          </div>
 
           {/* Attribute lines — meaningless until an Item Class scopes the
               pickable values, so keep the placeholder gate here */}
+          {/* NEW is just the two identity cells (client 2026-10-13: "simple, like
+              the Item Class table"). The attribute lines open on EDIT. */}
+          {editId && (
           <div className="space-y-4">
           {!itemClassId ? (
             <div className={cn("rounded-lg border border-dashed border-border bg-surface-muted/50 px-4 py-12 text-center text-sm text-muted-foreground", FORM_W)}>
@@ -1326,8 +1269,192 @@ export function MaterialAttributeMasterScreen({
           </div>
           )}
           </div>
+          )}
+          </div>
         </div>
-      </Sheet>
+          </div>
+          <div data-focus-region="footer" className="border-t border-border bg-surface px-4 py-3">
+          {/* `mr-auto` parks this box at the footer's left, so the buttons end
+             where the Attributes panel ends. Same `FORM_W`. */}
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
+            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="md"
+              // Duplicates block the save rather than being silently dropped —
+              // the offending row is already red, so the disabled button has an
+              // explanation on screen.
+              //
+              // `hasStartedBlankLine` is the SAME declaration as the cursor hold
+              // on the Attribute cell, reaching the Save button as AGENTS.md
+              // requires ("one declaration, four enforcers"). The hold alone
+              // only closes the keyboard route: it refuses forward movement, so
+              // a keyboard operator cannot reach Save past a started row with no
+              // attribute — but the mouse was never held, and `submit()` drops
+              // any line with no attribute, so clicking Save still binned the
+              // work in silence. The row also carries its own red message, so
+              // the disabled button has its reason on screen.
+              disabled={
+                isPending ||
+                !itemClassId ||
+                !categoryId ||
+                hasDuplicateLine ||
+                hasDuplicateOption ||
+                hasStartedBlankLine
+              }
+              onClick={submit}
+            >
+              {isPending ? "Saving…" : "Save"}
+            </Button>
+          </div>
+          </div>
+        </div>
+      )}
+
+      {/* desktop table */}
+      <div className="hidden md:block">
+        {open && !editId ? (
+          /* NEW = a row at the top of the table, exactly like Item Class
+             (client 2026-10-13, screenshot: "intha mari box mattum open").
+             Same markup as DataTable's, so the list does not change shape. */
+          <div
+            data-focus-scope
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && !e.defaultPrevented) {
+                e.stopPropagation();
+                setOpen(false);
+              }
+            }}
+            className="overflow-x-auto rounded-lg border border-border bg-surface"
+          >
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-muted">
+                  {tableColumns.map((c, i) => (
+                    <th key={i} className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
+                      {c.header}
+                      {i < 2 && <span className="ml-0.5 text-danger">*</span>}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-border bg-primary/5">
+                  {tableColumns.map((c, i) => (
+                    <td key={i} className="px-3 py-1.5 align-middle">
+                      {i === 0 ? (
+                        <Field required w="party">
+                          <Select
+                            id="ma-item-class"
+                            aria-label="Item Class"
+                            autoFocus
+                            value={itemClassId}
+                            onChange={(e) => changeItemClass(e.target.value)}
+                          >
+                            <option value=""></option>
+                            {attributes
+                              .filter((a) => a.is_active)
+                              .map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name}
+                                </option>
+                              ))}
+                          </Select>
+                        </Field>
+                      ) : i === 1 ? (
+                        <Field required w="party">
+                          <CategoryPicker
+                            label=""
+                            title="Category"
+                            id="ma-category"
+                            categories={availableCategories}
+                            value={categoryId}
+                            onChange={setCategoryId}
+                            itemClassId={itemClassId}
+                            selectedClassCode={selectedClassCode}
+                            canCreate={perms.canCreate}
+                            canEdit={perms.canEdit}
+                            canDelete={perms.canDelete}
+                            levies={levies}
+                            fabricStructures={fabricStructures}
+                          />
+                        </Field>
+                      ) : i === tableColumns.length - 1 ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" disabled={isPending || !itemClassId || !categoryId} onClick={submit}>
+                            {/* toolbar-size: exempt -- inline row save, same as the master engine's */}
+                            {isPending ? "…" : "Save"}
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setOpen(false)} aria-label="Cancel">
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+                {pg.paged.map((r) => (
+                  <tr key={r.id} className="border-b border-border last:border-0">
+                    {tableColumns.map((c, i) => (
+                      <td
+                        key={i}
+                        className={cn("px-3 py-2 align-middle", c.align === "right" && "text-right", c.className)}
+                      >
+                        {c.cell(r)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <DataTable columns={tableColumns} rows={pg.paged}
+          paginate={false} getKey={(r) => r.id} empty="No material attributes yet." />
+        )}
+      </div>
+
+      {/* mobile cards */}
+      <div className="space-y-2.5 md:hidden">
+        {pg.paged.length === 0 ? (
+          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
+            No material attributes yet.
+          </div>
+        ) : (
+          pg.paged.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => perms.canEdit && openEdit(r)}
+              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
+            >
+              <div className="text-[15px] font-semibold text-foreground">
+                {r.item_class_id ? classLabel.get(r.item_class_id) ?? "—" : "—"}
+              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {r.category_id ? categoryName.get(r.category_id) ?? "—" : "No category"}
+              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
+              <div className="mt-2 text-[13px] text-muted-foreground">
+                {r.lines.length} attribute{r.lines.length === 1 ? "" : "s"}
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
+
     </div>
   );
 }
