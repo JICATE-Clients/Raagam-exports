@@ -2,7 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { today } from "@/lib/calendar";
 import { currentAmendmentsBySalesOrder } from "@/lib/orders/amendments/current";
-import { SEASON_OPTIONS } from "@/lib/orders/amendments/types";
+import { listSeasonNames } from "@/lib/masters/season-service";
 import { loadOrderProgress } from "@/lib/orders/progress/service";
 import { RISK_LABELS } from "@/lib/orders/progress/engine";
 import { kilogramUom } from "@/lib/uom/kilogram";
@@ -46,18 +46,19 @@ export async function loadSeasonReport(season: string, year: number | null): Pro
   const sb = await createClient();
   const now = today();
 
-  // ---- Round 1: every RE that has an Order Entry document.
-  const { data: docRefs, error: refErr } = await sb
-    .from("garment_order_amendments")
-    .select("sales_order_id")
-    .not("sales_order_id", "is", null);
+  // ---- Round 1: every RE that has an Order Entry document — and the Season
+  // master's names (0717), read alongside so they cost no extra round trip.
+  const [{ data: docRefs, error: refErr }, master] = await Promise.all([
+    sb.from("garment_order_amendments").select("sales_order_id").not("sales_order_id", "is", null),
+    listSeasonNames(),
+  ]);
   fail("Order documents", refErr);
   const soIds = [...new Set(((docRefs ?? []) as { sales_order_id: string }[]).map((r) => r.sales_order_id))];
 
   const empty: SeasonReport = {
     season,
     year,
-    options: { seasons: seasonList([]), years: yearWindow(Number(now.slice(0, 4)), []) },
+    options: { seasons: seasonList(master, []), years: yearWindow(Number(now.slice(0, 4)), []) },
     orders: [],
     withoutYear: 0,
     cancelled: 0,
@@ -99,7 +100,7 @@ export async function loadSeasonReport(season: string, year: number | null): Pro
   });
 
   const options = {
-    seasons: seasonList(allHeads.map((h) => h.season)),
+    seasons: seasonList(master, allHeads.map((h) => h.season)),
     years: yearWindow(
       Number(now.slice(0, 4)),
       allHeads.map((h) => h.year).filter((y): y is number => y != null),
@@ -279,11 +280,12 @@ function pickThumbnails(rows: Row[]): Map<string, string> {
   return new Map([...best].map(([doc, b]) => [doc, b.path]));
 }
 
-/** The closed list Order Info offers, plus any season an order carries that it
- *  does not (so a legacy "Q3" still appears), de-duplicated case-insensitively. */
-function seasonList(present: (string | null)[]): string[] {
+/** The Season master's names — the list Order Info and Sample both offer
+ *  (0717) — plus any season an order carries that the master does not, de-
+ *  duplicated case-insensitively. */
+function seasonList(master: readonly string[], present: (string | null)[]): string[] {
   const out = new Map<string, string>();
-  for (const s of [...SEASON_OPTIONS, ...present]) {
+  for (const s of [...master, ...present]) {
     const n = normSeason(s);
     if (n && !out.has(n)) out.set(n, (s as string).trim());
   }

@@ -31,7 +31,8 @@ export type WorkflowKey =
   | "purchase_indent"
   | "purchase_order"
   | "hr_fine"
-  | "sample_costing";
+  | "sample_costing"
+  | "sample_revision";
 
 export type WorkflowDecl = {
   key: WorkflowKey;
@@ -96,6 +97,16 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "cost_sheets",
     label: "Sample Costing",
     href: "/sales/sample-costing?open=:id",
+  },
+  /* 0716 — a Sample Revision (doc/sample/sample revion.md): a locked sample's
+     change, with V0 and the proposed costing compared. Started by
+     `submitSampleRevision`; decided in `sample_revision_apply_decision`. The
+     row opens the revision's own page. */
+  sample_revision: {
+    key: "sample_revision",
+    subjectTable: "sample_revisions",
+    label: "Sample Revision",
+    href: "/sales/sample-revision/:id",
   },
 };
 

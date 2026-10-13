@@ -12,12 +12,13 @@ import type { StatusTone } from "@/components/ui/status-pill";
 export const GROUP_STATUSES = ["draft", "approved", "po_raised", "fabric_received", "completed"] as const;
 export type GroupStatus = (typeof GROUP_STATUSES)[number];
 
-/** `po_raised` reads "IW raised": what the screen raises is the Internal Work
- *  Order the yarn and knitting are planned on (spec §6), not a PO itself. */
+/** `po_raised` reads "SWO raised" (user 2026-10-12, screenshot 3456: "which
+ *  is not IW, which SWO"): the operator knows the batch by its SWO number; the
+ *  Internal Work Order the yarn and knitting are planned on stays underneath. */
 export const GROUP_STATUS_LABEL: Record<GroupStatus, string> = {
   draft: "Draft",
   approved: "Approved",
-  po_raised: "IW raised",
+  po_raised: "SWO raised",
   fabric_received: "Fabric received",
   completed: "Completed",
 };
@@ -123,7 +124,9 @@ export type GroupingData = {
   candidates: GroupingCandidate[];
   groups: GroupRow[];
   /** Saved styles with no current costing — they cannot be weighed yet. */
-  uncosted: { style_id: string; sample_no: string | null; style_name: string; season: string; season_year: number | null }[];
+  /** `smp_no` is the entry's SMP number — what the screen names a sample by
+   *  (spec 2026-10-12: SMP, not the style line's PRD). */
+  uncosted: { style_id: string; smp_no: string | null; sample_no: string | null; style_name: string; season: string; season_year: number | null }[];
 };
 
 /** The terms a Draft group is saved with. */

@@ -3,6 +3,7 @@ import {
   getCostingLetterhead,
   getSampleCostingFormData,
   listSampleCostings,
+  listSamplesAwaitingCosting,
 } from "@/lib/sales/sample-costing/service";
 import { previewCostingNo } from "@/lib/sales/sample-costing/actions";
 import { today } from "@/lib/calendar";
@@ -16,8 +17,10 @@ import { SampleCostingScreen } from "./sample-costing-screen";
 export default async function SampleCostingPage() {
   await requirePermission("sales", "view");
 
-  const [rows, data, letterhead, canCreate, canEdit, canDelete, nextCostingNo] = await Promise.all([
+  const [rows, awaiting, data, letterhead, canCreate, canEdit, canDelete, nextCostingNo] = await Promise.all([
     listSampleCostings(),
+    // Saved sample styles with no costing yet — listed as "Not costed".
+    listSamplesAwaitingCosting(),
     getSampleCostingFormData(),
     getCostingLetterhead(),
     can("sales", "create"),
@@ -29,6 +32,7 @@ export default async function SampleCostingPage() {
   return (
     <SampleCostingScreen
       rows={rows}
+      awaiting={awaiting}
       data={data}
       perms={{ canCreate, canEdit, canDelete }}
       nextCostingNo={nextCostingNo}

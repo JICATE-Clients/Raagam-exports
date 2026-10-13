@@ -53,8 +53,9 @@ import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { sampleFillLines } from "@/lib/orders/iwo-material-bom/sample-fill";
 import { loadSwoCostingTrims, type SwoSampleTrims } from "@/lib/orders/iwo-material-bom/sample-fill-actions";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, hasCreatedInfo, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
 import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import {
   createdByFacet,
@@ -1475,6 +1476,38 @@ export function IwoMaterialBomScreen({
           panel={listFacets.panel}
           right={`${listed.length} of ${tasks.length}`}
         />
+        {sample ? (
+          /* SAMPLE ▸ ACCESSORIES PLAN AS CARDS (user 2026-10-12: "same for this
+             too"; plan "Sample card queues") — one card per SWO, its SMP
+             numbers under the number, the way Orders ▸ Accessories Plan lists
+             garment orders. Same rows, box, search and click as the table. */
+          <SampleCards<IwoMaterialBomTask>
+            rows={listed}
+            getKey={(t) => t.id}
+            title={(t) => <span className="font-mono">{t.swo?.code ?? t.code ?? "—"}</span>}
+            subtitle={(t) => <span className="font-mono">{t.swo?.smp_nos.join(" · ") || "—"}</span>}
+            state={(t): SampleCardState => ({ pending: "pending", draft: "draft", updated: "updated" } as const)[bomWord(t)]}
+            pillText={(t) => (!t.bom ? "Not started" : t.bom.is_draft ? "Draft" : "Saved")}
+            stats={(t) => [
+              { label: "Samples", value: String(t.swo?.smp_nos.length ?? 0) },
+              { label: "Trims", value: String(t.bom?.iwo_material_bom_items.length ?? 0), lead: true },
+              { label: "Deli Dt", value: t.deli_date ? fmtDate(t.deli_date) : "—" },
+            ]}
+            onOpen={(t) => (t.bom ? perms.canEdit : perms.canCreate) && openTask(t)}
+            footerNote={hasCreatedInfo(tasks) ? (t) => `Created ${createdMeta(t)}` : undefined}
+            canDelete={perms.canDelete}
+            canDeleteRow={(t) => !!t.bom}
+            onDelete={del}
+            isPending={isPending}
+            empty={
+              !tasks.length
+                ? "No accessories plans at this unit yet — + New Accessories Plan, then pick the SWO."
+                : quick.value
+                  ? `No ${quick.value} work orders${listFacets.activeCount || listQuery ? " match these filters" : ""}.`
+                  : "No work orders match these filters."
+            }
+          />
+        ) : (
         <DataTable
           columns={withCreatedColumns(columns, tasks)}
           rows={listed}
@@ -1489,6 +1522,7 @@ export function IwoMaterialBomScreen({
                 : "No work orders match these filters."
           }
         />
+        )}
       </div>
 
       <MasterFullScreen

@@ -42,7 +42,8 @@ export type IwoMaterialBomTask = {
   /** The SWO this work order plans accessories for (0709
    *  `sample_product_groups.accessories_iwo_id`) — what Sample ▸ Accessories
    *  Plan shows in place of the I.WO No. Null on a production work order. */
-  swo: { id: string; code: string } | null;
+  /** Sample plans: the SWO and its SMP numbers (the card queue's sub-line). */
+  swo: { id: string; code: string; smp_nos: string[] } | null;
 };
 
 /** `sampleOnly` — Sample ▸ Accessories Plan lists only the work orders the
@@ -103,16 +104,33 @@ export async function listIwoMaterialBomTasks(opts: { sampleOnly?: boolean } = {
 async function accessoriesSwosOf(
   s: Awaited<ReturnType<typeof createClient>>,
   iwoIds: string[],
-): Promise<Map<string, { id: string; code: string }>> {
-  const out = new Map<string, { id: string; code: string }>();
+): Promise<Map<string, { id: string; code: string; smp_nos: string[] }>> {
+  const out = new Map<string, { id: string; code: string; smp_nos: string[] }>();
   if (!iwoIds.length) return out;
   const { data, error } = await s
     .from("sample_product_groups")
-    .select("id, group_code, accessories_iwo_id")
+    // The SMP numbers ride along for the card queue (2026-10-12) — the same
+    // embed the Fabric Plan's `swosOf` reads.
+    .select("id, group_code, accessories_iwo_id, items:sample_group_items(created_at, opp:opportunities!sample_entry_id(code))")
     .in("accessories_iwo_id", iwoIds);
   if (error) throw new Error(`IWO Accessories Plan: could not read the SWOs: ${error.message}`);
-  for (const g of (data ?? []) as { id: string; group_code: string; accessories_iwo_id: string }[]) {
-    out.set(g.accessories_iwo_id, { id: g.id, code: g.group_code });
+  type Opp = { code: string | null };
+  type Row = {
+    id: string;
+    group_code: string;
+    accessories_iwo_id: string;
+    items: { created_at: string; opp: Opp | Opp[] | null }[] | null;
+  };
+  for (const g of (data ?? []) as unknown as Row[]) {
+    const smp_nos = [
+      ...new Set(
+        [...(g.items ?? [])]
+          .sort((a, b) => a.created_at.localeCompare(b.created_at))
+          .map((it) => (Array.isArray(it.opp) ? it.opp[0]?.code : it.opp?.code) ?? "")
+          .filter(Boolean),
+      ),
+    ];
+    out.set(g.accessories_iwo_id, { id: g.id, code: g.group_code, smp_nos });
   }
   return out;
 }

@@ -221,6 +221,11 @@ export type CostingListRow = {
   profit_loss_pct: number | null;
   created_at: string;
   created_by: string | null;
+  /** A saved sample style with NO costing yet (user 2026-10-12: "created
+   *  sample entry, why not listing in sample costing?"). Listed as "Not
+   *  costed" so the list shows what is waiting; `id` is `await:<style id>`
+   *  and there is no sheet to open, report or delete. */
+  awaiting?: true;
 };
 
 // ---------------------------------------------------------------------------

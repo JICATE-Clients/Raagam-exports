@@ -93,14 +93,10 @@ export function GroupSheet({
   const mixed = new Set(group.items.map((it) => `${it.fabric_structure_id ?? ""}|${it.blend_key}`)).size > 1;
   const itemColumns: Column<GroupItemRow>[] = [
     {
-      // The SMP number leads — what the SWO is a container of (client spec 2026-10-12).
+      // The SMP number, and only it (client spec 2026-10-12 §5: "replace all
+      // instances of PRD Number with SMP Number") — the PRD sub-line is gone.
       header: "SMP No",
-      cell: (it) => (
-        <span className="font-mono text-xs">
-          {it.enquiry_no ?? "—"}
-          {it.sample_no ? <span className="block text-[11px] text-muted-foreground">{it.sample_no}</span> : null}
-        </span>
-      ),
+      cell: (it) => <span className="font-mono text-xs">{it.enquiry_no ?? "—"}</span>,
     },
     { header: "Style", cell: (it) => <Truncated className="block max-w-[12rem] text-xs font-medium">{it.style_name || "—"}</Truncated> },
     ...(mixed
@@ -122,16 +118,16 @@ export function GroupSheet({
     itemColumns.push(
       rowActionsColumn((it) => (
         <RowActions
-          label={it.sample_no ?? it.style_name}
+          label={it.enquiry_no ?? it.style_name}
           view={false}
           lead={
             <RowIconAction
               label="Remove from group"
-              name={it.sample_no ?? it.style_name}
+              name={it.enquiry_no ?? it.style_name}
               icon={X}
               danger
               disabledReason={group.items.length <= 1 ? "The group's only style — delete the group instead." : null}
-              onClick={() => run(() => removeFromSampleGroup(group.id, it.id), `${it.sample_no ?? "Style"} removed from ${group.group_code}.`)}
+              onClick={() => run(() => removeFromSampleGroup(group.id, it.id), `${it.enquiry_no ?? "Style"} removed from ${group.group_code}.`)}
             />
           }
         />
@@ -175,7 +171,7 @@ export function GroupSheet({
               </Button>
             ) : (
               // nav-path: exempt -- "Orders ▸ Create" names the permission, not a menu row
-              <span className="text-sm text-muted-foreground">Raising its IW needs Orders ▸ Create.</span>
+              <span className="text-sm text-muted-foreground">Raising the SWO needs Orders ▸ Create.</span>
             )}
           </>
         );

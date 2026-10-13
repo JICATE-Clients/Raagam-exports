@@ -39,8 +39,8 @@ import {
   deleteGarmentStyle,
   previewStyleCode,
 } from "@/lib/orders/styles/actions";
+import { seasonChoice } from "@/lib/masters/season-options";
 import {
-  SEASON_OPTIONS,
   styleStatusTone,
   styleStatusText,
   type GarmentStyle,
@@ -1542,25 +1542,14 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 `capsTextNullable()` on the schema covers every writer that is
                 not this dropdown. */}
             <Field label="Season" size="xs" htmlFor="st-season">
-              <Select id="st-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
+              {/* THE SEASON MASTER'S LIST (0717), shared with Order Entry and
+                  Sample: Q1–Q4 and SUMMER / WINTER / SPRING / AUTUMN. A stored
+                  value the master lacks keeps its option (`seasonChoice`). */}
+              <Select id="st-season" value={seasonChoice(data.seasons, form.season).value} onChange={(e) => set({ season: e.target.value })}>
                 <option value=""></option>
-                {SEASON_OPTIONS.map((o) => (
+                {seasonChoice(data.seasons, form.season).options.map((o) => (
                   <option key={o} value={o}>{o}</option>
                 ))}
-                {/* A STORED SEASON THAT IS NOT ONE OF THE FOUR KEEPS ITS OPTION.
-                    The column is plain `text` (0124) and has always taken
-                    imported free text, so "SS26" is a value this list cannot
-                    represent — and a `<select>` silently falls back to its first
-                    option for a value it has no option for, which here is the
-                    blank. The field would read as empty and the next Save would
-                    blank the column. Same statement as "the one row that
-                    survives is the one the record already holds" under
-                    AGENTS.md §"Disabled rows", applied to a fixed list rather
-                    than a master. Never rendered for the four normal words. */}
-                {form.season &&
-                  !(SEASON_OPTIONS as readonly string[]).includes(form.season) && (
-                    <option value={form.season}>{form.season}</option>
-                  )}
               </Select>
             </Field>
             {/**

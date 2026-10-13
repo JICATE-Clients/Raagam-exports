@@ -3,19 +3,15 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Layers, Plus, Users } from "lucide-react";
+import { CheckSquare, Layers, Plus, Square, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { StatusPill } from "@/components/ui/status-pill";
-import { Truncated } from "@/components/ui/truncated";
 import { SelectionBar } from "@/components/ui/selection-bar";
-import { RowActions, RowIconAction } from "@/components/ui/row-actions";
-import { withCreatedColumns } from "@/components/ui/created-columns";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
+import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
 import { useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { useToast } from "@/components/ui/toast";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
@@ -25,13 +21,11 @@ import {
   groupingMix,
   groupingProblem,
   moqOrderWeight,
-  purchaseBasis,
   sameSeasonYear,
   seasonKey,
 } from "@/lib/sales/sample-grouping/calc";
 import {
   GROUP_STATUS_LABEL,
-  GROUP_STATUS_TONE,
   type GroupingCandidate,
   type GroupingData,
   type GroupRow,
@@ -42,7 +36,10 @@ import { GroupSheet } from "./group-sheet";
 /**
  * Sample ▸ Grouping (doc/sample/product-grouping-specification.md).
  *
- * TWO TABS, ONE TABLE EACH (user 2026-10-12). It was a Summary / Detailed
+ * TWO TABS, CARDS IN EACH (user 2026-10-12). The tables became the Orders
+ * queue's cards the same day ("SMP entry will list as card"; `SampleCards`,
+ * components/sales/sample-queue.tsx): Ungrouped is one card per sample, a tap
+ * ticks it; Grouped is one card per SWO, a tap opens it. It was a Summary / Detailed
  * switch, then two tables on one page, then samples banded under their SWO —
  * each read the same samples twice. Now:
  *   Ungrouped — the costed samples not yet in an SWO, ticked into a new SWO
@@ -81,7 +78,9 @@ const CANDIDATE_FACETS: FacetGroup<GroupingCandidate>[] = [
   },
 ];
 
-const styleLabel = (c: { sample_no: string | null; style_name: string }) => [c.sample_no, c.style_name].filter(Boolean).join(" · ") || "Style";
+/** A sample is named by its SMP number (spec 2026-10-12: "replace the PRD
+ *  number with the SMP number"); the style line's PRD stays searchable. */
+const styleLabel = (c: { enquiry_no: string | null; style_name: string }) => [c.enquiry_no, c.style_name].filter(Boolean).join(" · ") || "Style";
 /** A Draft group follows its costings; past Draft its figures are frozen. */
 const kgOfItem = (g: GroupRow, it: GroupRow["items"][number]) => (g.status === "draft" && it.live_kg != null ? it.live_kg : it.calculated_weight_kg);
 const groupNet = (g: GroupRow) => (g.status === "draft" ? groupNetKg(g.items.map((it) => kgOfItem(g, it))) : g.net_required_weight_kg);
@@ -212,75 +211,11 @@ export function GroupingScreen({
       router.refresh();
     });
 
-  // ---- columns -----------------------------------------------------------------
+  // ---- the cards -----------------------------------------------------------------
   const canPick = perms.canCreate || perms.canEdit;
-  const sampleColumns: Column<GroupingCandidate>[] = [
-    { header: "SMP No", cell: (c) => <span className="font-mono text-xs">{c.enquiry_no ?? "—"}</span> },
-    { header: "Style", cell: (c) => <Truncated className="block max-w-[12rem] text-xs font-medium">{c.style_name || "—"}</Truncated> },
-    { header: "Buyer", cell: (c) => <Truncated className="block max-w-[10rem] text-xs">{c.customer ?? "—"}</Truncated> },
-    { header: "Fabric", cell: (c) => <span className="text-xs">{[c.fabric_structure ?? "—", c.gsm].filter((v) => v != null).join(" · ")}</span> },
-    { header: "Yarn", cell: (c) => <Truncated className="block max-w-[14rem] text-xs">{c.yarn_blend}</Truncated> },
-    { header: "Pcs", align: "right", cell: (c) => <span className="block text-right font-mono tabular-nums text-xs">{c.sample_qty_pcs}</span> },
-    {
-      header: "Net kg",
-      align: "right",
-      cell: (c) =>
-        c.kg == null ? (
-          <span className="block text-right text-xs text-muted-foreground" title="The costing gives this fabric no garment weight">
-            No weight
-          </span>
-        ) : (
-          <span className="block text-right font-mono tabular-nums text-xs">{fmtKg(c.kg)}</span>
-        ),
-    },
-  ];
-
-  const swoColumns: Column<GroupRow>[] = [
-    {
-      header: "SWO No",
-      cell: (g) => (
-        <button type="button" onClick={() => setOpenId(g.id)} className="font-mono text-xs font-medium text-primary hover:underline">
-          {g.group_code}
-        </button>
-      ),
-    },
-    { header: "Season", cell: (g) => <span className="text-xs">{`${g.season} ${g.season_year ?? ""}`.trim()}</span> },
-    { header: "Samples", align: "right", cell: (g) => <span className="block text-right tabular-nums text-xs">{g.items.length}</span> },
-    { header: "Net kg", align: "right", cell: (g) => <span className="block text-right font-mono tabular-nums text-xs">{fmtKg(groupNet(g))}</span> },
-    {
-      header: "Buy kg",
-      align: "right",
-      cell: (g) => (
-        <span className="block text-right font-mono tabular-nums text-xs" title={purchaseBasis(groupNet(g), g.moq_kg, g.batch_kg)}>
-          {fmtKg(groupBuy(g), 1)}
-        </span>
-      ),
-    },
-    { header: "Status", cell: (g) => <StatusPill tone={GROUP_STATUS_TONE[g.status]}>{GROUP_STATUS_LABEL[g.status]}</StatusPill> },
-    rowActionsColumn((g) => (
-      <RowActions
-        label={g.group_code}
-        view={false}
-        lead={
-          g.iwo_id ? (
-            <RowIconAction
-              label="Open IW"
-              name={g.iwo_code ?? g.group_code}
-              icon={FileText}
-              className="text-primary"
-              onClick={() => router.push(`/sales/sample-fabric-plan?open=${g.iwo_id}`)}
-            />
-          ) : undefined
-        }
-        onEdit={() => setOpenId(g.id)}
-        canEdit={perms.canEdit}
-        onDelete={() => del(g)}
-        canDelete={perms.canDelete}
-        deleteDisabledReason={g.status === "draft" ? null : `${GROUP_STATUS_LABEL[g.status]} — a group past Draft cannot be deleted.`}
-        isPending={isPending}
-      />
-    )),
-  ];
+  /** An SWO's state on its card: a Draft is still being put together; past it
+   *  the group is made and the work moves to its plans. */
+  const swoState = (g: GroupRow): SampleCardState => (g.status === "draft" ? "draft" : "updated");
 
   return (
     <div className="space-y-4">
@@ -352,7 +287,7 @@ export function GroupingScreen({
 
       {scopedUncosted.length ? (
         <p className="text-sm text-muted-foreground">
-          {`${scopedUncosted.length} style${scopedUncosted.length === 1 ? "" : "s"} not costed yet: ${scopedUncosted.map((u) => u.sample_no ?? u.style_name).join(", ")}.`}{" "}
+          {`${scopedUncosted.length} style${scopedUncosted.length === 1 ? "" : "s"} not costed yet: ${scopedUncosted.map((u) => u.smp_no ?? u.style_name).join(", ")}.`}{" "}
           <Link href="/sales/sample-costing" className="text-primary underline underline-offset-2">
             Open Costing
           </Link>
@@ -389,17 +324,42 @@ export function GroupingScreen({
         ) : null}
       </SelectionBar>
 
-      <div className="w-fit max-w-full">
-        {tab === "ungrouped" ? (
-          <DataTable
-            columns={sampleColumns}
+      {tab === "ungrouped" ? (
+        <>
+          {canPick && looseKeys.length > 1 ? (
+            <button type="button" className="text-xs text-primary hover:underline" onClick={() => sel.toggleAll(looseKeys)}>
+              {sel.selectedKeys.size === looseKeys.length ? "Clear ticks" : `Tick all ${looseKeys.length}`}
+            </button>
+          ) : null}
+          {/* ONE CARD PER SAMPLE (per sample and fabric, when a style was costed
+              in two). A tap ticks it — the card body is one button, so a
+              checkbox cannot sit inside it; the tick icon and the theme-coloured
+              edge say which are picked, and the bar above acts on them. */}
+          <SampleCards<GroupingCandidate>
             rows={loose}
-            compact
             getKey={(c) => c.key}
-            selectable={canPick}
-            selectedKeys={sel.selectedKeys}
-            onToggle={sel.toggle}
-            onToggleAll={() => sel.toggleAll(looseKeys)}
+            title={(c) => (
+              <span className="inline-flex items-center gap-1.5 font-mono">
+                {canPick ? (
+                  sel.selectedKeys.has(c.key) ? (
+                    <CheckSquare aria-hidden className="size-3.5 text-primary" />
+                  ) : (
+                    <Square aria-hidden className="size-3.5 text-muted-foreground" />
+                  )
+                ) : null}
+                {c.enquiry_no ?? c.sample_no ?? "—"}
+              </span>
+            )}
+            subtitle={(c) => [c.customer, c.style_name].filter(Boolean).join(" · ") || "—"}
+            state={() => "pending"}
+            pillText={() => "To group"}
+            stats={(c) => [
+              { label: "Pieces", value: String(c.sample_qty_pcs) },
+              { label: "Net kg", value: c.kg == null ? "No weight" : fmtKg(c.kg, 1), lead: true },
+              { label: "Fabric", value: c.fabric_structure ?? "—" },
+            ]}
+            onOpen={(c) => canPick && sel.toggle(c.key)}
+            selected={(c) => sel.selectedKeys.has(c.key)}
             empty={
               scopedCandidates.length
                 ? query || candFacets.activeCount
@@ -408,16 +368,34 @@ export function GroupingScreen({
                 : "No costed samples for this season yet — a sample appears here once its costing is saved with a fabric and a garment weight."
             }
           />
-        ) : (
-          <DataTable
-            columns={withCreatedColumns(swoColumns, groupsShown)}
-            rows={groupsShown}
-            compact
-            getKey={(g) => g.id}
-            empty={scopedGroups.length ? "Nothing matches the search." : "No SWOs yet — tick samples under Ungrouped and create one."}
-          />
-        )}
-      </div>
+        </>
+      ) : (
+        /* ONE CARD PER SWO, its SMP numbers under the number; a tap opens it.
+           Delete stays on a Draft only — past it the database refuses. */
+        <SampleCards<GroupRow>
+          rows={groupsShown}
+          getKey={(g) => g.id}
+          title={(g) => <span className="font-mono">{g.group_code}</span>}
+          subtitle={(g) => <span className="font-mono">{g.items.map((it) => it.enquiry_no ?? it.sample_no).filter(Boolean).join(" · ") || "—"}</span>}
+          state={swoState}
+          // The card's title IS the SWO number, so its pill says "Raised", not
+          // "SWO raised" — the longer word squeezed SWO/26-27/0001 to "SWO/26-27/00…"
+          // on a six-across card (user 2026-10-12, screenshot 3456).
+          pillText={(g) => (g.status === "po_raised" ? "Raised" : GROUP_STATUS_LABEL[g.status])}
+          stats={(g) => [
+            { label: "Samples", value: String(g.items.length) },
+            { label: "Net kg", value: fmtKg(groupNet(g), 1), lead: true },
+            { label: "Buy kg", value: fmtKg(groupBuy(g), 1) },
+          ]}
+          onOpen={(g) => setOpenId(g.id)}
+          footerNote={hasCreatedInfo(groupsShown) ? (g) => `Created ${createdMeta(g)}` : undefined}
+          canDelete={perms.canDelete}
+          canDeleteRow={(g) => g.status === "draft"}
+          onDelete={del}
+          isPending={isPending}
+          empty={scopedGroups.length ? "Nothing matches the search." : "No SWOs yet — tick samples under Ungrouped and create one."}
+        />
+      )}
 
       {open ? (
         <GroupSheet

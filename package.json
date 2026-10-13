@@ -34,6 +34,7 @@
     "check:loose-conversion": "npx --yes tsx scripts/check-loose-conversion.mts",
     "check:color-wise-loss": "npx --yes tsx scripts/check-color-wise-loss.mts",
     "check:iwo-fabric-bom": "npx --yes tsx scripts/check-iwo-fabric-bom.mts",
+    "check:sample-revision-scope": "npx --yes tsx scripts/check-sample-revision-scope.mts",
     "check:iwo-material-bom": "npx --yes tsx scripts/check-iwo-material-bom.mts",
     "check:iwo-budget": "npx --yes tsx scripts/check-iwo-budget.mts",
     "check:fabric-stage-routes": "npx --yes tsx scripts/check-fabric-stage-routes.mts",

@@ -183,6 +183,7 @@ import { StyleThumbnailCell } from "@/components/orders/style-thumbnail-cell";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { addDays } from "@/lib/calendar";
+import { seasonChoice } from "@/lib/masters/season-options";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
@@ -344,7 +345,6 @@ import {
      is unchanged, and the two pack modes are still excluded here. */
   NO_PACK_PRICE_MODES,
   isPackBranchMode,
-  SEASON_OPTIONS,
   dyeTypeOptions,
   PAY_MODES,
   collapseCaseDuplicates,
@@ -23182,10 +23182,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               `FieldGrid` the surrounding column stays the same width and the
               control just floats in dead space (`Field`'s own note). So the
               tag now matches what the comment already claimed. */}
+            {/* THE SEASON MASTER'S LIST, SHARED WITH SAMPLE (0717, user
+                2026-10-12: "merge both modules — list all the seasons"): Q1–Q4
+                and SUMMER / WINTER / SPRING / AUTUMN. A saved "Summer" matches
+                SUMMER; a value the master lacks keeps its option (`seasonChoice`). */}
             <Field label="Season" w="range" htmlFor="hd-season" required>
-              <Select id="hd-season" required value={form.season} onChange={(e) => set({ season: e.target.value })}>
+              <Select id="hd-season" required value={seasonChoice(data.seasons, form.season).value} onChange={(e) => set({ season: e.target.value })}>
                 <option value=""></option>
-                {SEASON_OPTIONS.map((o) => (
+                {seasonChoice(data.seasons, form.season).options.map((o) => (
                   <option key={o} value={o}>{o}</option>
                 ))}
               </Select>

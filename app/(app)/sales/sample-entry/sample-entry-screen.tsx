@@ -81,6 +81,9 @@ import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useOpenIntent } from "@/lib/use-open-intent";
+import Link from "next/link";
+import { sampleEntryLock } from "@/lib/sales/sample-revisions/actions";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
 import { isInactive } from "@/lib/masters/inactive";
 import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
@@ -88,10 +91,12 @@ import { orderUnitLabel } from "@/lib/orders/amendments/types";
 import { UNIT_KIND_OPTIONS, coordinatesFull, isUnitKind, pieceCoordinateId } from "@/lib/orders/styles/rules";
 import {
   DELIVERY_MODES,
+  DEFAULT_SAMPLE_TYPE,
   ENQUIRY_ACTIONS,
   ENQUIRY_AGAINST,
   RECEIPT_MODES,
   SAMPLE_FILE_KINDS,
+  SAMPLE_TYPE_OPTIONS,
   SHIP_MODES,
   TECH_PACK,
   comboOrderQty,
@@ -192,7 +197,14 @@ const blankHeader = (): SampleHeaderDraft => ({
   delivery_to: "",
   delivery_mode: "",
   multi_order: false,
+  merchandiser_id: null,
+  // Fit Sample unless the planner says otherwise (client spec 2026-10-12 §2).
+  sample_type: DEFAULT_SAMPLE_TYPE,
+  tech_pack: "",
 });
+
+/** Style Name → Article No (client spec 2026-10-12 §1). */
+const articleKey = (name: string) => name.trim().toUpperCase();
 
 const SAMPLE_FACETS: FacetGroup<SampleEntryListRow>[] = [
   {
@@ -279,6 +291,9 @@ export function SampleEntryScreen({
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
+  /** Why this entry cannot be saved (0716: an approved costing locks the
+   *  sample; a Sample Revision opens it) — the database's own sentence. */
+  const [lock, setLock] = useState<string | null>(null);
   const [editCode, setEditCode] = useState<string | null>(null);
   const [header, setHeader] = useState<SampleHeaderDraft>(blankHeader);
   const [styles, setStyles] = useState<StyleDraft[]>([]);
@@ -350,7 +365,6 @@ export function SampleEntryScreen({
    *  2026-08-29: "if choose the PCS it automatically choosing … PIECES"). */
   const piecesCoordinateId = pieceCoordinateId(data.coordinates);
   const customerOf = (id: string | null) => data.customers.find((c) => c.id === id) ?? null;
-  const countryName = (id: string | null) => data.countries.find((c) => c.id === id)?.name ?? "";
 
   // ---- mutation helpers -----------------------------------------------------
   const setH = (patch: Partial<SampleHeaderDraft>) => {
@@ -413,6 +427,7 @@ export function SampleEntryScreen({
     fabric_structure_id: null,
     fabric_id: null,
     gsm: "",
+    structures: [],
     tech_pack: "",
     customer_reference: "",
     receipt_mode: "",
@@ -453,6 +468,7 @@ export function SampleEntryScreen({
 
   // ---- open -------------------------------------------------------------------
   function openAdd() {
+    setLock(null);
     const first = blankStyle();
     setEditId(null);
     setEditCode(null);
@@ -484,6 +500,7 @@ export function SampleEntryScreen({
         toastError(res.error);
         return;
       }
+      setLock(await sampleEntryLock(res.record.id));
       const seeded = res.record.styles.map(withSeeds);
       const list = seeded.length ? seeded : [blankStyle()];
       setEditId(res.record.id);
@@ -500,8 +517,14 @@ export function SampleEntryScreen({
     });
   }
 
+  // `?open=<entry>` — a Sample Revision's "Open Sample Entry".
+  useOpenIntent((id) => openEdit({ id } as SampleEntryListRow));
+
   // ---- the active style line --------------------------------------------------
   const realStyles = styles.filter((s) => !isBlankStyle(s));
+  /** Style Name → Article No (client spec 2026-10-12 §1) — a plain const, not
+   *  a memo: a cheap map, and no hook to place above an early return. */
+  const articleByName = new Map(data.articles.map((a) => [a.name, a.article_no]));
   const active = styles.find((s) => s.key === activeKey) ?? realStyles[0] ?? styles[0] ?? null;
   const billableStyles = realStyles.filter((s) => s.billable);
   const indexOf = (s: StyleDraft) => styles.findIndex((x) => x.key === s.key);
@@ -737,7 +760,18 @@ export function SampleEntryScreen({
           required
           maxLength={60}
           value={r.name}
-          onChange={(e) => patchStyle(r.key, { name: e.target.value })}
+          onChange={(e) => {
+            /* ARTICLE NO FOLLOWS THE STYLE (client spec 2026-10-12 §1: "auto-
+               fetch and populate Article No when Style Name / No is entered").
+               From the Garment Style master, else an earlier sample of that
+               name (`articles`). Only a blank Article No, or one this box
+               filled itself, is overwritten — a typed one is the operator's. */
+            const name = e.target.value;
+            const hit = articleByName.get(articleKey(name));
+            const prev = articleByName.get(articleKey(r.name)) ?? "";
+            const auto = !r.article_no.trim() || r.article_no === prev;
+            patchStyle(r.key, auto ? { name, article_no: hit ?? "" } : { name });
+          }}
         />
       ),
     },
@@ -1382,20 +1416,27 @@ export function SampleEntryScreen({
   const merchItems = (() => {
     const named = data.merchandisers.filter((m) => m.is_merchandiser);
     const base = named.length ? named : data.merchandisers;
-    const held = active?.merchandiser_id;
+    const held = header.merchandiser_id;
     return held && !base.some((m) => m.id === held)
       ? [...base, ...data.merchandisers.filter((m) => m.id === held)]
       : base;
   })();
-  // Fabric Code narrows to the picked Structure — the cascading-picker rule.
-  const fabricItems = (() => {
-    const st = active?.fabric_structure_id;
-    const scoped = st ? data.fabrics.filter((f) => f.category_id === st) : data.fabrics;
-    const held = active?.fabric_id;
-    return held && !scoped.some((f) => f.id === held) ? [...scoped, ...data.fabrics.filter((f) => f.id === held)] : scoped;
-  })();
+  // No Fabric Code on Product Info any more (client spec 2026-10-12 §1); a
+  // line's stored `fabric_id` passes through a save unchanged.
 
+  // The editor's own title strip still names the customer (Product Info no longer does).
   const customerName = customerOf(header.customer_id)?.name ?? "";
+  const structureName = (id: string) => data.fabricStructures.find((x) => x.id === id)?.name ?? "";
+  /** Every structure a line may pick — inactive ones only while it holds them. */
+  const structureOptions = (held: readonly string[]) =>
+    data.fabricStructures
+      .filter((x) => !x.inactive || held.includes(x.id))
+      .map((x) => ({ id: x.id, label: x.name, inactive: !!x.inactive }));
+  /** Fabric Structure picked/unpicked: GSMs typed for a kept structure stay. */
+  const setStructures = (st: StyleDraft, ids: string[]) =>
+    patchStyle(st.key, {
+      structures: ids.map((id) => st.structures.find((x) => x.structure_id === id) ?? { structure_id: id, gsm: "" }),
+    });
   /** The billing fields' look while the active line is not billable. */
   const billOff = active?.billable ? undefined : "opacity-50";
   const seasonText = [data.seasons.find((x) => x.id === header.season_id)?.name ?? "", header.season_year]
@@ -1408,7 +1449,7 @@ export function SampleEntryScreen({
       key: "info",
       label: "Sample Info",
       icon: ClipboardList,
-      done: !!header.customer_id && !!header.received_date,
+      done: !!header.customer_id && !!header.received_date && !!header.merchandiser_id,
       problems: validity.bySection.info,
       content: (
         <SectionBody title="Sample Info">
@@ -1496,9 +1537,10 @@ export function SampleEntryScreen({
               </Field>
             </FieldRow>
             <FieldRow>
-              <Field label="Country" w="term" htmlFor="se-country">
-                <Input id="se-country" readOnly value={countryName(header.country_id)} />
-              </Field>
+              {/* NO COUNTRY BOX (user 2026-10-12: "remove the field from sample
+                  info"). It was a read-only echo of the customer master; the
+                  customer pick still stores `country_id`, so nothing that reads
+                  the entry's country loses it. */}
               {/* A VENDOR (client 2026-10-06): Vendor master ▸ Service Provider ▸
                   Buying Agent / Service Agent — `getAgents` in the service. */}
               <Field label="Agent" w="party">
@@ -1536,6 +1578,43 @@ export function SampleEntryScreen({
                 <Select id="se-dmode" value={header.delivery_mode} onChange={(e) => setH({ delivery_mode: e.target.value })}>
                   <option value=""></option>
                   {DELIVERY_MODES.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </FieldRow>
+            {/* MERCHANDISER AND SAMPLE TYPE ARE THE ENTRY'S (client spec
+                2026-10-12 §2) — said once here and stamped on every style line
+                at Save. Merchandiser was asked per line on Product Info. */}
+            <FieldRow>
+              <Field label="Merchandiser" required w="party">
+                <RecordPicker
+                  id="se-merch"
+                  label="Merchandiser"
+                  compact
+                  required
+                  items={merchItems}
+                  value={header.merchandiser_id}
+                  onChange={(id) => setH({ merchandiser_id: id })}
+                />
+              </Field>
+              <Field label="Sample Type" w="term" htmlFor="se-stype">
+                <Select id="se-stype" value={header.sample_type} onChange={(e) => setH({ sample_type: e.target.value })}>
+                  {SAMPLE_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {/* ONE TECH PACK STATUS FOR THE ENTRY, beside Sample Type (user
+                  2026-10-12) — stamped on every style line at Save. */}
+              <Field label="Tech Pack" w="term" htmlFor="se-techpack">
+                <Select id="se-techpack" value={header.tech_pack} onChange={(e) => setH({ tech_pack: e.target.value })}>
+                  <option value=""></option>
+                  {TECH_PACK.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
@@ -1590,6 +1669,21 @@ export function SampleEntryScreen({
                 ))}
               </FieldRow>
               {composition(r)}
+              {/* THE STYLE'S FILES, ON ITS OWN CARD (user 2026-10-12: "files …
+                  move to style tab, this is not tech pack file"). Every file of
+                  the line — garment images and documents — in one box; Product
+                  Info and Sample Info no longer carry one. */}
+              <FileAttachments
+                dense
+                label="Files"
+                hint="PDF, JPG, PNG or WEBP"
+                rows={r.files}
+                onChange={(next) => patchStyle(r.key, { files: next })}
+                bucket="sample-docs"
+                folder={`sample/${editId ?? uploadFolder}`}
+                kinds={SAMPLE_FILE_KINDS}
+                disabled={editId ? !perms.canEdit : !perms.canCreate}
+              />
             </div>
           )}
         />
@@ -1599,7 +1693,7 @@ export function SampleEntryScreen({
       key: "product",
       label: "Product Info",
       icon: Package,
-      done: realStyles.length > 0 && realStyles.every((s) => !!s.merchandiser_id),
+      done: realStyles.length > 0 && realStyles.every((s) => s.structures.length > 0),
       problems: validity.bySection.product,
       content: (
         <SectionBody title="Product Info">
@@ -1618,7 +1712,6 @@ export function SampleEntryScreen({
                   [
                     ["Sample No", sampleNoOf(active)],
                     ["Enquiry No", (editId ? editCode : preview.enquiryNo) ?? ""],
-                    ["Customer", customerName],
                     ["Style", active.name.trim()],
                     ["Article No", active.article_no.trim()],
                     ["Description", active.description.trim()],
@@ -1652,89 +1745,54 @@ export function SampleEntryScreen({
                   (user 2026-10-08, artifact mock-up; the two switches sit with the Order row, billing fields under them) — so the
                   section reads as groups rather than one long run of fields.
                   Merchandiser moved down into Order, where it belongs. */}
+              {/* FABRIC (client spec 2026-10-12 §1). Fabric Structure is a
+                  MULTI-select, and each structure picked takes its own GSM —
+                  "fabric-based GSM … linked to the selected structure(s)"
+                  (0715 `sample_style_fabric_structures`; the first is mirrored
+                  onto the line for Costing and Grouping). Fabric Code, Order Dt,
+                  the Agent override and the Customer read-out came off; the
+                  Merchandiser and Tech Pack moved to Sample Info. */}
               <PiLegend>Fabric</PiLegend>
               <FieldRow>
                 <Field label="Fabric Structure" w="party">
-                  <RecordPicker
+                  <MultiSelect
+                    id="se-pi-structures"
                     label="Fabric Structure"
                     compact
-                    items={data.fabricStructures}
-                    value={active.fabric_structure_id}
-                    onChange={(id) => {
-                      const keep =
-                        !id || !active.fabric_id || data.fabrics.find((f) => f.id === active.fabric_id)?.category_id === id;
-                      // A Fabric Code out of the new Structure's scope is cleared;
-                      // one still in scope is kept (AGENTS.md "Cascading filters").
-                      patchStyle(active.key, { fabric_structure_id: id, ...(keep ? {} : { fabric_id: null }) });
-                    }}
+                    options={structureOptions(active.structures.map((x) => x.structure_id))}
+                    values={active.structures.map((x) => x.structure_id)}
+                    onChange={(ids) => setStructures(active, ids)}
                   />
                 </Field>
-                <Field label="Fabric Code" w="party">
-                  <RecordPicker
-                    label="Fabric Code"
-                    compact
-                    items={fabricItems}
-                    value={active.fabric_id}
-                    onChange={(id) => patchStyle(active.key, { fabric_id: id })}
-                  />
-                </Field>
-                <Field label="GSM" w="num" htmlFor="se-pi-gsm">
-                  <Input
-                    id="se-pi-gsm"
-                    type="number"
-                    min={0}
-                    className="text-right"
-                    value={active.gsm}
-                    onChange={(e) => patchStyle(active.key, { gsm: e.target.value })}
-                  />
-                </Field>
-                <Field label="Tech Pack" w="term" htmlFor="se-pi-tp">
-                  <Select id="se-pi-tp" value={active.tech_pack} onChange={(e) => patchStyle(active.key, { tech_pack: e.target.value })}>
-                    <option value=""></option>
-                    {TECH_PACK.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
+                {active.structures.map((x) => (
+                  <Field key={x.structure_id} label={`GSM · ${structureName(x.structure_id) || "Structure"}`} w="term" htmlFor={`se-pi-gsm-${x.structure_id}`}>
+                    <Input
+                      id={`se-pi-gsm-${x.structure_id}`}
+                      type="number"
+                      min={0}
+                      className="text-right"
+                      value={x.gsm}
+                      onChange={(e) =>
+                        patchStyle(active.key, {
+                          structures: active.structures.map((y) => (y.structure_id === x.structure_id ? { ...y, gsm: e.target.value } : y)),
+                        })
+                      }
+                    />
+                  </Field>
+                ))}
               </FieldRow>
 
-              {/* ORDER DATE · AGENT · DELIVERY MODE. Agent and Delivery Mode start
-                  as Sample Info's value and may be overridden for this line
-                  (spec §2.3). Customer Reference, Received Mode, Receipt Date,
-                  Delivery To and Delivery Through came off on 2026-10-06
-                  (client) — the receipt facts are the header's now, and the
-                  lines inherit them without a field to override. */}
+              {/* DELIVERY DT · DELIVERY MODE. Delivery Dt is the line's own
+                  (also on the Styles grid — one value, two boxes); Delivery Mode
+                  starts as Sample Info's and may be overridden (spec §2.3). */}
               <PiLegend>Order</PiLegend>
               <FieldRow>
-                <Field label="Merchandiser" required w="party">
-                  <RecordPicker
-                    id="se-pi-merch"
-                    label="Merchandiser"
-                    compact
-                    required
-                    items={merchItems}
-                    value={active.merchandiser_id}
-                    onChange={(id) => patchStyle(active.key, { merchandiser_id: id })}
-                  />
-                </Field>
-                <Field label="Order Dt" w="code" htmlFor="se-pi-odt">
+                <Field label="Delivery Dt" w="code" htmlFor="se-pi-ddt">
                   <Input
-                    id="se-pi-odt"
+                    id="se-pi-ddt"
                     type="date"
-                    value={active.order_date}
-                    onChange={(e) => patchStyle(active.key, { order_date: e.target.value })}
-                  />
-                </Field>
-                <Field label="Agent" w="party">
-                  <RecordPicker
-                    id="se-pi-agent"
-                    label="Agent"
-                    compact
-                    items={agentItemsFor(inherited(active, "agent_id") || null)}
-                    value={inherited(active, "agent_id") || null}
-                    onChange={(id) => setInherited(active, "agent_id", id)}
+                    value={active.delivery_date}
+                    onChange={(e) => patchStyle(active.key, { delivery_date: e.target.value })}
                   />
                 </Field>
                 <Field label="Delivery Mode" w="term" htmlFor="se-pi-dmode">
@@ -1875,23 +1933,6 @@ export function SampleEntryScreen({
                 </fieldset>
               </FieldRow>
 
-              {/* IMAGE & TECH PACK (client 2026-10-06) — garment pictures and
-                  the buyer's tech pack, per style line. PRIVATE bucket, signed
-                  reads (0686). After the fields, so the kind <Select> never
-                  becomes the section's Tab edge ahead of them. */}
-              <div className="pt-2">
-                <FileAttachments
-                  dense
-                  label="Image & Tech Pack"
-                  hint="JPG, PNG, WEBP or PDF"
-                  rows={active.files}
-                  onChange={(next) => patchStyle(active.key, { files: next })}
-                  bucket="sample-docs"
-                  folder={`sample/${editId ?? uploadFolder}`}
-                  kinds={SAMPLE_FILE_KINDS}
-                  disabled={editId ? !perms.canEdit : !perms.canCreate}
-                />
-              </div>
               </div>
             </div>
           )}
@@ -2022,7 +2063,14 @@ export function SampleEntryScreen({
    * Billable switches live on Styles and Product Info, never on Quantities, so
    * the row can only vanish while the operator is somewhere else.
    */
-  const railSections = billableStyles.length ? sections : sections.filter((x) => x.key !== "quantities");
+  /* COMBOS ARE HIDDEN ON A QUOTE (user 2026-10-12: "if Sample Info's Action is
+     Quote, hide the Combos tab") — a quote prices the style, it plans no
+     colourways. Hidden, not cleared: combos already typed stay stored and come
+     back if the Action changes, and their rules stand down while hidden
+     (`sampleEntryProblems`), so a section nobody can see never blocks Save. */
+  const railSections = sections.filter(
+    (x) => !(x.key === "quantities" && !billableStyles.length) && !(x.key === "combos" && header.enquiry_action === "quote"),
+  );
 
   if (mode === "edit") {
     return (
@@ -2069,6 +2117,21 @@ export function SampleEntryScreen({
           onClose={closeEditor}
           modeLabel={null}
           sections={railSections}
+          /* LOCKED ONCE ITS COSTING IS APPROVED (0716) — read-only with the
+             reason, and the way through: a Sample Revision that opens Sample
+             Info & Qty. `?raise=` opens the form, or the revision already open. */
+          locked={
+            lock && editId
+              ? {
+                  message: lock,
+                  action: (
+                    <Link href={`/sales/sample-revision?raise=${editId}`} className="font-medium text-primary underline underline-offset-2">
+                      {lock.includes("SMP-REV/") ? "Open the revision" : "Raise Revision"}
+                    </Link>
+                  ),
+                }
+              : false
+          }
           footer={{
             status: dirty ? "Unsaved changes" : editId ? "Editing sample entry" : "New sample entry",
             onCancel: closeEditor,
