@@ -152,8 +152,11 @@ export type SampleHeaderDraft = {
   tech_pack: string;
 };
 
-/** One Fabric Structure picked for a style, with its own GSM (0715). */
-export type StructureDraft = { structure_id: string; gsm: string };
+/** One Fabric Structure picked for a style, with its own GSM (0715). A ROW of
+ *  Product Info's Structure · GSM grid (user 2026-10-13: the dropdown in the
+ *  row, "+ Add structure" under it), so it carries a row `key` and may be blank
+ *  — a blank row is dropped at save (`toSampleEntryPayload`). */
+export type StructureDraft = { key: string; structure_id: string | null; gsm: string };
 
 export type CoordinateDraft = { key: string; coordinate_id: string | null };
 
@@ -729,7 +732,7 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
         fabric_structure_id: structures[0]?.structure_id ?? null,
         fabric_id: s.fabric_id,
         gsm: orNull(structures[0]?.gsm ?? ""),
-        structures: structures.map((x, xi) => ({ sno: xi + 1, structure_id: x.structure_id, gsm: orNull(x.gsm) })),
+        structures: structures.map((x, xi) => ({ sno: xi + 1, structure_id: x.structure_id as string, gsm: orNull(x.gsm) })),
         // The entry's Tech Pack status, on every line (user 2026-10-12).
         tech_pack: orNull(h.tech_pack),
         customer_reference: eff("customer_reference"),

@@ -32,12 +32,15 @@
  */
 
 import { RowHoverRemove } from "@/components/ui/row-hover-remove";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTabResume } from "@/lib/workspace-tabs";
 import { useOpenIntent } from "@/lib/use-open-intent";
-import { Boxes, Calculator, ClipboardList, Package, Palette, Shirt, Users, CalendarRange, Layers } from "lucide-react";
+import { Boxes, Calculator, ClipboardList, Package, Palette, Plus, Shirt, Users, CalendarRange, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import { focusFirstField } from "@/lib/focus";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldRow, FIELD_WIDTH_CSS, fieldWidthStep } from "@/components/ui/field";
@@ -113,6 +116,7 @@ import {
   toSampleEntryPayload,
   type ComboDraft,
   type CoordinateDraft,
+  type StructureDraft,
   type InheritedField,
   type QuantityDraft,
   type SampleEntryListRow,
@@ -143,8 +147,9 @@ type MasterPerms = { canCreate: boolean; canEdit: boolean };
  *   Enquiry No code 144 + Date code 144 + Against term 176 + Action party 200
  *   + Customer party 200 + Season range 112 + Year hug 88          = 1064
  *   + 6 × 12 gap                                                   = 1136 → 71rem
- * and line 2: Country 176 + Agent 200 + Received Mode 176 + Receipt Dt 144
- *   + Delivery Mode 176 = 872 + 48 gap = 920.
+ * and line 2 (user 2026-10-13, was three lines): Agent term 176 + Received Mode
+ *   code 144 + Receipt Dt 144 + Delivery Mode 144 + Merchandiser term 176 +
+ *   Sample Type 144 + Tech Pack 144 = 1072 + 72 gap = 1144 ≤ 1152.
  * 72rem (1152) fits the 1155px content width from 1366 up.
  * (Cust Ref and Delivery To came off on 2026-10-06, client; Receipt Dt moved
  * here from Product Info the same day.)
@@ -161,6 +166,15 @@ const HEADER_W = "max-w-[72rem]";
 // 176 + the two switches (~270) + gaps ≈ 1035px, so the whole Order row fits on
 // ONE line and Billable is not pushed under Accessories Reqd (user 2026-10-08).
 const PRODUCT_W = "max-w-[67rem]";
+
+/**
+ * Product Info's ONE grid (Option A, user 2026-10-13): six 9rem (`code`) tracks
+ * that Order and Billing snap to (Fabric is its own hugging table above them),
+ * so a field stands over the field
+ * below it. 6 × 144 + 5 × 12 = 924px, inside `PRODUCT_W`. Two equal columns
+ * until the editor is 64rem wide, where six tracks fit with their gaps.
+ */
+const PI_GRID = "grid grid-cols-2 items-end gap-3 @5xl/editor:grid-cols-[repeat(6,9rem)]";
 
 /** A hairline-ruled group label above a row of Product Info fields. */
 function PiLegend({ children }: { children: React.ReactNode }) {
@@ -305,6 +319,15 @@ export function SampleEntryScreen({
   const [header, setHeader] = useState<SampleHeaderDraft>(blankHeader);
   const [styles, setStyles] = useState<StyleDraft[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  /** The style tab "+ Add style" just opened — its first field takes the
+   *  cursor once the tab has rendered (the Styles tabs, user 2026-10-13). */
+  const focusStyleRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = focusStyleRef.current;
+    if (!key) return;
+    focusStyleRef.current = null;
+    focusFirstField(document.querySelector<HTMLElement>(`[data-style-panel="${CSS.escape(key)}"]`));
+  }, [styles, activeKey]);
 
   /**
    * Real edits, never "is the editor open". The overlay mount means
@@ -396,6 +419,7 @@ export function SampleEntryScreen({
   // ---- factories (every key the factory stamps is blank — AGENTS.md
   // "THE SEEDED ROW IS SAVED UNLESS THE SAVE SIDE DROPS IT") ----------------
   const blankCombo = (): ComboDraft => ({ key: newKey(), combo: "", sizes: {} });
+  const blankStructure = (): StructureDraft => ({ key: newKey(), structure_id: null, gsm: "" });
   /** Order Entry's `blankQuantity`: the dates start from the line's Delivery Dt
    *  (OE: the header's), Earlier Shipment a week before it. */
   const blankQuantity = (st?: StyleDraft | null): QuantityDraft => ({
@@ -434,7 +458,7 @@ export function SampleEntryScreen({
     fabric_structure_id: null,
     fabric_id: null,
     gsm: "",
-    structures: [],
+    structures: [blankStructure()],
     tech_pack: "",
     customer_reference: "",
     receipt_mode: "",
@@ -471,6 +495,8 @@ export function SampleEntryScreen({
         ? [{ key: newKey(), coordinate_id: piecesCoordinateId }]
         : s.coordinates,
     combos: s.combos.length ? s.combos : [blankCombo()],
+    // Product Info ▸ Fabric's Structure · GSM grid opens on a row to pick in.
+    structures: s.structures.length ? s.structures : [blankStructure()],
   });
 
   // ---- open -------------------------------------------------------------------
@@ -739,8 +765,19 @@ export function SampleEntryScreen({
    * these cells is gone; pickers carry `h-9 @2xl/editor:h-8` themselves.
    */
   const removeStyle = (key: string) => {
+    // The open tab closing hands over to its LEFT neighbour (the right one for
+    // the first), as a closed document tab does — never back to tab 1.
+    const at = styles.findIndex((x) => x.key === key);
+    const next = styles[at - 1] ?? styles[at + 1] ?? null;
     mutStyles((xs) => xs.filter((x) => x.key !== key));
-    if (activeKey === key) setActiveKey(null);
+    if (active?.key === key) setActiveKey(next?.key ?? null);
+  };
+  /** "+ Add style" opens the new line as its own tab, cursor in its first field. */
+  const addStyle = () => {
+    const s = blankStyle();
+    mutStyles((xs) => [...xs, s]);
+    setActiveKey(s.key);
+    focusStyleRef.current = s.key;
   };
 
   /**
@@ -886,21 +923,30 @@ export function SampleEntryScreen({
    */
   const composition = (r: StyleDraft) => (
     <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-      <div className="w-44 min-w-44 flex-none">
-        <Field label="Coordinates" required className="w-full">
+      {/* THE COORDINATE TABLE, AS ORDER ENTRY DRAWS IT (user 2026-10-13: "order
+          module mari neat aa") — a headed `# · Coordinate` table, not bare
+          boxes, then "+ Add coordinate" under it.
+          CELLS, NOT BOXES (user 2026-10-13, screenshot 115109: "coordinate
+          table la irukka table mari cell mari venum") — OE's own sheet wrapper
+          (`data-grid-style="sheet"` + `data-grid-cells="flat"`, erp-sheet-grid),
+          so the picker draws as a flat ruled cell. A FIXED 10rem = `#` 2.5 +
+          Coordinate 7.5, OE's width: `hideRemove` means no Actions column, and
+          ChildGrid's root is an `@container`, so only a definite width holds
+          the pane open (a `w-fit` collapses it and slides Sizes under it). */}
+      <div className="w-40 min-w-40 flex-none">
+        <Field label="Coordinate" required className="w-full">
+          <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
           <ChildGrid<CoordinateDraft>
-            narrow
+            tableAlways
             frameless
-            hideHeader
             headerClassName={COMPOSITION_HEAD}
             columns={[
               {
-                // BLANK ON PURPOSE: in a 176px pane `narrow` drops to its
-                // phone cards, which print each column's header above the box —
-                // "Coordinates / Coordinate", one name twice (Order Entry draws
-                // the same doubled label). The `Field` above names it, and the
-                // picker's own `label` names it for a screen reader.
-                header: "",
+                header: "Coordinate",
+                // A declared width makes the table HUG (`hugsContent`) instead of
+                // `min-w-[420px]`, which scrolled sideways in this pane.
+                // OE's `COORDINATE_W`: # 2.5rem + 7.5rem = the w-40 pane above.
+                width: "7.5rem",
                 cell: (c) => (
                   <RecordPicker
                     label="Coordinate"
@@ -931,8 +977,7 @@ export function SampleEntryScreen({
             // (OE: the ✕ beside each box and the picker's own clear were two
             // X's a few pixels apart).
             hideRemove
-            bodyClassName="space-y-1.5 [&>[data-row-box]]:rounded-none [&>[data-row-box]]:border-0 [&>[data-row-box]]:p-0"
-            addClassName="w-full whitespace-nowrap px-2"
+            addClassName="w-fit whitespace-nowrap px-2"
             addLabel="+ Add coordinate"
             onAdd={() => {
               // OE `addStyleCoordinate`: refused at the cap, and while the last
@@ -943,6 +988,7 @@ export function SampleEntryScreen({
             }}
             onRemove={(c) => patchStyle(r.key, { coordinates: r.coordinates.filter((x) => x.key !== c.key) })}
           />
+          </div>
         </Field>
       </div>
       <div className="w-[220px] min-w-[220px] flex-none self-start">
@@ -974,6 +1020,23 @@ export function SampleEntryScreen({
             values={r.sizes}
             // Kept in size order, whatever order they were ticked in.
             onChange={(next) => patchStyle(r.key, { sizes: sortBySize(next, (z) => z) })}
+          />
+        </Field>
+      </div>
+      {/* FILES AS A CELL, like Order Entry's (user 2026-10-13): one "Click" box on
+          the composition line instead of a full-width strip under it. Same
+          rows, bucket and kinds; not mandatory here. */}
+      <div className="min-w-0 w-32 flex-none">
+        <Field label="Files" className="w-full">
+          <FileAttachments
+            variant="cell"
+            label="Files"
+            rows={r.files}
+            onChange={(next) => patchStyle(r.key, { files: next })}
+            bucket="sample-docs"
+            folder={`sample/${editId ?? uploadFolder}`}
+            kinds={SAMPLE_FILE_KINDS}
+            disabled={editId ? !perms.canEdit : !perms.canCreate}
           />
         </Field>
       </div>
@@ -1445,16 +1508,64 @@ export function SampleEntryScreen({
   // The editor's own title strip still names the customer (Product Info no longer does).
   const customerName = customerOf(header.customer_id)?.name ?? "";
   const structureName = (id: string) => data.fabricStructures.find((x) => x.id === id)?.name ?? "";
-  /** Every structure a line may pick — inactive ones only while it holds them. */
-  const structureOptions = (held: readonly string[]) =>
-    data.fabricStructures
-      .filter((x) => !x.inactive || held.includes(x.id))
-      .map((x) => ({ id: x.id, label: x.name, inactive: !!x.inactive }));
-  /** Fabric Structure picked/unpicked: GSMs typed for a kept structure stay. */
-  const setStructures = (st: StyleDraft, ids: string[]) =>
-    patchStyle(st.key, {
-      structures: ids.map((id) => st.structures.find((x) => x.structure_id === id) ?? { structure_id: id, gsm: "" }),
-    });
+  /** One Structure · GSM row edited (Product Info ▸ Fabric). */
+  const patchStructure = (st: StyleDraft, key: string, patch: Partial<StructureDraft>) =>
+    patchStyle(st.key, { structures: st.structures.map((x) => (x.key === key ? { ...x, ...patch } : x)) });
+  /** Product Info ▸ Fabric's Structure · GSM columns for one style line —
+   *  COMPACT (user 2026-10-13: "compact titten pannu"): # 2.5 + Structure
+   *  `party` 12.5 (holds "2X2 LYCRA DURBY RIB") + GSM 6 (a 3-4 digit GSM and
+   *  its hover ✕) = the 21rem pane they sit in. */
+  const structureColumnsFor = (active: StyleDraft): ChildGridColumn<StructureDraft>[] => [
+    {
+      header: "Structure",
+      width: FIELD_WIDTH_CSS.party,
+      cell: (x) => (
+        <RecordPicker
+          label="Fabric Structure"
+          compact
+          items={data.fabricStructures.filter(
+            (o) =>
+              o.id === x.structure_id ||
+              (!o.inactive && !active.structures.some((y) => y.key !== x.key && y.structure_id === o.id)),
+          )}
+          value={x.structure_id}
+          onChange={(id) => patchStructure(active, x.key, { structure_id: id })}
+        />
+      ),
+    },
+    {
+      header: "GSM",
+      width: "6rem",
+      align: "right",
+      cell: (x) => (
+        <div
+          className={cn(
+            "flex items-center",
+            x.structure_id && !x.gsm.trim() && "bg-[color-mix(in_srgb,var(--danger)_6%,transparent)]",
+          )}
+        >
+          <Input
+            id={`se-pi-gsm-${x.key}`}
+            aria-label={`GSM · ${structureName(x.structure_id ?? "") || "Structure"}`}
+            type="number"
+            min={0}
+            className="text-right"
+            value={x.gsm}
+            onChange={(e) => patchStructure(active, x.key, { gsm: e.target.value })}
+          />
+          {active.structures.length > 1 && (
+            <RowHoverRemove
+              label={`Remove ${structureName(x.structure_id ?? "") || "this structure"}`}
+              className="mr-1"
+              onClick={() =>
+                patchStyle(active.key, { structures: active.structures.filter((y) => y.key !== x.key) })
+              }
+            />
+          )}
+        </div>
+      ),
+    },
+  ];
   /** The billing fields' look while the active line is not billable. */
   const billOff = active?.billable ? undefined : "opacity-50";
   const seasonText = [data.seasons.find((x) => x.id === header.season_id)?.name ?? "", header.season_year]
@@ -1561,7 +1672,7 @@ export function SampleEntryScreen({
                   the entry's country loses it. */}
               {/* A VENDOR (client 2026-10-06): Vendor master ▸ Service Provider ▸
                   Buying Agent / Service Agent — `getAgents` in the service. */}
-              <Field label="Agent" w="party">
+              <Field label="Agent" w="term">
                 <RecordPicker
                   id="se-agent"
                   label="Agent"
@@ -1572,7 +1683,7 @@ export function SampleEntryScreen({
                   onChange={(id) => setH({ agent_id: id })}
                 />
               </Field>
-              <Field label="Received Mode" w="term" htmlFor="se-rmode">
+              <Field label="Received Mode" w="code" htmlFor="se-rmode">
                 <Select id="se-rmode" value={header.receipt_mode} onChange={(e) => setH({ receipt_mode: e.target.value })}>
                   <option value=""></option>
                   {RECEIPT_MODES.map((o) => (
@@ -1592,7 +1703,7 @@ export function SampleEntryScreen({
                   onChange={(e) => setH({ receipt_date: e.target.value })}
                 />
               </Field>
-              <Field label="Delivery Mode" w="term" htmlFor="se-dmode">
+              <Field label="Delivery Mode" w="code" htmlFor="se-dmode">
                 <Select id="se-dmode" value={header.delivery_mode} onChange={(e) => setH({ delivery_mode: e.target.value })}>
                   <option value=""></option>
                   {DELIVERY_MODES.map((o) => (
@@ -1602,12 +1713,12 @@ export function SampleEntryScreen({
                   ))}
                 </Select>
               </Field>
-            </FieldRow>
             {/* MERCHANDISER AND SAMPLE TYPE ARE THE ENTRY'S (client spec
                 2026-10-12 §2) — said once here and stamped on every style line
-                at Save. Merchandiser was asked per line on Product Info. */}
-            <FieldRow>
-              <Field label="Merchandiser" required w="party">
+                at Save. Merchandiser was asked per line on Product Info.
+                Same FieldRow as the line above: TWO rows in all (user
+                2026-10-13), seven fields each — see `HEADER_W`. */}
+              <Field label="Merchandiser" required w="term">
                 <RecordPicker
                   id="se-merch"
                   label="Merchandiser"
@@ -1618,7 +1729,7 @@ export function SampleEntryScreen({
                   onChange={(id) => setH({ merchandiser_id: id })}
                 />
               </Field>
-              <Field label="Sample Type" w="term" htmlFor="se-stype">
+              <Field label="Sample Type" w="code" htmlFor="se-stype">
                 <Select id="se-stype" value={header.sample_type} onChange={(e) => setH({ sample_type: e.target.value })}>
                   {SAMPLE_TYPE_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -1629,7 +1740,7 @@ export function SampleEntryScreen({
               </Field>
               {/* ONE TECH PACK STATUS FOR THE ENTRY, beside Sample Type (user
                   2026-10-12) — stamped on every style line at Save. */}
-              <Field label="Tech Pack" w="term" htmlFor="se-techpack">
+              <Field label="Tech Pack" w="code" htmlFor="se-techpack">
                 <Select id="se-techpack" value={header.tech_pack} onChange={(e) => setH({ tech_pack: e.target.value })}>
                   <option value=""></option>
                   {TECH_PACK.map((o) => (
@@ -1650,60 +1761,53 @@ export function SampleEntryScreen({
       icon: Shirt,
       done: realStyles.length > 0,
       problems: validity.bySection.styles,
-      // NO SectionBody — the rail row names the grid (OE: "NO WRAPPER").
+      // NO SectionBody — the rail row names the section (OE: "NO WRAPPER").
+      /* ONE TAB PER STYLE (user 2026-10-13: "add style filed button tab aa venum
+         add style kudutha tab aa varanum"). The lines were a stack of cards with
+         "+ Add style" under the last one; now each line is a tab, "+ Add style"
+         sits at the end of the strip and opens the new line as the active tab,
+         cursor in its first field. The open tab is `activeKey` — the SAME key
+         Product Info / Combos switch on — so picking a style here carries over.
+         The last line cannot be removed (the ✕ shows only with two or more),
+         which is the `keepOne` the grid gave. A tab's red count is that line's
+         own Styles problems. */
       content: (
-        <ChildGrid<StyleDraft>
-          // grid-caption: exempt -- Order Entry's own Styles grid carries this caption (label="Styles Details"); copied for parity.
-          label="Styles Details"
-          columns={styleColumns}
-          rows={styles}
-          forceCards
-          listRows
-          frameless
-          keepOne
-          pageSize={5}
-          addLabel="+ Add style"
-          onAdd={() => {
-            const s = blankStyle();
-            mutStyles((xs) => [...xs, s]);
-          }}
-          onRemove={(r) => removeStyle(r.key)}
-          // `listRows`: the row draws its own chrome, so `Field required` is
-          // the ONLY place a column's `required` reaches the control.
-          renderMobileRow={(r, i) => (
-            <div className="relative space-y-2 pr-8 max-sm:pr-0">
-              {styles.length > 1 && <RowRemoveChip label="Remove style" onClick={() => removeStyle(r.key)} />}
-              <FieldRow nowrap gap="row">
-                {styleColumns.map((c) => (
-                  <Field
-                    key={c.header}
-                    label={c.header}
-                    required={c.required}
-                    w={fieldWidthStep(c.width) ?? "code"}
-                    className={c.header === "Style Description" ? "flex-[1_1_7rem]" : undefined}
-                  >
-                    {c.cell(r, i)}
-                  </Field>
-                ))}
-              </FieldRow>
-              {composition(r)}
-              {/* THE STYLE'S FILES, ON ITS OWN CARD (user 2026-10-12: "files …
-                  move to style tab, this is not tech pack file"). Every file of
-                  the line — garment images and documents — in one box; Product
-                  Info and Sample Info no longer carry one. */}
-              <FileAttachments
-                dense
-                label="Files"
-                hint="PDF, JPG, PNG or WEBP"
-                rows={r.files}
-                onChange={(next) => patchStyle(r.key, { files: next })}
-                bucket="sample-docs"
-                folder={`sample/${editId ?? uploadFolder}`}
-                kinds={SAMPLE_FILE_KINDS}
-                disabled={editId ? !perms.canEdit : !perms.canCreate}
-              />
-            </div>
-          )}
+        <Tabs
+          value={active?.key}
+          onChange={setActiveKey}
+          after={
+            <Button type="button" variant="outline" onClick={addStyle} disabled={editId ? !perms.canEdit : !perms.canCreate}>
+              <Plus aria-hidden className="size-4" />
+              Add style
+            </Button>
+          }
+          items={styles.map((r, i) => ({
+            key: r.key,
+            label: styleLabel(r),
+            problems: sampleProblems.filter((p) => p.section === "styles" && p.styleKey === r.key).length,
+            done: !isBlankStyle(r),
+            content: (
+              // The row draws its own chrome, so `Field required` is the ONLY
+              // place a column's `required` reaches the control.
+              <div data-style-panel={r.key} className="relative space-y-2 pr-8 max-sm:pr-0">
+                {styles.length > 1 && <RowRemoveChip label="Remove style" onClick={() => removeStyle(r.key)} />}
+                <FieldRow nowrap gap="row">
+                  {styleColumns.map((c) => (
+                    <Field
+                      key={c.header}
+                      label={c.header}
+                      required={c.required}
+                      w={fieldWidthStep(c.width) ?? "code"}
+                      className={c.header === "Style Description" ? "flex-[1_1_7rem]" : undefined}
+                    >
+                      {c.cell(r, i)}
+                    </Field>
+                  ))}
+                </FieldRow>
+                {composition(r)}
+              </div>
+            ),
+          }))}
         />
       ),
     },
@@ -1711,7 +1815,7 @@ export function SampleEntryScreen({
       key: "product",
       label: "Product Info",
       icon: Package,
-      done: realStyles.length > 0 && realStyles.every((s) => s.structures.length > 0),
+      done: realStyles.length > 0 && realStyles.every((s) => s.structures.some((x) => !!x.structure_id)),
       problems: validity.bySection.product,
       content: (
         <SectionBody title="Product Info">
@@ -1770,42 +1874,65 @@ export function SampleEntryScreen({
                   onto the line for Costing and Grouping). Fabric Code, Order Dt,
                   the Agent override and the Customer read-out came off; the
                   Merchandiser and Tech Pack moved to Sample Info. */}
+              {/* OPTION A OF THE 2026-10-13 MOCK-UPS, applied (user: "itha apply
+                  pannidu" — artifact HjRt8AFFNSZtRCKKSSGcZ8). ONE SIX-TRACK GRID
+                  (`PI_GRID`) that Order and Billing snap to, so
+                  Delivery Dt stands over Ship Type and Delivery Mode over Ship
+                  Mode. Before it each row was a FieldRow with its own widths
+                  (Delivery Mode `term`, Ship Mode `range`) and nothing lined up;
+                  the structure chips wrapped under the picker while their GSM
+                  boxes floated to the right of them, so a structure and its GSM
+                  sat on different lines. */}
               <PiLegend>Fabric</PiLegend>
-              <FieldRow>
-                <Field label="Fabric Structure" w="party">
-                  <MultiSelect
-                    id="se-pi-structures"
-                    label="Fabric Structure"
-                    compact
-                    options={structureOptions(active.structures.map((x) => x.structure_id))}
-                    values={active.structures.map((x) => x.structure_id)}
-                    onChange={(ids) => setStructures(active, ids)}
+              {/* THE DROPDOWN IN THE ROW, "+ Add structure" UNDER THE TABLE (user
+                  2026-10-13: "table column laye drop down vachi kela add button
+                  vaikkara mari … table row kullaye selected field irukkara mari
+                  venum"). The Styles ▸ Coordinate table's shape: a headed
+                  `# · Structure · GSM` sheet with flat cells, 21rem wide, one structure
+                  picked per row, its GSM beside it. It replaces a multi-select
+                  in the table's head whose ticks became the rows — the field and
+                  the value it set were two different places.
+                  Opens on one row ready (`blankStructure`, seeded in STATE by
+                  `blankStyle` / `withSeeds`, never `seedRow`, which would mark
+                  the entry "Unsaved"); a row left without a structure is dropped
+                  at save (`toSampleEntryPayload`). A structure already on another
+                  row is not offered again — it would be one structure counted
+                  twice. The hover ✕ rides in the GSM cell (`RowHoverRemove`,
+                  Ctrl+Del through `data-row-remove`); the last row keeps none. */}
+              <div className="w-[21rem] max-w-full">
+                <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
+                  <ChildGrid<StructureDraft>
+                    tableAlways
+                    frameless
+                    headerClassName={COMPOSITION_HEAD}
+                    columns={structureColumnsFor(active)}
+                    rows={active.structures}
+                    hideRemove
+                    addClassName="w-fit whitespace-nowrap px-2"
+                    addLabel="+ Add structure"
+                    onAdd={() => {
+                      // Refused while the last row is still blank — fill it
+                      // before asking for another (the Coordinate grid's rule).
+                      const last = active.structures[active.structures.length - 1];
+                      if (last && !last.structure_id) return false;
+                      patchStyle(active.key, { structures: [...active.structures, blankStructure()] });
+                    }}
+                    onRemove={(x) => patchStyle(active.key, { structures: active.structures.filter((y) => y.key !== x.key) })}
                   />
-                </Field>
-                {active.structures.map((x) => (
-                  <Field key={x.structure_id} label={`GSM · ${structureName(x.structure_id) || "Structure"}`} w="term" htmlFor={`se-pi-gsm-${x.structure_id}`}>
-                    <Input
-                      id={`se-pi-gsm-${x.structure_id}`}
-                      type="number"
-                      min={0}
-                      className="text-right"
-                      value={x.gsm}
-                      onChange={(e) =>
-                        patchStyle(active.key, {
-                          structures: active.structures.map((y) => (y.structure_id === x.structure_id ? { ...y, gsm: e.target.value } : y)),
-                        })
-                      }
-                    />
-                  </Field>
-                ))}
-              </FieldRow>
+                </div>
+                {(() => {
+                  const blank = active.structures.filter((x) => x.structure_id && !x.gsm.trim()).length;
+                  return blank > 0 ? <p className="mt-1 text-xs text-muted-foreground">{blank} GSM still to fill.</p> : null;
+                })()}
+              </div>
 
-              {/* DELIVERY DT · DELIVERY MODE. Delivery Dt is the line's own
-                  (also on the Styles grid — one value, two boxes); Delivery Mode
-                  starts as Sample Info's and may be overridden (spec §2.3). */}
+              {/* DELIVERY DT · DELIVERY MODE, then the two switches on the same
+                  line. Delivery Dt is the line's own (also on the Styles grid —
+                  one value, two boxes); Delivery Mode starts as Sample Info's
+                  and may be overridden (spec §2.3). */}
               <PiLegend>Order</PiLegend>
-              <FieldRow>
-                <Field label="Delivery Dt" w="code" htmlFor="se-pi-ddt">
+              <div className={PI_GRID}>
+                <Field label="Delivery Dt" htmlFor="se-pi-ddt" className="w-full min-w-0">
                   <Input
                     id="se-pi-ddt"
                     type="date"
@@ -1813,7 +1940,7 @@ export function SampleEntryScreen({
                     onChange={(e) => patchStyle(active.key, { delivery_date: e.target.value })}
                   />
                 </Field>
-                <Field label="Delivery Mode" w="term" htmlFor="se-pi-dmode">
+                <Field label="Delivery Mode" htmlFor="se-pi-dmode" className="w-full min-w-0">
                   <Select
                     id="se-pi-dmode"
                     value={inherited(active, "delivery_mode")}
@@ -1827,11 +1954,10 @@ export function SampleEntryScreen({
                     ))}
                   </Select>
                 </Field>
-                {/* COMMERCIAL (spec §4.3). The two switches sit in the Order
-                    row; Billable = No greys the billing fields below, and a
-                    greyed field is never saved (`toSampleEntryPayload`) and
-                    never required. */}
-                <div className="flex items-center gap-4">
+                {/* COMMERCIAL (spec §4.3). Billable = No greys the Billing group
+                    below, and a greyed field is never saved
+                    (`toSampleEntryPayload`) and never required. */}
+                <div className="col-span-2 flex flex-wrap items-center gap-x-6 gap-y-2 self-end @5xl/editor:col-span-4">
                   <Toggle
                     id="se-pi-acc"
                     label="Accessories Reqd"
@@ -1847,31 +1973,38 @@ export function SampleEntryScreen({
                     label="Billable"
                     checked={active.billable}
                     onChange={(v) => patchStyle(active.key, { billable: v })}
-                    // Same h-9 → @2xl/editor:h-8 step as Input, so the switch centres on the boxes beside it.
                     className="@2xl/editor:min-h-8"
                   />
                 </div>
-              </FieldRow>
+              </div>
 
-              {/* Own row, so the two switches stay together beside Delivery Mode
-                  instead of Billable being pushed down by the six billing fields. */}
-              <FieldRow>
-                {/* GREYED, NOT HIDDEN, WHEN BILLABLE = NO (user 2026-10-06): showing
-                    and hiding four fields made the row jump on every toggle. A
-                    native <fieldset disabled> disables every control inside it —
-                    the pickers included, which have no `disabled` prop of their
-                    own — and `display: contents` keeps the fields in this row.
-                    Still never SAVED and never REQUIRED while No
-                    (`toSampleEntryPayload`, `sampleEntryProblems`). */}
-                {/* `disabled` alone does not read as off under the raagam skin,
-                    which draws a disabled box like a live one — so the four are
-                    dimmed as well (checked in the browser, 2026-10-06). */}
+              {/* BILLING, ITS OWN LABELLED GROUP (Option A): six greyed fields
+                  with nothing saying why read as broken, so the legend says it
+                  while Billable is No.
+                  GREYED, NOT HIDDEN, WHEN BILLABLE = NO (user 2026-10-06): showing
+                  and hiding the fields made the section jump on every toggle. A
+                  native <fieldset disabled> disables every control inside it —
+                  the pickers included, which have no `disabled` prop of their
+                  own — and `display: contents` keeps the fields in the grid.
+                  Still never SAVED and never REQUIRED while No
+                  (`toSampleEntryPayload`, `sampleEntryProblems`). `disabled`
+                  alone does not read as off under the raagam skin, so the fields
+                  are dimmed as well (checked in the browser, 2026-10-06). */}
+              <PiLegend>
+                Billing
+                {!active.billable && (
+                  <span className="rounded-md bg-warning-soft px-2 py-0.5 text-xs font-medium normal-case tracking-normal text-warning">
+                    Turn on Billable to fill these
+                  </span>
+                )}
+              </PiLegend>
+              <div className={PI_GRID}>
                 <fieldset
                   disabled={!active.billable}
                   aria-label="Billing — only for a billable sample"
                   className="contents"
                 >
-                    <Field label="Ship Type" w="term" className={billOff}>
+                    <Field label="Ship Type" className={cn("w-full min-w-0", billOff)}>
                       <LookupDialogPicker
                         kind="ship_type"
                         label="Ship Type"
@@ -1883,7 +2016,7 @@ export function SampleEntryScreen({
                         canEdit={masterPerms.canEdit}
                       />
                     </Field>
-                    <Field label="Ship Mode" w="range" className={billOff} htmlFor="se-pi-smode">
+                    <Field label="Ship Mode" className={cn("w-full min-w-0", billOff)} htmlFor="se-pi-smode">
                       <Select id="se-pi-smode" value={active.ship_mode} onChange={(e) => patchStyle(active.key, { ship_mode: e.target.value })}>
                         <option value=""></option>
                         {SHIP_MODES.map((o) => (
@@ -1893,7 +2026,7 @@ export function SampleEntryScreen({
                         ))}
                       </Select>
                     </Field>
-                    <Field label="Currency" required={active.billable} w="range" className={billOff}>
+                    <Field label="Currency" required={active.billable} className={cn("w-full min-w-0", billOff)}>
                       <CurrencyPicker
                         label="Currency"
                         compact
@@ -1910,7 +2043,7 @@ export function SampleEntryScreen({
                         canEdit={masterPerms.canEdit}
                       />
                     </Field>
-                    <Field label="Price" required={active.billable} w="range" className={billOff} htmlFor="se-pi-price">
+                    <Field label="Price" required={active.billable} className={cn("w-full min-w-0", billOff)} htmlFor="se-pi-price">
                       <Input
                         id="se-pi-price"
                         type="number"
@@ -1925,7 +2058,7 @@ export function SampleEntryScreen({
                     {/* EXCHANGE RATE + LOCAL VALUE (client 2026-10-06). Local
                         Value = Price × Exchange Rate, derived on every render
                         and never stored (`sampleLocalValue`). */}
-                    <Field label="Exchange Rate" required={active.billable} w="range" className={billOff} htmlFor="se-pi-exrate">
+                    <Field label="Exchange Rate" required={active.billable} className={cn("w-full min-w-0", billOff)} htmlFor="se-pi-exrate">
                       <Input
                         id="se-pi-exrate"
                         type="number"
@@ -1937,11 +2070,11 @@ export function SampleEntryScreen({
                         onChange={(e) => patchStyle(active.key, { exchange_rate: e.target.value })}
                       />
                     </Field>
-                    <Field label="Local Value" w="range" className={billOff} htmlFor="se-pi-local">
+                    <Field label="Local Value" className={cn("w-full min-w-0", billOff)} htmlFor="se-pi-local">
                       <Input
                         id="se-pi-local"
                         readOnly
-                        className="text-right tabular-nums"
+                        className="bg-surface-muted text-right tabular-nums"
                         value={(() => {
                           const v = active.billable ? sampleLocalValue(active) : null;
                           return v == null ? "" : fmtMoney(v, "INR");
@@ -1949,7 +2082,7 @@ export function SampleEntryScreen({
                       />
                     </Field>
                 </fieldset>
-              </FieldRow>
+              </div>
 
               </div>
             </div>

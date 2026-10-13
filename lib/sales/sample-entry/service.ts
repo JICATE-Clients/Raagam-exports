@@ -455,8 +455,9 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
       // 0715's rows; a line saved before them reads its one structure + GSM.
       structures: (() => {
         const rows = bySno(st.structures).filter((x) => !!x.structure_id);
-        if (rows.length) return rows.map((x) => ({ structure_id: x.structure_id as string, gsm: str(x.gsm) }));
-        return vid("fabric_structure_id") ? [{ structure_id: vid("fabric_structure_id") as string, gsm: v("gsm") }] : [];
+        // `key` is the grid row's identity on screen only — never saved.
+        if (rows.length) return rows.map((x, xi) => ({ key: `fs-${xi}`, structure_id: x.structure_id as string, gsm: str(x.gsm) }));
+        return vid("fabric_structure_id") ? [{ key: "fs-0", structure_id: vid("fabric_structure_id") as string, gsm: v("gsm") }] : [];
       })(),
       tech_pack: v("tech_pack"),
       customer_reference: v("customer_reference"),

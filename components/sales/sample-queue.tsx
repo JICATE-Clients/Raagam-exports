@@ -59,6 +59,8 @@ export function SampleCards<R>({
   canDelete = false,
   canDeleteRow,
   onDelete,
+  onReports,
+  canReportsRow,
   isPending = false,
   empty,
 }: {
@@ -79,6 +81,9 @@ export function SampleCards<R>({
   canDelete?: boolean;
   canDeleteRow?: (r: R) => boolean;
   onDelete?: (r: R) => void;
+  /** A report reachable without opening the row (see MobileCardList). */
+  onReports?: (r: R) => void;
+  canReportsRow?: (r: R) => boolean;
   isPending?: boolean;
   empty: ReactNode;
 }) {
@@ -99,6 +104,8 @@ export function SampleCards<R>({
       canDelete={canDelete}
       canDeleteRow={canDeleteRow}
       onDelete={onDelete}
+      onReports={onReports}
+      canReportsRow={canReportsRow}
       isPending={isPending}
       empty={empty}
     />

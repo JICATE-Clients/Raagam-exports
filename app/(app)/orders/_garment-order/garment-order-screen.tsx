@@ -1,6 +1,6 @@
 "use client";
 
-import { RowHoverRemove } from "@/components/ui/row-hover-remove";
+import { RowHoverRemove, ROW_HOVER_REVEAL } from "@/components/ui/row-hover-remove";
 import { PenTool } from "lucide-react";
 import { OrderCadTab } from "@/components/orders/cad/order-cad-tab";
 import { clearPendingCad, NEW_ORDER_CAD, pendingCadProblem, savePendingCad } from "@/components/orders/cad/cad-pending";
@@ -11385,7 +11385,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   type="button"
                   disabled={taCompleting}
                   title="Record today as this activity's Actual date"
-                  className="rounded border border-border px-1.5 py-0.5 font-medium text-foreground hover:bg-surface-muted disabled:opacity-50"
+                  className={cn("rounded border border-border px-1.5 py-0.5 font-medium text-foreground hover:bg-surface-muted disabled:opacity-50", ROW_HOVER_REVEAL)}
                   onClick={() => completeTaRow(r)}
                 >
                   Complete
@@ -22100,7 +22100,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               <span className="flex-none" style={{ width: TA_DATE_COL_W }}>Target</span>
               <span className="flex-none" style={{ width: TA_DATE_COL_W }}>Actual</span>
               <span className="flex-none" style={{ width: TA_STATUS_COL_W }}>Status</span>
-              <span className="flex-none" style={{ width: TA_ACTIONS_COL_W }}>Actions</span>
+              {/* No "Actions" heading (user 2026-10-13): the ✕ is the hover chip and
+                  Complete shows on hover; what is left here is status text, not a column
+                  of buttons. The track stays so Status keeps its place. */}
+              <span className="flex-none" style={{ width: TA_ACTIONS_COL_W }} aria-hidden />
             </div>
             <div
               /* `!border-t-0` / `!py-0` cancel `flatRows`'s own 2px rule and
