@@ -4,6 +4,12 @@ import type { ReactNode } from "react";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import type { StatusTone } from "@/lib/ui/tone";
+import { DataTable, type Column } from "@/components/ui/data-table";
+import { FileText } from "lucide-react";
+import { RowActions, RowIconAction } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
+import { FigureCell } from "@/components/orders/order-queue-table";
 
 /**
  * THE SAMPLE MODULE'S CARD QUEUE (user 2026-10-12: "in grouping to accessories
@@ -63,6 +69,7 @@ export function SampleCards<R>({
   canReportsRow,
   isPending = false,
   empty,
+  table,
 }: {
   rows: R[];
   getKey: (r: R) => string;
@@ -86,7 +93,68 @@ export function SampleCards<R>({
   canReportsRow?: (r: R) => boolean;
   isPending?: boolean;
   empty: ReactNode;
+  /**
+   * DRAW THESE ROWS AS A TABLE (user 2026-10-13, screenshot 3458: "the pending
+   * stat card type ui, the updated tab should as table like how we followed
+   * order module"). Orders' queues keep Pending / Draft as cards — work still
+   * to do — and draw Updated as a compact table (`OrderQueueTable`). Same rows,
+   * same click; the card's title, sub-line, figures and pill become columns.
+   * The headers are the screen's, since a card never had to name them.
+   */
+  table?: { title: string; subtitle?: string };
 }) {
+  if (table) {
+    const figures = rows[0] ? stats(rows[0]) : [];
+    const cols: Column<R>[] = [
+      {
+        header: table.title,
+        className: HUG,
+        /* A real <button>, as every Orders queue table draws its RE No. */
+        cell: (r) => (
+          <button
+            type="button"
+            onClick={() => onOpen(r)}
+            className="rounded-sm text-left text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {title(r)}
+          </button>
+        ),
+      },
+      ...(subtitle && table.subtitle ? [{ header: table.subtitle, cell: (r: R) => <span className="text-xs">{subtitle(r)}</span> }] : []),
+      ...figures.map((f, i) => ({
+        header: f.label,
+        className: HUG,
+        cell: (r: R) => <FigureCell value={stats(r)[i]?.value ?? null} />,
+      })),
+      { header: "Status", className: HUG, cell: (r) => <SampleQueuePill state={state(r)}>{pillText(r)}</SampleQueuePill> },
+      rowActionsColumn((r) => (
+        <RowActions
+          view={false}
+          /* The card's Reports, in the eye's slot (Row actions rule). */
+          lead={
+            onReports ? (
+              <RowIconAction
+                label="Reports"
+                icon={FileText}
+                className="text-primary"
+                onClick={canReportsRow?.(r) === false ? undefined : () => onReports(r)}
+                disabledReason={canReportsRow?.(r) === false ? "Nothing to report on yet" : null}
+              />
+            ) : undefined
+          }
+          onEdit={() => onOpen(r)}
+          onDelete={onDelete ? () => onDelete(r) : undefined}
+          canDelete={canDelete && (canDeleteRow ? canDeleteRow(r) : true)}
+          isPending={isPending}
+        />
+      )),
+    ];
+    return (
+      <div className="w-fit max-w-full">
+        <DataTable columns={hugCreated(withCreatedColumns(cols, rows))} rows={rows} compact getKey={getKey} empty={empty} />
+      </div>
+    );
+  }
   return (
     <MobileCardList<R>
       columns={6}
