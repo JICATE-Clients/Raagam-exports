@@ -80,9 +80,10 @@ export function PlanApprovalOverview({
             <dl className="divide-y divide-border rounded-lg border border-border">
               {(
                 [
-                  ["SWO", h.description ?? h.swoCode],
+                  // The SWO's own words, only when it has some — the title above
+                  // already says its number.
+                  ...(h.description ? ([["Description", h.description]] as [string, string][]) : []),
                   ["Season", h.season],
-                  ["Samples", h.samples.map((x) => x.smpNo ?? x.sampleNo).filter(Boolean).join(", ") || null],
                   ["Work order", h.iwoCode],
                   ["Plan date", h.planDate ? fmtDate(h.planDate) : null],
                   ["Submitted by", row.submitted_by_name],
@@ -97,6 +98,21 @@ export function PlanApprovalOverview({
                   </dd>
                 </div>
               ))}
+              {/* EVERY SAMPLE, ONE PER LINE — a run-on list cut off at "…" hid
+                  which samples the approval covers (2026-10-13). */}
+              <div className="flex items-start justify-between gap-3 px-3 py-1.5">
+                <dt className="shrink-0 text-xs text-muted-foreground">{`Samples (${h.samples.length})`}</dt>
+                <dd className="m-0 min-w-0 space-y-0.5 text-right">
+                  {h.samples.length
+                    ? h.samples.map((x) => (
+                        <span key={x.styleId} className="block text-xs font-semibold text-foreground">
+                          <span className="font-mono">{x.smpNo ?? x.sampleNo ?? "—"}</span>
+                          {x.styleName ? <span className="block text-[11px] font-normal text-muted-foreground">{x.styleName}</span> : null}
+                        </span>
+                      ))
+                    : "—"}
+                </dd>
+              </div>
             </dl>
             {/* THE DOCUMENT, AND THE PLAN ITSELF — the order's "View full order
                 data", plus the direct link the user asked for (2026-10-13). */}
@@ -122,7 +138,7 @@ export function PlanApprovalOverview({
                 onClick={() => router.push(`${PLAN_EDITOR_PATH[plan.kind]}?open=${h.bomId}`)}
                 className="flex h-8 items-center justify-center gap-1 rounded-control border border-border px-2 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                {`Open ${PLAN_KIND_LABEL[plan.kind]}`}
+                Open plan
                 <ExternalLink className="size-3.5" aria-hidden />
               </button>
             </div>
@@ -241,6 +257,10 @@ function FabricMiddle({ plan }: { plan: Extract<PlanReport, { kind: "fabric" }>[
     fabricsBySample.set(f.sample, set);
   }
   const refused = plan.yarns.filter((y) => y.purchaseQty == null).length;
+  // A column every row leaves blank says nothing — a Fabric-mode plan's yarns
+  // are derived from its cloths and carry no buy stage or planned kilos.
+  const hasStage = plan.yarns.some((y) => y.buyStage);
+  const hasPlanned = plan.yarns.some((y) => y.plannedKg != null);
   return (
     <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -258,48 +278,49 @@ function FabricMiddle({ plan }: { plan: Extract<PlanReport, { kind: "fabric" }>[
       <Card>
         <CardBody className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Fabric by Sample</h2>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th scope="col" className={TH}>Sample</th>
-                <th scope="col" className={THR}>Fabrics</th>
+                <th scope="col" className={cn(THR, "max-sm:hidden")}>Fabrics</th>
                 <th scope="col" className={THR}>Req Kg</th>
-                <th scope="col" className="py-1.5 pl-3 text-right font-semibold">Share</th>
+                <th scope="col" className="py-1.5 pl-3 text-right font-semibold max-sm:hidden">Share</th>
               </tr>
             </thead>
             <tbody className="tabular-nums">
               {plan.bySample.map((x) => (
                 <tr key={x.sample} className="border-b border-border/60">
-                  <th scope="row" className="py-1.5 pr-3 text-left font-normal">
-                    <Truncated text={x.sample} className="block max-w-[18rem]" />
-                  </th>
-                  <td className="px-3 py-1.5 text-right">{fabricsBySample.get(x.sample)?.size ?? 0}</td>
+                  <th scope="row" className="py-1.5 pr-3 text-left font-normal">{x.sample}</th>
+                  <td className="px-3 py-1.5 text-right max-sm:hidden">{fabricsBySample.get(x.sample)?.size ?? 0}</td>
                   <td className="px-3 py-1.5 text-right">{fmtNumber(x.kg)}</td>
-                  <td className="py-1.5 pl-3 text-right">
+                  <td className="py-1.5 pl-3 text-right max-sm:hidden">
                     {plan.fabricTotalKg > 0 ? `${((x.kg / plan.fabricTotalKg) * 100).toFixed(1)}%` : "—"}
                   </td>
                 </tr>
               ))}
               <tr className="bg-surface-muted font-semibold">
                 <th scope="row" className="py-1.5 pr-3 text-left">Total</th>
-                <td className="px-3 py-1.5" />
+                <td className="px-3 py-1.5 max-sm:hidden" />
                 <td className="px-3 py-1.5 text-right">{fmtNumber(plan.fabricTotalKg)}</td>
-                <td className="py-1.5 pl-3" />
+                <td className="py-1.5 pl-3 max-sm:hidden" />
               </tr>
             </tbody>
           </table>
+          </div>
         </CardBody>
       </Card>
 
       <Card>
         <CardBody className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Yarn to Buy</h2>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th scope="col" className={TH}>Yarn</th>
-                <th scope="col" className="px-3 py-1.5 text-left font-semibold">Bought as</th>
-                <th scope="col" className={THR}>Planned Kg</th>
+                {hasStage ? <th scope="col" className="px-3 py-1.5 text-left font-semibold max-sm:hidden">Bought as</th> : null}
+                {hasPlanned ? <th scope="col" className={cn(THR, "max-sm:hidden")}>Planned Kg</th> : null}
                 <th scope="col" className="py-1.5 pl-3 text-right font-semibold">Purchase</th>
               </tr>
             </thead>
@@ -307,14 +328,16 @@ function FabricMiddle({ plan }: { plan: Extract<PlanReport, { kind: "fabric" }>[
               {plan.yarns.map((y, i) => (
                 <tr key={i} className="border-b border-border/60">
                   <th scope="row" className="py-1.5 pr-3 text-left font-normal">
-                    <Truncated text={y.yarn} className="block max-w-[18rem]" />
+                    {y.yarn}
                     {y.shades.length ? (
                       <span className="block text-[11px] text-muted-foreground">{y.shades.map((sh) => sh.colour).join(" · ")}</span>
                     ) : null}
                   </th>
-                  <td className="px-3 py-1.5 text-muted-foreground">{y.buyStage ?? "—"}</td>
-                  <td className="px-3 py-1.5 text-right">{y.plannedKg == null ? "—" : fmtNumber(y.plannedKg)}</td>
-                  <td className={cn("py-1.5 pl-3 text-right", y.purchaseQty == null && "text-danger")}>
+                  {hasStage ? <td className="px-3 py-1.5 text-muted-foreground max-sm:hidden">{y.buyStage ?? "—"}</td> : null}
+                  {hasPlanned ? (
+                    <td className="px-3 py-1.5 text-right max-sm:hidden">{y.plannedKg == null ? "—" : fmtNumber(y.plannedKg)}</td>
+                  ) : null}
+                  <td className={cn("whitespace-nowrap py-1.5 pl-3 text-right", y.purchaseQty == null && "whitespace-normal text-danger")}>
                     {y.purchaseQty == null ? (y.refusal ?? "Not worked out") : `${fmtNumber(y.purchaseQty)}${y.uom ? ` ${y.uom}` : ""}`}
                   </td>
                 </tr>
@@ -326,6 +349,7 @@ function FabricMiddle({ plan }: { plan: Extract<PlanReport, { kind: "fabric" }>[
               ) : null}
             </tbody>
           </table>
+          </div>
         </CardBody>
       </Card>
     </>
@@ -352,13 +376,14 @@ function AccessoriesMiddle({ plan }: { plan: Extract<PlanReport, { kind: "access
       <Card>
         <CardBody className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Accessories to Buy</h2>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th scope="col" className={TH}>Accessory</th>
-                <th scope="col" className="px-3 py-1.5 text-left font-semibold">Colour</th>
-                <th scope="col" className={THR}>Samples</th>
-                <th scope="col" className={THR}>Required</th>
+                <th scope="col" className="px-3 py-1.5 text-left font-semibold max-sm:hidden">Colour</th>
+                <th scope="col" className={cn(THR, "max-sm:hidden")}>Samples</th>
+                <th scope="col" className={cn(THR, "max-sm:hidden")}>Required</th>
                 <th scope="col" className="py-1.5 pl-3 text-right font-semibold">Purchase</th>
               </tr>
             </thead>
@@ -366,15 +391,15 @@ function AccessoriesMiddle({ plan }: { plan: Extract<PlanReport, { kind: "access
               {plan.items.map((it, i) => (
                 <tr key={i} className="border-b border-border/60">
                   <th scope="row" className="py-1.5 pr-3 text-left font-normal">
-                    <Truncated text={it.item} className="block max-w-[16rem]" />
+                    {it.item}
                     {it.advised || it.foc ? (
                       <span className="block text-[11px] text-warning">{[it.advised ? "Advised" : null, it.foc ? "FOC" : null].filter(Boolean).join(" · ")}</span>
                     ) : null}
                   </th>
-                  <td className="px-3 py-1.5 text-muted-foreground">{it.colour ?? "—"}</td>
-                  <td className="px-3 py-1.5 text-right">{new Set(it.breakup.map((b) => b.sample)).size || "—"}</td>
-                  <td className="px-3 py-1.5 text-right">{it.requiredQty == null ? "—" : fmtNumber(it.requiredQty)}</td>
-                  <td className={cn("py-1.5 pl-3 text-right", it.purchaseQty == null && "text-danger")}>
+                  <td className="px-3 py-1.5 text-muted-foreground max-sm:hidden">{it.colour ?? "—"}</td>
+                  <td className="px-3 py-1.5 text-right max-sm:hidden">{new Set(it.breakup.map((b) => b.sample)).size || "—"}</td>
+                  <td className="px-3 py-1.5 text-right max-sm:hidden">{it.requiredQty == null ? "—" : fmtNumber(it.requiredQty)}</td>
+                  <td className={cn("whitespace-nowrap py-1.5 pl-3 text-right", it.purchaseQty == null && "whitespace-normal text-danger")}>
                     {it.purchaseQty == null ? (it.refusal ?? "Not worked out") : `${fmtNumber(it.purchaseQty)}${it.purchaseUom ? ` ${it.purchaseUom}` : ""}`}
                   </td>
                 </tr>
@@ -386,6 +411,7 @@ function AccessoriesMiddle({ plan }: { plan: Extract<PlanReport, { kind: "access
               ) : null}
             </tbody>
           </table>
+          </div>
         </CardBody>
       </Card>
     </>

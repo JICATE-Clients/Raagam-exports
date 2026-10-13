@@ -33,7 +33,6 @@ import {
   type SheetFact,
 } from "@/components/orders/report-kit";
 import { fmtDate, fmtNumber } from "@/lib/format";
-import { useToast } from "@/components/ui/toast";
 import type { PdfOutput } from "@/lib/orders/fabric-bom/reports-export";
 import { exportAccessoriesPlanPdf, exportFabricPlanPdf } from "@/lib/sales/plan-reports/export";
 import {
@@ -47,10 +46,27 @@ import {
 
 const kg = (v: number | null) => (v == null ? "—" : fmtNumber(v));
 
-/** Download PDF, then Print — both the SAME PDF, as the order reports do. */
+/**
+ * A WIDE DOCUMENT TABLE ON A PHONE (2026-10-13, checked at 390px): `ReportTable`
+ * takes the pane's width and wraps text, which is right on a desk and wrong at
+ * 360px — ten columns squeezed a fabric's name to one word a line and pushed
+ * Req Kg off the card. Below `md` the table keeps a readable width and scrolls
+ * sideways INSIDE its card; from `md` up nothing changes.
+ */
+function Wide({ min, children }: { min: string; children: React.ReactNode }) {
+  return (
+    <div className="max-md:overflow-x-auto">
+      <div className={min}>{children}</div>
+    </div>
+  );
+}
+
+/** Download PDF, then Print — both the SAME PDF, as the order reports do.
+ *  NO TOAST HOOK HERE: the report pages render this on the server, outside
+ *  the ToastProvider, and `useToast` there threw and forced the whole page to
+ *  client rendering (2026-10-13). The order reports' bar has none either. */
 function ExportBar({ pdf }: { pdf: (output: PdfOutput) => Promise<void> }) {
-  const { error: toastError } = useToast();
-  const run = (o: PdfOutput) => pdf(o).catch((e: unknown) => toastError(e instanceof Error ? e.message : "Could not build the PDF"));
+  const run = (o: PdfOutput) => pdf(o).catch((e: unknown) => console.error("Sample plan PDF:", e));
   return (
     <div className="mb-3 flex justify-end gap-2 print:hidden">
       <Button type="button" variant="primary" onClick={() => void run("download")}>
@@ -148,6 +164,7 @@ export function FabricPlanReportView({ report, exportable = true }: { report: Fa
       </div>
 
       <SectionCard tone={STAGE_STYLES.greige} title="Fabric requirement — sample by sample" total={`${fmtNumber(r.fabricTotalKg)} kg`} totalLabel="Total">
+        <Wide min="max-md:min-w-[52rem]">
         <ReportTable bare>
           <thead>
             <tr>
@@ -194,6 +211,7 @@ export function FabricPlanReportView({ report, exportable = true }: { report: Fa
             )}
           </tbody>
         </ReportTable>
+        </Wide>
       </SectionCard>
 
       <SectionCard
@@ -202,6 +220,7 @@ export function FabricPlanReportView({ report, exportable = true }: { report: Fa
         total={r.yarnTotal ? `${fmtNumber(r.yarnTotal.qty)}${r.yarnTotal.uom ? ` ${r.yarnTotal.uom}` : ""}` : null}
         totalLabel="To order"
       >
+        <Wide min="max-md:min-w-[34rem]">
         <ReportTable bare>
           <thead>
             <tr>
@@ -249,9 +268,11 @@ export function FabricPlanReportView({ report, exportable = true }: { report: Fa
             )}
           </tbody>
         </ReportTable>
+        </Wide>
       </SectionCard>
 
       <SectionCard tone={STAGE_STYLES.dyed} title="Processing route">
+        <Wide min="max-md:min-w-[40rem]">
         <ReportTable bare>
           <thead>
             <tr>
@@ -284,6 +305,7 @@ export function FabricPlanReportView({ report, exportable = true }: { report: Fa
             )}
           </tbody>
         </ReportTable>
+        </Wide>
       </SectionCard>
 
       <SignOff />
@@ -329,6 +351,7 @@ export function AccessoriesPlanReportView({ report, exportable = true }: { repor
       </div>
 
       <SectionCard tone={BRAND} title="Accessories — consolidated, with each sample's share">
+        <Wide min="max-md:min-w-[56rem]">
         <ReportTable bare>
           <thead>
             <tr>
@@ -386,11 +409,13 @@ export function AccessoriesPlanReportView({ report, exportable = true }: { repor
             )}
           </tbody>
         </ReportTable>
+        </Wide>
       </SectionCard>
 
       {r.processes.length > 0 && (
         <SectionCard tone={STAGE_STYLES.print} title="Accessory processing">
-          <ReportTable bare>
+          <Wide min="max-md:min-w-[34rem]">
+        <ReportTable bare>
             <thead>
               <tr>
                 <Th>Accessory</Th>
@@ -412,6 +437,7 @@ export function AccessoriesPlanReportView({ report, exportable = true }: { repor
               ))}
             </tbody>
           </ReportTable>
+        </Wide>
         </SectionCard>
       )}
 
