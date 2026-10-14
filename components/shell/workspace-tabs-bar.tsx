@@ -47,8 +47,6 @@ import {
   ChevronLeft,
   ChevronRight,
   LayoutDashboard,
-  MoreHorizontal,
-  Plus,
   Search,
   X,
   type LucideIcon,
@@ -126,10 +124,10 @@ function iconForPath(pathname: string, modules: { href: string; icon: LucideIcon
  * - ✕ always on the open tab, on hover on the others.
  * - ◀ ▶ appear only while the strip overflows — two dead arrows around one tab
  *   read as an unfinished bar (user 2026-10-01).
- * - "+" opens Search, the app's way to open another screen.
- * - ▾ keeps the switcher's list: every open screen, the current sub-module's
- *   screens (user 2026-10-12, `siblingScreens`), and Close current / others /
- *   all.
+ * - NO "+" (user 2026-10-14): the Search box at the bar's end opens a screen.
+ * - NO ⋯ MENU (user 2026-10-14, removed the same day it came back): the
+ *   desktop closes a tab with its ✕ or a middle-click. The phone switcher still
+ *   lists every open screen, the sub-module's screens and Close others / all.
  *
  * NO UNSAVED DOT, though Notepad has one: "antha . mattum vendam" (operator,
  * 2026-09-17). The store still tracks `dirty` for the reload guard.
@@ -433,25 +431,9 @@ export function WorkspaceTabsBar() {
           <ChevronRight className="h-4 w-4" />
         </button>
       )}
-      <button
-        type="button"
-        tabIndex={-1}
-        aria-label="Open a screen"
-        title="Open a screen (⌘K)"
-        onClick={search.open}
-        className={cn(ICON_BTN, "self-center max-md:hidden")}
-      >
-        <Plus className="h-4 w-4" />
-      </button>
-      <div className="self-center max-md:hidden">
-        <DropdownMenu
-          items={switcherItems}
-          label="All open screens"
-          align="left"
-          trigger={<MoreHorizontal className="h-4 w-4" />}
-          triggerClassName={ICON_BTN}
-        />
-      </div>
+      {/* No "+" and no ⋯ menu on a desktop (user 2026-10-14) — every open
+          screen is a tab, ✕ closes one, and Search (right) opens another. The
+          phone switcher above keeps the full list. */}
 
       <div className="hidden flex-1 md:block" />
 
