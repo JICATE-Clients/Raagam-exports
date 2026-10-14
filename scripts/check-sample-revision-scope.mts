@@ -34,10 +34,14 @@ check("no change passes with any module", costingRevisionProblem(base(), base(),
 check("a GSM change needs Fabric & Yarn Spec", costingRevisionProblem(base(), edit((d) => (d.weights[0].gsm = "200")), ["costing"], "R"), true);
 check("a GSM change passes under Fabric & Yarn Spec", costingRevisionProblem(base(), edit((d) => (d.weights[0].gsm = "200")), ["fabric_spec"], "R"), false);
 check("a trim consumption change needs Accessories & Trims", costingRevisionProblem(base(), edit((d) => (d.trims[0].qty = "6")), ["fabric_spec"], "R"), true);
-check("a dyeing rate change needs Costing & Price", costingRevisionProblem(base(), edit((d) => (d.fabrics[0].dyeing_rate = "90")), ["fabric_spec", "trims"], "R"), true);
-check("a dyeing rate change passes under Costing & Price", costingRevisionProblem(base(), edit((d) => (d.fabrics[0].dyeing_rate = "90")), ["costing"], "R"), false);
+// RATES FOLLOW THEIR MODULE (user 2026-10-14, "Costing & Price" retired).
+check("a dyeing rate change needs Fabric & Yarn Spec", costingRevisionProblem(base(), edit((d) => (d.fabrics[0].dyeing_rate = "90")), ["trims"], "R"), true);
+check("a dyeing rate change passes under Fabric & Yarn Spec", costingRevisionProblem(base(), edit((d) => (d.fabrics[0].dyeing_rate = "90")), ["fabric_spec"], "R"), false);
+check("a trim rate change needs Accessories & Trims", costingRevisionProblem(base(), edit((d) => (d.trims[0].rate = "9")), ["fabric_spec"], "R"), true);
+check("a trim rate change passes under Accessories & Trims", costingRevisionProblem(base(), edit((d) => (d.trims[0].rate = "9")), ["trims"], "R"), false);
+check("a revision raised with the retired Costing & Price still opens a rate", costingRevisionProblem(base(), edit((d) => (d.fabrics[0].dyeing_rate = "90")), ["costing"], "R"), false);
 check("a new fabric's own rates are free under Fabric & Yarn Spec", costingRevisionProblem(base(), edit((d) => d.fabrics.push({ ...d.fabrics[0], key: "f2", fabric_id: "rib", quality: "RIB", dyeing_rate: "95" })), ["fabric_spec"], "R"), false);
-check("the quote needs Costing & Price", costingRevisionProblem(base(), edit((d) => (d.quotes["p1|M"] = "4.5")), ["fabric_spec"], "R"), true);
+check("the quote opens with any costing module", costingRevisionProblem(base(), edit((d) => (d.quotes["p1|M"] = "4.5")), ["fabric_spec"], "R"), false);
 check("the sample and style never change", costingRevisionProblem(base(), edit((d) => (d.header.style_id = "s2")), ["costing", "fabric_spec", "trims"], "R"), true);
 check("same rate typed differently (90 vs 90.0) is no change", costingRevisionProblem(edit((d) => (d.fabrics[0].dyeing_rate = "90")), edit((d) => (d.fabrics[0].dyeing_rate = "90.0")), ["trims"], "R"), false);
 

@@ -144,6 +144,49 @@ function newId(): string {
 }
 
 /**
+ * THE STRIP IS BOUNDED (user 2026-10-14: "limit active workspace tabs for each
+ * sample entry page"). Before this every record page was its own tab —
+ * `/sales/sample-costing/<id>/reports` for ten costings was ten "Costing
+ * Reports" tabs — and nothing ever closed one but the operator. Two rules, both
+ * applied wherever a tab is ADDED (`addTab`), so no screen has to opt in:
+ *
+ * - **One tab per KIND of record page.** A route whose only difference from an
+ *   open tab is a record id (a uuid segment) takes that tab's place, in place,
+ *   the way a browser tab follows a link. Not when that tab is `dirty`.
+ * - **At most `MAX_OPEN_TABS` screens.** Past it the least recently seen clean
+ *   tab is dropped. Home is not counted — it is drawn apart and never closes.
+ *
+ * Dropping a tab never touches the screen's data: a tab is a shortcut to a
+ * route, and a screen that keeps a draft (`useFormDraft`) still has it.
+ */
+export const MAX_OPEN_TABS = 8;
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The route with every record id blanked — two hrefs of one family are one screen. */
+function familyOf(href: string): string {
+  return href
+    .split("/")
+    .map((s) => (UUID_SEGMENT.test(s) ? ":id" : s))
+    .join("/");
+}
+
+function addTab(tab: WorkspaceTab): void {
+  const family = familyOf(tab.href);
+  const same = family.includes(":id")
+    ? state.tabs.findIndex((t) => !t.dirty && familyOf(t.href) === family)
+    : -1;
+  let tabs = same >= 0 ? state.tabs.map((t, i) => (i === same ? tab : t)) : [...state.tabs, tab];
+  while (tabs.filter((t) => t.href !== "/").length > MAX_OPEN_TABS) {
+    const oldest = tabs
+      .filter((t) => t.id !== tab.id && t.href !== "/" && !t.dirty)
+      .sort((a, b) => (a.seenAt ?? 0) - (b.seenAt ?? 0))[0];
+    if (!oldest) break;
+    tabs = tabs.filter((t) => t.id !== oldest.id);
+  }
+  setState({ tabs, activeId: tab.id });
+}
+
+/**
  * Register a tab for `href` if one isn't already open; make it active
  * either way, and refresh its title/icon if a caller now has a better one.
  * Pure — never navigates.
@@ -167,7 +210,7 @@ function registerTab(opts: { href: string; title: string; icon?: string }): Work
     return existing;
   }
   const tab: WorkspaceTab = { id: newId(), href: opts.href, title: opts.title, icon: opts.icon };
-  setState({ tabs: [...state.tabs, tab], activeId: tab.id });
+  addTab(tab);
   return tab;
 }
 
@@ -393,8 +436,7 @@ export function useEnsureWorkspaceTab(opts: { href: string; title: string; skip?
       if (state.activeId !== existing.id) setState({ ...state, activeId: existing.id });
       return;
     }
-    const tab: WorkspaceTab = { id: newId(), href, title };
-    setState({ tabs: [...state.tabs, tab], activeId: tab.id });
+    addTab({ id: newId(), href, title });
   }, [href, title, skip]);
 }
 

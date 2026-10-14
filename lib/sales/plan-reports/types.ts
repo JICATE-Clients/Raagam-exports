@@ -15,6 +15,9 @@
  * Pure: no `@/lib/supabase`, no JSX. The loaders are ./service.ts.
  */
 
+import type { YarnFabricRequirementReport } from "@/lib/orders/fabric-bom/reports";
+import type { RequirementSheetData } from "@/lib/orders/requirement/service";
+
 export type PlanKind = "fabric" | "accessories";
 
 /**
@@ -63,7 +66,17 @@ export function planApprovalTone(status: PlanApprovalStatus, revisionNo: number)
 // The documents
 // ---------------------------------------------------------------------------
 
-export type PlanSample = { styleId: string; smpNo: string | null; sampleNo: string | null; styleName: string };
+export type PlanSample = {
+  styleId: string;
+  smpNo: string | null;
+  sampleNo: string | null;
+  styleName: string;
+  /** Sample Entry's pieces, delivery date and customer — the order-format
+   *  report's Quantity to cut and facts band (./yarn-fabric.ts). */
+  qty?: number;
+  deliveryDate?: string | null;
+  customer?: string | null;
+};
 
 /** One purchase line as it was approved before a revision reopened the plan. */
 export type ApprovedLine = { item_id: string | null; name: string | null; purchase_qty: number | null; uom: string | null };
@@ -85,7 +98,7 @@ export type PlanReportHeader = {
   decidedAt: string | null;
   decisionRemark: string | null;
   approvedAt: string | null;
-  company: { name: string | null; unit: string | null; logo: string | null };
+  company: { name: string | null; unit: string | null; logo: string | null; address?: string | null; gstin?: string | null };
   /** The revision that reopened the plan (the newest one), with what had been
    *  approved before it — null before any revision. */
   revision: { revisionNo: number; reason: string; raisedAt: string; approved: ApprovedLine[] } | null;
@@ -131,6 +144,10 @@ export type FabricPlanReport = {
    *  as "buy nothing" (the order report's own rule). */
   yarnTotal: { qty: number; uom: string | null } | null;
   routes: { fabric: string; steps: FabricPlanRouteStep[] }[];
+  /** THE SAME PLAN AS ORDER ENTRY'S FABRIC PLAN REPORT — the Yarn & Fabric
+   *  Requirement (user 2026-10-14), built by ./yarn-fabric.ts and drawn by the
+   *  order report's own renderer and PDF. */
+  requirement: YarnFabricRequirementReport;
 };
 
 export type AccessoriesPlanItemRow = {
@@ -157,6 +174,10 @@ export type AccessoriesPlanReport = {
   header: PlanReportHeader;
   items: AccessoriesPlanItemRow[];
   processes: { item: string; stage: string | null; process: string; lossPct: number | null; vendor: string | null }[];
+  /** THE SAME PLAN AS ORDER ENTRY'S ACCESSORIES PLAN REPORT — the Accessories
+   *  Requirement (user 2026-10-14), built by ./accessories-requirement.ts and
+   *  drawn by the order report's own renderer, PDF and Excel. */
+  requirement: RequirementSheetData;
 };
 
 export type PlanReport = { kind: "fabric"; report: FabricPlanReport } | { kind: "accessories"; report: AccessoriesPlanReport };

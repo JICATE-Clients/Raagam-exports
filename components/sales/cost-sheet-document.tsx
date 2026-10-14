@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import { Download, FileSpreadsheet, Printer } from "lucide-react";
 import { AddCharge, AddFabric, AddOperation, AddTrim, AddWeight, EdText, Pick, RemoveX, type EditOptions } from "@/components/sales/cost-sheet-editors";
@@ -105,7 +106,8 @@ export function CostSheetDocument({
   const [idx, setIdx] = useState(lowest);
   // REPORT OR CHARTS, NEVER BOTH (client 2026-10-10: "both chart and report as text
   // in same page — give it toggle"). The text report is the costing format, so it
-  // opens first; Print prints the view on screen, the PDF is unaffected.
+  // opens first. Print prints the view on screen — except Charts: paper is text and
+  // tables only (client 2026-10-14), so Print from Charts prints the full page.
   const [view, setView] = useState<SheetView>("report");
   const [busy, setBusy] = useState<"pdf" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +160,14 @@ export function CostSheetDocument({
                 <FileSpreadsheet className="h-4 w-4" />
                 Excel
               </Button>
-              <Button variant="outline" size="md" onClick={() => window.print()}>
+              <Button
+                variant="outline"
+                size="md"
+                onClick={() => {
+                  if (view === "charts") flushSync(() => setView("report"));
+                  window.print();
+                }}
+              >
                 <Printer className="h-4 w-4" />
                 Print
               </Button>
@@ -1024,7 +1033,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
               {(
                 [
                   ["Buyer / importer", model.customer],
-                  ["Enquiry", model.enquiryNo],
+                  ["SMP Number", model.enquiryNo],
                   ["Style", model.style && model.description && model.style !== model.description ? model.style : null],
                   ["Fabric", model.fabricFacts.structure],
                   ["GSM / counts", model.fabricFacts.gsm],
@@ -1114,11 +1123,6 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
               <div className="eyebrow">Garment costing{model.season ? ` · ${model.season}` : ""}</div>
               <h2>{model.description || model.style || "—"}</h2>
               <div className="chips">
-                {model.sampleNo ? (
-                  <span className="chip">
-                    Sample <b>{model.sampleNo}</b>
-                  </span>
-                ) : null}
                 <span className="chip">{model.isSet ? "SET" : "PCS"}</span>
                 {/* CHARTS FIT ONE SCREEN, so the two spec tables give way to their two
                     facts that matter at a glance; the Report keeps the full block. */}

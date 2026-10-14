@@ -10,10 +10,15 @@
  *                 loss %, direct or built-up) and the garment weights
  *   trims       — trims (item, description, consumption, pack size, direct
  *                 or pack-priced)
- *   costing     — every rate: fabric / yarn / knit / dye / finish / direct,
- *                 process rates, trim rates and pack prices, CMT and the
- *                 piece lines, testing / bank, overheads, extras, terms,
- *                 quotes
+ *   costing     — (RETIRED for new revisions, 2026-10-14) every rate. Still
+ *                 honoured on revisions raised with it.
+ *
+ * RATES FOLLOW THEIR MODULE since "Costing & Price" left the picker (user
+ * 2026-10-14): fabric / yarn / knit / dye / finish / direct and process rates
+ * open with fabric_spec, trim rates and pack prices with trims. The CMT, piece
+ * lines, testing / bank, overheads, extras, terms and quotes belong to no spec
+ * module, so they open with ANY costing module — this function only runs on a
+ * revision that opened the costing at all.
  *
  * RATES ARE COMPARED ONLY ON ROWS THAT WERE ALREADY THERE. A fabric or trim
  * added under its spec module needs its rates typed — refusing those would
@@ -153,11 +158,13 @@ export function costingRevisionProblem(
     const keepF = new Set(parent.fabrics.map(fabricId).filter((id) => next.fabrics.some((f) => fabricId(f) === id)));
     const keepT = new Set(parent.trims.map(trimId).filter((id) => next.trims.some((x) => trimId(x) === id)));
     const keepP = new Set(parent.pieces.map(pieceId).filter((id) => next.pieces.some((p) => pieceId(p) === id)));
-    if (parent.pieces.length !== next.pieces.length || !same(parent.pieces.map(pieceId), next.pieces.map(pieceId))) {
-      return closed("costing", "the garment pieces and their CMT");
+    const was = rates(parent, keepF, keepT, keepP);
+    const now = rates(next, keepF, keepT, keepP);
+    if (!open.has("fabric_spec") && !same(was.fabrics, now.fabrics)) {
+      return closed("fabric_spec", "the fabric, yarn and process rates");
     }
-    if (!same(rates(parent, keepF, keepT, keepP), rates(next, keepF, keepT, keepP))) {
-      return closed("costing", "every rate, the CMT, overheads, terms and quotes");
+    if (!open.has("trims") && !same(was.trims, now.trims)) {
+      return closed("trims", "the trim rates and pack prices");
     }
   }
   return null;

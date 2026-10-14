@@ -31,6 +31,8 @@ import {
   type GroupRow,
 } from "@/lib/sales/sample-grouping/types";
 import { addToSampleGroup, createSampleGroup, deleteSampleGroup } from "@/lib/sales/sample-grouping/actions";
+import { canRaisePd } from "@/lib/sales/pd-requests/types";
+import { PD_STATUS_LABEL } from "@/lib/sales/sample-entry/types";
 import { GroupSheet } from "./group-sheet";
 
 /**
@@ -160,6 +162,8 @@ export function GroupingScreen({
   const joinable = !pickProblem && picked.length ? data.groups.filter((g) => sameSeasonYear(picked[0], g)) : [];
 
   // ---- the two lists -----------------------------------------------------
+  /* Every costed, ungrouped sample is offered. The PD Request comes AFTER
+     grouping, one per SWO (user 2026-10-14) — it no longer gates this list. */
   const loose = searched.filter((c) => !c.group_id);
   const looseKeys = loose.map((c) => c.key);
   /** An SWO matches the search on its own number, its IW, or a sample in it. */
@@ -388,10 +392,22 @@ export function GroupingScreen({
             { label: "Buy kg", value: fmtKg(groupBuy(g), 1) },
           ]}
           onOpen={(g) => setOpenId(g.id)}
-          footerNote={hasCreatedInfo(groupsShown) ? (g) => `Created ${createdMeta(g)}` : undefined}
+          // Where the Sample Department stands on this SWO, beside who made it.
+          footerNote={(g) =>
+            [g.pd_status ? `PD: ${PD_STATUS_LABEL[g.pd_status]}` : "PD: not sent", hasCreatedInfo(groupsShown) ? `Created ${createdMeta(g)}` : null]
+              .filter(Boolean)
+              .join(" · ")
+          }
           canDelete={perms.canDelete}
           canDeleteRow={(g) => g.status === "draft"}
           onDelete={del}
+          /* THE PD REQUEST IS RAISED HERE, PER SWO (user 2026-10-14; 0723) — the
+             send icon opens Sample ▸ PD Request's form on this SWO (remarks,
+             then Send). Offered while none is open or the last one came back
+             Not Acknowledged / was withdrawn — `canRaisePd`, the form's rule. */
+          onSend={(g) => router.push(`/sales/pd-request?new=${g.id}`)}
+          canSendRow={(g) => perms.canEdit && canRaisePd(g.pd_status)}
+          sendLabel="Send PD Request"
           isPending={isPending}
           empty={scopedGroups.length ? "Nothing matches the search." : "No SWOs yet — tick samples under Ungrouped and create one."}
         />

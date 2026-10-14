@@ -143,18 +143,26 @@ export type FabricPlanRevision = {
 };
 
 /** The approval panel (run, whether this user may act, timeline) and the
- *  revision log, newest first — what the editor's banner reads. */
+ *  revision log, newest first — what the editor's banner reads.
+ *
+ *  `mine` = this user SENT the live run. The editor never offers the sender a
+ *  decision (client 2026-10-14, "after submitting automatically approved"):
+ *  a Super Admin's override put a filled Approve exactly where Submit had
+ *  just been, and the next click approved their own plan. Deciding is done
+ *  from the queue — Sample ▸ Plan Approval. */
 export async function getFabricPlanApproval(bomId: string) {
-  const empty = { run: null, verdict: null, timeline: [], names: {}, revisions: [] as FabricPlanRevision[] };
+  const empty = { run: null, verdict: null, timeline: [], names: {}, revisions: [] as FabricPlanRevision[], mine: false };
   if (!(await can("orders", "view"))) return empty;
   const s = await createClient();
-  const [panel, revs] = await Promise.all([
+  const [panel, revs, me] = await Promise.all([
     getApprovalPanel(WORKFLOWS.sample_fabric_plan.subjectTable, bomId),
     s
       .from("iwo_fabric_bom_revisions")
       .select("revision_no, reason, raised_at, approved_yarns")
       .eq("bom_id", bomId)
       .order("revision_no", { ascending: false }),
+    getAppUser(),
   ]);
-  return { ...panel, revisions: (revs.data ?? []) as FabricPlanRevision[] };
+  const mine = !!panel.run && !!me && panel.run.requested_by === me.id;
+  return { ...panel, revisions: (revs.data ?? []) as FabricPlanRevision[], mine };
 }

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
-import { createClient } from "@/lib/supabase/server";
 import { getSampleEntryFormData, listSampleEntries } from "@/lib/sales/sample-entry/service";
 import { previewSampleNumbers } from "@/lib/sales/sample-entry/actions";
 import { today } from "@/lib/calendar";
@@ -18,15 +17,11 @@ export default async function SampleEntryPage({
 }) {
   await requirePermission("sales", "view");
 
-  // `?pd=<request>` — the approvals inbox's row link (WORKFLOWS.sample_pd_request):
-  // its subject is the PD REQUEST, so resolve it to the enquiry and open that.
+  // `?pd=<request>` — an old approvals-inbox link from when PD Requests were
+  // raised here per SMP (0719). They are per SWO now (0723) and live on the
+  // Sample Department's queue, so that is where the link lands.
   const pd = (await searchParams).pd;
-  if (typeof pd === "string" && pd) {
-    const s = await createClient();
-    const { data } = await s.from("sample_pd_requests").select("opportunity_id").eq("id", pd).maybeSingle();
-    const opp = (data as { opportunity_id: string } | null)?.opportunity_id;
-    redirect(opp ? `/sales/sample-entry?open=${opp}` : "/sales/sample-entry");
-  }
+  if (typeof pd === "string" && pd) redirect(`/sales/pd-acknowledge?open=${encodeURIComponent(pd)}`);
 
   const [rows, data, canCreate, canEdit, canDelete, masterCreate, masterEdit, preview] = await Promise.all([
     listSampleEntries(),

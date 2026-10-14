@@ -145,7 +145,7 @@ export function CostingReports({
       }
       setMessage({
         tone: "ok",
-        text: res.outcome === "approved" ? "Approved — every quote clears the margin floor." : "Sent to the MD for approval.",
+        text: "Sent to the MD for approval.",
       });
       router.refresh();
     });

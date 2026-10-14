@@ -60,6 +60,7 @@ export function ApprovalActionBar({
   subjectPath,
   onDone,
   rework = false,
+  acknowledge = false,
   compact = false,
   overrideNote = true,
 }: {
@@ -83,6 +84,14 @@ export function ApprovalActionBar({
    * a button that reads "send it back" and sends it nowhere.
    */
   rework?: boolean;
+  /**
+   * THE SAMPLE DEPARTMENT'S WORDING (Sample ▸ Acknowledge PD Request, client
+   * spec 2026-10-14): Acknowledge and Not Acknowledged — the engine's approve
+   * and reject, relabelled, exactly as `rework` relabels reject. No Return,
+   * for `rework`'s reason: on a one-step flow it re-queues the request to the
+   * same department while the merchandiser can do nothing with it.
+   */
+  acknowledge?: boolean;
   /** Drop the "Step n · label" line — for a card that already says whose
    *  decision it is. The override warning is never dropped. */
   compact?: boolean;
@@ -113,9 +122,13 @@ export function ApprovalActionBar({
    * committing to a decision and only then being refused.
    */
   const COPY: Record<RunAction, { title: string; verb: string; needsComment: boolean }> = {
-    approve: { title: "Approve this request?", verb: "Approve", needsComment: false },
+    approve: acknowledge
+      ? { title: "Acknowledge this request?", verb: "Acknowledge", needsComment: false }
+      : { title: "Approve this request?", verb: "Approve", needsComment: false },
     return: { title: "Return for changes?", verb: "Return", needsComment: true },
-    reject: rework
+    reject: acknowledge
+      ? { title: "Not acknowledge this request?", verb: "Not Acknowledged", needsComment: true }
+      : rework
       ? { title: "Send back for rework?", verb: "Request Rework", needsComment: true }
       : { title: "Reject this request?", verb: "Reject", needsComment: true },
   };
@@ -139,9 +152,13 @@ export function ApprovalActionBar({
       if (res.ok) {
         success(
           action === "approve"
-            ? "Approved"
+            ? acknowledge
+              ? "Acknowledged"
+              : "Approved"
             : action === "reject"
-              ? rework
+              ? acknowledge
+                ? "Marked not acknowledged"
+                : rework
                 ? "Sent back for rework"
                 : "Rejected"
               : "Returned for changes",
@@ -200,9 +217,9 @@ export function ApprovalActionBar({
             disabled={isPending}
           >
             {rework ? <RotateCcw className="h-4 w-4" aria-hidden /> : <X className="h-4 w-4" aria-hidden />}
-            {rework ? "Request Rework" : "Reject"}
+            {COPY.reject.verb}
           </Button>
-          {!rework && (
+          {!rework && !acknowledge && (
             <Button
               type="button"
               variant="outline"
@@ -221,7 +238,7 @@ export function ApprovalActionBar({
             disabled={isPending}
           >
             <Check className="h-4 w-4" aria-hidden />
-            Approve
+            {COPY.approve.verb}
           </Button>
         </div>
       </div>

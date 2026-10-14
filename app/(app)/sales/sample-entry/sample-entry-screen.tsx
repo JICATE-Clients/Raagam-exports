@@ -49,6 +49,8 @@ import { ToggleGroup } from "@/components/ui/segmented";
 import { Truncated } from "@/components/ui/truncated";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { ChildGrid, gridKeyNav, RowRemoveChip, type ChildGridColumn } from "@/components/masters/child-grid";
+import { StyleProcessGrid } from "@/components/orders/style-process-grid";
+import type { StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 import { Tooltip } from "@/components/ui/tooltip";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
 import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
@@ -74,8 +76,9 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
-import { StatusPill } from "@/components/ui/status-pill";
+import { BackLink } from "@/components/ui/back-link";
 import { useToast } from "@/components/ui/toast";
+import { StatusPill } from "@/components/ui/status-pill";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdByFacet, createdDateFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
@@ -86,7 +89,6 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import Link from "next/link";
 import { sampleEntryLock } from "@/lib/sales/sample-revisions/actions";
-import { getPdRequest, sendPdRequest } from "@/lib/sales/sample-entry/pd-request-actions";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
 import { isInactive } from "@/lib/masters/inactive";
 import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
@@ -123,9 +125,6 @@ import {
   type SampleHeaderDraft,
   type SampleProblem,
   type StyleDraft,
-  PD_STATUS_LABEL,
-  PD_STATUS_TONE,
-  type PdRequestState,
 } from "@/lib/sales/sample-entry/types";
 import type { SampleEntryFormData } from "@/lib/sales/sample-entry/service";
 import {
@@ -314,7 +313,6 @@ export function SampleEntryScreen({
   /** The latest PD Request to the Sample Department (0719), keyed `forId` so a
    *  late answer never paints another entry's status. ABOVE the early return
    *  below (AGENTS.md, hooks above every early return). */
-  const [pd, setPd] = useState<{ forId: string; req: PdRequestState | null } | null>(null);
   const [editCode, setEditCode] = useState<string | null>(null);
   const [header, setHeader] = useState<SampleHeaderDraft>(blankHeader);
   const [styles, setStyles] = useState<StyleDraft[]>([]);
@@ -441,6 +439,7 @@ export function SampleEntryScreen({
     is_single_style_pack: true,
     lines: [],
   });
+  const blankProcess = (): StyleProcessRow => ({ key: newKey(), kind: null, process_id: null, component_id: null, details: "" });
   const blankStyle = (): StyleDraft => ({
     key: newKey(),
     id: null,
@@ -478,6 +477,7 @@ export function SampleEntryScreen({
     coordinates: [],
     sizes: [],
     combos: [blankCombo()],
+    processes: [blankProcess()],
     // Quantities is ONE grid for the entry (Order Entry's), which seeds its own
     // first row — a blank row per style would put N blanks in it.
     quantities: [],
@@ -495,6 +495,7 @@ export function SampleEntryScreen({
         ? [{ key: newKey(), coordinate_id: piecesCoordinateId }]
         : s.coordinates,
     combos: s.combos.length ? s.combos : [blankCombo()],
+    processes: s.processes.length ? s.processes : [blankProcess()],
     // Product Info ▸ Fabric's Structure · GSM grid opens on a row to pick in.
     structures: s.structures.length ? s.structures : [blankStructure()],
   });
@@ -502,7 +503,6 @@ export function SampleEntryScreen({
   // ---- open -------------------------------------------------------------------
   function openAdd() {
     setLock(null);
-    setPd(null);
     const first = blankStyle();
     setEditId(null);
     setEditCode(null);
@@ -533,10 +533,7 @@ export function SampleEntryScreen({
         toastError(res.error);
         return;
       }
-      // One round trip for both: the lock and the PD Request are independent.
-      const [lockMsg, pdReq] = await Promise.all([sampleEntryLock(res.record.id), getPdRequest(res.record.id)]);
-      setLock(lockMsg);
-      setPd({ forId: res.record.id, req: pdReq });
+      setLock(await sampleEntryLock(res.record.id));
       const seeded = res.record.styles.map(withSeeds);
       const list = seeded.length ? seeded : [blankStyle()];
       setEditId(res.record.id);
@@ -563,13 +560,6 @@ export function SampleEntryScreen({
   const indexOf = (s: StyleDraft) => styles.findIndex((x) => x.key === s.key);
   const styleLabel = (s: StyleDraft) => `${indexOf(s) + 1} · ${s.name.trim() || "Unnamed style"}`;
 
-  /** A new line's Sample No is a prediction, in the order the new lines sit. */
-  const sampleNoOf = (s: StyleDraft) => {
-    if (s.sample_no) return s.sample_no;
-    const fresh = styles.filter((x) => !x.id && !isBlankStyle(x));
-    const i = fresh.findIndex((x) => x.key === s.key);
-    return i >= 0 ? (preview.sampleNos[i] ?? "") : "";
-  };
 
   // ---- validity ---------------------------------------------------------------
   /** The Assortment Type's mode, for the save rules (declared before them). */
@@ -625,8 +615,13 @@ export function SampleEntryScreen({
               : `Sample entry created${res.code ? ` — ${res.code}` : ""}`,
         );
         setDirty(false);
-        setMode("list");
         router.refresh();
+        // STAY ON THE ENTRY (user 2026-10-14: "after saving, the save button
+        // will hide and the submit button will be visible — no more
+        // navigation"). Re-opened from the server so the rows carry their ids
+        // and the next Save is an update. A draft returns to the list as before.
+        if (asDraft) setMode("list");
+        else openEdit({ id: res.id } as SampleEntryListRow);
       } else {
         toastError(res.error);
       }
@@ -707,24 +702,15 @@ export function SampleEntryScreen({
           <span className="text-xs text-muted-foreground">Free</span>
         ),
     },
-    {
-      // PD REQUEST (0719): where the Sample Department stands on this sample.
-      header: "PD",
-      className: HUG,
-      cell: (r) =>
-        r.pd_status ? (
-          <StatusPill tone={PD_STATUS_TONE[r.pd_status]}>{PD_STATUS_LABEL[r.pd_status]}</StatusPill>
-        ) : (
-          <span className="text-xs text-muted-foreground">Not sent</span>
-        ),
-    },
     rowActionsColumn((r) => (
       <RowActions
         label={r.code}
         view={false}
         // COST THIS SAMPLE (Sample Costing UX plan P1.3): opens the enquiry's
         // latest costing, or starts one on it — never a second chain.
-        menu={[{ label: "Cost this sample", icon: Calculator, onClick: () => router.push(`/sales/sample-costing?costFor=${r.id}`) }]}
+        menu={[
+          { label: "Cost this sample", icon: Calculator, onClick: () => router.push(`/sales/sample-costing?costFor=${r.id}`) },
+        ]}
         menuAs="icons"
         onEdit={() => openEdit(r)}
         canEdit={perms.canEdit}
@@ -1484,7 +1470,10 @@ export function SampleEntryScreen({
   const styleBand = (s: StyleDraft) => (
     <StyleIdentityBand
       styleRefNo={s.name.trim() || `Line ${indexOf(s) + 1}`}
-      identity={{ ref: s.name.trim() || `Line ${indexOf(s) + 1}`, style: sampleNoOf(s), article: s.article_no.trim() }}
+      identity={{ ref: s.name.trim() || `Line ${indexOf(s) + 1}`, style: "", article: s.article_no.trim() }}
+      // NO PRD NUMBER IN THE SAMPLE MODULE (client 2026-10-14: PRD is a bulk
+      // production number; a sample is named by its SMP Number).
+      omit={["style"]}
     />
   );
 
@@ -1832,8 +1821,10 @@ export function SampleEntryScreen({
               <dl className="mb-2 flex w-full flex-wrap items-baseline gap-x-6 gap-y-1">
                 {(
                   [
-                    ["Sample No", sampleNoOf(active)],
-                    ["Enquiry No", (editId ? editCode : preview.enquiryNo) ?? ""],
+                    /* SMP NUMBER, NOT THE PRD (client 2026-10-14): PRD is a bulk
+                       production number and read as one here. The entry's own
+                       number is the sample's name — "Enquiry No" was it too. */
+                    ["SMP Number", (editId ? editCode : preview.enquiryNo) ?? ""],
                     ["Style", active.name.trim()],
                     ["Article No", active.article_no.trim()],
                     ["Description", active.description.trim()],
@@ -2109,6 +2100,24 @@ export function SampleEntryScreen({
               ) : (
                 comboMatrix(s)
               )}
+              {/* EMBELLISHMENTS (client 2026-10-14, 0722) — BOTH kinds under
+                  Combos: a Component Process on a cut panel (chest print on the
+                  Front Body) and a Garment Process on the stitched garment
+                  (enzyme wash). ORDER ENTRY'S Style ▸ Process grid, not a copy
+                  of it: Type picks the kind, Process narrows by the master's
+                  for_components / for_garments flag, Component is live only on
+                  a Component Process. No rate — Sample Costing opens one
+                  Embellishment line per row for the rate to be typed. Needs no
+                  sizes, so it shows under the matrix's hint as well. */}
+              <PiLegend>Embellishments</PiLegend>
+              <StyleProcessGrid
+                rows={s.processes}
+                onChange={(next) => patchStyle(s.key, { processes: next })}
+                processes={data.processes}
+                components={data.components}
+                newKey={newKey}
+                readOnly={!!lock}
+              />
             </div>
           ))}
         </div>
@@ -2223,24 +2232,6 @@ export function SampleEntryScreen({
     (x) => !(x.key === "quantities" && !billableStyles.length) && !(x.key === "combos" && header.enquiry_action === "quote"),
   );
 
-  const pdNow = pd && pd.forId === editId ? pd.req : null;
-  const canSendPd =
-    !!editId && !!editCode && !dirty && perms.canEdit && (!pdNow || pdNow.status === "not_acknowledged" || pdNow.status === "cancelled");
-  function sendPd() {
-    if (!editId) return;
-    const id = editId;
-    start(async () => {
-      const res = await sendPdRequest(id, "");
-      if (!res.ok) {
-        toastError(res.error);
-        return;
-      }
-      success(`PD Request for ${editCode ?? "this sample"} sent to the Sample Department`);
-      setPd({ forId: id, req: await getPdRequest(id) });
-      router.refresh();
-    });
-  }
-
   if (mode === "edit") {
     return (
       <div className="flex h-full flex-col gap-4">
@@ -2254,6 +2245,11 @@ export function SampleEntryScreen({
           >
             ←
           </Button>
+          {/* THE WAY BACK IS SAID ON A DESKTOP TOO (user 2026-10-14: "add clear
+              Back buttons"), reversing 10-09's footer-Cancel-only. The app's own
+              BackLink, so it reads like every other Back and asks before
+              discarding. */}
+          <BackLink onBack={closeEditor} label="Sample Entry" className="max-md:hidden" />
           <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-col max-md:items-start max-md:gap-0">
             <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {editId ? "Edit Sample Entry" : "New Sample Entry"}
@@ -2272,23 +2268,7 @@ export function SampleEntryScreen({
               <span className="font-medium tabular-nums text-foreground">{fmtNumber(totalSampleQty)}</span>
               <span className="text-muted-foreground">pcs</span>
             </span>
-            {/* No desktop "← Back to list" (user 2026-10-09, button plan Rule
-                1): the footer's Cancel runs the same closeEditor. The phone
-                keeps its ← at the start of this band. */}
-            {/* PD REQUEST (0719, client brief 2026-10-13 §3): the saved entry
-                goes to the Sample Department, who acknowledge it — or not,
-                with a reason — in the approvals inbox. A new request only
-                when none is open; never from unsaved changes. */}
-            {pdNow ? (
-              <StatusPill tone={PD_STATUS_TONE[pdNow.status]}>
-                {`PD: ${PD_STATUS_LABEL[pdNow.status]}${pdNow.status === "not_acknowledged" && pdNow.decision_remark ? ` — ${pdNow.decision_remark}` : ""}`}
-              </StatusPill>
-            ) : null}
-            {canSendPd ? (
-              <Button variant="outline" disabled={isPending} onClick={sendPd}>
-                {pdNow ? "Send PD Request again" : "Send PD Request"}
-              </Button>
-            ) : null}
+
           </div>
         </div>
 

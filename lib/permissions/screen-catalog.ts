@@ -112,6 +112,15 @@ export function buildScreenCatalog(): CatalogModule[] {
         }
       }
       if (loose.length) submodules.push({ key: `${item.href}#general`, label: "General", screens: loose });
+      // A GROUPED module's off-menu screens (Sample, grouped 2026-10-14) keep
+      // their own sub-module — they belong to neither group's sidebar row.
+      const offMenu = OFF_MENU_SCREENS[item.href] ?? [];
+      if (offMenu.length)
+        submodules.push({
+          key: `${item.href}#off-menu`,
+          label: "Off the menu",
+          screens: offMenu.map((c) => ({ key: c.href, label: c.label, module: grouping.module })),
+        });
     } else if (item.href === "/masters") {
       for (const sub of SUBMODULES) {
         const screens = mastersEntityLinks(sub.slug).map((l) => ({ key: l.href, label: l.label, module: item.module }));
@@ -153,7 +162,8 @@ export function buildScreenCatalog(): CatalogModule[] {
  * here: dropping them would make each one fall back to the module grant — a
  * role kept out of SQ Details by a screen tick could then open it by URL — and
  * would orphan any screen rows already stored for them. Appended after the
- * module's sidebar children, under the same sub-module.
+ * module's sidebar children, under the same sub-module — or, on a module
+ * grouped in MODULE_GROUPS, under an "Off the menu" sub-module of their own.
  */
 const OFF_MENU_SCREENS: Readonly<Record<string, readonly { href: string; label: string }[]>> = {
   "/sales": [

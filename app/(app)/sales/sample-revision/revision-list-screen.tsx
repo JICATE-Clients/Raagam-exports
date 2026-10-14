@@ -17,9 +17,10 @@ import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtDate } from "@/lib/format";
-import { raiseSampleRevision } from "@/lib/sales/sample-revisions/actions";
+import { raiseSampleRevision, submitSampleRevision } from "@/lib/sales/sample-revisions/actions";
 import {
-  REVISION_KINDS,
+  opensCosting,
+  RAISABLE_REVISION_KINDS,
   REVISION_KIND_HINT,
   REVISION_KIND_LABEL,
   REVISION_ORIGIN_LABEL,
@@ -147,6 +148,23 @@ export function RevisionListScreen({
           { label: r.decided_at ? "Decided" : "Raised", value: fmtDate(r.decided_at ?? r.created_at) },
         ]}
         onOpen={(r) => router.push(`/sales/sample-revision/${r.id}`)}
+        // SEND TO MD FROM THE LIST (user 2026-10-14) — a draft revision whose
+        // proposed costing exists when its modules open one, as the detail
+        // page's own Send to MD requires.
+        onSend={(r) =>
+          start(async () => {
+            const res = await submitSampleRevision(r.id);
+            if (!res.ok) {
+              toastError(res.error);
+              return;
+            }
+            success(`${r.revision_code} sent to the MD.`);
+            router.refresh();
+          })
+        }
+        canSendRow={(r) => canEdit && r.status === "draft" && !(opensCosting(r.kinds) && r.costing_pairs.length === 0)}
+        sendLabel="Send to MD"
+        isPending={isPending}
         footerNote={hasCreatedInfo(rows) ? (r) => `Created ${createdMeta(r)}` : undefined}
         empty={
           rows.length
@@ -187,7 +205,7 @@ export function RevisionListScreen({
             <legend className="mb-1 text-sm font-medium">
               Modules to open <span className="text-danger">*</span>
             </legend>
-            {REVISION_KINDS.map((k) => (
+            {RAISABLE_REVISION_KINDS.map((k) => (
               <label key={k} className="flex cursor-pointer items-start gap-2 rounded-control border border-border px-3 py-2 hover:bg-surface-muted">
                 <input type="checkbox" className="mt-0.5 h-4 w-4" checked={kinds.includes(k)} onChange={() => toggleKind(k)} />
                 <span>

@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { BackLink } from "@/components/ui/back-link";
+import type { BackTarget } from "@/lib/nav/back-target";
 import { cn } from "@/lib/utils";
 
 export function PageHeader({
@@ -35,10 +36,14 @@ export function PageHeader({
    * not guessed — `mode === "list"` plus a `setMode(` in the same file, all
    * eight under `/orders`. Pass it on the EDITOR branch only; the list branch
    * is exactly what the default is for.
+   *
+   * A `BackTarget` names the way back outright, for a detail route the registry
+   * cannot see — every Sample record page (`/sales/*` keeps a literal nav list,
+   * so the derived link is always `null` there).
    */
-  back?: boolean;
+  back?: boolean | BackTarget;
 }) {
-  const backLink = back ? <BackLink /> : null;
+  const backLink = back === false ? null : <BackLink target={back === true ? undefined : back} />;
   /**
    * NO VISIBLE TITLE OR DESCRIPTION, ON ANY PAGE (user 2026-10-01, quoting
    * "Garment Orders — styles, colours, prices, packing, quantities &

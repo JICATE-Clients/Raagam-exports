@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { backTarget, type BackTarget } from "@/lib/nav/back-target";
 import { confirmDiscard } from "@/lib/reload-guard";
+import { cn } from "@/lib/utils";
 
 /**
  * "← Back to <the screen above this one>".
@@ -37,8 +38,46 @@ import { confirmDiscard } from "@/lib/reload-guard";
  * to mount unconditionally: a module root, a hub page, a document detail route
  * and every screen outside the nav registry all resolve to `null`.
  */
-export function BackLink({ target }: { target?: BackTarget }) {
+const BACK_CLASS =
+  "inline-flex h-9 shrink-0 items-center gap-1 rounded-control px-1 text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/**
+ * `onBack` IS THE SAME LINK FOR AN EDITOR THAT LIVES ON ITS LIST'S URL (user
+ * 2026-10-14, Sample module: "add clear Back buttons … check our existing back
+ * UI and use"). Sample Entry and Costing swap list and editor in local state,
+ * so there is no href to go to — the way back is the screen's own close. It
+ * reads and behaves exactly like the link (same words, same discard question),
+ * so a Sample editor's Back and an Orders list's Back are one affordance.
+ */
+export function BackLink({
+  target,
+  onBack,
+  label,
+  className,
+}: {
+  target?: BackTarget;
+  onBack?: () => void;
+  /** With `onBack`: what the operator goes back to ("Sample Entry"). */
+  label?: string;
+  className?: string;
+}) {
   const pathname = usePathname();
+  if (onBack) {
+    const to = label ?? "list";
+    return (
+      <button
+        type="button"
+        tabIndex={-1}
+        className={cn(BACK_CLASS, className)}
+        aria-label={`Back to ${to}`}
+        onClick={() => {
+          if (confirmDiscard()) onBack();
+        }}
+      >
+        ← {to}
+      </button>
+    );
+  }
   const to = target ?? backTarget(pathname ?? "");
   if (!to) return null;
   return (
@@ -46,7 +85,7 @@ export function BackLink({ target }: { target?: BackTarget }) {
       href={to.href}
       // `toolbar-size: exempt -- a text link on the row's h-9 line; the check
       // reads a `size` prop and there is no Button element here to carry one.`
-      className="inline-flex h-9 items-center gap-1 rounded-control px-1 text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(BACK_CLASS, className)}
       aria-label={`Back to ${to.label}`}
       onClick={(e) => {
         if (!confirmDiscard()) e.preventDefault();

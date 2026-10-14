@@ -25,6 +25,7 @@ import {
   ratioTotal,
   type AssortMode,
 } from "@/lib/orders/amendments/qty-balance";
+import { styleProcessRowStarted, type StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 
 // ---------------------------------------------------------------------------
 // Vocabularies. `value` is what is STORED (the CHECK constraints in 0368 / 0683);
@@ -255,6 +256,10 @@ export type StyleDraft = {
   coordinates: CoordinateDraft[];
   sizes: string[];
   combos: ComboDraft[];
+  /** Combos ▸ Embellishments (0722) — Order Entry's Style ▸ Process rows:
+   *  a Component Process on a cut panel, or a Garment Process on the whole
+   *  garment. Seeded with one blank row; a blank row is dropped at save. */
+  processes: StyleProcessRow[];
   quantities: QuantityDraft[];
 };
 
@@ -464,6 +469,15 @@ export function sampleEntryProblems(
     if (new Set(names).size !== names.length)
       add({ section: "combos", ...at, label: "Combo", message: `${who}: a combo colour is listed twice.`, strict: true });
 
+    /* EMBELLISHMENTS (0722): a started row owes its Type and Process — the two
+       cells the grid marks required. Component stays optional (0421: a panel
+       still being decided is a legitimate half-answer). */
+    if (h.enquiry_action !== "quote")
+      s.processes.filter(styleProcessRowStarted).forEach((r, ri) => {
+        if (!r.kind || !r.process_id)
+          add({ section: "combos", ...at, label: "Embellishment", message: `${who}, embellishment ${ri + 1}: pick the ${r.kind ? "Process" : "Type"}.`, strict: true });
+      });
+
     /* ORDER ENTRY'S QUANTITIES RULES, IN ITS WORDS (`quantityProblems`,
        garment-order-screen.tsx) — `who` is the destination's style, which is
        what Order Entry's Ref No names. */
@@ -607,6 +621,18 @@ export const sampleEntryInput = z
           ),
           coordinates: z.array(z.object({ sno: z.number().int(), coordinate_id: uuid })),
           sizes: z.array(z.object({ sno: z.number().int(), garment_size: z.string().min(1) })),
+          processes: z
+            .array(
+              z.object({
+                sno: z.number().int(),
+                kind: z.enum(["garment", "component"]),
+                process_id: uuid,
+                component_id: optUuid,
+                // caps-input: exempt -- free-text remark, Order Entry's Details (0412) is kept as typed.
+                details: z.string().max(500).nullable(),
+              }),
+            )
+            .default([]),
           combos: z.array(
             z.object({
               sno: z.number().int(),
@@ -768,6 +794,17 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
           .slice(0, s.unit_kind === "set" ? COORDINATE_LIMITS.set.max : COORDINATE_LIMITS.piece.max)
           .map((c, ci) => ({ sno: ci + 1, coordinate_id: c.coordinate_id as string })),
         sizes: s.sizes.map((z, zi) => ({ sno: zi + 1, garment_size: z })),
+        // A Quote has no Combos section, so it owes and saves no embellishments.
+        processes: (h.enquiry_action === "quote" ? [] : s.processes)
+          .filter((r) => !!r.kind && !!r.process_id)
+          .filter((r, ri, all) => all.findIndex((y) => y.kind === r.kind && y.process_id === r.process_id && (y.component_id ?? null) === (r.component_id ?? null)) === ri)
+          .map((r, ri) => ({
+            sno: ri + 1,
+            kind: r.kind as "garment" | "component",
+            process_id: r.process_id as string,
+            component_id: r.kind === "component" ? r.component_id : null,
+            details: orNull(r.details),
+          })),
         combos: s.combos
           .filter((c) => !isBlankCombo(c))
           .map((c, ci) => ({
@@ -837,15 +874,14 @@ export type SampleEntryListRow = {
   sample_qty: number;
   billable_count: number;
   is_draft: boolean;
-  /** 0719 — the latest PD Request's state, or null when none was sent. */
-  pd_status: PdRequestStatus | null;
   created_at: string;
   created_by: string | null;
 };
 
 /**
  * A Product Development request to the Sample Department (0719, client brief
- * 2026-10-13 §3; spec §7.1). The department answers in the approvals inbox:
+ * 2026-10-13 §3; spec §7.1) — raised per SWO since 0723, not per SMP
+ * (Sample ▸ PD Request). The department answers in the approvals inbox:
  * Approve = Acknowledged, Reject (with a reason) = Not Acknowledged.
  */
 export type PdRequestStatus = "requested" | "acknowledged" | "not_acknowledged" | "cancelled";
@@ -862,16 +898,6 @@ export const PD_STATUS_TONE: Record<PdRequestStatus, "info" | "success" | "dange
   acknowledged: "success",
   not_acknowledged: "danger",
   cancelled: "neutral",
-};
-
-/** The latest request on one enquiry, as the editor shows it. */
-export type PdRequestState = {
-  id: string;
-  status: PdRequestStatus;
-  note: string | null;
-  decision_remark: string | null;
-  decided_at: string | null;
-  created_at: string;
 };
 
 export type SampleEntryRecord = { id: string; code: string | null; header: SampleHeaderDraft; styles: StyleDraft[] };

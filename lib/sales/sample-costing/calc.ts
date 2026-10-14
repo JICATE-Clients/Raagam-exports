@@ -553,3 +553,51 @@ export function solveTarget(
     perKgFabric: fabricKg > 0 ? round(costCut / fabricKg, 2) : null,
   };
 }
+
+export type TargetImpact = {
+  /** The margin the CALCULATED price earns, % of net — the baseline the target is read against. */
+  calcMarginPct: number;
+  /** Target margin − calc margin, in percentage points (4.719 → 4.75 at 30 % ≈ +0.23). */
+  marginShiftPts: number;
+  /** ₹ gained (+) or given away (−) per piece / set by quoting the target instead of the calc price. */
+  inrPerUnit: number;
+  /** What one cent (0.01 of the currency) is worth in rupees per piece / set. */
+  perCentInr: number;
+  /** …and in margin points. */
+  perCentMarginPts: number;
+};
+
+/**
+ * THE NEGOTIATION READ-OUT (client 2026-10-14: "every cent fluctuation"). The
+ * buyer's target against the calculated price, in the two words a planner
+ * negotiates in — margin points and rupees. Read-only: nothing here edits a
+ * cost, so the INR baseline is never touched by trying a price.
+ *
+ *   ₹ per unit      = (target − calc) × rate
+ *   ₹ per cent      = 0.01 × rate
+ *   points per cent = ₹ per cent ÷ net × 100
+ *
+ * Both margins come from `solveTarget`, so the shift is measured with the same
+ * freight / insurance / extras arithmetic the floor test uses.
+ */
+export function targetImpact(
+  total: { net: number; calc: number | null },
+  terms: TermsInput,
+  target: number,
+  pieces: number,
+  extras?: readonly ExtraChargeInput[],
+): TargetImpact | null {
+  const rate = num(terms.exchange_rate);
+  if (total.calc == null || rate == null || rate <= 0) return null;
+  const atCalc = solveTarget(total, terms, total.calc, pieces, 0, extras);
+  const atTarget = solveTarget(total, terms, target, pieces, 0, extras);
+  if (!atCalc || !atTarget) return null;
+  const perCentInr = round(0.01 * rate, 4);
+  return {
+    calcMarginPct: atCalc.marginPct,
+    marginShiftPts: round(atTarget.marginPct - atCalc.marginPct, 2),
+    inrPerUnit: round((target - total.calc) * rate, 2),
+    perCentInr,
+    perCentMarginPts: round((perCentInr / total.net) * 100, 3),
+  };
+}

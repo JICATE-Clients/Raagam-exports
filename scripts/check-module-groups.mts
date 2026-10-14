@@ -429,6 +429,12 @@ for (const [moduleHref, grouping] of Object.entries(MODULE_GROUPS)) {
 // verbatim from `git show HEAD:components/shell/nav.ts` rather than derived, so
 // this cannot drift with the file it is checking.
 const OLD_NAV_LEAVES: Record<string, string[]> = {
+  // Sample's flat list as it stood before the 2026-10-14 grouping.
+  "/sales": [
+    "/sales/sample-entry", "/sales/pd-request", "/sales/pd-acknowledge",
+    "/sales/sample-costing", "/sales/sample-grouping", "/sales/sample-fabric-plan",
+    "/sales/sample-accessories-plan", "/sales/plan-approval", "/sales/sample-revision",
+  ],
   "/orders": [
     "/orders/garment-orders", "/orders/order-booking", "/orders/due-date-confirmations",
     "/orders/contract-review", "/orders/pack-ratios", "/orders/excess-orders",

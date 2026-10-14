@@ -5,7 +5,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import type { StatusTone } from "@/lib/ui/tone";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { FileText } from "lucide-react";
+import { FileText, Send } from "lucide-react";
 import { RowActions, RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
@@ -67,6 +67,9 @@ export function SampleCards<R>({
   onDelete,
   onReports,
   canReportsRow,
+  onSend,
+  canSendRow,
+  sendLabel = "Send for approval",
   isPending = false,
   empty,
   table,
@@ -91,6 +94,10 @@ export function SampleCards<R>({
   /** A report reachable without opening the row (see MobileCardList). */
   onReports?: (r: R) => void;
   canReportsRow?: (r: R) => boolean;
+  /** Send this row for approval without opening it (see MobileCardList). */
+  onSend?: (r: R) => void;
+  canSendRow?: (r: R) => boolean;
+  sendLabel?: string;
   isPending?: boolean;
   empty: ReactNode;
   /**
@@ -132,14 +139,21 @@ export function SampleCards<R>({
           view={false}
           /* The card's Reports, in the eye's slot (Row actions rule). */
           lead={
-            onReports ? (
-              <RowIconAction
-                label="Reports"
-                icon={FileText}
-                className="text-primary"
-                onClick={canReportsRow?.(r) === false ? undefined : () => onReports(r)}
-                disabledReason={canReportsRow?.(r) === false ? "Nothing to report on yet" : null}
-              />
+            onReports || onSend ? (
+              <>
+                {onReports ? (
+                  <RowIconAction
+                    label="Reports"
+                    icon={FileText}
+                    className="text-primary"
+                    onClick={canReportsRow?.(r) === false ? undefined : () => onReports(r)}
+                    disabledReason={canReportsRow?.(r) === false ? "Nothing to report on yet" : null}
+                  />
+                ) : null}
+                {onSend && canSendRow?.(r) !== false ? (
+                  <RowIconAction label={sendLabel} icon={Send} className="text-primary" onClick={() => onSend(r)} />
+                ) : null}
+              </>
             ) : undefined
           }
           onEdit={() => onOpen(r)}
@@ -174,6 +188,10 @@ export function SampleCards<R>({
       onDelete={onDelete}
       onReports={onReports}
       canReportsRow={canReportsRow}
+      onSend={onSend}
+      canSendRow={canSendRow}
+      /* The card names its buttons in words, and a sixth of the pane has room for one. */
+      sendLabel="Send"
       isPending={isPending}
       empty={empty}
     />

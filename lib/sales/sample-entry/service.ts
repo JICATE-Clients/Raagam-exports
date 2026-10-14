@@ -10,9 +10,10 @@ import type { Currency } from "@/lib/masters/types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Deactivatable } from "@/lib/masters/inactive";
 import { isUnitKind } from "@/lib/orders/styles/rules";
+import { isProcessKind, type ComponentOption, type ProcessOption } from "@/lib/orders/amendments/style-processes";
+import { listSampleStyleProcesses } from "./style-processes";
 import { DEFAULT_SAMPLE_TYPE, INHERITED, headerValueFor } from "./types";
 import type {
-  PdRequestStatus,
   AssortLineDraft,
   ComboDraft,
   QuantityDraft,
@@ -65,9 +66,55 @@ export type SampleEntryFormData = {
    *  when Style Name / No is entered"). Every known pairing, the Garment Style
    *  master first and earlier sample styles after; one per name (upper-cased). */
   articles: { name: string; article_no: string }[];
+  /** Combos ▸ Embellishments (0722): processes flagged for garments and/or
+   *  components, and the Components master for a Component Process's panel. */
+  processes: ProcessOption[];
+  components: ComponentOption[];
 };
 
 /** The Style → Article No pairings the Style Name box fills from (§1). */
+/**
+ * Combos ▸ Embellishments' two lists (0722) — Order Entry's Style ▸ Process
+ * feeds (`getProcessRows`, amendments/service.ts). The flags ride along so the
+ * grid narrows by Type without a round trip. Nothing is filtered in SQL —
+ * not `inactive`, not the flags — so a process a saved row names still resolves
+ * after it is switched off or re-flagged ("Disabled rows"); `processesForKind`
+ * does the narrowing and re-admits the held value.
+ */
+async function getEmbellishmentProcesses(): Promise<ProcessOption[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("processes")
+    .select("id, name, inactive, for_garments, for_components")
+    .order("name");
+  if (error) throw new Error(`Could not load processes: ${error.message}`);
+  return ((data ?? []) as { id: string; name: string; inactive: boolean | null; for_garments: boolean | null; for_components: boolean | null }[]).map(
+    (p) => ({
+      id: p.id,
+      code: null,
+      name: p.name,
+      inactive: p.inactive ?? false,
+      for_garments: p.for_garments ?? false,
+      for_components: p.for_components ?? false,
+    }),
+  );
+}
+
+/** The cut panels a Component Process is done on — the Components master. A
+ *  sample style declares no component list of its own (Order Entry's
+ *  `garment_style_components`), so the whole master is offered. */
+async function getComponents(): Promise<ComponentOption[]> {
+  const s = await createClient();
+  const { data, error } = await s.from("components").select("id, short_name, inactive").order("short_name");
+  if (error) throw new Error(`Could not load components: ${error.message}`);
+  return ((data ?? []) as { id: string; short_name: string; inactive: boolean | null }[]).map((c) => ({
+    id: c.id,
+    code: null,
+    name: c.short_name,
+    inactive: c.inactive ?? false,
+  }));
+}
+
 async function getArticles(): Promise<{ name: string; article_no: string }[]> {
   const s = await createClient();
   const [master, earlier] = await Promise.all([
@@ -220,7 +267,7 @@ async function getFabricStructures(): Promise<PickerRow[]> {
 }
 
 export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
-  const [customers, merchandisers, countries, currencies, lookups, consignees, ports, coordinates, fabricStructures, fabrics, seasons, agents, articles] =
+  const [customers, merchandisers, countries, currencies, lookups, consignees, ports, coordinates, fabricStructures, fabrics, seasons, agents, articles, processes, components] =
     await Promise.all([
       getCustomers(),
       getMerchandisers(),
@@ -235,6 +282,8 @@ export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
       getSeasons(),
       getAgents(),
       getArticles(),
+      getEmbellishmentProcesses(),
+      getComponents(),
     ]);
   return {
     customers,
@@ -250,6 +299,8 @@ export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
     seasons,
     agents,
     articles,
+    processes,
+    components,
   };
 }
 
@@ -271,7 +322,6 @@ type ListDbRow = {
   title: string | null;
   customer: { name: string | null } | { name: string | null }[] | null;
   styles: { sample_qty: number | null; billable: boolean | null }[] | null;
-  sample_pd_requests: { status: PdRequestStatus; created_at: string }[] | null;
 };
 
 /**
@@ -284,9 +334,7 @@ export async function listSampleEntries(): Promise<SampleEntryListRow[]> {
     .from("opportunities")
     .select(
       "id, code, received_date, customer_id, enquiry_against, enquiry_action, season, season_year, is_draft, " +
-        "created_at, created_by, title, customer:customers!customer_id(name), styles(sample_qty, billable), " +
-        // 0719 — one FK, so the bare embed is unambiguous; the latest decides the column.
-        "sample_pd_requests(status, created_at)",
+        "created_at, created_by, title, customer:customers!customer_id(name), styles(sample_qty, billable)",
     )
     .order("created_at", { ascending: true });
   if (error) throw new Error(`Could not load sample entries: ${error.message}`);
@@ -309,8 +357,6 @@ export async function listSampleEntries(): Promise<SampleEntryListRow[]> {
       sample_qty: styles.reduce((t, x) => t + (Number(x.sample_qty) || 0), 0),
       billable_count: styles.filter((x) => !!x.billable).length,
       is_draft: !!r.is_draft,
-      pd_status:
-        [...(r.sample_pd_requests ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.status ?? null,
       created_at: r.created_at,
       created_by: r.created_by,
     } satisfies SampleEntryListRow;
@@ -386,6 +432,8 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
   if (error) throw new Error(`Could not load the sample entry: ${error.message}`);
   if (!data) return null;
   const r = data as unknown as Record<string, unknown> & { id: string; code: string | null; styles: StyleDb[] | null };
+  // 0722's rows, read beside the embed — see listSampleStyleProcesses.
+  const processRows = await listSampleStyleProcesses(s, (r.styles ?? []).map((st) => st.id));
   const g = (k: string) => (r[k] == null ? "" : String(r[k]));
   const gid = (k: string) => (r[k] == null ? null : String(r[k]));
 
@@ -487,6 +535,19 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
       coordinates: bySno(st.coordinates).map((c) => ({ key: key(), coordinate_id: c.coordinate_id })),
       sizes,
       combos,
+      // 0722. None saved → the one seeded row (AGENTS.md "Editable sub-tables
+      // open with a row"), seeded HERE rather than by ChildGrid's `seedRow`,
+      // whose onAdd would mark a just-opened entry dirty.
+      processes: (() => {
+        const rows = (processRows.get(st.id) ?? []).map((x) => ({
+          key: key(),
+          kind: isProcessKind(x.kind) ? x.kind : null,
+          process_id: x.process_id,
+          component_id: x.component_id,
+          details: x.details ?? "",
+        }));
+        return rows.length ? rows : [{ key: key(), kind: null, process_id: null, component_id: null, details: "" }];
+      })(),
       quantities,
     };
   });

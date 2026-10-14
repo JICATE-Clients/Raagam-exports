@@ -5,6 +5,7 @@
  * PURE: no server-only import, so the screen and the actions read one status
  * vocabulary and one input schema.
  */
+import type { PdRequestStatus } from "@/lib/sales/sample-entry/types";
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
 
@@ -111,6 +112,8 @@ export type GroupRow = {
   remarks: string | null;
   /** The planner's own name for the SWO (0712); NULL shows the SWO number. */
   description: string | null;
+  /** The latest PD Request on this SWO (0723), or null when none was sent. */
+  pd_status: PdRequestStatus | null;
   created_at: string;
   created_by: string | null;
   created_by_name?: string | null;

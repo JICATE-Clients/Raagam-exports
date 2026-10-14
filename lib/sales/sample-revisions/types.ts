@@ -9,6 +9,14 @@
 
 export const REVISION_KINDS = ["sample_info", "fabric_spec", "trims", "costing"] as const;
 export type RevisionKind = (typeof REVISION_KINDS)[number];
+/**
+ * THE MODULES A NEW REVISION MAY TICK. "Costing & Price" is no longer one
+ * (user 2026-10-14: "this one no need, remove this category") — a rate is now
+ * opened by the module it prices (`costingRevisionProblem`, scope.ts), so the
+ * box only ever duplicated the two above it. `costing` stays in REVISION_KINDS
+ * because revisions already raised with it are stored that way (0716's check).
+ */
+export const RAISABLE_REVISION_KINDS = ["sample_info", "fabric_spec", "trims"] as const satisfies readonly RevisionKind[];
 
 /** The module picker's words and what each one opens. */
 export const REVISION_KIND_LABEL: Record<RevisionKind, string> = {
@@ -19,8 +27,8 @@ export const REVISION_KIND_LABEL: Record<RevisionKind, string> = {
 };
 export const REVISION_KIND_HINT: Record<RevisionKind, string> = {
   sample_info: "The Sample Entry: sample qty, delivery date, sizes, colour quantities.",
-  fabric_spec: "The costing's fabrics, yarn mix, processes and garment weights (GSM, size, wastage).",
-  trims: "The costing's trims: item, consumption, pack size.",
+  fabric_spec: "The costing's fabrics, yarn mix, processes and garment weights (GSM, size, wastage), with their rates.",
+  trims: "The costing's trims: item, consumption, pack size, with their rates.",
   costing: "Every rate on the costing: fabric, yarn, process, CMT, overheads, quotes.",
 };
 /** Does this revision open the costing (make its next revision)? */
