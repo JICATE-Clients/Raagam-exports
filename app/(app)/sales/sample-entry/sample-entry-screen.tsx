@@ -147,8 +147,9 @@ type MasterPerms = { canCreate: boolean; canEdit: boolean };
  *   + Customer party 200 + Season range 112 + Year hug 88          = 1064
  *   + 6 × 12 gap                                                   = 1136 → 71rem
  * and line 2 (user 2026-10-13, was three lines): Agent term 176 + Received Mode
- *   code 144 + Receipt Dt 144 + Delivery Mode 144 + Merchandiser term 176 +
- *   Sample Type 144 + Tech Pack 144 = 1072 + 72 gap = 1144 ≤ 1152.
+ *   code 144 + Receipt Dt 144 + Merchandiser term 176 + Sample Type 144 +
+ *   Tech Pack 144 = 928 + 60 gap = 988 ≤ 1152. (Delivery Mode came off on
+ *   2026-10-14, user — it lives on Product Info ▸ Order.)
  * 72rem (1152) fits the 1155px content width from 1366 up.
  * (Cust Ref and Delivery To came off on 2026-10-06, client; Receipt Dt moved
  * here from Product Info the same day.)
@@ -881,18 +882,8 @@ export function SampleEntryScreen({
         />
       ),
     },
-    {
-      header: "Delivery Dt",
-      width: FIELD_WIDTH_CSS.code,
-      cell: (r) => (
-        <Input
-          aria-label="Delivery Dt"
-          type="date"
-          value={r.delivery_date}
-          onChange={(e) => patchStyle(r.key, { delivery_date: e.target.value })}
-        />
-      ),
-    },
+    // No Delivery Dt column (user 2026-10-14) — the line's date is asked on
+    // Product Info ▸ Order.
   ];
 
   /** Order Entry's `STYLE_SECTION_HEAD` — the composition line's grid heading
@@ -1692,16 +1683,8 @@ export function SampleEntryScreen({
                   onChange={(e) => setH({ receipt_date: e.target.value })}
                 />
               </Field>
-              <Field label="Delivery Mode" w="code" htmlFor="se-dmode">
-                <Select id="se-dmode" value={header.delivery_mode} onChange={(e) => setH({ delivery_mode: e.target.value })}>
-                  <option value=""></option>
-                  {DELIVERY_MODES.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              {/* No Delivery Mode here (user 2026-10-14) — it is asked per
+                  style on Product Info ▸ Order. */}
             {/* MERCHANDISER AND SAMPLE TYPE ARE THE ENTRY'S (client spec
                 2026-10-12 §2) — said once here and stamped on every style line
                 at Save. Merchandiser was asked per line on Product Info.
@@ -1918,8 +1901,8 @@ export function SampleEntryScreen({
               </div>
 
               {/* DELIVERY DT · DELIVERY MODE, then the two switches on the same
-                  line. Delivery Dt is the line's own (also on the Styles grid —
-                  one value, two boxes); Delivery Mode starts as Sample Info's
+                  line. Delivery Dt is the line's own (asked only here since
+                  2026-10-14); Delivery Mode starts as Sample Info's
                   and may be overridden (spec §2.3). */}
               <PiLegend>Order</PiLegend>
               <div className={PI_GRID}>

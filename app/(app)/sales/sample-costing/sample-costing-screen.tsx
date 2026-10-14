@@ -1269,6 +1269,78 @@ export function SampleCostingScreen({
    *  176 · Mix % num 72 · Rate / KG hug 88 · Weighted hug 88 = 424 + 72 = 496. */
   const mixRows = (f: FabricDraft) => f.yarns;
   const setMix = (f: FabricDraft, fn: (xs: YarnMixDraft[]) => YarnMixDraft[]) => patchFabric(f.key, { yarns: fn(f.yarns) });
+  /**
+   * THE THREE FIELDS AS THE TABLE'S LAST ROW (user 2026-10-14, option C of
+   * "Fabric Price Footer"): Yarn / KG ₹ and Process Loss % in the totals band's
+   * label cell, Price per KG under the last column. They stood in their own
+   * block beside or under the table, spread across the popup. Both tabs use the
+   * same row, so the price reads in one place whichever part is showing; the
+   * old Blend % and Processes total are on the tab chips and in the mix message.
+   *
+   * THE BAND STAYS OFF THE GRID'S ROW AXIS — no `data-grid-row`, so ↓ and Enter
+   * off the last line still reach "+ Add" (child-grid.tsx `total`). Process
+   * Loss % is a real field and Tab reaches it in DOM order, after the last cell.
+   */
+  const priceBand = (f: FabricDraft) => {
+    const yarnSub = yarnRateOf(f);
+    const procSub = fabricSubtotal(f) - yarnSub;
+    const mix = hasYarnMix(f);
+    return {
+      /* As drawn in option C (screenshot 110327): each label BESIDE its value.
+         ONE ROW, PACKED LEFT (user 2026-10-14, "compact … process la yum orey
+         row"): no wrap and no space-between, so the Processes tab's narrower
+         label cell reads the same line as Yarn mixing's. */
+      label: (
+        <div className="flex flex-nowrap items-center gap-4 whitespace-nowrap text-left text-sm font-normal normal-case tracking-normal text-foreground">
+          <span className="flex items-center gap-1.5">
+            <label htmlFor={mix ? undefined : costingFieldId.fabricRate(f.key)} className="text-xs text-muted-foreground">
+              Yarn / KG ₹
+            </label>
+            {mix ? (
+              // With a mix, the yarn rate IS the weighted sum — shown, not typed.
+              <span className="font-semibold tabular-nums">
+                <Flash value={money(yarnSub)} formula="Σ Mix % × Rate ÷ 100" />
+              </span>
+            ) : (
+              <span className="w-16">
+                <NumInput
+                  id={costingFieldId.fabricRate(f.key)}
+                  aria-label="Yarn rate per KG"
+                  value={f.yarn_rate}
+                  onChange={(e) => patchFabric(f.key, { yarn_rate: e.target.value })}
+                />
+              </span>
+            )}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <label htmlFor={`sc-loss-${f.key}`} className="text-xs text-muted-foreground">
+              Process Loss %
+            </label>
+            <span className="w-16">
+              <NumInput
+                id={`sc-loss-${f.key}`}
+                aria-label="Process loss percent"
+                value={f.process_loss_pct}
+                onChange={(e) => patchFabric(f.key, { process_loss_pct: e.target.value })}
+              />
+            </span>
+          </span>
+        </div>
+      ),
+      price: (
+        <div className="text-right leading-tight">
+          <div className="whitespace-nowrap text-xs font-normal text-muted-foreground">Price per KG</div>
+          <div className="whitespace-nowrap font-bold tabular-nums text-primary">
+            <Flash
+              value={`₹ ${money(fabricPricePerKg(f))}`}
+              formula={`(Yarn ${money(yarnSub)} + Processes ${money(procSub)}) × (1 + ${f.process_loss_pct || 0}% loss)`}
+            />
+          </div>
+        </div>
+      ),
+    };
+  };
+
   const costingYarnColumns = (f: FabricDraft): ChildGridColumn<YarnMixDraft>[] => [
     {
       header: "Yarn",
@@ -1289,7 +1361,6 @@ export function SampleCostingScreen({
       header: "Mix %",
       align: "right",
       width: FIELD_WIDTH_CSS.num,
-      total: { kind: "derived", value: () => pct(yarnMixTotal(f)) },
       cell: (y) => (
         <NumInput
           aria-label="Mix percent"
@@ -1314,19 +1385,23 @@ export function SampleCostingScreen({
       header: "Weighted",
       align: "right",
       width: FIELD_WIDTH_CSS.hug,
-      total: { kind: "derived", value: () => money(yarnRateOf(f)) },
+      // THE TABLE'S LAST ROW IS THE PRICE ROW (user 2026-10-14, option C) — see `priceBand`.
+      total: { kind: "derived", value: () => priceBand(f).price },
       cell: (y) => <Figure value={num(y.mix_pct) != null ? ((num(y.mix_pct) ?? 0) * (num(y.rate) ?? 0)) / 100 : null} formula="Mix % × Rate ÷ 100" />,
     },
   ];
 
   /** Processes (costing spec §3.1 — Knitting, Dyeing, Stentering, Brushing …), each picked from the process master:
-   *  Process term 176 · Rate / KG hug 88 = 264 + 72 = 336. */
+   *  Process 20rem 320 · Rate / KG hug 88 = 408 + 72 = 480. */
   const setProc = (f: FabricDraft, fn: (xs: FabricProcessDraft[]) => FabricProcessDraft[]) =>
     patchFabric(f.key, { processes: fn(f.processes) });
   const costingProcessColumns = (f: FabricDraft): ChildGridColumn<FabricProcessDraft>[] => [
     {
       header: "Process",
-      width: FIELD_WIDTH_CSS.term,
+      // 20rem, not `term`: this cell (with the "#") is where the price row's
+      // Yarn / KG and Process Loss % sit, and at 176px they ran into Price per KG
+      // (user 2026-10-14). 40 + 320 + 88 + the ✕ fits the 31rem column.
+      width: "20rem",
       cell: (r) => (
         <TypeOrPick
           label="Special process"
@@ -1343,7 +1418,7 @@ export function SampleCostingScreen({
       header: "Rate / KG",
       align: "right",
       width: FIELD_WIDTH_CSS.hug,
-      total: { kind: "derived", value: () => money(processTotal(f)) },
+      total: { kind: "derived", value: () => priceBand(f).price },
       cell: (r) => (
         <NumInput
           aria-label="Process rate per KG"
@@ -1393,21 +1468,7 @@ export function SampleCostingScreen({
     const mixOk = Math.abs(mixTotal - 100) <= 0.001;
     return (
       <div id={`sc-build-${f.key}`} className="space-y-2">
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              // The worked-out price becomes the typed one, so the figure on screen does not jump.
-              const keep = fabricPricePerKg(f);
-              patchFabric(f.key, { is_direct: true, ...(keep != null && !num(f.direct_rate) ? { direct_rate: String(keep) } : {}) });
-              setBuildKey(null);
-            }}
-          >
-            Type the price instead
-          </Button>
-        </div>
+        {/* No "Type the price instead" here (user 2026-10-14). */}
         <ToggleGroup<"mix" | "process">
           label="Parts of the fabric rate"
           value={buildTab}
@@ -1417,16 +1478,11 @@ export function SampleCostingScreen({
             { value: "process", label: "Processes", after: <span className="tabular-nums opacity-80">{`₹ ${money(procSub)}`}</span> },
           ]}
         />
-        {/* THE TABLE LEFT, ITS THREE NUMBERS ON ITS RIGHT (user 2026-10-08, screenshot
-            3385: "near to the table right side"): Yarn / KG ₹ · Process Loss % ·
-            Price per KG sit beside whichever grid is showing, top-aligned with it.
-            Plain flex with fixed-width cells: a FieldRow here collapsed to a
-            few characters wide (screenshot 3385). Wraps under the table when narrow. */}
-        <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+        {/* The three numbers are the table's last row now (`priceBand`). */}
+        <div>
         <div className="min-w-0">
         {buildTab === "mix" ? (
           <div className="space-y-2">
-            <p className="m-0 text-xs text-muted-foreground">What the cloth is made of. The shares must total 100%.</p>
             <div id={costingFieldId.yarnMix(f.key)} className="w-[31rem] max-w-full">
               {/* default-row: exempt -- a fabric with no blend needs no mix line; the seeded one is dropped as blank */}
               <div data-grid-style="sheet" className="[&_table]:table-fixed">
@@ -1438,17 +1494,17 @@ export function SampleCostingScreen({
                   tableAlways
                   narrow
                   keepOne
-                  totalsLabel="Blend"
+                  totalsLabel={priceBand(f).label}
                   addLabel="+ Add yarn"
                   onAdd={() => setMix(f, (xs) => [...xs, blankYarn()])}
                   onRemove={(y) => setMix(f, (xs) => xs.filter((x) => x.key !== y.key))}
                 />
               </div>
-              {mix ? (
-                <p className={`m-0 mt-2 text-xs ${mixOk ? "text-success" : "text-danger"}`}>
-                  {mixOk
-                    ? "Mix adds up to 100%."
-                    : mixTotal < 100
+              {/* Said only when the mix is WRONG (user 2026-10-14 removed the
+                  "Mix adds up to 100%." confirmation and the intro line). */}
+              {mix && !mixOk ? (
+                <p className="m-0 mt-2 text-xs text-danger">
+                  {mixTotal < 100
                       ? `Mix is ${mixTotal}%. ${+(100 - mixTotal).toFixed(2)}% still to place.`
                       : `Mix is ${mixTotal}%. ${+(mixTotal - 100).toFixed(2)}% too much.`}
                 </p>
@@ -1458,8 +1514,9 @@ export function SampleCostingScreen({
           </div>
         ) : (
           <div className="space-y-2">
-            <p className="m-0 text-xs text-muted-foreground">Pick each process and give its price per KG.</p>
-            <div className="w-[21rem] max-w-full">
+            {/* Same 31rem as the yarn table (user 2026-10-14), so the price row
+                sits on one line in both tabs. */}
+            <div className="w-[31rem] max-w-full">
               <div data-grid-style="sheet" className="[&_table]:table-fixed">
                 <ChildGrid<FabricProcessDraft>
                   // grid-caption: exempt -- the build-up's tab names it
@@ -1469,7 +1526,7 @@ export function SampleCostingScreen({
                   tableAlways
                   narrow
                   keepOne
-                  totalsLabel="Total"
+                  totalsLabel={priceBand(f).label}
                   addLabel="+ Add process"
                   onAdd={() => setProc(f, (xs) => [...xs, blankProcess()])}
                   onRemove={(r) => setProc(f, (xs) => xs.filter((x) => x.key !== r.key))}
@@ -1478,39 +1535,6 @@ export function SampleCostingScreen({
             </div>
           </div>
         )}
-        </div>
-        <div className="flex shrink-0 flex-wrap items-end gap-3">
-          <div className="w-[8.5rem]">
-            <Field label="Yarn / KG ₹" w="hug" htmlFor={costingFieldId.fabricRate(f.key)}>
-              {mix ? (
-                // With a mix, the yarn rate IS the weighted sum — shown, not typed.
-                <span className="flex h-9 items-center justify-end rounded-md bg-background px-2 text-sm font-medium">
-                  <Flash value={money(yarnSub)} formula="Σ Mix % × Rate ÷ 100" />
-                </span>
-              ) : (
-                <NumInput
-                  id={costingFieldId.fabricRate(f.key)}
-                  aria-label="Yarn rate per KG"
-                  value={f.yarn_rate}
-                  onChange={(e) => patchFabric(f.key, { yarn_rate: e.target.value })}
-                />
-              )}
-            </Field>
-          </div>
-          <div className="w-[9.5rem]">
-            <Field label="Process Loss %" w="range">
-              <NumInput aria-label="Process loss percent" value={f.process_loss_pct} onChange={(e) => patchFabric(f.key, { process_loss_pct: e.target.value })} />
-            </Field>
-          </div>
-          <div className="min-w-[7rem] text-right">
-            <div className="text-[10.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Price per KG</div>
-            <div className="flex h-9 items-center justify-end text-lg font-bold tabular-nums text-primary">
-              <Flash
-                value={`₹ ${money(fabricPricePerKg(f))}`}
-                formula={`(Yarn ${money(yarnSub)} + Processes ${money(procSub)}) × (1 + ${f.process_loss_pct || 0}% loss)`}
-              />
-            </div>
-          </div>
         </div>
         </div>
         <FieldError>{msgFor(costingFieldId.fabricRate(f.key))}</FieldError>
@@ -1614,7 +1638,7 @@ export function SampleCostingScreen({
       // ONE EDIT PENCIL PER ROW (user 2026-10-09: "fabric la edit button click pannale popup
       // card varanum", and the calculator icon is not wanted). It always opens the build-up
       // popup; from a typed price it first switches the row to the worked-out one, exactly
-      // as the calculator did. "Type the price instead" now lives inside the popup.
+      // as the calculator did. ("Type the price instead" came out of the popup 2026-10-14.)
       // Buttons are not fields, so it is not a Tab stop.
       cell: (f) => {
         return (
@@ -3789,7 +3813,8 @@ export function SampleCostingScreen({
           parent="costing"
           grid
           maxWidthClass="max-w-xl"
-          title="How the fabric price is worked out"
+          // No visible title (user 2026-10-14); the dialog still has a name.
+          title={<span className="sr-only">Fabric price</span>}
         >
           {buildFabric ? fabricBuildUp(buildFabric) : null}
         </SubDetailSheet>
@@ -3923,7 +3948,11 @@ export function SampleCostingScreen({
           <span>{[r.awaiting ? null : r.enquiry_no, r.customer_name, r.style_name].filter(Boolean).join(" · ") || "—"}</span>
         )}
         state={(r): SampleCardState => ({ pending: "pending", draft: "draft", updated: "updated" } as const)[costingWordOf(r)]}
-        pillText={(r) => (r.awaiting ? "Not costed" : r.is_draft ? "Draft" : STATUS_LABEL[r.status])}
+        /* THE PILL SAYS THE TAB THE CARD IS IN (user 2026-10-14: "draft na draft
+           la … pending na pending … updated na updated"). It read the sheet's
+           approval stage, so a saved-not-sent sheet said "Draft" under Pending
+           and a sample with no sheet said "Not costed". One word, one answer. */
+        pillText={(r) => QUICK_LABEL[costingWordOf(r)]}
         stats={(r) => [
           {
             label: "Quoted",

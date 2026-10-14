@@ -1,5 +1,15 @@
+"use client";
+
 /**
  * A pre-paint inline `<script>` that React does not warn about.
+ *
+ * `"use client"` IS WHAT MAKES THE TYPE SWITCH WORK. Without it this was a
+ * Server Component: `typeof window` was read on the server only, so the props
+ * reached the browser as `text/javascript`, and whenever React CREATED the
+ * element on the client (re-rendering the root after a hydration mismatch, or
+ * `global-error`) it logged "Encountered a script tag…" (2026-10-14). As a
+ * Client Component the browser evaluates the check itself and gets
+ * `text/plain`, which React's `isScriptDataBlock` exempts from the warning.
  *
  * React 19 logs "Encountered a script tag while rendering React component"
  * whenever a render on the CLIENT produces a `<script>` — it would never run

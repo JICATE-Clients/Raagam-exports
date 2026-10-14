@@ -3,12 +3,11 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Plus, Undo2, X } from "lucide-react";
+import { Check, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -20,12 +19,10 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
   GROUP_STATUS_LABEL,
   GROUP_STATUS_TONE,
-  type GroupingCandidate,
   type GroupItemRow,
   type GroupRow,
 } from "@/lib/sales/sample-grouping/types";
 import {
-  addToSampleGroup,
   approveAndRaiseSampleGroupIw,
   approveSampleGroup,
   raiseSampleGroupIw,
@@ -58,13 +55,10 @@ import {
 
 export function GroupSheet({
   group,
-  addable,
   perms,
   onClose,
 }: {
   group: GroupRow;
-  /** Ungrouped, weighed samples of this SWO's season — what "+ Add" offers. */
-  addable: GroupingCandidate[];
   perms: { canEdit: boolean; canRaiseIw: boolean };
   onClose: () => void;
 }) {
@@ -75,8 +69,6 @@ export function GroupSheet({
   const [desc, setDesc] = useState(savedDesc);
   const dirty = desc.trim().toUpperCase() !== savedDesc.trim().toUpperCase();
   useUnsavedGuard(dirty || isPending);
-
-  const [adding, setAdding] = useState("");
 
   const run = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, said: string) =>
     startTransition(async () => {
@@ -186,6 +178,11 @@ export function GroupSheet({
       open
       onClose={onClose}
       size="md"
+      /* COMPACT (user 2026-10-14): `md` is 1152px for one Description box and a
+         five-column table. SMP No ~140 + Style ~200 + Qty 90 + Created Date 110
+         + Created User 140 + ✕ 50 ≈ 730px of table → 3xl (768); a mixed group
+         adds the 14rem Fabric · yarn column → 4xl (896). */
+      maxWidthClass={mixed ? "max-w-4xl" : "max-w-3xl"}
       title={
         <span className="flex flex-wrap items-center gap-2">
           <span className="font-mono">{group.group_code}</span>
@@ -213,7 +210,7 @@ export function GroupSheet({
         </>
       }
     >
-      <div className="space-y-5">
+      <div className="space-y-4">
         {/* name-step width: a short batch name, not prose. */}
         <section className="max-w-[24rem]">
           <Field label="Description" w="name" htmlFor="grp-desc">
@@ -221,35 +218,8 @@ export function GroupSheet({
           </Field>
         </section>
 
-
-        {perms.canEdit && addable.length ? (
-          <div className="flex items-center gap-2">
-            <Select value={adding} onChange={(e) => setAdding(e.target.value)} aria-label="Add a sample" className="w-72">
-              <option value="">Add a sample…</option>
-              {addable.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {[c.enquiry_no, c.style_name].filter(Boolean).join(" · ")}
-                </option>
-              ))}
-            </Select>
-            {/* toolbar-size: exempt -- an inline add beside a picker inside the sheet, not a header row */}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={isPending || !adding}
-              onClick={() =>
-                run(async () => {
-                  const res = await addToSampleGroup(group.id, [adding]);
-                  if (res.ok) setAdding("");
-                  return res;
-                }, `Added to ${group.group_code}.`)
-              }
-            >
-              <Plus className="h-4 w-4" />
-              Add
-            </Button>
-          </div>
-        ) : null}
+        {/* No "Add a sample…" picker here (user 2026-10-14) — samples join a
+            group from the Grouping list. */}
 
         <div className="w-fit max-w-full">
           <DataTable columns={withCreatedColumns(itemColumns, group.items)} rows={group.items} getKey={(it) => it.id} compact paginate={false} empty="No styles in this group." />
