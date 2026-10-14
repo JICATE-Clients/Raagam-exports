@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Eye, FileText, Send } from "lucide-react";
+import { Eye, FileText, Send, type LucideIcon } from "lucide-react";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -110,6 +110,7 @@ export function MobileCardList<Row>({
   onSend,
   canSendRow,
   sendLabel = "Send",
+  sendIcon: SendIcon = Send,
   isPending = false,
   empty = "No records yet.",
   stats,
@@ -170,6 +171,8 @@ export function MobileCardList<Row>({
   canSendRow?: (r: Row) => boolean;
   /** The word beside the icon on a queue card, and the tooltip elsewhere. */
   sendLabel?: string;
+  /** The slot's icon — a paper plane by default; Costing's Raise Revise passes its own. */
+  sendIcon?: LucideIcon;
   isPending?: boolean;
   empty?: ReactNode;
   /**
@@ -366,7 +369,7 @@ export function MobileCardList<Row>({
           onClick={() => onSend(r)}
           className="text-primary"
         >
-          <Send className="h-4 w-4" />
+          <SendIcon className="h-4 w-4" />
           {queue && sendLabel}
         </Button>
       )}

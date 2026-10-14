@@ -18,6 +18,7 @@ import {
   PLAN_KIND_LABEL,
   currentPurchaseLines,
   planChanges,
+  shadeChanges,
   planReportHref,
   type PlanReport,
 } from "@/lib/sales/plan-reports/types";
@@ -57,6 +58,8 @@ export function PlanApprovalOverview({
   const [reportOpen, setReportOpen] = useState(false);
   const h = plan.report.header;
   const changes = h.revision ? planChanges(h.revision.approved, currentPurchaseLines(plan)) : null;
+  // 0727 (spec v8 §8.2 "dyeing shade changes"): null when the revision predates its snapshot.
+  const shades = h.revision?.shadesBefore ? shadeChanges(h.revision.shadesBefore, h.revision.shadesNow) : null;
 
   return (
     <div className="grid items-start gap-3 xl:grid-cols-12">
@@ -191,7 +194,9 @@ export function PlanApprovalOverview({
               <h2 className="text-sm font-semibold text-foreground">{`What changed · Rev #${h.revision.revisionNo}`}</h2>
               <p className="text-xs text-muted-foreground">{`Reason: ${h.revision.reason} · raised ${fmtDate(h.revision.raisedAt)}`}</p>
               {changes.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No purchase quantity changed — only the plan&apos;s details.</p>
+                <p className="text-xs text-muted-foreground">
+                  {shades && shades.length ? "No purchase quantity changed." : "No purchase quantity changed — only the plan\u2019s details."}
+                </p>
               ) : (
                 <table className="w-full text-xs">
                   <thead>
@@ -221,6 +226,39 @@ export function PlanApprovalOverview({
                   </tbody>
                 </table>
               )}
+              {/* SHADES & COLOURS (0727) — a shade swapped at the same kilos is
+                  invisible to the purchase table above; this is where it shows.
+                  Absent on a revision raised before its snapshot existed. */}
+              {shades && shades.length > 0 ? (
+                <>
+                  <h3 className="pt-1 text-xs font-semibold text-foreground">Shades &amp; colours</h3>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
+                        <th scope="col" className="py-1 pr-2 text-left font-semibold">Material · colour</th>
+                        <th scope="col" className="px-2 py-1 text-right font-semibold">Was</th>
+                        <th scope="col" className="py-1 pl-2 text-right font-semibold">Now</th>
+                      </tr>
+                    </thead>
+                    <tbody className="tabular-nums">
+                      {shades.map((c, i) => (
+                        <tr key={i} className="border-b border-border/60">
+                          <th scope="row" className="py-1 pr-2 text-left font-normal">
+                            <Truncated text={`${c.name} · ${c.colour}`} className="block max-w-[11rem]" />
+                            <span className={cn("text-[10px]", c.kind === "added" ? "text-success" : c.kind === "removed" ? "text-danger" : "text-muted-foreground")}>
+                              {`${c.part} · ${c.kind === "added" ? "new" : c.kind === "removed" ? "dropped" : "qty changed"}`}
+                            </span>
+                          </th>
+                          <td className="px-2 py-1 text-right text-muted-foreground">{c.before == null ? "—" : fmtNumber(c.before)}</td>
+                          <td className="py-1 pl-2 text-right font-semibold text-foreground">
+                            {c.now == null ? "—" : `${fmtNumber(c.now)}${c.uom ? ` ${c.uom}` : ""}`}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              ) : null}
             </CardBody>
           </Card>
         )}

@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { listCurrencies } from "@/lib/masters/service";
+import { sortBySize } from "@/lib/masters/size-order";
 import { withCreators } from "@/lib/created-by";
 import type { Currency } from "@/lib/masters/types";
 import type { Deactivatable } from "@/lib/masters/inactive";
@@ -42,7 +43,15 @@ export type CostingStyleOption = {
   /** The fabric structures the style is made in, each with its GSM (Sample Entry
    *  ▸ Product Info, 0715), in entry order. A new costing's fabric lines are
    *  seeded from these, so the structure is not picked twice. */
-  structures: { id: string; name: string; gsm: string }[];
+  structures: {
+    id: string;
+    name: string;
+    gsm: string;
+    /** 0726: the structure's composition from the Composition master — its
+     *  fibres and mixing %, which seed the fabric line's Yarn Mix. Empty when
+     *  Sample Entry named none. */
+    mix: { name: string; pct: string }[];
+  }[];
   /** Sample Entry ▸ Combos ▸ Embellishments (0722), in entry order — one per
    *  (kind, process). A new costing's Embellishment lines are seeded from
    *  these, so the process is not picked twice; the rate is typed here. */
@@ -95,6 +104,9 @@ export type SampleCostingFormData = {
   constructionLoss: { category_id: string; loss_pct: string; costing_code: string | null }[];
   /** Latest Quotes / Orders exchange rate per currency, today (v2 §4.1 USD/EUR/GBP). */
   quoteRates: Record<string, number>;
+  /** Every active size in the Size master, in size order — what the weights
+   *  table's "+ Size" offers (user 2026-10-14; was the style's own sizes only). */
+  sizeMaster: string[];
 };
 
 /** A customer's terms as last approved — the v2 auto-fill for margin & co. */
@@ -142,6 +154,8 @@ async function itemsOfClasses(codes: string[]): Promise<(PickerRow & { category_
   return (data ?? []) as (PickerRow & { category_id: string | null })[];
 }
 
+/** 0726: a structure's composition, embedded through its one FK. */
+type CompositionEmbed = { lines: { sno: number; description: string | null; mixing_pct: number | string | null }[] | null };
 type EnquiryDb = {
   id: string;
   code: string | null;
@@ -162,7 +176,13 @@ type EnquiryDb = {
         coordinates: { sno: number; coordinate_id: string | null; item: { name: string | null } | { name: string | null }[] | null }[] | null;
         files: { sno: number; storage_path: string; mime_type: string | null; doc_kind: string | null }[] | null;
         sizes: { sno: number; garment_size: string | null }[] | null;
-        structures: { sno: number; structure_id: string; gsm: number | null; structure: { name: string | null } | { name: string | null }[] | null }[] | null;
+        structures: {
+          sno: number;
+          structure_id: string;
+          gsm: number | null;
+          structure: { name: string | null } | { name: string | null }[] | null;
+          composition: CompositionEmbed | CompositionEmbed[] | null;
+        }[] | null;
       }[]
     | null;
 };
@@ -184,7 +204,8 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
           "coordinates:sample_style_coordinates(sno, coordinate_id, item:items!coordinate_id(name)), " +
           "files:sample_style_files(sno, storage_path, mime_type, doc_kind), " +
           "sizes:style_sizes(sno, garment_size), " +
-          "structures:sample_style_fabric_structures(sno, structure_id, gsm, structure:categories!structure_id(name)))",
+          "structures:sample_style_fabric_structures(sno, structure_id, gsm, structure:categories!structure_id(name), " +
+          "composition:compositions(lines:composition_lines(sno, description, mixing_pct))))",
       )
       .order("created_at", { ascending: true }),
     // WHAT IS ALREADY COSTED (client spec 2026-10-12 §3) — the same reading as
@@ -259,7 +280,15 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
           .filter(Boolean),
         structures: [...(st.structures ?? [])]
           .sort((a, b) => a.sno - b.sno)
-          .map((x) => ({ id: x.structure_id, name: one(x.structure)?.name ?? "", gsm: x.gsm == null ? "" : String(x.gsm) }))
+          .map((x) => ({
+            id: x.structure_id,
+            name: one(x.structure)?.name ?? "",
+            gsm: x.gsm == null ? "" : String(x.gsm),
+            mix: [...(one(x.composition)?.lines ?? [])]
+              .sort((a, b) => a.sno - b.sno)
+              .filter((l) => (l.description ?? "").trim())
+              .map((l) => ({ name: (l.description ?? "").trim(), pct: l.mixing_pct == null ? "" : String(l.mixing_pct) })),
+          }))
           .filter((x) => x.name),
         // The same process on two panels (a print front AND back) is ONE
         // embellishment line on the costing — its rate covers both.
@@ -327,8 +356,21 @@ async function getComponents(): Promise<PickerRow[]> {
   return ((data ?? []) as (PickerRow & { name: string | null })[]).map((r) => ({ ...r, name: r.name ?? r.code ?? "" }));
 }
 
+/** THE SIZE MASTER — the same `config_lookups` kind 'size' list Order Entry's
+ *  Sizes field draws, switched-off rows left out, in the app's one size order
+ *  (`sortBySize`: XS → S → M → L, then numbers…). User 2026-10-14. */
+async function getSizeMaster(): Promise<string[]> {
+  const s = await createClient();
+  const { data, error } = await s.from("config_lookups").select("name, is_active").eq("kind", "size");
+  if (error) throw new Error(`Could not load sizes: ${error.message}`);
+  const names = ((data ?? []) as { name: string | null; is_active: boolean | null }[])
+    .filter((r) => r.is_active !== false && (r.name ?? "").trim())
+    .map((r) => (r.name as string).trim());
+  return sortBySize([...new Set(names)], (n) => n);
+}
+
 export async function getSampleCostingFormData(): Promise<SampleCostingFormData> {
-  const [{ enquiries, styles }, fabrics, yarns, processes, garmentProcesses, components, trims, currencies, memory, quoteRates] = await Promise.all([
+  const [{ enquiries, styles }, fabrics, yarns, processes, garmentProcesses, components, trims, currencies, memory, quoteRates, sizeMaster] = await Promise.all([
     getEnquiries(),
     getFabricStructures(),
     itemsOfClasses(["YARN"]),
@@ -339,6 +381,7 @@ export async function getSampleCostingFormData(): Promise<SampleCostingFormData>
     listCurrencies(),
     getCostingMemory(),
     getQuoteRates(),
+    getSizeMaster(),
   ]);
   return {
     enquiries,
@@ -354,6 +397,7 @@ export async function getSampleCostingFormData(): Promise<SampleCostingFormData>
     customerTerms: memory.customerTerms,
     constructionLoss: memory.constructionLoss,
     quoteRates,
+    sizeMaster,
   };
 }
 
@@ -373,6 +417,7 @@ type ListDb = {
   computed_fob: number | null;
   target_fob: number | null;
   profit_loss_pct: number | null;
+  decision_remark: string | null;
   created_at: string;
   created_by: string | null;
   opp: { code: string | null; title: string | null; customer: { name: string | null } | { name: string | null }[] | null } | null;
@@ -390,7 +435,7 @@ export async function listSampleCostings(): Promise<CostingListRow[]> {
     .from("cost_sheets")
     .select(
       "id, code, version, status, is_draft, costing_date, opportunity_id, style_id, currency_code, computed_fob, target_fob, " +
-        "profit_loss_pct, created_at, created_by, opp:opportunities!opportunity_id(code, title, customer:customers!customer_id(name)), " +
+        "profit_loss_pct, decision_remark, created_at, created_by, opp:opportunities!opportunity_id(code, title, customer:customers!customer_id(name)), " +
         "style:styles!style_id(sample_no, name)",
     )
     .eq("costing_type", "sample")
@@ -414,6 +459,7 @@ export async function listSampleCostings(): Promise<CostingListRow[]> {
       computed_fob: r.computed_fob == null ? null : Number(r.computed_fob),
       target_fob: r.target_fob == null ? null : Number(r.target_fob),
       profit_loss_pct: r.profit_loss_pct == null ? null : Number(r.profit_loss_pct),
+      decision_remark: r.decision_remark ?? null,
       created_at: r.created_at,
       created_by: r.created_by,
     }),

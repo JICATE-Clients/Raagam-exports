@@ -1,24 +1,31 @@
 import { redirect } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
-import { listRaisableSamples, listSampleRevisions } from "@/lib/sales/sample-revisions/service";
-import { RevisionListScreen } from "./revision-list-screen";
+import { listPlanApprovals } from "@/lib/sales/plan-reports/service";
+import { listSampleRevisions } from "@/lib/sales/sample-revisions/service";
+import { PlanRevisionListScreen } from "./plan-revision-list-screen";
 
 /**
- * Sample ▸ Revision (0716, doc/sample/sample revion.md) — the register of
- * sample revisions, and the door to raise one on a locked (costing approved)
- * sample.
+ * Sample ▸ Revision — FABRIC PLAN AND ACCESSORIES PLAN REVISIONS ONLY (user
+ * 2026-10-14: "for fabric and accessories plan approval revision only, not for
+ * SMP"). The register lists the plans Plan Approval approved, and those with a
+ * revision under way; Raise Revision reopens one (0718 / 0720 / 0727).
  *
- * `?raise=<sample>` — Costing's "Raise Revision": the form opens on that
- * sample, or, when it already has an open revision, that revision opens.
+ * SMP revisions (0716) are no longer raised here. What stays reachable:
+ * `/sales/sample-revision/<id>` — an SMP revision already raised, which the
+ * approvals inbox links to and which must still be finishable — and
+ * `?raise=<sample>`, which lands on that sample's OPEN revision when it has one.
  */
+export const metadata = { title: "Revision" };
+
 export default async function SampleRevisionPage({ searchParams }: { searchParams: Promise<{ raise?: string }> }) {
   await requirePermission("sales", "view");
   const { raise } = await searchParams;
-  const [rows, raisable, canEdit] = await Promise.all([listSampleRevisions(), listRaisableSamples(), can("sales", "edit")]);
   if (raise) {
-    const open = rows.find((r) => r.opportunity_id === raise && (r.status === "draft" || r.status === "pending"));
+    const open = (await listSampleRevisions()).find((r) => r.opportunity_id === raise && (r.status === "draft" || r.status === "pending"));
     if (open) redirect(`/sales/sample-revision/${open.id}`);
   }
-  const initialRaise = raise && canEdit && raisable.some((o) => o.id === raise) ? raise : null;
-  return <RevisionListScreen rows={rows} raisable={raisable} canEdit={canEdit} initialRaise={initialRaise} />;
+  const [plans, canRaise] = await Promise.all([listPlanApprovals(), can("orders", "edit")]);
+  // Approved plans, and every plan a revision has reopened (revision number > 0).
+  const rows = plans.filter((r) => r.status === "approved" || r.revisionNo > 0);
+  return <PlanRevisionListScreen rows={rows} canRaise={canRaise} />;
 }

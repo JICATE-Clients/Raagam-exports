@@ -7,7 +7,7 @@
  * wrong answer there either hides a raised quantity from the approver or
  * invents a change that did not happen, so it is pinned here.
  */
-import { planApprovalLabel, planChanges, type ApprovedLine } from "../lib/sales/plan-reports/types.ts";
+import { planApprovalLabel, planChanges, shadeChanges, type ApprovedLine, type ShadeLine } from "../lib/sales/plan-reports/types.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -17,6 +17,25 @@ function check(label: string, actual: unknown, expected: unknown) {
 }
 
 const L = (name: string, qty: number | null, uom = "KGS", item_id: string | null = null): ApprovedLine => ({ item_id, name, purchase_qty: qty, uom });
+
+// ── 0727: SHADES (spec v8 §8.2 "dyeing shade changes") ──────────────────────
+// The case planChanges is blind to by construction: NAVY → BLACK at the same
+// kilos moves no purchase quantity, so it must surface here or nowhere.
+const S = (colour: string, qty: number | null, name = "SINGLE JERSEY", part = "Fabric colour"): ShadeLine => ({ part, name, colour, qty, uom: "KGS" });
+check("shade: NAVY → BLACK at the same kilos moves no purchase line", planChanges([L("30'S COTTON", 100)], [L("30'S COTTON", 100)]), []);
+check(
+  "shade: …but is one shade dropped and one added",
+  shadeChanges([S("NAVY", 50)], [S("BLACK", 50)]),
+  [
+    { part: "Fabric colour", name: "SINGLE JERSEY", colour: "BLACK", before: null, now: 50, uom: "KGS", kind: "added" },
+    { part: "Fabric colour", name: "SINGLE JERSEY", colour: "NAVY", before: 50, now: null, uom: "KGS", kind: "removed" },
+  ],
+);
+check("shade: an unchanged shade reports nothing (case is not a change)", shadeChanges([S("NAVY", 50)], [S(" navy ", 50)]), []);
+check("shade: the same shade at a new weight is a quantity change", shadeChanges([S("RED", 25)], [S("RED", 30)]), [
+  { part: "Fabric colour", name: "SINGLE JERSEY", colour: "RED", before: 25, now: 30, uom: "KGS", kind: "changed" },
+]);
+check("shade: the same colour on a yarn and on a fabric are two facts", shadeChanges([S("RED", 10, "30'S", "Yarn shade")], [S("RED", 10)]).length, 2);
 
 check("an unchanged revision reports nothing", planChanges([L("30'S COTTON", 100)], [L("30'S COTTON", 100)]), []);
 check(

@@ -73,13 +73,25 @@ import {
    inside the row it belongs to. Nothing here has to be unwired to keep it gone. */
 
 export function StyleProcessGrid({
-  rows,
-  onChange,
+  rows: allRows,
+  onChange: onChangeAll,
   processes,
   components,
   newKey,
   readOnly = false,
+  kind: fixedKind,
 }: {
+  /**
+   * ONE KIND PER GRID (spec v8 §5, 2026-10-14 — Sample Entry ▸ Combos ▸
+   * Embellishments): "split into two distinct categories", Component Process
+   * and Garment Process, each its own headed grid. With `kind` set the grid
+   * shows only that kind's rows, has no Type column (the heading IS the type),
+   * stamps the kind on every row it adds, and drops Component under a Garment
+   * Process. `rows` / `onChange` stay the WHOLE list, so the two grids share one
+   * array and the save path is unchanged. Omitted (Order Entry's Style ▸
+   * Process sheet), the grid is the mixed one with a Type per row, as before.
+   */
+  kind?: ProcessKind;
   rows: StyleProcessRow[];
   onChange: (next: StyleProcessRow[]) => void;
   /** The whole master list, unfiltered — the narrowing is this file's job. */
@@ -105,6 +117,10 @@ export function StyleProcessGrid({
   newKey: () => string;
   readOnly?: boolean;
 }) {
+  // A fixed-kind grid sees its own rows; every write puts the other kind back.
+  const rows = fixedKind ? allRows.filter((r) => r.kind === fixedKind) : allRows;
+  const onChange = (next: StyleProcessRow[]) =>
+    onChangeAll(fixedKind ? [...allRows.filter((r) => r.kind !== fixedKind), ...next] : next);
   const patch = (key: string, next: Partial<StyleProcessRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
 
@@ -127,7 +143,7 @@ export function StyleProcessGrid({
     return m;
   }, [rows]);
 
-  const columns: ChildGridColumn<StyleProcessRow>[] = [
+  const allColumns: ChildGridColumn<StyleProcessRow>[] = [
     {
       header: "Type",
       width: "12rem",
@@ -285,6 +301,10 @@ export function StyleProcessGrid({
       ),
     },
   ];
+  // Fixed kind: no Type column, and no Component column on a Garment Process.
+  const columns = fixedKind
+    ? allColumns.filter((c) => c.header !== "Type" && !(fixedKind === "garment" && c.header === "Component"))
+    : allColumns;
 
   /*
    * NO SURFACE OF ITS OWN — this returns the grid and nothing else.
@@ -319,7 +339,7 @@ export function StyleProcessGrid({
       onAdd={() =>
         onChange([
           ...rows,
-          { key: newKey(), kind: null, process_id: null, component_id: null, details: "" },
+          { key: newKey(), kind: fixedKind ?? null, process_id: null, component_id: null, details: "" },
         ])
       }
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}

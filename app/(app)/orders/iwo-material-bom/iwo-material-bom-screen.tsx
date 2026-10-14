@@ -310,6 +310,7 @@ export function IwoMaterialBomScreen({
   masterPerms,
   sample = false,
   swos,
+  initialOpen = null,
 }: {
   tasks: IwoMaterialBomTask[];
   data: IwoMaterialBomFormData;
@@ -321,6 +322,8 @@ export function IwoMaterialBomScreen({
   /** Sample ▸ Accessories Plan (0709): the SWOs with no accessories work order
    *  yet — offered in the SWO No picker, which raises one when picked. */
   swos?: { id: string; code: string }[];
+  /** A plan id to open on arrival (`?open=`). */
+  initialOpen?: string | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -495,6 +498,20 @@ export function IwoMaterialBomScreen({
    * A saved plan is never refilled here — that is the button's job — and a
    * grid the planner has typed into is never overwritten.
    */
+  /* `?open=<plan id>` (2026-10-14): Sample ▸ Revision and Plan Approval's
+     "Open plan" land on the PLAN, not on the list beside it. Once, on mount;
+     a plan this list does not hold (another unit, deleted) leaves the list. */
+  useEffect(() => {
+    if (!initialOpen) return;
+    const t = tasks.find((x) => x.bom?.id === initialOpen);
+    if (!t) return;
+    // From a timer, not the effect body (react-hooks/set-state-in-effect); the
+    // cleanup makes React's dev double-mount open it exactly once.
+    const id = window.setTimeout(() => openTask(t), 0);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, from the link
+  }, []);
+
   useEffect(() => {
     if (!sample || !form.iwo_id || !swoId) return;
     if (swoTrims?.iwoId === form.iwo_id) return;

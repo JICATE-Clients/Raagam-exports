@@ -64,8 +64,15 @@ export function RecordPicker({
   clearable,
   onAddOverride,
   fit,
+  keepOrder = false,
 }: {
   label: string;
+  /**
+   * List the rows in the order the SERVICE returned them instead of A→Z. For a
+   * master whose entry order is the meaning — Season: Q1–Q4, then the named
+   * seasons (client 2026-10-14, A→Z put AUTUMN above Q1).
+   */
+  keepOrder?: boolean;
   /** The box sizes to its value — straight through to `DataPicker`'s `fit`. */
   fit?: boolean;
   items: PickerItem[];
@@ -133,9 +140,8 @@ export function RecordPicker({
     // Sorted by what is DISPLAYED, not always by `name`. For the default that is
     // the same ordering as before — `primary` is the name — so nothing reorders
     // except the code-led fields, where sorting by customer was the complaint.
-    const decorated = [...items]
-      .map(decorate)
-      .sort((a, b) => a.label.localeCompare(b.label));
+    const decorated = [...items].map(decorate);
+    if (!keepOrder) decorated.sort((a, b) => a.label.localeCompare(b.label));
 
     /**
      * ## THE ONE PLACE A HIDDEN CODE COMES BACK: TWO ROWS THAT READ ALIKE
@@ -171,7 +177,7 @@ export function RecordPicker({
         ? { ...r, sublabel: r.search }
         : r,
     );
-  }, [items, identity]);
+  }, [items, identity, keepOrder]);
 
   return (
     <DataPicker

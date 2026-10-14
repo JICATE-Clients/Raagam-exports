@@ -11,13 +11,13 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
-import { startApproval, getApprovalPanel } from "@/lib/approvals/actions";
+import { getApprovalPanel } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
-import { MARGIN_FLOOR_PCT } from "./calc";
 import {
   costingDraftSchema,
   costingProblems,
-  isEditableStatus,
+  isDeletableStatus,
+  isRevisableStatus,
   summaryOf,
   toCostingPayload,
   type CostingDraft,
@@ -27,7 +27,6 @@ import {
 } from "./types";
 import { getQuoteExchangeRate, getSampleCostingRecord } from "./service";
 import { revisionForCosting } from "@/lib/sales/sample-revisions/service";
-import { costingRevisionProblem } from "@/lib/sales/sample-revisions/scope";
 
 type SaveResult = { ok: true; id: string; code: string | null; version: number } | { ok: false; error: string };
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -55,16 +54,17 @@ export async function saveSampleCosting(
   const problem = costingProblems(parsed.data, { draft: opts.isDraft })[0];
   if (problem) return { ok: false, error: problem.message };
 
-  /* A SAMPLE REVISION'S PROPOSED COSTING (0716) changes only what the revision
-     opens: the approved parent is the yardstick, field group by field group
-     (`costingRevisionProblem`). The database refuses its submit / approve. */
+  /* A SAMPLE REVISION'S PROPOSED COSTING (0716) is frozen only while the
+     revision is with the MD. Its old FIELD SCOPE (`costingRevisionProblem`,
+     "does not open Fabric & Yarn Spec") is NO LONGER APPLIED (user 2026-10-14):
+     the costing changes through its own Revise now (0725), and Sample Revision
+     is for Sample Info — so a costing field is never refused by a module name.
+     It refused every fabric edit on SMP-REV/26-27/0001, raised with the retired
+     "Costing & Price" module, whose scope no longer opened fabrics at all. */
   if (id) {
     const rev = await revisionForCosting(id);
-    if (rev) {
-      if (rev.status !== "draft") return { ok: false, error: `Sample Revision ${rev.revision_code} is with the MD — nothing in it can change until it is decided.` };
-      const parent = await getSampleCostingRecord(rev.parent_id);
-      const outOfScope = parent ? costingRevisionProblem(parent.draft, parsed.data as CostingDraft, rev.kinds, rev.revision_code) : null;
-      if (outOfScope) return { ok: false, error: outOfScope };
+    if (rev && rev.status !== "draft") {
+      return { ok: false, error: `Sample Revision ${rev.revision_code} is with the MD — nothing in it can change until it is decided.` };
     }
   }
 
@@ -125,29 +125,27 @@ export async function previewCostingNo(on: string | null): Promise<string | null
 }
 
 /**
- * SUBMIT — EVERY costing goes to the MD through the approval engine
- * (`sample_costing`), whatever its margin (client 2026-10-14: "costing also
- * need to follow like fabric plan approval"). Until then a costing at or above
- * the floor was approved on the spot with no MD — spec §5.2's original rule,
- * withdrawn; restoring it needs a new client decision. The floor survives as
- * the red warning the MD reads, and as `lowest_margin_pct` in the run context
- * so a flow can still route by it.
+ * SEND TO BUYER — Draft → Under Progress (0725, spec v8 §8.1; user 2026-10-14:
+ * "the costing is created and handled directly by the MD, an internal MD
+ * Approval Pending state is unnecessary"). NO APPROVAL RUN: the decision that
+ * makes a costing Approved is the buyer's, recorded by `recordCustomerDecision`.
  *
- * The margin is recomputed HERE from the stored sheet, never taken from the
- * screen. And THE STATUS AND THE RUN ARE ONE STEP: a failed `startApproval`
- * puts the sheet back to draft, because a submitted sheet in nobody's queue is
- * the stranded document the engine exists to prevent (IWO Budget's rule).
+ * REVERSES the same morning's "every costing → MD" (client: "each costing need
+ * an approval"), which itself replaced 0688's ≥ 20 % auto-approve. Restoring an
+ * internal gate needs a new client decision. The margin floor survives as the
+ * red warning on the sheet, and the lowest margin is still stamped here,
+ * recomputed from the STORED sheet, never taken from the screen.
  */
 export async function submitSampleCosting(
   id: string,
-): Promise<{ ok: true; outcome: "with_md"; lowest: number | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; outcome: "under_progress"; lowest: number | null } | { ok: false; error: string }> {
   if (!(await can("sales", "edit"))) return { ok: false, error: "Forbidden" };
   const record = await getSampleCostingRecord(id).catch(() => null);
   if (!record) return { ok: false, error: "This costing no longer exists." };
-  if (!isEditableStatus(record.status)) {
-    return { ok: false, error: record.status === "submitted" ? "This costing is already with the MD." : `This costing is ${record.status}.` };
+  if (record.status !== "draft") {
+    return { ok: false, error: record.status === "submitted" ? "This costing is already with the buyer (Under Progress)." : `This costing is ${record.status}.` };
   }
-  if (record.is_draft) return { ok: false, error: "Save the costing (not as a draft) before submitting it." };
+  if (record.is_draft) return { ok: false, error: "Save the costing (not as a draft) before sending it to the buyer." };
   // A SAMPLE REVISION'S PROPOSED COSTING GOES TO THE MD WITH ITS REVISION. The
   // editor hid Submit for it; since 2026-10-14 the list sends too, so the rule
   // lives here, where every door meets it.
@@ -161,33 +159,74 @@ export async function submitSampleCosting(
   const now = new Date().toISOString();
   const s = await createClient();
 
-  const { error: upErr } = await s
+  const { data: moved, error: upErr } = await s
     .from("cost_sheets")
     .update({ status: "submitted", submitted_at: now, submitted_by: me, profit_loss_pct: summary.lowestMarginPct })
     .eq("id", id)
-    .in("status", ["draft", "rejected"]);
+    .eq("status", "draft")
+    .select("id");
   if (upErr) return { ok: false, error: upErr.message };
+  if (!moved?.length) return { ok: false, error: "This costing changed while you were looking at it — reopen it and try again." };
 
-  const started = await startApproval({
-    workflowKey: WORKFLOWS.sample_costing.key,
-    subjectTable: WORKFLOWS.sample_costing.subjectTable,
-    subjectId: id,
-    // Every key a flow might test; a missing key falls to the catch-all.
-    context: {
-      lowest_margin_pct: summary.lowestMarginPct,
-      margin_floor_pct: MARGIN_FLOOR_PCT,
-      costing_no: record.code,
-      currency: record.draft.header.currency_code,
-      quoted_price: summary.groups[0]?.total.quoted ?? null,
-    },
-  });
-  if (!started.ok) {
-    await s.from("cost_sheets").update({ status: "draft", submitted_at: null, submitted_by: null }).eq("id", id);
-    return { ok: false, error: `No approval could be started — ${started.error}` };
-  }
-  await writeAudit({ action: "sample_costing.submitted", entityType: "cost_sheet", entityId: id });
+  await writeAudit({ action: "sample_costing.sent_to_buyer", entityType: "cost_sheet", entityId: id });
   revalidatePath(LIST_PATH);
-  return { ok: true, outcome: "with_md", lowest: summary.lowestMarginPct };
+  return { ok: true, outcome: "under_progress", lowest: summary.lowestMarginPct };
+}
+
+/**
+ * REVISE — the costing's own button again (0725, spec v8 §1 / §8.1: "Revise"
+ * for the quotation, "Revision" only for plans and Sample Info). Copies the
+ * STORED sheet into version + 1 under the same Costing No; the database
+ * supersedes the parent and starts the new one Under Progress (from Under
+ * Progress or Approved — the negotiation continues) or Draft (from Rejected —
+ * "Re-open as New Draft"). The superseded parent is the V0 the buyer saw.
+ */
+export async function reviseSampleCosting(id: string): Promise<SaveResult> {
+  if (!(await can("sales", "edit"))) return { ok: false, error: "Forbidden" };
+  const record = await getSampleCostingRecord(id).catch(() => null);
+  if (!record) return { ok: false, error: "This costing no longer exists." };
+  if (!isRevisableStatus(record.status)) {
+    return { ok: false, error: `A ${record.status} costing is not revised — ${record.status === "draft" ? "edit it directly" : "open the latest revision"}.` };
+  }
+  return saveSampleCosting(null, record.draft, { isDraft: false, parentId: id });
+}
+
+/**
+ * CUSTOMER APPROVED / CUSTOMER REJECTED — the buyer's answer to an Under
+ * Progress quote, recorded by the merchandiser (0725, spec v8 §8.1: "Status
+ * changes to Approved ONLY when customer confirms acceptance via email").
+ *
+ * Approved stamps `approved_at` — the fact 0725's `sample_is_approved` reads, so
+ * the SMP locks and STAYS locked while a later Revise re-negotiates the price.
+ * Rejected needs the buyer's reason (§9.2 "View Rejection Reason"), kept in
+ * `decision_remark`. Neither is reversible here: Revise opens the next version.
+ */
+export async function recordCustomerDecision(
+  id: string,
+  decision: "approved" | "rejected",
+  remark: string,
+): Promise<ActionResult> {
+  if (!(await can("sales", "edit"))) return { ok: false, error: "Forbidden" };
+  const note = remark.trim();
+  if (decision === "rejected" && !note) return { ok: false, error: "Say why the buyer declined — it is shown on the Rejected tab." };
+  const record = await getSampleCostingRecord(id).catch(() => null);
+  if (!record) return { ok: false, error: "This costing no longer exists." };
+  if (record.status !== "submitted") {
+    return { ok: false, error: `Only an Under Progress costing takes the buyer's answer (this one is ${record.status}).` };
+  }
+  const me = (await getAppUser())?.id ?? null;
+  const now = new Date().toISOString();
+  const s = await createClient();
+  const patch =
+    decision === "approved"
+      ? { status: "approved", approved_at: now, approved_by: me, decided_at: now, decided_by: me, decision_remark: note || null }
+      : { status: "rejected", decided_at: now, decided_by: me, decision_remark: note };
+  const { data: moved, error } = await s.from("cost_sheets").update(patch).eq("id", id).eq("status", "submitted").select("id");
+  if (error) return { ok: false, error: error.message };
+  if (!moved?.length) return { ok: false, error: "This costing changed while you were looking at it — reopen it and try again." };
+  await writeAudit({ action: `sample_costing.customer_${decision}`, entityType: "cost_sheet", entityId: id });
+  revalidatePath(LIST_PATH);
+  return { ok: true };
 }
 
 /** The MD's Approve / Request Rework bar, for the editor.
@@ -205,8 +244,8 @@ export async function deleteSampleCosting(id: string): Promise<ActionResult> {
   if (!(await can("sales", "delete"))) return { ok: false, error: "Forbidden" };
   const supabase = await createClient();
   const { data: row } = await supabase.from("cost_sheets").select("status").eq("id", id).maybeSingle();
-  if (row && !isEditableStatus(row.status as CostingStatus)) {
-    return { ok: false, error: `This costing is ${row.status} and cannot be deleted.` };
+  if (row && !isDeletableStatus(row.status as CostingStatus)) {
+    return { ok: false, error: `Only a Draft costing can be deleted — this one was sent to the buyer (${row.status}).` };
   }
   const { error, count } = await supabase.from("cost_sheets").delete({ count: "exact" }).eq("id", id);
   if (error?.code === "23503") {

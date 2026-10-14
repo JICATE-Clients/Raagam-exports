@@ -1,7 +1,7 @@
-import { GroupHub } from "@/components/shell/group-hub";
+import { redirect } from "next/navigation";
 
-// Sub-module hub — cards and permission come from lib/nav/module-groups.ts,
-// the same registry the sidebar reads.
+// Dissolved 2026-10-14 (user: "no need grouping, list plainly under sample
+// management") — its screens are children of Sample Management now.
 export default function Page() {
-  return <GroupHub moduleHref="/sales" slug="approval" />;
+  redirect("/sales/management");
 }

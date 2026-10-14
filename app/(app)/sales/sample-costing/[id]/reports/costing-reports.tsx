@@ -53,7 +53,7 @@ export type ReportSource = {
   /** The masters the sheet's row pickers list while revising. */
   options: EditOptions;
   history: RevisionHistoryRow[];
-  /** A saved, unsubmitted draft the reader may submit for approval. */
+  /** A saved Draft the reader may send to the buyer (0725: → Under Progress). */
   canSubmit: boolean;
 };
 
@@ -68,7 +68,10 @@ export function CostingReports({
   initial,
   revise,
   source,
+  openRevising = false,
 }: {
+  /** Open already revising (`?revise=1`) — only when Revise is allowed here. */
+  openRevising?: boolean;
   cost: CostSheetModel;
   quote: QuotationModel;
   initial: Tab;
@@ -87,7 +90,9 @@ export function CostingReports({
   const [tab, setTab] = useState<Tab>(initial);
 
   /** The working copy while revising; null when just reading. */
-  const [draft, setDraft] = useState<CostingDraft | null>(null);
+  const [draft, setDraft] = useState<CostingDraft | null>(() =>
+    openRevising && revise && !revise.reason ? cloneDraft(source.record.draft) : null,
+  );
   /** Quotes the merchandiser typed on the sheet — held; every other quote follows the costs. */
   const [held, setHeld] = useState<ReadonlySet<string>>(new Set());
   const [message, setMessage] = useState<{ tone: "error" | "ok"; text: string } | null>(null);
@@ -145,7 +150,7 @@ export function CostingReports({
       }
       setMessage({
         tone: "ok",
-        text: "Sent to the MD for approval.",
+        text: "Sent to the buyer — Under Progress.",
       });
       router.refresh();
     });
@@ -201,7 +206,7 @@ export function CostingReports({
       {source.canSubmit ? (
         <Button size="md" disabled={saving} onClick={submitIt}>
           <Send className="h-4 w-4" />
-          {saving ? "Submitting…" : "Submit for approval"}
+          {saving ? "Sending…" : "Send to Buyer"}
         </Button>
       ) : null}
     </>
@@ -230,12 +235,15 @@ export function CostingReports({
         {tab === "cost-sheet" ? <CostSheetDocument {...bar} model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
       </div>
 
-      {/* THE SAVE BAR — one line along the bottom, like an editor's footer, so the sheet
-          above is all report and the way out is always in reach. */}
+      {/* THE SAVE BAR — ATTACHED TO THE BOTTOM, THE EDITOR FOOTER'S OWN BAND (user
+          2026-10-14: "that floating bottom bar — move and attach with footer"). It
+          was a rounded, shadowed card floating over the sheet; it is now the
+          MasterFullScreen footer's shape: edge to edge across the pane (`-mx-4`
+          cancels <main>'s p-4), a top rule, `bg-primary-soft`, no corners, no
+          shadow, pinned to the bottom edge while the report scrolls under it. */}
       {revising && draft ? (
         <div
-          className="sticky bottom-0 z-20 -mx-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border bg-card px-4 py-2.5 shadow-lg"
-          style={{ borderColor: "color-mix(in oklab, var(--primary) 40%, var(--border))", background: "var(--background, #fff)" }}
+          className="sticky bottom-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border bg-primary-soft px-4 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
           role="region"
           aria-label="Revision in progress"
         >

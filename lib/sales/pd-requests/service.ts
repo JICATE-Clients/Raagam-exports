@@ -4,7 +4,7 @@ import { withCreators } from "@/lib/created-by";
 import { unitKindLabel } from "@/lib/orders/styles/rules";
 import { blendOf } from "@/lib/sales/sample-grouping/calc";
 import { labelOf, SAMPLE_TYPE_OPTIONS, TECH_PACK, type PdRequestStatus } from "@/lib/sales/sample-entry/types";
-import type { PdFile, PdRequestRow, PdSample, PdStyleLine, PdSwoOption } from "./types";
+import type { PdFile, PdRequestRow, PdSample, PdSmpOption, PdStyleLine } from "./types";
 
 /**
  * Sample ▸ PD Request · Acknowledge PD Request — the reads (types.ts).
@@ -47,7 +47,7 @@ const customerOf = (o: OppHead) => one(o.customer)?.name ?? o.title ?? null;
 const HEAD = "id, code, title, season, season_year, received_date, is_draft, customer:customers!customer_id(name), season_row:seasons!season_id(season_name)";
 
 // ---------------------------------------------------------------------------
-// The register — every request, SWO-level since 0723
+// The register — every request; per SMP (0724), one SWO request from 0723
 // ---------------------------------------------------------------------------
 type StyleBrief = { name: string | null; sample_type: string | null; sample_qty: Num; delivery_date: string | null };
 type OppBrief = OppHead & { styles: StyleBrief[] | null };
@@ -112,7 +112,7 @@ export async function listPdRequests(): Promise<PdRequestRow[]> {
   }
 
   const rows = raw.map((r): PdRequestRow => {
-    // An SWO request reads its group; a 0719 request its one sample.
+    // An SMP request reads its sample; the 0723 SWO request its group.
     const styles: (StyleBrief & { opp: OppHead | null })[] = r.grp
       ? groupStyles(r.grp)
       : (r.opp?.styles ?? []).map((x) => ({ ...x, opp: r.opp }));
@@ -121,6 +121,7 @@ export async function listPdRequests(): Promise<PdRequestRow[]> {
     const dates = styles.map((x) => x.delivery_date).filter((d): d is string => !!d).sort();
     return {
       id: r.id,
+      opportunity_id: r.opportunity_id,
       group_id: r.group_id,
       swo_no: r.grp?.group_code ?? null,
       smp_nos: uniq(opps.map((o) => o.code)),
@@ -143,37 +144,48 @@ export async function listPdRequests(): Promise<PdRequestRow[]> {
 }
 
 // ---------------------------------------------------------------------------
-// The SWO No picker
+// The SMPs — the Pending cards and the SMP No picker
 // ---------------------------------------------------------------------------
 /**
- * Every SWO with at least one sample in it. Each carries its latest request,
- * so the screen can offer only the ones a request may be raised on
- * (`canRaisePd`) while still saying why the others are missing.
+ * Every SAVED sample entry with at least one style (a draft has no SMP number
+ * yet, and a request with nothing in it asks the department for nothing).
+ * Its latest request is joined on the screen from `listPdRequests`, which
+ * already reads every request — so this is one read, not a second embed.
  */
-// created-by: exempt -- an options feeder for the SWO No picker, not a listing
-export async function listPdSwoOptions(): Promise<PdSwoOption[]> {
+export async function listPdSmpOptions(): Promise<PdSmpOption[]> {
   const s = await createClient();
   const { data, error } = await s
-    .from("sample_product_groups")
-    .select(`${GROUP_HEAD}, pd:sample_pd_requests(status, created_at)`)
-    .not("group_code", "is", null)
+    .from("opportunities")
+    .select(`${HEAD}, created_at, created_by, styles(name, sample_type, sample_qty, delivery_date)`)
+    .not("is_draft", "is", true)
+    .not("code", "is", null)
+    // Listings in ENTRY order (STANDING 09-22).
     .order("created_at", { ascending: true });
-  if (error) throw new Error(`Could not load the SWOs: ${error.message}`);
-  type Row = GroupHead & { pd: { status: PdRequestStatus; created_at: string }[] | null };
-  return ((data ?? []) as unknown as Row[])
-    .filter((g) => (g.items ?? []).length > 0)
-    .map((g) => ({
-      id: g.id,
-      swo_no: g.group_code as string,
-      description: (g.description ?? "").trim() || null,
-      season: groupSeason(g),
-      smp_nos: uniq(groupStyles(g).map((x) => x.opp?.code)),
-      latest: [...(g.pd ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.status ?? null,
-    }));
+  if (error) throw new Error(`Could not load the sample entries: ${error.message}`);
+  type Row = OppBrief & { created_at: string; created_by: string | null };
+  const rows = ((data ?? []) as unknown as Row[])
+    .filter((o) => (o.styles ?? []).length > 0)
+    .map((o): PdSmpOption => {
+      const styles = o.styles ?? [];
+      const dates = styles.map((x) => x.delivery_date).filter((d): d is string => !!d).sort();
+      return {
+        id: o.id,
+        smp_no: o.code as string,
+        customer: customerOf(o),
+        season: seasonOf(o),
+        style_names: styles.map((x) => (x.name ?? "").trim()).filter(Boolean),
+        sample_types: uniq(styles.map((x) => sampleTypeLabel(x.sample_type))),
+        pieces: styles.reduce((t, x) => t + (n(x.sample_qty) ?? 0), 0),
+        target_date: dates[0] ?? null,
+        created_at: o.created_at,
+        created_by: o.created_by,
+      };
+    });
+  return withCreators(rows);
 }
 
 // ---------------------------------------------------------------------------
-// One SWO (or a 0719 request's one SMP), as the request shows it
+// One SMP (or the 0723 request's SWO), as the request shows it
 // ---------------------------------------------------------------------------
 type StyleDb = {
   id: string;
@@ -190,6 +202,7 @@ type StyleDb = {
   gsm: Num;
   structures: { sno: number; structure_id: string | null; gsm: Num }[] | null;
   files: { sno: number; doc_kind: string | null; file_name: string; storage_path: string }[] | null;
+  combos: { sno: number; combo: string | null; sizes: { sno: number; garment_size: string | null; order_qty: Num }[] | null }[] | null;
 };
 
 type CostDb = {
@@ -206,7 +219,8 @@ type CostDb = {
 };
 
 /**
- * THE SWO'S SAMPLES, FETCHED — every style of every SMP in it (0723). The
+ * THE SAMPLE, FETCHED — every style of the SMP (0724; the 0723 SWO request
+ * reads every SMP in its SWO). The
  * spec's "auto-fills directly from the selected Sample Entry so the
  * merchandiser does not re-type anything". Read
  * live, not copied onto the request: the Sample Department works from the
@@ -226,7 +240,9 @@ export async function readPdSample(subject: { groupId: string } | { opportunityI
     .select(
       "id, sno, sample_no, name, article_no, sample_type, sample_qty, unit_kind, delivery_date, tech_pack, " +
         "fabric_structure_id, gsm, structures:sample_style_fabric_structures(sno, structure_id, gsm), " +
-        `files:sample_style_files(sno, doc_kind, file_name, storage_path), opp:opportunities!opportunity_id(${HEAD})`,
+        "files:sample_style_files(sno, doc_kind, file_name, storage_path), " +
+        "combos:style_combos(sno, combo, sizes:style_combo_sizes(sno, garment_size, order_qty)), " +
+        `opp:opportunities!opportunity_id(${HEAD})`,
     );
   if ("groupId" in subject) {
     const { data: g, error: gErr } = await s
@@ -324,6 +340,17 @@ export async function readPdSample(subject: { groupId: string } | { opportunityI
       delivery_date: st.delivery_date,
       fabrics,
       composition: compositionOf(st.id),
+      // A combo with no pieces typed asks the department for nothing, so it is left out.
+      combos: [...(st.combos ?? [])]
+        .sort((a, b) => a.sno - b.sno)
+        .map((c) => ({
+          combo: (c.combo ?? "").trim(),
+          sizes: [...(c.sizes ?? [])]
+            .sort((a, b) => a.sno - b.sno)
+            .map((z) => ({ size: (z.garment_size ?? "").trim(), qty: n(z.order_qty) ?? 0 }))
+            .filter((z) => z.size && z.qty > 0),
+        }))
+        .filter((c) => c.sizes.length),
     };
   });
 

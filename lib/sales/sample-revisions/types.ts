@@ -15,8 +15,15 @@ export type RevisionKind = (typeof REVISION_KINDS)[number];
  * opened by the module it prices (`costingRevisionProblem`, scope.ts), so the
  * box only ever duplicated the two above it. `costing` stays in REVISION_KINDS
  * because revisions already raised with it are stored that way (0716's check).
+ *
+ * SAMPLE INFO ONLY SINCE 0725 (spec v8 §1 / §8, user 2026-10-14: "Revise is for
+ * Costing/Quotation adjustments, Revision is reserved for Sample Info, Fabric
+ * Plan and Accessories Plan"). Fabric & Yarn Spec and Accessories & Trims each
+ * made the costing's next version under an MD approval — the costing now has
+ * its own Revise and no MD gate, so they went the way `costing` did. Stored
+ * revisions keep them, so they stay in REVISION_KINDS.
  */
-export const RAISABLE_REVISION_KINDS = ["sample_info", "fabric_spec", "trims"] as const satisfies readonly RevisionKind[];
+export const RAISABLE_REVISION_KINDS = ["sample_info"] as const satisfies readonly RevisionKind[];
 
 /** The module picker's words and what each one opens. */
 export const REVISION_KIND_LABEL: Record<RevisionKind, string> = {

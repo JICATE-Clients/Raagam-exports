@@ -108,7 +108,9 @@ export function CostSheetDocument({
   // in same page — give it toggle"). The text report is the costing format, so it
   // opens first. Print prints the view on screen — except Charts: paper is text and
   // tables only (client 2026-10-14), so Print from Charts prints the full page.
-  const [view, setView] = useState<SheetView>("report");
+  // TABS, NOT THE FULL PAGE (user 2026-10-14, screenshot 3476: "Full page —
+  // hide it, Tabs is enough"). "report" survives only as what Print prints.
+  const [view, setView] = useState<SheetView>("tabs");
   const [busy, setBusy] = useState<"pdf" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const s = model.sizes[idx] ?? model.sizes[0];
@@ -137,7 +139,6 @@ export function CostSheetDocument({
           value={view}
           onChange={setView}
           options={[
-            { value: "report", label: "Full page" },
             { value: "tabs", label: "Tabs" },
             { value: "charts", label: "Charts" },
           ]}
@@ -164,8 +165,12 @@ export function CostSheetDocument({
                 variant="outline"
                 size="md"
                 onClick={() => {
-                  if (view === "charts") flushSync(() => setView("report"));
+                  // Paper is the whole sheet, text and tables: print the full page,
+                  // then come back to the view on screen.
+                  const back = view;
+                  flushSync(() => setView("report"));
                   window.print();
+                  setView(back);
                 }}
               >
                 <Printer className="h-4 w-4" />
@@ -188,7 +193,9 @@ export function CostSheetDocument({
 type SheetView = "tabs" | "report" | "charts";
 
 function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFigures; idx: number; edit?: CostSheetEdit; view: SheetView }) {
-  const [tab, setTab] = useState(0);
+  // OPENS ON QUOTATION (user 2026-10-14: "default open the quotation tab") — the
+  // last of the five tabs, the price the buyer is quoted.
+  const [tab, setTab] = useState(4);
   const setFabric = (key: string, patch: Partial<FabricDraft>) => edit?.onChange({ ...edit.draft, fabrics: patchBy(edit.draft.fabrics, key, patch) });
   const setPiece = (key: string, patch: Partial<PieceDraft>) => edit?.onChange({ ...edit.draft, pieces: patchBy(edit.draft.pieces, key, patch) });
   const eff = s.effectiveMarginPct;
@@ -1069,7 +1076,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
     { label: "Fabric", hint: `₹ ${money(s.fabric)} / ${model.unitWord}` },
     { label: "Operations & trims", hint: `₹ ${money(s.cmt + s.process + s.testing + s.trims)} / ${model.unitWord}` },
     { label: "Cost & overheads", hint: `₹ ${money(s.grossCost)} total` },
-    { label: "Quote & sign-off", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}` },
+    { label: "Quotation", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}` },
   ];
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;

@@ -54,13 +54,17 @@ import {
   Calculator,
   CalendarRange,
   Check,
+  Clock,
   ChevronRight,
   Copy,
   GitCompare,
   Pencil,
   RefreshCw,
+  RotateCcw,
+  Send,
   Ruler,
   Users,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RowHoverRemove } from "@/components/ui/row-hover-remove";
@@ -68,7 +72,7 @@ import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Select } from "@/components/ui/select";
-import { ToggleGroup } from "@/components/ui/segmented";
+import { Segmented, ToggleGroup } from "@/components/ui/segmented";
 import { Toggle } from "@/components/ui/toggle";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
@@ -83,8 +87,7 @@ import {
 import { RecordPicker } from "@/components/masters/record-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { SubDetailSheet, useSubSheetOrigin } from "@/components/orders/sub-detail-sheet";
-import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
-import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
+import { CustomerDecisionSheet, type CustomerDecision } from "@/components/sales/customer-decision-sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackLink } from "@/components/ui/back-link";
@@ -102,13 +105,12 @@ import { useFormDraft } from "@/lib/use-form-draft";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { costingRevisionOf } from "@/lib/sales/sample-revisions/actions";
-import { REVISION_KIND_LABEL, type RevisionKind } from "@/lib/sales/sample-revisions/types";
+import type { RevisionKind } from "@/lib/sales/sample-revisions/types";
 import { focusFirstField } from "@/lib/focus";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
 import { isInactive } from "@/lib/masters/inactive";
 import type { StatusTone } from "@/lib/ui/tone";
-import type { ApprovalRun, CanActVerdict } from "@/lib/approvals/types";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { SampleCostingFormData, CostingStyleOption } from "@/lib/sales/sample-costing/service";
 import {
@@ -141,12 +143,13 @@ import {
   costingFieldId,
   costingProblems,
   floorSentence,
-  sentMarginNote,
   isBlankFabric,
+  isBlankYarn,
   isBlankPieceLine,
   isBlankExtra,
   isBlankTrim,
   isEditableStatus,
+  isRevisableStatus,
   liveRows,
   rateMemoryKey,
   revisionLabel,
@@ -172,13 +175,11 @@ import {
 import {
   deleteSampleCosting,
   fetchQuoteRate,
-  getCostingApproval,
   loadSampleCosting,
   previewCostingNo,
   saveSampleCosting,
-  submitSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
-import { cleanSizes, offeredSizes, sizesNotInStyle } from "@/lib/sales/sample-costing/style-sizes";
+import { offeredSizes } from "@/lib/sales/sample-costing/style-sizes";
 import {
   ALL_SIZES,
   cellGrams,
@@ -203,16 +204,20 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
  */
 const DETAILS_W = "max-w-[67rem]";
 /**
- * Overheads ▸ the COST adds only: Wastage / Overhead hug 88 ×2 · Bank
- * range 112 per piece (a 3-piece set: ×3) = 512 + 4 × 12 = 560 → 36rem.
+ * Overheads ▸ the COST adds only: Garment Rejection code 144 · Overhead
+ * hug 88 · Bank range 112 per piece (a 3-piece set: ×3) = 568 + 4 × 12 =
+ * 616 → 39rem.
  */
-const TERMS_W = "max-w-[36rem]";
+const TERMS_W = "max-w-[39rem]";
 /**
  * Price & quote ▸ the SELLING terms, one row: Margin / Discount hug 88 ×2 ·
  * Currency / Exchange Rate / Ship Mode range 112 ×3 · Freight /
- * Insurance / Quoted Price / In ₹ range 112 ×4 = 960 + 8 × 12 = 1056 (Ship
+ * Insurance / Commission / Quoted Price range 112 ×4 = 960 + 8 × 12 = 1056
+ * ("In ₹" moved UNDER Quoted on 2026-10-14 — Commission made it a tenth
+ * column, ~1180, wider than the card beside the summary column) (Ship
  * Mode 144 → 112 on 2026-10-09: 1088 still drew a horizontal scrollbar at
- * a 1366 pane, user "scroll bar remove"; the row is `nowrap`) →
+ * a 1366 pane, user "scroll bar remove"; the row WRAPS since 2026-10-14 —
+ * the summary column beside the card left it narrower than this) →
  * 70rem (1088 plus slack so a sub-pixel never wraps the last field; user
  * 2026-10-09: Quoted Price and "In ₹" belong on the SAME row as the other seven, "one row compact"). It was 1196 with Margin / Currency /
  * Rate / Quoted at code 144, which wrapped the last two under the first at
@@ -289,15 +294,48 @@ const STATUS_TONE: Record<CostingStatus, StatusTone> = {
 const HEALTH: Record<MarginHealth, { tone: StatusTone; text: string; label: string }> = {
   good: { tone: "success", text: "text-success", label: "On target" },
   tight: { tone: "warning", text: "text-warning", label: "Management review" },
-  poor: { tone: "danger", text: "text-danger", label: "Low margin — needs approval" },
+  poor: { tone: "danger", text: "text-danger", label: "Low margin — below floor" },
 };
 
-/** The Pending · Updated · Draft box: a saved sheet is pending until it is
- *  approved (on submit or by the MD), which moves it to Updated. */
-const costingWordOf = (r: CostingListRow): QuickWord =>
-  // A sample waiting for its first costing is work still to do — Pending.
-  r.awaiting ? "pending" : r.is_draft ? "draft" : r.status === "approved" ? "updated" : "pending";
-const QUICK_LABEL: Record<QuickWord, string> = { pending: "Pending", updated: "Updated", draft: "Draft" };
+/**
+ * COSTING'S OWN FIVE TABS (user 2026-10-14, screenshot 3475: "Pending is the
+ * SMP; right after creating the costing, a new tab Under Progress … Updated
+ * renamed Approved … Approved is the last tab: Pending, Under Progress,
+ * Rejected, Draft, Approved"). The app-wide Pending / Updated / Draft box has
+ * three fixed words, so Costing draws its own box in the same `ToggleGroup`:
+ *
+ *   Pending        — a saved sample with NO costing yet (the "Not costed" rows)
+ *   Under Progress — every created CST (0728: a saved costing IS Under
+ *                    Progress — with the buyer, negotiating, Revise as needed)
+ *   Rejected       — the buyer declined (Customer Rejected, with the reason)
+ *   Draft          — a costing saved as a draft, or a Sample Revision's proposal
+ *   Approved       — the buyer accepted (Customer Approved; was "Updated")
+ */
+type CostingTab = "pending" | "progress" | "rejected" | "draft" | "approved";
+/** Raise Revise (user 2026-10-14): the costing's report, opened already
+ *  revising on the Cost Sheet — whose inner QUOTATION tab opens first (the
+ *  buyer's Quotation document itself is read-only) — update, Save, and the next
+ *  Rev is written with every earlier Rev kept as history. */
+const raiseReviseHref = (id: string) => `/sales/sample-costing/${id}/reports?tab=cost-sheet&revise=1`;
+const COSTING_TABS: { value: CostingTab; label: string; icon: typeof Clock }[] = [
+  { value: "pending", label: "Pending", icon: Clock },
+  { value: "progress", label: "Under Progress", icon: Send },
+  { value: "rejected", label: "Rejected", icon: X },
+  { value: "draft", label: "Draft", icon: Pencil },
+  { value: "approved", label: "Approved", icon: Check },
+];
+const TAB_LABEL = Object.fromEntries(COSTING_TABS.map((t) => [t.value, t.label])) as Record<CostingTab, string>;
+const costingTabOf = (r: CostingListRow): CostingTab =>
+  r.awaiting
+    ? "pending"
+    : r.is_draft || r.status === "draft"
+      ? "draft"
+      : r.status === "approved"
+        ? "approved"
+        : r.status === "rejected"
+          ? "rejected"
+          : "progress";
+const isCostingTab = (v: string | null): v is CostingTab => !!v && COSTING_TABS.some((t) => t.value === v);
 
 const COSTING_FACETS: FacetGroup<CostingListRow>[] = [
   {
@@ -347,6 +385,21 @@ const pct = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(
  * keypad, and the whole value selected on focus so a typed figure REPLACES the
  * old one — the spreadsheet habit. Focus behaviour only; no key is bound here.
  */
+/** "GBP" → "£", "USD" → "$", "INR" → "₹" — the browser's own narrow symbol, so
+ *  no table to keep. A code Intl does not know comes back as the code itself. */
+function currencySymbol(code: string | null | undefined): string {
+  if (!code) return "";
+  try {
+    return (
+      new Intl.NumberFormat("en", { style: "currency", currency: code, currencyDisplay: "narrowSymbol" })
+        .formatToParts(0)
+        .find((p) => p.type === "currency")?.value ?? code
+    );
+  } catch {
+    return code;
+  }
+}
+
 function NumInput(props: React.ComponentProps<typeof Input>) {
   return (
     <Input
@@ -432,6 +485,12 @@ export function SampleCostingScreen({
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
+  /* OPENING THE REVISE REPORT IS ITS OWN TRANSITION (user 2026-10-14,
+     screenshot 3479: the footer read "Saving…" after Raise Revise). The report
+     route can take seconds to load (a dev compile, a cold fetch), and while it
+     did, the shared `isPending` drove the footer's Save into "Saving…" with
+     nothing being saved. `opening` belongs to that navigation alone. */
+  const [opening, startOpening] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
@@ -456,20 +515,31 @@ export function SampleCostingScreen({
   const [lines, setLines] = useState<ConsumptionLine[]>([]);
   const [sizeCols, setSizeCols] = useState<string[]>([]);
   const [loss, setLoss] = useState<LossBySize>({});
+  /** SIZE WISE YES / NO (client 2026-10-14: "make it user control, remove the
+   *  auto fetch from style tab"). No = one "All sizes" band, grams typed once;
+   *  Yes = the operator adds the style sizes they are costing. Not stored: a
+   *  sheet holding sizes IS size-wise, so this only remembers a Yes picked
+   *  before the first size was added. */
+  const [sizeWiseOn, setSizeWiseOn] = useState(false);
+  const sizeWise = sizeWiseOn || sizeCols.length > 0;
   const [trims, setTrims] = useState<TrimDraft[]>([]);
   /** The Overheads and Price & quote "+ Add" rows (0695), both sections in one list. */
   const [extras, setExtras] = useState<ExtraChargeDraft[]>([]);
   const [quotes, setQuotes] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<string | null>(nextCostingNo);
-  const [approval, setApproval] = useState<{ forId: string; run: ApprovalRun | null; verdict: CanActVerdict | null; mine: boolean } | null>(null);
+  /** Customer Approved / Customer Rejected sheet (0725) — the buyer's answer to an Under Progress quote. */
+  const [decision, setDecision] = useState<CustomerDecision | null>(null);
   /** A Save was attempted — a row's messages show from then on. */
   const [tried, setTried] = useState(false);
   /** Which size the rail shows when the sheet costs more than one. */
   const [railGroup, setRailGroup] = useState<string>("all");
   /** Which view of the Quotation summary is open under the waterfall. */
-  const [railTab, setRailTab] = useState<"breakdown" | "whatif" | "target">("breakdown");
+  const [railTab, setRailTab] = useState<"breakdown" | "whatif" | "target" | "currency">("breakdown");
   /** Breakdown shows Net · Gross · Price; this opens the other lines. */
   const [railAll, setRailAll] = useState(false);
+  /** The Quotation summary's "show in" currency — a VIEW of the price, never
+   *  the costing's Currency (null = the quoted currency). User 2026-10-14. */
+  const [viewCcy, setViewCcy] = useState<string | null>(null);
   /** CMT & charges ▸ "Hide operations": pieces whose per-operation strip is folded away. Display only — a folded strip keeps every value. */
   const [opsHidden, setOpsHidden] = useState<Record<string, boolean>>({});
   /** "Copied from CST/…" until the first save (P2.2). */
@@ -536,8 +606,25 @@ export function SampleCostingScreen({
       );
     });
   }, [current, query, facetMatches]);
-  const quick = useQuickStatus(costingWordOf, { countRows: searched });
-  const filtered = searched.filter(quick.matches);
+  // The tab, seeded from `?status=` (so a shared link opens its pile) and then
+  // owned here; written back with replaceState so a click never refetches.
+  const tabParams = useSearchParams();
+  const [tab, setTab] = useState<CostingTab>(() => {
+    const v = tabParams.get("status");
+    return isCostingTab(v) ? v : "pending";
+  });
+  const pickTab = (v: CostingTab) => {
+    setTab(v);
+    const url = new URL(window.location.href);
+    url.searchParams.set("status", v);
+    window.history.replaceState(window.history.state, "", url);
+  };
+  const tabCounts = useMemo(() => {
+    const c: Record<CostingTab, number> = { pending: 0, progress: 0, rejected: 0, draft: 0, approved: 0 };
+    for (const r of searched) c[costingTabOf(r)]++;
+    return c;
+  }, [searched]);
+  const filtered = searched.filter((r) => costingTabOf(r) === tab);
 
   // ---- derived state (cheap passes over the sheet's own rows) ---------------
   const weights = linesToWeights(lines, sizeCols, loss);
@@ -711,15 +798,9 @@ export function SampleCostingScreen({
     setPieces(next);
     setLines((xs) => xs.map((l) => (keep.has(l.piece_key) ? l : { ...l, piece_key: first })));
     setTrims((xs) => xs.map((t) => (keep.has(t.piece_key) ? t : { ...t, piece_key: first })));
-    // The style's own sizes (ticked in Sample Entry) become the weight columns the
-    // moment it is chosen - fetched, not hunted for in "+ Add size...". Only while no
-    // grams are typed, so changing style never wipes numbers the operator entered.
-    const typed = lines.some((l) => Object.values(l.cells).some((v) => (v ?? "").trim() !== ""));
-    if (!typed) {
-      const sizes = cleanSizes(st?.sizes ?? []);
-      setSizeCols(sizes);
-      setLoss(Object.fromEntries(sizes.map((z) => [z, DEFAULT_ALLOWANCE])));
-    }
+    // The style's sizes are NOT pushed into Garment weight (client 2026-10-14:
+    // "make it user control remove the auto fetch from style tab"). Size wise
+    // Yes / No on that step decides, and the operator adds the sizes.
     // THE STYLE'S FABRIC STRUCTURES BECOME THE FABRIC LINES (client 2026-10-14:
     // Product Info → Costing fabric tab). Sample Entry already says which
     // structures the style is made in, so the costing opens with one line per
@@ -728,7 +809,14 @@ export function SampleCostingScreen({
     if (st?.structures.length && fabrics.every(isBlankFabric)) {
       const seeded = st.structures.map((x) => {
         const f = blankFabric();
-        return { ...f, ...pickedFabric(f, { id: x.id, name: x.name }) };
+        const picked: FabricDraft = { ...f, ...pickedFabric(f, { id: x.id, name: x.name }) };
+        // THE COMPOSITION SAMPLE ENTRY NAMED (spec v8 §7.1, 0726) becomes the
+        // Yarn Mix — fibre and % — when nothing (rate memory) filled it first.
+        // Rates stay blank: the composition says what, not what it costs.
+        if (x.mix.length && picked.yarns.every(isBlankYarn)) {
+          picked.yarns = x.mix.map((m) => ({ ...blankYarn(), yarn_name: m.name, mix_pct: m.pct }));
+        }
+        return picked;
       });
       setFabrics(seeded);
       // A weight line with no fabric yet is the style's first (main) structure's.
@@ -759,7 +847,9 @@ export function SampleCostingScreen({
     const m = weightsToLines(d.weights, newKey, (w) => dimensionalGrams(w));
     setLines(m.lines.length ? m.lines : [blankLine(firstPiece)]);
     setSizeCols(m.sizes);
-    setLoss(m.loss);
+    setSizeWiseOn(false);
+    // A new sheet opens Size wise = No, so its one "All sizes" band carries the spec's 3 % Loss.
+    setLoss(d.weights.length ? m.loss : { [ALL_SIZES]: DEFAULT_ALLOWANCE });
     setTrims(d.trims.length ? d.trims : [blankTrim(firstPiece)]);
     setExtras(d.extras);
     setQuotes(d.quotes);
@@ -921,7 +1011,7 @@ export function SampleCostingScreen({
     setEditId(null);
     setRevisingFrom(null);
     setRevisions([]);
-    setApproval(null);
+    setDecision(null);
     setMeta({ code: null, version: 1, status: "draft", isDraft: false, decisionRemark: null });
     setPreview(nextCostingNo);
     seedAndOpen({ header: blankHeader(), pieces: [blankPiece("GARMENT", null)], fabrics: [], weights: [], trims: [], quotes: {}, extras: [] });
@@ -943,22 +1033,17 @@ export function SampleCostingScreen({
       setRevisions(res.revisions);
       setMeta({ code: r.code, version: r.version, status: r.status, isDraft: r.is_draft, decisionRemark: r.decision_remark });
       seedAndOpen({ ...r.draft, pieces: r.draft.pieces.length ? r.draft.pieces : [blankPiece("GARMENT", null)] });
-      setApproval(null);
+      setDecision(null);
       setRevOf(await costingRevisionOf(r.id));
-      /* STARTED FROM THE REPORT'S "Revise" (`?reviseFrom=`). An approved
-         costing is a LOCKED sample since 0716, so revising it is a Sample
-         Revision: the Raise Revision form opens on this sample instead of a
-         free next revision the database would refuse to save. */
+      /* STARTED FROM THE REPORT'S "Revise" (`?reviseFrom=`). Since 0725 that is
+         the costing's own Revise again — version + 1, made on the server from
+         the stored sheet (0716–0724 sent it to a Sample Revision instead). */
       if (opts?.revise) {
-        if (r.status === "approved" && perms.canEdit) {
-          router.push(`/sales/sample-revision?raise=${r.draft.header.opportunity_id ?? ""}`);
+        if (isRevisableStatus(r.status) && perms.canEdit) {
+          reviseNow(r.id);
         } else {
-          toastError("Only an approved costing can be revised, and only by someone who can edit.");
+          toastError("Only an Under Progress, Approved or Rejected costing is revised, and only by someone who can edit.");
         }
-      }
-      if (r.status === "submitted") {
-        const panel = await getCostingApproval(r.id);
-        setApproval({ forId: r.id, run: panel.run, verdict: panel.verdict, mine: panel.mine });
       }
     });
   }
@@ -1092,13 +1177,16 @@ export function SampleCostingScreen({
    * this one in the same transaction (0688).
    */
   function revise() {
-    if (!editId) return;
-    /* A LOCKED SAMPLE CHANGES THROUGH A SAMPLE REVISION (0716, doc/sample/
-       sample revion.md): an approved costing is the lock, and its next
-       revision is made by the revision, which opens only the modules it names
-       and goes to the MD. So Revise opens the Raise Revision form on this
-       sample; the database refuses a next revision made any other way. */
-    router.push(`/sales/sample-revision?raise=${header.opportunity_id ?? ""}`);
+    if (editId) reviseNow(editId);
+  }
+
+  /* THE COSTING'S OWN REVISE (0725, spec v8 §1 / §8.1: "Revise" for the
+     quotation, "Revision" only for Sample Info and the plans). The server copies
+     the stored sheet into version + 1 and supersedes this one — Under Progress
+     stays Under Progress (each counter-offer is a Rev), Approved re-opens the
+     negotiation, Rejected comes back as a new Draft. Then the new Rev opens. */
+  function reviseNow(id: string) {
+    startOpening(() => router.push(raiseReviseHref(id)));
   }
 
   // ---- validity ---------------------------------------------------------------
@@ -1185,36 +1273,8 @@ export function SampleCostingScreen({
     });
   }
 
-  /** Submit a saved costing FROM THE LIST (user 2026-10-14) — only a saved,
-   *  editable, non-draft costing that is not part of a Sample Revision. */
-  const canSendRow = (r: CostingListRow) => perms.canEdit && !r.awaiting && !r.is_draft && isEditableStatus(r.status);
-  function sendForApproval(r: CostingListRow) {
-    start(async () => {
-      const res = await submitSampleCosting(r.id);
-      if (!res.ok) {
-        toastError(res.error);
-        return;
-      }
-      success(`${r.code ?? "Costing"} sent to the MD for approval${sentMarginNote(res.lowest)}.`);
-      router.refresh();
-    });
-  }
-  /** The same Submit INSIDE the editor (user 2026-10-14: "they can submit
-   *  inside too") — the saved costing on screen, and it stays open. */
-  function submitOpen() {
-    if (!editId) return;
-    const id = editId;
-    start(async () => {
-      const res = await submitSampleCosting(id);
-      if (!res.ok) {
-        toastError(res.error);
-        return;
-      }
-      success(`Sent to the MD for approval${sentMarginNote(res.lowest)}.`);
-      router.refresh();
-      openById(id);
-    });
-  }
+  /* NO SEND STEP (0728, user 2026-10-14): a saved costing IS Under Progress —
+     the quote is with the buyer. Their answer is Customer Approved / Rejected. */
 
   function fetchRate() {
     if (!header.currency_code) {
@@ -1712,13 +1772,47 @@ export function SampleCostingScreen({
    * it takes). The identity column stays put while a long run of sizes scrolls
    * inside the frame — the one sanctioned sideways scroll.
    */
+  /* THE SIZES COME FROM THE SIZE MASTER, like Order Entry's Sizes field (user
+     2026-10-14: "need to list that master from order entry size listing"). It
+     was the style's own ticked sizes only (2026-10-08), which left "+ Size"
+     empty on any style ticked with one size. The style's sizes still LEAD the
+     list, so the usual pick is first. */
   const styleSizes = style?.sizes ?? [];
-  const offered = offeredSizes(styleSizes, sizeCols);
-  const heldNotInStyle = styleSizes.length ? sizesNotInStyle(styleSizes, sizeCols) : [];
+  const offered = offeredSizes([...styleSizes, ...data.sizeMaster], sizeCols);
+  const offeredFromStyle = offeredSizes(styleSizes, sizeCols);
+  /** "+ Size"'s options: the style's own sizes first, then the rest of the
+   *  master in size order. A FLAT ARRAY of `<option>`s on purpose — `Select`
+   *  reads only direct `<option>` children (select.tsx `parseOptions`), so an
+   *  `<optgroup>` or a fragment around them listed NOTHING (user 2026-10-14). */
+  const sizeOptions = [...offeredFromStyle, ...offered.filter((z) => !offeredFromStyle.includes(z))].map((z) => (
+    <option key={z} value={z}>
+      {z}
+    </option>
+  ));
   /* A legacy sheet that holds grams under NO size shows them in one "All sizes"
      column, so nothing typed is ever hidden; choosing its first size moves them. */
   const holdsAllSizes = !sizeCols.length && lines.some((l) => (l.cells[ALL_SIZES] ?? "").trim() !== "");
-  const matrixCols = sizeCols.length ? sizeCols : holdsAllSizes ? [ALL_SIZES] : [];
+  const matrixCols = sizeCols.length ? sizeCols : !sizeWise || holdsAllSizes ? [ALL_SIZES] : [];
+  /**
+   * Yes → No folds the sheet onto one "All sizes" band. Every other size's cell
+   * inherits the FIRST size's grams and Loss % anyway (matrix.ts), so the first
+   * size's numbers are the ones kept; a figure typed only for a later size goes.
+   * No → Yes adds nothing: `addSize` carries the All-sizes grams into the first size picked.
+   */
+  const changeSizeWise = (yes: boolean) => {
+    if (yes) {
+      setSizeWiseOn(true);
+      return;
+    }
+    const first = sizeCols[0];
+    if (first) {
+      mutLines((xs) => xs.map((l) => ({ ...l, cells: { [ALL_SIZES]: l.cells[first] ?? "" } })));
+      setLoss((m) => ({ [ALL_SIZES]: (m[first] ?? "").trim() || DEFAULT_ALLOWANCE }));
+      setSizeCols([]);
+    }
+    setSizeWiseOn(false);
+    setDirty(true);
+  };
   const colLabel = (c: string) => (c === ALL_SIZES ? "All sizes" : c);
   const colSize = (c: string) => (c === ALL_SIZES ? null : c);
   const lineCost = (l: ConsumptionLine, col: string) => {
@@ -1873,25 +1967,21 @@ export function SampleCostingScreen({
     const bandCell = "flex min-h-11 items-center border-b border-border bg-primary-soft px-2 text-xs";
     const addSizeRow = (
       <FieldRow gap="row" align="end">
-        {offered.length && !matrixCols.length ? (
+        {sizeWise && offered.length && !matrixCols.length ? (
           <Field label="Add a size" w="term" htmlFor="sc-add-size">
             <Select id="sc-add-size" value="" onChange={(e) => addSize(e.target.value)}>
               <option value="">+ Add size…</option>
-              {offered.map((z) => (
-                <option key={z} value={z}>
-                  {z}
-                </option>
-              ))}
+              {sizeOptions}
             </Select>
           </Field>
         ) : null}
         <p className="m-0 pb-2 text-xs text-muted-foreground">
-          {!style
-            ? "Choose the style first; its sizes appear here."
-            : !styleSizes.length
-              ? "This style has no sizes ticked in Sample Entry, so no size can be added."
+          {!sizeWise
+            ? "One weight for every size."
+            : !data.sizeMaster.length && !styleSizes.length
+              ? "No sizes in the Sizes master yet."
               : !offered.length
-                ? "Every size of the style is on the sheet."
+                ? "Every size is on the sheet."
                 : sizeCols.length > 1
                   ? "A blank box takes the first size's number."
                   : "Remove any size you are not costing, then type the grams."}
@@ -1900,14 +1990,21 @@ export function SampleCostingScreen({
     );
     return (
       <div className="space-y-3">
+        <FieldRow gap="row" align="end">
+          <Field label="Size wise" w="term">
+            <Segmented<"yes" | "no">
+              name="sc-size-wise"
+              value={sizeWise ? "yes" : "no"}
+              onChange={(v) => changeSizeWise(v === "yes")}
+              options={[
+                { value: "yes", label: "Yes" },
+                { value: "no", label: "No" },
+              ]}
+            />
+          </Field>
+        </FieldRow>
         {/* NO SIZE YET: the size is the first thing to choose, so it leads. */}
         {!matrixCols.length ? addSizeRow : null}
-        {/* A held size the style no longer carries — a notice, never an edit. */}
-        {heldNotInStyle.length ? (
-          <p className="m-0 text-xs text-warning">
-            {`The style no longer has ${heldNotInStyle.join(", ")}. The band stays until you remove it.`}
-          </p>
-        ) : null}
         {/* HUGS ITS COLUMNS, like every Orders table: `w-max` lets the 1fr spacer
             settle at its 12px floor; `max-w-full` keeps the scroll. */}
         <div className="w-fit max-w-full overflow-x-auto rounded-control border border-border">
@@ -2066,14 +2163,10 @@ export function SampleCostingScreen({
                         it reads as the next size's slot. The labelled field below the table
                         goes with it. */}
                     <div className={`${bandCell} border-r px-1`}>
-                      {bi === bands.length - 1 && offered.length ? (
+                      {sizeWise && bi === bands.length - 1 && offered.length ? (
                         <Select aria-label="Add a size" id="sc-add-size" value="" onChange={(e) => addSize(e.target.value)}>
                           <option value="">+ Size</option>
-                          {offered.map((z) => (
-                            <option key={z} value={z}>
-                              {z}
-                            </option>
-                          ))}
+                          {sizeOptions}
                         </Select>
                       ) : null}
                     </div>
@@ -2858,7 +2951,7 @@ export function SampleCostingScreen({
           )}
           {meta.decisionRemark && meta.status === "rejected" ? (
             <p className="rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm text-danger">
-              Sent back for rework: {meta.decisionRemark}
+              Rejected by the buyer: {meta.decisionRemark}
             </p>
           ) : null}
         </div>
@@ -2910,7 +3003,9 @@ export function SampleCostingScreen({
                 Bank Charges. No hint/error sits under these fields, so the
                 top-aligned hazard does not apply. */}
             <FieldRow gap="row">
-              <Field label="Garment Rejection %" w="range" htmlFor="sc-waste">
+              {/* `code` (144px), not `range`: "Garment Rejection %" wrapped to two
+                  lines at 112px (user 2026-10-14, screenshot 3472). */}
+              <Field label="Garment Rejection %" w="code" htmlFor="sc-waste">
                 <NumInput id="sc-waste" value={header.garment_waste_pct} onChange={(e) => setH({ garment_waste_pct: e.target.value })} />
               </Field>
               <Field label="Overhead %" w="hug" htmlFor="sc-ovh">
@@ -3014,8 +3109,11 @@ export function SampleCostingScreen({
           {heroValue == null ? "" : `Final FOB price ${ccy ?? ""} ${heroValue.toFixed(2)} per ${unitWord}, margin ${pct(t?.effectiveMarginPct)}`}
         </span>
         <div className={PRICE_W}>
-          {/* `overflow-visible`: `nowrap` adds `overflow-x-auto`, which also computes overflow-y to auto — and the 3-line "In ₹" note is taller than the row, so a VERTICAL scrollbar appeared beside it (user 2026-10-09, screenshot 105559). The row fits at the pane width now, so nothing needs to scroll. */}
-<FieldRow gap="row" align="start" nowrap className="overflow-visible">
+          {/* WRAPS, NO LONGER `nowrap` (user 2026-10-14, screenshot 3469): beside the
+              Quotation summary column the card is narrower than the ten fields, and a
+              nowrap row pushed Quoted / "In ₹" past the card's edge. Wrapping drops the
+              Quoted + In ₹ pair (one flex item) to a second line together instead. */}
+          <FieldRow gap="row" align="start">
             <Field label="Margin %" required w="hug" htmlFor={costingFieldId.margin}>
               <NumInput id={costingFieldId.margin} value={header.margin_pct} onChange={(e) => setH({ margin_pct: e.target.value })} />
             </Field>
@@ -3067,24 +3165,22 @@ export function SampleCostingScreen({
               <NumInput id="sc-commission" value={header.commission_pct} onChange={(e) => setH({ commission_pct: e.target.value })} />
             </Field>
             {/* QUOTED PRICE AND ITS "In ₹" ARE ONE UNIT (user 2026-10-09: "put it
-                beside the Quoted Price field"). One flex item, so if the row has to
-                wrap the pair wraps TOGETHER and the rupee value is never stranded
-                on a line of its own. */}
+                beside the Quoted Price field"). The rupee readout now sits UNDER the
+                box rather than in a column of its own (user 2026-10-14, screenshot
+                3471): with Commission % on the row, a ninth column no longer fitted
+                beside the Quotation summary and the pair wrapped to a line alone. */}
             {single ? (
-              <div className="flex items-start gap-3">
               <Field label={`Quoted ${ccy ?? ""} / ${unitWord}`.trim()} w="range" htmlFor="sc-quoted">
                 <NumInput id="sc-quoted" className="font-semibold" value={quotes[single.key] ?? ""} onChange={(e) => setQuote(single.key, e.target.value)} />
-              </Field>
-              {/* LIVE INR IMPACT, right beside the Quoted Price (client): rounding $7.2386
-                  to $7.25 looks like 1 cent but is ₹1+ a piece after the exchange rate, so the
-                  rupee value and the rupee difference against the calculated price stay in
-                  front of the merchandiser while they type. Shown only for a foreign currency
-                  (a rate of 1 would just repeat the box). Reads the same calc / rate the
-                  summary uses; nothing is stored. */}
-              {inrImpact ? (
-                <Field label={`In ₹ / ${unitWord}`.trim()} w="range">
-                  <div className="flex h-9 flex-col justify-center text-xs tabular-nums leading-tight" aria-live="polite">
-                    <span className="text-sm font-semibold text-foreground">{`₹ ${money(inrImpact.value)}`}</span>
+                {/* LIVE INR IMPACT, right under the Quoted Price (client): rounding $7.2386
+                    to $7.25 looks like 1 cent but is ₹1+ a piece after the exchange rate, so the
+                    rupee value and the rupee difference against the calculated price stay in
+                    front of the merchandiser while they type. Shown only for a foreign currency
+                    (a rate of 1 would just repeat the box). Reads the same calc / rate the
+                    summary uses; nothing is stored. */}
+                {inrImpact ? (
+                  <div className="mt-1 flex flex-col whitespace-nowrap text-xs tabular-nums leading-tight" aria-live="polite">
+                    <span className="font-semibold text-foreground">{`In ₹ ${money(inrImpact.value)} / ${unitWord}`.trim()}</span>
                     {inrImpact.diff != null && Math.abs(inrImpact.diff) >= 0.005 ? (
                       <span className={inrImpact.diff > 0 ? "text-success" : "text-danger"}>
                         {`${inrImpact.diff > 0 ? "+" : "−"}₹ ${money(Math.abs(inrImpact.diff))} vs calculated`}
@@ -3093,9 +3189,8 @@ export function SampleCostingScreen({
                       <span className="text-muted-foreground">{inrImpact.diff == null ? "calculated price" : "same as calculated"}</span>
                     )}
                   </div>
-                </Field>
-              ) : null}
-              </div>
+                ) : null}
+              </Field>
             ) : null}
           </FieldRow>
         </div>
@@ -3162,8 +3257,9 @@ export function SampleCostingScreen({
     ),
   };
 
-  /* WHY IT IS WITH THE MD (UX plan P3.2): the lowest-margin piece, how far it
-     sits under the floor in rupees, and quoted against calculated price. */
+  /* THE LOWEST MARGIN ON A QUOTE WITH THE BUYER (UX plan P3.2; since 0725 a
+     warning, not an MD gate): the lowest-margin piece, how far it sits under
+     the floor in rupees, and quoted against calculated price. */
   const lowest = (() => {
     let best: { piece: string; group: string | null; fig: CostingSummary["groups"][number]["pieces"][number] } | null = null;
     for (const g of summary.groups)
@@ -3177,10 +3273,10 @@ export function SampleCostingScreen({
       ? solveTarget({ net: lowest.fig.net }, header, (lowest.fig.quoted ?? lowest.fig.calc) as number, 1, 0)
       : null;
   const whyCard =
-    meta.status === "submitted" && lowest ? (
+    meta.status === "submitted" && lowest && (lowest.fig.effectiveMarginPct ?? Infinity) < MARGIN_FLOOR_PCT ? (
       <section className="rounded-lg border border-warning/40 bg-warning-soft px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <b className="text-foreground">Why this costing is with the MD</b>
+          <b className="text-foreground">{`This quote is under the ${MARGIN_FLOOR_PCT}% margin floor`}</b>
           <StatusPill tone="warning">{pct(lowest.fig.effectiveMarginPct)} margin</StatusPill>
         </div>
         <p className="m-0 mt-1 text-foreground">
@@ -3372,6 +3468,21 @@ export function SampleCostingScreen({
      else (freight, insurance, discount, price charges) is untouched. Read-only. */
   const marginNow = num(header.margin_pct) ?? 0;
   const rateNow = num(header.exchange_rate);
+  /* MULTI-CURRENCY CHECK (spec v8 §7.2, user 2026-10-14: "multi currency
+     checking option in costing … compacted without disturbing UI"). The SAME
+     price in every currency the Quotes / Orders register holds a rate for, plus
+     INR. Read-only and stored nowhere: the costing's currency is still picked in
+     Price & quote. Rupees per piece = the shown price × this sheet's own rate;
+     each other currency = those rupees ÷ its register rate. A currency with no
+     rate today says so instead of printing a number. */
+  const fxRupees = heroValue != null && rateNow != null && rateNow > 0 ? heroValue * rateNow : null;
+  const fxRows = [...new Set(["INR", ...data.currencies.map((c) => c.code).filter(Boolean)])]
+    .map((code) => {
+      const rate = code === "INR" ? 1 : code === ccy && rateNow ? rateNow : (data.quoteRates[code] ?? null);
+      return { code, rate, price: fxRupees != null && rate ? fxRupees / rate : null, current: code === (ccy ?? "INR") };
+    })
+    // The costing's own currency first, INR next, then those with a rate.
+    .sort((a, b) => Number(b.current) - Number(a.current) || Number(b.code === "INR") - Number(a.code === "INR") || Number(b.rate != null) - Number(a.rate != null) || a.code.localeCompare(b.code));
   const whatIf = [15, 20, 25, 30].map((m) => {
     const calc = t && t.calc != null && rateNow != null && rateNow > 0 ? t.calc + (t.net * (m - marginNow)) / 100 / rateNow : null;
     return { m, calc, delta: calc != null && t?.calc != null ? calc - t.calc : null, current: m === marginNow };
@@ -3401,12 +3512,58 @@ export function SampleCostingScreen({
         </div>
         <div className="min-w-0">
           <div className="text-[11px] text-muted-foreground">{t?.quoted != null ? "Final quoted FOB price" : "Calculated FOB price"}</div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-bold leading-tight tracking-tight text-foreground">
-              <Flash value={heroValue == null ? "—" : `${ccy ?? ""} ${heroValue.toFixed(2)}`.trim()} />
-            </span>
-            <span className="text-xs font-medium text-muted-foreground">/ {unitWord}</span>
-          </div>
+          {/* "SHOW IN" BESIDE THE PRICE (user 2026-10-14, option B of the mockup):
+              the code next to the price is a small picker, so a merchandiser can read
+              the same quote in GBP / EUR / ₹ without touching the costing. VIEW ONLY —
+              it converts through rupees at today's Quotes / Orders rate
+              (`data.quoteRates`); the costing's own Currency is still set in Price &
+              quote, so a stray pick can never change what the buyer is quoted. */}
+          {(() => {
+            const shown = viewCcy && viewCcy !== ccy ? viewCcy : ccy;
+            const fx = num(header.exchange_rate);
+            const rateOf = (c: string) => (c === "INR" ? 1 : (data.quoteRates[c] ?? null));
+            const shownRate = shown ? rateOf(shown) : null;
+            const inrPrice = heroValue != null && fx != null ? heroValue * fx : null;
+            const converted = shown !== ccy && inrPrice != null && shownRate ? inrPrice / shownRate : heroValue;
+            const codes = [...new Set([...(ccy ? [ccy] : []), ...Object.keys(data.quoteRates), "INR"])];
+            return (
+              <>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-bold leading-tight tracking-tight text-foreground">
+                    <Flash value={converted == null ? "—" : `${currencySymbol(shown)} ${converted.toFixed(2)}`.trim()} />
+                  </span>
+                  {ccy && heroValue != null && codes.length > 1 ? (
+                    <select
+                      id="sc-view-ccy"
+                      aria-label="Show the price in"
+                      autoComplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-form-type="other"
+                      value={shown ?? ""}
+                      onChange={(e) => setViewCcy(e.target.value === ccy ? null : e.target.value)}
+                      className="h-7 rounded-control border border-border bg-background px-1 text-xs font-bold text-primary"
+                    >
+                      {codes.map((c) => (
+                        <option key={c} value={c} disabled={c !== ccy && (fx == null || rateOf(c) == null)}>
+                          {c === ccy ? `${c} ●` : c}
+                        </option>
+                      ))}
+                    </select>
+                  ) : ccy ? (
+                    <span className="text-xs font-semibold text-muted-foreground">{ccy}</span>
+                  ) : null}
+                  <span className="text-xs font-medium text-muted-foreground">/ {unitWord}</span>
+                </div>
+                {shown !== ccy && heroValue != null ? (
+                  <div className="text-[11px] tabular-nums text-muted-foreground">
+                    <span className="font-semibold text-warning">View only</span>
+                    {` · quoted ${currencySymbol(ccy)} ${heroValue.toFixed(2)} ${ccy ?? ""} at ₹ ${shownRate?.toFixed(2) ?? "—"} / ${shown}`}
+                  </div>
+                ) : null}
+              </>
+            );
+          })()}
           {t ? <div className="text-[11px] tabular-nums text-muted-foreground">{`₹ ${money(t.gross)} before freight & insurance`}</div> : null}
         </div>
         <div className="space-y-1.5">
@@ -3459,7 +3616,7 @@ export function SampleCostingScreen({
         </div>
       ) : null}
 
-      <ToggleGroup<"breakdown" | "whatif" | "target">
+      <ToggleGroup<"breakdown" | "whatif" | "target" | "currency">
         label="Summary view"
         role="tablist"
         value={railTab}
@@ -3468,6 +3625,7 @@ export function SampleCostingScreen({
           { value: "breakdown", label: "Breakdown" },
           { value: "whatif", label: "What-if" },
           { value: "target", label: "Target" },
+          { value: "currency", label: "Currency" },
         ]}
       />
 
@@ -3523,6 +3681,37 @@ export function SampleCostingScreen({
       ) : null}
 
       {railTab === "target" ? workBack : null}
+
+      {railTab === "currency" ? (
+        <div className="space-y-2">
+          <div className="text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Same price, other currencies</div>
+          {fxRupees == null ? (
+            <p className="m-0 px-2 text-xs text-muted-foreground">Add the costs, margin and exchange rate to compare currencies.</p>
+          ) : (
+            <table className="w-full text-xs tabular-nums">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-[.06em] text-muted-foreground">
+                  <th className="px-2 py-1 text-left font-semibold">Ccy</th>
+                  <th className="px-2 py-1 text-right font-semibold">Rate ₹</th>
+                  <th className="px-2 py-1 text-right font-semibold">{`Price / ${unitWord}`}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fxRows.map((r) => (
+                  <tr key={r.code} className={r.current ? "bg-primary-soft font-semibold text-foreground" : "text-foreground"}>
+                    <td className="px-2 py-1">{r.code}</td>
+                    <td className="px-2 py-1 text-right text-muted-foreground">{r.rate == null ? "—" : r.rate === 1 ? "1" : r.rate.toFixed(2)}</td>
+                    <td className="px-2 py-1 text-right">{r.price == null ? <span className="text-muted-foreground">no rate</span> : r.price.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="m-0 text-[11px] text-muted-foreground">
+            {`${t?.quoted != null ? "Quoted" : "Calculated"} price, at today's Quotes / Orders rates. The highlighted row is this costing's currency — change it in Price & quote.`}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -3583,13 +3772,12 @@ export function SampleCostingScreen({
     },
   ];
 
+  /* 0725: Approved / Rejected are the BUYER'S answer, and Revise is the way on. */
   const lockMessage = !editable
-    ? meta.status === "submitted"
-      ? revOf
-        ? `With the MD under Sample Revision ${revOf.revision_code} — nothing in it can change until it is decided.`
-        : `With the MD for approval — the lowest margin is under ${MARGIN_FLOOR_PCT}%. It can be changed once approved (Raise Revision) or sent back for rework.`
-      : meta.status === "approved"
-        ? "Approved and locked. To change it, Raise Revision — a Sample Revision opens only the modules it names and goes to the MD."
+    ? meta.status === "approved"
+      ? "Approved by the buyer and locked. To change the price, Revise — it opens the next revision Under Progress."
+      : meta.status === "rejected"
+        ? "Rejected by the buyer. Revise re-opens it as a new Draft."
         : "This revision has been superseded by a later one. Open the latest from Revision."
     : null;
 
@@ -3678,7 +3866,9 @@ export function SampleCostingScreen({
 
   if (mode === "edit") {
     // A Sample Revision's proposal is sent to the MD by the revision, not here.
-    const submitNow = !!editId && !revisingFrom && !revOf && isEditableStatus(meta.status) && !meta.isDraft && perms.canEdit && !dirty;
+    /** Under Progress, saved and untouched: the buyer's answer can be recorded (0725). */
+    const decideNow = !!editId && !revisingFrom && !revOf && meta.status === "submitted" && !meta.isDraft && perms.canEdit && !dirty;
+    const costingLabel = `${meta.code ?? "Costing"} · ${revisionShort(meta.version)}`;
     const context = [enquiry?.code, style?.name, enquiry?.customer_name, [enquiry?.season, enquiry?.season_year].filter(Boolean).join(" ")].filter(Boolean);
     return (
       <div className="flex h-full flex-col gap-3">
@@ -3727,36 +3917,43 @@ export function SampleCostingScreen({
                 ...(revisions.length > 1 && editId
                   ? [{ label: "Compare revisions", icon: GitCompare, onClick: () => openCompare(revisions.find((r) => r.id !== editId)!.id) }]
                   : []),
+                // 0725: a counter-offer is a new Rev; the buyer's "no" is an answer, not a step.
+                ...(decideNow
+                  ? [
+                      { label: opening ? "Opening…" : "Raise Revise", icon: RotateCcw, onClick: revise },
+                      { label: "Customer Rejected", icon: X, onClick: () => setDecision("rejected") },
+                    ]
+                  : []),
               ]}
             />
-            {meta.status === "approved" && !revisingFrom && perms.canEdit ? (
-              <Button onClick={revise}>Raise Revision</Button>
+            {/* THE ONE FILLED NEXT STEP (button plan Rule 2). Under Progress: the
+                buyer's yes. Approved / Rejected: Revise (0725 — the costing's own,
+                no Sample Revision, no MD). */}
+            {decideNow ? <Button onClick={() => setDecision("approved")}>Customer Approved</Button> : null}
+            {(meta.status === "approved" || meta.status === "rejected") && !revisingFrom && !revOf && perms.canEdit ? (
+              <Button onClick={revise} disabled={opening}>
+                {opening ? "Opening…" : "Raise Revise"}
+              </Button>
             ) : null}
           </div>
         </div>
 
-        {/* PART OF A SAMPLE REVISION (0716) — which one, what it opens, and
-            where it goes to the MD. A change outside those modules is refused
-            on Save, naming the module. */}
-        {revOf ? (
-          <p className="rounded-md border border-info bg-info-soft px-3 py-2 text-sm">
-            {`This is the proposed costing of Sample Revision ${revOf.revision_code} — open: ${revOf.kinds
-              .filter((k) => k !== "sample_info")
-              .map((k) => REVISION_KIND_LABEL[k])
-              .join(", ")}. Everything else stays as approved. `}
-            <a href={`/sales/sample-revision/${revOf.id}`} className="font-medium text-primary underline underline-offset-2">
-              Send it to the MD from the revision
-            </a>
-          </p>
-        ) : null}
+        {/* NO "PROPOSED COSTING OF SAMPLE REVISION … SEND IT TO THE MD" BANNER
+            (user 2026-10-14: "remove this, there is no approval, just the status
+            updated as approved"). 0729 closed costing revisions; a costing's
+            next Rev is its own Revise, decided by the buyer. */}
         {whyCard}
-        {approval && approval.forId === editId && approval.run && approval.verdict && !approval.mine ? (
-          <ApprovalActionBar
-            run={approval.run}
-            verdict={approval.verdict}
-            subjectPath="/sales/sample-costing"
-            rework
-            onDone={() => editId && openById(editId)}
+        {decision && editId ? (
+          <CustomerDecisionSheet
+            decision={decision}
+            costingId={editId}
+            costingLabel={costingLabel}
+            onClose={() => setDecision(null)}
+            onDone={() => {
+              setDecision(null);
+              router.refresh();
+              openById(editId);
+            }}
           />
         ) : null}
 
@@ -3784,7 +3981,8 @@ export function SampleCostingScreen({
             // ring (clean spec §4) — no counts, no progress bar.
             onBlockedSave: revealFirstProblem,
             // Saved and untouched: Submit stands where Save stood (user 2026-10-14).
-            submit: submitNow ? { label: "Submit", onClick: submitOpen } : null,
+            // 0725: Draft → Under Progress. The quote goes to the BUYER; no MD step.
+            submit: null,
             // THE DRAFT OFFER LIVES IN THE BOTTOM BAR (user 2026-10-07), beside
             // the buttons that act on the whole sheet — not as a banner taking
             // the top of the canvas. LINKS, NOT BUTTONS (user 2026-10-09,
@@ -3929,12 +4127,15 @@ export function SampleCostingScreen({
         activeCount={facets.activeCount}
         onReset={facets.activeCount ? facets.reset : undefined}
         panel={facets.panel}
-        leading={quick.segment}
-        right={
-          quick.value
-            ? `${filtered.length} of ${current.length} ${QUICK_LABEL[quick.value]}`
-            : `${filtered.length} of ${current.length}`
+        leading={
+          <ToggleGroup<CostingTab>
+            label={`Status: ${TAB_LABEL[tab]}`}
+            value={tab}
+            onChange={pickTab}
+            options={COSTING_TABS.map((t) => ({ value: t.value, label: t.label, icon: t.icon, count: tabCounts[t.value] }))}
+          />
         }
+        right={`${filtered.length} of ${current.length} ${TAB_LABEL[tab]}`}
       />
       {/* CARDS, THE SAMPLE MODULE'S QUEUE (user 2026-10-13: "accessories la irukka
           card mari … costing la yum") — the Accessories Plan's card, through the
@@ -3947,12 +4148,14 @@ export function SampleCostingScreen({
         subtitle={(r) => (
           <span>{[r.awaiting ? null : r.enquiry_no, r.customer_name, r.style_name].filter(Boolean).join(" · ") || "—"}</span>
         )}
-        state={(r): SampleCardState => ({ pending: "pending", draft: "draft", updated: "updated" } as const)[costingWordOf(r)]}
+        state={(r): SampleCardState =>
+          ({ pending: "pending", progress: "pending", rejected: "neutral", draft: "draft", approved: "updated" } as const)[costingTabOf(r)]
+        }
         /* THE PILL SAYS THE TAB THE CARD IS IN (user 2026-10-14: "draft na draft
            la … pending na pending … updated na updated"). It read the sheet's
            approval stage, so a saved-not-sent sheet said "Draft" under Pending
            and a sample with no sheet said "Not costed". One word, one answer. */
-        pillText={(r) => QUICK_LABEL[costingWordOf(r)]}
+        pillText={(r) => TAB_LABEL[costingTabOf(r)]}
         stats={(r) => [
           {
             label: "Quoted",
@@ -3969,14 +4172,19 @@ export function SampleCostingScreen({
         onDelete={del}
         onReports={(r) => router.push(`/sales/sample-costing/${r.id}/reports`)}
         canReportsRow={(r) => !r.awaiting}
-        onSend={sendForApproval}
-        canSendRow={canSendRow}
+        /* RAISE REVISE ON AN UNDER PROGRESS CARD (user 2026-10-14) — the card's
+           action slot, opening the Quotation report already revising. */
+        onSend={(r) => startOpening(() => router.push(raiseReviseHref(r.id)))}
+        canSendRow={(r) => perms.canEdit && !r.awaiting && costingTabOf(r) === "progress"}
+        sendLabel={opening ? "Opening…" : "Raise Revise"}
+        cardSendLabel={opening ? "Opening…" : "Raise Revise"}
+        sendIcon={RotateCcw}
         isPending={isPending}
         empty={
           !current.length
             ? "No sample costings yet. Use 'New Sample Costing' to cost the first sample."
-            : quick.value && !searched.some(quick.matches)
-              ? `No costings are ${QUICK_LABEL[quick.value]} — the counts above show which word they are in.`
+            : filtered.length === 0 && searched.length
+              ? `Nothing is ${TAB_LABEL[tab]} — the counts above show which tab the costings are in.`
               : "No costings match the search or filters."
         }
       />
