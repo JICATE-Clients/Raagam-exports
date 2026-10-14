@@ -442,12 +442,14 @@ eq("extras: the target solver reads them (139 leaves 20 %)", xs?.marginPct ?? nu
   eq("approval: …and it is green", auto.tone === "good", true);
   eq("approval: …and says the floor cleared it, with the lowest margin", (auto.detail ?? "").includes("20%") && (auto.detail ?? "").includes("38.4%"), true);
   const md = approvalLineOf(facts({ decidedByName: "ARUN MD", decidedAt: "2026-10-10T08:00:00Z", remark: "Price held for volume" }));
-  eq("approval: a named decider = approved BY them", md.text.startsWith("Approved by ARUN MD"), true);
+  // 0725: the decision is the BUYER'S — the named person RECORDED it.
+  eq("approval: a named recorder = approved, recorded by them", md.text.startsWith("Approved") && md.text.endsWith("recorded by ARUN MD"), true);
   eq("approval: …with the MD's remark", md.detail === "Price held for volume", true);
-  eq("approval: with the MD while submitted", approvalLineOf(facts({ status: "submitted", approvedAt: null })).text.startsWith("With the MD"), true);
+  eq("approval: Under Progress (with the buyer) while submitted", approvalLineOf(facts({ status: "submitted", approvedAt: null })).text.startsWith("Under Progress"), true);
+  eq("approval: a submitted costing above the floor raises no warning", approvalLineOf(facts({ status: "submitted", lowestMarginPct: 25 })).detail, null);
   eq("approval: a submitted costing explains the floor", (approvalLineOf(facts({ status: "submitted", lowestMarginPct: 12 })).detail ?? "").includes("under the 20% floor"), true);
-  eq("approval: rejected names who and keeps the reason", (() => { const r = approvalLineOf(facts({ status: "rejected", decidedByName: "ARUN MD", remark: "Margin too thin" })); return r.text.startsWith("Rejected by ARUN MD") && r.detail === "Margin too thin" && r.tone === "bad"; })(), true);
-  eq("approval: a draft is not submitted", approvalLineOf(facts({ status: "draft", isDraft: true, approvedAt: null })).text.startsWith("Not submitted"), true);
+  eq("approval: rejected names who and keeps the reason", (() => { const r = approvalLineOf(facts({ status: "rejected", decidedByName: "ARUN MD", remark: "Margin too thin" })); return r.text.startsWith("Rejected by the buyer") && r.text.includes("recorded by ARUN MD") && r.detail === "Margin too thin" && r.tone === "bad"; })(), true);
+  eq("approval: a draft is not sent to the buyer", approvalLineOf(facts({ status: "draft", isDraft: true, approvedAt: null })).text.startsWith("Not sent to the buyer"), true);
   eq("approval: superseded says so", approvalLineOf(facts({ status: "superseded" })).text.startsWith("Superseded"), true);
   eq("buyer: an approved costing says approved and when", (approvalLineForBuyer(facts({})) ?? "").startsWith("Approved on"), true);
   const leak = approvalLineForBuyer(facts({ decidedByName: "ARUN MD", remark: "secret", lowestMarginPct: 12 })) ?? "";

@@ -27,14 +27,13 @@ const live = <T extends { id: string; name: string } & Deactivatable>(rows: read
 export const metadata = { title: "Costing Reports" };
 
 /** Why Revise is unavailable for a costing in this state, or null when it works.
- *  Same rule as the editor's Revise (approved only) — said in words. */
+ *  Same rule as the editor's Revise (0725: Under Progress, Approved or Rejected —
+ *  each buyer counter-offer is a Rev) — said in words. */
 function reviseReason(status: string, isDraft: boolean | null): string | null {
-  if (status === "approved") return null;
-  if (isDraft || status === "draft") return "This costing is still a Draft — edit it directly. Revise starts a new revision once it is approved.";
-  if (status === "submitted") return "This costing is with the MD — Revise becomes available once it is approved.";
-  if (status === "rejected") return "This costing was rejected — edit and resubmit it directly.";
+  if (status === "approved" || status === "submitted" || status === "rejected") return null;
+  if (isDraft || status === "draft") return "This costing is still a Draft — edit it directly. Revise starts a new revision once it is sent to the buyer.";
   if (status === "superseded") return "A later revision replaced this one — open the latest revision to revise it.";
-  return "Only an approved costing can be revised.";
+  return "Only a costing sent to the buyer can be revised.";
 }
 
 export default async function CostingReportsPage({
@@ -42,7 +41,7 @@ export default async function CostingReportsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; revise?: string }>;
 }) {
   await requirePermission("sales", "view");
   const [{ id }, sp, canEdit] = await Promise.all([params, searchParams, can("sales", "edit")]);
@@ -65,6 +64,10 @@ export default async function CostingReportsPage({
         cost={cost}
         quote={quote}
         initial={sp.tab === "quotation" ? "quotation" : "cost-sheet"}
+        /* RAISE REVISE (user 2026-10-14): Costing's Under Progress "Raise Revise"
+           lands here with `?revise=1` — the Quotation opens already revising; Save
+           writes the next Rev and every earlier Rev stays in the history. */
+        openRevising={sp.revise === "1"}
         /* REVISE FROM THE REPORT (client 2026-10-09) — offered under the editor's own
            two conditions: the costing is APPROVED and the reader may edit. A draft or
            one with the MD is edited in place, and a superseded revision is history. */

@@ -157,7 +157,8 @@ export type SampleHeaderDraft = {
  *  Product Info's Structure · GSM grid (user 2026-10-13: the dropdown in the
  *  row, "+ Add structure" under it), so it carries a row `key` and may be blank
  *  — a blank row is dropped at save (`toSampleEntryPayload`). */
-export type StructureDraft = { key: string; structure_id: string | null; gsm: string };
+/** One fabric structure on a style line, its GSM, and (0726) its fibre composition. */
+export type StructureDraft = { key: string; structure_id: string | null; gsm: string; composition_id: string | null };
 
 export type CoordinateDraft = { key: string; coordinate_id: string | null };
 
@@ -591,7 +592,7 @@ export const sampleEntryInput = z
           gsm: optNum,
           sample_type: enumOf(SAMPLE_TYPE_OPTIONS),
           structures: z
-            .array(z.object({ sno: z.number().int(), structure_id: uuid, gsm: optNum }))
+            .array(z.object({ sno: z.number().int(), structure_id: uuid, gsm: optNum, composition_id: optUuid }))
             .default([]),
           tech_pack: enumOf(TECH_PACK),
           customer_reference: caps(),
@@ -758,7 +759,7 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
         fabric_structure_id: structures[0]?.structure_id ?? null,
         fabric_id: s.fabric_id,
         gsm: orNull(structures[0]?.gsm ?? ""),
-        structures: structures.map((x, xi) => ({ sno: xi + 1, structure_id: x.structure_id as string, gsm: orNull(x.gsm) })),
+        structures: structures.map((x, xi) => ({ sno: xi + 1, structure_id: x.structure_id as string, gsm: orNull(x.gsm), composition_id: x.composition_id ?? null })),
         // The entry's Tech Pack status, on every line (user 2026-10-12).
         tech_pack: orNull(h.tech_pack),
         customer_reference: eff("customer_reference"),
@@ -880,7 +881,7 @@ export type SampleEntryListRow = {
 
 /**
  * A Product Development request to the Sample Department (0719, client brief
- * 2026-10-13 §3; spec §7.1) — raised per SWO since 0723, not per SMP
+ * 2026-10-13 §3; spec §7.1) — raised per SMP (0724; 0723 had it per SWO)
  * (Sample ▸ PD Request). The department answers in the approvals inbox:
  * Approve = Acknowledged, Reject (with a reason) = Not Acknowledged.
  */

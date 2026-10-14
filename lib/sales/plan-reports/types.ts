@@ -80,6 +80,9 @@ export type PlanSample = {
 
 /** One purchase line as it was approved before a revision reopened the plan. */
 export type ApprovedLine = { item_id: string | null; name: string | null; purchase_qty: number | null; uom: string | null };
+/** One colour fact of a plan (0727 `sample_plan_shade_lines`): a yarn's shade,
+ *  a fabric's colour / print, or a trim's colour, with its summed quantity. */
+export type ShadeLine = { part: string; name: string; colour: string; qty: number | null; uom: string | null };
 
 export type PlanReportHeader = {
   kind: PlanKind;
@@ -101,7 +104,17 @@ export type PlanReportHeader = {
   company: { name: string | null; unit: string | null; logo: string | null; address?: string | null; gstin?: string | null };
   /** The revision that reopened the plan (the newest one), with what had been
    *  approved before it — null before any revision. */
-  revision: { revisionNo: number; reason: string; raisedAt: string; approved: ApprovedLine[] } | null;
+  revision: {
+    revisionNo: number;
+    reason: string;
+    raisedAt: string;
+    approved: ApprovedLine[];
+    /** 0727: the colours / shades as approved (the revision's V0 snapshot) —
+     *  null on a revision raised before 0727, which kept no snapshot. */
+    shadesBefore: ShadeLine[] | null;
+    /** The same facts read LIVE from the revised plan (`sample_plan_shade_lines`). */
+    shadesNow: ShadeLine[];
+  } | null;
 };
 
 export type FabricPlanFabricRow = {
@@ -220,6 +233,30 @@ export function planChanges(before: readonly ApprovedLine[], now: readonly Appro
     else if (was.qty !== x.qty) out.push({ name: x.name, uom: x.uom, before: was.qty, now: x.qty, kind: "changed" });
   }
   for (const [k, x] of a) if (!b.has(k)) out.push({ name: x.name, uom: x.uom, before: x.qty, now: null, kind: "removed" });
+  return out;
+}
+
+export type ShadeChange = { part: string; name: string; colour: string; before: number | null; now: number | null; uom: string | null; kind: "added" | "removed" | "changed" };
+
+/**
+ * A REVISION'S SHADES AGAINST WHAT WAS APPROVED (spec v8 §8.2: "dyeing shade
+ * changes"). Keyed by (part, material, colour), so NAVY → BLACK at the same
+ * kilos is one shade removed and one added — exactly what `planChanges` could
+ * not see, because the purchase quantity never moved. A shade whose quantity
+ * moved is "changed". Unchanged shades are left out.
+ */
+export function shadeChanges(before: readonly ShadeLine[], now: readonly ShadeLine[]): ShadeChange[] {
+  const key = (l: ShadeLine) => `${l.part}|${l.name.trim().toUpperCase()}|${l.colour.trim().toUpperCase()}`;
+  const a = new Map(before.map((l) => [key(l), l]));
+  const b = new Map(now.map((l) => [key(l), l]));
+  const q = (v: number | null) => (v == null ? null : Math.round(Number(v) * 1e3) / 1e3);
+  const out: ShadeChange[] = [];
+  for (const [k, x] of b) {
+    const was = a.get(k);
+    if (!was) out.push({ part: x.part, name: x.name, colour: x.colour, before: null, now: q(x.qty), uom: x.uom, kind: "added" });
+    else if (q(was.qty) !== q(x.qty)) out.push({ part: x.part, name: x.name, colour: x.colour, before: q(was.qty), now: q(x.qty), uom: x.uom, kind: "changed" });
+  }
+  for (const [k, x] of a) if (!b.has(k)) out.push({ part: x.part, name: x.name, colour: x.colour, before: q(x.qty), now: null, uom: x.uom, kind: "removed" });
   return out;
 }
 

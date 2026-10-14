@@ -533,6 +533,7 @@ export function IwoFabricBomScreen({
   perms,
   sample = false,
   swos,
+  initialOpen = null,
 }: {
   tasks: IwoFabricBomTask[];
   data: IwoFabricBomFormData;
@@ -543,6 +544,8 @@ export function IwoFabricBomScreen({
   /** Sample ▸ Fabric Plan (0707): the approved SWOs with no work order yet —
    *  what the in-place "new work order" box raises against. */
   swos?: SwoAwaitingIw[];
+  /** A plan id to open on arrival (`?open=`). */
+  initialOpen?: string | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -935,6 +938,20 @@ export function IwoFabricBomScreen({
     ),
   );
   const fabricIdKey = [...new Set([...lines.map((l) => l.item_id).filter(Boolean), ...answerLooseIds])].sort().join(",");
+
+  /* `?open=<plan id>` (2026-10-14): Sample ▸ Revision and Plan Approval's
+     "Open plan" land on the PLAN, not on the list beside it. Once, on mount;
+     a plan this list does not hold (another unit, deleted) leaves the list. */
+  useEffect(() => {
+    if (!initialOpen) return;
+    const t = tasks.find((x) => x.bom?.id === initialOpen);
+    if (!t) return;
+    // From a timer, not the effect body (react-hooks/set-state-in-effect); the
+    // cleanup makes React's dev double-mount open it exactly once.
+    const id = window.setTimeout(() => openTask(t), 0);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, from the link
+  }, []);
 
   useEffect(() => {
     // No round trip for no fabrics — that case is DERIVED below (`comp`), never

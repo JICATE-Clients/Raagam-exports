@@ -8,6 +8,7 @@ import { sampleAccessoriesRequirement } from "./accessories-requirement";
 import type {
   AccessoriesPlanReport,
   ApprovedLine,
+  ShadeLine,
   FabricPlanReport,
   FabricPlanRouteStep,
   PlanApprovalStatus,
@@ -123,7 +124,11 @@ type HeaderRow = {
 async function headerOf(s: Db, kind: PlanKind, plan: HeaderRow, sampleIds: Iterable<string | null>): Promise<PlanReportHeader> {
   const groupCol = kind === "fabric" ? "iwo_id" : "accessories_iwo_id";
   const revTable = kind === "fabric" ? "iwo_fabric_bom_revisions" : "iwo_material_bom_revisions";
-  const revCols = kind === "fabric" ? "revision_no, reason, raised_at, approved:approved_yarns" : "revision_no, reason, raised_at, approved:approved_items";
+  // 0727: `shades` = the V0 snapshot's colour facts (null before 0727).
+  const revCols =
+    kind === "fabric"
+      ? "revision_no, reason, raised_at, approved:approved_yarns, shades:snapshot->shades"
+      : "revision_no, reason, raised_at, approved:approved_items, shades:snapshot->shades";
   const [iwoRes, groupRes, coRes, locRes, revRes] = await Promise.all([
     s.from("internal_work_orders").select("code").eq("id", plan.iwo_id).maybeSingle(),
     s.from("sample_product_groups").select("id, group_code, season, season_year, description").eq(groupCol, plan.iwo_id).maybeSingle(),
@@ -146,7 +151,13 @@ async function headerOf(s: Db, kind: PlanKind, plan: HeaderRow, sampleIds: Itera
     reason: string;
     raised_at: string;
     approved: ApprovedLine[];
+    shades: ShadeLine[] | null;
   } | null;
+  // The revised plan's colour facts, read LIVE through the same definition the
+  // snapshot used — only when there is a revision to compare against.
+  const shadesNow: ShadeLine[] = rev
+    ? ((must(await s.rpc("sample_plan_shade_lines", { p_kind: kind, p_bom: plan.id }), "the plan's shades") as ShadeLine[] | null) ?? [])
+    : [];
 
   // The SWO's own samples first (its batching order), then any the rows name
   // that the SWO no longer holds.
@@ -186,7 +197,9 @@ async function headerOf(s: Db, kind: PlanKind, plan: HeaderRow, sampleIds: Itera
       address: registeredAddressOf(co),
       gstin: str("gstin"),
     },
-    revision: rev ? { revisionNo: rev.revision_no, reason: rev.reason, raisedAt: rev.raised_at, approved: rev.approved ?? [] } : null,
+    revision: rev
+      ? { revisionNo: rev.revision_no, reason: rev.reason, raisedAt: rev.raised_at, approved: rev.approved ?? [], shadesBefore: rev.shades ?? null, shadesNow }
+      : null,
   };
 }
 

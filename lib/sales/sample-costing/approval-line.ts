@@ -2,7 +2,9 @@
  * Sample Costing — the APPROVAL LINE a report prints (client 2026-10-09: "where
  * is the approver").
  *
- * A costing is approved one of two ways, and nothing on the report said which:
+ * SINCE 0725 (2026-10-14) A COSTING IS APPROVED BY THE BUYER — the merchandiser
+ * records "Customer Approved" / "Customer Rejected" on an Under Progress quote.
+ * The two older ways below survive only on sheets stored before then:
  *
  *   - AUTOMATICALLY on submit, when every quote earns at least the margin floor —
  *     no person involved, `approved_by` stays empty and the remark says so;
@@ -46,31 +48,33 @@ const on = (iso: string | null) => (day(iso) ? ` on ${day(iso)}` : "");
 /** The INTERNAL line — how it was approved, and by whom. */
 export function approvalLineOf(f: ApprovalFacts, floorPct: number = MARGIN_FLOOR_PCT): ApprovalLine {
   if (f.isDraft || f.status === "draft") {
-    return { tone: "muted", text: "Not submitted yet — still a Draft", detail: null };
+    return { tone: "muted", text: "Not sent to the buyer yet — still a Draft", detail: null };
   }
+  // 0725: the decision is the BUYER'S, recorded by the merchandiser.
   if (f.status === "submitted") {
     return {
       tone: "warn",
-      text: `With the MD for approval${f.submittedAt ? ` since ${day(f.submittedAt)}` : ""}`,
+      text: `Under Progress — with the buyer${f.submittedAt ? ` since ${day(f.submittedAt)}` : ""}`,
       detail:
-        f.lowestMarginPct != null
-          ? `Lowest margin ${f.lowestMarginPct.toFixed(1)}% is under the ${floorPct}% floor, so the MD decides.`
+        f.lowestMarginPct != null && f.lowestMarginPct < floorPct
+          ? `Lowest margin ${f.lowestMarginPct.toFixed(1)}% is under the ${floorPct}% floor.`
           : null,
     };
   }
   if (f.status === "rejected") {
     return {
       tone: "bad",
-      text: `Rejected${f.decidedByName ? ` by ${f.decidedByName}` : ""}${on(f.decidedAt)}`,
+      text: `Rejected by the buyer${on(f.decidedAt)}${f.decidedByName ? ` (recorded by ${f.decidedByName})` : ""}`,
       detail: f.remark,
     };
   }
   if (f.status === "superseded") {
     return { tone: "muted", text: "Superseded by a later revision", detail: null };
   }
-  // Approved.
+  // Approved. Since 0725 that is the buyer's acceptance; before it, the MD's
+  // decision or the ≥ floor auto-approve — both still on stored sheets.
   if (f.decidedByName) {
-    return { tone: "good", text: `Approved by ${f.decidedByName}${on(f.decidedAt ?? f.approvedAt)}`, detail: f.remark };
+    return { tone: "good", text: `Approved${on(f.decidedAt ?? f.approvedAt)} — recorded by ${f.decidedByName}`, detail: f.remark };
   }
   return {
     tone: "good",

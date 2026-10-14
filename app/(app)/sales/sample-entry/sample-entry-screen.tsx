@@ -418,7 +418,7 @@ export function SampleEntryScreen({
   // ---- factories (every key the factory stamps is blank — AGENTS.md
   // "THE SEEDED ROW IS SAVED UNLESS THE SAVE SIDE DROPS IT") ----------------
   const blankCombo = (): ComboDraft => ({ key: newKey(), combo: "", sizes: {} });
-  const blankStructure = (): StructureDraft => ({ key: newKey(), structure_id: null, gsm: "" });
+  const blankStructure = (): StructureDraft => ({ key: newKey(), structure_id: null, gsm: "", composition_id: null });
   /** Order Entry's `blankQuantity`: the dates start from the line's Delivery Dt
    *  (OE: the header's), Earlier Shipment a week before it. */
   const blankQuantity = (st?: StyleDraft | null): QuantityDraft => ({
@@ -617,12 +617,12 @@ export function SampleEntryScreen({
         );
         setDirty(false);
         router.refresh();
-        // STAY ON THE ENTRY (user 2026-10-14: "after saving, the save button
-        // will hide and the submit button will be visible — no more
-        // navigation"). Re-opened from the server so the rows carry their ids
-        // and the next Save is an update. A draft returns to the list as before.
-        if (asDraft) setMode("list");
-        else openEdit({ id: res.id } as SampleEntryListRow);
+        // SAVE CLOSES THE ENTRY (user 2026-10-14, later the same day: "after
+        // saving the entries close it immediately … no staying the screen
+        // again"). This reverses the earlier "stay on the entry" re-open; a
+        // Sample Entry has no Submit of its own to stay for. Draft or full
+        // save, the operator lands back on the list.
+        setMode("list");
       } else {
         toastError(res.error);
       }
@@ -1491,10 +1491,11 @@ export function SampleEntryScreen({
   /** One Structure · GSM row edited (Product Info ▸ Fabric). */
   const patchStructure = (st: StyleDraft, key: string, patch: Partial<StructureDraft>) =>
     patchStyle(st.key, { structures: st.structures.map((x) => (x.key === key ? { ...x, ...patch } : x)) });
-  /** Product Info ▸ Fabric's Structure · GSM columns for one style line —
-   *  COMPACT (user 2026-10-13: "compact titten pannu"): # 2.5 + Structure
-   *  `party` 12.5 (holds "2X2 LYCRA DURBY RIB") + GSM 6 (a 3-4 digit GSM and
-   *  its hover ✕) = the 21rem pane they sit in. */
+  /** Product Info ▸ Fabric's Structure · Composition · GSM columns for one
+   *  style line — COMPACT (user 2026-10-13: "compact titten pannu"): # 2.5 +
+   *  Structure `party` 12.5 (holds "2X2 LYCRA DURBY RIB") + Composition `party`
+   *  12.5 (0726, holds "BCI COTTON 97%, ELASTANE 3%") + GSM 6 (a 3-4 digit GSM
+   *  and its hover ✕) = the 33.5rem pane they sit in. */
   const structureColumnsFor = (active: StyleDraft): ChildGridColumn<StructureDraft>[] => [
     {
       header: "Structure",
@@ -1510,6 +1511,22 @@ export function SampleEntryScreen({
           )}
           value={x.structure_id}
           onChange={(id) => patchStructure(active, x.key, { structure_id: id })}
+        />
+      ),
+    },
+    {
+      /* COMPOSITION (spec v8 §7.1, user 2026-10-14 Q5; 0726): optional, from the
+         Composition master. The costing seeds this fabric's Yarn Mix from it, so
+         a composition typed once here is not typed again there. */
+      header: "Composition",
+      width: FIELD_WIDTH_CSS.party,
+      cell: (x) => (
+        <RecordPicker
+          label="Composition"
+          compact
+          items={data.compositions.filter((o) => o.id === x.composition_id || !o.inactive)}
+          value={x.composition_id}
+          onChange={(id) => patchStructure(active, x.key, { composition_id: id })}
         />
       ),
     },
@@ -1630,6 +1647,7 @@ export function SampleEntryScreen({
                   label="Season"
                   compact
                   items={data.seasons}
+                  keepOrder
                   value={header.season_id}
                   onChange={(id) => setH({ season_id: id })}
                 />
@@ -1873,7 +1891,7 @@ export function SampleEntryScreen({
                   row is not offered again — it would be one structure counted
                   twice. The hover ✕ rides in the GSM cell (`RowHoverRemove`,
                   Ctrl+Del through `data-row-remove`); the last row keeps none. */}
-              <div className="w-[21rem] max-w-full">
+              <div className="w-[33.5rem] max-w-full">
                 <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
                   <ChildGrid<StructureDraft>
                     tableAlways
@@ -2092,8 +2110,24 @@ export function SampleEntryScreen({
                   a Component Process. No rate — Sample Costing opens one
                   Embellishment line per row for the rate to be typed. Needs no
                   sizes, so it shows under the matrix's hint as well. */}
-              <PiLegend>Embellishments</PiLegend>
+              {/* TWO CATEGORIES, TWO GRIDS (spec v8 §5, 2026-10-14): Component
+                  Process — on a cut panel before stitching (chest print,
+                  embroidery, appliqué) — and Garment Process — on the whole
+                  garment (enzyme wash, tie & dye). One `processes` list
+                  underneath; each grid shows and adds only its own kind. */}
+              <PiLegend>Embellishments · Component Process</PiLegend>
               <StyleProcessGrid
+                kind="component"
+                rows={s.processes}
+                onChange={(next) => patchStyle(s.key, { processes: next })}
+                processes={data.processes}
+                components={data.components}
+                newKey={newKey}
+                readOnly={!!lock}
+              />
+              <PiLegend>Embellishments · Garment Process</PiLegend>
+              <StyleProcessGrid
+                kind="garment"
                 rows={s.processes}
                 onChange={(next) => patchStyle(s.key, { processes: next })}
                 processes={data.processes}

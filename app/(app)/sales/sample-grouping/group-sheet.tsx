@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -187,13 +186,6 @@ export function GroupSheet({
         <span className="flex flex-wrap items-center gap-2">
           <span className="font-mono">{group.group_code}</span>
           <StatusPill tone={GROUP_STATUS_TONE[group.status]}>{GROUP_STATUS_LABEL[group.status]}</StatusPill>
-          {/* The PD Request is raised per SWO, after grouping (0723). The PD
-              Request screen opens its form on this SWO when one may be sent. */}
-          {perms.canEdit ? (
-            <Link href={`/sales/pd-request?new=${group.id}`} className="text-xs font-normal text-primary underline underline-offset-2">
-              Send PD Request
-            </Link>
-          ) : null}
         </span>
       }
       footer={

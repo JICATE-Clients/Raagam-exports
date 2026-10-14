@@ -60,6 +60,8 @@ export type SampleEntryFormData = {
   coordinates: PickerRow[];
   /** Fabric Structure = a FABRIC-class category (Order Entry's Structure, 0405). */
   fabricStructures: PickerRow[];
+  /** Composition per structure (0726) — the FABRIC-class Composition master (0225). */
+  compositions: PickerRow[];
   /** Fabric Code — FABRIC-class items, narrowed on the screen by the Structure. */
   fabrics: FabricOption[];
   /** STYLE → ARTICLE NO (client spec 2026-10-12 §1: "auto-fetch Article No
@@ -253,6 +255,20 @@ async function getItemsOfClass(code: string): Promise<(PickerRow & { category_id
   );
 }
 
+/** The Composition master's FABRIC-class rows (0726): "COTTON 95%, ELASTANE 5%". */
+async function getFabricCompositions(): Promise<PickerRow[]> {
+  const ids = await classIds("FABRIC");
+  if (ids.size === 0) return [];
+  const s = await createClient();
+  const { data, error } = await s
+    .from("compositions")
+    .select("id, code:short_name, name, inactive")
+    .in("item_class_id", [...ids])
+    .order("name");
+  if (error) throw new Error(`Could not load compositions: ${error.message}`);
+  return ((data ?? []) as (PickerRow & { name: string | null })[]).map((r) => ({ ...r, name: r.name ?? r.code ?? "" }));
+}
+
 async function getFabricStructures(): Promise<PickerRow[]> {
   const ids = await classIds("FABRIC");
   if (ids.size === 0) return [];
@@ -267,7 +283,7 @@ async function getFabricStructures(): Promise<PickerRow[]> {
 }
 
 export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
-  const [customers, merchandisers, countries, currencies, lookups, consignees, ports, coordinates, fabricStructures, fabrics, seasons, agents, articles, processes, components] =
+  const [customers, merchandisers, countries, currencies, lookups, consignees, ports, coordinates, fabricStructures, fabrics, seasons, agents, articles, processes, components, compositions] =
     await Promise.all([
       getCustomers(),
       getMerchandisers(),
@@ -284,6 +300,7 @@ export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
       getArticles(),
       getEmbellishmentProcesses(),
       getComponents(),
+      getFabricCompositions(),
     ]);
   return {
     customers,
@@ -295,6 +312,7 @@ export async function getSampleEntryFormData(): Promise<SampleEntryFormData> {
     ports,
     coordinates: coordinates.map(({ id, code, name, is_active }) => ({ id, code, name, is_active })),
     fabricStructures,
+    compositions,
     fabrics,
     seasons,
     agents,
@@ -392,7 +410,7 @@ type StyleDb = Record<string, unknown> & {
       }[]
     | null;
   /** 0715 — the structures picked, each with its GSM. */
-  structures: { sno: number; structure_id: string | null; gsm: Num }[] | null;
+  structures: { sno: number; structure_id: string | null; gsm: Num; composition_id: string | null }[] | null;
   quantities:
     | (Record<string, unknown> & {
         sno: number;
@@ -421,7 +439,7 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
       "id, code, received_date, enquiry_against, enquiry_action, customer_id, country_id, season_id, season_year, " +
         "customer_reference, agent_id, receipt_mode, receipt_date, delivery_to, delivery_mode, multi_order, merchandiser_id, " +
         "styles(*, coordinates:sample_style_coordinates(sno, coordinate_id), sizes:style_sizes(sno, garment_size), " +
-        "structures:sample_style_fabric_structures(sno, structure_id, gsm), " +
+        "structures:sample_style_fabric_structures(sno, structure_id, gsm, composition_id), " +
         "combos:style_combos(sno, combo, sizes:style_combo_sizes(sno, garment_size, order_qty)), " +
         "files:sample_style_files(sno, doc_kind, file_name, storage_path, mime_type, size_bytes), " +
         "quantities:sample_style_quantities(*, lines:sample_quantity_assort_lines(sno, combo, style_ref, no_of_cartons, inners_per_carton, " +
@@ -504,8 +522,8 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
       structures: (() => {
         const rows = bySno(st.structures).filter((x) => !!x.structure_id);
         // `key` is the grid row's identity on screen only — never saved.
-        if (rows.length) return rows.map((x, xi) => ({ key: `fs-${xi}`, structure_id: x.structure_id as string, gsm: str(x.gsm) }));
-        return vid("fabric_structure_id") ? [{ key: "fs-0", structure_id: vid("fabric_structure_id") as string, gsm: v("gsm") }] : [];
+        if (rows.length) return rows.map((x, xi) => ({ key: `fs-${xi}`, structure_id: x.structure_id as string, gsm: str(x.gsm), composition_id: x.composition_id ?? null }));
+        return vid("fabric_structure_id") ? [{ key: "fs-0", structure_id: vid("fabric_structure_id") as string, gsm: v("gsm"), composition_id: null }] : [];
       })(),
       tech_pack: v("tech_pack"),
       customer_reference: v("customer_reference"),

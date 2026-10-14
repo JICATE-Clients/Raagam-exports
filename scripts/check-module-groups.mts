@@ -514,6 +514,12 @@ const REDIRECTED: Record<string, string> = {
   // screen (user 2026-09-30) — By Role / By User over the screen-level tree.
   "/admin/roles": "/admin/access-control",
   "/admin/permission-overrides": "/admin/user-permissions",
+  // Sample's four extra groups dissolved the day they were made (user
+  // 2026-10-14: "no need grouping, list plainly under sample management").
+  "/sales/pd": "/sales/management",
+  "/sales/planning": "/sales/management",
+  "/sales/approval": "/sales/management",
+  "/sales/revise": "/sales/management",
   // Material BOM was never an amendment screen — one door, and the revision
   // case is `bomStatus`'s `recalculate` state in place. The URL was named after
   // `material_bom_amendments` (0265), which took ITS name from the legacy

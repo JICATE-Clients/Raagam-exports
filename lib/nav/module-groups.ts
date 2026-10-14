@@ -940,17 +940,15 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     ],
   },
 
-  // SAMPLE GROUPED LIKE ORDERS (user 2026-10-14, screenshot 3462: "like order
-  // module kind we can group the child"). It was the one module still a flat
-  // literal list in nav.ts — nine rows that are really three jobs (the PD
-  // Request split out the same day, below):
-  //   · the sample DOCUMENT, entry to revision — Orders' Order Management
-  //     carries the same arc (entry → approval → revision), so Revision sits
-  //     here beside the costing it reopens, not in a group of its own;
-  //   · the MATERIAL behind it — grouping the fabric buys, the two IWO plans
-  //     over the sample work orders, and their approval.
-  // Routes are unchanged ("grouping does NOT move the leaf routes"); `/sales`
-  // stays the redirect to Sample Entry it already was.
+  // SAMPLE IS ONE PLAIN LIST (user 2026-10-14, screenshot 3465: "no need
+  // grouping, list plainly under sample management"). Earlier the same day it
+  // had been split into five groups — Sample Management, PD Request, Sample
+  // Planning, Approval, Revise — four of them holding one to three rows. That
+  // was reversed: every Sample screen is a child of Sample Management, in the
+  // order the work runs (raise → cost → hand to PD → plan the material →
+  // approve → revise). The four dissolved hubs keep their URLs as redirects
+  // here (`REDIRECTED` in scripts/check-module-groups.mts). Routes are
+  // unchanged; `/sales` stays the redirect to Sample Entry it already was.
   "/sales": {
     label: "Sample",
     module: "sales",
@@ -959,58 +957,17 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "management",
         label: "Sample Management",
-        description: "Raise a sample and cost it",
+        description: "Raise, cost, plan, approve and revise samples",
         children: [
           { href: "/sales/sample-entry", label: "Sample Entry", description: "Raise a sample — customer, styles, product info, combos and quantities" },
-          { href: "/sales/sample-costing", label: "Costing", description: "Cost a sample style — fabric, CMT, embellishments and trims — and send it to the MD" },
-        ],
-      },
-      // ONE REQUEST, TWO SIDES (user 2026-10-14: "pd request is also repeat") —
-      // the merchandiser sends it, the Sample Department answers it. Two rows
-      // both reading "PD Request" in Sample Management became one group, the way
-      // Orders gives CAD its own. The child labels drop the repeated words:
-      // the group row already says what they are a request FOR.
-      {
-        kind: "group",
-        slug: "pd",
-        label: "PD Request",
-        description: "Hand a saved sample to the Sample Department, and the department's answer",
-        children: [
-          { href: "/sales/pd-request", label: "Send Request", description: "Hand a saved sample to the Sample Department" },
-          { href: "/sales/pd-acknowledge", label: "Acknowledge", description: "The Sample Department's queue — acknowledge a request, or return it with a reason" },
-        ],
-      },
-      {
-        kind: "group",
-        slug: "planning",
-        label: "Sample Planning",
-        description: "Fabric and accessories for the samples — grouped buys and the two plans",
-        children: [
+          { href: "/sales/sample-costing", label: "Costing", description: "Cost a sample style — fabric, CMT, embellishments and trims — send it to the buyer and record their answer" },
+          { href: "/sales/pd-request", label: "PD Request", description: "Hand a saved sample to the Sample Department" },
+          { href: "/sales/pd-acknowledge", label: "PD Acknowledge", description: "The Sample Department's queue — acknowledge a request, or return it with a reason" },
           { href: "/sales/sample-grouping", label: "Grouping", description: "Batch sample styles of one season into one fabric purchase" },
           { href: "/sales/sample-fabric-plan", label: "Fabric Plan", description: "Fabric for the sample work orders — consumption, dia and dyeing" },
           { href: "/sales/sample-accessories-plan", label: "Accessories Plan", description: "Sewing and packing accessories for the sample work orders" },
-        ],
-      },
-      // APPROVAL AND REVISE ARE GROUPS OF THEIR OWN (user 2026-10-14: "plan
-      // approval is under approval, revision under Revise"). One screen each
-      // today; the group is the home the next approval / revision screen joins.
-      // Revise comes last because it only follows an approval.
-      {
-        kind: "group",
-        slug: "approval",
-        label: "Approval",
-        description: "Approve or send back what is waiting on a sign-off",
-        children: [
           { href: "/sales/plan-approval", label: "Plan Approval", description: "Approve or send back a submitted Fabric or Accessories Plan" },
-        ],
-      },
-      {
-        kind: "group",
-        slug: "revise",
-        label: "Revise",
-        description: "Change an approved sample",
-        children: [
-          { href: "/sales/sample-revision", label: "Revision", description: "Change an approved sample — raise a revision, make the change, send it to the MD" },
+          { href: "/sales/sample-revision", label: "Revision", description: "Change an approved Fabric or Accessories Plan — raise a revision, edit the plan, send it back for approval" },
         ],
       },
     ],

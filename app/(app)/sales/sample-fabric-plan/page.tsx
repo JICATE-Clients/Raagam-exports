@@ -14,7 +14,9 @@ import { listSwosAwaitingIw } from "@/lib/sales/sample-grouping/service";
  * work-order write, so Create / Edit / Delete are the Orders permissions the
  * IWO actions themselves check.
  */
-export default async function SampleFabricPlanPage() {
+export default async function SampleFabricPlanPage({ searchParams }: { searchParams: Promise<{ open?: string }> }) {
+  // `?open=<plan id>` — Sample ▸ Revision and Plan Approval open the plan itself.
+  const { open } = await searchParams;
   await requirePermission("sales", "view");
 
   const [tasks, data, swos, canCreate, canEdit, canDelete] = await Promise.all([
@@ -28,6 +30,7 @@ export default async function SampleFabricPlanPage() {
   ]);
 
   return <IwoFabricBomScreen
+      initialOpen={open ?? null}
       sample
       swos={swos}
       tasks={tasks} data={data} perms={{ canCreate, canEdit, canDelete }} />;

@@ -109,6 +109,7 @@ async function loadAppUser(): Promise<AppUser | null> {
       email: profile?.email ?? user.email ?? null,
       isSuperAdmin: realIsSuperAdmin,
       permissions,
+      roleIds: ((roles ?? []) as { id: string }[]).map((r) => r.id),
     }),
     isSuperAdmin: realIsSuperAdmin,
     realIsSuperAdmin,

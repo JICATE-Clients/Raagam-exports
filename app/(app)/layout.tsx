@@ -31,17 +31,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // `getCurrentLocation()` goes through `my_locations()` (0483), which
   // delegates to `has_location_access()`, so this list and Phase 1's RLS read
   // one rule.
-  const { location, allowed, source } = await getCurrentLocation();
-
-  // In PARALLEL: the dock's photo is one more lookup, and a serial await
-  // here would add a round trip to every page load.
-  const [stores, photoUrl] = await Promise.all([listStoreNavLinks(), getMyStaffPhotoUrl()]);
-
-  // Only fetched for a real Super Admin — `realIsSuperAdmin`, not
+  //
+  // ALL FOUR IN ONE ROUND (2026-10-14, "localhost taking time on every
+  // navigation"): they were three serial awaits, ~240 ms each from a dev
+  // machine to the Seoul database. None depends on another — every one only
+  // reads, and the unit and the photo reuse the user this request already
+  // loaded (`getAppUser` is memoised per request).
+  //
+  // Roles are only fetched for a real Super Admin — `realIsSuperAdmin`, not
   // `isSuperAdmin`, so the switcher stays reachable while already previewing.
-  const previewableRoles = user.realIsSuperAdmin
-    ? await listPreviewableRoles()
-    : [];
+  const [{ location, allowed, source }, stores, photoUrl, previewableRoles] = await Promise.all([
+    getCurrentLocation(),
+    listStoreNavLinks(),
+    getMyStaffPhotoUrl(),
+    user.realIsSuperAdmin ? listPreviewableRoles() : Promise.resolve([]),
+  ]);
 
   return (
     <PermissionProvider user={user}>

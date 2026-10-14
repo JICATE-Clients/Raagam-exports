@@ -11,11 +11,11 @@ import { PD_TO_DEPARTMENT, type PdSample, type PdStyleLine } from "@/lib/sales/p
  * Department reads, drawn by the same component on both screens so the two
  * can never show a request differently (client spec 2026-10-14):
  *
- *  - routing: From (merchandiser) · To Department · SWO No and its SMPs (0723
- *    — one request per SWO);
+ *  - routing: From (merchandiser) · To Department · SMP No (0724 — one request
+ *    per SMP; the 0723 SWO request shows its SWO and SMPs);
  *  - the sample's details, FETCHED from Sample Entry — Style Name / No,
  *    Article No, Sample Type, Required Qty, fabric structure · GSM ·
- *    composition, Target Delivery Date — one row per style line, because a
+ *    composition, Combo Breakdown, Target Delivery Date — one row per style line, because a
  *    sample carries several and each has its own;
  *  - the tech pack and garment images carried forward from Sample Info.
  *
@@ -27,15 +27,17 @@ const styleColumns: Column<PdStyleLine>[] = [
   { header: "SMP No", cell: (l) => <span className="whitespace-nowrap font-mono text-xs">{l.smp_no ?? "—"}</span> },
   {
     header: "Style Name / No",
-    cell: (l) => (
-      <span className="block">
-        <span className="font-medium">{l.name || "—"}</span>
-        {l.sample_no ? <span className="block font-mono text-[11px] text-muted-foreground">{l.sample_no}</span> : null}
-      </span>
-    ),
+    // The style's PRD sample number is NOT shown: the sample module speaks in
+    // SMP numbers only (STANDING 10-14), and the SMP No column already says it.
+    cell: (l) => <span className="font-medium">{l.name || "—"}</span>,
   },
   { header: "Article No", cell: (l) => l.article_no || "—" },
-  { header: "Sample Type", cell: (l) => l.sample_type || "—" },
+  {
+    header: "Sample Type",
+    // Mandatory for a request (sendPdRequest refuses without it); a blank one
+    // here is an older request, said in words rather than a bare dash.
+    cell: (l) => l.sample_type || <span className="text-warning">Not set</span>,
+  },
   {
     header: "Required Qty",
     align: "right",
@@ -60,6 +62,22 @@ const styleColumns: Column<PdStyleLine>[] = [
   {
     header: "Composition",
     cell: (l) => l.composition ?? <span className="text-muted-foreground">Not costed yet</span>,
+  },
+  {
+    header: "Combo Breakdown",
+    cell: (l) =>
+      l.combos.length ? (
+        <span className="block space-y-0.5">
+          {l.combos.map((c, i) => (
+            <span key={i} className="block whitespace-nowrap">
+              <span className="font-medium">{c.combo || "—"}</span>
+              <span className="text-muted-foreground">{` — ${c.sizes.map((z) => `${z.size}: ${fmtNumber(z.qty)}`).join(", ")}`}</span>
+            </span>
+          ))}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
   },
   {
     header: "Target Delivery",

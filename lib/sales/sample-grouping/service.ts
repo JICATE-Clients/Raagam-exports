@@ -1,7 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
-import type { PdRequestStatus } from "@/lib/sales/sample-entry/types";
 import { blendOf, styleFabricKg, type StoredWeight } from "./calc";
 import {
   candidateKey,
@@ -98,7 +97,6 @@ type GroupDb = {
   description: string | null;
   created_at: string;
   created_by: string | null;
-  pd: { status: PdRequestStatus; created_at: string }[] | null;
   iwo:
     | { code: string | null; bom: PlanBom | PlanBom[] | null }
     | { code: string | null; bom: PlanBom | PlanBom[] | null }[]
@@ -173,9 +171,7 @@ async function readGroups(): Promise<GroupDb[]> {
         // The plan's SMP rows — the cutting basis (user 2026-10-12). One FK each
         // way (iwo_fabric_boms.iwo_id is unique), so the embeds are unambiguous.
         "iwo:internal_work_orders!iwo_id(code, bom:iwo_fabric_boms(lines:iwo_fabric_bom_lines(sample_style_id, req_kgs))), " +
-        "items:sample_group_items(id, style_id, sample_entry_id, fabric_structure_id, blend_key, component_name, sample_qty_pcs, calculated_weight_kg, allocated_fabric_kg, created_at), " +
-        // 0723 — the SWO's PD Requests (one FK to this table); the latest decides `pd_status`.
-        "pd:sample_pd_requests(status, created_at)",
+        "items:sample_group_items(id, style_id, sample_entry_id, fabric_structure_id, blend_key, component_name, sample_qty_pcs, calculated_weight_kg, allocated_fabric_kg, created_at)",
     )
     .order("created_at", { ascending: true });
   if (error) throw new Error(`Could not load sample groups: ${error.message}`);
@@ -371,7 +367,6 @@ export async function getGroupingData(): Promise<GroupingData> {
       plan_kg_by_style: planKgByStyle(one(g.iwo)?.bom ?? null),
       remarks: g.remarks,
       description: g.description,
-      pd_status: [...(g.pd ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.status ?? null,
       created_at: g.created_at,
       created_by: g.created_by,
       items,

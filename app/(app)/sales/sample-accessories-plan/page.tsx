@@ -20,7 +20,9 @@ import { IwoMaterialBomScreen } from "@/app/(app)/orders/iwo-material-bom/iwo-ma
  * the SWOs with no accessories work order yet, offered beside the plans
  * already raised in the one SWO No picker.
  */
-export default async function SampleAccessoriesPlanPage() {
+export default async function SampleAccessoriesPlanPage({ searchParams }: { searchParams: Promise<{ open?: string }> }) {
+  // `?open=<plan id>` — Sample ▸ Revision and Plan Approval open the plan itself.
+  const { open } = await searchParams;
   await requirePermission("sales", "view");
 
   const [tasks, swos, data, canCreate, canEdit, canDelete, mCreate, mEdit] = await Promise.all([
@@ -36,6 +38,7 @@ export default async function SampleAccessoriesPlanPage() {
 
   return (
     <IwoMaterialBomScreen
+      initialOpen={open ?? null}
       sample
       swos={swos}
       tasks={tasks}

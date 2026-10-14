@@ -66,10 +66,13 @@ export function RevisionListScreen({
   const [query, setQuery] = useState("");
   const [raiseOpen, setRaiseOpen] = useState(!!initialRaise);
   const [opp, setOpp] = useState(initialRaise ?? "");
-  const [kinds, setKinds] = useState<RevisionKind[]>([]);
+  // ONE MODULE SINCE 0725 (Sample Info & Qty), so it starts ticked — a lone
+  // box the operator must tick before the form will raise is a step for nothing.
+  const DEFAULT_KINDS: RevisionKind[] = RAISABLE_REVISION_KINDS.length === 1 ? [...RAISABLE_REVISION_KINDS] : [];
+  const [kinds, setKinds] = useState<RevisionKind[]>(DEFAULT_KINDS);
   const [origin, setOrigin] = useState<RevisionOrigin>("customer");
   const [remarks, setRemarks] = useState("");
-  const dirty = raiseOpen && (kinds.length > 0 || !!remarks.trim());
+  const dirty = raiseOpen && (kinds.length !== DEFAULT_KINDS.length || !!remarks.trim());
   useUnsavedGuard(dirty || isPending);
 
   const searched = useMemo(() => {
@@ -84,7 +87,7 @@ export function RevisionListScreen({
 
   const openRaise = () => {
     setOpp("");
-    setKinds([]);
+    setKinds(DEFAULT_KINDS);
     setOrigin("customer");
     setRemarks("");
     setRaiseOpen(true);

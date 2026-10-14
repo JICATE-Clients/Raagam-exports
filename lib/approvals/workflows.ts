@@ -134,7 +134,7 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
   },
   /* 0719 — a Product Development request to the Sample Department (brief §3,
      spec §7.1). Approve = Acknowledged, Reject = Not Acknowledged. Started by
-     `sendPdRequest` (per SWO since 0723); the row opens the request on the Sample Department's
+     `sendPdRequest` (per SMP — 0724 reversed 0723's per-SWO); the row opens the request on the Sample Department's
      queue (Sample ▸ Acknowledge PD Request, client spec 2026-10-14). Sample
      Entry's `?pd=` redirect stays for links already sent. */
   sample_pd_request: {

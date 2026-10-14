@@ -44,17 +44,32 @@ export type CostingStatus = "draft" | "submitted" | "approved" | "rejected" | "s
 export const revisionLabel = (version: number) => (version <= 1 ? "Original (Rev 0)" : `Rev ${version - 1}`);
 export const revisionShort = (version: number) => `Rev ${Math.max(0, version - 1)}`;
 
-/** What a status is called on screen — the Budget's words (Request Rework). */
+/**
+ * What a status is called on screen — THE BUYER'S DECISION, not the MD's (0725,
+ * spec v8 §8.1 / §9, user 2026-10-14: "the costing is created and handled
+ * directly by the MD"). `submitted` is "submitted to the buyer": the quote is
+ * out and being negotiated by email. `approved` / `rejected` are the buyer's
+ * answer, recorded by the merchandiser. Until 0725 these read With MD / Rework.
+ */
 export const STATUS_LABEL: Record<CostingStatus, string> = {
   draft: "Draft",
-  submitted: "With MD",
+  submitted: "Under Progress",
   approved: "Approved",
-  rejected: "Rework",
+  rejected: "Rejected",
   superseded: "Superseded",
 };
 
-/** A sheet is the operator's to change in exactly these two states (0688). */
-export const isEditableStatus = (s: CostingStatus) => s === "draft" || s === "rejected";
+/**
+ * A sheet is the operator's to change in these two states (0725): a Draft, and
+ * an Under Progress quote — counter-offers are typed straight onto it during the
+ * email negotiation. Approved / Rejected are the buyer's answer; Revise opens
+ * the next version instead. (0688–0724: Draft and Rework.)
+ */
+export const isEditableStatus = (s: CostingStatus) => s === "draft" || s === "submitted";
+/** Only a sheet never sent to the buyer may be deleted — a sent quote is a record of what was offered. */
+export const isDeletableStatus = (s: CostingStatus) => s === "draft";
+/** Revise (version + 1) is offered from these three (0725 `save_sample_costing`). */
+export const isRevisableStatus = (s: CostingStatus) => s === "submitted" || s === "approved" || s === "rejected";
 
 // ---------------------------------------------------------------------------
 // The editor's state
@@ -219,6 +234,8 @@ export type CostingListRow = {
   computed_fob: number | null;
   target_fob: number | null;
   profit_loss_pct: number | null;
+  /** The buyer's reason on a Rejected costing / their confirmation on an Approved one (0725). */
+  decision_remark?: string | null;
   created_at: string;
   created_by: string | null;
   /** A saved sample style with NO costing yet (user 2026-10-12: "created

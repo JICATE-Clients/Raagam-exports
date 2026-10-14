@@ -5,7 +5,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import type { StatusTone } from "@/lib/ui/tone";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { FileText, Send } from "lucide-react";
+import { FileText, Send, type LucideIcon } from "lucide-react";
 import { RowActions, RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
@@ -70,6 +70,8 @@ export function SampleCards<R>({
   onSend,
   canSendRow,
   sendLabel = "Send for approval",
+  cardSendLabel = "Send",
+  sendIcon = Send,
   isPending = false,
   empty,
   table,
@@ -98,6 +100,9 @@ export function SampleCards<R>({
   onSend?: (r: R) => void;
   canSendRow?: (r: R) => boolean;
   sendLabel?: string;
+  /** The card's word for the same slot (short — a sixth of the pane); and its icon. */
+  cardSendLabel?: string;
+  sendIcon?: LucideIcon;
   isPending?: boolean;
   empty: ReactNode;
   /**
@@ -151,7 +156,7 @@ export function SampleCards<R>({
                   />
                 ) : null}
                 {onSend && canSendRow?.(r) !== false ? (
-                  <RowIconAction label={sendLabel} icon={Send} className="text-primary" onClick={() => onSend(r)} />
+                  <RowIconAction label={sendLabel} icon={sendIcon} className="text-primary" onClick={() => onSend(r)} />
                 ) : null}
               </>
             ) : undefined
@@ -191,7 +196,8 @@ export function SampleCards<R>({
       onSend={onSend}
       canSendRow={canSendRow}
       /* The card names its buttons in words, and a sixth of the pane has room for one. */
-      sendLabel="Send"
+      sendLabel={cardSendLabel}
+      sendIcon={sendIcon}
       isPending={isPending}
       empty={empty}
     />
