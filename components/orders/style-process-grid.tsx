@@ -80,6 +80,7 @@ export function StyleProcessGrid({
   newKey,
   readOnly = false,
   kind: fixedKind,
+  tableAlways = false,
 }: {
   /**
    * ONE KIND PER GRID (spec v8 §5, 2026-10-14 — Sample Entry ▸ Combos ▸
@@ -116,6 +117,14 @@ export function StyleProcessGrid({
    */
   newKey: () => string;
   readOnly?: boolean;
+  /**
+   * Draw the table at EVERY pane width instead of stacking into cards below
+   * ChildGrid's 512px container threshold. Opt-in: Sample Entry's Embellishments
+   * asked for the Excel-sheet table (user 2026-10-14, screenshots 155732 /
+   * 155951 showed four 44px boxes stacked down the pane). Order Entry's Style >
+   * Process keeps the responsive default.
+   */
+  tableAlways?: boolean;
 }) {
   // A fixed-kind grid sees its own rows; every write puts the other kind back.
   const rows = fixedKind ? allRows.filter((r) => r.kind === fixedKind) : allRows;
@@ -335,6 +344,7 @@ export function StyleProcessGrid({
          is "+ Add" has nothing to tab into and nothing to stand on and press
          Enter. The Components grid beside it passes this for the same reason. */
       seedRow
+      tableAlways={tableAlways}
       hideAdd={readOnly}
       onAdd={() =>
         onChange([
