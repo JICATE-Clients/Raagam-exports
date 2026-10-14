@@ -57,7 +57,6 @@ import {
   ChevronRight,
   Copy,
   GitCompare,
-  FileText,
   Pencil,
   RefreshCw,
   Ruler,
@@ -88,6 +87,7 @@ import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
+import { BackLink } from "@/components/ui/back-link";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
@@ -118,6 +118,7 @@ import {
   extraChargeAmount,
   fabricKgFor,
   solveTarget,
+  targetImpact,
   fabricPricePerKg,
   fabricSubtotal,
   gramsOf,
@@ -140,6 +141,7 @@ import {
   costingFieldId,
   costingProblems,
   floorSentence,
+  sentMarginNote,
   isBlankFabric,
   isBlankPieceLine,
   isBlankExtra,
@@ -459,7 +461,7 @@ export function SampleCostingScreen({
   const [extras, setExtras] = useState<ExtraChargeDraft[]>([]);
   const [quotes, setQuotes] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<string | null>(nextCostingNo);
-  const [approval, setApproval] = useState<{ forId: string; run: ApprovalRun | null; verdict: CanActVerdict | null } | null>(null);
+  const [approval, setApproval] = useState<{ forId: string; run: ApprovalRun | null; verdict: CanActVerdict | null; mine: boolean } | null>(null);
   /** A Save was attempted — a row's messages show from then on. */
   const [tried, setTried] = useState(false);
   /** Which size the rail shows when the sheet costs more than one. */
@@ -470,8 +472,6 @@ export function SampleCostingScreen({
   const [railAll, setRailAll] = useState(false);
   /** CMT & charges ▸ "Hide operations": pieces whose per-operation strip is folded away. Display only — a folded strip keeps every value. */
   const [opsHidden, setOpsHidden] = useState<Record<string, boolean>>({});
-  /** The buyer's target, for "Work back from a target price" (not stored). */
-  const [targetPrice, setTargetPrice] = useState("");
   /** "Copied from CST/…" until the first save (P2.2). */
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
@@ -676,8 +676,36 @@ export function SampleCostingScreen({
       return same ? { ...same, piece_name: c.name, coordinate_id: c.id } : blankPiece(c.name, c.id);
     });
   }
+  /**
+   * THE STYLE'S EMBELLISHMENTS BECOME EMBELLISHMENT LINES (client 2026-10-14:
+   * Sample Entry ▸ Combos ▸ Embellishments "auto-feed … into the Embellishment
+   * Cost"). The entry names the processes and carries no rate — the Process
+   * master has none — so each arrives as a line with its process picked and the
+   * ₹ / pc box empty for the costing to fill.
+   *
+   * WHICH PIECE: a Garment Process is done to the whole stitched garment, so on
+   * a SET it lands on every piece (each piece is washed, each is charged). A
+   * Component Process is on one cut panel, and the entry's panel does not name
+   * a piece, so it lands on the first — the same home `applyStyle` gives the
+   * lines of a piece that vanished.
+   *
+   * Only while NO piece has an embellishment picked, so re-picking the style
+   * never doubles lines or overwrites rates already typed (the fabric seed's rule).
+   */
+  function seedEmbellishments(st: CostingStyleOption | null, next: PieceDraft[]): PieceDraft[] {
+    if (!st?.processes.length) return next;
+    if (next.some((p) => p.lines.some((l) => l.kind === "embellishment" && l.process_id))) return next;
+    return next.map((p, i) => {
+      const add = st.processes
+        .filter((x) => x.kind === "garment" || i === 0)
+        // One line per process on a piece — the picker refuses a second.
+        .filter((x, xi, all) => all.findIndex((y) => y.id === x.id) === xi)
+        .map((x) => ({ ...blankPieceLine("embellishment"), process_id: x.id, process_name: x.name }));
+      return add.length ? { ...p, lines: [...p.lines.filter((l) => !(l.kind === "embellishment" && !l.process_id)), ...add] } : p;
+    });
+  }
   function applyStyle(st: CostingStyleOption | null) {
-    const next = piecesFor(st, pieces);
+    const next = seedEmbellishments(st, piecesFor(st, pieces));
     const keep = new Set(next.map((p) => p.key));
     const first = next[0].key;
     setPieces(next);
@@ -692,8 +720,28 @@ export function SampleCostingScreen({
       setSizeCols(sizes);
       setLoss(Object.fromEntries(sizes.map((z) => [z, DEFAULT_ALLOWANCE])));
     }
+    // THE STYLE'S FABRIC STRUCTURES BECOME THE FABRIC LINES (client 2026-10-14:
+    // Product Info → Costing fabric tab). Sample Entry already says which
+    // structures the style is made in, so the costing opens with one line per
+    // structure instead of asking for them again. Only while every fabric line is
+    // blank, so a re-picked style never overwrites rates already typed.
+    if (st?.structures.length && fabrics.every(isBlankFabric)) {
+      const seeded = st.structures.map((x) => {
+        const f = blankFabric();
+        return { ...f, ...pickedFabric(f, { id: x.id, name: x.name }) };
+      });
+      setFabrics(seeded);
+      // A weight line with no fabric yet is the style's first (main) structure's.
+      setLines((xs) => xs.map((l) => (l.fabric_key ? l : { ...l, fabric_key: seeded[0].key })));
+    }
     setDirty(true);
   }
+
+  /** The GSM Sample Entry gave this line's fabric structure, for the L × W × GSM calculator; "" when it gave none. */
+  const structureGsm = (fabricKey: string | null) => {
+    const id = fabrics.find((f) => f.key === fabricKey)?.fabric_id;
+    return (id && style?.structures.find((x) => x.id === id)?.gsm) || "";
+  };
 
   // ---- open / close -----------------------------------------------------------
   function seedAndOpen(d: CostingDraft) {
@@ -716,7 +764,6 @@ export function SampleCostingScreen({
     setExtras(d.extras);
     setQuotes(d.quotes);
     setRailGroup("all");
-    setTargetPrice("");
     setCopiedFrom(null);
     setCompare(null);
     setTried(false);
@@ -837,30 +884,37 @@ export function SampleCostingScreen({
     if (Object.keys(patch).length) setH(patch);
   }
   function onCurrency(code: string) {
+    // A rate belongs to its currency: switching USD → GBP must not keep the USD
+    // rate (the INR baseline would be divided by the wrong number). A new currency
+    // takes the master's rate, or a blank box that the Price step then asks for.
     const r = code === "INR" ? 1 : data.quoteRates[code];
-    setH(r && !header.exchange_rate.trim() ? { currency_code: code, exchange_rate: String(r) } : { currency_code: code });
+    if (code === header.currency_code) return;
+    setH({ currency_code: code, exchange_rate: r ? String(r) : header.currency_code ? "" : header.exchange_rate });
   }
-  function onFabricPick(f: FabricDraft, v: { id: string | null; name: string }) {
+  /** What picking fabric `v` on line `f` writes: the remembered rates when none are typed, else the structure's usual loss. */
+  function pickedFabric(f: FabricDraft, v: { id: string | null; name: string }): Partial<FabricDraft> {
     const typed =
       [f.yarn_rate, f.knitting_rate, f.dyeing_rate, f.finishing_rate, f.direct_rate].some((x) => x.trim()) ||
       f.yarns.some((y) => y.mix_pct.trim() || y.rate.trim()) ||
       f.processes.some((x) => x.rate.trim());
     const memo = data.rateMemory.find((m) => m.key === rateMemoryKey(v.id, v.name));
     if (memo && !typed) {
-      patchFabric(f.key, {
+      return {
         ...memo.fabric,
         fabric_id: v.id,
         quality: v.name,
         yarns: memo.fabric.yarns.length ? memo.fabric.yarns.map((y) => ({ ...y, key: newKey() })) : [blankYarn()],
         processes: memo.fabric.processes.length ? memo.fabric.processes.map((x) => ({ ...x, key: newKey() })) : [blankProcess()],
-      });
-      return;
+      };
     }
     const lossMemo =
       v.id && !f.process_loss_pct.trim()
         ? data.constructionLoss.find((c) => c.category_id === data.fabrics.find((x) => x.id === v.id)?.category_id)
         : undefined;
-    patchFabric(f.key, { fabric_id: v.id, quality: v.name, ...(lossMemo ? { process_loss_pct: lossMemo.loss_pct } : {}) });
+    return { fabric_id: v.id, quality: v.name, ...(lossMemo ? { process_loss_pct: lossMemo.loss_pct } : {}) };
+  }
+  function onFabricPick(f: FabricDraft, v: { id: string | null; name: string }) {
+    patchFabric(f.key, pickedFabric(f, v));
   }
 
   function openAdd() {
@@ -904,7 +958,7 @@ export function SampleCostingScreen({
       }
       if (r.status === "submitted") {
         const panel = await getCostingApproval(r.id);
-        setApproval({ forId: r.id, run: panel.run, verdict: panel.verdict });
+        setApproval({ forId: r.id, run: panel.run, verdict: panel.verdict, mine: panel.mine });
       }
     });
   }
@@ -1131,25 +1185,34 @@ export function SampleCostingScreen({
     });
   }
 
-  function sendForApproval() {
-    if (!editId) return;
-    if (dirty) {
-      toastError("Save the costing before submitting it.");
-      return;
-    }
+  /** Submit a saved costing FROM THE LIST (user 2026-10-14) — only a saved,
+   *  editable, non-draft costing that is not part of a Sample Revision. */
+  const canSendRow = (r: CostingListRow) => perms.canEdit && !r.awaiting && !r.is_draft && isEditableStatus(r.status);
+  function sendForApproval(r: CostingListRow) {
     start(async () => {
-      const res = await submitSampleCosting(editId);
+      const res = await submitSampleCosting(r.id);
       if (!res.ok) {
         toastError(res.error);
         return;
       }
-      success(
-        res.outcome === "approved"
-          ? `Approved — every quote earns at least ${MARGIN_FLOOR_PCT}%.`
-          : `Sent to the MD — the lowest margin is ${res.lowest?.toFixed(1) ?? "—"}%, under ${MARGIN_FLOOR_PCT}%.`,
-      );
+      success(`${r.code ?? "Costing"} sent to the MD for approval${sentMarginNote(res.lowest)}.`);
       router.refresh();
-      openById(editId);
+    });
+  }
+  /** The same Submit INSIDE the editor (user 2026-10-14: "they can submit
+   *  inside too") — the saved costing on screen, and it stays open. */
+  function submitOpen() {
+    if (!editId) return;
+    const id = editId;
+    start(async () => {
+      const res = await submitSampleCosting(id);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      success(`Sent to the MD for approval${sentMarginNote(res.lowest)}.`);
+      router.refresh();
+      openById(id);
     });
   }
 
@@ -1182,25 +1245,6 @@ export function SampleCostingScreen({
     });
   }
 
-  // ---- Reports: the Cost Sheet and the Quotation, read first, then downloaded ----
-  /**
-   * ONE DOOR, LIKE ORDER ENTRY'S REPORTS ICON (client 2026-10-09: "there is no
-   * proper view option … directly downloading"). The editor's two buttons — a
-   * Cost sheet page and a Quotation that built a PDF the moment it was pressed —
-   * are now one, and it opens Costing ▸ Reports, where both documents are read
-   * on screen and then downloaded or printed. The page shows the SAVED costing.
-   */
-  function openReports() {
-    if (!editId || revisingFrom) {
-      toastError("Save the costing first, then open its reports.");
-      return;
-    }
-    if (dirty) {
-      toastError("Save your changes first — the reports show the saved costing.");
-      return;
-    }
-    router.push(`/sales/sample-costing/${editId}/reports`);
-  }
 
   // ---- the list -----------------------------------------------------------------
   const lockReason = (r: CostingListRow) =>
@@ -1982,7 +2026,7 @@ export function SampleCostingScreen({
                                 data-row-open
                                 aria-label={`Calculate ${colLabel(c)} grams from length, width and GSM`}
                                 onClick={captureDimsOrigin(() => {
-                                  setDims({ l: "", w: "", g: "" });
+                                  setDims({ l: "", w: "", g: structureGsm(l.fabric_key) });
                                   setDimsFor({ line: l.key, col: c });
                                 })}
                                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-muted-foreground hover:bg-primary-soft hover:text-primary"
@@ -2172,6 +2216,18 @@ export function SampleCostingScreen({
     e.preventDefault();
     btn.click();
   };
+  /* A PROCESS SAMPLE ENTRY SEEDED STAYS ON ITS LINE even when the master has
+     not marked it Embellishment (the entry offers by for_garments /
+     for_components, 0722) — the `cmtOpsOf` rule that a held value is shown,
+     never dropped. Not marked inactive: it is a live process, and the tag
+     would tell the operator the entry picked something switched off. */
+  const embItemsOf = (rows: PieceLineDraft[]) => {
+    const items = lineItems("embellishment");
+    const orphans = rows
+      .filter((l) => l.process_id && !items.some((x) => x.id === l.process_id))
+      .map((l) => ({ id: l.process_id as string, code: "", name: l.process_name || "Embellishment", inactive: false }));
+    return [...items, ...orphans];
+  };
   const embellishmentPair = (pc: PieceDraft, r: PieceLineDraft, rows: PieceLineDraft[], lead: boolean) => (
     <>
       <td className={lead ? TD_LEAD : TD} data-emb-cell>
@@ -2179,7 +2235,7 @@ export function SampleCostingScreen({
           <RecordPicker
             compact
             label="Embellishment"
-            items={lineItems("embellishment")}
+            items={embItemsOf(rows)}
             emptyHint="No embellishments yet. Add them in the Process master and switch on Embellishment as the process kind."
             value={r.process_id}
             usedIds={rows.filter((x) => x.key !== r.key).flatMap((x) => (x.process_id ? [x.process_id] : []))}
@@ -2696,10 +2752,10 @@ export function SampleCostingScreen({
                 Style row leads, so a new sheet's cursor lands on Sample No —
                 the one question to answer before anything else. */}
             <FieldRow gap="row" align="start">
-              <Field label="Sample No" required w="party" htmlFor={costingFieldId.sample}>
+              <Field label="SMP Number" required w="party" htmlFor={costingFieldId.sample}>
                 <RecordPicker
                   id={costingFieldId.sample}
-                  label="Sample No"
+                  label="SMP Number"
                   compact
                   required
                   disabled={!!editId || !!revisingFrom}
@@ -2735,7 +2791,8 @@ export function SampleCostingScreen({
                   // A costed style leaves the list too — the held one always stays.
                   items={enquiryStyles
                     .filter((s) => !s.costed || s.id === header.style_id)
-                    .map((s) => ({ id: s.id, code: s.sample_no, name: [s.sample_no, s.name].filter(Boolean).join(" · ") }))}
+                    // Named by the style alone — no PRD number in the Sample module (client 2026-10-14).
+                    .map((s) => ({ id: s.id, code: s.name, name: s.name }))}
                   value={header.style_id}
                   onChange={(id) => {
                     setH({ style_id: id });
@@ -2921,11 +2978,17 @@ export function SampleCostingScreen({
     if (price == null) return null;
     return { value: price * fx, diff: quoted != null && calc != null ? (quoted - calc) * fx : null };
   })();
+  // THE BUYER'S TARGET IS ONE STORED FIELD (user 2026-10-13): the Quotation
+  // summary's Target box edits `header.buyer_target_price`, the value the Cost
+  // Sheet prints with its "Difference to target". It used to be a second,
+  // unsaved box here, beside a saved one under Price & quote — typed twice.
+  const targetPrice = header.buyer_target_price;
   const targetNum = num(targetPrice);
   const solve =
     t && targetNum != null
       ? solveTarget(t, header, targetNum, isSet ? pieces.length : 1, fabricKgFor(liveRows(draft).weights, railData?.size ?? null), live.extras)
       : null;
+  const impact = t && targetNum != null && targetNum > 0 ? targetImpact(t, header, targetNum, isSet ? pieces.length : 1, live.extras) : null;
 
   /*
    * PRICE & QUOTE (layout plan B, user 2026-10-07) — the old right-hand
@@ -2997,12 +3060,9 @@ export function SampleCostingScreen({
             <Field label="Insurance / pc ₹" w="range" htmlFor="sc-ins">
               <NumInput id="sc-ins" value={header.insurance_per_pc} onChange={(e) => setH({ insurance_per_pc: e.target.value })} />
             </Field>
-            {/* OPTIONAL COMMERCIAL TERMS (RAAGAM COSTING FORMAT.xlsx, 2026-10-09): the buyer's
-                target, printed beside the quote with the gap, and the agent's commission,
-                which rides on the price. Both blank = not in play. */}
-            <Field label={`Buyer target ${ccy ?? ""} / ${unitWord}`.trim()} w="range" htmlFor="sc-target">
-              <NumInput id="sc-target" value={header.buyer_target_price} onChange={(e) => setH({ buyer_target_price: e.target.value })} />
-            </Field>
+            {/* OPTIONAL COMMERCIAL TERMS (RAAGAM COSTING FORMAT.xlsx, 2026-10-09): the agent's
+                commission, which rides on the price. Blank = not in play. The buyer's target
+                is entered once, in the Quotation summary's Target tab (user 2026-10-13). */}
             <Field label="Commission %" w="range" htmlFor="sc-commission">
               <NumInput id="sc-commission" value={header.commission_pct} onChange={(e) => setH({ commission_pct: e.target.value })} />
             </Field>
@@ -3235,7 +3295,7 @@ export function SampleCostingScreen({
       <div className="text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Work back from the buyer&apos;s target</div>
       <div className="space-y-2">
           <Field label={`Buyer's target ${ccy ?? ""} / ${unitWord}`.trim()} w="code" htmlFor="sc-target">
-            <NumInput id="sc-target" value={targetPrice} onChange={(e) => setTargetPrice(e.target.value)} />
+            <NumInput id="sc-target" value={targetPrice} readOnly={!editable} onChange={(e) => setH({ buyer_target_price: e.target.value })} />
           </Field>
           {solve ? (
             <div className="space-y-1.5 text-xs">
@@ -3243,7 +3303,24 @@ export function SampleCostingScreen({
                 {"It leaves "}
                 <span className={`font-semibold ${HEALTH[marginHealth(solve.marginPct) ?? "poor"].text}`}>{pct(solve.marginPct)}</span>
                 {" margin."}
+                {impact && Math.abs(impact.marginShiftPts) >= 0.005 ? (
+                  <span className="text-muted-foreground">{` (${impact.marginShiftPts > 0 ? "+" : "−"}${Math.abs(impact.marginShiftPts).toFixed(2)} pts on the calculated ${pct(impact.calcMarginPct)})`}</span>
+                ) : null}
               </p>
+              {impact ? (
+                <>
+                  <p className="m-0 text-foreground">
+                    {`Against the calculated price: `}
+                    <span className={`font-semibold ${impact.inrPerUnit >= 0 ? "text-success" : "text-danger"}`}>
+                      {`₹ ${impact.inrPerUnit >= 0 ? "+" : "−"}${money(Math.abs(impact.inrPerUnit))}`}
+                    </span>
+                    {` / ${isSet ? "set" : "pc"}.`}
+                  </p>
+                  <p className="m-0 text-muted-foreground">
+                    {`Each ${ccy ?? ""} 0.01 = ₹ ${money(impact.perCentInr)} / ${isSet ? "set" : "pc"} · ${impact.perCentMarginPts.toFixed(2)} pts margin.`.replace("  ", " ")}
+                  </p>
+                </>
+              ) : null}
               {solve.clearsFloor ? (
                 <p className="m-0 text-muted-foreground">{`That clears the ${MARGIN_FLOOR_PCT}% floor.`}</p>
               ) : (
@@ -3252,7 +3329,7 @@ export function SampleCostingScreen({
                   {solve.perKgFabric != null ? ` — about ₹${money(solve.perKgFabric)} / kg on fabric, or ₹${money(solve.costCut)} on CMT.` : "."}
                 </p>
               )}
-              {single ? (
+              {single && editable ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => setQuote(single.key, targetPrice.trim())}>
                   Quote at this price
                 </Button>
@@ -3440,7 +3517,7 @@ export function SampleCostingScreen({
             ))}
           </div>
           <p className="m-0 text-[11px] text-muted-foreground">
-            {`${ccy ?? ""} per ${isSet ? "set" : "piece"}, against the current ${marginNow}%. Under ${MARGIN_FLOOR_PCT}% goes to the MD. Change the margin in Price & quote.`.trim()}
+            {`${ccy ?? ""} per ${isSet ? "set" : "piece"}, against the current ${marginNow}%. Under ${MARGIN_FLOOR_PCT}% is flagged to the MD. Change the margin in Price & quote.`.trim()}
           </p>
         </div>
       ) : null}
@@ -3601,8 +3678,7 @@ export function SampleCostingScreen({
 
   if (mode === "edit") {
     // A Sample Revision's proposal is sent to the MD by the revision, not here.
-    const canSubmit = !!editId && !revisingFrom && !revOf && isEditableStatus(meta.status) && !meta.isDraft && perms.canEdit;
-    const submitNow = canSubmit && !dirty;
+    const submitNow = !!editId && !revisingFrom && !revOf && isEditableStatus(meta.status) && !meta.isDraft && perms.canEdit && !dirty;
     const context = [enquiry?.code, style?.name, enquiry?.customer_name, [enquiry?.season, enquiry?.season_year].filter(Boolean).join(" ")].filter(Boolean);
     return (
       <div className="flex h-full flex-col gap-3">
@@ -3614,6 +3690,9 @@ export function SampleCostingScreen({
           <Button variant="ghost" size="sm" onClick={closeEditor} aria-label="Back to list" className="h-10 w-10 shrink-0 px-0 text-lg md:hidden">
             ←
           </Button>
+          {/* Back on a desktop too (user 2026-10-14: "add clear Back buttons") —
+              the app's BackLink, not a second outline button. */}
+          <BackLink onBack={closeEditor} label="Costing" className="max-md:hidden" />
           <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-wrap">
             <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {revisingFrom ? "Revise Sample Costing" : !editable ? "View Sample Costing" : editId ? "Edit Sample Costing" : "New Sample Costing"}
@@ -3633,16 +3712,13 @@ export function SampleCostingScreen({
             </span>
           ) : null}
           <div aria-hidden className="h-px min-w-[2rem] flex-1 self-center bg-border" />
-          {/* THE BUTTON PLAN (user 2026-10-09): Reports, More, and the ONE
-              next step, filled — at 36px like every header. Copy from and
-              Compare are now-and-then actions, folded under More. "← Back to
-              list" is gone on a desktop: it ran the same `closeEditor` as the
-              footer's Cancel, two buttons for one job. The phone keeps its ←
-              above, where the footer's Cancel is hidden. */}
+          {/* THE BUTTON PLAN (user 2026-10-09): More and the ONE next step,
+              filled — at 36px like every header. Copy from and Compare are
+              now-and-then actions, folded under More. REPORTS AND SUBMIT ARE ON
+              THE LIST (user 2026-10-14): the card's Reports and Send icons, so a
+              saved costing is sent without opening it again. The way back is
+              the ← text link at the start of this band. */}
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={openReports}>
-              <FileText aria-hidden /> Reports
-            </Button>
             <MoreActions
               items={[
                 ...(editable && copyCandidates.length
@@ -3655,14 +3731,6 @@ export function SampleCostingScreen({
             />
             {meta.status === "approved" && !revisingFrom && perms.canEdit ? (
               <Button onClick={revise}>Raise Revision</Button>
-            ) : null}
-            {/* HIDDEN WHILE THERE ARE UNSAVED CHANGES (Rule 2). Save is then
-                the one filled button; once saved, Submit is — so a version
-                that was never saved cannot be sent to the MD. */}
-            {submitNow ? (
-              <Button onClick={sendForApproval} disabled={isPending}>
-                Submit
-              </Button>
             ) : null}
           </div>
         </div>
@@ -3682,7 +3750,7 @@ export function SampleCostingScreen({
           </p>
         ) : null}
         {whyCard}
-        {approval && approval.forId === editId && approval.run && approval.verdict ? (
+        {approval && approval.forId === editId && approval.run && approval.verdict && !approval.mine ? (
           <ApprovalActionBar
             run={approval.run}
             verdict={approval.verdict}
@@ -3712,10 +3780,11 @@ export function SampleCostingScreen({
             saveLabel: "Save",
             canSave: validity.canSave,
             // Submit is the next step once saved, so Save steps down (Rule 2).
-            saveQuiet: submitNow,
             // Save names the first missing field and steers to it with a brief
             // ring (clean spec §4) — no counts, no progress bar.
             onBlockedSave: revealFirstProblem,
+            // Saved and untouched: Submit stands where Save stood (user 2026-10-14).
+            submit: submitNow ? { label: "Submit", onClick: submitOpen } : null,
             // THE DRAFT OFFER LIVES IN THE BOTTOM BAR (user 2026-10-07), beside
             // the buttons that act on the whole sheet — not as a banner taking
             // the top of the canvas. LINKS, NOT BUTTONS (user 2026-10-09,
@@ -3856,7 +3925,7 @@ export function SampleCostingScreen({
       <FilterBar
         search={query}
         onSearch={setQuery}
-        searchPlaceholder="Search Costing No, Sample No, customer or style…"
+        searchPlaceholder="Search Costing No, SMP Number, customer or style…"
         activeCount={facets.activeCount}
         onReset={facets.activeCount ? facets.reset : undefined}
         panel={facets.panel}
@@ -3876,7 +3945,7 @@ export function SampleCostingScreen({
         getKey={(r) => r.id}
         title={(r) => <span className="font-mono">{r.awaiting ? (r.enquiry_no ?? "—") : (r.code ?? "—")}</span>}
         subtitle={(r) => (
-          <span>{[r.awaiting ? null : r.enquiry_no, r.customer_name, r.sample_no, r.style_name].filter(Boolean).join(" · ") || "—"}</span>
+          <span>{[r.awaiting ? null : r.enquiry_no, r.customer_name, r.style_name].filter(Boolean).join(" · ") || "—"}</span>
         )}
         state={(r): SampleCardState => ({ pending: "pending", draft: "draft", updated: "updated" } as const)[costingWordOf(r)]}
         /* THE PILL SAYS THE TAB THE CARD IS IN (user 2026-10-14: "draft na draft
@@ -3900,6 +3969,8 @@ export function SampleCostingScreen({
         onDelete={del}
         onReports={(r) => router.push(`/sales/sample-costing/${r.id}/reports`)}
         canReportsRow={(r) => !r.awaiting}
+        onSend={sendForApproval}
+        canSendRow={canSendRow}
         isPending={isPending}
         empty={
           !current.length

@@ -53,9 +53,9 @@ export interface NavItem {
  * Production / Logistics / Reports each repeated their own module root as their
  * first child — two rows for one page (client 2026-08-07).
  *
- * A module absent from that registry keeps a literal list here, and only two
- * are: Sales already listed five sub-modules, and Reports is derived from the
- * report catalog.
+ * A module absent from that registry keeps a literal list here, and only one
+ * does: Reports, which is derived from the report catalog. Sample (`/sales`)
+ * was the other until it was grouped like Orders (2026-10-14).
  */
 export const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", module: "dashboard", icon: LayoutDashboard },
@@ -77,39 +77,12 @@ export const NAV: NavItem[] = [
     label: "Sample",
     module: "sales",
     icon: ShoppingBag,
-    children: [
-      // SAMPLE ENTRY (user 2026-10-06) — the legacy Create Opportunities +
-      // Define Styles merged into one document (0683). It took the place of the
-      // "Samples & Development" row, whose hub now redirects here; the old
-      // Opportunities / Styles screens redirect here too.
-      { href: "/sales/sample-entry", label: "Sample Entry" },
-      // SAMPLE COSTING (2026-10-07, doc/sample/sample-costing-specification.md)
-      // — the next child after Sample Entry: the legacy Product Cost Sheet as
-      // one document per sample style line, on `cost_sheets` (0688).
-      { href: "/sales/sample-costing", label: "Costing" },
-      // GROUPING (2026-10-09, doc/sample/product-grouping-specification.md) —
-      // the next child after Costing: sample styles of one season that share
-      // a fabric structure and yarn blend, batched into one MOQ purchase (0702).
-      { href: "/sales/sample-grouping", label: "Grouping" },
-      // FABRIC PLAN · ACCESSORIES PLAN (user 2026-10-09) — the IWO Fabric /
-      // Accessories Plan screens over the SAMPLE work orders (0704 `is_sample`):
-      // spec step 4, "Fabric & trim internal plan". The same record Orders opens.
-      { href: "/sales/sample-fabric-plan", label: "Fabric Plan" },
-      { href: "/sales/sample-accessories-plan", label: "Accessories Plan" },
-      // PLAN APPROVAL (user 2026-10-13: "separate approval screen like order
-      // entry") — the Fabric and Accessories Plans sent for approval, each
-      // read as its report before Approve / Request Rework (0718, 0720).
-      { href: "/sales/plan-approval", label: "Plan Approval" },
-      // SAMPLE REVISION (0716, doc/sample/sample revion.md) — a locked (costing
-      // approved) sample changes only through a revision that goes to the MD.
-      { href: "/sales/sample-revision", label: "Revision" },
-      // OPPORTUNITIES & COSTING, SQ DETAILS, PIPELINE & SEASONAL and CATALOGUES
-      // & PRICING LEFT THE SIDEBAR (user 2026-10-09: "remove the opportunities
-      // to catalogue and price 4 child from sample entry"). Sample Entry and
-      // Costing are the module now. The routes are NOT deleted — "a screen
-      // that loses its sidebar row keeps its URL" (AGENTS.md), so a bookmark
-      // or a link from another screen still lands.
-    ],
+    // GROUPED LIKE ORDERS since 2026-10-14 — Sample Management · Sample
+    // Planning, declared in lib/nav/module-groups.ts. The nine screens' history
+    // (Sample Entry 0683, PD Request 0719, Costing 0688, Grouping 0702, the two
+    // sample plans 0704, Plan Approval 0718/0720, Revision 0716) is in git; the
+    // retired Opportunities / SQ / Pipeline / Catalogue rows keep their URLs.
+    children: moduleNavChildren("/sales"),
   },
   {
     href: "/orders",

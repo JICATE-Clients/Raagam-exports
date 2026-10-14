@@ -122,7 +122,8 @@ export function buildQuotationModel(
     company,
     customer: enq?.customer_name ?? null,
     enquiryNo: enq?.code ?? null,
-    sampleNo: style?.sample_no ?? null,
+    // The SMP Number, never the style line's PRD (client 2026-10-14).
+    sampleNo: enq?.code ?? null,
     style: style?.name ?? null,
     description: style?.description ?? null,
     season: [enq?.season, enq?.season_year].filter(Boolean).join(" ") || null,

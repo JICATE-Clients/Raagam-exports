@@ -92,8 +92,7 @@ export async function exportQuotationPdf(
     y,
     [
       { label: "Customer", value: q.customer },
-      { label: "Enquiry No", value: q.enquiryNo },
-      { label: "Sample No", value: q.sampleNo },
+      { label: "SMP Number", value: q.sampleNo },
       { label: "Style", value: q.style },
       { label: "Description", value: q.description },
       { label: "Season", value: q.season },

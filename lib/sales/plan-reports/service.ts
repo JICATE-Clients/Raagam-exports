@@ -2,7 +2,9 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { withCreators } from "@/lib/created-by";
-import { letterheadLogoOf } from "@/lib/orders/fabric-bom/letterhead";
+import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
+import { sampleYarnFabricReport } from "./yarn-fabric";
+import { sampleAccessoriesRequirement } from "./accessories-requirement";
 import type {
   AccessoriesPlanReport,
   ApprovedLine,
@@ -65,13 +67,36 @@ async function samplesOf(s: Db, styleIds: Iterable<string | null>): Promise<Map<
   const list = [...new Set([...styleIds].filter((x): x is string => !!x))];
   if (!list.length) return new Map();
   const rows = must(
-    await s.from("styles").select("id, sample_no, name, opp:opportunities!opportunity_id(code)").in("id", list),
+    await s
+      .from("styles")
+      .select("id, sample_no, name, sample_qty, delivery_date, opp:opportunities!opportunity_id(code, title, customer:customers!customer_id(name))")
+      .in("id", list),
     "the samples",
-  ) as unknown as { id: string; sample_no: string | null; name: string | null; opp: { code: string | null } | { code: string | null }[] | null }[];
+  ) as unknown as {
+    id: string;
+    sample_no: string | null;
+    name: string | null;
+    sample_qty: number | string | null;
+    delivery_date: string | null;
+    opp: Opp | Opp[] | null;
+  }[];
+  type Opp = { code: string | null; title: string | null; customer: { name: string | null } | { name: string | null }[] | null };
   return new Map(
     rows.map((r) => {
       const opp = Array.isArray(r.opp) ? r.opp[0] : r.opp;
-      return [r.id, { styleId: r.id, smpNo: opp?.code ?? null, sampleNo: r.sample_no, styleName: r.name ?? "" }];
+      const cust = Array.isArray(opp?.customer) ? opp?.customer[0] : opp?.customer;
+      return [
+        r.id,
+        {
+          styleId: r.id,
+          smpNo: opp?.code ?? null,
+          sampleNo: r.sample_no,
+          styleName: r.name ?? "",
+          qty: num(r.sample_qty) ?? 0,
+          deliveryDate: r.delivery_date,
+          customer: cust?.name ?? opp?.title ?? null,
+        },
+      ];
     }),
   );
 }
@@ -154,7 +179,13 @@ async function headerOf(s: Db, kind: PlanKind, plan: HeaderRow, sampleIds: Itera
     decidedAt: plan.decided_at,
     decisionRemark: plan.decision_remark,
     approvedAt: plan.approved_at,
-    company: { name: str("name") ?? str("company_name"), unit: loc?.name ?? null, logo: letterheadLogoOf(co) },
+    company: {
+      name: str("name") ?? str("company_name"),
+      unit: loc?.name ?? null,
+      logo: letterheadLogoOf(co),
+      address: registeredAddressOf(co),
+      gstin: str("gstin"),
+    },
     revision: rev ? { revisionNo: rev.revision_no, reason: rev.reason, raisedAt: rev.raised_at, approved: rev.approved ?? [] } : null,
   };
 }
@@ -178,7 +209,7 @@ export async function fabricPlanReport(bomId: string): Promise<FabricPlanReport 
       .select("sno, item_id, buy_stage_id, colour_by, planned_kgs, purchase_qty, uom_id, refusal_reason, shades:iwo_fabric_bom_yarn_shades(sno, color_name, planned_kgs, purchase_qty)")
       .eq("bom_id", bomId)
       .order("sno"),
-    s.from("iwo_fabric_bom_processes").select("item_id, sno, stage_id, process_id, type_id, loss_pct").eq("bom_id", bomId),
+    s.from("iwo_fabric_bom_processes").select("item_id, sno, stage_id, process_id, type_id, loss_pct, color_losses").eq("bom_id", bomId),
   ]);
   type Line = {
     sno: number;
@@ -205,7 +236,15 @@ export async function fabricPlanReport(bomId: string): Promise<FabricPlanReport 
     refusal_reason: string | null;
     shades: { sno: number; color_name: string | null; planned_kgs: number | string | null; purchase_qty: number | string | null }[] | null;
   };
-  type Proc = { item_id: string; sno: number; stage_id: string | null; process_id: string | null; type_id: string | null; loss_pct: number | string | null };
+  type Proc = {
+    item_id: string;
+    sno: number;
+    stage_id: string | null;
+    process_id: string | null;
+    type_id: string | null;
+    loss_pct: number | string | null;
+    color_losses: Record<string, number> | null;
+  };
   const lines = must(linesRes, "the fabric lines") as Line[];
   const yarns = must(yarnsRes, "the yarns") as unknown as Yarn[];
   const procs = must(procsRes, "the fabric route") as Proc[];
@@ -277,6 +316,89 @@ export async function fabricPlanReport(bomId: string): Promise<FabricPlanReport 
     routeBy.set(name, list);
   }
 
+  // ---- The Order Entry format (./yarn-fabric.ts) ---------------------------
+  // Process kinds and stage codes — what the order report bands and colours by.
+  const stageIds = [...new Set([...procs.map((p) => p.stage_id), ...yarns.map((y) => y.buy_stage_id)].filter((x): x is string => !!x))];
+  const procIds = [...new Set(procs.map((p) => p.process_id).filter((x): x is string => !!x))];
+  const [kindRes, stageRes] = await Promise.all([
+    procIds.length
+      ? s.from("processes").select("id, is_print, is_cloth_purchase, is_dyeing").in("id", procIds)
+      : Promise.resolve({ data: [], error: null }),
+    stageIds.length ? s.from("config_lookups").select("id, code, name").in("id", stageIds) : Promise.resolve({ data: [], error: null }),
+  ]);
+  const kinds = new Map(
+    (must(kindRes as { data: unknown; error: { message: string } | null }, "the process kinds") as {
+      id: string;
+      is_print: boolean | null;
+      is_cloth_purchase: boolean | null;
+      is_dyeing: boolean | null;
+    }[]).map((k) => [k.id, k]),
+  );
+  const stageRow = new Map(
+    (must(stageRes as { data: unknown; error: { message: string } | null }, "the stages") as { id: string; code: string | null; name: string }[]).map((x) => [x.id, x]),
+  );
+  const swoSamples = header.samples;
+  const distinct = (xs: (string | null | undefined)[]) => [...new Set(xs.map((x) => (x ?? "").trim()).filter(Boolean))];
+  const dates = swoSamples.map((x) => x.deliveryDate).filter((d): d is string => !!d).sort();
+  const pieces = swoSamples.reduce((t, x) => t + (x.qty ?? 0), 0);
+  const requirement = sampleYarnFabricReport({
+    header: {
+      bomId: plan.id,
+      garmentOrderId: plan.iwo_id,
+      bomCode: header.iwoCode,
+      bomDate: plan.bom_date,
+      computedAt: null,
+      // The SWO stands where an order prints its RE No.
+      scNo: header.swoCode ?? header.iwoCode,
+      customer: distinct(swoSamples.map((x) => x.customer)).join(", ") || null,
+      orderNo: distinct(swoSamples.map((x) => x.smpNo)).join(", ") || null,
+      styleRefNo: distinct(swoSamples.map((x) => x.sampleNo)).join(", ") || null,
+      styleName: distinct(swoSamples.map((x) => x.styleName)).join(", ") || null,
+      styleNo: null,
+      deliveryFromDate: dates[0] ?? null,
+      deliveryToDate: dates[dates.length - 1] ?? null,
+      earlierShipmentDate: dates[0] ?? null,
+      excessPct: null,
+      // A sample is cut to its pieces: no excess, approval or rejection allowance.
+      qty: { orderQty: pieces, excessQty: 0, rejectionQty: 0, approvalQty: 0, cutQty: pieces, approvalPct: null, rejectionPct: null },
+      company: {
+        name: header.company.name,
+        address: header.company.address ?? null,
+        unit: header.company.unit,
+        gstin: header.company.gstin ?? null,
+        logo: header.company.logo,
+      },
+    },
+    lines: sorted.map((l, i) => ({ ...fabrics[i], itemId: l.item_id, stageId: l.stage_id })),
+    yarns: yarns.map((y, i) => ({
+      itemId: y.item_id,
+      yarn: yarnRows[i].yarn,
+      buyStage: y.buy_stage_id ? (stageRow.get(y.buy_stage_id) ?? null) : null,
+      colourBy: y.colour_by,
+      purchaseQty: yarnRows[i].purchaseQty,
+      uom: yarnRows[i].uom,
+      refusal: y.refusal_reason,
+      shades: yarnRows[i].shades,
+    })),
+    steps: procs
+      .filter((p): p is Proc & { process_id: string } => !!p.process_id)
+      .map((p) => {
+        const k = kinds.get(p.process_id);
+        return {
+          itemId: p.item_id,
+          sno: p.sno,
+          processId: p.process_id,
+          processName: n.processes.get(p.process_id) ?? "(process not found)",
+          isPrint: !!k?.is_print,
+          isClothPurchase: !!k?.is_cloth_purchase,
+          isDyeing: !!k?.is_dyeing,
+          stage: p.stage_id ? (stageRow.get(p.stage_id) ?? null) : null,
+          lossPct: num(p.loss_pct),
+          colorLosses: p.color_losses && Object.keys(p.color_losses).length ? p.color_losses : null,
+        };
+      }),
+  });
+
   return {
     header,
     fabrics,
@@ -285,6 +407,7 @@ export async function fabricPlanReport(bomId: string): Promise<FabricPlanReport 
     yarns: yarnRows,
     yarnTotal,
     routes: [...routeBy].map(([fabric, steps]) => ({ fabric, steps })),
+    requirement,
   };
 }
 
@@ -292,13 +415,15 @@ export async function fabricPlanReport(bomId: string): Promise<FabricPlanReport 
 export async function accessoriesPlanReport(bomId: string): Promise<AccessoriesPlanReport | null> {
   if (!(await can("sales", "view"))) return null;
   const s = await createClient();
-  const plan = must(await s.from("iwo_material_boms").select(HEADER_COLS).eq("id", bomId).maybeSingle(), "the plan") as HeaderRow | null;
+  const plan = must(await s.from("iwo_material_boms").select(`${HEADER_COLS}, updated_at`).eq("id", bomId).maybeSingle(), "the plan") as
+    | (HeaderRow & { updated_at: string | null })
+    | null;
   if (!plan) return null;
 
   const [itemsRes, procsRes] = await Promise.all([
     s.from("iwo_material_bom_items")
       .select(
-        "sno, category_id, item_id, specification, item_color_id, consumption_uom_id, purchase_uom_id, planned_qty, moq, round_to, " +
+        "id, sno, sample_style_id, category_id, item_id, specification, item_color_id, consumption_uom_id, purchase_uom_id, planned_qty, moq, round_to, " +
           "required_qty, purchase_qty, is_advised, is_foc, send_out, refusal_reason, " +
           "slices:iwo_material_bom_item_slices(sno, sample_style_id, item_color_id, size, planned_qty)",
       )
@@ -307,7 +432,9 @@ export async function accessoriesPlanReport(bomId: string): Promise<AccessoriesP
     s.from("iwo_material_bom_processes").select("sno, item_id, stage, process_id, loss_pct, vendor_id").eq("bom_id", bomId).order("sno"),
   ]);
   type Item = {
+    id: string;
     sno: number;
+    sample_style_id: string | null;
     category_id: string | null;
     item_id: string | null;
     specification: string | null;
@@ -328,9 +455,10 @@ export async function accessoriesPlanReport(bomId: string): Promise<AccessoriesP
   type Proc = { sno: number; item_id: string | null; stage: string | null; process_id: string | null; loss_pct: number | string | null; vendor_id: string | null };
   const items = must(itemsRes, "the accessories") as unknown as Item[];
   const procs = must(procsRes, "the accessory processes") as Proc[];
-  const sliceStyles = items.flatMap((i) => (i.slices ?? []).map((sl) => sl.sample_style_id));
+  const sliceStyles = [...items.map((i) => i.sample_style_id), ...items.flatMap((i) => (i.slices ?? []).map((sl) => sl.sample_style_id))];
 
-  const [n, header] = await Promise.all([
+  const uomIds = [...new Set(items.map((i) => i.consumption_uom_id).filter((x): x is string => !!x))];
+  const [n, header, uomRes] = await Promise.all([
     namesOf(s, {
       items: [...items.map((i) => i.item_id), ...procs.map((p) => p.item_id)],
       categories: items.map((i) => i.category_id),
@@ -340,11 +468,51 @@ export async function accessoriesPlanReport(bomId: string): Promise<AccessoriesP
       vendors: procs.map((p) => p.vendor_id),
     }),
     headerOf(s, "accessories", plan, sliceStyles),
+    // The unit's own precision — the order sheet prints each quantity at it.
+    uomIds.length
+      ? s.from("uoms").select("id, code, decimal_places_allowed").in("id", uomIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   const bySampleId = new Map(header.samples.map((x) => [x.styleId, x]));
 
+  // ---- The Order Entry format (./accessories-requirement.ts) ----------------
+  const uomRows = must(uomRes as { data: unknown; error: { message: string } | null }, "the units") as {
+    id: string;
+    code: string;
+    decimal_places_allowed: number | null;
+  }[];
+  const colourIds = [...items.map((i) => i.item_color_id), ...items.flatMap((i) => (i.slices ?? []).map((sl) => sl.item_color_id))];
+  const requirement = sampleAccessoriesRequirement({
+    header,
+    savedAt: plan.updated_at,
+    uoms: Object.fromEntries(uomRows.map((u) => [u.id, { code: u.code, decimals: u.decimal_places_allowed }])),
+    colours: Object.fromEntries(
+      colourIds.filter((x): x is string => !!x).map((id) => [id, n.lookups.get(id) ?? ""]).filter(([, name]) => name),
+    ),
+    lines: items
+      .filter((i): i is Item & { item_id: string } => !!i.item_id)
+      .map((i) => ({
+        id: i.id,
+        sno: i.sno,
+        itemId: i.item_id,
+        itemName: n.items.get(i.item_id) ?? "(item not found)",
+        category: i.category_id ? (n.categories.get(i.category_id) ?? null) : null,
+        specification: i.specification,
+        colourId: i.item_color_id,
+        consumptionUomId: i.consumption_uom_id,
+        plannedQty: num(i.planned_qty),
+        requiredQty: num(i.required_qty),
+        refusal: i.refusal_reason,
+        sampleStyleId: i.sample_style_id,
+        slices: [...(i.slices ?? [])]
+          .sort((a, b) => a.sno - b.sno)
+          .map((sl) => ({ sampleStyleId: sl.sample_style_id, colourId: sl.item_color_id, size: sl.size, plannedQty: num(sl.planned_qty) })),
+      })),
+  });
+
   return {
     header,
+    requirement,
     items: items.map((i) => ({
       sno: i.sno,
       category: i.category_id ? (n.categories.get(i.category_id) ?? null) : null,
@@ -363,14 +531,19 @@ export async function accessoriesPlanReport(bomId: string): Promise<AccessoriesP
       foc: !!i.is_foc,
       sendOut: !!i.send_out,
       refusal: i.refusal_reason,
-      breakup: [...(i.slices ?? [])]
-        .sort((a, b) => a.sno - b.sno)
-        .map((sl) => ({
-          sample: sl.sample_style_id ? sampleLabel(bySampleId.get(sl.sample_style_id)) : "—",
-          colour: sl.item_color_id ? (n.lookups.get(sl.item_color_id) ?? null) : null,
-          size: sl.size,
-          qty: num(sl.planned_qty),
-        })),
+      // A line with no breakup rows is for its own SMP (0710) — said as one row,
+      // so "by sample" counts it rather than losing it.
+      breakup: (i.slices?.length
+        ? [...i.slices].sort((a, b) => a.sno - b.sno)
+        : i.sample_style_id
+          ? [{ sno: 0, sample_style_id: i.sample_style_id, item_color_id: i.item_color_id, size: null, planned_qty: i.planned_qty }]
+          : []
+      ).map((sl) => ({
+        sample: sl.sample_style_id ? sampleLabel(bySampleId.get(sl.sample_style_id)) : "—",
+        colour: sl.item_color_id ? (n.lookups.get(sl.item_color_id) ?? null) : null,
+        size: sl.size,
+        qty: num(sl.planned_qty),
+      })),
     })),
     processes: procs
       .filter((p) => p.process_id)

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarRange, Check, FileText, Layers, RotateCcw, Users } from "lucide-react";
+import { CalendarRange, Check, FileText, Layers, Package, RotateCcw, Scissors, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -11,15 +11,17 @@ import { PageHeader } from "@/components/ui/page-header";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { Sheet } from "@/components/ui/sheet";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Tooltip } from "@/components/ui/tooltip";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { useQuickStatus } from "@/components/orders/bom-queue";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import { fmtDateTime, fmtNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { loadPlanReview } from "@/lib/sales/plan-reports/actions";
 import type { PlanApprovalRow } from "@/lib/sales/plan-reports/service";
-import { PLAN_KIND_LABEL, planReportHref } from "@/lib/sales/plan-reports/types";
+import { PLAN_KIND_LABEL, planReportHref, type PlanKind } from "@/lib/sales/plan-reports/types";
 import { PlanApprovalOverview } from "./plan-approval-overview";
 import { planStatusText, planStatusTone, planWord } from "./plan-words";
 
@@ -33,19 +35,12 @@ type Review = Awaited<ReturnType<typeof loadPlanReview>>;
 function planFacets(rows: PlanApprovalRow[]): FacetGroup<PlanApprovalRow>[] {
   return [
     {
-      title: "Plan & status",
+      /* THE PLAN IS NOT A FACET ANY MORE — it is the switch above the list
+         (user 2026-10-14), so a Fabric approver never reads past Accessories
+         rows to find their own. */
+      title: "Status",
       icon: <Layers />,
       facets: [
-        {
-          key: "kind",
-          label: "Plan",
-          all: "Both",
-          options: [
-            { value: "fabric", label: "Fabric Plan" },
-            { value: "accessories", label: "Accessories Plan" },
-          ],
-          match: (r, v) => r.kind === v,
-        },
         {
           key: "status",
           label: "Status",
@@ -77,12 +72,16 @@ function planFacets(rows: PlanApprovalRow[]): FacetGroup<PlanApprovalRow>[] {
  * plans (user 2026-10-13). See page.tsx.
  */
 export function PlanApprovalScreen({
-  rows,
+  rows: allRows,
   initialOpen,
+  initialKind,
   canApprove,
 }: {
   rows: PlanApprovalRow[];
   initialOpen: string | null;
+  /** Which plan's queue opens — `?plan=`, else the plan a deep link names,
+   *  else the one with work waiting (page.tsx). */
+  initialKind: PlanKind;
   /** `approvals:approve` — whether the row decision icons are live. The ENGINE
    *  still decides who may act (`approval_can_act`); this only avoids offering
    *  a click to someone who can never make it. */
@@ -90,13 +89,36 @@ export function PlanApprovalScreen({
 }) {
   const router = useRouter();
 
+  /* FABRIC PLAN · ACCESSORIES PLAN — ONE QUEUE EACH (user 2026-10-14: "follow
+     the fabric plan approval … listing that approval child inside with filter
+     and better UI"). The two plans are approved on different figures (kilos
+     and yarn against trims), so one mixed table made each approver read past
+     the other's rows, and the plan was a facet buried in the Filters panel.
+     The switch says which queue is on screen and how much waits in each; the
+     choice is kept in the URL (`?plan=`) so a refresh, a workspace tab and a
+     shared link all land on it. */
+  const [kind, setKind] = useState<PlanKind>(initialKind);
+  const pendingOf = (k: PlanKind) => allRows.filter((r) => r.kind === k && r.status === "submitted").length;
+  const pickKind = (k: PlanKind) => {
+    setKind(k);
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("plan", k);
+      u.searchParams.delete("open");
+      window.history.replaceState(null, "", u);
+    } catch {
+      /* the URL is a convenience — the switch works without it */
+    }
+  };
+  const rows = useMemo(() => allRows.filter((r) => r.kind === kind), [allRows, kind]);
+
   /* ONE WAY IN, AND IT IS THE FULL PAGE (the order screen's rule): the SWO No,
      both decision icons and a deep link (`?open=`) all open the sheet. */
   const [openKey, setOpenKey] = useState<string | null>(initialOpen);
   /** WHICH PLAN THIS REVIEW DESCRIBES — keyed so a late answer can never paint
    *  the previous plan's trail under this one (the order screen's `forId`). */
   const [loaded, setLoaded] = useState<{ forKey: string; data: Review } | null>(null);
-  const openRow = openKey ? (rows.find((r) => r.key === openKey) ?? null) : null;
+  const openRow = openKey ? (allRows.find((r) => r.key === openKey) ?? null) : null;
   useEffect(() => {
     if (!openRow) return;
     const key = openRow.key;
@@ -119,7 +141,7 @@ export function PlanApprovalScreen({
     return rows.filter((r) => {
       if (!facetMatch(r)) return false;
       if (!q) return true;
-      return [r.swoCode, r.iwoCode, r.description, r.season, PLAN_KIND_LABEL[r.kind], ...r.smpNos]
+      return [r.swoCode, r.iwoCode, r.description, r.season, ...r.smpNos]
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q));
     });
@@ -141,7 +163,10 @@ export function PlanApprovalScreen({
           <button type="button" onClick={() => setOpenKey(r.key)} className="font-mono text-xs font-medium text-primary hover:underline">
             {r.swoCode ?? r.iwoCode ?? "—"}
           </button>
-          <span className="block text-[11px] text-muted-foreground">{PLAN_KIND_LABEL[r.kind]}</span>
+          {r.description ? (
+            // truncate-reveal: exempt -- the SWO's description is the review's; the list shows a reminder
+            <span className="block max-w-[14rem] truncate text-[11px] text-muted-foreground">{r.description}</span>
+          ) : null}
         </span>
       ),
     },
@@ -161,23 +186,80 @@ export function PlanApprovalScreen({
         </span>
       ),
     },
-    {
-      // The figure an approver weighs first, per kind.
-      header: "To buy",
-      className: HUG,
-      cell: (r) =>
-        r.figures.kind === "fabric" ? (
-          <span className="block text-sm tabular-nums">
-            {r.figures.yarnQty == null ? "—" : `${fmtNumber(r.figures.yarnQty)}${r.figures.yarnUom ? ` ${r.figures.yarnUom}` : ""}`}
-            <span className="block text-[11px] text-muted-foreground">{`yarn · ${fmtNumber(r.figures.fabricKg)} kg fabric`}</span>
-          </span>
-        ) : (
-          <span className="block text-sm tabular-nums">
-            {`${r.figures.lines} accessor${r.figures.lines === 1 ? "y" : "ies"}`}
-            {r.figures.advised ? <span className="block text-[11px] text-warning">{`${r.figures.advised} advised`}</span> : null}
-          </span>
-        ),
-    },
+    /* WHAT THIS APPROVAL BUYS, IN THE PLAN'S OWN TERMS — one queue per plan,
+       so each gets its own columns instead of one "To buy" cell that read
+       kilos on one row and a count of trims on the next. */
+    ...(kind === "fabric"
+      ? ([
+          {
+            header: "Fabric",
+            align: "right",
+            className: HUG,
+            cell: (r) =>
+              r.figures.kind === "fabric" ? (
+                <span className="block text-right text-sm tabular-nums">{`${fmtNumber(r.figures.fabricKg)} kg`}</span>
+              ) : null,
+          },
+          {
+            header: "Yarn to buy",
+            align: "right",
+            className: HUG,
+            cell: (r) =>
+              r.figures.kind === "fabric" ? (
+                <span className={cn("block text-right text-sm tabular-nums", r.figures.yarnQty == null && "text-warning")}>
+                  {r.figures.yarnQty == null
+                    ? "Not worked out"
+                    : `${fmtNumber(r.figures.yarnQty)}${r.figures.yarnUom ? ` ${r.figures.yarnUom}` : ""}`}
+                </span>
+              ) : null,
+          },
+        ] satisfies Column<PlanApprovalRow>[])
+      : ([
+          {
+            header: "Trims",
+            align: "right",
+            className: HUG,
+            cell: (r) =>
+              r.figures.kind === "accessories" ? (
+                <span className="block text-right text-sm tabular-nums">{r.figures.lines}</span>
+              ) : null,
+          },
+          {
+            // Advised (TBA) trims cannot be bought until the buyer confirms —
+            // the first thing an Accessories approver asks.
+            header: "Advised",
+            align: "right",
+            className: HUG,
+            cell: (r) =>
+              r.figures.kind === "accessories" ? (
+                <span
+                  className={cn(
+                    "block text-right text-sm tabular-nums",
+                    r.figures.advised ? "font-semibold text-warning" : "text-muted-foreground",
+                  )}
+                >
+                  {r.figures.advised || "—"}
+                </span>
+              ) : null,
+          },
+          {
+            // A trim with no purchase quantity is one the plan cannot buy yet.
+            header: "No qty",
+            align: "right",
+            className: HUG,
+            cell: (r) =>
+              r.figures.kind === "accessories" ? (
+                <span
+                  className={cn(
+                    "block text-right text-sm tabular-nums",
+                    r.figures.unpriced ? "font-semibold text-danger" : "text-muted-foreground",
+                  )}
+                >
+                  {r.figures.unpriced || "—"}
+                </span>
+              ) : null,
+          },
+        ] satisfies Column<PlanApprovalRow>[])),
     {
       header: "Version",
       className: HUG,
@@ -267,10 +349,33 @@ export function PlanApprovalScreen({
           </p>
         )}
 
+        <ToggleGroup<PlanKind>
+          role="tablist"
+          label="Plan"
+          value={kind}
+          onChange={pickKind}
+          options={[
+            {
+              value: "fabric",
+              label: "Fabric Plan",
+              icon: Scissors,
+              count: pendingOf("fabric"),
+              title: `${pendingOf("fabric")} waiting for approval`,
+            },
+            {
+              value: "accessories",
+              label: "Accessories Plan",
+              icon: Package,
+              count: pendingOf("accessories"),
+              title: `${pendingOf("accessories")} waiting for approval`,
+            },
+          ]}
+        />
+
         <FilterBar
           search={search}
           onSearch={setSearch}
-          searchPlaceholder="Search SWO No, SMP No, season…"
+          searchPlaceholder="Search SWO No, SMP Number, season…"
           leading={quick.segment}
           activeCount={facets.activeCount}
           onReset={facets.activeCount ? facets.reset : undefined}
@@ -288,7 +393,7 @@ export function PlanApprovalScreen({
             getKey={(r) => r.key}
             empty={
               !rows.length
-                ? "No sample plan yet — they appear here once saved on Sample ▸ Fabric Plan or Accessories Plan."
+                ? `No sample ${PLAN_KIND_LABEL[kind]} yet — it appears here once saved on Sample ▸ ${PLAN_KIND_LABEL[kind]}.`
                 : quick.value === "pending" && facets.activeCount === 0
                   ? "Nothing is waiting for approval."
                   : "No plan matches these filters."

@@ -669,6 +669,18 @@ export function MasterFullScreen({
      * last enabled button, so Enter off the last field and Ctrl+S still save.
      */
     saveQuiet?: boolean;
+    /**
+     * SUBMIT TAKES SAVE'S PLACE ONCE THE RECORD IS SAVED (user 2026-10-14:
+     * "after saving, the save button will hide and the submit button will be
+     * visible — no more navigation"). Pass it only while the record is saved
+     * and untouched; the first edit drops it and Save is back.
+     *
+     * SAVE IS HIDDEN, NOT REMOVED. `submitTargetOf` (lib/focus.ts) gives Enter
+     * and Ctrl+S to the footer's LAST button, and Submit is drawn before Save
+     * so that stays Save — a keystroke meant to save must never send a record
+     * for approval. Re-saving an untouched record is harmless.
+     */
+    submit?: { label: string; onClick: () => void } | null;
     /** Renders a "Save as Draft" outline button when provided. */
     onSaveDraft?: () => void;
     draftLabel?: string;
@@ -2213,12 +2225,17 @@ export function MasterFullScreen({
               Staying undisabled is also load-bearing for the keyboard:
               `submitTargetOf` takes the footer's last non-disabled button, so a
               disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
+          {!stepping && footer.submit && (
+            <Button disabled={footer.isPending || !!locked} onClick={footer.submit.onClick}>
+              {footer.submit.label}
+            </Button>
+          )}
           {!stepping && (
             <Button
               variant={footer.saveQuiet ? "outline" : "primary"}
               disabled={footer.isPending || (!footer.canSave && !blocked)}
               data-blocked={blocked || undefined}
-              className={cn(blocked && "opacity-60")}
+              className={cn(blocked && "opacity-60", footer.submit && "hidden")}
               onClick={fireSave}
             >
               {footer.isPending ? "Saving…" : footer.saveLabel}

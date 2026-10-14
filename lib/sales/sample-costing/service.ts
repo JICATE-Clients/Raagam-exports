@@ -8,6 +8,7 @@ import { quoteKey } from "./calc";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import { rateMemoryKey } from "./types";
+import { listSampleStyleProcesses } from "@/lib/sales/sample-entry/style-processes";
 import type { RevisionSource } from "./revision-history";
 import type { ApprovalFacts } from "./approval-line";
 import type { CostingListRow, CostingRecord, CostingStatus, ExtraChargeDraft, FabricDraft, PieceDraft, TrimDraft, WeightDraft } from "./types";
@@ -38,6 +39,14 @@ export type CostingStyleOption = {
   /** The sizes the style was ticked with in Sample Entry (`style_sizes`), in
    *  entry order — the only sizes the weights table offers (0693). */
   sizes: string[];
+  /** The fabric structures the style is made in, each with its GSM (Sample Entry
+   *  ▸ Product Info, 0715), in entry order. A new costing's fabric lines are
+   *  seeded from these, so the structure is not picked twice. */
+  structures: { id: string; name: string; gsm: string }[];
+  /** Sample Entry ▸ Combos ▸ Embellishments (0722), in entry order — one per
+   *  (kind, process). A new costing's Embellishment lines are seeded from
+   *  these, so the process is not picked twice; the rate is typed here. */
+  processes: { id: string; name: string; kind: "garment" | "component" }[];
   /** A sample cost sheet already exists for this style (client spec
    *  2026-10-12 §3) — a NEW sheet does not offer it again. */
   costed: boolean;
@@ -153,6 +162,7 @@ type EnquiryDb = {
         coordinates: { sno: number; coordinate_id: string | null; item: { name: string | null } | { name: string | null }[] | null }[] | null;
         files: { sno: number; storage_path: string; mime_type: string | null; doc_kind: string | null }[] | null;
         sizes: { sno: number; garment_size: string | null }[] | null;
+        structures: { sno: number; structure_id: string; gsm: number | null; structure: { name: string | null } | { name: string | null }[] | null }[] | null;
       }[]
     | null;
 };
@@ -165,7 +175,7 @@ const one = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ?
  */
 async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styles: CostingStyleOption[] }> {
   const s = await createClient();
-  const [{ data, error }, sheets] = await Promise.all([
+  const [{ data, error }, sheets, processRows] = await Promise.all([
     s
       .from("opportunities")
       .select(
@@ -173,7 +183,8 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
           "styles(id, sno, sample_no, name, description, unit_kind, " +
           "coordinates:sample_style_coordinates(sno, coordinate_id, item:items!coordinate_id(name)), " +
           "files:sample_style_files(sno, storage_path, mime_type, doc_kind), " +
-          "sizes:style_sizes(sno, garment_size))",
+          "sizes:style_sizes(sno, garment_size), " +
+          "structures:sample_style_fabric_structures(sno, structure_id, gsm, structure:categories!structure_id(name)))",
       )
       .order("created_at", { ascending: true }),
     // WHAT IS ALREADY COSTED (client spec 2026-10-12 §3) — the same reading as
@@ -181,6 +192,7 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
     // sheet with no style costs the whole entry. A failed read throws: an
     // empty answer would offer every costed sample again.
     s.from("cost_sheets").select("opportunity_id, style_id").eq("costing_type", "sample"),
+    listSampleStyleProcesses(s),
   ]);
   if (error) throw new Error(`Could not load sample enquiries: ${error.message}`);
   if (sheets.error) throw new Error(`Could not load sample costings: ${sheets.error.message}`);
@@ -245,6 +257,16 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
           .sort((a, b) => a.sno - b.sno)
           .map((z) => (z.garment_size ?? "").trim())
           .filter(Boolean),
+        structures: [...(st.structures ?? [])]
+          .sort((a, b) => a.sno - b.sno)
+          .map((x) => ({ id: x.structure_id, name: one(x.structure)?.name ?? "", gsm: x.gsm == null ? "" : String(x.gsm) }))
+          .filter((x) => x.name),
+        // The same process on two panels (a print front AND back) is ONE
+        // embellishment line on the costing — its rate covers both.
+        processes: [...(processRows.get(st.id) ?? [])]
+          .sort((a, b) => a.sno - b.sno)
+          .filter((x, i, all) => all.findIndex((y) => y.kind === x.kind && y.process_id === x.process_id) === i)
+          .map((x) => ({ id: x.process_id, name: x.name, kind: x.kind })),
         costed: isCosted(r.id, st.id),
       })),
   );

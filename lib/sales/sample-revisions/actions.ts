@@ -22,14 +22,14 @@ import { sampleEntryInput, toSampleEntryPayload } from "@/lib/sales/sample-entry
 import { getSampleCostingRecord } from "@/lib/sales/sample-costing/service";
 import { saveSampleCosting } from "@/lib/sales/sample-costing/actions";
 import { costingKpisOf, getSampleRevision, revisionForCosting } from "./service";
-import { REVISION_KINDS, REVISION_ORIGINS, opensCosting, type CostingKpis, type CostingPair, type RaiseSampleRevisionInput } from "./types";
+import { RAISABLE_REVISION_KINDS, REVISION_ORIGINS, opensCosting, type CostingKpis, type CostingPair, type RaiseSampleRevisionInput } from "./types";
 
 type Result = { ok: true } | { ok: false; error: string };
 const PATH = "/sales/sample-revision";
 
 const raiseInput = z.object({
   opportunity_id: z.string().uuid("Pick the sample (SMP No)."),
-  kinds: z.array(z.enum(REVISION_KINDS)).min(1, "Tick at least one module to revise."),
+  kinds: z.array(z.enum(RAISABLE_REVISION_KINDS)).min(1, "Tick at least one module to revise."),
   origin: z.enum(REVISION_ORIGINS),
   remarks: z
     .string()

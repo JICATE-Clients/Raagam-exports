@@ -125,9 +125,13 @@ export async function previewCostingNo(on: string | null): Promise<string | null
 }
 
 /**
- * SUBMIT — spec §5.2. Every quote that earns at least the floor: the sheet is
- * APPROVED on the spot (no MD needed, and the record says so). Any quote under
- * it: the sheet goes to the MD through the approval engine (`sample_costing`).
+ * SUBMIT — EVERY costing goes to the MD through the approval engine
+ * (`sample_costing`), whatever its margin (client 2026-10-14: "costing also
+ * need to follow like fabric plan approval"). Until then a costing at or above
+ * the floor was approved on the spot with no MD — spec §5.2's original rule,
+ * withdrawn; restoring it needs a new client decision. The floor survives as
+ * the red warning the MD reads, and as `lowest_margin_pct` in the run context
+ * so a flow can still route by it.
  *
  * The margin is recomputed HERE from the stored sheet, never taken from the
  * screen. And THE STATUS AND THE RUN ARE ONE STEP: a failed `startApproval`
@@ -136,7 +140,7 @@ export async function previewCostingNo(on: string | null): Promise<string | null
  */
 export async function submitSampleCosting(
   id: string,
-): Promise<{ ok: true; outcome: "approved" | "with_md"; lowest: number | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; outcome: "with_md"; lowest: number | null } | { ok: false; error: string }> {
   if (!(await can("sales", "edit"))) return { ok: false, error: "Forbidden" };
   const record = await getSampleCostingRecord(id).catch(() => null);
   if (!record) return { ok: false, error: "This costing no longer exists." };
@@ -144,6 +148,11 @@ export async function submitSampleCosting(
     return { ok: false, error: record.status === "submitted" ? "This costing is already with the MD." : `This costing is ${record.status}.` };
   }
   if (record.is_draft) return { ok: false, error: "Save the costing (not as a draft) before submitting it." };
+  // A SAMPLE REVISION'S PROPOSED COSTING GOES TO THE MD WITH ITS REVISION. The
+  // editor hid Submit for it; since 2026-10-14 the list sends too, so the rule
+  // lives here, where every door meets it.
+  const rev = await revisionForCosting(id).catch(() => null);
+  if (rev) return { ok: false, error: `This costing belongs to Sample Revision ${rev.revision_code} — send it to the MD from that revision.` };
   const problem = costingProblems(record.draft)[0];
   if (problem) return { ok: false, error: problem.message };
 
@@ -151,28 +160,6 @@ export async function submitSampleCosting(
   const me = (await getAppUser())?.id ?? null;
   const now = new Date().toISOString();
   const s = await createClient();
-
-  if (!summary.belowFloor) {
-    const { error } = await s
-      .from("cost_sheets")
-      .update({
-        status: "approved",
-        submitted_at: now,
-        submitted_by: me,
-        approved_at: now,
-        approved_by: null,
-        decided_at: now,
-        decided_by: null,
-        decision_remark: `Cleared on submit — every quote earns at least ${MARGIN_FLOOR_PCT}%.`,
-        profit_loss_pct: summary.lowestMarginPct,
-      })
-      .eq("id", id)
-      .in("status", ["draft", "rejected"]);
-    if (error) return { ok: false, error: error.message };
-    await writeAudit({ action: "sample_costing.approved_on_submit", entityType: "cost_sheet", entityId: id });
-    revalidatePath(LIST_PATH);
-    return { ok: true, outcome: "approved", lowest: summary.lowestMarginPct };
-  }
 
   const { error: upErr } = await s
     .from("cost_sheets")
@@ -203,10 +190,15 @@ export async function submitSampleCosting(
   return { ok: true, outcome: "with_md", lowest: summary.lowestMarginPct };
 }
 
-/** The MD's Approve / Request Rework bar, for the editor. */
+/** The MD's Approve / Request Rework bar, for the editor.
+ *  `mine` = this user sent the run; the editor then offers no decision — a
+ *  Super Admin's override would otherwise approve their own costing from the
+ *  sheet they just submitted (client 2026-10-14, the Fabric Plan's twin).
+ *  The decision is made from the Approvals queue. */
 export async function getCostingApproval(id: string) {
-  if (!(await can("sales", "view"))) return { run: null, verdict: null, timeline: [], names: {} };
-  return getApprovalPanel(WORKFLOWS.sample_costing.subjectTable, id);
+  if (!(await can("sales", "view"))) return { run: null, verdict: null, timeline: [], names: {}, mine: false };
+  const [panel, me] = await Promise.all([getApprovalPanel(WORKFLOWS.sample_costing.subjectTable, id), getAppUser()]);
+  return { ...panel, mine: !!panel.run && !!me && panel.run.requested_by === me.id };
 }
 
 export async function deleteSampleCosting(id: string): Promise<ActionResult> {

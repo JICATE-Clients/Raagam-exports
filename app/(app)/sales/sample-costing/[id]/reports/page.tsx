@@ -56,7 +56,11 @@ export default async function CostingReportsPage({
   const quote = buildQuotationModel(record, data, letterhead, history, facts);
   return (
     <div className="space-y-4">
-      <PageHeader title="Costing Reports" description={[cost.costingNo, cost.revision, cost.style].filter(Boolean).join(" · ")} />
+      <PageHeader
+        title="Costing Reports"
+        description={[cost.costingNo, cost.revision, cost.style].filter(Boolean).join(" · ")}
+        back={{ href: `/sales/sample-costing?open=${record.id}`, label: "Costing" }}
+      />
       <CostingReports
         cost={cost}
         quote={quote}

@@ -576,6 +576,8 @@ export function IwoFabricBomScreen({
     run: ApprovalRun | null;
     verdict: CanActVerdict | null;
     revisions: FabricPlanRevision[];
+    /** This user sent the live run — the editor then offers no decision. */
+    mine: boolean;
   } | null>(null);
   const [revisionOrigin, setRevisionOrigin] = useState<SheetOrigin | null | undefined>(undefined);
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
@@ -749,7 +751,7 @@ export function IwoFabricBomScreen({
 
   function loadApproval(bomId: string) {
     getFabricPlanApproval(bomId).then(
-      (p) => setApproval({ forId: bomId, run: p.run, verdict: p.verdict, revisions: p.revisions }),
+      (p) => setApproval({ forId: bomId, run: p.run, verdict: p.verdict, revisions: p.revisions, mine: p.mine }),
       () => setApproval(null),
     );
   }
@@ -1416,6 +1418,24 @@ export function IwoFabricBomScreen({
 
   // ---- save ------------------------------------------------------------------
 
+  /**
+   * A SAMPLE PLAN STAYS OPEN AFTER SAVE (user 2026-10-14: "after saving, the
+   * save button will hide and the submit button will be visible — no more
+   * navigation"). It is re-opened from the refreshed list once that list holds
+   * the saved plan, so the rows on screen carry their stored ids and Submit
+   * reads the plan the server has. Orders ▸ IWO keeps returning to its list.
+   */
+  const reopenBom = useRef<string | null>(null);
+  useEffect(() => {
+    const id = reopenBom.current;
+    if (!id) return;
+    const t = tasks.find((x) => x.bom?.id === id);
+    if (!t) return;
+    reopenBom.current = null;
+    openTask(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the refreshed list arrives
+  }, [tasks]);
+
   function submit(asDraft: boolean) {
     setNeedsAsked(true);
     if (!form.iwo_id) return;
@@ -1544,7 +1564,8 @@ export function IwoFabricBomScreen({
       if (res.ok) {
         success(editId ? "Fabric Plan updated" : "Fabric Plan created");
         setDirty(false);
-        leaveEditor();
+        if (sample) reopenBom.current = res.bomId;
+        else leaveEditor();
         router.refresh();
       } else {
         toastError(res.error);
@@ -1585,7 +1606,7 @@ export function IwoFabricBomScreen({
   const panel = approval && approval.forId === editId ? approval : null;
   /** The approver's Approve / Request Rework, when this user may decide it. */
   const decide =
-    panel?.run && panel.verdict && panel.run.status === "in_progress" && panel.verdict.can_act ? (
+    panel?.run && panel.verdict && panel.run.status === "in_progress" && panel.verdict.can_act && !panel.mine ? (
       <ApprovalActionBar
         run={panel.run}
         verdict={panel.verdict}
@@ -1598,23 +1619,32 @@ export function IwoFabricBomScreen({
         }}
       />
     ) : null;
-  /** Submit is the next step once the plan is saved — hidden while there are
-   *  unsaved changes (button plan Rule 2), so only the saved plan is sent. */
-  const canSubmitPlan =
-    sample &&
-    !!planBom && !planLocked && !planBom.is_draft && !dirty && perms.canEdit;
-  function submitPlan() {
-    if (!editId) return;
+  /** Send a saved plan for approval FROM THE LIST (user 2026-10-14) — the
+   *  editor no longer carries Submit, so the list is where a plan is sent. A
+   *  draft or a plan already with the approver / approved offers nothing. */
+  const canSendPlan = (t: { bom: { is_draft: boolean; approval_status: string } | null }) =>
+    sample && perms.canEdit && !!t.bom && !t.bom.is_draft && t.bom.approval_status !== "submitted" && t.bom.approval_status !== "approved";
+  function sendPlan(t: { code: string | null; swo?: { code: string } | null; bom: { id: string } | null }, after?: () => void) {
+    const bomId = t.bom?.id;
+    if (!bomId) return;
     start(async () => {
-      const res = await submitSampleFabricPlan(editId);
+      const res = await submitSampleFabricPlan(bomId);
       if (!res.ok) {
         toastError(res.error);
         return;
       }
-      success(`${planLabel} sent for approval`);
-      loadApproval(editId);
+      success(`${t.swo?.code ?? t.code ?? "Plan"} sent for approval`);
+      after?.();
       router.refresh();
     });
+  }
+  /** The same Submit inside the editor — the saved plan on screen; hidden
+   *  while there are unsaved changes, so only what is stored is sent. */
+  const canSubmitPlan = !!editId && !!picked && !dirty && canSendPlan(picked);
+  function submitPlan() {
+    if (!editId || !picked) return;
+    const id = editId;
+    sendPlan(picked, () => loadApproval(id));
   }
   const openRevision =
     planStatus === "open" && planRev > 0 ? panel?.revisions.find((r) => r.revision_no === planRev) : undefined;
@@ -3446,7 +3476,17 @@ export function IwoFabricBomScreen({
             subtitle={(t) => (
               <span className="font-mono">{t.swo?.samples.map((x) => x.smp_no ?? x.sample_no).filter(Boolean).join(" · ") || "—"}</span>
             )}
-            state={(t): SampleCardState => ({ pending: "pending", draft: "draft", updated: "updated" } as const)[bomWord(t)]}
+            // A SAVED SAMPLE PLAN IS COLOURED BY ITS APPROVAL (2026-10-13): the
+            // box's word put every saved plan in green — "Not submitted",
+            // "Revision 1 open" and "Sent back" read as done. Green is approved,
+            // red is sent back (the planner owes the next step), the rest neutral.
+            state={(t): SampleCardState => {
+              const word = bomWord(t);
+              if (word !== "updated" || !t.bom) return ({ pending: "pending", draft: "draft", updated: "updated" } as const)[word];
+              if (t.bom.approval_status === "approved") return "updated";
+              if (t.bom.approval_status === "returned") return "pending";
+              return "neutral";
+            }}
             // A saved sample plan's word is its APPROVAL (0718) — "Saved" alone
             // says nothing about whether its yarn may be bought.
             pillText={(t) =>
@@ -3468,6 +3508,10 @@ export function IwoFabricBomScreen({
             canDelete={perms.canDelete}
             canDeleteRow={(t) => !!t.bom && t.bom.approval_status !== "submitted" && t.bom.approval_status !== "approved"}
             onDelete={del}
+            onReports={(t) => t.bom && router.push(planReportHref("fabric", t.bom.id))}
+            canReportsRow={(t) => !!t.bom && !t.bom.is_draft}
+            onSend={sendPlan}
+            canSendRow={canSendPlan}
             isPending={isPending}
             // Updated is done work — a table, as Orders draws it; Pending and
             // Draft stay cards (user 2026-10-13).
@@ -3541,23 +3585,9 @@ export function IwoFabricBomScreen({
               ) : null}
             </>
           ),
-          right:
-            planBom && editId && sample ? (
-              <div className="flex items-center gap-2">
-                {/* THE PLAN AS A DOCUMENT (user 2026-10-13) — the report the
-                    approver reads on Sample ▸ Plan Approval. */}
-                {!dirty ? (
-                  <Button variant="outline" onClick={() => router.push(planReportHref("fabric", editId))}>
-                    Report
-                  </Button>
-                ) : null}
-                {canSubmitPlan ? (
-                  <Button disabled={isPending} onClick={submitPlan}>
-                    Submit for Approval
-                  </Button>
-                ) : null}
-              </div>
-            ) : null,
+          // REPORT LIVES ON THE LIST (user 2026-10-14: "no need inside"); SUBMIT
+          // IS ON BOTH — the footer, in Save's place once saved, and the card's
+          // Send icon, so a saved plan never has to be reopened to go.
         }}
         // A SUBMITTED OR APPROVED SAMPLE PLAN IS LOCKED (0718): read-only, one
         // Close, the reason at the top — and the way on at its right: the
@@ -3599,8 +3629,8 @@ export function IwoFabricBomScreen({
           saveLabel: sample ? "Save" : "Save Fabric Plan",
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
-          // Submit is the one filled button once the plan is saved (Rule 2).
-          saveQuiet: canSubmitPlan,
+          // Saved and untouched: Submit stands where Save stood (user 2026-10-14).
+          submit: canSubmitPlan ? { label: "Submit for Approval", onClick: submitPlan } : null,
           isPending,
         }}
       />

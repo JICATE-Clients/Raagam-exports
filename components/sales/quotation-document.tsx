@@ -79,8 +79,7 @@ export function QuotationDocument({
 
   const facts: [string, string | null][] = [
     ["Customer", model.customer],
-    ["Enquiry No", model.enquiryNo],
-    ["Sample No", model.sampleNo],
+    ["SMP Number", model.sampleNo],
     ["Season", model.season],
     ["Currency", ccy],
     ["Shipment", model.shipMode],
@@ -182,7 +181,7 @@ export function QuotationDocument({
               <h2 className="m-0 text-[24px] font-extrabold leading-tight tracking-tight">{model.style ?? "—"}</h2>
               {model.description ? <p className="m-0 mt-0.5 text-[13px]" style={{ color: MUTED }}>{model.description}</p> : null}
               <div className="mt-2 flex flex-wrap gap-1.5 text-[11.5px]">
-                {model.sampleNo ? <Chip>Sample <b>{model.sampleNo}</b></Chip> : null}
+                {model.sampleNo ? <Chip>SMP <b>{model.sampleNo}</b></Chip> : null}
                 <Chip>{model.isSet ? "SET" : "PIECE"}{multi ? <> · <b>{model.groups.length}</b> sizes</> : null}</Chip>
                 {model.shipMode ? <Chip>Ship <b>{model.shipMode}</b></Chip> : null}
               </div>

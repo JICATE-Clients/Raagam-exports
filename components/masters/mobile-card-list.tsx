@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Eye, FileText } from "lucide-react";
+import { Eye, FileText, Send } from "lucide-react";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -107,6 +107,9 @@ export function MobileCardList<Row>({
   onDelete,
   onReports,
   canReportsRow,
+  onSend,
+  canSendRow,
+  sendLabel = "Send",
   isPending = false,
   empty = "No records yet.",
   stats,
@@ -157,6 +160,16 @@ export function MobileCardList<Row>({
    */
   onReports?: (r: Row) => void;
   canReportsRow?: (r: Row) => boolean;
+  /**
+   * SEND FOR APPROVAL FROM THE LIST (user 2026-10-14: "after saving again need
+   * to go inside of the child for sending approval — set it in the listing page
+   * using a send icon"). Same shape as `onReports`: only a row that can be sent
+   * gets the button, so a draft or a locked record shows nothing to press.
+   */
+  onSend?: (r: Row) => void;
+  canSendRow?: (r: Row) => boolean;
+  /** The word beside the icon on a queue card, and the tooltip elsewhere. */
+  sendLabel?: string;
   isPending?: boolean;
   empty?: ReactNode;
   /**
@@ -307,7 +320,7 @@ export function MobileCardList<Row>({
   }
 
   const showDelete = canDelete && !!onDelete;
-  const showFooter = showDelete || !!onView || !!onReports || !!footerNote || !!hint;
+  const showFooter = showDelete || !!onView || !!onReports || !!onSend || !!footerNote || !!hint;
   const grid = columns > 1;
 
   /** View · Reports · Delete — one definition, so every layout offers a row
@@ -343,6 +356,20 @@ export function MobileCardList<Row>({
           {queue && "Reports"}
         </Button>
       )}
+      {onSend && (canSendRow?.(r) ?? true) && (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={queue ? undefined : sendLabel}
+          title={queue ? undefined : sendLabel}
+          disabled={isPending}
+          onClick={() => onSend(r)}
+          className="text-primary"
+        >
+          <Send className="h-4 w-4" />
+          {queue && sendLabel}
+        </Button>
+      )}
       {showDelete && (canDeleteRow?.(r) ?? true) && (
         <DeleteConfirmButton
           isPending={isPending}
@@ -359,6 +386,7 @@ export function MobileCardList<Row>({
   const rowHasAction = (r: Row) =>
     !!onView ||
     (!!onReports && (canReportsRow?.(r) ?? true)) ||
+    (!!onSend && (canSendRow?.(r) ?? true)) ||
     (showDelete && (canDeleteRow?.(r) ?? true));
 
   const list = (

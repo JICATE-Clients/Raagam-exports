@@ -46,7 +46,7 @@ import {
   exportEntryRegisterPdf,
   exportPrintRequirementPdf,
   exportYarnRequirementPdf,
-  sizeRunContinues,
+  dyeingDisplayLines,
   type PdfOutput,
 } from "@/lib/orders/fabric-bom/reports-export";
 import { requirementBuyTiles, requirementRoute } from "@/lib/orders/fabric-bom/sheet-summary";
@@ -846,6 +846,78 @@ function DetailsCell({ line }: { line: StageBreakdownLine }) {
   );
 }
 
+/** THE DYEING SECTION (client 2026-10-14: "need group color and list below of
+ *  it details and no need component, size, pcs, no mts"). Each colour is a
+ *  heading row and its cloths are listed beneath, one line per cloth and dia —
+ *  the PDF draws the same rows from the same `dyeingDisplayLines`. */
+function DyeingLedgerTable({
+  group,
+  tint,
+  ink,
+}: {
+  group: YarnFabricRequirementReport["stageBreakdown"][number];
+  tint: string;
+  ink: string;
+}) {
+  const lines = dyeingDisplayLines(group.lines);
+  return (
+    <ReportTable bare>
+      <thead>
+        <tr>
+          <Th>Details</Th>
+          <Th>Dia</Th>
+          <Th right>Planned Wt</Th>
+          <Th right>Loss %</Th>
+          <Th right>To Ordered Wt</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map((l, i) => {
+          const opens = i === 0 || lines[i - 1].band !== l.band;
+          const closes = i === lines.length - 1 || lines[i + 1].band !== l.band;
+          const subtotal =
+            group.byColour.length > 1 && closes ? group.byColour.find((c) => c.combo === (l.band ?? null)) : undefined;
+          return (
+            <Fragment key={i}>
+              {opens && (
+                <tr style={{ background: COLOURWAY_BAND }}>
+                  <Td colSpan={5} className="font-semibold">
+                    <Swatch name={l.band} />
+                    {l.band || "No colour"}
+                  </Td>
+                </tr>
+              )}
+              <tr className="bg-white">
+                <Td className="pl-5">
+                  <DetailsCell line={l} />
+                </Td>
+                <Td mono>{l.dia != null && String(l.dia).trim() ? String(l.dia) : "—"}</Td>
+                <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                <Td right mono>{l.lossPct.toFixed(2)}%</Td>
+                <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+              </tr>
+              {subtotal && (
+                <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
+                  <Td colSpan={2} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
+                  <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
+                  <Td>{""}</Td>
+                  <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
+        <tr className="font-semibold" style={{ background: tint, color: ink }}>
+          <Td colSpan={2}>Grand Total</Td>
+          <Td right mono className="font-semibold">{fmtNumber(group.plannedTotal)}</Td>
+          <Td right mono>{avgLoss(lines, group.plannedTotal, group.toOrderedTotal)}</Td>
+          <Td right mono className="font-semibold">{fmtNumber(group.toOrderedTotal)}</Td>
+        </tr>
+      </tbody>
+    </ReportTable>
+  );
+}
+
 /** The ledger's `Dia/Size` cell — the dia, and on a per-size DYEING line the
  *  size after it ("30 / M"); a dash when neither is known. Shared wording with
  *  the PDF (`diaSizeCell` in reports-export.ts). */
@@ -1137,10 +1209,20 @@ function RequirementReportView({
         {data.stageBreakdown.filter((sec) => !sec.isClothPurchase).map((g, gi) => {
           /* THE SECTION WEARS ITS STAGE (2026-09-20) — tag, tint and rule. */
           const tone = sectionStyle(g.stages, g.isPrint);
+          /* DYEING / DYED FABRIC PURCHASE (client 2026-10-14) — colour
+             headings with their cloths beneath; see `DyeingLedgerTable`. */
+          if (g.perComponent) {
+            return (
+              <div key={g.processId} className={gi === 0 ? "" : "mt-3"}>
+                <SectionCard tone={tone} title={g.processName} total={fmtNumber(g.toOrderedTotal)}>
+                  <DyeingLedgerTable group={g} tint={tone.tint} ink={tone.ink} />
+                </SectionCard>
+              </div>
+            );
+          }
           /* ONE BAND PER ASSORT COLOURWAY, alternating. */
           const runOf: number[] = [];
-          /* A perComponent section bands by the component's colour (2026-09-26). */
-          const bandOf = (l: (typeof g.lines)[number]) => (g.perComponent ? (l.band ?? null) : l.combo);
+          const bandOf = (l: (typeof g.lines)[number]) => l.combo;
           g.lines.forEach((l, i) => runOf.push(i === 0 ? 0 : runOf[i - 1] + (bandOf(g.lines[i - 1]) !== bandOf(l) ? 1 : 0)));
           return (
             <div key={g.processId} className={gi === 0 ? "" : "mt-3"}>
@@ -1161,13 +1243,7 @@ function RequirementReportView({
                     <Th rowSpan={2}>Details</Th>
                     <Th rowSpan={2}>Component</Th>
                     <Th rowSpan={2} right>Dia/Size</Th>
-                    {/* DYEING / DYED FABRIC PURCHASE list each component PER SIZE
-                        (2026-09-29) — the garments of that size beside it. */}
-                    {g.perComponent && <Th rowSpan={2} right>Pcs</Th>}
                     <Th colSpan={2} center>Planned</Th>
-                    {/* DYEING / DYED FABRIC PURCHASE only (client spec
-                        2026-09-26) — each component's grams per garment. */}
-                    {g.perComponent && <Th rowSpan={2} right>Piece Wt (g)</Th>}
                     <Th rowSpan={2} right>Loss %</Th>
                     <Th colSpan={2} center>To Ordered</Th>
                   </tr>
@@ -1190,42 +1266,26 @@ function RequirementReportView({
                     return (
                       <Fragment key={i}>
                         <tr style={{ background: runOf[i] % 2 === 1 ? COLOURWAY_BAND : "#ffffff" }}>
-                          {/* A SIZE RUN NAMES ITS CLOTH ONCE (2026-09-29) — the PDF's
-                              `sizeRunContinues`; the size rows under it stay blank. */}
-                          {sizeRunContinues(g.lines, i) ? (
-                            <>
-                              <Td>{""}</Td>
-                              <Td>{""}</Td>
-                              <Td>{""}</Td>
-                            </>
-                          ) : (
-                            <>
-                              <Td>
-                                <Swatch name={l.fabricColour} />
-                                {l.fabricColour ?? "—"}
-                              </Td>
-                              <Td>
-                                <DetailsCell line={l} />
-                              </Td>
-                              <Td>{l.component ?? "—"}</Td>
-                            </>
-                          )}
+                          <Td>
+                            <Swatch name={l.fabricColour} />
+                            {l.fabricColour ?? "—"}
+                          </Td>
+                          <Td>
+                            <DetailsCell line={l} />
+                          </Td>
+                          <Td>{l.component ?? "—"}</Td>
                           <Td mono>{diaSizeText(l)}</Td>
-                          {g.perComponent && <Td right mono>{l.pieces != null ? fmtNumber(l.pieces) : "—"}</Td>}
                           <Td right mono>{l.plannedNos != null ? fmtNumber(l.plannedNos) : "—"}</Td>
                           <Td right mono>{fmtNumber(l.plannedWt)}</Td>
-                          {g.perComponent && (
-                            <Td right mono>{l.pieceWtG != null ? fmtNumber(l.pieceWtG) : "—"}</Td>
-                          )}
                           <Td right mono>{l.lossPct.toFixed(2)}%</Td>
                           <Td right mono>{l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : "—"}</Td>
                           <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
                         </tr>
                         {subtotal && (
                           <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
-                            <Td colSpan={g.perComponent ? 6 : 5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
+                            <Td colSpan={5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
                             <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
-                            <Td colSpan={g.perComponent ? 3 : 2}>{""}</Td>
+                            <Td colSpan={2}>{""}</Td>
                             <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
                           </tr>
                         )}
@@ -1233,9 +1293,8 @@ function RequirementReportView({
                     );
                   })}
                   <tr className="font-semibold" style={{ background: tone.tint, color: tone.ink }}>
-                    <Td colSpan={g.perComponent ? 6 : 5}>Grand Total</Td>
+                    <Td colSpan={5}>Grand Total</Td>
                     <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
-                    {g.perComponent && <Td>{""}</Td>}
                     {/* 0606 — "Avg" only when a colour-wise step put different
                         losses in this section; same figure as the PDF. */}
                     <Td right mono>{avgLoss(g.lines, g.plannedTotal, g.toOrderedTotal)}</Td>

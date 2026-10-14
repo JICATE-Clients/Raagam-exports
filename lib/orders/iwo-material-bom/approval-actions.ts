@@ -117,12 +117,15 @@ export type AccessoriesPlanRevision = { revision_no: number; reason: string; rai
 /** The approval panel (run, whether this user may act, timeline) and the
  *  revision log, newest first — what the editor's banner reads. */
 export async function getAccessoriesPlanApproval(bomId: string) {
-  const empty = { run: null, verdict: null, timeline: [], names: {}, revisions: [] as AccessoriesPlanRevision[] };
+  const empty = { run: null, verdict: null, timeline: [], names: {}, revisions: [] as AccessoriesPlanRevision[], mine: false };
   if (!(await can("orders", "view"))) return empty;
   const s = await createClient();
-  const [panel, revs] = await Promise.all([
+  const [panel, revs, me] = await Promise.all([
     getApprovalPanel(WORKFLOWS.sample_accessories_plan.subjectTable, bomId),
     s.from("iwo_material_bom_revisions").select("revision_no, reason, raised_at").eq("bom_id", bomId).order("revision_no", { ascending: false }),
+    getAppUser(),
   ]);
-  return { ...panel, revisions: (revs.data ?? []) as AccessoriesPlanRevision[] };
+  // `mine` — the sender is never offered a decision in the editor (see the Fabric Plan's twin).
+  const mine = !!panel.run && !!me && panel.run.requested_by === me.id;
+  return { ...panel, revisions: (revs.data ?? []) as AccessoriesPlanRevision[], mine };
 }

@@ -6,9 +6,10 @@
  * paper and the spreadsheet carry one answer. INTERNAL: rates and margin are on
  * it; the buyer's document is the Quotation.
  *
- * The page's charts are drawn here with plain shapes (a stepped bar per line,
- * a stacked share bar) in the same six cost-group colours, so the PDF reads
- * like the screen. Money shows in the buyer's currency AND in rupees.
+ * TEXT AND TABLES ONLY (client 2026-10-14): the page's charts are not drawn
+ * here — the PDF is a formal document for sharing, so the price build-up is
+ * the "Garment cost" table, not a stepped bar. Money shows in the buyer's
+ * currency AND in rupees.
  */
 import { jsPDF } from "jspdf";
 import autoTable, { type RowInput } from "jspdf-autotable";
@@ -24,12 +25,9 @@ import {
   drawSheetMasthead,
   drawSummaryTiles,
   paintRow,
-  rgb,
 } from "@/lib/orders/report-pdf-kit";
-import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "./cost-sheet";
+import { FLOOR_PCT, fx, type CostSheetModel, type SizeFigures } from "./cost-sheet";
 import { changeText } from "./revision-history";
-
-const TONE_HEX = { fabric: "#037bb8", cmt: "#1f9a8a", emb: "#d1527a", trims: "#e0a030", over: "#7c62d0", margin: "#2f9e5b" } as const;
 
 const fileStem = (m: CostSheetModel) => `CostSheet_${(m.costingNo ?? "costing").replace(/[^A-Za-z0-9]+/g, "-")}_${m.revision.replace(/\s+/g, "")}`;
 const inr = (m: CostSheetModel, v: number | null) => (v == null || m.exchangeRate == null ? null : v * m.exchangeRate);
@@ -104,92 +102,6 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
     M,
   );
 
-  // ---- THE PRICE, DRAWN: stepped bars (left) and the share bar (right) ----------------
-  const top = y + 4;
-  const half = (CW - 16) / 2;
-  const wfTop = drawCardHeader(doc, M, top, half, BRAND, "How the price is built", `${m.sizes.length > 1 ? `size ${s.label} · ` : ""}₹ / ${m.unitWord}`);
-  type Step = { label: string; value: number; hex: string | null };
-  const steps: Step[] = (
-    [
-      { label: "Fabric", value: s.fabric, hex: TONE_HEX.fabric },
-      { label: "CMT", value: s.cmt, hex: TONE_HEX.cmt },
-      { label: "Embellishment & testing", value: s.process + s.testing, hex: TONE_HEX.emb },
-      { label: "Trims", value: s.trims, hex: TONE_HEX.trims },
-      { label: "Bank charges", value: s.bank, hex: TONE_HEX.over },
-      { label: "Net cost", value: s.net, hex: null },
-      { label: "Rejection + overhead", value: s.wastage + s.overhead, hex: TONE_HEX.over },
-      { label: "Extra charges", value: s.extraOverhead, hex: TONE_HEX.over },
-      { label: "Gross cost", value: s.grossCost, hex: null },
-      { label: `Margin ${m.terms.margin}%`, value: s.margin, hex: TONE_HEX.margin },
-      { label: "Discount", value: -s.discount, hex: TONE_HEX.margin },
-      { label: "Price charges", value: s.priceAdj, hex: TONE_HEX.margin },
-      { label: "Price", value: s.price, hex: null },
-    ] as Step[]
-  ).filter((r) => r.hex === null || r.value !== 0);
-  const rowH = 11.5;
-  const labW = 92;
-  const valW = 36;
-  const laneX = M + 8 + labW;
-  const laneW = half - 16 - labW - valW - 6;
-  const max = Math.max(s.price, s.grossCost, 1) * 1.02;
-  let run = 0;
-  let ry = wfTop + 8;
-  doc.setFontSize(6.8);
-  steps.forEach((r) => {
-    const total = r.hex === null;
-    let start: number;
-    if (total) {
-      start = 0;
-      run = r.value;
-    } else if (r.value >= 0) {
-      start = run;
-      run += r.value;
-    } else {
-      run += r.value;
-      start = run;
-    }
-    doc.setFont("helvetica", total ? "bold" : "normal");
-    doc.setTextColor(total ? 20 : 90);
-    doc.text(r.label, M + 8, ry + 7);
-    doc.setFillColor(244, 246, 249);
-    doc.rect(laneX, ry, laneW, 8.5, "F");
-    doc.setFillColor(...rgb(r.hex ?? BRAND.rule));
-    doc.rect(laneX + (start / max) * laneW, ry, Math.max((Math.abs(r.value) / max) * laneW, 1.2), 8.5, "F");
-    doc.setTextColor(20);
-    doc.text(`${!total && r.value < 0 ? "-" : ""}${fx(Math.abs(r.value))}`, M + half - 8, ry + 7, { align: "right" });
-    ry += rowH;
-  });
-  const wfEnd = ry + 4;
-
-  const gx = M + half + 16;
-  const shTop = drawCardHeader(doc, gx, top, half, BRAND, "Where the price goes", "share of the ₹ price");
-  const parts = priceParts(s);
-  const total = parts.reduce((t, p) => t + p.value, 0) || 1;
-  let bx = gx + 8;
-  const barW = half - 16;
-  parts.forEach((p) => {
-    const w = (p.value / total) * barW;
-    doc.setFillColor(...rgb(TONE_HEX[p.tone]));
-    doc.rect(bx, shTop + 10, Math.max(w - 1, 0.5), 16, "F");
-    bx += w;
-  });
-  let ly = shTop + 40;
-  doc.setFontSize(7.4);
-  parts.forEach((p) => {
-    doc.setFillColor(...rgb(TONE_HEX[p.tone]));
-    doc.rect(gx + 8, ly - 6, 7, 7, "F");
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(60);
-    doc.text(p.label, gx + 20, ly);
-    doc.text(`${((p.value / total) * 100).toFixed(1)}%`, gx + half - 60, ly, { align: "right" });
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(20);
-    doc.text(fx(p.value), gx + half - 8, ly, { align: "right" });
-    ly += 12;
-  });
-  doc.setTextColor(0);
-  doc.setFont("helvetica", "normal");
-
   // ---- the tables --------------------------------------------------------------------
   const table = {
     margin: { left: M, right: M, top: 36 },
@@ -199,7 +111,7 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
     didParseCell: (d: Parameters<typeof paintRow>[0]) => paintRow(d, { tone: BRAND }),
   };
   const end = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-  let cursor = Math.max(wfEnd, ly) + 6;
+  let cursor = y + 4;
   const card = (title: string, head: string[], body: RowInput[], right: number[], rightText?: string) => {
     if (!body.length) return;
     let t = cursor + 10;

@@ -132,6 +132,7 @@ export function RevisionDetailScreen({
     <div className="space-y-5">
       <PageHeader
         title={`Sample Revision ${rev.revision_code}`}
+        back={{ href: "/sales/sample-revision", label: "Revision" }}
         actions={
           draft && canEdit ? (
             <Button disabled={isPending || needsCosting} onClick={() => run(() => submitSampleRevision(rev.id), `${rev.revision_code} sent to the MD.`)}>

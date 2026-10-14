@@ -88,7 +88,11 @@ export function PlanApprovalOverview({
                   ["Plan date", h.planDate ? fmtDate(h.planDate) : null],
                   ["Submitted by", row.submitted_by_name],
                   ["Submitted", row.submitted_at ? fmtDateTime(row.submitted_at) : null],
-                  ...(row.decided_at ? ([["Decided", fmtDateTime(row.decided_at)]] as [string, string][]) : []),
+                  // Only a plan that IS decided — a revision back with the approver
+                  // still carries the last decision's time, which read as this one's.
+                  ...(row.decided_at && (row.status === "approved" || row.status === "returned")
+                    ? ([["Decided", fmtDateTime(row.decided_at)]] as [string, string][])
+                    : []),
                 ] as [string, string | null][]
               ).map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between gap-3 px-3 py-1.5">
@@ -356,13 +360,44 @@ function FabricMiddle({ plan }: { plan: Extract<PlanReport, { kind: "fabric" }>[
   );
 }
 
+/**
+ * THE ACCESSORIES PLAN, IN THE FABRIC PLAN'S SHAPE (user 2026-10-14: "follow
+ * the fabric plan approval same"): four tiles, then the plan BY SAMPLE (the
+ * Fabric side's "Fabric by Sample"), then what it buys. The buy list is
+ * grouped under its category the way Order Entry's Accessories Requirement
+ * prints it — a category band written once over its trims — so the approver
+ * reads the same grouping here as on the report beside it.
+ */
 function AccessoriesMiddle({ plan }: { plan: Extract<PlanReport, { kind: "accessories" }>["report"] }) {
   const advised = plan.items.filter((i) => i.advised).length;
   const unpriced = plan.items.filter((i) => i.purchaseQty == null).length;
+  const categories = [...new Set(plan.items.map((i) => i.category ?? "Uncategorised"))];
+
+  // By sample: how many trims each SMP uses, and how many of those wait on the buyer.
+  const bySample = new Map<string, { trims: Set<string>; advised: Set<string> }>();
+  for (const it of plan.items) {
+    for (const b of it.breakup) {
+      const row = bySample.get(b.sample) ?? { trims: new Set<string>(), advised: new Set<string>() };
+      row.trims.add(`${it.sno}`);
+      if (it.advised) row.advised.add(`${it.sno}`);
+      bySample.set(b.sample, row);
+    }
+  }
+  const unassigned = plan.items.filter((it) => it.breakup.length === 0).length;
+
+  // To buy, grouped by category in the plan's own order (first line entered first).
+  const groups: { category: string; items: typeof plan.items }[] = [];
+  for (const it of [...plan.items].sort((x, y) => x.sno - y.sno)) {
+    const c = it.category ?? "Uncategorised";
+    const g = groups.find((x) => x.category === c);
+    if (g) g.items.push(it);
+    else groups.push({ category: c, items: [it] });
+  }
+
   return (
     <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="Accessories" value={String(plan.items.length)} sub={`${plan.processes.length} processed`} tone="text-primary" />
+        <Tile label="Trims to buy" value={String(plan.items.length)} sub={`${categories.length} categor${categories.length === 1 ? "y" : "ies"}`} tone="text-primary" />
         <Tile label="Samples" value={String(plan.header.samples.length)} sub={plan.header.season ?? undefined} />
         <Tile
           label="Advised"
@@ -370,47 +405,104 @@ function AccessoriesMiddle({ plan }: { plan: Extract<PlanReport, { kind: "access
           sub={advised ? "Cannot be bought until confirmed" : "Nothing waits on the buyer"}
           tone={advised ? "text-warning" : undefined}
         />
-        <Tile label="Without a purchase qty" value={String(unpriced)} tone={unpriced ? "text-danger" : undefined} />
+        <Tile
+          label="Without a purchase qty"
+          value={String(unpriced)}
+          sub={unpriced ? "Cannot be bought yet" : "Every trim is worked out"}
+          tone={unpriced ? "text-danger" : undefined}
+        />
       </div>
+
+      <Card>
+        <CardBody className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground">Accessories by Sample</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <th scope="col" className={TH}>Sample</th>
+                  <th scope="col" className={THR}>Trims</th>
+                  <th scope="col" className="py-1.5 pl-3 text-right font-semibold">Advised</th>
+                </tr>
+              </thead>
+              <tbody className="tabular-nums">
+                {[...bySample].map(([sample, x]) => (
+                  <tr key={sample} className="border-b border-border/60">
+                    <th scope="row" className="py-1.5 pr-3 text-left font-normal">{sample}</th>
+                    <td className="px-3 py-1.5 text-right">{x.trims.size}</td>
+                    <td className={cn("py-1.5 pl-3 text-right", x.advised.size ? "font-semibold text-warning" : "text-muted-foreground")}>
+                      {x.advised.size || "—"}
+                    </td>
+                  </tr>
+                ))}
+                {unassigned ? (
+                  <tr className="border-b border-border/60">
+                    <th scope="row" className="py-1.5 pr-3 text-left font-normal text-muted-foreground">Not split by sample</th>
+                    <td className="px-3 py-1.5 text-right">{unassigned}</td>
+                    <td className="py-1.5 pl-3" />
+                  </tr>
+                ) : null}
+                {bySample.size === 0 && !unassigned ? (
+                  <tr>
+                    <td colSpan={3} className="py-1.5 text-muted-foreground">No accessory is planned yet.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
 
       <Card>
         <CardBody className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Accessories to Buy</h2>
           <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-                <th scope="col" className={TH}>Accessory</th>
-                <th scope="col" className="px-3 py-1.5 text-left font-semibold max-sm:hidden">Colour</th>
-                <th scope="col" className={cn(THR, "max-sm:hidden")}>Samples</th>
-                <th scope="col" className={cn(THR, "max-sm:hidden")}>Required</th>
-                <th scope="col" className="py-1.5 pl-3 text-right font-semibold">Purchase</th>
-              </tr>
-            </thead>
-            <tbody className="tabular-nums">
-              {plan.items.map((it, i) => (
-                <tr key={i} className="border-b border-border/60">
-                  <th scope="row" className="py-1.5 pr-3 text-left font-normal">
-                    {it.item}
-                    {it.advised || it.foc ? (
-                      <span className="block text-[11px] text-warning">{[it.advised ? "Advised" : null, it.foc ? "FOC" : null].filter(Boolean).join(" · ")}</span>
-                    ) : null}
-                  </th>
-                  <td className="px-3 py-1.5 text-muted-foreground max-sm:hidden">{it.colour ?? "—"}</td>
-                  <td className="px-3 py-1.5 text-right max-sm:hidden">{new Set(it.breakup.map((b) => b.sample)).size || "—"}</td>
-                  <td className="px-3 py-1.5 text-right max-sm:hidden">{it.requiredQty == null ? "—" : fmtNumber(it.requiredQty)}</td>
-                  <td className={cn("whitespace-nowrap py-1.5 pl-3 text-right", it.purchaseQty == null && "whitespace-normal text-danger")}>
-                    {it.purchaseQty == null ? (it.refusal ?? "Not worked out") : `${fmtNumber(it.purchaseQty)}${it.purchaseUom ? ` ${it.purchaseUom}` : ""}`}
-                  </td>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <th scope="col" className={TH}>Accessory</th>
+                  <th scope="col" className="px-3 py-1.5 text-left font-semibold max-sm:hidden">Colour</th>
+                  <th scope="col" className={cn(THR, "max-sm:hidden")}>Required</th>
+                  <th scope="col" className="py-1.5 pl-3 text-right font-semibold">Purchase</th>
                 </tr>
+              </thead>
+              {groups.map((g) => (
+                <tbody key={g.category} className="tabular-nums">
+                  {/* THE CATEGORY BAND — written once over its trims, as the report prints it. */}
+                  <tr className="bg-primary-soft/60">
+                    <th scope="colgroup" colSpan={4} className="px-2 py-1 text-left text-[11px] font-bold uppercase tracking-wide text-primary">
+                      {`${g.category} · ${g.items.length}`}
+                    </th>
+                  </tr>
+                  {g.items.map((it, i) => (
+                    <tr key={`${g.category}-${i}`} className="border-b border-border/60">
+                      <th scope="row" className="py-1.5 pr-3 text-left font-normal">
+                        {it.item}
+                        {it.advised || it.foc || it.sendOut ? (
+                          <span className="block text-[11px] text-warning">
+                            {[it.advised ? "Advised" : null, it.foc ? "FOC" : null, it.sendOut ? "Send out" : null].filter(Boolean).join(" · ")}
+                          </span>
+                        ) : null}
+                      </th>
+                      <td className="px-3 py-1.5 text-muted-foreground max-sm:hidden">{it.colour ?? "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-right max-sm:hidden">
+                        {it.requiredQty == null ? "—" : `${fmtNumber(it.requiredQty)}${it.consumptionUom ? ` ${it.consumptionUom}` : ""}`}
+                      </td>
+                      <td className={cn("whitespace-nowrap py-1.5 pl-3 text-right", it.purchaseQty == null && "whitespace-normal text-danger")}>
+                        {it.purchaseQty == null ? (it.refusal ?? "Not worked out") : `${fmtNumber(it.purchaseQty)}${it.purchaseUom ? ` ${it.purchaseUom}` : ""}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               ))}
               {plan.items.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-1.5 text-muted-foreground">No accessory is planned yet.</td>
-                </tr>
+                <tbody>
+                  <tr>
+                    <td colSpan={4} className="py-1.5 text-muted-foreground">No accessory is planned yet.</td>
+                  </tr>
+                </tbody>
               ) : null}
-            </tbody>
-          </table>
+            </table>
           </div>
         </CardBody>
       </Card>

@@ -350,7 +350,7 @@ export function costingProblems(d: CostingDraft, opts: { draft?: boolean } = {})
   const out: CostingProblem[] = [];
   const h = d.header;
   if (!h.opportunity_id) {
-    out.push({ section: "info", fieldId: costingFieldId.sample, label: "Sample No", message: "Choose the Sample No." });
+    out.push({ section: "info", fieldId: costingFieldId.sample, label: "SMP Number", message: "Choose the SMP Number." });
   }
   if (opts.draft) return out;
 
@@ -683,10 +683,17 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
 export const rateMemoryKey = (fabricId: string | null, quality: string) =>
   fabricId ? `id:${fabricId}` : quality.trim() ? `q:${quality.trim().toUpperCase()}` : "";
 
-/** Spec §5.2 in words, for the toast and the band. */
+/** The margin floor in words, for the band. Since 2026-10-14 EVERY costing
+ *  goes to the MD (see `submitSampleCosting`); the floor only warns. */
 export const floorSentence = (lowest: number | null) =>
   lowest == null
     ? null
     : lowest < MARGIN_FLOOR_PCT
-      ? `Lowest margin ${lowest.toFixed(1)}% is under ${MARGIN_FLOOR_PCT}% — Submit sends it to the MD.`
-      : `Lowest margin ${lowest.toFixed(1)}% — clears the ${MARGIN_FLOOR_PCT}% floor on Submit.`;
+      ? `Lowest margin ${lowest.toFixed(1)}% is under the ${MARGIN_FLOOR_PCT}% floor — the MD sees it flagged.`
+      : `Lowest margin ${lowest.toFixed(1)}% — clears the ${MARGIN_FLOOR_PCT}% floor.`;
+
+/** The tail of the "sent to the MD" toast: the margin, flagged when under the floor. */
+export const sentMarginNote = (lowest: number | null) =>
+  lowest == null
+    ? ""
+    : ` — lowest margin ${lowest.toFixed(1)}%${lowest < MARGIN_FLOOR_PCT ? `, under the ${MARGIN_FLOOR_PCT}% floor` : ""}`;

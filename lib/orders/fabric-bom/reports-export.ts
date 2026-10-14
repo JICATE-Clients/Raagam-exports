@@ -839,13 +839,94 @@ export async function exportYarnRequirementPdf(
        too. A cloth bought by weight leaves the cell BLANK, which is the true
        statement "not counted in pieces", and the Wt beside it is the answer. */
 
-    /* DYEING / DYED FABRIC PURCHASE (client spec 2026-09-26): a Component
-       column and a Piece Wt (g) column, one line per component. Other
-       sections keep their columns. `pc` adds both cells to every row kind. */
-    const pc = !!g.perComponent;
-    /* A perComponent section bands and subtotals by the component's colour
-       (2026-09-26); every other by the assort colourway. */
-    const bandOf = (l: (typeof g.lines)[number]) => (pc ? (l.band ?? null) : l.combo);
+    /* DYEING / DYED FABRIC PURCHASE (client 2026-10-14) — each colour is a
+       heading row, its cloths listed beneath, one line per cloth and dia
+       (`dyeingDisplayLines`). No Color / Component / Size / Pcs / Nos/Mtrs /
+       Piece Wt columns: the heading is the colour, and the dye house works
+       in kilograms of cloth. */
+    if (g.perComponent) {
+      const lines = dyeingDisplayLines(g.lines);
+      const dBody: Cell[][] = [];
+      const headingRows = new Map<number, string | null>();
+      const subRows = new Set<number>();
+      lines.forEach((l, i) => {
+        if (i === 0 || lines[i - 1].band !== l.band) {
+          headingRows.set(dBody.length, swatchFor(l.band ?? null));
+          dBody.push([{ content: l.band || "No colour", colSpan: 5 }]);
+        }
+        dBody.push([
+          detailsCell(l),
+          l.dia != null && String(l.dia).trim() ? String(l.dia) : "",
+          fmtNumber(l.plannedWt),
+          l.lossPct ? `${l.lossPct.toFixed(2)}%` : "",
+          fmtNumber(l.toOrderedWt),
+        ]);
+        const sub =
+          g.byColour.length > 1 && (i === lines.length - 1 || lines[i + 1].band !== l.band)
+            ? g.byColour.find((c) => c.combo === (l.band ?? null))
+            : undefined;
+        if (sub) {
+          subRows.add(dBody.length);
+          dBody.push([`${sub.combo || "No colour"} — subtotal`, "", fmtNumber(sub.plannedTotal), "", fmtNumber(sub.toOrderedTotal)]);
+        }
+      });
+      const dGrand = dBody.length;
+      dBody.push([
+        "Grand Total :",
+        "",
+        fmtNumber(g.plannedTotal),
+        avgLossText(lines, g.plannedTotal, g.toOrderedTotal),
+        fmtNumber(g.toOrderedTotal),
+      ]);
+      autoTable(doc, {
+        head: [
+          [
+            "Details",
+            "Dia",
+            { content: "Planned Wt", styles: { halign: "right" } },
+            { content: "Loss %", styles: { halign: "right" } },
+            { content: "To Ordered Wt", styles: { halign: "right" } },
+          ],
+        ],
+        body: dBody,
+        startY,
+        margin: { left: M, right: M, top: CONTINUED_TOP },
+        styles: cardTableStyles(),
+        headStyles: cardTableHead(),
+        theme: "plain",
+        /* 539pt: Details takes what the four short columns leave. */
+        columnStyles: {
+          1: { halign: "left", cellWidth: 56 },
+          2: { halign: "right", cellWidth: 70 },
+          3: { halign: "right", cellWidth: 44 },
+          4: { halign: "right", cellWidth: 70 },
+        },
+        didParseCell: (d) => {
+          if (d.section !== "body") return;
+          if (headingRows.has(d.row.index)) {
+            d.cell.styles.fontStyle = "bold";
+            d.cell.styles.fillColor = rgb(COLOURWAY_BAND);
+            if (headingRows.get(d.row.index)) d.cell.styles.cellPadding = SWATCH_PADDING;
+          } else if (d.row.index === dGrand) {
+            d.cell.styles.fontStyle = "bold";
+            d.cell.styles.fillColor = rgb(style.tint);
+          } else if (subRows.has(d.row.index)) {
+            d.cell.styles.fontStyle = "bold";
+            d.cell.styles.fillColor = [226, 231, 236];
+          }
+        },
+        didDrawCell: (d) => {
+          if (d.section !== "body" || d.column.index !== 0) return;
+          const hex = headingRows.get(d.row.index);
+          if (hex) drawSwatch(doc, d.cell, hex);
+        },
+      });
+      y = finalY(doc, y);
+      continue;
+    }
+
+    /* Every other section bands and subtotals by the assort colourway. */
+    const bandOf = (l: (typeof g.lines)[number]) => l.combo;
     const body: Cell[][] = [];
     const boldRows = new Set<number>();
     /* ONE BAND PER ASSORT COLOURWAY (alternating) and a swatch of the cloth's
@@ -854,20 +935,13 @@ export async function exportYarnRequirementPdf(
     let colourRun = 0;
     g.lines.forEach((l, i) => {
       if (i > 0 && bandOf(g.lines[i - 1]) !== bandOf(l)) colourRun++;
-      /* A SIZE RUN NAMES ITS CLOTH ONCE (2026-09-29) — on a per-size DYEING
-         line the colour, fabric and component print on the run's first size
-         only, as the Yarn table names "YARN PURCHASE" once. */
-      const head = !sizeRunContinues(g.lines, i);
-      rowLook.set(body.length, { band: colourRun % 2 === 1, swatch: head ? swatchFor(l.fabricColour) : null });
+      rowLook.set(body.length, { band: colourRun % 2 === 1, swatch: swatchFor(l.fabricColour) });
       body.push([
-        head ? (l.fabricColour ?? "") : "",
-        head ? detailsCell(l) : "",
-        ...(pc ? [head ? (l.component ?? "") : ""] : []),
+        l.fabricColour ?? "",
+        detailsCell(l),
         diaSizeCell(l),
-        ...(pc ? [l.pieces != null ? fmtNumber(l.pieces) : ""] : []),
         ...([l.plannedNos != null ? fmtNumber(l.plannedNos) : ""]),
         fmtNumber(l.plannedWt),
-        ...(pc ? [l.pieceWtG != null ? fmtNumber(l.pieceWtG) : ""] : []),
         l.lossPct ? `${l.lossPct.toFixed(2)}%` : "",
         ...([l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : ""]),
         fmtNumber(l.toOrderedWt),
@@ -883,12 +957,9 @@ export async function exportYarnRequirementPdf(
         body.push([
           "",
           `${sub.combo || "No colour"} — subtotal`,
-          ...(pc ? [""] : []),
           "",
-          ...(pc ? [""] : []),
           ...([""]),
           fmtNumber(sub.plannedTotal),
-          ...(pc ? [""] : []),
           "",
           ...([""]),
           fmtNumber(sub.toOrderedTotal),
@@ -899,12 +970,9 @@ export async function exportYarnRequirementPdf(
     body.push([
       "",
       "Grand Total :",
-      ...(pc ? [""] : []),
       "",
-      ...(pc ? [""] : []),
       ...([""]),
       fmtNumber(g.plannedTotal),
-      ...(pc ? [""] : []),
       /* 0606 — a colour-wise step puts different losses in one section. */
       avgLossText(g.lines, g.plannedTotal, g.toOrderedTotal),
       ...([""]),
@@ -918,11 +986,8 @@ export async function exportYarnRequirementPdf(
       [
         { content: "Color", rowSpan: 2 },
         { content: "Details", rowSpan: 2 },
-        ...(pc ? [{ content: "Component", rowSpan: 2 }] : []),
         { content: "Dia/Size", rowSpan: 2 },
-        ...(pc ? [{ content: "Pcs", rowSpan: 2, styles: { halign: "right" as const } }] : []),
         { content: "Planned", colSpan: 2, styles: { halign: "center" } },
-        ...(pc ? [{ content: "Piece Wt (g)", rowSpan: 2, styles: { halign: "right" as const } }] : []),
         { content: "Loss %", rowSpan: 2, styles: { halign: "right" } },
         { content: "To Ordered", colSpan: 2, styles: { halign: "center" } },
       ],
@@ -942,26 +1007,18 @@ export async function exportYarnRequirementPdf(
       styles: cardTableStyles(),
       headStyles: cardTableHead(),
       theme: "plain",
-      /* ONE LIST, INDEXED ONCE — the per-component section inserts three
-         columns, so the widths are laid out in order rather than by fixed
-         index. Portrait A4 at M 28 is 539pt wide: the per-component section's
-         text columns are 58 + 96 + 64 + 48, Pcs 34, Piece Wt 38 and Loss 34
-         (372), leaving ~42pt for each of the four figures ("1,234.567" at 7pt). */
+      /* Portrait A4 at M 28 is 539pt wide: Color 72 + Details 178 + Dia 56
+         + Loss 34, leaving ~50pt for each of the four figures. */
       columnStyles: Object.fromEntries(
         [
-          { cellWidth: pc ? 58 : 72 },
-          { cellWidth: pc ? 96 : 178 },
-          ...(pc ? [{ cellWidth: 64 }] : []),
+          { cellWidth: 72 },
+          { cellWidth: 178 },
           /* LEFT AND WIDER SINCE 0566 — a dia is text now ("23 CM", "25 BOX",
              "36 x 44"), and right-aligning a label ragged-lefts a column of
              mixed-length words. 40pt fitted "64" and clips a unit. */
-          { halign: "left" as const, cellWidth: pc ? 48 : 56 },
-          /* Pcs (2026-09-29) — the size's garments; its 34pt came off
-             Color (-6) and Details (-14), so the four figures keep ~42pt. */
-          ...(pc ? [{ halign: "right" as const, cellWidth: 34 }] : []),
+          { halign: "left" as const, cellWidth: 56 },
           { halign: "right" as const },
           { halign: "right" as const },
-          ...(pc ? [{ halign: "right" as const, cellWidth: 38 }] : []),
           { halign: "right" as const, cellWidth: 34 },
           { halign: "right" as const },
           { halign: "right" as const },
@@ -1110,20 +1167,59 @@ export async function exportYarnRequirementPdf(
  * rather than in the report data, so the screen can set the YD combo name as
  * its own tagged line while the PDF sets it as a second text line.
  */
-/** Is line `i` a further size of the same cloth and component as the line
- *  before it? Then it prints no colour / details / component of its own. */
-export function sizeRunContinues(lines: readonly StageBreakdownLine[], i: number): boolean {
-  if (i === 0 || !lines[i].sizeLabel) return false;
-  const a = lines[i - 1];
-  const b = lines[i];
-  return (
-    !!a.sizeLabel &&
-    a.itemId === b.itemId &&
-    a.combo === b.combo &&
-    a.band === b.band &&
-    a.component === b.component &&
-    a.ydComboName === b.ydComboName
-  );
+/**
+ * THE DYEING SECTION AS PRINTED (client 2026-10-14: "need group color and list
+ * below of it details and no need component, size, pcs, no mts"). A
+ * `perComponent` section's lines are one per (colour, component, size); the
+ * dye house reads one line per CLOTH under each colour. So the lines are folded
+ * on (colour band, cloth, YD combo, dia), weights summed, and Component / Size /
+ * Pcs / Nos/Mtrs / Piece Wt are not carried.
+ *
+ * DISPLAY ONLY. `group.lines` keeps its per-component grain because the Budget
+ * and the Fabric T&A read it; both renderers call this and nothing else does.
+ *
+ * Loss: the lines' own figure when they agree; when a colour-wise step gave
+ * them different losses, the folded line's effective loss (1 − planned/ordered)
+ * — the same formula as `sectionAverageLoss`, so the line and the Avg agree.
+ */
+export function dyeingDisplayLines(lines: readonly StageBreakdownLine[]): StageBreakdownLine[] {
+  const folded = new Map<string, { line: StageBreakdownLine; losses: Set<number> }>();
+  for (const l of lines) {
+    const key = [l.band ?? "", l.itemId, l.ydComboName ?? "", l.dia ?? ""].join("\u0000");
+    const held = folded.get(key);
+    if (held) {
+      held.line.plannedWt += l.plannedWt;
+      held.line.toOrderedWt += l.toOrderedWt;
+      held.losses.add(Number((l.lossPct ?? 0).toFixed(4)));
+      continue;
+    }
+    folded.set(key, {
+      line: {
+        ...l,
+        component: null,
+        sizeLabel: null,
+        pieces: null,
+        pieceWtG: null,
+        plannedNos: null,
+        toOrderedNos: null,
+      },
+      losses: new Set([Number((l.lossPct ?? 0).toFixed(4))]),
+    });
+  }
+  return [...folded.values()]
+    .map(({ line, losses }) => ({
+      ...line,
+      plannedWt: Number(line.plannedWt.toFixed(6)),
+      toOrderedWt: Number(line.toOrderedWt.toFixed(6)),
+      lossPct:
+        losses.size > 1 && line.toOrderedWt > 0 ? (1 - line.plannedWt / line.toOrderedWt) * 100 : line.lossPct,
+    }))
+    .sort(
+      (a, b) =>
+        (a.band ?? "").localeCompare(b.band ?? "") ||
+        a.fabricName.localeCompare(b.fabricName) ||
+        String(a.dia ?? "").localeCompare(String(b.dia ?? "")),
+    );
 }
 
 /** `Dia/Size` — the dia, and on a per-size DYEING line the size after it
