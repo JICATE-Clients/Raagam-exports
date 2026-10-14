@@ -37,7 +37,7 @@
  * tab that ends up open is whichever real screen the operator lands on.
  */
 
-import { createElement, useEffect } from "react";
+import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { Truncated } from "@/components/ui/truncated";
 import { hasPermission } from "@/lib/auth/types";
@@ -48,6 +48,7 @@ import {
   ChevronRight,
   LayoutDashboard,
   Search,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useTrackTabSearch, useWorkspaceTabs } from "@/lib/workspace-tabs";
@@ -104,40 +105,52 @@ function iconForPath(pathname: string, modules: { href: string; icon: LucideIcon
 }
 
 /**
- * ONE SCREEN SWITCHER, NOT A ROW OF TABS (user 2026-10-03: option "L" of the
- * twelve tab-strip designs on the Workspace Tabs Redesign canvas, chosen after
- * seeing each one at 390px).
+ * NOTEPAD-STYLE TABS ON A DESKTOP, THE ONE SWITCHER ON A PHONE (user
+ * 2026-10-14, a Windows Notepad screenshot: "navigation tab intha mari venum").
  *
- * The strip used to draw every open screen as a tab (Notepad-style, operator
- * 2026-09-17). On a phone that left room for two and a half tabs, scrolled
- * sideways; on a desktop the open tab was told apart from the rest only by a
- * 2px underline. L names the CURRENT screen once and puts the others one
- * click away:
+ * The history, because this is the third shape and the second time it is
+ * tabs. 2026-09-17 drew every open screen as a Notepad tab. 2026-10-03
+ * replaced that with ONE switcher (option "L" of the Workspace Tabs Redesign
+ * canvas), chosen after seeing each design at 390px — on a phone the tabs left
+ * room for two and a half, scrolled sideways. Today's request brings the tabs
+ * back where they were never the problem: from `md` up the strip is tabs
+ * again; below `md` it is still L's three thumb-sized controls (‹ switcher ›).
  *
- *   [Home] [‹] [›] [▣ Order Entry · 3 open ▾]  Recent: Fabric BOM · Material BOM
+ * THE DESKTOP STRIP, as Notepad draws it:
+ * - a tab per open screen, sitting on the bar's bottom edge. The OPEN one takes
+ *   the page's own surface, rounded on top and bordered on three sides, so it
+ *   reads as joined to the screen beneath; the rest are flat text separated by
+ *   a short hairline (none beside the open tab — its own edge separates).
+ * - ✕ always on the open tab, on hover on the others.
+ * - ◀ ▶ appear only while the strip overflows — two dead arrows around one tab
+ *   read as an unfinished bar (user 2026-10-01).
+ * - NO "+" (user 2026-10-14): the Search box at the bar's end opens a screen.
+ * - NO ⋯ MENU (user 2026-10-14, removed the same day it came back): the
+ *   desktop closes a tab with its ✕ or a middle-click. The phone switcher still
+ *   lists every open screen, the sub-module's screens and Close others / all.
  *
- * - THE SWITCHER is `DropdownMenu`, so its keyboard (↑↓ Enter Esc) and its
- *   portal are the primitive's. Its list is every open screen, the current one
- *   ticked (`checked`), then the Close current / others / all actions the old
- *   ⋯ menu carried. Closing lives here now: there is no per-tab ✕ any more.
- * - ‹ › STEP THROUGH THE OPEN SCREENS in the store's own order, Home first, and
- *   stop at either end rather than wrap — a wrap reads as a jump to a screen the
- *   operator did not ask for.
- * - "RECENT" is the two most recently OPENED other screens. The store appends,
- *   so the tail of `tabs` is the newest. Desktop only (`lg`); on a phone the
- *   switcher's list is the same thing one tap away.
- * - ON A PHONE (below `md`) Home leaves the strip — the bottom bar's Home is the
- *   same link — and the switcher takes the width between ‹ and ›, so the strip
- *   is three thumb-sized controls whatever the tab count.
- *
- * The unsaved dot stays gone ("antha . mattum vendam", 2026-09-17); the store
- * still tracks `dirty` for the reload guard.
+ * NO UNSAVED DOT, though Notepad has one: "antha . mattum vendam" (operator,
+ * 2026-09-17). The store still tracks `dirty` for the reload guard.
  *
  * Every behaviour is still `lib/workspace-tabs.ts` (open, dedupe, switch,
  * close, close others/all); only how it is drawn changed.
  */
 const NAV_BTN =
   "flex h-10 w-10 flex-none items-center justify-center rounded-control border border-border bg-surface text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-surface md:h-9 md:w-9";
+
+/** A desktop tab. `self-end` + `h-9` puts it on the bar's bottom edge. */
+const TAB =
+  "ty-tab group relative flex h-9 flex-none items-center gap-2 self-end whitespace-nowrap rounded-t-lg border border-b-0 border-transparent pl-3 pr-1.5 text-[13px] transition-colors duration-150";
+/** The open tab: the page's surface, joined to it (`-mb-px` covers the bar's rule). */
+const TAB_ACTIVE = "z-10 -mb-px h-[calc(2.25rem+1px)] border-border bg-background font-semibold text-foreground";
+const TAB_IDLE = "font-medium text-muted-foreground hover:bg-surface-muted hover:text-foreground";
+/** The hairline on an idle tab's right edge. */
+const TAB_DIVIDER =
+  "after:absolute after:right-0 after:top-1/2 after:h-4 after:w-px after:-translate-y-1/2 after:bg-border";
+const ICON_BTN =
+  "flex h-8 w-8 flex-none items-center justify-center rounded-control text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent";
+/** How far one arrow press moves the strip — roughly one tab. */
+const SCROLL_STEP = 180;
 
 export function WorkspaceTabsBar() {
   const pathname = usePathname();
@@ -199,11 +212,6 @@ export function WorkspaceTabsBar() {
       ? label(currentTab)
       : navLabel(user, pathname, titleForPath(pathname));
 
-  const recent = openTabs
-    .filter((t) => t.href !== pathname)
-    .slice(-2)
-    .reverse();
-
   const siblings = isHomeActive ? null : siblingScreens(user, pathname);
 
   const homeItem: DropdownItem[] = showHome
@@ -252,27 +260,45 @@ export function WorkspaceTabsBar() {
     },
   ];
 
+  /* ARROWS INSTEAD OF A SCROLLBAR, Notepad's answer to more tabs than fit —
+     each live only while there is somewhere to go in its direction. */
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+  const overflowing = canLeft || canRight;
+  const measure = useCallback(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 1);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      ro.disconnect();
+    };
+  }, [measure]);
+  // A tab opened or closed changes the content, not the strip's size; and the
+  // open tab is scrolled into view so it is never left past the edge.
+  useEffect(() => {
+    measure();
+    stripRef.current
+      ?.querySelector<HTMLElement>('[data-tab-active="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [measure, openTabs.length, pathname]);
+  const scrollStrip = (dx: number) => stripRef.current?.scrollBy({ left: dx, behavior: "smooth" });
+
   return (
     <div
       data-tab-strip=""
       className="flex h-14 flex-none items-center gap-1.5 border-b border-border px-2 md:h-11 md:gap-1"
     >
-      {showHome && (
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label="Home"
-          aria-current={isHomeActive ? "page" : undefined}
-          onClick={(e) => {
-            if (!isPlainLeftClick(e)) return;
-            goHome();
-          }}
-          className={cn(NAV_BTN, "max-md:hidden", isHomeActive && "border-primary text-primary")}
-        >
-          <LayoutDashboard className="h-4 w-4" />
-        </button>
-      )}
-
+      {/* ---- PHONE (below md): L's three controls, ‹ [switcher] › ---- */}
       {/* Chrome, not fields: off the Tab path like every control here. */}
       <button
         type="button"
@@ -280,64 +306,134 @@ export function WorkspaceTabsBar() {
         aria-label="Previous screen"
         disabled={pos <= 0}
         onClick={() => seq[pos - 1]?.go()}
-        className={NAV_BTN}
+        className={cn(NAV_BTN, "md:hidden")}
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
-      {/* `max-md:order-last` puts › after the switcher on a phone
-          (‹ [switcher] ›); on a desktop it stays beside ‹. */}
+      <div className="flex min-w-0 flex-1 md:hidden">
+        <DropdownMenu
+          items={switcherItems}
+          label={`Open screens, current: ${currentLabel}`}
+          align="left"
+          triggerClassName="ty-tab flex h-10 min-w-0 flex-1 items-center gap-2 rounded-control border border-border bg-surface px-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-surface-muted"
+          trigger={
+            <>
+              {/* `createElement`, not `<CurrentIcon />`: the icon is looked up per
+                  render, and React Compiler refuses a component chosen that way
+                  as JSX (react-hooks/static-components). */}
+              {CurrentIcon && createElement(CurrentIcon, { className: "h-4 w-4 flex-none text-primary" })}
+              <Truncated text={currentLabel} className="min-w-0 text-left" />
+              {openTabs.length > 0 && (
+                <span className="ml-auto flex-none rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary">
+                  {openTabs.length} open
+                </span>
+              )}
+              <ChevronDown className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+            </>
+          }
+        />
+      </div>
       <button
         type="button"
         tabIndex={-1}
         aria-label="Next screen"
         disabled={pos >= seq.length - 1}
         onClick={() => seq[pos + 1]?.go()}
-        className={cn(NAV_BTN, "max-md:order-last")}
+        className={cn(NAV_BTN, "md:hidden")}
       >
         <ChevronRight className="h-4 w-4" />
       </button>
 
-      <DropdownMenu
-        items={switcherItems}
-        label={`Open screens, current: ${currentLabel}`}
-        align="left"
-        triggerClassName="ty-tab flex h-10 min-w-0 flex-1 items-center gap-2 rounded-control border border-border bg-surface px-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-surface-muted md:ml-1 md:h-9 md:max-w-[22rem] md:flex-none"
-        trigger={
-          <>
-            {/* `createElement`, not `<CurrentIcon />`: the icon is looked up per
-                render, and React Compiler refuses a component chosen that way
-                as JSX (react-hooks/static-components). */}
-            {CurrentIcon && createElement(CurrentIcon, { className: "h-4 w-4 flex-none text-primary" })}
-            <Truncated text={currentLabel} className="min-w-0 text-left" />
-            {openTabs.length > 0 && (
-              <span className="ml-auto flex-none rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary md:ml-1">
-                {openTabs.length} open
-              </span>
-            )}
-            <ChevronDown className="h-3.5 w-3.5 flex-none text-muted-foreground" />
-          </>
-        }
-      />
-
-      {recent.length > 0 && (
-        <div className="ml-2 hidden min-w-0 items-center gap-1.5 text-xs text-muted-foreground lg:flex">
-          <span className="flex-none">Recent:</span>
-          {recent.map((t, i) => (
-            <span key={t.id} className="flex min-w-0 items-center gap-1.5">
-              {i > 0 && <span aria-hidden>·</span>}
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={() => activate(t.id)}
-                // truncate-reveal: exempt -- a screen name from the nav registry, and the full name is in the switcher list beside it
-                className="max-w-[10rem] truncate font-medium text-primary hover:underline"
-              >
-                {label(t)}
-              </button>
-            </span>
-          ))}
-        </div>
+      {/* ---- DESKTOP (md and up): Notepad's tab strip ---- */}
+      {showHome && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-current={isHomeActive ? "page" : undefined}
+          onClick={(e) => {
+            if (!isPlainLeftClick(e)) return;
+            goHome();
+          }}
+          className={cn(TAB, "gap-1.5 pr-3 max-md:hidden", isHomeActive ? TAB_ACTIVE : TAB_IDLE)}
+        >
+          <LayoutDashboard className={cn("h-3.5 w-3.5 flex-none", isHomeActive && "text-primary")} />
+          Home
+        </button>
       )}
+      {overflowing && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Scroll tabs left"
+          disabled={!canLeft}
+          onClick={() => scrollStrip(-SCROLL_STEP)}
+          className={cn(ICON_BTN, "self-center max-md:hidden")}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      )}
+      {/* THE STRIP. `h-full items-end` so each tab sits on the bar's bottom
+          edge; no scrollbar, the arrows are the way along it. */}
+      <div ref={stripRef} className="scrollbar-none flex h-full min-w-0 items-end overflow-x-auto max-md:hidden">
+        {openTabs.map((tab, i) => {
+          const active = tab.href === pathname;
+          const Icon = iconForPath(tab.href, modules);
+          const name = label(tab);
+          /* No hairline on the open tab, nor on the one just before it. */
+          const divider = !active && openTabs[i + 1]?.href !== pathname;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              tabIndex={-1}
+              data-tab-active={active}
+              aria-current={active ? "page" : undefined}
+              onClick={() => activate(tab.id)}
+              onAuxClick={(e) => {
+                // Middle-click closes, as in every tabbed app.
+                if (e.button === 1) {
+                  e.preventDefault();
+                  close(tab.id);
+                }
+              }}
+              className={cn(TAB, "min-w-[8rem]", active ? TAB_ACTIVE : TAB_IDLE, divider && TAB_DIVIDER)}
+            >
+              {Icon && createElement(Icon, { className: cn("h-3.5 w-3.5 flex-none", active && "text-primary") })}
+              <Truncated text={name} className="max-w-[10rem] flex-1 text-left" />
+              <span
+                role="button"
+                aria-label={`Close ${name}`}
+                tabIndex={-1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  close(tab.id);
+                }}
+                className={cn(
+                  "flex h-6 w-6 flex-none items-center justify-center rounded transition-opacity duration-150 hover:bg-foreground/10 group-hover:opacity-100",
+                  active ? "opacity-100" : "opacity-0",
+                )}
+              >
+                <X className="h-3.5 w-3.5" />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {overflowing && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Scroll tabs right"
+          disabled={!canRight}
+          onClick={() => scrollStrip(SCROLL_STEP)}
+          className={cn(ICON_BTN, "self-center max-md:hidden")}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
+      {/* No "+" and no ⋯ menu on a desktop (user 2026-10-14) — every open
+          screen is a tab, ✕ closes one, and Search (right) opens another. The
+          phone switcher above keeps the full list. */}
 
       <div className="hidden flex-1 md:block" />
 
