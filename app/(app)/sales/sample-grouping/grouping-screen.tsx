@@ -401,7 +401,6 @@ export function GroupingScreen({
         <GroupSheet
           key={`${open.id}:${open.status}`}
           group={open}
-          addable={data.candidates.filter((c) => !c.group_id && c.kg != null && sameSeasonYear(c, open))}
           perms={perms}
           onClose={() => setOpenId(null)}
         />

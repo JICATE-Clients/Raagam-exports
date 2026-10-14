@@ -35,7 +35,7 @@ import { RaiseRevisionLink } from "@/components/orders/raise-revision-link";
 import { OverrideBanner, useOverrideCommit, type OverrideSaveRequest } from "@/components/orders/override-commit";
 import { areaOverride } from "@/lib/orders/overrides/override-modules";
 import type { OverrideEditState } from "@/lib/orders/overrides/types";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTabResume } from "@/lib/workspace-tabs";
 import {
@@ -79,6 +79,7 @@ import { stageRank } from "@/lib/orders/fabric-bom/stage-routes";
 import { ProcessFoldList, type FoldListColumn } from "@/components/orders/process-fold-list";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
@@ -431,23 +432,25 @@ const lineInput = (c: CostRow): BudgetLineInput => lineInputOf(c);
 /**
  * Which rail row shows a line of this source.
  *
- * A PURCHASE OR PROCESS KIND IS ITS OWN RAIL ROW, keyed by its source (client
- * 2026-10-05, screenshot 3260: "why the rail kind of process and purchase not
- * listing in left aligned way"). They were a `Tabs side` strip INSIDE the
- * section, and that side list only switches in on a 76.5rem pane — with the
- * app menu open the pane is narrower, so it fell back to a strip across the
- * top. Nested under Purchase Rates / Process Rates on the SECTIONS rail they
- * are always listed, at any width, and cost the grids no width at all. The
- * sources never collide with a section key, so the source IS the row key.
+ * A PURCHASE OR PROCESS KIND IS A CARD INSIDE ITS SECTION, beside the grid —
+ * the shape of Fabric BOM ▸ Manual's fabric list (client 2026-10-14: "ulla
+ * table pakkatha la varanum"). On 2026-10-05 the kinds were `sub` rows on the
+ * SECTIONS rail (screenshot 3260), because the `Tabs side` strip before that
+ * fell back to a strip across the top on a narrow pane; this card list is
+ * plain flex and never folds, so the rail now carries only Purchase Rates /
+ * Process Rates, and `openKind` says which card is open. A jump to a line
+ * opens its kind first (`openKindOf`), then lands in its section.
  */
-const KIND_SOURCES: readonly string[] = [
-  ...PURCHASE_TABS.map((t) => t.source),
-  ...PROCESS_TABS.map((t) => t.source),
-];
+const KIND_GROUP_OF: Record<string, "purchase" | "process"> = Object.fromEntries([
+  ...PURCHASE_TABS.map((t) => [t.source, "purchase"] as const),
+  ...PROCESS_TABS.map((t) => [t.source, "process"] as const),
+]);
 const sectionOfSource = (source: string): string =>
-  KIND_SOURCES.includes(source)
-    ? source
-    : (BUDGET_SECTIONS.find((s) => (s.sources as readonly string[]).includes(source))?.key ?? "expense");
+  PURCHASE_TABS.some((t) => t.source === source)
+    ? "purchase"
+    : PROCESS_TABS.some((t) => t.source === source)
+      ? "process"
+      : (BUDGET_SECTIONS.find((s) => (s.sources as readonly string[]).includes(source))?.key ?? "expense");
 
 /**
  * EVERY TABLE OPENS WITH A ROW — one per SOURCE, because every source is its own
@@ -684,6 +687,17 @@ export function BudgetScreen({
    *  owned here. `null` on every open: sections start closed (client
    *  2026-08-19). */
   const [fabricOpenKey, setFabricOpenKey] = useState<string | null>(null);
+  /** The kind open inside Purchase Rates / Process Rates — the card list beside
+   *  the grid (client 2026-10-14, "like Fabric BOM ▸ Manual"). */
+  const [openKind, setOpenKind] = useState<Record<string, string>>(() => ({
+    purchase: PURCHASE_TABS[0].source,
+    process: PROCESS_TABS[0].source,
+  }));
+  /** Open the card a line of this source lives on, before jumping to it. */
+  const openKindOf = (source: string) => {
+    const g = KIND_GROUP_OF[source];
+    if (g) setOpenKind((m) => (m[g] === source ? m : { ...m, [g]: source }));
+  };
   /**
    * The fabric-process breakdown, fetched the first time a group's For is
    * changed and kept for the rest of the session on THESE orders. Keyed by the
@@ -3562,8 +3576,6 @@ export function BudgetScreen({
     sections: [
       { key: "budget" },
       ...BUDGET_SECTIONS.map((s) => ({ key: s.key })),
-      // The kind rows (`sectionOfSource`) — a refused line is keyed to one.
-      ...KIND_SOURCES.map((k) => ({ key: k })),
       { key: "general" },
     ],
     values: form,
@@ -3633,10 +3645,13 @@ export function BudgetScreen({
     setSaveAttempted(true);
     const p = validity.first;
     if (!p) return;
-    // `p.section` is already the line's own kind row (`sectionOfSource`). A
-    // Fabric Processes line also lives inside a group's FOLD, which is not in
+    // `p.section` is the line's section (`sectionOfSource`); its kind card is
+    // opened first. A Fabric Processes line also lives inside a group's FOLD, which is not in
     // the DOM while it is shut.
-    if (p.section === "fabric_process" && firstUnpriced) setFabricOpenKey(fabricGroupKey(firstUnpriced));
+    if (firstUnpriced && p.section === sectionOfSource(firstUnpriced.source)) {
+      openKindOf(firstUnpriced.source);
+      if (firstUnpriced.source === "fabric_process") setFabricOpenKey(fabricGroupKey(firstUnpriced));
+    }
     shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
   };
 
@@ -3675,6 +3690,7 @@ export function BudgetScreen({
         message: manualEntryMessage({ source: row.source, name, field }),
         go: () => {
           const section = sectionOfSource(row.source);
+          openKindOf(row.source);
           if (row.source === "fabric_process") setFabricOpenKey(fabricGroupKey(row));
           shellRef.current?.goToSection(section, { fieldId: cellId(row, field) });
         },
@@ -3698,6 +3714,7 @@ export function BudgetScreen({
       return;
     }
     const section = sectionOfSource(row.source);
+    openKindOf(row.source);
     if (row.source === "fabric_process") setFabricOpenKey(fabricGroupKey(row));
     shellRef.current?.goToSection(section, { fieldId: cellId(row, (j.field as LineField) || "rate") });
   };
@@ -3940,17 +3957,13 @@ export function BudgetScreen({
         return `${n} ${n === 1 ? "line" : "lines"} · ₹ ${fmtNumber(sum)}`;
       };
       /*
-       * PURCHASE RATES AND PROCESS RATES ARE GROUPS ON THE RAIL (client
-       * 2026-10-05, screenshot 3260) — each kind is a `sub` row beneath its
-       * group, and the group itself is `groupOnly`: clicking it opens its first
-       * kind. They were a `Tabs side` strip inside the section, which needs a
-       * 76.5rem pane to stand as a list and fell back to a strip across the
-       * top whenever the app menu was open. The rail is always there, so the
-       * kinds are always listed, and the grids keep their full width.
+       * PURCHASE RATES AND PROCESS RATES ARE ONE RAIL ROW EACH, and their kinds
+       * are a card list INSIDE the section, beside the grid — Fabric BOM ▸
+       * Manual's shape (client 2026-10-14). See `KIND_GROUP_OF`.
        *
-       * A KIND ROW CARRIES ITS OWN PROBLEM COUNT — the lines still to rate on
+       * A KIND CARD CARRIES ITS OWN PROBLEM COUNT — the lines still to rate on
        * that grid — so a refusal on a kind the operator is not standing on is
-       * visible from the rail, which is what the strip's count was for.
+       * visible beside the grid; the rail row carries the section's total.
        */
       if (s.key === "purchase" || s.key === "process") {
         const kinds = s.key === "purchase" ? PURCHASE_TABS : PROCESS_TABS;
@@ -3968,28 +3981,76 @@ export function BudgetScreen({
                     : source === "material_process"
                       ? accessoryProcessGrid
                       : garmentProcessGrid;
+        const current = kinds.find((t) => t.source === openKind[s.key]) ?? kinds[0];
+        /* ↑/↓ walk the cards, as on ChildGrid's rail. Tab stays on fields. */
+        const onCardKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
+          if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+          e.preventDefault();
+          e.stopPropagation();
+          const next = kinds[(i + (e.key === "ArrowDown" ? 1 : kinds.length - 1)) % kinds.length];
+          setOpenKind((m) => ({ ...m, [s.key]: next.source }));
+          const list = e.currentTarget.parentElement;
+          window.setTimeout(() => list?.querySelector<HTMLElement>(`[data-kind="${next.source}"]`)?.focus(), 0);
+        };
         return [
           {
             key: s.key,
             label: s.label,
             icon: SECTION_ICONS[s.key],
             done: lines.length > 0,
-            groupOnly: true,
-            content: null,
-          },
-          ...kinds.map(
-            (t): FullScreenSection => ({
-              key: t.source,
-              label: t.label,
-              icon: SECTION_ICONS[s.key],
-              sub: true,
-              done: lines.some((c) => c.source === t.source),
-              problems: tabProblems(t.source),
-              content: (
-                <SectionBody title={t.label}>
-                  {/* What the strip's second line said, kept: how many lines
-                      this kind holds, and the open rates or the rupees so far. */}
-                  <p className="-mt-2 mb-3 text-xs text-muted-foreground">{tabMeta(t.source)}</p>
+            problems: kinds.reduce((n, t) => n + tabProblems(t.source), 0),
+            content: (
+              <SectionBody title={s.label}>
+                <div className="flex gap-4 max-md:flex-col">
+                  {/* THE KIND CARDS — the same box, edge, dot and blue open
+                      ring as Fabric BOM ▸ Manual's fabric list (the skin's
+                      `[data-md-list-item]` / `[aria-current]` rules draw it). */}
+                  <div data-focus-optional className="flex w-[180px] shrink-0 flex-col self-start max-md:w-full">
+                    {kinds.map((t, i) => {
+                      const isOpen = t.source === current.source;
+                      const problems = tabProblems(t.source);
+                      const has = lines.some((c) => c.source === t.source);
+                      return (
+                        <button
+                          key={t.source}
+                          type="button"
+                          data-kind={t.source}
+                          data-md-list-item=""
+                          aria-current={isOpen ? "true" : undefined}
+                          tabIndex={isOpen ? 0 : -1}
+                          onClick={() => setOpenKind((m) => ({ ...m, [s.key]: t.source }))}
+                          onKeyDown={(e) => onCardKey(e, i)}
+                          className={cn(
+                            "w-full border-b border-l-[3px] border-b-border px-3 py-2 text-left transition-colors last:border-b-0 focus-visible:outline-none",
+                            isOpen ? "border-l-primary bg-surface" : "border-l-transparent hover:bg-surface-muted",
+                          )}
+                        >
+                          <div className="flex min-h-7 items-center gap-2">
+                            <span
+                              aria-hidden
+                              className={cn("h-1.5 w-1.5 shrink-0 rounded-full", has ? "bg-accent" : "bg-border-strong")}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
+                                {t.label}
+                              </Truncated>
+                              <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                                {tabMeta(t.source)}
+                              </Truncated>
+                            </span>
+                            {problems > 0 && (
+                              <span
+                                className="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-danger-soft px-1 text-[10px] font-bold leading-none text-danger"
+                                aria-label={`${problems} to rate`}
+                              >
+                                {problems}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                   {/* THE SPREADSHEET LOOK (client 2026-10-05, the
                       `erp-sheet-grid` skill on every Budgeting table): ruled
                       cells, grey sentence-case header, borderless in-cell
@@ -3998,11 +4059,17 @@ export function BudgetScreen({
                       per-group grid too. Below `5xl` the grids are cards,
                       which the sheet rules do not touch. Yarn / Fabric Purchases and every Process grid
                       take the flat, borderless cell (user 2026-10-08, erp-sheet-grid). */}
-                  <div data-grid-style="sheet" data-grid-cells={s.key === "process" || t.source === "yarn" || t.source === "fabric" ? "flat" : undefined}>{gridOf(t.source)}</div>
-                </SectionBody>
-              ),
-            }),
-          ),
+                  <div
+                    className="min-w-0 flex-1"
+                    data-grid-style="sheet"
+                    data-grid-cells={s.key === "process" || current.source === "yarn" || current.source === "fabric" ? "flat" : undefined}
+                  >
+                    {gridOf(current.source)}
+                  </div>
+                </div>
+              </SectionBody>
+            ),
+          },
         ];
       }
 
