@@ -41,13 +41,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Truncated } from "@/components/ui/truncated";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
-import {
-  MATRIX_FOOT,
-  MATRIX_HEAD,
-  MATRIX_SIZE_TOKEN,
-  matrixCell,
-  sizeColPx,
-} from "@/components/orders/matrix-grid";
+import { MATRIX_SIZE_TOKEN, sizeColPx } from "@/components/orders/matrix-grid";
 import { fmtNumber } from "@/lib/format";
 import { sortBySize } from "@/lib/masters/size-order";
 import type { AssortMode } from "@/lib/orders/amendments/qty-balance";
@@ -64,8 +58,11 @@ import { AllocationStrip } from "./allocation-strip";
 
 /** OE `ASSORT_ID_W` / `ASSORT_QTY_W`. */
 const ID_W = 340;
-const QTY_W = 88;
-const CELL = matrixCell("min-h-9");
+/* Qty is 88px of figure plus the 28px the hover x takes in the LAST cell. */
+const QTY_W = 116;
+/* A small numeric column (Ctns, Inners, Pcs/Pack): 4.5rem was 72px of CONTENT, and
+   the sheet header cell adds 8px a side, so "Pcs/Pack" was ellipsised. */
+const SMALL_W = 80;
 
 export function AssortmentSheet({
   open,
@@ -140,15 +137,21 @@ export function AssortmentSheet({
   const sizeSum = (z: string) => lines.reduce((t, l) => t + (Number(l.sizes[z]) || 0), 0);
   const digits = (z: string) =>
     Math.max(2, String(sizeSum(z)).length, ...lines.map((l) => (l.sizes[z] ?? "").trim().length));
-  const track = [
-    `${ID_W}px`,
-    ...(assort ? ["4.5rem"] : []),
-    ...(inner ? ["4.5rem"] : []),
-    ...sizes.map((z) => `${sizeColPx(z, digits(z))}px`),
-    ...(assort ? ["4.5rem"] : []),
-    "minmax(12px,1fr)",
-    `${QTY_W}px`,
-  ].join(" ");
+  /* THE SIZE NAME IS NEVER CUT. `sizeColPx` sizes a column for its label as
+     bare text, but the header draws it inside `MATRIX_SIZE_TOKEN` and the sheet
+     header cell adds 8px a side with `text-overflow: ellipsis`, so "XS" read
+     "X..." (user 2026-10-14). The column is the wider of the data's width and the
+     chip's: 13px mono is about 8px a character, plus 14px chip, plus 16px cell. */
+  const colW = (z: string) => Math.max(sizeColPx(z, digits(z)), Math.ceil(z.trim().length * 8 + 14 + 16 + 4));
+  const widths = [
+    ID_W,
+    ...(assort ? [SMALL_W] : []),
+    ...(inner ? [SMALL_W] : []),
+    ...sizes.map(colW),
+    ...(assort ? [SMALL_W] : []),
+    QTY_W,
+  ];
+  const tableWidth = widths.reduce((t, w) => t + w, 0);
 
   const comboChoices = (l: AssortLineDraft) => {
     const own = (lineStyle(l)?.combos ?? []).map((c) => c.combo.trim()).filter(Boolean);
@@ -225,141 +228,152 @@ export function AssortmentSheet({
               the size cells, never typed on its own. Add the sizes on <strong>Styles</strong>, then reopen this.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <div
-                data-grid-body
-                className="grid w-full"
-                style={{ gridTemplateColumns: track }}
-                onKeyDown={(e) => gridKeyNav(e)}
-              >
-                <div className={`${MATRIX_HEAD} sticky left-0 z-30 justify-start pl-3`}>Style / Combo</div>
-                {assort && <div className={MATRIX_HEAD}>Ctns</div>}
-                {inner && <div className={MATRIX_HEAD}>Inners</div>}
-                {sizes.map((z) => (
-                  <div key={z} className={MATRIX_HEAD}>
-                    <span className={MATRIX_SIZE_TOKEN}>{z}</span>
-                  </div>
-                ))}
-                {assort && <div className={MATRIX_HEAD}>Pcs/Pack</div>}
-                <div className={MATRIX_HEAD} />
-                <div className={`${MATRIX_HEAD} sticky right-0 z-30 justify-end pr-3`}>Qty</div>
-
-                {lines.map((l) => {
-                  const lq = assortLineQty(q, l, m);
-                  const ls = lineStyle(l);
-                  return (
-                    <div key={l.key} data-grid-row className="contents">
-                      <div
-                        className={`${CELL} sticky left-0 z-10 flex-col items-stretch justify-center gap-1 border-r bg-surface px-3 py-1.5`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          {single || styleChoices.length < 2 ? (
-                            <Truncated className="min-w-0 flex-1 text-sm font-medium">{destName || "—"}</Truncated>
-                          ) : (
-                            <div className="min-w-0 flex-1">
-                              <Combobox
-                                options={styleChoices}
-                                value={l.style_ref}
-                                onChange={(v) => setLineStyle(l, v)}
-                                clearable
+            /* SPREADSHEET TABLE, SIZED TO ITS COLUMNS (user 2026-10-14, Sample Entry >
+               Assortments: `erp-sheet-grid` + `erp-table-fit`). Was a CSS grid of boxed
+               fields with a 1fr filler column; now one ruled `<table>` under
+               `data-grid-style="sheet"` + `data-grid-cells="flat"`, `w-fit max-w-full`,
+               so the frame stops after Qty instead of running to the sheet's edge.
+               The size run still scrolls inside its own frame (`[overflow-x:auto]`,
+               not the `overflow-x-auto` class the sheet CSS forces to `visible`) with
+               the Style / Combo column sticky. The row's x rides in the LAST cell. */
+            <div data-grid-style="sheet" data-grid-cells="flat" className="w-fit max-w-full">
+              <div className="w-fit max-w-full [overflow-x:auto]">
+                <table className="table-fixed" style={{ width: tableWidth }}>
+                  <colgroup>
+                    {widths.map((w, i) => (
+                      <col key={i} style={{ width: w }} />
+                    ))}
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th className="sticky left-0 z-20 text-left">Style / Combo</th>
+                      {assort && <th className="text-right">Ctns</th>}
+                      {inner && <th className="text-right">Inners</th>}
+                      {sizes.map((z) => (
+                        <th key={z} className="text-right !overflow-visible">
+                          <span className={MATRIX_SIZE_TOKEN}>{z}</span>
+                        </th>
+                      ))}
+                      {assort && <th className="text-right">Pcs/Pack</th>}
+                      <th className="text-right">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
+                    {lines.map((l) => {
+                      const lq = assortLineQty(q, l, m);
+                      const ls = lineStyle(l);
+                      return (
+                        <tr key={l.key} data-grid-row>
+                          <td className="sticky left-0 z-10 bg-surface">
+                            <div className="flex items-stretch divide-x divide-border">
+                              {single || styleChoices.length < 2 ? (
+                                <div className="flex min-w-0 flex-1 items-center px-2">
+                                  <Truncated className="min-w-0 flex-1 text-sm font-medium">{destName || "—"}</Truncated>
+                                </div>
+                              ) : (
+                                <div className="min-w-0 flex-1">
+                                  <Combobox
+                                    options={styleChoices}
+                                    value={l.style_ref}
+                                    onChange={(v) => setLineStyle(l, v)}
+                                    clearable
+                                  />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <Combobox
+                                  options={comboChoices(l)}
+                                  value={l.combo}
+                                  onChange={(v) => patchLine(l.key, { combo: v.toUpperCase() })}
+                                  clearable
+                                />
+                              </div>
+                            </div>
+                            <Truncated className="block px-2 pb-1 text-[10px] leading-tight text-border-strong">
+                              {ls?.description.trim() ?? ""}
+                            </Truncated>
+                          </td>
+                          {assort && (
+                            <td>
+                              <Input
+                                type="number"
+                                min={0}
+                                aria-label="Ctns"
+                                className="text-right"
+                                value={l.no_of_cartons}
+                                onChange={(e) => patchLine(l.key, { no_of_cartons: e.target.value })}
+                              />
+                            </td>
+                          )}
+                          {inner && (
+                            <td>
+                              <Input
+                                type="number"
+                                min={0}
+                                aria-label="Inners per carton"
+                                className="text-right"
+                                value={l.inners_per_carton}
+                                onChange={(e) => patchLine(l.key, { inners_per_carton: e.target.value })}
+                              />
+                            </td>
+                          )}
+                          {sizes.map((z) => {
+                            const usable = lineHasSize(l, z);
+                            return (
+                              <td key={z} className={usable ? "" : "bg-surface-muted"}>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  inputMode="decimal"
+                                  readOnly={!usable}
+                                  aria-label={`${l.combo || "Combo"} ${z}`}
+                                  className="px-1.5 text-right font-mono text-[13px] tabular-nums"
+                                  value={usable ? (l.sizes[z] ?? "") : ""}
+                                  onChange={(e) => patchLine(l.key, { sizes: { ...l.sizes, [z]: e.target.value } })}
+                                />
+                              </td>
+                            );
+                          })}
+                          {assort && (
+                            <td className="text-right text-sm tabular-nums text-muted-foreground">
+                              {fmtNumber(assortRatioTotal(l))}
+                            </td>
+                          )}
+                          <td>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span className={`text-sm font-semibold tabular-nums ${lq > poQty ? "text-danger" : ""}`}>
+                                {fmtNumber(lq)}
+                              </span>
+                              {/* Hover x in the last cell (user 2026-10-12, erp-row-hover-remove). */}
+                              <RowHoverRemove
+                                label="Remove assortment line"
+                                onClick={() => setLines(lines.filter((x) => x.key !== l.key))}
                               />
                             </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <Combobox
-                              options={comboChoices(l)}
-                              value={l.combo}
-                              onChange={(v) => patchLine(l.key, { combo: v.toUpperCase() })}
-                              clearable
-                            />
-                          </div>
-                          {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
-                          <RowHoverRemove
-                            label="Remove assortment line"
-                            onClick={() => setLines(lines.filter((x) => x.key !== l.key))}
-                          />
-                        </div>
-                        <Truncated className="text-[10px] leading-tight text-border-strong">
-                          {ls?.description.trim() ?? ""}
-                        </Truncated>
-                      </div>
-                      {assort && (
-                        <div className={CELL}>
-                          <Input
-                            type="number"
-                            min={0}
-                            aria-label="Ctns"
-                            className="h-8 text-right"
-                            value={l.no_of_cartons}
-                            onChange={(e) => patchLine(l.key, { no_of_cartons: e.target.value })}
-                          />
-                        </div>
-                      )}
-                      {inner && (
-                        <div className={CELL}>
-                          <Input
-                            type="number"
-                            min={0}
-                            aria-label="Inners per carton"
-                            className="h-8 text-right"
-                            value={l.inners_per_carton}
-                            onChange={(e) => patchLine(l.key, { inners_per_carton: e.target.value })}
-                          />
-                        </div>
-                      )}
-                      {sizes.map((z) => {
-                        const usable = lineHasSize(l, z);
-                        return (
-                          <div key={z} className={CELL}>
-                            <Input
-                              type="number"
-                              min={0}
-                              inputMode="decimal"
-                              readOnly={!usable}
-                              aria-label={`${l.combo || "Combo"} ${z}`}
-                              className="h-8 px-1.5 text-right font-mono text-[13px] tabular-nums"
-                              value={usable ? (l.sizes[z] ?? "") : ""}
-                              onChange={(e) => patchLine(l.key, { sizes: { ...l.sizes, [z]: e.target.value } })}
-                            />
-                          </div>
-                        );
-                      })}
-                      {assort && (
-                        <div className={CELL}>
-                          <span className="block w-full text-right text-sm tabular-nums text-muted-foreground">
-                            {fmtNumber(assortRatioTotal(l))}
-                          </span>
-                        </div>
-                      )}
-                      <div className={CELL} />
-                      <div
-                        className={`${CELL} sticky right-0 z-10 justify-end border-l bg-surface pr-3 text-sm font-semibold tabular-nums ${lq > poQty ? "text-danger" : ""}`}
-                      >
-                        {fmtNumber(lq)}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div
-                  className={`${MATRIX_FOOT} sticky left-0 z-30 justify-start pl-3 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`}
-                >
-                  Total
-                </div>
-                {assort && <div className={MATRIX_FOOT} />}
-                {inner && <div className={MATRIX_FOOT} />}
-                {sizes.map((z) => (
-                  <div key={z} className={MATRIX_FOOT}>
-                    {fmtNumber(sizeSum(z))}
-                  </div>
-                ))}
-                {assort && <div className={MATRIX_FOOT} />}
-                <div className={MATRIX_FOOT} />
-                <div
-                  className={`${MATRIX_FOOT} sticky right-0 z-30 justify-end pr-3 ${balance ? "text-danger" : "text-primary"}`}
-                >
-                  {fmtNumber(total)}
-                </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-surface-muted font-semibold">
+                      <td className="sticky left-0 z-10 bg-surface-muted text-left text-[10.5px] uppercase tracking-wide text-muted-foreground">
+                        Total
+                      </td>
+                      {assort && <td />}
+                      {inner && <td />}
+                      {sizes.map((z) => (
+                        <td key={z} className="text-right tabular-nums">
+                          {fmtNumber(sizeSum(z))}
+                        </td>
+                      ))}
+                      {assort && <td />}
+                      <td className={`text-right tabular-nums ${balance ? "text-danger" : "text-primary"}`}>
+                        <span className="pr-[1.625rem]">{fmtNumber(total)}</span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             </div>
           )}
