@@ -50,7 +50,7 @@ import { Truncated } from "@/components/ui/truncated";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { ChildGrid, gridKeyNav, RowRemoveChip, type ChildGridColumn } from "@/components/masters/child-grid";
 import { StyleProcessGrid } from "@/components/orders/style-process-grid";
-import type { StyleProcessRow } from "@/lib/orders/amendments/style-processes";
+import type { ProcessKind, StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 import { Tooltip } from "@/components/ui/tooltip";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
 import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
@@ -434,7 +434,21 @@ export function SampleEntryScreen({
     is_single_style_pack: true,
     lines: [],
   });
-  const blankProcess = (): StyleProcessRow => ({ key: newKey(), kind: null, process_id: null, component_id: null, details: "" });
+  const blankProcess = (kind: ProcessKind): StyleProcessRow => ({ key: newKey(), kind, process_id: null, component_id: null, details: "" });
+  /* ONE BLANK ROW PER EMBELLISHMENT GRID (user 2026-10-15). Combos shows two
+     fixed-kind grids over this one list, and each shows only its own kind — so
+     the old single `kind: null` seed was in NEITHER grid, both then seeded via
+     `seedRow` in the same render off the same stale list, and the second write
+     (Garment) erased the first: Component Process opened empty. Seeded here in
+     state, one per kind; a kind-stamped blank row is not "started"
+     (`kindStamped`) and the save drops any row with no Process. */
+  const seedProcesses = (rows: StyleProcessRow[]): StyleProcessRow[] => {
+    const kept = rows.filter((r) => r.kind);
+    return [
+      ...kept,
+      ...(["component", "garment"] as const).filter((k) => !kept.some((r) => r.kind === k)).map(blankProcess),
+    ];
+  };
   const blankStyle = (): StyleDraft => ({
     key: newKey(),
     id: null,
@@ -472,7 +486,7 @@ export function SampleEntryScreen({
     coordinates: [],
     sizes: [],
     combos: [blankCombo()],
-    processes: [blankProcess()],
+    processes: seedProcesses([]),
     // Quantities is ONE grid for the entry (Order Entry's), which seeds its own
     // first row — a blank row per style would put N blanks in it.
     quantities: [],
@@ -490,7 +504,7 @@ export function SampleEntryScreen({
         ? [{ key: newKey(), coordinate_id: piecesCoordinateId }]
         : s.coordinates,
     combos: s.combos.length ? s.combos : [blankCombo()],
-    processes: s.processes.length ? s.processes : [blankProcess()],
+    processes: seedProcesses(s.processes),
     // Product Info ▸ Fabric's Structure · GSM grid opens on a row to pick in.
     structures: s.structures.length ? s.structures : [blankStructure()],
   });

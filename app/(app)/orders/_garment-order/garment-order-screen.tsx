@@ -19179,7 +19179,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         <Field label="Process" size="full">
           {(() => {
             const blocked = processGateReason(r);
-            const started = r.processes.filter(styleProcessRowStarted).length;
+            const started = r.processes.filter((p) => styleProcessRowStarted(p)).length;
             return (
             <Button
               type="button"

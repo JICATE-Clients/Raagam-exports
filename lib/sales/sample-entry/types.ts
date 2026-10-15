@@ -474,7 +474,7 @@ export function sampleEntryProblems(
        cells the grid marks required. Component stays optional (0421: a panel
        still being decided is a legitimate half-answer). */
     if (h.enquiry_action !== "quote")
-      s.processes.filter(styleProcessRowStarted).forEach((r, ri) => {
+      s.processes.filter((r) => styleProcessRowStarted(r, { kindStamped: true })).forEach((r, ri) => {
         if (!r.kind || !r.process_id)
           add({ section: "combos", ...at, label: "Embellishment", message: `${who}, embellishment ${ri + 1}: pick the ${r.kind ? "Process" : "Type"}.`, strict: true });
       });

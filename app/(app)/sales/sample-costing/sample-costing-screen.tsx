@@ -51,8 +51,11 @@ import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState, useTran
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTabResume } from "@/lib/workspace-tabs";
 import {
+  BadgeCheck,
   Calculator,
   CalendarRange,
+  CircleX,
+  FilePenLine,
   Check,
   Clock,
   ChevronRight,
@@ -61,7 +64,7 @@ import {
   Pencil,
   RefreshCw,
   RotateCcw,
-  Send,
+  MessagesSquare,
   Ruler,
   Users,
   X,
@@ -317,12 +320,17 @@ type CostingTab = "pending" | "progress" | "rejected" | "draft" | "approved";
  *  buyer's Quotation document itself is read-only) — update, Save, and the next
  *  Rev is written with every earlier Rev kept as history. */
 const raiseReviseHref = (id: string) => `/sales/sample-costing/${id}/reports?tab=cost-sheet&revise=1`;
-const COSTING_TABS: { value: CostingTab; label: string; icon: typeof Clock }[] = [
-  { value: "pending", label: "Pending", icon: Clock },
-  { value: "progress", label: "Under Progress", icon: Send },
-  { value: "rejected", label: "Rejected", icon: X },
-  { value: "draft", label: "Draft", icon: Pencil },
-  { value: "approved", label: "Approved", icon: Check },
+/* DESIGN B (user 2026-10-15): the standard ToggleGroup box, with icons that say
+   what each tab holds — a calculator for a sample still to be costed, a chat for
+   a quote with the buyer (not Send: there is no send step), circled marks for
+   the two buyer outcomes, a document-and-pen for a draft — each tinted in its
+   status colour while unlit. The lit tab keeps the primary colours. */
+const COSTING_TABS: { value: CostingTab; label: string; icon: typeof Clock; tone: string }[] = [
+  { value: "pending", label: "Pending", icon: Calculator, tone: "text-warning" },
+  { value: "progress", label: "Under Progress", icon: MessagesSquare, tone: "text-info" },
+  { value: "rejected", label: "Rejected", icon: CircleX, tone: "text-danger" },
+  { value: "draft", label: "Draft", icon: FilePenLine, tone: "text-muted-foreground" },
+  { value: "approved", label: "Approved", icon: BadgeCheck, tone: "text-success" },
 ];
 const TAB_LABEL = Object.fromEntries(COSTING_TABS.map((t) => [t.value, t.label])) as Record<CostingTab, string>;
 const costingTabOf = (r: CostingListRow): CostingTab =>
@@ -3869,7 +3877,6 @@ export function SampleCostingScreen({
     /** Under Progress, saved and untouched: the buyer's answer can be recorded (0725). */
     const decideNow = !!editId && !revisingFrom && !revOf && meta.status === "submitted" && !meta.isDraft && perms.canEdit && !dirty;
     const costingLabel = `${meta.code ?? "Costing"} · ${revisionShort(meta.version)}`;
-    const context = [enquiry?.code, style?.name, enquiry?.customer_name, [enquiry?.season, enquiry?.season_year].filter(Boolean).join(" ")].filter(Boolean);
     return (
       <div className="flex h-full flex-col gap-3">
         {/* HEADER — ORDER ENTRY'S BAND (browser compare 2026-10-07): what the
@@ -3896,11 +3903,8 @@ export function SampleCostingScreen({
               <StatusPill tone={meta.isDraft ? "neutral" : STATUS_TONE[meta.status]}>{meta.isDraft ? "Draft" : STATUS_LABEL[meta.status]}</StatusPill>
             ) : null}
           </div>
-          {context.length ? (
-            <span className="min-w-0 max-w-[28rem] text-xs text-muted-foreground max-lg:hidden">
-              <Truncated>{context.join("  ·  ")}</Truncated>
-            </span>
-          ) : null}
+          {/* The SMP · style · customer · season line stood here and was removed
+              (user 2026-10-15) — the editor's own sections already name them. */}
           <div aria-hidden className="h-px min-w-[2rem] flex-1 self-center bg-border" />
           {/* THE BUTTON PLAN (user 2026-10-09): More and the ONE next step,
               filled — at 36px like every header. Copy from and Compare are
@@ -4132,7 +4136,7 @@ export function SampleCostingScreen({
             label={`Status: ${TAB_LABEL[tab]}`}
             value={tab}
             onChange={pickTab}
-            options={COSTING_TABS.map((t) => ({ value: t.value, label: t.label, icon: t.icon, count: tabCounts[t.value] }))}
+            options={COSTING_TABS.map((t) => ({ value: t.value, label: t.label, icon: t.icon, iconTone: t.tone, count: tabCounts[t.value] }))}
           />
         }
         right={`${filtered.length} of ${current.length} ${TAB_LABEL[tab]}`}

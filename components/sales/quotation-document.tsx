@@ -36,7 +36,6 @@ export function QuotationDocument({
   lead,
   trail,
   quietDownload = false,
-  lockedHint = "Save the revision to download or print",
 }: {
   model: QuotationModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -45,7 +44,6 @@ export function QuotationDocument({
   lead?: ReactNode;
   trail?: ReactNode;
   quietDownload?: boolean;
-  lockedHint?: string;
 }) {
   const [idx, setIdx] = useState(0);
   const [busy, setBusy] = useState<"download" | "print" | null>(null);
@@ -100,7 +98,7 @@ export function QuotationDocument({
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {error ? <span className="text-sm text-danger">{error}</span> : null}
           {locked ? (
-            <span className="text-sm text-muted-foreground">{lockedHint}</span>
+            null
           ) : model.blocked ? null : (
             // A blocked quotation says why in the amber notice below, so no dead buttons here.
             <>
