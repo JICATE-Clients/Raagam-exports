@@ -43,7 +43,20 @@ const TONE_VAR = {
   margin: "var(--cs-margin)",
 } as const;
 
-const money = (v: number | null | undefined) => fx(v);
+/** A cost group's colour, softened for the Charts receipt (user 2026-10-15: light, plain). */
+const softTone = (t: keyof typeof TONE_VAR) => `color-mix(in srgb, ${TONE_VAR[t]} 55%, #fff)`;
+
+/** "USD" → "$", "INR" → "₹" — the browser's narrow symbol; an unknown code comes back as itself. */
+function symbolOf(code: string): string {
+  try {
+    return new Intl.NumberFormat("en", { style: "currency", currency: code, currencyDisplay: "narrowSymbol" }).formatToParts(0).find((p) => p.type === "currency")?.value ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** The currency the sheet's figures are SHOWN in — null is rupees, the sheet's own unit. */
+type ShownCurrency = { code: string; sym: string; rate: number } | null;
 
 /**
  * INLINE EDITING ON THE REPORT (client 2026-10-09: "inline edit inside the report
@@ -113,6 +126,11 @@ export function CostSheetDocument({
   const [busy, setBusy] = useState<"pdf" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const s = model.sizes[idx] ?? model.sizes[0];
+  // THE ₹ INR / QUOTED-CURRENCY TABS WERE REMOVED (user 2026-10-15, screenshot:
+  // "inr and usd field inga remove pannu") — the sheet is shown in rupees only. The
+  // quote box below keeps its own "show in" pick. `Sheet` still takes `cur`, so a
+  // currency view can come back without re-plumbing every figure.
+  const cur: ShownCurrency = null;
 
   async function run(kind: "pdf" | "csv") {
     setBusy(kind);
@@ -184,17 +202,28 @@ export function CostSheetDocument({
           {trail}
         </div>
       </div>
-      <Sheet model={model} s={s} idx={idx} edit={edit} view={view} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} />
     </div>
   );
 }
 
 type SheetView = "tabs" | "report" | "charts";
 
-function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFigures; idx: number; edit?: CostSheetEdit; view: SheetView }) {
+function Sheet({ model, s, edit, view, cur }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency }) {
+  // The shown currency: every rupee figure below goes through this `money`, and every
+  // "₹" a reader sees is `SYM`. Figures that ARE rupees by definition (the INR value of
+  // the quote, the exchange rate) call `fx` directly and keep their ₹.
+  const money = (v: number | null | undefined) => fx(v == null || !cur ? v : v / cur.rate);
+  const SYM = cur ? cur.sym : "₹";
   // OPENS ON QUOTATION (user 2026-10-14: "default open the quotation tab") — the
   // last of the five tabs, the price the buyer is quoted.
   const [tab, setTab] = useState(4);
+  /** The Charts receipt's hover link: the cost group under the pointer (line, legend or slice). */
+  const [hot, setHot] = useState<string | null>(null);
+  /** The quote box's "show in" pick (user 2026-10-15, like the Quotation summary's
+   *  USD ● picker). A VIEW of the one price: the quoted currency, or ₹ at the sheet's
+   *  own exchange rate. Nothing stored changes. */
+  const [heroInr, setHeroInr] = useState(false);
   const setFabric = (key: string, patch: Partial<FabricDraft>) => edit?.onChange({ ...edit.draft, fabrics: patchBy(edit.draft.fabrics, key, patch) });
   const setPiece = (key: string, patch: Partial<PieceDraft>) => edit?.onChange({ ...edit.draft, pieces: patchBy(edit.draft.pieces, key, patch) });
   const eff = s.effectiveMarginPct;
@@ -222,7 +251,6 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
     ...(s.priceAdj ? [{ label: "Price charges", value: s.priceAdj, tone: "margin" as const }] : []),
     { label: "Price", value: s.price, tone: null },
   ] as WfRow[]).filter((r) => r.tone === null || r.value !== 0);
-  const wfMax = Math.max(s.price, s.grossCost, 1) * 1.02;
   let run = 0;
   const wfRows = wf.map((r) => {
     const total = r.tone === null;
@@ -242,13 +270,11 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
 
   const parts = priceParts(s);
   const partTotal = parts.reduce((t, p) => t + p.value, 0) || 1;
-  const R = 46;
-  const C = 2 * Math.PI * R;
+  const RING_R = 46; // the donut radius — `SYM` above is the currency symbol
+  const C = 2 * Math.PI * RING_R;
   // Each slice starts where the ones before it end — computed up front, not by a
   // counter mutated inside the render's map.
   const offs = parts.map((_, i) => parts.slice(0, i).reduce((t, p) => t + (p.value / partTotal) * C, 0));
-
-  const worst = model.sizes.reduce((m, x) => Math.max(m, x.price), 1) * 1.02;
 
   const secConsumption = (
         <section className="blk" aria-label="Component consumption">
@@ -303,7 +329,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                     </tr>
                   ))}
                   <tr className="total">
-                    <td colSpan={(model.pieceCount > 1 ? 1 : 0) + 2}>Fabric cost ₹ / {model.unitWord}</td>
+                    <td colSpan={(model.pieceCount > 1 ? 1 : 0) + 2}>Fabric cost {SYM} / {model.unitWord}</td>
                     {model.sizes.map((x) => (
                       <td key={x.label} className="r">{money(x.fabric)}</td>
                     ))}
@@ -322,7 +348,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
           <div>
             <details open>
               <summary>
-                Fabric processing cost <span>₹ per kg · yarn, knitting, dyeing, finishing, loss</span>
+                Fabric processing cost <span>{SYM} per kg · yarn, knitting, dyeing, finishing, loss</span>
               </summary>
               <div className="scroll">
                 <table>
@@ -390,7 +416,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                                       <th>Line</th>
                                       <th>Type</th>
                                       <th className="r">Share %</th>
-                                      <th className="r">Rate ₹ / kg</th>
+                                      <th className="r">Rate {SYM} / kg</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -474,7 +500,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
             <details open>
               <summary>
-                Fabric &amp; garment processes <span>₹ {money(s.fabric + s.process + s.testing)} / {model.unitWord}</span>
+                Fabric &amp; garment processes <span>{SYM} {money(s.fabric + s.process + s.testing)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
                 <table>
@@ -482,7 +508,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                     <tr>
                       {model.pieceCount > 1 ? <th>Piece</th> : null}
                       <th>Operation</th>
-                      <th className="r">Rate ₹</th>
+                      <th className="r">Rate {SYM}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -538,7 +564,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
           {model.ops.some((o) => o.kind === "CMT") || edit?.options ? (
             <details open>
               <summary>
-                CMT operations <span>₹ {money(s.cmt)} / {model.unitWord}</span>
+                CMT operations <span>{SYM} {money(s.cmt)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
                 <table>
@@ -546,7 +572,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                     <tr>
                       {model.pieceCount > 1 ? <th>Piece</th> : null}
                       <th>Operation</th>
-                      <th className="r">Rate ₹</th>
+                      <th className="r">Rate {SYM}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -597,7 +623,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
           {model.trims.length || edit?.options ? (
             <details open>
               <summary>
-                Trims &amp; accessories <span>₹ {money(s.trims)} / {model.unitWord}</span>
+                Trims &amp; accessories <span>{SYM} {money(s.trims)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
                 <table>
@@ -607,7 +633,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                       <th>Trim</th>
                       <th>Pricing</th>
                       <th className="r">Consumption</th>
-                      <th className="r">Cost ₹</th>
+                      <th className="r">Cost {SYM}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -677,7 +703,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
         <section className="blk" aria-label="Garment cost">
           <details open>
             <summary>
-              Garment cost <span>₹ per {model.unitWord}{model.sizes.length > 1 ? " · every size" : ""}</span>
+              Garment cost <span>{SYM} per {model.unitWord}{model.sizes.length > 1 ? " · every size" : ""}</span>
             </summary>
             <div className="scroll">
               <table>
@@ -685,7 +711,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                   <tr>
                     <th>Line</th>
                     {model.sizes.map((x) => (
-                      <th key={x.label} className="r">{model.sizes.length > 1 ? x.label : "₹"}</th>
+                      <th key={x.label} className="r">{model.sizes.length > 1 ? x.label : SYM}</th>
                     ))}
                   </tr>
                 </thead>
@@ -728,7 +754,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                     </tr>
                   ) : null}
                   <tr className="total">
-                    <td>Price ₹</td>
+                    <td>Price {SYM}</td>
                     {model.sizes.map((x) => (
                       <td key={x.label} className="r">{money(x.price)}</td>
                     ))}
@@ -739,7 +765,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
           </details>
           <details open>
             <summary>
-              Overheads &amp; extra charges <span>₹ {money(s.bank + s.wastage + s.overhead + s.extraOverhead)} / {model.unitWord}</span>
+              Overheads &amp; extra charges <span>{SYM} {money(s.bank + s.wastage + s.overhead + s.extraOverhead)} / {model.unitWord}</span>
             </summary>
             <div className="scroll">
               <table>
@@ -749,7 +775,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                     <th>Type</th>
                     <th className="r">Value</th>
                     {model.sizes.map((x) => (
-                      <th key={x.label} className="r">{model.sizes.length > 1 ? `${x.label} ₹` : "₹ / " + model.unitWord}</th>
+                      <th key={x.label} className="r">{model.sizes.length > 1 ? `${x.label} ${SYM}` : `${SYM} / ${model.unitWord}`}</th>
                     ))}
                   </tr>
                 </thead>
@@ -850,12 +876,44 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
             <div className="quote-top">
               <div>
                 <div className="eyebrow">{s.quoted != null ? "Quoted" : "Calculated"} FOB per {model.unitWord}</div>
-                <div className="big">{s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"}</div>
-                {inrOf(s.quoted ?? s.calc) != null ? (
-                  <div className="inr">
-                    ₹ {money(inrOf(s.quoted ?? s.calc))} <small>per {model.unitWord} · at ₹ {fx(model.exchangeRate)} / {ccy}</small>
-                  </div>
-                ) : null}
+                {(() => {
+                  const price = s.quoted ?? s.calc;
+                  const inrPrice = inrOf(price);
+                  // ₹ is offered only when there is a rate to get there, and only for a
+                  // foreign-currency quote — an INR quote has nothing to switch to.
+                  const canInr = !!ccy && ccy !== "INR" && inrPrice != null;
+                  const showInr = heroInr && canInr;
+                  return (
+                    <>
+                      <div className="big-row">
+                        <div className="big">
+                          {price == null ? "—" : showInr ? `₹ ${fx(inrPrice, 2)}` : `${ccy ? symbolOf(ccy) : ""} ${fx(price, 2)}`.trim()}
+                        </div>
+                        {canInr ? (
+                          <select
+                            className="ccy-pick"
+                            aria-label="Show the price in"
+                            autoComplete="off"
+                            data-1p-ignore
+                            data-lpignore="true"
+                            data-form-type="other"
+                            value={showInr ? "INR" : ccy}
+                            onChange={(e) => setHeroInr(e.target.value === "INR")}
+                          >
+                            <option value={ccy}>{ccy} ●</option>
+                            <option value="INR">INR</option>
+                          </select>
+                        ) : null}
+                        <span className="per">/ {model.unitWord.toUpperCase()}</span>
+                      </div>
+                      {canInr ? (
+                        <div className="inr">
+                          {showInr ? `${symbolOf(ccy)} ${fx(price, 2)}` : `₹ ${fx(inrPrice)}`} <small>per {model.unitWord} · at ₹ {fx(model.exchangeRate)} / {ccy}</small>
+                        </div>
+                      ) : null}
+                    </>
+                  );
+                })()}
                 <div className="sub">
                   {s.calc != null ? `Calculated ${s.calc.toFixed(4)}` : "Add the exchange rate to see the price"}
                   {delta != null && Math.abs(delta) > 0.00005 && s.deltaPct != null ? ` · ${delta >= 0 ? "+" : ""}${delta.toFixed(4)} (${delta >= 0 ? "+" : ""}${s.deltaPct.toFixed(2)}%)` : ""}
@@ -868,10 +926,10 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                 <b>{eff == null ? "—" : `${eff.toFixed(2)}%`}</b>
               </div>
               <div className="track" aria-hidden>
-                <div className="tick" style={{ left: `${(FLOOR_PCT / 30) * 100}%` }}>
+                <div className="tick floor" style={{ left: `${(FLOOR_PCT / 30) * 100}%` }}>
                   <span>{FLOOR_PCT}% floor</span>
                 </div>
-                <div className="tick" style={{ left: `${(MARGIN_TARGET_PCT / 30) * 100}%` }}>
+                <div className="tick target" style={{ left: `${(MARGIN_TARGET_PCT / 30) * 100}%` }}>
                   <span>{MARGIN_TARGET_PCT}% target</span>
                 </div>
                 {pin != null ? (
@@ -943,33 +1001,34 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
               </tbody>
             </table>
           </div>
-          </div>
+        {/* Inside `.comm` so the grid can seat it under the quote, beside the taller
+            Negotiation box, instead of a full-width row below both. */}
         <section className="kpis">
           <div className="kpi">
             <label>Net cost</label>
-            <div className="v">₹ {money(s.net)}</div>
+            <div className="v">{SYM} {money(s.net)}</div>
             <div className="n">before rejection and overhead</div>
           </div>
           <div className="kpi">
             <label>Gross cost</label>
-            <div className="v">₹ {money(s.grossCost)}</div>
+            <div className="v">{SYM} {money(s.grossCost)}</div>
             <div className="n">what a {model.unitWord} costs us</div>
           </div>
           <div className="kpi">
             <label>Price</label>
-            <div className="v">₹ {money(s.price)}</div>
+            <div className="v">{SYM} {money(s.price)}</div>
             <div className="n">gross cost + margin{s.priceAdj ? " ± price charges" : ""}</div>
           </div>
           {inrOf(s.quoted ?? s.calc) != null ? (
             <div className="kpi">
               <label>FOB in rupees</label>
-              <div className="v">₹ {money(inrOf(s.quoted ?? s.calc))}</div>
+              <div className="v">₹ {fx(inrOf(s.quoted ?? s.calc))}</div>
               <div className="n">{ccy} {fx(s.quoted ?? s.calc)} × {fx(model.exchangeRate)}</div>
             </div>
           ) : null}
           <div className="kpi">
             <label>Margin earned</label>
-            <div className="v">₹ {money(s.margin)}</div>
+            <div className="v">{SYM} {money(s.margin)}</div>
             <div className="n" style={edit ? { display: "flex", alignItems: "center", gap: 6 } : undefined}>
               {edit ? (
                 <>
@@ -982,6 +1041,7 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
             </div>
           </div>
         </section>
+          </div>
         {edit ? (
           <section className="sec">
             <div className="sec-h">
@@ -1109,9 +1169,9 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
 
   const tabDefs = [
     { label: "Details", hint: "buyer & style" },
-    { label: "Fabric", hint: `₹ ${money(s.fabric)} / ${model.unitWord}` },
-    { label: "Operations & trims", hint: `₹ ${money(s.cmt + s.process + s.testing + s.trims)} / ${model.unitWord}` },
-    { label: "Cost & overheads", hint: `₹ ${money(s.grossCost)} total` },
+    { label: "Fabric", hint: `${SYM} ${money(s.fabric)} / ${model.unitWord}` },
+    { label: "Operations & trims", hint: `${SYM} ${money(s.cmt + s.process + s.testing + s.trims)} / ${model.unitWord}` },
+    { label: "Cost & overheads", hint: `${SYM} ${money(s.grossCost)} total` },
     { label: "Quotation", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}` },
   ];
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -1190,151 +1250,130 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
           {view === "report" ? specGrid : null}
         </section>
 
+        {/* THE CHARTS VIEW IS A RECEIPT (user 2026-10-15, design E, artifact
+            87DoA39WsgTtYUBrUPD7yT: "light aa plain aa … neat aa"). It reads like the
+            cost sheet — each line with a dot leader to its figure and its share of
+            the price, subtotals ruled off, the price double-ruled — with a small
+            donut and the fabric rates beside it. No bars to decode. The card takes
+            the home page hero's surface (smoke wash, soft brand glow). On load the
+            FRAME STAYS STILL and only the words fade in, opacity only, so no letter
+            moves or changes ("letters kuthikka kudathu"). Hovering a line, a legend
+            entry or a slice lights all three. */}
         {view === "charts" ? (
-        <section className="dash" aria-label="Price charts">
-          <div className="col">
-          <div className="sec">
-            <div className="sec-h">
-              <h3>How the price is built</h3>
+        <section className={`rc${hot ? " hot" : ""}`} aria-label="Price charts" onMouseLeave={() => setHot(null)}>
+          <div className="rc-led">
+            <div className="rc-cap t">
+              How the price is built
               <span>
-                ₹ per {model.unitWord}
+                {SYM} per {model.unitWord}
                 {model.sizes.length > 1 ? ` · size ${s.label}` : ""}
               </span>
             </div>
-            <div className="wf">
-              {wfRows.map((r) => (
-                <div key={r.label} className={`wf-row${r.total ? " tot" : ""}`}>
-                  <span className="lab">{r.label}</span>
-                  <div className="lane">
-                    <div className="bar" style={{ left: `${(r.start / wfMax) * 100}%`, width: `${(r.width / wfMax) * 100}%`, background: r.total ? "var(--cs-brand)" : TONE_VAR[r.tone as keyof typeof TONE_VAR] }} />
-                  </div>
-                  <span className="val">
-                    {!r.total && r.value < 0 ? "−" : ""}
+            {wfRows.map((r, i) => {
+              const last = i === wfRows.length - 1;
+              const cls = r.total ? (last ? "tot" : "sub") : r.value < 0 ? "neg" : "";
+              const pct = s.price ? (r.width / s.price) * 100 : null;
+              return (
+                <div
+                  key={r.label}
+                  className={`rc-ln ${cls}${r.tone && hot === r.tone ? " on" : ""}`}
+                  style={{ ["--i" as string]: i }}
+                  onMouseEnter={() => setHot(r.tone)}
+                >
+                  <i className="sw" style={{ background: r.tone && r.value >= 0 ? softTone(r.tone) : "transparent" }} />
+                  <span className="t">{r.label}</span>
+                  <span className="ld" />
+                  <span className="t a">
+                    {r.value < 0 ? "−" : ""}
                     {money(r.width)}
                   </span>
+                  <span className="t p">{pct == null ? "" : `${pct.toFixed(1)}%`}</span>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
-          </div>
-          <div className="col">
-          <div className="sec">
-            <div className="sec-h">
-              <h3>Where the price goes</h3>
-              <span>share of the ₹ price</span>
-            </div>
-            <div className="donut">
+          <div className="rc-side">
+            <div className="rc-mix">
               <svg viewBox="0 0 120 120" role="img" aria-label="Share of the price by cost group">
-                <circle cx="60" cy="60" r={R} fill="none" stroke="var(--cs-soft)" strokeWidth="16" />
                 {parts.map((p, i) => {
                   const len = (p.value / partTotal) * C;
-                  return <circle key={p.label} cx="60" cy="60" r={R} fill="none" stroke={TONE_VAR[p.tone]} strokeWidth="16" strokeDasharray={`${Math.max(len - 1.2, 0)} ${C}`} strokeDashoffset={-offs[i]} transform="rotate(-90 60 60)" />;
+                  return (
+                    <circle
+                      key={p.label}
+                      className={hot === p.tone ? "on" : ""}
+                      cx="60"
+                      cy="60"
+                      r={RING_R}
+                      fill="none"
+                      stroke={softTone(p.tone)}
+                      strokeWidth="15"
+                      strokeDasharray={`${Math.max(len - 1.5, 0)} ${C}`}
+                      strokeDashoffset={-offs[i]}
+                      transform="rotate(-90 60 60)"
+                      onMouseEnter={() => setHot(p.tone)}
+                    />
+                  );
                 })}
-                <text x="60" y="57" textAnchor="middle" fontSize="7.5" fontWeight="600" style={{ fill: "var(--cs-muted)" }}>
-                  PRICE ₹
-                </text>
-                <text x="60" y="71" textAnchor="middle" fontSize="14" fontWeight="800">
+                <text className="t" x="60" y="65" textAnchor="middle" fontSize="15" fontWeight="700">
                   {money(partTotal)}
                 </text>
               </svg>
-              <div className="lg">
-                {parts.map((p) => (
-                  <div key={p.label}>
-                    <i style={{ background: TONE_VAR[p.tone] }} />
-                    <span>{p.label}</span>
-                    <span className="p">{((p.value / partTotal) * 100).toFixed(1)}%</span>
-                    <span className="a">{money(p.value)}</span>
+              <div className="rc-lg">
+                {parts.map((p, i) => (
+                  <div key={p.label} className={hot === p.tone ? "on" : ""} style={{ ["--i" as string]: i }} onMouseEnter={() => setHot(p.tone)}>
+                    <i className="sw" style={{ background: softTone(p.tone) }} />
+                    <span className="t">{p.label}</span>
+                    <b className="t">{((p.value / partTotal) * 100).toFixed(1)}%</b>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
-            {model.sizes.length > 1 ? (
-              <div className="box">
-                <h4>
-                  Size comparison <span>quote and margin</span>
-                </h4>
-                <div>
-                  {model.sizes.map((x) => (
-                    <div className="hb cmp" key={x.label}>
-                      <b>{x.label}</b>
-                      <div className="lane">
-                        <div className="bar" style={{ left: 0, width: `${(x.grossCost / worst) * 100}%`, background: "var(--cs-over)" }} />
-                        <div className="bar" style={{ left: `${(x.grossCost / worst) * 100}%`, width: `${(Math.max(x.price - x.grossCost, 0) / worst) * 100}%`, background: "var(--cs-margin)" }} />
-                      </div>
-                      <span className="v">
-                        {x.quoted != null ? `${ccy} ${fx(x.quoted)}` : "—"}
-                        {inrOf(x.quoted) != null ? ` · ₹ ${money(inrOf(x.quoted))}` : ""} · {x.effectiveMarginPct == null ? "—" : `${x.effectiveMarginPct.toFixed(1)}%`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <div className="keys">
-                  <span><i style={{ background: "var(--cs-over)" }} />Gross cost</span>
-                  <span><i style={{ background: "var(--cs-margin)" }} />Margin and price charges</span>
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <div className="col">
-            {model.fabrics.map((f) => {
-              const sub = f.yarn + f.knitting + f.dyeing + f.finishing + f.special;
-              const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
-              const base = f.direct ? (f.price ?? 1) : Math.max(sub + loss, 1);
-              const seg = (v: number) => `${(v / base) * 100}%`;
-              return (
-                <div className="box" key={f.name}>
-                  <h4>
-                    Fabric rate <span>{f.name}</span>
-                  </h4>
-                  <div className="big2">
-                    ₹ {money(f.price)} <small>per kg{f.direct ? " · direct rate" : f.lossPct ? ` · incl. ${f.lossPct}% process loss` : ""}</small>
-                  </div>
-                  {f.direct ? null : (
-                    <>
-                      <div className="stack" aria-hidden>
-                        <i style={{ width: seg(f.yarn), background: "var(--cs-fabric)" }} />
-                        <i style={{ width: seg(f.knitting), background: "var(--cs-cmt)" }} />
-                        <i style={{ width: seg(f.dyeing), background: "var(--cs-over)" }} />
-                        <i style={{ width: seg(f.finishing + f.special), background: "var(--cs-trims)" }} />
-                        <i style={{ width: seg(loss), background: "var(--cs-muted)", opacity: 0.5 }} />
-                      </div>
-                      <div className="keys">
-                        <span><i style={{ background: "var(--cs-fabric)" }} />Yarn <b>{money(f.yarn)}</b></span>
-                        <span><i style={{ background: "var(--cs-cmt)" }} />Knitting <b>{money(f.knitting)}</b></span>
-                        <span><i style={{ background: "var(--cs-over)" }} />Dyeing <b>{money(f.dyeing)}</b></span>
-                        <span><i style={{ background: "var(--cs-trims)" }} />Finishing{f.special ? " + special" : ""} <b>{money(f.finishing + f.special)}</b></span>
-                        <span><i style={{ background: "var(--cs-muted)", opacity: 0.5 }} />Loss <b>{money(loss)}</b></span>
-                      </div>
-                      {f.mixNote ? <div className="sub">{f.mixNote}</div> : null}
-                    </>
-                  )}
-                </div>
-              );
-            })}
-            <div className="box">
-              <h4>
-                Garment weight <span>grams{model.sizes.length > 1 ? ` · size ${s.label}` : ""}</span>
-              </h4>
-              <div>
-                {model.weights.rows.map((r, i) => {
-                  const g = r.grams[idx] ?? r.grams.find((x) => x != null) ?? null;
-                  const top = Math.max(...model.weights.rows.map((x) => x.grams[idx] ?? 0), 1);
+            {model.fabrics.length ? (
+              <div className="rc-fab">
+                <div className="rc-cap t">Fabric rate · {SYM} / kg</div>
+                {model.fabrics.map((f, i) => {
+                  const fin = f.finishing + f.special;
+                  const sub = f.yarn + f.knitting + f.dyeing + fin;
+                  const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
+                  const segs = (
+                    [
+                      ["Yarn", f.yarn, "var(--cs-fabric)"],
+                      ["Knitting", f.knitting, "var(--cs-cmt)"],
+                      ["Dyeing", f.dyeing, "var(--cs-over)"],
+                      [f.special ? "Finishing + special" : "Finishing", fin, "var(--cs-trims)"],
+                      [f.lossPct ? `Loss ${f.lossPct}%` : "Loss", loss, "var(--cs-muted)"],
+                    ] as const
+                  ).filter(([, v]) => v > 0);
                   return (
-                    <div className="hb" key={`${r.component}-${i}`}>
-                      <span className="dim">{r.component || r.fabric || "Component"}</span>
-                      <div className="lane">
-                        <div className="bar" style={{ left: 0, width: `${((g ?? 0) / top) * 100}%`, background: "var(--cs-fabric)" }} />
+                    <div className="rc-f" key={f.key || f.name} style={{ ["--i" as string]: i }}>
+                      <div className="top t">
+                        <span>{f.name}</span>
+                        <span>{money(f.price)}</span>
                       </div>
-                      <span className="v">{g == null ? "—" : `${g} g`}</span>
+                      {f.direct || !segs.length ? (
+                        <div className="parts t">Direct rate (bought-in)</div>
+                      ) : (
+                        <>
+                          <div className="bar" aria-hidden>
+                            {segs.map(([l, v, c]) => (
+                              <span key={l} style={{ flex: v, background: `color-mix(in srgb, ${c} 60%, #fff)` }} />
+                            ))}
+                          </div>
+                          <div className="parts t">
+                            {segs.map(([l, v], k) => (
+                              <span key={l}>
+                                {k ? " · " : ""}
+                                {l} <b>{money(v)}</b>
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 })}
               </div>
-              <div className="sub">
-                {s.grams} g, {s.gramsWithLoss} g with loss, fabric ₹ {money(s.fabric)}
-              </div>
-            </div>
+            ) : null}
           </div>
         </section>
         ) : null}
@@ -1492,17 +1531,56 @@ const CSS = `
 .cs-sheet .sec { display:flex; flex-direction:column; gap:8px; min-width:0; }
 .cs-sheet .sec-h { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .cs-sheet .sec-h h3 { font-size:15px; font-weight:800; } .cs-sheet .sec-h span { color:var(--cs-muted); font-size:12.5px; }
-/* THE CHARTS VIEW IS ONE SCREEN (client 2026-10-10: "why can't we fit in single
-   screen"): build | split + sizes | fabric + weight, side by side, instead of
-   stacked bands. Two columns on a narrow pane, one on a phone. */
-.cs-sheet .dash { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:start; }
-@media (max-width:1100px){ .cs-sheet .dash { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media (max-width:700px){ .cs-sheet .dash { grid-template-columns:1fr; } }
-.cs-sheet .dash .col { display:flex; flex-direction:column; gap:10px; min-width:0; }
-.cs-sheet .dash .box { padding:8px 10px; gap:6px; }
-.cs-sheet .dash .donut { gap:12px; } .cs-sheet .dash .donut svg { width:112px; height:112px; }
-.cs-sheet .dash .wf-row { grid-template-columns:132px minmax(0,1fr) 62px; }
-.cs-sheet .dash .hb.cmp { grid-template-columns:24px minmax(0,1fr) auto; }
+/* THE CHARTS VIEW IS A RECEIPT (user 2026-10-15, design E). One card: the ledger
+   left, a small donut + legend and the fabric rates right; stacked on a narrow
+   pane. The card is the home page hero's surface — top-left smoke wash, a soft
+   brand-blue glow at the top-right, a soft lift and a 1px sheen. */
+.cs-sheet .rc { position:relative; isolation:isolate; overflow:hidden; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  border:1px solid var(--cs-rule); border-radius:12px; background-color:#fff;
+  background-image:linear-gradient(152deg, rgb(22 24 29 / .055) 0%, rgb(22 24 29 / .012) 34%, rgb(22 24 29 / 0) 62%);
+  box-shadow:0 1px 2px rgb(16 24 40 / .06), 0 4px 14px rgb(16 24 40 / .06), inset 0 1px 0 rgb(255 255 255 / .75); }
+.cs-sheet .rc::before { content:""; position:absolute; z-index:-1; pointer-events:none; right:-40px; top:-96px; width:320px; height:224px;
+  border-radius:50%; background:var(--cs-brand-tint); opacity:.6; filter:blur(48px); }
+@media (max-width:860px){ .cs-sheet .rc { grid-template-columns:minmax(0,1fr); } .cs-sheet .rc-led { border-right:0; border-bottom:1px dashed var(--cs-rule); } }
+.cs-sheet .rc-led { padding:12px 12px 14px; border-right:1px dashed var(--cs-rule); min-width:0; }
+.cs-sheet .rc-side { padding:14px 18px; display:grid; gap:16px; align-content:start; min-width:0; }
+.cs-sheet .rc-cap { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--cs-muted);
+  display:flex; justify-content:space-between; gap:10px; padding:0 6px 6px; }
+.cs-sheet .rc-cap span { text-transform:none; letter-spacing:0; font-weight:500; font-size:12px; }
+.cs-sheet .rc-fab .rc-cap { padding:0; }
+.cs-sheet .rc .sw { display:block; width:9px; height:9px; border-radius:2px; }
+.cs-sheet .rc-ln { display:grid; grid-template-columns:10px auto minmax(12px,1fr) 76px 52px; align-items:baseline; column-gap:8px;
+  padding:3px 6px; border-radius:5px; font-size:13px; transition:background-color .2s, opacity .2s; }
+.cs-sheet .rc-ln .sw { align-self:center; }
+.cs-sheet .rc-ln .ld { border-bottom:1px dotted #b6c0c9; transform:translateY(-4px); }
+.cs-sheet .rc-ln .a { text-align:right; } .cs-sheet .rc-ln .p { text-align:right; color:var(--cs-muted); font-size:12px; }
+.cs-sheet .rc-ln.neg .a { color:var(--cs-bad); }
+.cs-sheet .rc-ln.sub { border-top:1px solid var(--cs-rule); border-radius:0; margin-top:3px; padding-top:5px; font-weight:700; }
+.cs-sheet .rc-ln.tot { border-top:3px double var(--cs-muted); border-radius:0; margin-top:6px; padding-top:7px; font-size:16px; font-weight:800; }
+.cs-sheet .rc-ln.sub .ld, .cs-sheet .rc-ln.tot .ld { border-bottom-color:transparent; }
+.cs-sheet .rc-ln:not(.sub):not(.tot):hover, .cs-sheet .rc-ln.on { background:var(--cs-soft); }
+.cs-sheet .rc-mix { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.cs-sheet .rc-mix svg { width:96px; height:96px; flex:none; overflow:visible; }
+.cs-sheet .rc-mix circle { transition:stroke-width .2s, opacity .2s; } .cs-sheet .rc-mix circle.on { stroke-width:19; }
+.cs-sheet .rc-mix text { fill:var(--cs-ink); }
+.cs-sheet .rc-lg { flex:1 1 240px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:3px 16px; font-size:12.5px; min-width:0; }
+.cs-sheet .rc-lg div { display:grid; grid-template-columns:10px 1fr auto; gap:8px; align-items:center; padding:2px 6px; border-radius:5px; transition:background-color .2s, opacity .2s; }
+.cs-sheet .rc-lg div:hover, .cs-sheet .rc-lg div.on { background:var(--cs-soft); }
+.cs-sheet .rc-lg b { font-weight:700; }
+.cs-sheet .rc.hot .rc-ln:not(.on) { opacity:.45; }
+.cs-sheet .rc.hot .rc-lg div:not(.on), .cs-sheet .rc.hot .rc-mix circle:not(.on) { opacity:.4; }
+.cs-sheet .rc-fab { border-top:1px solid var(--cs-rule); padding-top:12px; display:grid; gap:12px; }
+.cs-sheet .rc-f .top { display:flex; justify-content:space-between; gap:10px; font-weight:800; font-size:13px; }
+.cs-sheet .rc-f .bar { display:flex; gap:2px; height:8px; margin:5px 0 4px; border-radius:4px; overflow:hidden; background:var(--cs-soft); }
+.cs-sheet .rc-f .bar span { display:block; }
+.cs-sheet .rc-f .parts { color:var(--cs-muted); font-size:12px; } .cs-sheet .rc-f .parts b { color:var(--cs-ink); font-weight:700; }
+/* ONLY THE WORDS ARRIVE: opacity, no movement, no blur, no counting. */
+@keyframes cs-ink { from { opacity:0; } to { opacity:1; } }
+.cs-sheet .rc-ln .t { animation:cs-ink .5s cubic-bezier(.22,.8,.3,1) both; animation-delay:calc(var(--i, 0) * 55ms); }
+.cs-sheet .rc-lg .t { animation:cs-ink .45s cubic-bezier(.22,.8,.3,1) both; animation-delay:calc(250ms + var(--i, 0) * 60ms); }
+.cs-sheet .rc-f .t { animation:cs-ink .5s cubic-bezier(.22,.8,.3,1) both; animation-delay:calc(400ms + var(--i, 0) * 120ms); }
+.cs-sheet .rc-cap.t, .cs-sheet .rc-mix text.t { animation:cs-ink .5s cubic-bezier(.22,.8,.3,1) both; animation-delay:150ms; }
+@media (prefers-reduced-motion: reduce) { .cs-sheet .rc .t { animation:none; } .cs-sheet .rc-ln, .cs-sheet .rc-lg div, .cs-sheet .rc-mix circle { transition:none; } }
 .cs-sheet .two { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:18px; }
 @media (max-width:860px){ .cs-sheet .two { grid-template-columns:1fr; } }
 .cs-sheet .wf { display:flex; flex-direction:column; gap:3px; }
@@ -1590,6 +1668,88 @@ const CSS = `
 .cs-sheet .ctab[aria-selected="true"] { color:var(--cs-brand-ink); background:#fff; border-color:var(--cs-rule); border-bottom:1px solid #fff; box-shadow:inset 0 3px 0 var(--cs-brand); }
 .cs-sheet .ctab[aria-selected="true"] > span { color:var(--cs-brand-ink); }
 .cs-sheet .ctab:focus-visible { outline:2px solid var(--cs-brand); outline-offset:-2px; }
+/* TIGHTER SHEET (user 2026-10-15, Quotation tab: "compact pannu neat aa"). SPACING
+   ONLY — paddings, gaps and row heights come down; every text size stays. Sits after
+   the rules it overrides so equal specificity resolves to this one. */
+.cs-sheet .mast { padding:6px 16px; }
+.cs-sheet .apv { padding:5px 16px; }
+.cs-sheet .pad { padding:10px 16px 12px; gap:10px; }
+.cs-sheet .hdrblk { gap:5px; }
+.cs-sheet .title h2, .cs-sheet .hdr-title h2 { margin-block:1px 4px; }
+.cs-sheet .chip { padding:2px 9px; }
+.cs-sheet .ctab { padding:5px 14px 6px; }
+.cs-sheet .blk { gap:8px; }
+.cs-sheet .sec { gap:6px; }
+.cs-sheet .comm { gap:10px; }
+.cs-sheet .comm .quote { padding:8px 12px 6px; }
+/* The pin's bubble repeated the % printed in the gauge head and sat on top of it;
+   the head carries the figure, so the bubble goes and the track moves up under it. */
+.cs-sheet .comm .pin span { display:none; }
+.cs-sheet .comm .track { margin-top:10px; }
+/* Floor and target are 2 points apart and their labels collided: floor reads to the
+   LEFT of its tick, target to the RIGHT. */
+.cs-sheet .comm .tick.floor span { transform:translateX(calc(-100% - 3px)); }
+.cs-sheet .comm .tick.target span { transform:translateX(5px); }
+.cs-sheet .comm .scale { margin-top:14px; }
+/* The price, its "show in" picker and the unit on one line (Quotation summary's shape). */
+.cs-sheet .big-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px; }
+.cs-sheet .big-row .big { margin-top:0; }
+.cs-sheet .ccy-pick { height:26px; padding:0 4px; border:1px solid var(--cs-brand); border-radius:8px; background:#fff; color:var(--cs-brand-ink); font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.cs-sheet .ccy-pick:focus-visible { outline:2px solid var(--cs-brand); outline-offset:1px; }
+.cs-sheet .big-row .per { color:var(--cs-muted); font-size:12px; font-weight:600; }
+@media print { .cs-sheet .ccy-pick { border:0; appearance:none; padding:0; background:transparent; } }
+.cs-sheet .neg table td { padding:2px 4px; }
+.cs-sheet .neg input.cs-ed { height:26px !important; }
+.cs-sheet .blk .kpi { padding:4px 10px; }
+/* Rows, not just padding: the title and its chips share a line under the eyebrow, and
+   each KPI puts its label and figure on one line with the note beneath. */
+.cs-sheet .hdr-title .min0 { display:flex; flex-wrap:wrap; align-items:center; column-gap:12px; row-gap:2px; }
+.cs-sheet .hdr-title .min0 > .eyebrow { flex-basis:100%; }
+.cs-sheet .hdr-title h2 { margin-block:0; }
+.cs-sheet .blk .kpi { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; column-gap:8px; }
+.cs-sheet .blk .kpi > label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs-sheet .blk .kpi > .v { margin-top:0; text-align:right; white-space:nowrap; }
+.cs-sheet .blk .kpi > .n { grid-column:1 / -1; }
+/* The quote box is ONE band (user 2026-10-15, screenshot 144929): price on the left,
+   the margin gauge beside it, and the floor / target labels on the scale's own line
+   instead of a line of their own. Wraps back to stacked when the box is narrow. */
+.cs-sheet .comm .quote { flex-direction:row; flex-wrap:wrap; align-items:center; column-gap:18px; row-gap:6px; }
+.cs-sheet .comm .quote > .quote-top { flex:0 1 auto; }
+.cs-sheet .comm .quote > div:last-child { flex:1 1 260px; min-width:0; }
+.cs-sheet .comm .track { margin-top:8px; }
+.cs-sheet .comm .tick span { top:18px; }
+.cs-sheet .comm .scale { margin-top:6px; }
+/* The KPIs sit UNDER the quote, beside the taller Negotiation box (screenshot 145019
+   showed a blank pane there). Narrow pane: one column, quote → KPIs → Negotiation. */
+.cs-sheet .comm { grid-template-areas:"quote neg" "kpis neg"; grid-template-rows:auto 1fr; }
+.cs-sheet .comm > .quote { grid-area:quote; }
+.cs-sheet .comm > .neg { grid-area:neg; }
+.cs-sheet .comm > .kpis { grid-area:kpis; align-self:start; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+@media (max-width:860px){ .cs-sheet .comm { grid-template-areas:"quote" "kpis" "neg"; grid-template-rows:auto; } }
+/* Five tiles in the quote's column are ~150px each — too narrow to put a label and
+   its figure on one line without clipping "MARGIN EARNED", so here they stack. */
+.cs-sheet .comm .kpi { display:block; }
+.cs-sheet .comm .kpi > .v { text-align:left; }
+/* WIDTH, TOO (user 2026-10-15, screenshot 145408): the quote box hugs what it holds
+   and the gauge is capped, instead of a 500px bar ruled across the column. */
+.cs-sheet .comm > .quote { justify-self:start; width:fit-content; max-width:100%; }
+.cs-sheet .comm .quote > div:last-child { flex:0 1 320px; }
+/* ONE TIGHT BLOCK (user 2026-10-15, screenshot 145603: "compacted aa neat aa").
+   The grid was two 1.3fr / 1fr columns, so the hugging quote left a blank band
+   before a stretched Negotiation box, and five 150px tiles in the quote's column
+   left MARGIN EARNED alone on a second line. Now: quote and Negotiation side by
+   side at their own widths, the five tiles in ONE row beneath both, each tile as
+   wide as its words. Narrow pane: one column, as before. */
+.cs-sheet .comm { grid-template-columns:auto auto; justify-content:start; grid-template-areas:"quote neg" "kpis kpis"; grid-template-rows:auto auto; }
+.cs-sheet .comm > .neg { width:fit-content; max-width:100%; align-self:stretch; }
+.cs-sheet .comm > .neg table { width:auto; }
+.cs-sheet .comm > .neg table td:last-child { padding-left:24px; }
+.cs-sheet .comm > .kpis { display:flex; flex-wrap:wrap; gap:6px; }
+.cs-sheet .comm > .kpis > .kpi { flex:0 0 auto; }
+.cs-sheet .comm .kpi > .n { white-space:nowrap; }
+@media (max-width:860px){ .cs-sheet .comm { grid-template-columns:minmax(0,1fr); grid-template-areas:"quote" "kpis" "neg"; } }
+.cs-sheet .neg table td { padding:1px 4px; }
+.cs-sheet .neg input.cs-ed { height:24px !important; }
 .cs-sheet .tpanel { display:flex; flex-direction:column; gap:12px; }
 .cs-sheet .tpanel section[aria-label="Garment cost"] { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:12px; align-items:start; }
 @media (max-width:900px){ .cs-sheet .tpanel section[aria-label="Garment cost"] { grid-template-columns:1fr; } }
