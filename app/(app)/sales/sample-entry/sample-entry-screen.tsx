@@ -51,17 +51,11 @@ import { Truncated } from "@/components/ui/truncated";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { ChildGrid, gridKeyNav, RowRemoveChip, type ChildGridColumn } from "@/components/masters/child-grid";
 import { StyleProcessGrid } from "@/components/orders/style-process-grid";
-import type { StyleProcessRow } from "@/lib/orders/amendments/style-processes";
+import type { ProcessKind, StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 import { Tooltip } from "@/components/ui/tooltip";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
 import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
-import {
-  MATRIX_FOOT,
-  MATRIX_HEAD,
-  MATRIX_SIZE_TOKEN,
-  matrixCell,
-  sizeColPx,
-} from "@/components/orders/matrix-grid";
+import { MATRIX_SIZE_TOKEN, sizeColPx } from "@/components/orders/matrix-grid";
 import {
   MasterFullScreen,
   SectionBody,
@@ -476,24 +470,19 @@ export function SampleEntryScreen({
     is_single_style_pack: true,
     lines: [],
   });
-  /** Combos ▸ Embellishments is TWO grids over one list, each showing only its
-   *  own kind — so a seed row carries its kind, one per grid. A kind-less blank
-   *  showed in neither, both grids fired `seedRow` on open, and every entry
-   *  opened reading "Unsaved changes". */
-  const blankProcess = (kind: StyleProcessRow["kind"]): StyleProcessRow => ({
-    key: newKey(),
-    kind,
-    process_id: null,
-    component_id: null,
-    details: "",
-  });
-  /** One row ready in each Embellishments grid; a kind-less blank is dropped. */
-  const withProcessSeeds = (xs: StyleProcessRow[]): StyleProcessRow[] => {
-    const kept = xs.filter((r) => !!r.kind || !!r.process_id);
+  const blankProcess = (kind: ProcessKind): StyleProcessRow => ({ key: newKey(), kind, process_id: null, component_id: null, details: "" });
+  /* ONE BLANK ROW PER EMBELLISHMENT GRID (user 2026-10-15). Combos shows two
+     fixed-kind grids over this one list, and each shows only its own kind — so
+     the old single `kind: null` seed was in NEITHER grid, both then seeded via
+     `seedRow` in the same render off the same stale list, and the second write
+     (Garment) erased the first: Component Process opened empty. Seeded here in
+     state, one per kind; a kind-stamped blank row is not "started"
+     (`kindStamped`) and the save drops any row with no Process. */
+  const seedProcesses = (rows: StyleProcessRow[]): StyleProcessRow[] => {
+    const kept = rows.filter((r) => r.kind);
     return [
       ...kept,
-      ...(kept.some((r) => r.kind === "component") ? [] : [blankProcess("component")]),
-      ...(kept.some((r) => r.kind === "garment") ? [] : [blankProcess("garment")]),
+      ...(["component", "garment"] as const).filter((k) => !kept.some((r) => r.kind === k)).map(blankProcess),
     ];
   };
   const blankStyle = (): StyleDraft => ({
@@ -535,7 +524,7 @@ export function SampleEntryScreen({
     coordinates: [{ key: newKey(), coordinate_id: null }],
     sizes: [],
     combos: [blankCombo()],
-    processes: withProcessSeeds([]),
+    processes: seedProcesses([]),
     // Quantities is ONE grid for the entry (Order Entry's), which seeds its own
     // first row — a blank row per style would put N blanks in it.
     quantities: [],
@@ -553,7 +542,7 @@ export function SampleEntryScreen({
       ? s.coordinates
       : [{ key: newKey(), coordinate_id: s.unit_kind === "piece" ? piecesCoordinateId : null }],
     combos: s.combos.length ? s.combos : [blankCombo()],
-    processes: withProcessSeeds(s.processes),
+    processes: seedProcesses(s.processes),
     // Product Info ▸ Fabric's Structure · GSM grid opens on a row to pick in.
     structures: s.structures.length ? s.structures : [blankStructure()],
   });
@@ -1105,34 +1094,34 @@ export function SampleEntryScreen({
 
   // ---- Combos: one combo × size matrix per style ---------------------------------
   /**
-   * A SIZE-ACROSS MATRIX, DRAWN THE WAY ORDER ENTRY DRAWS ONE (orders-precedent
-   * §5, `components/orders/matrix-grid.ts`): a sticky Combo column on the left,
-   * the style's sizes across the top, each size column sized for its label and
-   * its data (`sizeColPx`) rather than a flat 72px, the computed figures as
-   * plain `tabular-nums` text, a sticky Total on the right and a totals band
-   * underneath. It NEVER folds to cards — the sizes ARE the axis, so a run too
-   * long for the pane scrolls inside its own frame. The 2026-10-06 build used
-   * ChildGrid columns at a flat `num` and turned past eight sizes into a stack
-   * of one-field boxes with no shared header.
-   *
-   * Matrix inputs keep OE's own `h-8` (its `assortGrid` cells): a matrix square
-   * is not a field in a row of pickers, so the "no cell sets its own height"
-   * rule is about the line grids, not this.
+   * A SIZE-ACROSS MATRIX (orders-precedent §5): a sticky Combo column on the
+   * left, the style's sizes across the top, each size column sized for its label
+   * and its data (`sizeColPx`) rather than a flat 72px, and a Total on the right
+   * with a totals row underneath. It NEVER folds to cards — the sizes ARE the
+   * axis, so a run too long for the pane scrolls inside its own frame. The
+   * 2026-10-06 build used ChildGrid columns at a flat `num` and turned past eight
+   * sizes into a stack of one-field boxes with no shared header. How it is
+   * DRAWN changed on 2026-10-14 — see the next comment.
    */
+  /*
+   * THE EMBELLISHMENTS TABLE'S LOOK, SIZED TO ITS COLUMNS (user 2026-10-14, Sample
+   * Entry ▸ Combos: "intha screenshot mari combo field venum" — the Embellishments
+   * grid under it). A `#` column, bold capitals headers, a rounded frame with
+   * hairlines between columns, and the app's own boxed fields in padded cells;
+   * "+ Add combo" is the outline button below. NOT `data-grid-style="sheet"` — the
+   * client asked for this boxed look by name, after the flat sheet look had been
+   * tried on this table. The frame is `w-fit max-w-full`, so it is as wide as its
+   * columns (`erp-table-fit`).
+   *
+   * Two things this look does not change:
+   *   - the sizes ARE the axis, so a run too long for the pane scrolls INSIDE the
+   *     frame, with the Combo column sticky;
+   *   - the row's x rides in the LAST cell, hover-only (`erp-row-hover-remove`), in
+   *     a slot that is always 28px wide so the figures stay aligned.
+   */
+  const NUM_W = 48;
   const COMBO_ID_W = 220;
-  const MATRIX_QTY_W = 80;
-  /* COMPACTED LIKE APPROVAL QTY'S BREAKUP (user 2026-10-08: "approval qty la
-     irukka mari table … compacted aa") — `approval-qty-lines.tsx`'s chrome:
-     a box that hugs its columns, 26px rows, a hairline between size columns,
-     right-aligned digits, and a 2px rule before the Total. */
-  const MX_ROW_H = "min-h-[26px]";
-  const MX_HEAD = `${MATRIX_HEAD} ${MX_ROW_H} justify-end pr-2`;
-  const MX_FOOT = `${MATRIX_FOOT} ${MX_ROW_H}`;
-  const CELL = matrixCell(MX_ROW_H);
-  const MX_SEP = "border-r border-border";
-  const MX_TOTAL = "border-l-2 border-border-strong font-semibold";
-  const MX_BOX =
-    "h-[28px] @2xl/editor:h-[28px] w-full min-w-0 rounded-[6px] px-1 text-right text-[12.5px] md:text-[12.5px] font-semibold tabular-nums";
+  const MATRIX_QTY_W = 104;
   const patchCombo = (s: StyleDraft, key: string, patch: Partial<ComboDraft>) =>
     patchStyle(s.key, { combos: s.combos.map((c) => (c.key === key ? { ...c, ...patch } : c)) });
 
@@ -1144,30 +1133,50 @@ export function SampleEntryScreen({
     /* NO EXTRA QTY, AND SO NO SEPARATE ORDER QTY (client 2026-10-06): the
        pieces wanted are typed straight into the sizes, so Order Qty and Total
        would be one number printed twice. Total is the one kept. */
-    const track = [
-      `${COMBO_ID_W}px`,
-      ...sizes.map((z) => `${sizeColPx(z, digits(z))}px`),
-      `${MATRIX_QTY_W}px`,
-    ].join(" ");
+    /* THE SIZE NAME IS NEVER CUT (user 2026-10-14: "XS" read "X…", "XXXXL"
+       "XXXX…"). `sizeColPx` sizes a column for its label as bare text, but the
+       header draws it inside `MATRIX_SIZE_TOKEN` (px-1.5 + border) and the sheet
+       header cell adds 8px a side, and its `overflow: hidden; text-overflow:
+       ellipsis` clipped the chip. So the column is the wider of the data's width
+       and the chip's: 13px mono ≈ 8px a character + 14px chip + 16px cell. */
+    const colW = (z: string) => Math.max(sizeColPx(z, digits(z)), Math.ceil(z.trim().length * 8 + 14 + 16 + 4));
+    const widths = [NUM_W, COMBO_ID_W, ...sizes.map(colW), MATRIX_QTY_W];
+    const tableWidth = widths.reduce((t, w) => t + w, 0);
     const orderSum = s.combos.reduce((t, c) => t + comboOrderQty(c, sizes), 0);
     const want = Number(s.sample_qty) || 0;
 
     return (
       <div className="space-y-2">
         <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-border bg-surface">
-          <div data-grid-body className="grid w-fit" style={{ gridTemplateColumns: track }} onKeyDown={(e) => gridKeyNav(e)}>
-            <div className={`${MX_HEAD} sticky left-0 z-30 justify-start pl-2`}>Combo / Color</div>
-            {sizes.map((z) => (
-              <div key={z} className={`${MX_HEAD} ${MX_SEP}`}>
-                <span className={MATRIX_SIZE_TOKEN}>{z}</span>
-              </div>
-            ))}
-            <div className={`${MX_HEAD} ${MX_TOTAL} sticky right-0 z-30`}>Total</div>
-
-            {s.combos.map((c) => (
-              <div key={c.key} data-grid-row className="contents">
-                <div className={`${CELL} sticky left-0 z-10 gap-1 border-r border-border-strong bg-surface px-2`}>
-                  <div className="min-w-0 flex-1">
+          <table className="table-fixed border-separate border-spacing-0" style={{ width: tableWidth }}>
+            <colgroup>
+              {widths.map((w, i) => (
+                <col key={i} style={{ width: w }} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="h-10 px-2 text-center text-[13px] font-bold uppercase tracking-wide">#</th>
+                <th className="sticky left-0 z-20 h-10 border-l border-border bg-surface px-3 text-left text-[13px] font-bold uppercase tracking-wide">
+                  Combo / Color
+                </th>
+                {sizes.map((z) => (
+                  <th key={z} className="h-10 border-l border-border px-2 text-right text-[13px] font-bold">
+                    <span className={MATRIX_SIZE_TOKEN}>{z}</span>
+                  </th>
+                ))}
+                <th className="h-10 border-l border-border px-2 text-right text-[13px] font-bold uppercase tracking-wide">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
+              {s.combos.map((c, i) => (
+                <tr key={c.key} data-grid-row>
+                  <td className="border-t border-border px-2 pt-3.5 text-center align-top text-[13px] tabular-nums text-muted-foreground">
+                    {i + 1}
+                  </td>
+                  <td className="sticky left-0 z-10 border-l border-t border-border bg-surface p-1.5 align-top">
                     <TypeOrPick
                       id={`se-cb-name-${c.key}`}
                       label="Combo / Color"
@@ -1175,47 +1184,56 @@ export function SampleEntryScreen({
                       options={colourOptions}
                       valueId={colourOptions.find((o) => o.name.toUpperCase() === c.combo.trim().toUpperCase())?.id ?? null}
                       text={c.combo}
-                      inputClassName="h-[28px]"
                       onChange={(next) => patchCombo(s, c.key, { combo: next.name })}
                     />
-                  </div>
-                  {/* Hover ✕ (user 2026-10-12, erp-row-hover-remove). */}
-                  {s.combos.length > 1 && (
-                    <RowHoverRemove
-                      label="Remove combo"
-                      onClick={() => patchStyle(s.key, { combos: s.combos.filter((x) => x.key !== c.key) })}
-                    />
-                  )}
-                </div>
+                  </td>
+                  {sizes.map((z) => (
+                    <td key={z} className="border-l border-t border-border p-1.5 align-top">
+                      <Input
+                        type="number"
+                        min={0}
+                        inputMode="decimal"
+                        aria-label={`${c.combo || "Combo"} ${z} pieces`}
+                        className="w-full text-right tabular-nums"
+                        value={c.sizes[z] ?? ""}
+                        onChange={(e) => patchCombo(s, c.key, { sizes: { ...c.sizes, [z]: e.target.value } })}
+                      />
+                    </td>
+                  ))}
+                  <td className="border-l border-t border-border px-2 align-middle">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span className="text-[13px] font-semibold tabular-nums">{fmtNumber(comboOrderQty(c, sizes))}</span>
+                      {/* Hover x in the last cell (user 2026-10-12, erp-row-hover-remove). */}
+                      {s.combos.length > 1 ? (
+                        <RowHoverRemove
+                          label="Remove combo"
+                          onClick={() => patchStyle(s.key, { combos: s.combos.filter((x) => x.key !== c.key) })}
+                        />
+                      ) : (
+                        <span className="h-5 w-5 shrink-0" aria-hidden />
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-surface-muted font-semibold">
+                <td className="border-t border-border" />
+                <td className="sticky left-0 z-10 border-l border-t border-border bg-surface-muted px-3 py-2 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Total
+                </td>
                 {sizes.map((z) => (
-                  <div key={z} className={`${CELL} min-h-[32px] px-1 ${MX_SEP}`}>
-                    <Input
-                      type="number"
-                      min={0}
-                      inputMode="decimal"
-                      aria-label={`${c.combo || "Combo"} ${z} pieces`}
-                      className={MX_BOX}
-                      value={c.sizes[z] ?? ""}
-                      onChange={(e) => patchCombo(s, c.key, { sizes: { ...c.sizes, [z]: e.target.value } })}
-                    />
-                  </div>
+                  <td key={z} className="border-l border-t border-border px-2 py-2 text-right text-[13px] tabular-nums">
+                    {fmtNumber(sizeSum(z))}
+                  </td>
                 ))}
-                <div className={`${CELL} ${MX_TOTAL} sticky right-0 z-10 justify-end bg-surface pr-2 text-[12.5px] tabular-nums`}>
-                  {fmtNumber(comboOrderQty(c, sizes))}
-                </div>
-              </div>
-            ))}
-
-            <div className={`${MX_FOOT} sticky left-0 z-30 justify-start pl-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground`}>
-              Total
-            </div>
-            {sizes.map((z) => (
-              <div key={z} className={`${MX_FOOT} ${MX_SEP} justify-end px-2`}>
-                {fmtNumber(sizeSum(z))}
-              </div>
-            ))}
-            <div className={`${MX_FOOT} ${MX_TOTAL} sticky right-0 z-30 justify-end pr-2`}>{fmtNumber(orderSum)}</div>
-          </div>
+                <td className="border-l border-t border-border px-2 py-2 text-right text-[13px] tabular-nums">
+                  <span className="pr-[1.625rem]">{fmtNumber(orderSum)}</span>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
         {/* ADVISORY, NOT A HOLD — a sample may carry spares beyond the combos.
             Order Entry's balance strip, against the style's Sample Qty. */}
@@ -2209,26 +2227,51 @@ export function SampleEntryScreen({
                   embroidery, appliqué) — and Garment Process — on the whole
                   garment (enzyme wash, tie & dye). One `processes` list
                   underneath; each grid shows and adds only its own kind. */}
+              {/* EXCEL-SHEET LOOK, SIZED TO ITS COLUMNS (user 2026-10-14, Sample
+                  Entry ▸ Combos ▸ Embellishments: "excel sheet la irukkum column
+                  table athu mari venum"; `erp-sheet-grid` + `erp-table-fit`). It
+                  went sheet, then back to boxed, then sheet again — the client's
+                  last word is the sheet. The sheet + flat markers make the
+                  gridline the box, round the four outer corners and sentence-case
+                  the headers. Every column declares a width, so the grid hugs
+                  them — ChildGrid hugs its declared widths by itself, which IS
+                  `erp-table-fit` for a grid. `table-fixed` stops the columns
+                  re-splitting as values are typed. Marker on THESE call sites
+                  only: the same grid on Order Entry's Style ▸ Process keeps its
+                  own look until asked.
+
+                  NO `w-fit` ON THE WRAPPERS (screenshot 155732: the table collapsed
+                  to stacked cards of ~44px fields). ChildGrid's table/cards switch
+                  is a CONTAINER query on its own frame; under a shrink-to-fit
+                  parent that frame has no intrinsic width, measures a few pixels,
+                  falls below the 512px `@lg` threshold and stacks. The hug already
+                  comes from the declared column widths. */}
               <PiLegend>Embellishments · Component Process</PiLegend>
-              <StyleProcessGrid
-                kind="component"
-                rows={s.processes}
-                onChange={(next) => patchStyle(s.key, { processes: next })}
-                processes={data.processes}
-                components={data.components}
-                newKey={newKey}
-                readOnly={!!lock || viewOnly}
-              />
+              <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
+                <StyleProcessGrid
+                  kind="component"
+                  rows={s.processes}
+                  onChange={(next) => patchStyle(s.key, { processes: next })}
+                  processes={data.processes}
+                  components={data.components}
+                  newKey={newKey}
+                  readOnly={!!lock || viewOnly}
+                  tableAlways
+                />
+              </div>
               <PiLegend>Embellishments · Garment Process</PiLegend>
-              <StyleProcessGrid
-                kind="garment"
-                rows={s.processes}
-                onChange={(next) => patchStyle(s.key, { processes: next })}
-                processes={data.processes}
-                components={data.components}
-                newKey={newKey}
-                readOnly={!!lock || viewOnly}
-              />
+              <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
+                <StyleProcessGrid
+                  kind="garment"
+                  rows={s.processes}
+                  onChange={(next) => patchStyle(s.key, { processes: next })}
+                  processes={data.processes}
+                  components={data.components}
+                  newKey={newKey}
+                  readOnly={!!lock || viewOnly}
+                  tableAlways
+                />
+              </div>
             </div>
           ))}
         </div>

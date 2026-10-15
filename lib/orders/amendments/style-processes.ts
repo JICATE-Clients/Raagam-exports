@@ -194,12 +194,18 @@ export function processesForKind(
  * calls false, and the screen marks a row's cells required only when it calls
  * true. One function so they cannot disagree — a disagreement is either a caged
  * operator on a row about to be discarded, or a half-filled row vanishing.
+ *
+ * `kindStamped`: under a fixed-kind grid (Sample Entry's two Embellishment
+ * grids) the GRID stamps `kind` on every row, seeded ones included, so it is
+ * not evidence the operator typed anything — counting it would hold the cursor
+ * on, and refuse Save over, the blank row each grid opens with.
  */
 export function styleProcessRowStarted(
   r: Pick<StyleProcessRow, "kind" | "process_id" | "details"> &
     Partial<Pick<StyleProcessRow, "component_id">>,
+  opts: { kindStamped?: boolean } = {},
 ): boolean {
-  return !!r.kind || !!r.process_id || !!r.component_id || !!r.details.trim();
+  return (!opts.kindStamped && !!r.kind) || !!r.process_id || !!r.component_id || !!r.details.trim();
 }
 
 export const styleProcessInput = z.object({

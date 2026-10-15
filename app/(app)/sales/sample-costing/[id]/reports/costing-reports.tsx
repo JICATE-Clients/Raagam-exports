@@ -218,7 +218,6 @@ export function CostingReports({
     trail,
     // Submit is the next step when it shows, so it is the one filled button.
     quietDownload: source.canSubmit && !revising,
-    lockedHint: `Save as ${revisionShort(nextVersion)} to download or print`,
   };
 
   return (

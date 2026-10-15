@@ -182,6 +182,12 @@ export type ToggleOption<T extends string> = {
   label: ReactNode;
   /** A lucide icon, drawn at 14px before the word. */
   icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  /**
+   * The icon's colour while the word is NOT lit — a status tint such as
+   * `text-warning` (Sample Costing's tabs, user 2026-10-15, design B). The lit
+   * word drops it, so the selected segment stays the primary button's colours.
+   */
+  iconTone?: string;
   /** Shown after the word as `(n)`. Zero is drawn: zero is information. */
   count?: number;
   /** Anything else after the word — a coloured count chip, a dot. */
@@ -237,7 +243,7 @@ export function ToggleGroup<T extends string>({
             onClick={() => onChange(o.value)}
             className={cn(SEG_ITEM, lit ? SEG_LIT : SEG_IDLE)}
           >
-            {Icon && <Icon aria-hidden />}
+            {Icon && <Icon aria-hidden className={lit ? undefined : o.iconTone} />}
             {o.label}
             {o.count != null && <span className="tabular-nums opacity-80">({o.count})</span>}
             {o.after}

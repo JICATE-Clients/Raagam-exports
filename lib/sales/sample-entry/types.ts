@@ -477,7 +477,7 @@ export function sampleEntryProblems(
        stamps its kind on the row it opens with — so a row holding nothing but
        its grid's kind is the seed, and must not hold Save. */
     if (h.enquiry_action !== "quote")
-      s.processes.filter((r) => styleProcessRowStarted({ ...r, kind: null })).forEach((r, ri) => {
+      s.processes.filter((r) => styleProcessRowStarted(r, { kindStamped: true })).forEach((r, ri) => {
         if (!r.kind || !r.process_id)
           add({ section: "combos", ...at, label: "Embellishment", message: `${who}, embellishment ${ri + 1}: pick the ${r.kind ? "Process" : "Type"}.`, strict: true });
       });
