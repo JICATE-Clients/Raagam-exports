@@ -93,6 +93,13 @@ import { useToast } from "@/components/ui/toast";
 import { loadPatternForFabricBom } from "@/lib/orders/cad-lifecycle/actions";
 import { PATTERN_STATUSES } from "@/lib/orders/cad-lifecycle/types";
 import { planPatternFill, type PatternFillEntry, type PatternFillLine } from "@/lib/orders/fabric-bom/pattern-fill";
+import {
+  diaText,
+  fabricFormOf,
+  patternLineFor,
+  planComponentFill,
+  type ComponentAddition,
+} from "@/lib/orders/fabric-bom/pattern-components";
 import { cn } from "@/lib/utils";
 import { today as calendarToday } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -4926,8 +4933,9 @@ export function FabricBomScreen({
    *   ON OPEN   entries Manual already lists, while no gram weight is typed on
    *             them. Idempotent: a filled entry is remembered by key and never
    *             re-filled, so the merchandiser's edits after it stand.
-   *   RE-SYNC   the button on a style — every matched entry takes the sheet's
-   *             latest figures, and a line with no entry becomes a new one.
+   *   (2026-10-15: the Re-sync button is gone — the fill above now takes
+   *             the sheet's latest automatically, weights included, once per
+   *             entry per opening. See the effect.)
    *
    * Keyed on `forOrder` like `seedState`, for its reason.
    */
@@ -4992,33 +5000,20 @@ export function FabricBomScreen({
     };
   };
 
-  /** A pattern line with no entry to fill: a new entry, its cloth named only when exactly one fits. */
-  const patternEntry = (line: PatternFillLine): ManualEntryRow => {
-    const cloths = [
-      ...new Set(
-        lines
-          .filter(
-            (l) =>
-              !!l.item_id &&
-              l.structure_id === line.fabric_category_id &&
-              (!l.style_ref_no.trim() || patternSameStyle(l.style_ref_no, line.style_ref_no)),
-          )
-          .map((l) => l.item_id as string),
-      ),
-    ];
-    const base: ManualEntryRow = {
-      ...blankManualEntry(newKey(), line.style_ref_no),
-      item_id: cloths.length === 1 ? cloths[0] : null,
-      structure_id: line.fabric_category_id,
-    };
-    return { ...base, ...patternPatch(base, line) };
-  };
-
   const patternFilled = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!patternLines || patternLines.length === 0) return;
     const shapes = entries.filter((e) => !patternFilled.current.has(e.key)).map(patternEntryShape);
-    const plan = planPatternFill(patternLines, shapes, "fill", patternSameStyle);
+    /* AUTOMATIC, NO BUTTON (user 2026-10-15: "without re-sync button
+       automatically do"). Every matched entry takes the sheet's latest — weights
+       already typed included, since the sheet is the source — ONCE per entry
+       per opening (`patternFilled`), so an edit made after it stands until the
+       BOM is opened again. ADDITIONS ARE DROPPED HERE ON PURPOSE: Manual lists
+       an entry per allocated fabric by itself (above), so an entry added from
+       the sheet would stand beside that one as a duplicate. The chain is still
+       hands-free — the sheet adds the parts on Components, the merchandiser
+       allocates the fabric, Manual lists it, and this fills it. */
+    const plan = planPatternFill(patternLines, shapes, "resync", patternSameStyle);
     if (plan.fills.length === 0) return;
     const byKey = new Map(plan.fills.map((f) => [f.entryKey, f.line]));
     for (const k of byKey.keys()) patternFilled.current.add(k);
@@ -5050,32 +5045,112 @@ export function FabricBomScreen({
     return s ? PATTERN_STATUSES.find((p) => p.value === s.pattern_status) : undefined;
   };
 
-  /** "Re-sync from Pattern Sheet" — one style, the sheet's latest figures over its entries. */
-  function resyncFromPattern(styleRef: string) {
-    const own = (patternLines ?? []).filter(
-      (l) => patternSameStyle(styleRef, l.style_ref_no) || patternSameStyle(l.style_ref_no, styleRef),
+  /*
+   * COMPONENTS FROM THE PATTERN SHEET (client 2026-10-15, Option A — pre-fill
+   * and lock; `pattern-components.ts` holds the rule). The sheet names the
+   * parts, their roll form and Finish Dia; on the Components tab those are
+   * read-only wherever a sheet line covers the row, and the merchandiser
+   * allocates the Fabric. No gate on opening or creating the BOM.
+   */
+  const componentCombosOf = (styleRef: string) => {
+    const own = [...new Set(linesOfStyle(styleRef).map((l) => l.combo).filter((c) => c.trim()))];
+    if (own.length > 0) return own;
+    return comboOptions.filter((c) => {
+      const s = styleForCombo(c);
+      return !s || patternSameStyle(s, styleRef) || patternSameStyle(styleRef, s);
+    });
+  };
+  const componentShape = (l: LineRow) => ({
+    key: l.key,
+    style_ref_no: l.style_ref_no,
+    combo: l.combo,
+    structure_id: l.structure_id,
+    coordinate_id: l.coordinate_id,
+    component_id: l.component_id,
+    fabric_form: l.fabric_form,
+  });
+  /** The sheet line covering a Components row — what locks it, and what its locked cells show. */
+  const cadLockFor = (l: { key: string }): { form: string; dia: string } | null => {
+    if (!patternLines || patternLines.length === 0) return null;
+    const line = lines.find((x) => x.key === l.key);
+    const p = line ? patternLineFor(patternLines, componentShape(line), patternSameStyle) : null;
+    return p ? { form: fabricFormOf(p.width_form), dia: diaText(p) } : null;
+  };
+
+  /** Rows for (part, colourway) pairs the sheet names and the BOM lacks. */
+  const componentAdditionRows = (additions: ComponentAddition[]): LineRow[] => {
+    // One panel uid per (style, coordinate, component), shared by its colourways.
+    const uids = new Map<string, string>();
+    return additions.map((a) => {
+      const pk = `${a.style_ref_no}|${a.coordinate_id ?? ""}|${a.component_id}`;
+      if (!uids.has(pk)) uids.set(pk, newKey());
+      // The cloth is named only when the style cuts exactly one from this structure.
+      const own = linesOfStyle(a.style_ref_no);
+      const cloths = [
+        ...new Set(own.filter((l) => l.item_id && l.structure_id === a.structure_id).map((l) => l.item_id as string)),
+      ];
+      const like = cloths.length === 1 ? own.find((l) => l.item_id === cloths[0]) : undefined;
+      return {
+        ...blankLine(newKey()),
+        panel_uid: uids.get(pk)!,
+        style_ref_no: like?.style_ref_no ?? a.style_ref_no,
+        combo: a.combo,
+        structure_id: a.structure_id,
+        item_id: like?.item_id ?? null,
+        fabric_type: like?.fabric_type ?? "",
+        consumption_uom_id: like?.consumption_uom_id ?? null,
+        coordinate_id: a.coordinate_id,
+        component_id: a.component_id,
+        fabric_form: a.fabric_form,
+      };
+    });
+  };
+
+  /*
+   * AUTOMATIC, NO BUTTON (user 2026-10-15: "without re-sync button
+   * automatically do"). Covered rows take the sheet's roll form, and every
+   * (part, colourway) the sheet names that the BOM lacks is added.
+   *
+   * ADDING WAITS FOR THE ORDER'S OWN SEED. A new BOM seeds its panels from
+   * Order Entry ▸ Combos ▸ Structure Details only while it is still the one
+   * untouched blank row (`seededFor` above) — a row added from the sheet first
+   * would make it look touched and the order's seed would never run. So a new
+   * BOM adds only once `seededFor` has fired for this order; an existing BOM
+   * adds as soon as its lines are here. Converges: the next pass finds nothing
+   * missing and no form to change.
+   *
+   * `setLines`, not `mut`: like Manual's fill this is the screen arriving at
+   * its opening state and is re-derived on every open; the rows are written
+   * with the BOM's next Save.
+   */
+  useEffect(() => {
+    if (!patternLines || patternLines.length === 0 || lines.length === 0) return;
+    const canAdd = editId !== null || seededFor.current === form.garment_order_id;
+    const plan = planComponentFill(
+      patternLines,
+      lines.map(componentShape),
+      canAdd ? "resync" : "fill",
+      patternSameStyle,
+      componentCombosOf,
     );
-    const plan = planPatternFill(own, entriesForStyle(styleRef).map(patternEntryShape), "resync", patternSameStyle);
-    if (plan.fills.length === 0 && plan.additions.length === 0) {
-      toastError("The Pattern Sheet has no measurements for this style yet.");
-      return;
-    }
-    const byKey = new Map(plan.fills.map((f) => [f.entryKey, f.line]));
-    for (const k of byKey.keys()) patternFilled.current.add(k);
-    const added = plan.additions.map(patternEntry);
-    for (const e of added) patternFilled.current.add(e.key);
-    mutEntries((xs) => {
-      const filled = xs.map((e) => (byKey.has(e.key) ? { ...e, ...patternPatch(e, byKey.get(e.key)!) } : e));
+    if (plan.forms.size === 0 && plan.additions.length === 0) return;
+    const added = componentAdditionRows(plan.additions);
+    // The sheet arrives a round trip after the lines; this aligns the two and
+    // converges, the same opening fill Manual's effect performs on its entries.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLines((xs) => {
+      const filled = xs.map((x) => (plan.forms.has(x.key) ? { ...x, fabric_form: plan.forms.get(x.key)! } : x));
       /* An untouched blank scaffold is replaced, not stacked beside. */
       const kept =
-        added.length > 0 ? filled.filter((e) => e.item_id || e.structure_id || e.panels.length > 0) : filled;
+        added.length > 0
+          ? filled.filter((x) => x.item_id || x.structure_id || x.component_id || x.style_ref_no.trim())
+          : filled;
       return [...kept, ...added];
     });
-    success(
-      `Filled from the Pattern Sheet — ${plan.fills.length} fabric${plan.fills.length === 1 ? "" : "s"} updated` +
-        (added.length > 0 ? `, ${added.length} added` : ""),
-    );
-  }
+    // Reads the combo helpers at call time; the lines and the fetched sheet
+    // are what this effect is about.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patternLines, lines]);
 
   /** Legacy's first "Type" column — the knit family, off the order's declared
    *  dias. Prefers what the entry's own sizes say (`diaTypeOf`) and falls back
@@ -5855,10 +5930,9 @@ export function FabricBomScreen({
             up to them. Without a Pattern Sheet for this style the band is
             alone and its line runs the full width, as before.
 
-            RE-SYNC FROM PATTERN SHEET (user 2026-09-26) — only where the
-            order's Pattern Sheet has lines for this style. Replaces the matched
-            fabrics' Type of Parts, Colour, Roll form, Size Wise, Dia and grams
-            with the sheet's latest; nothing else on the entry is touched. */}
+            THE RE-SYNC BUTTON THAT STOOD HERE IS GONE (user 2026-10-15:
+            "without re-sync button automatically do") — the fill is automatic.
+            The sheet's status stays, said and never used to refuse. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <StyleIdentityBand
             className="min-w-0 flex-1"
@@ -5888,10 +5962,6 @@ export function FabricBomScreen({
                   </span>
                 );
               })()}
-              {/* toolbar-size: exempt -- a pane action inside the Manual tab, not a list header row. */}
-              <Button type="button" variant="outline" size="sm" onClick={() => resyncFromPattern(styleRow.style_ref_no)}>
-                Re-sync from Pattern Sheet
-              </Button>
             </div>
           )}
         </div>
@@ -10200,6 +10270,26 @@ export function FabricBomScreen({
                     ydPartsFor={(itemId, styleRefNo) =>
                       isYdFabric(itemId) ? partsOfFabric(itemId, styleRefNo) : []
                     }
+                    /* THE PATTERN SHEET'S LOCK (client 2026-10-15, Option A);
+                       filling is automatic (the Components effect above). */
+                    cadLock={cadLockFor}
+                    patternActions={
+                      patternHasStyle(st.ref) ? (
+                        <div className="flex shrink-0 items-center gap-3">
+                          {(() => {
+                            const ps = patternStatusOf(st.ref);
+                            if (!ps) return null;
+                            return ps.value === "ready" ? (
+                              <span className="text-xs text-muted-foreground">Pattern: Ready</span>
+                            ) : (
+                              <span className="text-xs text-amber-700 dark:text-amber-400">
+                                Pattern: {ps.label} — not Ready yet
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      ) : null
+                    }
                   />
                 );
               })}
@@ -11354,6 +11444,11 @@ export function FabricBomScreen({
           canDelete={perms.canDelete}
           /* An approved order offers no bin, and its Updated row an eye (2026-09-24). */
           lockReason={(t) => orderLocks[t.id]}
+          /* PENDING · UNDER PROGRESS · APPROVED · DRAFT (user 2026-10-15;
+             this queue first, before the sweep). Approved = the order is
+             APPROVED — `raiseFor` carries approved locks only, never the
+             waiting-for-MD or out-of-scope ones `orderLocks` also holds. */
+          isApproved={(t) => !!raiseFor[t.id]}
           /* `bom_id` is non-null here by `canDeleteRow` — a Pending row has no
              document, and the card hides the ✕ on exactly those. */
           onDelete={(t) => remove(t.bom_id as string)}

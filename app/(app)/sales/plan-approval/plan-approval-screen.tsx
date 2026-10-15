@@ -10,12 +10,12 @@ import { createdGroup, useFacetFilter, type FacetGroup } from "@/components/ui/f
 import { PageHeader } from "@/components/ui/page-header";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Tooltip } from "@/components/ui/tooltip";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
-import { useQuickStatus } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_4, useQuickStatus } from "@/components/orders/bom-queue";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
+import { SampleDecisionSheet, SampleDecisionWait } from "@/components/sales/sample-decision-sheet";
 import { fmtDateTime, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { loadPlanReview } from "@/lib/sales/plan-reports/actions";
@@ -87,7 +87,7 @@ function planFacets(rows: PlanApprovalRow[]): FacetGroup<PlanApprovalRow>[] {
  * plans (user 2026-10-13). See page.tsx.
  */
 export function PlanApprovalScreen({
-  rows: allRows,
+  rows,
   initialOpen,
   canApprove,
 }: {
@@ -100,15 +100,13 @@ export function PlanApprovalScreen({
 }) {
   const router = useRouter();
 
-  const rows = allRows;
-
   /* ONE WAY IN, AND IT IS THE FULL PAGE (the order screen's rule): the SWO No,
      both decision icons and a deep link (`?open=`) all open the sheet. */
   const [openKey, setOpenKey] = useState<string | null>(initialOpen);
   /** WHICH PLAN THIS REVIEW DESCRIBES — keyed so a late answer can never paint
    *  the previous plan's trail under this one (the order screen's `forId`). */
   const [loaded, setLoaded] = useState<{ forKey: string; data: Review } | null>(null);
-  const openRow = openKey ? (allRows.find((r) => r.key === openKey) ?? null) : null;
+  const openRow = openKey ? (rows.find((r) => r.key === openKey) ?? null) : null;
   useEffect(() => {
     if (!openRow) return;
     const key = openRow.key;
@@ -137,6 +135,7 @@ export function PlanApprovalScreen({
     });
   }, [rows, facetMatch, search]);
   const quick = useQuickStatus(planWord, {
+    words: QUICK_WORDS_4,
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
     countRows: base,
@@ -338,21 +337,16 @@ export function PlanApprovalScreen({
         </div>
       </div>
 
-      <Sheet
+      <SampleDecisionSheet
         open={!!openRow}
         onClose={close}
-        title={
-          <span className="flex flex-col">
-            <span>{openRow ? `${PLAN_KIND_LABEL[openRow.kind]} Approval` : "Plan Approval"}</span>
-            <span className="text-xs font-normal text-muted-foreground">
-              Sample / Plan Approval / <span className="font-mono text-foreground">{openRow?.swoCode ?? openRow?.iwoCode ?? ""}</span>
-            </span>
-          </span>
-        }
+        title={openRow ? `${PLAN_KIND_LABEL[openRow.kind]} Approval` : "Plan Approval"}
+        crumb="Sample / Plan Approval"
+        recordNo={openRow?.swoCode ?? openRow?.iwoCode ?? ""}
         /* Approve · Request Rework — renders nothing unless `approval_can_act`
            said yes. Request Rework is the engine's reject: the plan returns
            editable to the planner, with the reason. */
-        headerActions={
+        actions={
           review?.run && review.verdict ? (
             <ApprovalActionBar
               run={review.run}
@@ -368,8 +362,6 @@ export function PlanApprovalScreen({
             />
           ) : undefined
         }
-        size="lg"
-        fullBleed
       >
         {openRow && review?.report ? (
           <PlanApprovalOverview
@@ -380,11 +372,11 @@ export function PlanApprovalScreen({
             override={!!review.verdict?.can_act && !!review.verdict.is_override}
           />
         ) : (
-          <p className="p-4 text-sm text-muted-foreground">
+          <SampleDecisionWait>
             {openRow && review && !review.report ? "This plan could not be read." : "Loading the plan…"}
-          </p>
+          </SampleDecisionWait>
         )}
-      </Sheet>
+      </SampleDecisionSheet>
     </>
   );
 }

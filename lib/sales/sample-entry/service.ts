@@ -343,6 +343,76 @@ type ListDbRow = {
 };
 
 /**
+ * WHY EACH SAMPLE IS LOCKED, FOR A WHOLE LIST AT ONCE — two queries, never one
+ * `sample_entry_refusal` call per row. It mirrors that function (0716, with
+ * 0725's `sample_is_approved`): an open SMP revision decides first, then a
+ * costing the buyer accepted (the current version, or one Revise superseded
+ * that still carries `approved_at`). The editor still asks the RPC itself, so
+ * the database stays the guard; this only greys the list's pencil and bin.
+ *
+ * `costingId` is the costing whose Raise Revise the lock points at — the
+ * latest live (not superseded) sample costing, the one "Cost this sample"
+ * opens — or null when there is none.
+ */
+export type SampleLock = { reason: string | null; costingId: string | null };
+
+export async function sampleLocks(
+  opps: { id: string; code: string | null }[],
+): Promise<Map<string, SampleLock>> {
+  const out = new Map<string, SampleLock>();
+  if (!opps.length) return out;
+  const s = await createClient();
+  const ids = opps.map((o) => o.id);
+  // One sample's lookup filters by id; the whole list reads every row of the
+  // kind (a few hundred ids would not fit an `in` filter's URL).
+  let sheetQ = s
+    .from("cost_sheets")
+    .select("id, opportunity_id, status, approved_at, created_at")
+    .eq("costing_type", "sample")
+    .order("created_at", { ascending: true });
+  let revQ = s
+    .from("sample_revisions")
+    .select("opportunity_id, status, kinds, revision_code")
+    .in("status", ["draft", "pending"]);
+  if (ids.length === 1) {
+    sheetQ = sheetQ.eq("opportunity_id", ids[0]);
+    revQ = revQ.eq("opportunity_id", ids[0]);
+  }
+  const [sheets, revs] = await Promise.all([sheetQ, revQ]);
+  if (sheets.error) throw new Error(`Could not load sample costings: ${sheets.error.message}`);
+  if (revs.error) throw new Error(`Could not load sample revisions: ${revs.error.message}`);
+
+  type Sheet = { id: string; opportunity_id: string | null; status: string | null; approved_at: string | null };
+  type Rev = { opportunity_id: string; status: string; kinds: string[] | null; revision_code: string };
+  const sheetsOf = new Map<string, Sheet[]>();
+  for (const c of (sheets.data ?? []) as Sheet[]) {
+    if (!c.opportunity_id) continue;
+    sheetsOf.set(c.opportunity_id, [...(sheetsOf.get(c.opportunity_id) ?? []), c]);
+  }
+  const revOf = new Map(((revs.data ?? []) as Rev[]).map((r) => [r.opportunity_id, r]));
+
+  for (const o of opps) {
+    const own = sheetsOf.get(o.id) ?? [];
+    const live = own.filter((c) => c.status !== "superseded");
+    const costingId = (live.findLast((c) => c.status === "approved") ?? live.at(-1))?.id ?? null;
+    const name = o.code ?? "This sample";
+    const rev = revOf.get(o.id);
+    let reason: string | null = null;
+    if (rev) {
+      if (rev.status === "pending") {
+        reason = `${name} is with the MD under Sample Revision ${rev.revision_code} — nothing in it can change until it is decided.`;
+      } else if (!(rev.kinds ?? []).includes("sample_info")) {
+        reason = `Sample Revision ${rev.revision_code} does not open Sample Info & Qty — add that module to the revision to change the sample entry.`;
+      }
+    } else if (own.some((c) => c.status === "approved" || (c.status === "superseded" && !!c.approved_at))) {
+      reason = `${name} is approved by the buyer and locked — revise its costing to change it.`;
+    }
+    out.set(o.id, { reason, costingId });
+  }
+  return out;
+}
+
+/**
  * Every enquiry, newest last — "Listings in ENTRY order" (oldest first).
  * A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST.
  */
@@ -377,9 +447,11 @@ export async function listSampleEntries(): Promise<SampleEntryListRow[]> {
       is_draft: !!r.is_draft,
       created_at: r.created_at,
       created_by: r.created_by,
+      locked_reason: null,
     } satisfies SampleEntryListRow;
   });
-  return withCreators(rows);
+  const locks = await sampleLocks(rows);
+  return withCreators(rows.map((r) => ({ ...r, locked_reason: locks.get(r.id)?.reason ?? null })));
 }
 
 // ---------------------------------------------------------------------------

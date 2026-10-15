@@ -5,6 +5,7 @@ import { Eye, FileText, Send, type LucideIcon } from "lucide-react";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Truncated } from "@/components/ui/truncated";
 import type { StatusTone } from "@/lib/ui/tone";
 import { cn } from "@/lib/utils";
@@ -104,6 +105,8 @@ export function MobileCardList<Row>({
   onView,
   canDelete = false,
   canDeleteRow,
+  deleteDisabledReason,
+  extraActions,
   onDelete,
   onReports,
   canReportsRow,
@@ -152,6 +155,20 @@ export function MobileCardList<Row>({
    * cards in a grid row keep matching heights.
    */
   canDeleteRow?: (r: Row) => boolean;
+  /**
+   * WHY THIS ROW CANNOT BE DELETED — the card's twin of `RowActions`'
+   * `deleteDisabledReason` (AGENTS "Row actions": a LOCKED record keeps its
+   * bin, greyed, saying why; hiding is for missing permission only). Return a
+   * sentence to draw the Delete greyed with it as the tooltip; null/undefined
+   * draws the live two-step Delete. Read only where `canDeleteRow` passes.
+   */
+  deleteDisabledReason?: (r: Row) => string | null | undefined;
+  /**
+   * The row's OWN icons, drawn first in the footer, before View · Reports ·
+   * Send · Delete — e.g. an approval queue's Acknowledge / Not Acknowledged
+   * (Sample ▸ PD Acknowledge, 2026-10-15). Return null for a row with none.
+   */
+  extraActions?: (r: Row) => ReactNode;
   onDelete?: (r: Row) => void;
   /**
    * A document action reachable WITHOUT opening the row for edit — a printed
@@ -323,7 +340,7 @@ export function MobileCardList<Row>({
   }
 
   const showDelete = canDelete && !!onDelete;
-  const showFooter = showDelete || !!onView || !!onReports || !!onSend || !!footerNote || !!hint;
+  const showFooter = showDelete || !!onView || !!onReports || !!onSend || !!extraActions || !!footerNote || !!hint;
   const grid = columns > 1;
 
   /** View · Reports · Delete — one definition, so every layout offers a row
@@ -335,6 +352,7 @@ export function MobileCardList<Row>({
    *  icon instead; every other caller keeps the compact icon and its tooltip. */
   const actions = (r: Row) => (
     <>
+      {extraActions?.(r)}
       {onView && (
         <Button
           variant="ghost"
@@ -373,12 +391,21 @@ export function MobileCardList<Row>({
           {queue && sendLabel}
         </Button>
       )}
-      {showDelete && (canDeleteRow?.(r) ?? true) && (
-        <DeleteConfirmButton
-          isPending={isPending}
-          onConfirm={() => onDelete!(r)}
-        />
-      )}
+      {showDelete && (canDeleteRow?.(r) ?? true) && (() => {
+        const blocked = deleteDisabledReason?.(r);
+        return blocked ? (
+          <Tooltip label={blocked} touch>
+            <Button variant="ghost" size="sm" aria-disabled="true" className="cursor-not-allowed text-muted-foreground opacity-50">
+              Delete
+            </Button>
+          </Tooltip>
+        ) : (
+          <DeleteConfirmButton
+            isPending={isPending}
+            onConfirm={() => onDelete!(r)}
+          />
+        );
+      })()}
     </>
   );
 
@@ -387,6 +414,7 @@ export function MobileCardList<Row>({
    *  queue card drew an empty bordered strip under a pending order with
    *  nothing to delete and no reports (2026-10-03, phone audit). */
   const rowHasAction = (r: Row) =>
+    (!!extraActions && extraActions(r) != null) ||
     !!onView ||
     (!!onReports && (canReportsRow?.(r) ?? true)) ||
     (!!onSend && (canSendRow?.(r) ?? true)) ||

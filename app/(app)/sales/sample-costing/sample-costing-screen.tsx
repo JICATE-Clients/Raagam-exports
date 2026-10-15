@@ -149,6 +149,7 @@ import {
   isBlankExtra,
   isBlankTrim,
   isEditableStatus,
+  isDeletableStatus,
   isRevisableStatus,
   liveRows,
   rateMemoryKey,
@@ -2108,7 +2109,6 @@ export function SampleCostingScreen({
                                 id={bi === 0 ? costingFieldId.weightGrams(l.key) : undefined}
                                 aria-label={`${componentName(l.component_ids) || "Component"} grams — ${colLabel(c)}`}
                                 required={bi === 0}
-                                className="h-8"
                                 // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
                                 placeholder={bi > 0 ? (l.cells[firstCol] ?? "") : undefined}
                                 value={l.cells[c] ?? ""}
@@ -2175,7 +2175,6 @@ export function SampleCostingScreen({
                       <div className="w-16">
                         <NumInput
                           aria-label={`Loss percent — ${colLabel(c)}`}
-                          className="h-8"
                           placeholder={bi > 0 ? (loss[firstCol] ?? "") : undefined}
                           value={loss[c] ?? ""}
                           onChange={(e) => setLossAt(c, e.target.value)}
@@ -2750,7 +2749,7 @@ export function SampleCostingScreen({
   };
   const extraGrid = (section: ExtraChargeDraft["section"]) => {
     const own = extras.filter((x) => x.section === section);
-    const columns: ChildGridColumn<ExtraChargeDraft>[] = [
+    const costingExtraColumns: ChildGridColumn<ExtraChargeDraft>[] = [
       {
         header: "Charge",
         width: FIELD_WIDTH_CSS.party,
@@ -2814,7 +2813,7 @@ export function SampleCostingScreen({
         <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
         {/* default-row: exempt -- optional extras: none is a real answer, and a row appears only when "+ Add charge" is used */}
         <ChildGrid<ExtraChargeDraft>
-          columns={columns}
+          columns={costingExtraColumns}
           rows={own}
           tableAlways
           keepOne={false}
@@ -3483,6 +3482,19 @@ export function SampleCostingScreen({
     })
     // The costing's own currency first, INR next, then those with a rate.
     .sort((a, b) => Number(b.current) - Number(a.current) || Number(b.code === "INR") - Number(a.code === "INR") || Number(b.rate != null) - Number(a.rate != null) || a.code.localeCompare(b.code));
+  const fxColumns: Column<(typeof fxRows)[number]>[] = [
+    { header: "Ccy", cell: (r) => r.code },
+    {
+      header: "Rate ₹",
+      align: "right",
+      cell: (r) => <span className="tabular-nums text-muted-foreground">{r.rate == null ? "—" : r.rate === 1 ? "1" : r.rate.toFixed(2)}</span>,
+    },
+    {
+      header: `Price / ${unitWord}`,
+      align: "right",
+      cell: (r) => (r.price == null ? <span className="text-muted-foreground">no rate</span> : <span className="tabular-nums">{r.price.toFixed(2)}</span>),
+    },
+  ];
   const whatIf = [15, 20, 25, 30].map((m) => {
     const calc = t && t.calc != null && rateNow != null && rateNow > 0 ? t.calc + (t.net * (m - marginNow)) / 100 / rateNow : null;
     return { m, calc, delta: calc != null && t?.calc != null ? calc - t.calc : null, current: m === marginNow };
@@ -3533,23 +3545,21 @@ export function SampleCostingScreen({
                     <Flash value={converted == null ? "—" : `${currencySymbol(shown)} ${converted.toFixed(2)}`.trim()} />
                   </span>
                   {ccy && heroValue != null && codes.length > 1 ? (
-                    <select
+                    <Select
                       id="sc-view-ccy"
                       aria-label="Show the price in"
-                      autoComplete="off"
-                      data-1p-ignore
-                      data-lpignore="true"
-                      data-form-type="other"
+                      compact
                       value={shown ?? ""}
                       onChange={(e) => setViewCcy(e.target.value === ccy ? null : e.target.value)}
-                      className="h-7 rounded-control border border-border bg-background px-1 text-xs font-bold text-primary"
+                      className="w-24 shrink-0"
+                      inputClassName="h-8 text-xs font-bold text-primary"
                     >
                       {codes.map((c) => (
                         <option key={c} value={c} disabled={c !== ccy && (fx == null || rateOf(c) == null)}>
                           {c === ccy ? `${c} ●` : c}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   ) : ccy ? (
                     <span className="text-xs font-semibold text-muted-foreground">{ccy}</span>
                   ) : null}
@@ -3675,7 +3685,7 @@ export function SampleCostingScreen({
             ))}
           </div>
           <p className="m-0 text-[11px] text-muted-foreground">
-            {`${ccy ?? ""} per ${isSet ? "set" : "piece"}, against the current ${marginNow}%. Under ${MARGIN_FLOOR_PCT}% is flagged to the MD. Change the margin in Price & quote.`.trim()}
+            {`${ccy ?? ""} per ${isSet ? "set" : "piece"}, against the current ${marginNow}%. Under ${MARGIN_FLOOR_PCT}% is flagged red on the sheet. Change the margin in Price & quote.`.trim()}
           </p>
         </div>
       ) : null}
@@ -3688,24 +3698,14 @@ export function SampleCostingScreen({
           {fxRupees == null ? (
             <p className="m-0 px-2 text-xs text-muted-foreground">Add the costs, margin and exchange rate to compare currencies.</p>
           ) : (
-            <table className="w-full text-xs tabular-nums">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-[.06em] text-muted-foreground">
-                  <th className="px-2 py-1 text-left font-semibold">Ccy</th>
-                  <th className="px-2 py-1 text-right font-semibold">Rate ₹</th>
-                  <th className="px-2 py-1 text-right font-semibold">{`Price / ${unitWord}`}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fxRows.map((r) => (
-                  <tr key={r.code} className={r.current ? "bg-primary-soft font-semibold text-foreground" : "text-foreground"}>
-                    <td className="px-2 py-1">{r.code}</td>
-                    <td className="px-2 py-1 text-right text-muted-foreground">{r.rate == null ? "—" : r.rate === 1 ? "1" : r.rate.toFixed(2)}</td>
-                    <td className="px-2 py-1 text-right">{r.price == null ? <span className="text-muted-foreground">no rate</span> : r.price.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              columns={fxColumns}
+              rows={fxRows}
+              compact
+              paginate={false}
+              getKey={(r) => r.code}
+              rowClassName={(r) => (r.current ? "bg-primary-soft font-semibold" : undefined)}
+            />
           )}
           <p className="m-0 text-[11px] text-muted-foreground">
             {`${t?.quoted != null ? "Quoted" : "Calculated"} price, at today's Quotes / Orders rates. The highlighted row is this costing's currency — change it in Price & quote.`}
@@ -3775,9 +3775,9 @@ export function SampleCostingScreen({
   /* 0725: Approved / Rejected are the BUYER'S answer, and Revise is the way on. */
   const lockMessage = !editable
     ? meta.status === "approved"
-      ? "Approved by the buyer and locked. To change the price, Revise — it opens the next revision Under Progress."
+      ? "Approved by the buyer and locked. To change the price, Raise Revise — the next revision opens Under Progress."
       : meta.status === "rejected"
-        ? "Rejected by the buyer. Revise re-opens it as a new Draft."
+        ? "Rejected by the buyer. Raise Revise opens the next revision as a Draft; saving it sends it back to the buyer (Under Progress)."
         : "This revision has been superseded by a later one. Open the latest from Revision."
     : null;
 
@@ -4117,7 +4117,7 @@ export function SampleCostingScreen({
     <div className="space-y-4">
       <PageHeader
         title="Costing"
-        description="Cost a sample style — fabric, consumption, CMT, trims — and quote the buyer, with MD approval under the margin floor."
+        description="Cost a sample style — fabric, consumption, CMT, trims — quote the buyer, and record the buyer's answer."
         actions={perms.canCreate ? <Button onClick={openAdd}>New Sample Costing</Button> : undefined}
       />
       <FilterBar
@@ -4143,6 +4143,10 @@ export function SampleCostingScreen({
           as the table; Reports and Delete ride the card's footer. */}
       <SampleCards<CostingListRow>
         rows={filtered}
+        /* THE BUYER'S ANSWERED PILES ARE A TABLE (as PD Request's Updated): an
+           Approved or Rejected costing is looked up, not worked, so the open
+           piles keep their cards and these two read as a register. */
+        table={tab === "approved" || tab === "rejected" ? { title: "Costing No", subtitle: "SMP · Customer · Style" } : undefined}
         getKey={(r) => r.id}
         title={(r) => <span className="font-mono">{r.awaiting ? (r.enquiry_no ?? "—") : (r.code ?? "—")}</span>}
         subtitle={(r) => (
@@ -4168,7 +4172,15 @@ export function SampleCostingScreen({
         onOpen={(r) => (r.awaiting ? perms.canCreate && startCostingFor(r) : openById(r.id))}
         footerNote={hasCreatedInfo(filtered) ? (r) => `Created ${createdMeta(r)}` : undefined}
         canDelete={perms.canDelete}
-        canDeleteRow={(r) => !r.awaiting && !lockReason(r)}
+        /* A LOCKED COSTING KEEPS ITS PENCIL AND BIN, GREYED, SAYING WHY (AGENTS
+           "Row actions"). Only a sample with no sheet yet has nothing to delete;
+           the server deletes a Draft only (`isDeletableStatus`), so the bin says
+           that rather than offering a click the action refuses. */
+        canDeleteRow={(r) => !r.awaiting}
+        deleteDisabledReason={(r) =>
+          r.awaiting || isDeletableStatus(r.status) ? null : `${STATUS_LABEL[r.status]} — only a Draft can be deleted; revise it instead.`
+        }
+        editDisabledReason={(r) => (r.awaiting ? null : lockReason(r))}
         onDelete={del}
         onReports={(r) => router.push(`/sales/sample-costing/${r.id}/reports`)}
         canReportsRow={(r) => !r.awaiting}

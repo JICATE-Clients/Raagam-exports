@@ -34,7 +34,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { StatusPill } from "@/components/ui/status-pill";
-import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { Truncated } from "@/components/ui/truncated";
 import { Tooltip } from "@/components/ui/tooltip";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -131,10 +131,14 @@ const ORDERS_BOX_W = SHEET_BOX_W;
  * word, and `BudgetStatus` keys the record, so a fifth state is a type error
  * here rather than a row that silently belongs to no word.
  */
+/* FOUR WORDS SINCE 2026-10-15 (user: Pending · Under Progress · Approved ·
+   Draft on every Orders queue). `rejected` is Request Rework — the budget is
+   back with the merchandiser being re-worked, so it is Under Progress, no
+   longer "decided" beside the approved ones under Updated. */
 const APPROVAL_WORD: Record<BudgetStatus, QuickWord> = {
   submitted: "pending",
-  approved: "updated",
-  rejected: "updated",
+  approved: "approved",
+  rejected: "progress",
   draft: "draft",
 };
 const approvalWord = (r: BudgetApprovalRow): QuickWord => APPROVAL_WORD[r.status];
@@ -313,6 +317,7 @@ export function BudgetApprovalScreen({
     });
   }, [rows, cards, facetMatch, search]);
   const quick = useQuickStatus(approvalWord, {
+    words: QUICK_WORDS_4,
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
     countRows: base,

@@ -18,10 +18,15 @@ const WORD: Record<PdRequestRow["status"], QuickWord | null> = {
 };
 export const pdWord = (r: PdRequestRow): QuickWord | null => WORD[r.status];
 
+/* NOT ACKNOWLEDGED IS THE DANGER TONE, EVERYWHERE (2026-10-15) — the red
+   pill and stripe, as `PD_STATUS_TONE` colours it in the sheet. It was
+   neutral grey here, so the same answer read alarming in the sheet and
+   unremarkable on its card. On PD Request such an SMP is still owed a
+   request, so it sits in Pending with the pending stripe. */
 const STATE: Record<PdRequestRow["status"], SampleCardState> = {
   requested: "pending",
   acknowledged: "updated",
-  not_acknowledged: "neutral",
+  not_acknowledged: "pending",
   cancelled: "neutral",
 };
 export const pdState = (r: PdRequestRow): SampleCardState => STATE[r.status];

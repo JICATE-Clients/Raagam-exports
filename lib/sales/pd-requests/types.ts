@@ -1,7 +1,7 @@
 import type { PdRequestStatus } from "@/lib/sales/sample-entry/types";
 
 /**
- * Sample ▸ PD Request · Acknowledge PD Request — the two screens over 0719's
+ * Sample ▸ PD Request · PD Acknowledge — the two screens over 0719's
  * `sample_pd_requests` (client spec 2026-10-14, "Product Development Request").
  *
  * RAISED PER SMP (user 2026-10-14; 0724). 0723 moved it onto the SWO the same

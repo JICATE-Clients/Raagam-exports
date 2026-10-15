@@ -98,8 +98,12 @@ export function PdRequestDetails({
   sample,
   from,
   routing = true,
+  facts = true,
   children,
 }: {
+  /** `false` drops the facts band entirely — the decision sheet prints them in
+   *  its identity column instead (`SampleDecisionColumns`). */
+  facts?: boolean;
   sample: PdSample;
   /** The merchandiser the request comes from. */
   from: string | null;
@@ -112,6 +116,7 @@ export function PdRequestDetails({
   return (
     <div className="space-y-5">
       {/* Routing and the sample's identity — six facts at most to a row. */}
+      {facts ? (
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-md border border-border p-3 sm:grid-cols-3 lg:grid-cols-6">
         {routing ? (
           <>
@@ -133,6 +138,7 @@ export function PdRequestDetails({
           <span className="tabular-nums">{`${fmtNumber(sample.total_pieces)} pcs`}</span>
         </Fact>
       </dl>
+      ) : null}
 
       <section className="space-y-2">
         <h3 className="text-sm font-semibold">Sample details</h3>

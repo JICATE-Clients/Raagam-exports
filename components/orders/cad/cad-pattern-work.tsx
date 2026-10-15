@@ -6,8 +6,18 @@
  *
  *   header   PATTERN STATUS · DATE · BUYER · RE-NO / STYLE NAME · STYLE
  *   fabrics  FABRIC · GSM · TYPE of PARTS · COLOUR · TUBULAR & OPEN WIDTH ·
- *            SIZE WISE · REMARK, and under each, its SIZES —
+ *            SIZE WISE, merged down its SIZES —
  *            SIZE · TABLE DIA · AVG CAD PCS WEIGHT
+ *
+ * DRAWN AS FABRIC PLAN ▸ COMPONENTS IS (user 2026-10-15, screenshot 3486:
+ * "same ui screen for the cad fabric plan component tab"). The rail entry is
+ * Components' — a state dot, the parts as the name, the cloth beneath, runs
+ * headed by roll form — and the pane is ONE spreadsheet table
+ * (`data-grid-style="sheet"`): the line's own fields merged down every size row
+ * (`spanRows`), the sizes' figures beside them. It replaces a band card over a
+ * separate sizes grid. REMARK WAS REMOVED from the screen the same day; the
+ * column stays and a saved remark still rides through Save untouched, so no
+ * text typed before today is blanked.
  *
  * LAID OUT AS FABRIC BOM ▸ MANUAL IS (user 2026-09-26: rebuild the Pattern
  * Sheet as a copy of the Manual tab). Each line is a fabric CARD — a header
@@ -46,12 +56,11 @@ import { useState, useTransition, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   ChildGrid,
-  GRID_HEADER_TEXT,
   RowRemoveChip,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
-import { FIELD_WIDTH_CSS, Field, FieldRow, RequiredScope, fieldWidthStep } from "@/components/ui/field";
+import { FIELD_WIDTH_CSS, Field, FieldRow, fieldWidthStep } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Select } from "@/components/ui/select";
@@ -69,6 +78,7 @@ import {
   cutKey,
   latestVersion,
   layoutForPart,
+  layoutLabel,
   mergePatternLines,
   type CadStyleRow,
   type ComponentCut,
@@ -101,6 +111,7 @@ type LineRow = {
   avg_pcs_weight_g: string;
   /** By size id — only the sizes something was typed for. */
   sizes: Record<string, SizeFigures>;
+  /** No longer on screen (2026-10-15) — carried so a saved remark survives Save. */
   remark: string;
 };
 
@@ -197,22 +208,9 @@ const isTyped = (l: LineRow) =>
 
 const numText = (n: number | null) => (n != null ? String(n) : "");
 
-/*
- * THE CARD'S BAND — one grid template for the header and the body, so a
- * heading can never slide off the control under it (Manual's `MANUAL_TRACK`
- * rule). Floors in rem, the Remark track takes what is left, and the ✕ is a
- * fixed 40px gutter. Floors sum to ~52rem (832px), inside the sheet's pane.
- */
-const BAND_TRACKS = [
-  "minmax(8rem,1fr)", // Fabric
-  "5rem", // GSM
-  "minmax(10rem,1.4fr)", // Type of Parts
-  "minmax(8rem,1fr)", // Colour
-  "8.5rem", // Tubular / Open Width
-  "4.5rem", // Size Wise
-  "minmax(8rem,1fr)", // Remark
-];
-const bandCols = (withRemove: boolean) => [...BAND_TRACKS, ...(withRemove ? ["40px"] : [])].join(" ");
+/** Measured: a weight on every size row the line shows (Components' "every colourway states its Type"). */
+const isMeasured = (rows: readonly { figures: SizeFigures }[]) =>
+  rows.length > 0 && rows.every((r) => r.figures.avg_pcs_weight_g.trim() !== "");
 
 export function PatternWorkForm({
   row,
@@ -317,13 +315,14 @@ export function PatternWorkForm({
   const partFabric = new Map([...knownParts.entries()].map(([k, p]) => [k, p.structure ?? "Other"] as const));
 
   /**
-   * NAMES IN THE BOX FOR ONE PICK, THE COUNT FOR MORE (screenshot 3088), with
-   * the names beneath as one wrapping line (`pickNames`, screenshot 3089).
+   * ONE LINE IN THE BOX, NOTHING BENEATH IT (user 2026-10-15, screenshot 3492).
+   * Up to two picks are named ("FRONT BODY, BACK BODY"), more are counted
+   * ("3 parts selected"). The names used to wrap under the box (`pickNames`,
+   * screenshot 3089), which in the sheet table made the merged cell three
+   * lines tall and floated every other cell to its middle. The full names are
+   * still on screen — the rail entry and the open list both carry them.
    */
-  const pickDisplay = (n: number) =>
-    n <= 1 ? { summarizeLabels: true, hideChips: true } : { summarizeLabels: false, hideChips: true };
-  const pickNames = (names: string[]) =>
-    names.length > 1 ? <p className="mt-1 text-xs leading-snug text-muted-foreground">{names.join(" · ")}</p> : null;
+  const PICK_DISPLAY = { summarizeLabels: true, hideChips: true } as const;
 
   /** The style's sizes in size order, plus any a saved line still holds (tagged). */
   const styleSizes = sortBySize(row.size_options, (z) => z.name);
@@ -570,10 +569,19 @@ export function PatternWorkForm({
     });
   }
 
-  /** The card's own fields — Manual's band, in the pattern room's words. */
-  const bandColumns: { header: string; cell: (l: LineRow) => ReactNode }[] = [
+  /** The line's own fields — merged down every size row of the sheet table. */
+  /*
+   * `min` IS A FLOOR THE SHEET TABLE CANNOT SQUEEZE (screenshots 3489/3490).
+   * `data-grid-fit="fill"` lays the table out `auto` and sets every input's
+   * min-width to 0, so a picker had no width of its own: the native Tubular
+   * <select> kept its intrinsic width and Colour / Type of Parts were crushed
+   * to a sliver (the picked value read "B." and "ALL B…"). The widths stay
+   * preferences; these are what the pane can never take away.
+   */
+  const lineColumns: { header: string; width: string; min?: string; cell: (l: LineRow) => ReactNode }[] = [
     {
       header: "Fabric",
+      width: "8rem",
       cell: (l) => (
         <div className="flex h-8 min-w-0 items-center">
           <Truncated className="text-sm">{l.fabric_name ?? "—"}</Truncated>
@@ -582,6 +590,8 @@ export function PatternWorkForm({
     },
     {
       header: "GSM",
+      width: "4.5rem",
+      min: "4rem",
       cell: (l) => (
         <Input
           aria-label="GSM"
@@ -595,15 +605,20 @@ export function PatternWorkForm({
     },
     {
       header: "Type of Parts",
+      width: "11rem",
+      min: "10rem",
       cell: (l) => (
         <div className="min-w-0">
           <MultiSelect
             label="Type of Parts"
             compact
-            {...pickDisplay(l.parts.length)}
+            {...PICK_DISPLAY}
             summaryNoun="parts"
             inputClassName="h-8 max-h-8"
             triggerClassName="h-8 max-h-8"
+            /* The list is wider than the box: it names every part / colour in
+               full, the box only the summary. */
+            panelClassName="min-w-60"
             /* Under each FABRIC, so a new line starts from the cloth — a line is
                one fabric, and the list narrows to it after the first tick. */
             groupBy={(o) => {
@@ -614,12 +629,6 @@ export function PatternWorkForm({
             values={l.parts}
             onChange={(next) => pickParts(l, next)}
           />
-          {pickNames(
-            l.parts.map((k) => {
-              const p = knownParts.get(k);
-              return p ? partLabel(p) : "—";
-            }),
-          )}
         </div>
       ),
     },
@@ -627,27 +636,34 @@ export function PatternWorkForm({
       /* SEVERAL (0644): a line measured the same for WHITE and NAVY is one
          line. A colour saved earlier that the combos no longer carry stays. */
       header: "Colour",
+      width: "9rem",
+      min: "8rem",
       cell: (l) => (
         <div className="min-w-0">
           <MultiSelect
             label="Colour"
             compact
-            {...pickDisplay(l.colours.length)}
+            {...PICK_DISPLAY}
             summaryNoun="colours"
             inputClassName="h-8 max-h-8"
             triggerClassName="h-8 max-h-8"
+            /* The list is wider than the box: it names every part / colour in
+               full, the box only the summary. */
+            panelClassName="min-w-60"
             options={[...new Set([...row.colours, ...l.colours])].map((c) => ({ id: c, label: c }))}
             values={l.colours}
             onChange={(next) => pickColours(l, next)}
           />
-          {pickNames(l.colours)}
         </div>
       ),
     },
     {
       header: "Tubular / Open Width",
+      width: "8.5rem",
       cell: (l) => (
         <Select
+          compact
+          className="h-8"
           aria-label="Tubular / Open Width"
           value={l.width_form}
           onChange={(e) => setLine(l.key, { width_form: e.target.value as LayoutType | "" })}
@@ -663,22 +679,33 @@ export function PatternWorkForm({
     },
     {
       header: "Size Wise",
+      width: "4.5rem",
       cell: (l) => (
         <span className="flex h-8 items-center justify-center">
           <Toggle ariaLabel="Size Wise" checked={l.size_wise} onChange={(next) => setSizeWise(l, next)} />
         </span>
       ),
     },
-    {
-      header: "Remark",
-      cell: (l) => (
-        <Input aria-label="Remark" value={l.remark} onChange={(e) => setLine(l.key, { remark: e.target.value })} />
-      ),
-    },
   ];
 
-  /** The sizes grid under each card: code 144 + hug 88 + range 112 = 344px. */
-  const sizeColumnsFor = (l: LineRow): ChildGridColumn<SizeRow>[] => [
+  const removeLine = (l: LineRow) => setLines((xs) => xs.filter((x) => x.key !== l.key));
+
+  /**
+   * ONE SHEET TABLE PER LINE, AS COMPONENTS DRAWS ITS PANEL: the line's fields
+   * merged down every size row (`spanRows` — one control per value, however
+   * many sizes), then each size's figures. Widths: 45.5rem merged + code 9rem
+   * + hug 5.5rem + range 7rem = 67rem, Components' own ~66rem; the pane is
+   * narrower on a laptop, so the table is `data-grid-fit="fill"` and shrinks.
+   */
+  const sheetColumnsFor = (l: LineRow): ChildGridColumn<SizeRow>[] => [
+    ...lineColumns.map(
+      (c): ChildGridColumn<SizeRow> => ({
+        header: c.header,
+        width: c.width,
+        spanRows: true,
+        cell: () => (c.min ? <div style={{ minWidth: c.min }}>{c.cell(l)}</div> : c.cell(l)),
+      }),
+    ),
     {
       header: "Size",
       width: FIELD_WIDTH_CSS.code,
@@ -716,10 +743,26 @@ export function PatternWorkForm({
         />
       ),
     },
+    /* THE ✕ IS THE TABLE'S LAST CELL (screenshot 3493), merged down the size
+       rows — Fabric BOM's `PaletteTable` shape. Beside the table it was a
+       flex sibling, and once the table filled the pane it drew over the Avg
+       header. A real cell takes part in the layout and cannot overlap. */
+    ...(lines.length > 1
+      ? [
+          {
+            header: "",
+            width: "2.5rem",
+            spanRows: true,
+            cell: () => (
+              <div className="flex h-8 items-center justify-center">
+                <RowRemoveChip inFlow label="Remove fabric" onClick={() => removeLine(l)} />
+              </div>
+            ),
+          } satisfies ChildGridColumn<SizeRow>,
+        ]
+      : []),
   ];
 
-  const removeLine = (l: LineRow) => setLines((xs) => xs.filter((x) => x.key !== l.key));
-  const withRemove = lines.length > 1;
 
   return (
     <CadFormFrame
@@ -802,8 +845,19 @@ export function PatternWorkForm({
           foldRows
           masterDetail
           railAlways
-          railWidthPx={180}
           defaultOpenKey={lines[0]?.key ?? null}
+          /* COMPONENTS' RAIL (2026-10-15): runs headed by ROLL FORM — the
+             fact the Fabric Plan's Components tab groups its parts by — with
+             a count; a line whose form is not chosen yet sits under its own
+             heading. Inert text, so ↑↓ step over it. */
+          railGroup={(l) => {
+            const n = lines.filter((x) => x.width_form === l.width_form).length;
+            return {
+              key: l.width_form || "none",
+              label: <Truncated className="block">{l.width_form ? layoutLabel(l.width_form) : "Form not chosen"}</Truncated>,
+              meta: `${n} ${n === 1 ? "fabric" : "fabrics"}`,
+            };
+          }}
           renderListItem={(l) => {
             const parts = l.parts
               .map((k) => {
@@ -812,14 +866,26 @@ export function PatternWorkForm({
               })
               .filter(Boolean)
               .join(" · ");
+            /* Components' three states: idle before a part is named, warn
+               while a size has no weight, ok once every size row has one. */
+            const state = !parts ? "idle" : isMeasured(sizeRowsOf(l)) ? "ok" : "warn";
+            const cloth = [l.fabric_name, l.gsm && `${l.gsm} GSM`].filter(Boolean).join(" · ");
             return (
-              <div className="flex min-h-7 items-center">
+              <div className="flex min-h-7 items-center gap-2.5">
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    state === "ok" && "bg-success",
+                    state === "warn" && "bg-warning",
+                    state === "idle" && "bg-border-strong opacity-50",
+                  )}
+                />
                 <span className="min-w-0 flex-1">
                   <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
-                    {l.fabric_name || "New fabric"}
+                    {parts || "New fabric"}
                   </Truncated>
-                  {parts && (
-                    <Truncated className="block text-[10px] leading-tight text-muted-foreground">{parts}</Truncated>
+                  {cloth && (
+                    <Truncated className="block text-[10px] leading-tight text-muted-foreground">{cloth}</Truncated>
                   )}
                 </span>
               </div>
@@ -834,73 +900,38 @@ export function PatternWorkForm({
           onRemove={removeLine}
           renderMobileRow={(l) => (
             <div className="space-y-2">
-              <div className="max-w-full overflow-x-auto">
-                <div className="w-full min-w-fit overflow-hidden rounded-lg border border-border-strong bg-surface max-sm:min-w-0">
-                  <div className="grid bg-surface-muted max-sm:hidden" style={{ gridTemplateColumns: bandCols(withRemove) }}>
-                    {bandColumns.map((c, ci) => (
-                      <div
-                        key={c.header}
-                        className={cn(
-                          "flex min-w-0 items-end break-words px-1.5 py-1.5 leading-tight",
-                          GRID_HEADER_TEXT,
-                          ci > 0 && "border-l border-border-strong",
+              <div>
+                {/* A SPREADSHEET GRID, Components' own (`sheet` draws the
+                    gridlines, grey header and borderless controls; `fill`
+                    lets the ~67rem of columns shrink to the pane). One
+                    "All sizes" row while Size Wise is off; the rows are the
+                    style's sizes, so no "+ Add" and no per-row ✕. */}
+                <div className="min-w-0 flex-1" data-grid-style="sheet" data-grid-fit="fill">
+                  <ChildGrid<SizeRow>
+                    /* grid-caption: exempt -- the selected rail entry names the line. */
+                    fill
+                    hideIndex
+                    columns={sheetColumnsFor(l)}
+                    rows={sizeRowsOf(l)}
+                    hideAdd
+                    hideRemove
+                    onAdd={() => false}
+                    onRemove={() => {}}
+                    renderMobileRow={(r, i) => (
+                      <FieldRow align="start" gap="tight">
+                        {sheetColumnsFor(l).map((c, ci) =>
+                          /* Merged fields on the first card only — a card has no rowSpan. */
+                          c.spanRows && i > 0 ? null : (
+                            <Field key={ci} label={c.header} w={fieldWidthStep(c.width) ?? "hug"}>
+                              {c.cell(r, i)}
+                            </Field>
+                          ),
                         )}
-                      >
-                        {c.header}
-                      </div>
-                    ))}
-                    {withRemove && <div aria-hidden />}
-                  </div>
-                  <div
-                    className="grid items-center border-t border-border-strong py-2 max-sm:grid-cols-1! max-sm:gap-y-2.5 max-sm:border-t-0 max-sm:px-1.5"
-                    style={{ gridTemplateColumns: bandCols(withRemove) }}
-                  >
-                    {bandColumns.map((c, ci) => (
-                      <div
-                        key={c.header}
-                        data-label={c.header}
-                        className={cn(
-                          "min-w-0 px-1.5",
-                          ci > 0 && "border-l border-border-strong max-sm:border-l-0",
-                          "max-sm:before:mb-1 max-sm:before:block max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:uppercase max-sm:before:tracking-wide max-sm:before:text-muted-foreground max-sm:before:content-[attr(data-label)]",
-                        )}
-                      >
-                        <RequiredScope required={false} label={c.header}>
-                          {c.cell(l)}
-                        </RequiredScope>
-                      </div>
-                    ))}
-                    {withRemove && (
-                      <div className="flex items-center justify-center px-1">
-                        <div className="flex h-8 w-8 items-center justify-center">
-                          <RowRemoveChip inFlow label="Remove fabric" onClick={() => removeLine(l)} />
-                        </div>
-                      </div>
+                      </FieldRow>
                     )}
-                  </div>
+                  />
                 </div>
               </div>
-              {/* THE SIZES — one "All sizes" row while Size Wise is off. The
-                  rows are the style's sizes, so no "+ Add" and no ✕. */}
-              <ChildGrid<SizeRow>
-                /* grid-caption: exempt -- the fabric card above is the caption. */
-                columns={sizeColumnsFor(l)}
-                rows={sizeRowsOf(l)}
-                hideAdd
-                hideRemove
-                onAdd={() => false}
-                onRemove={() => {}}
-                centerHeaders
-                renderMobileRow={(r, i) => (
-                  <FieldRow align="start" gap="tight">
-                    {sizeColumnsFor(l).map((c, ci) => (
-                      <Field key={ci} label={c.header} w={fieldWidthStep(c.width) ?? "hug"}>
-                        {c.cell(r, i)}
-                      </Field>
-                    ))}
-                  </FieldRow>
-                )}
-              />
               {l.size_wise && styleSizes.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   This style states no sizes yet — turn Size Wise off to give one weight for the style.

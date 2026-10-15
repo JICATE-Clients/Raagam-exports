@@ -203,6 +203,8 @@ export function CostingReports({
           </Button>
         </Tooltip>
       ) : null}
+      {/* Reached only by a Rev raised from a Rejected costing, which 0728 still
+          starts as a Draft — every other save lands Under Progress itself. */}
       {source.canSubmit ? (
         <Button size="md" disabled={saving} onClick={submitIt}>
           <Send className="h-4 w-4" />

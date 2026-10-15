@@ -127,7 +127,7 @@ export function ApprovalActionBar({
       : { title: "Approve this request?", verb: "Approve", needsComment: false },
     return: { title: "Return for changes?", verb: "Return", needsComment: true },
     reject: acknowledge
-      ? { title: "Not acknowledge this request?", verb: "Not Acknowledged", needsComment: true }
+      ? { title: "Mark this request Not Acknowledged?", verb: "Not Acknowledged", needsComment: true }
       : rework
       ? { title: "Send back for rework?", verb: "Request Rework", needsComment: true }
       : { title: "Reject this request?", verb: "Reject", needsComment: true },
@@ -157,7 +157,7 @@ export function ApprovalActionBar({
               : "Approved"
             : action === "reject"
               ? acknowledge
-                ? "Marked not acknowledged"
+                ? "Marked Not Acknowledged"
                 : rework
                 ? "Sent back for rework"
                 : "Rejected"

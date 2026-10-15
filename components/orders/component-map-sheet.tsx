@@ -145,7 +145,7 @@
  * than a fold that is long".
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldGrid } from "@/components/ui/field";
@@ -397,6 +397,8 @@ export function ComponentMapBody({
   onAddPanel,
   onRemovePanel,
   ydPartsFor,
+  cadLock,
+  patternActions,
 }: {
   lines: MapLine[];
   decls: readonly StyleComponentDecl[];
@@ -514,6 +516,15 @@ export function ComponentMapBody({
    * then draws nothing.
    */
   ydPartsFor?: (itemId: string | null, styleRefNo: string) => readonly string[];
+  /**
+   * THE PATTERN SHEET'S LOCK (client 2026-10-15, Option A). Non-null when a
+   * Pattern Sheet line covers this row: its Component and Type are the
+   * sheet's and read-only, and Finish Dia shows what the sheet measured. The
+   * Fabric stays the merchandiser's. `pattern-components.ts` holds the rule.
+   */
+  cadLock?: (l: MapLine) => { form: string; dia: string } | null;
+  /** The Pattern Sheet's status for this style, beside the style band. */
+  patternActions?: ReactNode;
   /** Adds one panel. The sheet passes the auto-default where there is one —
    *  see the `solePanel` call at the button. */
   onAddPanel: (seed: { component_id: string | null; coordinate_id: string | null }) => void;
@@ -952,10 +963,14 @@ export function ComponentMapBody({
   ];
 
   /** THE PANEL'S COMPONENT PICKER — one per panel, whichever table draws it. */
+  /** Covered by the Pattern Sheet — any colourway of the part (client 2026-10-15). */
+  const panelLocked = (p: { lines: readonly MapLine[] }) => !!cadLock && p.lines.some((l) => !!cadLock(l));
+  const anyLocked = !!cadLock && lines.some((l) => !!cadLock(l));
+
   const componentColumn: ChildGridColumn<PanelRow> = {
       header: "Component",
       required: true,
-      width: "11rem",
+      width: "8rem",
       cell: (p) => {
         /* RULE 2 + RULE 3, THROUGH THE ONE FUNCTION. Siblings are the OTHER
            panels of the whole BOM — never this one — so a panel can never filter
@@ -1009,6 +1024,9 @@ export function ComponentMapBody({
             label="Component"
             compact
             required
+            /* THE PATTERN SHEET NAMED THIS PART (client 2026-10-15) — it is the
+               sheet's, not re-chosen here; a changed sheet comes in on the next open. */
+            disabled={panelLocked(p)}
             items={items}
             value={held ? panelKey(held) : null}
             onChange={(id) => {
@@ -1151,7 +1169,7 @@ export function ComponentMapBody({
          is the one value that says which colourway the row is. 11rem was still
          short (screenshot 2935, "WHITE NAVY S…") — the box also carries a
          clear ✕ beside the value, so 18 capitals need ~215px. */
-      width: "13.5rem",
+      width: "10rem",
       /* ONE LINE PER COLOURWAY WITHIN A PANEL (client 2026-09-29, "a colour
          already configured should not appear again"). A panel's lines are keyed
          (style, colourway, structure, panel), so a second FRONT BODY · WHITE is
@@ -1185,7 +1203,7 @@ export function ComponentMapBody({
     },
     {
       header: "Fabric Type",
-      width: "7rem",
+      width: "6.5rem",
       cell: (l) => typeCell(l.key, l.item_id),
     },
     {
@@ -1195,8 +1213,16 @@ export function ComponentMapBody({
       header: "Fabric",
       /* 10rem, up from 8rem now the standalone `Gsm` column is gone (client
          cleanup spec, 2026-09-04 — same instruction as the panel row above
-         and Fabric Allocation's own Fabric cell). */
-      width: "10rem",
+         and Fabric Allocation's own Fabric cell).
+         24rem (user 2026-10-15, screenshot 3494: "the fabric should visible,
+         can reduce remaining field size"). A fabric name runs ~40 capitals
+         ("SOLID SINGLE JERSEY (24'S BCI COTTON) 100%") plus the GSM suffix,
+         and read "SOLI…" at 10rem. The room came out of the other six cells
+         (Component 8, Combo Color 10, Fabric Type 6.5, Type 7, Required
+         Color/Print 7 each), so the row is 69.5rem against 67.5rem before;
+         a value those cut short is still reachable through the picker's
+         Truncated reveal. */
+      width: "24rem",
       cell: (l) => (
         /* ONE LINE PER ROW (user 2026-10-03, screenshot 152345: "this field
            compact fitted properly"). The GSM reference used to sit on a second
@@ -1298,13 +1324,16 @@ export function ComponentMapBody({
       /* 8rem — "Open Width" (10 chars) plus the clear ✕ this cell carries
          (see the array's own note above) needed more than the 6rem it opened
          at. */
-      width: "8rem",
+      width: "7rem",
       cell: (l) => (
         <Select
           compact
           className="h-8"
           required
-          value={l.fabric_form}
+          /* The sheet's roll form, read-only where it states one; the opening
+             fill keeps `fabric_form` equal to it. */
+          disabled={!!cadLock?.(l)?.form}
+          value={cadLock?.(l)?.form || l.fabric_form}
           onChange={(e) => onPatchLine(l.key, { fabric_form: e.target.value })}
         >
           <option value="" />
@@ -1316,6 +1345,21 @@ export function ComponentMapBody({
         </Select>
       ),
     },
+    ...(anyLocked
+      ? [
+          {
+            /* FINISH DIA FROM THE PATTERN SHEET — shown, never typed here. A dia
+               is per size and stored on Manual (which the sheet also fills);
+               "72–80" is a size-wise sheet's range. Only drawn while some row
+               of this style is covered by the sheet. */
+            header: "Finish Dia",
+            width: "5.5rem",
+            cell: (l: MapLine) => (
+              <div className="flex h-8 items-center px-2 text-sm tabular-nums">{cadLock?.(l)?.dia || "—"}</div>
+            ),
+          } satisfies ChildGridColumn<MapLine>,
+        ]
+      : []),
     {
       /* A COMBOBOX OVER THE ORDER'S OWN DYEING LIST, so the cell PICKS what
          earlier screens declared rather than accepting a fifth spelling of WHITE.
@@ -1346,7 +1390,7 @@ export function ComponentMapBody({
       header: "Required Color",
       /* 9rem, up from 6rem — the header on one line (see `headerClassName`
          on the grid), and a colour name like NAVY BLUE readable in the box. */
-      width: "9rem",
+      width: "7rem",
       cell: (l) => {
         const ydOptions = ydComboOptionsFor(l);
         const options = ydOptions.length > 0 ? ydOptions : colourOptions;
@@ -1365,7 +1409,7 @@ export function ComponentMapBody({
     {
       header: "Required Print",
       /* 9rem, up from 6rem — Required Color's reason. */
-      width: "9rem",
+      width: "7rem",
       cell: (l) => (
         <Combobox
           compact
@@ -1416,11 +1460,16 @@ export function ComponentMapBody({
           Manual's own call site is untouched, so it keeps all three — the
           spec names "the Structure Details and Component sub-panels", not
           Manual's identity band. */}
-      <StyleIdentityBand
-        styleRefNo={styleRefNo}
-        identity={styleIdentity}
-        omit={["ref", "article"]}
-      />
+      {/* THE PATTERN SHEET'S ACTIONS SHARE THE BAND'S ROW, as on Manual. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <StyleIdentityBand
+          className="min-w-0 flex-1"
+          styleRefNo={styleRefNo}
+          identity={styleIdentity}
+          omit={["ref", "article"]}
+        />
+        {patternActions}
+      </div>
 
       {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE (client 2026-09-03,
           approved from the artifact: panels on the left, the open one on the
@@ -2013,6 +2062,8 @@ export function ComponentMapBody({
         /* THE ADDRESS, NOT THE GRID'S KEY — `removePanel` resolves
            `component_id ?? panel_uid` through `inScope`. See `gridPanels`. */
         onRemove={(p) => onRemovePanel(p.addr)}
+        /* A part the Pattern Sheet names keeps no ✕ — the sheet says it is cut. */
+        lockRow={panelLocked}
         /* THE BUTTON MATCHES THE ENTRIES. `ChildGrid`'s add is
            `variant="outline" size="sm"`, already `text-xs` and already `px-3` —
            which is what the entries now use too, since `railCompact` (and its

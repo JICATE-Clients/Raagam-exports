@@ -2,7 +2,8 @@
 
 /**
  * Sample ▸ Samples & Development ▸ Sample Entry — the list, and the entry
- * editor as an OVERLAY mode of it (raagam-screen-layout, the operator's rule 3).
+ * editor rendered INSTEAD of it as a page mount (`mount="page"`, Order Entry's
+ * shape — orders-precedent §2a; it was an overlay until 2026-10-06).
  *
  * doc/sample/sample-module-specification.md merges the legacy "Create
  * Opportunities" and "Define Styles" into ONE document (0683):
@@ -13,7 +14,8 @@
  *     Combos           colourways × sizes (§5)
  *     Quantities       destinations + Assortment — only for a BILLABLE line (§4.3, §6)
  *
- * Product Info is a FORM per style line, so it leads with a style switcher.
+ * Product Info is a FORM per style line, so it leads with the same style tabs
+ * Styles draws (one `activeKey` for both).
  * Combos and Quantities are GRIDS per style line, and follow Order Entry
  * instead (raagam-screen-layout, references/orders-precedent.md §8): every
  * style's grid is on screen at once, each under a `StyleIdentityBand`, never
@@ -26,9 +28,9 @@
  * never fold to cards (§5), Quantities is the spreadsheet table (§4), and no
  * cell sets its own height.
  *
- * NO EARLY RETURN — the list and the overlay render side by side, so there is
- * no "hooks below the branch" hazard (AGENTS.md "Hooks above every early
- * return"). Keep it that way.
+ * THE EDITOR IS AN EARLY RETURN — `if (mode === "edit") return …` renders it
+ * instead of the list — so EVERY hook in this component sits above that line
+ * (AGENTS.md "Hooks above every early return"; `npm run check:hooks`).
  */
 
 import { RowHoverRemove } from "@/components/ui/row-hover-remove";
@@ -45,7 +47,6 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldRow, FIELD_WIDTH_CSS, fieldWidthStep } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
-import { ToggleGroup } from "@/components/ui/segmented";
 import { Truncated } from "@/components/ui/truncated";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { ChildGrid, gridKeyNav, RowRemoveChip, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -88,7 +89,6 @@ import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import Link from "next/link";
-import { sampleEntryLock } from "@/lib/sales/sample-revisions/actions";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
 import { isInactive } from "@/lib/masters/inactive";
 import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
@@ -131,6 +131,7 @@ import {
   deleteSampleEntry,
   loadSampleEntry,
   previewSampleNumbers,
+  sampleEntryLockInfo,
   saveSampleEntry,
 } from "@/lib/sales/sample-entry/actions";
 import { AssortmentSheet } from "./assortment-sheet";
@@ -143,7 +144,7 @@ type MasterPerms = { canCreate: boolean; canEdit: boolean };
  * THE HEADER'S CAP — a definite length, never `max-w-fit` (a content-sized cap
  * computes to 0 under `@container/section`). Two lines (client 2026-10-08),
  * seven fields on the first:
- *   Enquiry No code 144 + Date code 144 + Against term 176 + Action party 200
+ *   Enquiry No (sizes to its number, ~130) + Date code 144 + Against term 176 + Action party 200
  *   + Customer party 200 + Season range 112 + Year hug 88          = 1064
  *   + 6 × 12 gap                                                   = 1136 → 71rem
  * and line 2 (user 2026-10-13, was three lines): Agent term 176 + Received Mode
@@ -286,7 +287,13 @@ const SAMPLE_FACETS: FacetGroup<SampleEntryListRow>[] = [
  * does. Module-level so its identity is stable (the hook memoises on it).
  */
 const sampleWordOf = (r: SampleEntryListRow): QuickWord => (r.is_draft ? "draft" : "pending");
-const QUICK_LABEL: Record<QuickWord, string> = { pending: "Pending", updated: "Updated", draft: "Draft" };
+const QUICK_LABEL: Record<QuickWord, string> = {
+  pending: "Pending",
+  updated: "Updated",
+  draft: "Draft",
+  progress: "Under Progress",
+  approved: "Approved",
+};
 
 export function SampleEntryScreen({
   rows,
@@ -311,6 +318,18 @@ export function SampleEntryScreen({
   /** Why this entry cannot be saved (0716: an approved costing locks the
    *  sample; a Sample Revision opens it) — the database's own sentence. */
   const [lock, setLock] = useState<string | null>(null);
+  /** The costing whose Raise Revise the lock banner links to (user decision
+   *  2026-10-15: an SMP is changed through its costing's Revise, not Sample ▸
+   *  Revision, which is plans-only now), and whether an open SMP revision —
+   *  not the approval — is what holds it. */
+  const [lockLink, setLockLink] = useState<{ costingId: string | null; revision: boolean }>({
+    costingId: null,
+    revision: false,
+  });
+  /* OPENED BY SOMEONE WHO MAY ONLY READ — Order Entry's `openView` /
+     `viewOnly`: the same load, every field read-only, one Close. Up here with
+     `mode`, above the `if (mode === "edit")` return, like every hook. */
+  const [viewOnly, setViewOnly] = useState(false);
   /** The latest PD Request to the Sample Department (0719), keyed `forId` so a
    *  late answer never paints another entry's status. ABOVE the early return
    *  below (AGENTS.md, hooks above every early return). */
@@ -329,10 +348,10 @@ export function SampleEntryScreen({
   }, [styles, activeKey]);
 
   /**
-   * Real edits, never "is the editor open". The overlay mount means
-   * `MasterFullScreen` only calls `useModalGuard`, which `confirmDiscard()`
-   * deliberately does not read — so THIS is what stands between Escape and a
-   * silently discarded entry, and what holds off the silent auto-reload.
+   * Real edits, never "is the editor open" — what stands between Escape and a
+   * silently discarded entry, and what holds off the silent auto-reload. The
+   * page mount's `MasterFullScreen` guards on the same flag (`dirty` prop);
+   * this one also covers the list, where a delete can be mid-flight.
    */
   const [dirty, setDirty] = useState(false);
   useUnsavedGuard(dirty || isPending);
@@ -400,8 +419,25 @@ export function SampleEntryScreen({
     setHeader((h) => ({ ...h, ...patch }));
     setDirty(true);
   };
+  /**
+   * QUANTITIES OPENS WITH A ROW, SEEDED IN STATE (AGENTS.md "Editable sub-tables
+   * open with a row"). It is ONE grid over every billable line's quantities, so
+   * the row it opens on belongs to the first billable line — and whichever
+   * change leaves the billable lines holding none (a line switched to billable,
+   * the only line with rows switched off or removed) seeds it again. Applied by
+   * every style mutation and by the open handlers, never by the grid's
+   * `seedRow`, which calls onAdd and so marked an untouched entry "Unsaved".
+   * The seed's dates are BLANK, unlike "+ Add quantity"'s: `isBlankQuantity`
+   * tests Delivery Dt, so a row pre-dated from the line would save as a line.
+   */
+  const withQtyRow = (xs: StyleDraft[]): StyleDraft[] => {
+    const billable = xs.filter((s) => s.billable && !isBlankStyle(s));
+    if (!billable.length || billable.some((s) => s.quantities.length)) return xs;
+    const first = billable[0].key;
+    return xs.map((s) => (s.key === first ? { ...s, quantities: [blankQuantity()] } : s));
+  };
   const mutStyles = (fn: (xs: StyleDraft[]) => StyleDraft[]) => {
-    setStyles(fn);
+    setStyles((xs) => withQtyRow(fn(xs)));
     setDirty(true);
   };
   const patchStyle = (key: string, patch: Partial<StyleDraft>) =>
@@ -440,7 +476,26 @@ export function SampleEntryScreen({
     is_single_style_pack: true,
     lines: [],
   });
-  const blankProcess = (): StyleProcessRow => ({ key: newKey(), kind: null, process_id: null, component_id: null, details: "" });
+  /** Combos ▸ Embellishments is TWO grids over one list, each showing only its
+   *  own kind — so a seed row carries its kind, one per grid. A kind-less blank
+   *  showed in neither, both grids fired `seedRow` on open, and every entry
+   *  opened reading "Unsaved changes". */
+  const blankProcess = (kind: StyleProcessRow["kind"]): StyleProcessRow => ({
+    key: newKey(),
+    kind,
+    process_id: null,
+    component_id: null,
+    details: "",
+  });
+  /** One row ready in each Embellishments grid; a kind-less blank is dropped. */
+  const withProcessSeeds = (xs: StyleProcessRow[]): StyleProcessRow[] => {
+    const kept = xs.filter((r) => !!r.kind || !!r.process_id);
+    return [
+      ...kept,
+      ...(kept.some((r) => r.kind === "component") ? [] : [blankProcess("component")]),
+      ...(kept.some((r) => r.kind === "garment") ? [] : [blankProcess("garment")]),
+    ];
+  };
   const blankStyle = (): StyleDraft => ({
     key: newKey(),
     id: null,
@@ -475,10 +530,12 @@ export function SampleEntryScreen({
     price: "",
     exchange_rate: "",
     files: [],
-    coordinates: [],
+    // Opens on one row to pick in, as OE's coordinate grid does — seeded
+    // here, never by the grid's `seedRow` (see `withSeeds`).
+    coordinates: [{ key: newKey(), coordinate_id: null }],
     sizes: [],
     combos: [blankCombo()],
-    processes: [blankProcess()],
+    processes: withProcessSeeds([]),
     // Quantities is ONE grid for the entry (Order Entry's), which seeds its own
     // first row — a blank row per style would put N blanks in it.
     quantities: [],
@@ -491,12 +548,12 @@ export function SampleEntryScreen({
     ...s,
     // A PCS line saved before PIECES was prefilled opens with it, here and not
     // through a grid's `seedRow` (which would mark the entry "Unsaved").
-    coordinates:
-      s.unit_kind === "piece" && s.coordinates.length === 0
-        ? [{ key: newKey(), coordinate_id: piecesCoordinateId }]
-        : s.coordinates,
+    // Any other line with no coordinate opens on a blank row to pick in.
+    coordinates: s.coordinates.length
+      ? s.coordinates
+      : [{ key: newKey(), coordinate_id: s.unit_kind === "piece" ? piecesCoordinateId : null }],
     combos: s.combos.length ? s.combos : [blankCombo()],
-    processes: s.processes.length ? s.processes : [blankProcess()],
+    processes: withProcessSeeds(s.processes),
     // Product Info ▸ Fabric's Structure · GSM grid opens on a row to pick in.
     structures: s.structures.length ? s.structures : [blankStructure()],
   });
@@ -504,6 +561,8 @@ export function SampleEntryScreen({
   // ---- open -------------------------------------------------------------------
   function openAdd() {
     setLock(null);
+    setLockLink({ costingId: null, revision: false });
+    setViewOnly(false);
     const first = blankStyle();
     setEditId(null);
     setEditCode(null);
@@ -523,18 +582,27 @@ export function SampleEntryScreen({
      `?open=<id>` is consumed by `useOpenIntent`, which strips it from the URL. The
      same param is a Sample Revision's "Open Sample Entry" — loaded by id, so it
      opens an enquiry the list does not hold. */
-  useOpenIntent((id) => openEdit({ id } as SampleEntryListRow));
+  useOpenIntent((id) => openRecord({ id } as SampleEntryListRow));
   const tabPath = usePathname();
   useTabResume(tabPath, mode === "edit" && editId ? `?open=${editId}` : null);
 
-  function openEdit(r: SampleEntryListRow) {
+  /** The number link's door: an editor edits, anyone else reads (OE). */
+  const openRecord = (r: SampleEntryListRow) => (perms.canEdit ? openEdit(r) : openView(r));
+  function openView(r: SampleEntryListRow) {
+    openEdit(r, true);
+  }
+
+  function openEdit(r: SampleEntryListRow, readOnly = false) {
     start(async () => {
       const res = await loadSampleEntry(r.id);
       if (!res.ok) {
         toastError(res.error);
         return;
       }
-      setLock(await sampleEntryLock(res.record.id));
+      const info = await sampleEntryLockInfo(res.record.id);
+      setLock(info.reason);
+      setLockLink({ costingId: info.costingId, revision: info.revision });
+      setViewOnly(readOnly);
       const seeded = res.record.styles.map(withSeeds);
       const list = seeded.length ? seeded : [blankStyle()];
       setEditId(res.record.id);
@@ -544,7 +612,7 @@ export function SampleEntryScreen({
         // An enquiry raised on the old bulk screen has no Date; today stands in.
         received_date: res.record.header.received_date || today(),
       });
-      setStyles(list);
+      setStyles(withQtyRow(list));
       setActiveKey(list[0]?.key ?? null);
       setDirty(false);
       setMode("edit");
@@ -658,7 +726,7 @@ export function SampleEntryScreen({
       cell: (r) => (
         <button
           type="button"
-          onClick={() => openEdit(r)}
+          onClick={() => openRecord(r)}
           className="font-mono text-xs font-medium text-primary hover:underline"
         >
           {r.code ?? "—"}
@@ -715,25 +783,40 @@ export function SampleEntryScreen({
         menuAs="icons"
         onEdit={() => openEdit(r)}
         canEdit={perms.canEdit}
+        // A LOCKED SAMPLE KEEPS ITS PENCIL AND BIN, GREYED, SAYING WHY
+        // (AGENTS.md "Row actions") — the same sentence the editor's banner
+        // shows, batched for the whole list by `sampleLocks`. Hiding is for a
+        // missing permission only.
+        editDisabledReason={r.locked_reason}
         onDelete={() => del(r)}
         canDelete={perms.canDelete}
+        deleteDisabledReason={r.locked_reason}
         isPending={isPending}
       />
     )),
   ];
 
-  // ---- the style switcher (Product Info · Combos · Quantities) ------------------
-  const switcher = (list: StyleDraft[], current: StyleDraft | null) =>
-    list.length > 1 && current ? (
-      <div className="mb-4">
-        <ToggleGroup<string>
-          label="Style line"
-          value={current.key}
-          onChange={setActiveKey}
-          options={list.map((s) => ({ value: s.key, label: styleLabel(s) }))}
-        />
-      </div>
-    ) : null;
+  // ---- Product Info's style tabs ---------------------------------------------------
+  /** ONE STYLE SELECTOR (user decision 2026-10-15): Product Info picks its line
+   *  with the same `Tabs` Styles draws (user 2026-10-13), on the same
+   *  `activeKey`, where it used to carry a `ToggleGroup` — two controls for one
+   *  choice. Only the open tab's panel is built. One line needs no strip. */
+  const styleTabs = (panel: React.ReactNode, problemsOf: (s: StyleDraft) => number, doneOf: (s: StyleDraft) => boolean) =>
+    styles.length > 1 && active ? (
+      <Tabs
+        value={active.key}
+        onChange={setActiveKey}
+        items={styles.map((s) => ({
+          key: s.key,
+          label: styleLabel(s),
+          problems: problemsOf(s),
+          done: doneOf(s),
+          content: s.key === active.key ? panel : null,
+        }))}
+      />
+    ) : (
+      panel
+    );
 
   // ---- Styles grid ----------------------------------------------------------------
   /**
@@ -948,8 +1031,8 @@ export function SampleEntryScreen({
             // OE: PCS holds one row, SET six, an unanswered Unit six — rows,
             // blank ones included (`coordinatesFull`, rules.ts).
             hideAdd={coordinatesFull(r.unit_kind, r.coordinates)}
-            // The coordinates grid opens on a row to pick in, as OE's does.
-            seedRow
+            // The coordinates grid opens on a row to pick in, as OE's does —
+            // seeded in STATE (`blankStyle` / `withSeeds`), not by `seedRow`.
             // Clearing IS removing — a blank coordinate is dropped at save
             // (OE: the ✕ beside each box and the picker's own clear were two
             // X's a few pixels apart).
@@ -1580,10 +1663,17 @@ export function SampleEntryScreen({
       content: (
         <SectionBody title="Sample Info">
           <div className={`${HEADER_W} space-y-1`}>
-            <FieldRow>
-              {/* `Input readOnly` takes itself off the Tab path. */}
-              <Field label="Enquiry No" w="code" htmlFor="se-no">
-                <Input id="se-no" readOnly className="font-mono" value={(editId ? editCode : preview.enquiryNo) ?? ""} />
+            <FieldRow nowrap gap="row">
+              {/* `Input readOnly` takes itself off the Tab path. A MINTED NUMBER
+                  GETS NO WIDTH BOX (orders-precedent §2, OE's RE No): it sizes
+                  to the number it holds. */}
+              <Field label="Enquiry No" htmlFor="se-no" className="max-sm:w-full">
+                <Input
+                  id="se-no"
+                  readOnly
+                  className="w-auto min-w-[5.5rem] field-sizing-content font-mono max-sm:w-full"
+                  value={(editId ? editCode : preview.enquiryNo) ?? ""}
+                />
               </Field>
               <Field label="Date" required w="code" htmlFor="se-date">
                 <Input
@@ -1663,7 +1753,7 @@ export function SampleEntryScreen({
                 </Select>
               </Field>
             </FieldRow>
-            <FieldRow>
+            <FieldRow nowrap gap="row">
               {/* NO COUNTRY BOX (user 2026-10-12: "remove the field from sample
                   info"). It was a read-only echo of the customer master; the
                   customer pick still stores `country_id`, so nothing that reads
@@ -1809,8 +1899,8 @@ export function SampleEntryScreen({
       problems: validity.bySection.product,
       content: (
         <SectionBody title="Product Info">
-          {switcher(styles, active)}
-          {active && (
+          {styleTabs(
+          active && (
             <div className="space-y-1">
               {/* INHERITED FROM SAMPLE INFO, READ-ONLY HERE (spec §4.1, §2.3):
                   edited where they are owned, so they cannot drift apart.
@@ -2062,22 +2152,26 @@ export function SampleEntryScreen({
                         onChange={(e) => patchStyle(active.key, { exchange_rate: e.target.value })}
                       />
                     </Field>
-                    <Field label="Local Value" className={cn("w-full min-w-0", billOff)} htmlFor="se-pi-local">
-                      <Input
-                        id="se-pi-local"
-                        readOnly
-                        className="bg-surface-muted text-right tabular-nums"
-                        value={(() => {
+                    {/* A COMPUTED FIGURE IS TEXT, NOT A BOX (orders-precedent §9,
+                        Budget's `figure()`): a read-only Input looks typeable.
+                        Nothing while it cannot be computed. The row's height
+                        matches the boxes beside it, so the figure sits on their line. */}
+                    <Field label="Local Value" className={cn("w-full min-w-0", billOff)}>
+                      <span className="flex h-9 items-center justify-end text-sm tabular-nums @2xl/editor:h-8">
+                        {(() => {
                           const v = active.billable ? sampleLocalValue(active) : null;
-                          return v == null ? "" : fmtMoney(v, "INR");
+                          return v == null ? null : fmtMoney(v, "INR");
                         })()}
-                      />
+                      </span>
                     </Field>
                 </fieldset>
               </div>
 
               </div>
             </div>
+          ),
+          (s) => sampleProblems.filter((p) => p.section === "product" && p.styleKey === s.key).length,
+          (s) => s.structures.some((x) => !!x.structure_id),
           )}
         </SectionBody>
       ),
@@ -2123,7 +2217,7 @@ export function SampleEntryScreen({
                 processes={data.processes}
                 components={data.components}
                 newKey={newKey}
-                readOnly={!!lock}
+                readOnly={!!lock || viewOnly}
               />
               <PiLegend>Embellishments · Garment Process</PiLegend>
               <StyleProcessGrid
@@ -2133,7 +2227,7 @@ export function SampleEntryScreen({
                 processes={data.processes}
                 components={data.components}
                 newKey={newKey}
-                readOnly={!!lock}
+                readOnly={!!lock || viewOnly}
               />
             </div>
           ))}
@@ -2169,7 +2263,7 @@ export function SampleEntryScreen({
               columns={sampleQuantityColumns}
               rows={qtyRows}
               keepOne
-              seedRow
+              // Opens on a row seeded in STATE (`withQtyRow`), not `seedRow`.
               totalsLabel="Total PO Qty"
               tableFrom="5xl"
               onAdd={addQty}
@@ -2269,7 +2363,7 @@ export function SampleEntryScreen({
           <BackLink onBack={closeEditor} label="Sample Entry" className="max-md:hidden" />
           <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-col max-md:items-start max-md:gap-0">
             <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-              {editId ? "Edit Sample Entry" : "New Sample Entry"}
+              {viewOnly ? "View Sample Entry" : editId ? "Edit Sample Entry" : "New Sample Entry"}
             </dt>
             <dd className="m-0 text-sm font-semibold text-foreground">
               {(editId ? editCode : preview.enquiryNo) ?? "—"}
@@ -2293,27 +2387,49 @@ export function SampleEntryScreen({
           ref={shellRef}
           mount="page"
           open
-          dirty={dirty}
+          // Never dirty while viewing: Escape must not ask a reader to discard.
+          dirty={dirty && !viewOnly}
+          /* A READER'S DOOR (OE's eye): every field read-only, one Close. */
+          viewOnly={viewOnly}
           onClose={closeEditor}
           modeLabel={null}
           sections={railSections}
-          /* LOCKED ONCE ITS COSTING IS APPROVED (0716) — read-only with the
-             reason, and the way through: a Sample Revision that opens Sample
-             Info & Qty. `?raise=` opens the form, or the revision already open. */
+          /* LOCKED ONCE THE BUYER APPROVES ITS COSTING (0716 · 0725) — read-only
+             with the reason, and the way through. THE WAY THROUGH IS THE
+             COSTING'S RAISE REVISE (user decision 2026-10-15): Sample ▸ Revision
+             is plans-only now, so its `?raise=` was a dead end for an approved
+             SMP. The database's own sentence still says "raise a Sample
+             Revision", so the approval case states its own; an SMP revision
+             raised before the change still links to that revision, which
+             `?raise=` opens. */
           locked={
             lock && editId
-              ? {
-                  message: lock,
-                  action: (
-                    <Link href={`/sales/sample-revision?raise=${editId}`} className="font-medium text-primary underline underline-offset-2">
-                      {lock.includes("SMP-REV/") ? "Open the revision" : "Raise Revision"}
-                    </Link>
-                  ),
-                }
+              ? lockLink.revision
+                ? {
+                    message: lock,
+                    action: (
+                      <Link href={`/sales/sample-revision?raise=${editId}`} className="font-medium text-primary underline underline-offset-2">
+                        Open the revision
+                      </Link>
+                    ),
+                  }
+                : {
+                    message: `${editCode ?? "This sample"} is approved by the buyer, so its entry is locked. A price, fabric or trim change goes through its costing's Raise Revise; the entry itself stays as approved.`,
+                    action: lockLink.costingId ? (
+                      <Link
+                        href={`/sales/sample-costing/${lockLink.costingId}/reports?tab=cost-sheet&revise=1`}
+                        className="font-medium text-primary underline underline-offset-2"
+                      >
+                        Raise Revise
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">It has no costing to revise.</span>
+                    ),
+                  }
               : false
           }
           footer={{
-            status: dirty ? "Unsaved changes" : editId ? "Editing sample entry" : "New sample entry",
+            status: viewOnly ? "View only" : dirty ? "Unsaved changes" : editId ? "Editing sample entry" : "New sample entry",
             onCancel: closeEditor,
             onSave: () => submit(false),
             saveLabel: "Save sample entry",

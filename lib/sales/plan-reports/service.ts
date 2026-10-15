@@ -134,7 +134,9 @@ async function headerOf(s: Db, kind: PlanKind, plan: HeaderRow, sampleIds: Itera
     s.from("sample_product_groups").select("id, group_code, season, season_year, description").eq(groupCol, plan.iwo_id).maybeSingle(),
     s.from("company_profile").select("*").limit(1).maybeSingle(),
     plan.location_id ? s.from("locations").select("name").eq("id", plan.location_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
-    s.from(revTable).select(revCols).eq("bom_id", plan.id).order("revision_no", { ascending: false }).limit(1).maybeSingle(),
+    // THE REVISION THE PLAN IS IN, by number — not the newest row: an
+    // abandoned revision (0730) is newer than the version it put back.
+    s.from(revTable).select(revCols).eq("bom_id", plan.id).eq("revision_no", plan.revision_no).maybeSingle(),
   ]);
   const iwo = must(iwoRes, "the work order") as { code: string | null } | null;
   const group = must(groupRes, "the SWO") as {

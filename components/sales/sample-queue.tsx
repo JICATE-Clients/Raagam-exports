@@ -10,6 +10,8 @@ import { RowActions, RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { FigureCell } from "@/components/orders/order-queue-table";
+import { PaginationBar } from "@/components/ui/pagination";
+import { usePagination } from "@/lib/use-pagination";
 
 /**
  * THE SAMPLE MODULE'S CARD QUEUE (user 2026-10-12: "in grouping to accessories
@@ -75,13 +77,19 @@ export function SampleCards<R>({
   isPending = false,
   empty,
   table,
+  editDisabledReason,
+  deleteDisabledReason,
+  actions,
+  rowEdit = true,
 }: {
   rows: R[];
   getKey: (r: R) => string;
   title: (r: R) => ReactNode;
   subtitle?: (r: R) => ReactNode;
   state: (r: R) => SampleCardState;
-  pillText: (r: R) => ReactNode;
+  /** Omit where every card would say the same word the tab already says
+   *  (Grouping ▸ Ungrouped's "To group", user 2026-10-15) — no pill is drawn. */
+  pillText?: (r: R) => ReactNode;
   /** The three figures, in the Orders card's order: the main one, the count,
    *  then the date or the scope. */
   stats: (r: R) => CardStat[];
@@ -114,7 +122,27 @@ export function SampleCards<R>({
    * The headers are the screen's, since a card never had to name them.
    */
   table?: { title: string; subtitle?: string };
+  /**
+   * WHY THIS ROW CANNOT BE EDITED / DELETED (AGENTS "Row actions": a LOCKED
+   * record keeps its pencil and bin, GREYED, saying why — hiding is for missing
+   * permission only). The table greys both; a card greys its Delete (its body
+   * still opens the record, read-only where the screen locks it).
+   */
+  editDisabledReason?: (r: R) => string | null | undefined;
+  deleteDisabledReason?: (r: R) => string | null | undefined;
+  /** The row's own icons (an approval queue's decisions) — the card's footer,
+   *  before the built-ins; the table's lead, after Reports / Send. */
+  actions?: (r: R) => ReactNode;
+  /** false: the table draws no pencil — for a pile that only ever OPENS
+   *  read-only (a pencil that edits nothing promises what it cannot do). The
+   *  number link still opens the row. */
+  rowEdit?: boolean;
 }) {
+  /* EVERY LISTING PAGES ITSELF (AGENTS "Pagination"). The table mode's
+     DataTable already does; the card grid did not, so a long Pending pile
+     printed every card. Called above the table branch — hooks never sit below
+     an early return. */
+  const pg = usePagination(rows);
   if (table) {
     const figures = rows[0] ? stats(rows[0]) : [];
     const cols: Column<R>[] = [
@@ -126,7 +154,7 @@ export function SampleCards<R>({
           <button
             type="button"
             onClick={() => onOpen(r)}
-            className="rounded-sm text-left text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-sm text-left font-mono text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {title(r)}
           </button>
@@ -138,13 +166,15 @@ export function SampleCards<R>({
         className: HUG,
         cell: (r: R) => <FigureCell value={stats(r)[i]?.value ?? null} />,
       })),
-      { header: "Status", className: HUG, cell: (r) => <SampleQueuePill state={state(r)}>{pillText(r)}</SampleQueuePill> },
+      ...(pillText
+        ? [{ header: "Status", className: HUG, cell: (r: R) => <SampleQueuePill state={state(r)}>{pillText(r)}</SampleQueuePill> }]
+        : []),
       rowActionsColumn((r) => (
         <RowActions
           view={false}
           /* The card's Reports, in the eye's slot (Row actions rule). */
           lead={
-            onReports || onSend ? (
+            onReports || onSend || actions ? (
               <>
                 {onReports ? (
                   <RowIconAction
@@ -158,12 +188,15 @@ export function SampleCards<R>({
                 {onSend && canSendRow?.(r) !== false ? (
                   <RowIconAction label={sendLabel} icon={sendIcon} className="text-primary" onClick={() => onSend(r)} />
                 ) : null}
+                {actions?.(r)}
               </>
             ) : undefined
           }
-          onEdit={() => onOpen(r)}
+          onEdit={rowEdit ? () => onOpen(r) : undefined}
+          editDisabledReason={editDisabledReason?.(r) ?? null}
           onDelete={onDelete ? () => onDelete(r) : undefined}
           canDelete={canDelete && (canDeleteRow ? canDeleteRow(r) : true)}
+          deleteDisabledReason={deleteDisabledReason?.(r) ?? null}
           isPending={isPending}
         />
       )),
@@ -175,14 +208,15 @@ export function SampleCards<R>({
     );
   }
   return (
+    <div className="flex flex-col gap-3">
     <MobileCardList<R>
       columns={6}
       queue
-      rows={rows}
+      rows={pg.paged}
       getKey={getKey}
       title={title}
       subtitle={subtitle}
-      pill={(r) => <SampleQueuePill state={state(r)}>{pillText(r)}</SampleQueuePill>}
+      pill={pillText ? (r) => <SampleQueuePill state={state(r)}>{pillText(r)}</SampleQueuePill> : undefined}
       stats={stats}
       tone={(r) => TONE[state(r)]}
       accent={(r) => (selected?.(r) ? "border-l-primary" : EDGE[state(r)])}
@@ -190,6 +224,8 @@ export function SampleCards<R>({
       onEdit={onOpen}
       canDelete={canDelete}
       canDeleteRow={canDeleteRow}
+      deleteDisabledReason={deleteDisabledReason}
+      extraActions={actions}
       onDelete={onDelete}
       onReports={onReports}
       canReportsRow={canReportsRow}
@@ -201,5 +237,17 @@ export function SampleCards<R>({
       isPending={isPending}
       empty={empty}
     />
+      {/* The bar draws only past one page, as under every DataTable. */}
+      {pg.pageCount > 1 && (
+        <PaginationBar
+          page={pg.page}
+          pageCount={pg.pageCount}
+          total={pg.total}
+          pageSize={pg.pageSize}
+          onPageChange={pg.setPage}
+          onPageSizeChange={pg.setPageSize}
+        />
+      )}
+    </div>
   );
 }

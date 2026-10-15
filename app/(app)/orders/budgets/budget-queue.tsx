@@ -8,7 +8,7 @@ import { flagFacet, urgencyFacet, useFacetFilter, type FacetGroup } from "@/comp
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
-import { DaysOut, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { DaysOut, QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
 import type { StatusTone } from "@/lib/ui/tone";
 import {
@@ -82,10 +82,15 @@ const statusOf = (o: BudgetableOrder): QueueStatus => o.in_budget?.status ?? "no
  */
 const budgetWord = (o: BudgetableOrder): QuickWord => {
   const s = statusOf(o);
+  /* PENDING · UNDER PROGRESS · APPROVED · DRAFT (user 2026-10-15). Not
+     budgeted is the untouched work; a budget with the MD, or sent back for
+     rework, is worked on and not approved — Under Progress. A revision with
+     the MD used to be forced to Pending and every other saved budget read
+     Updated; Approved now holds only what the MD approved. */
   if (s === "none") return "pending";
   if (s === "draft") return "draft";
-  if (s === "submitted" && o.in_budget?.in_revision) return "pending";
-  return "updated";
+  if (s === "approved") return "approved";
+  return "progress";
 };
 const statusText = (s: QueueStatus) => (s === "none" ? "Not budgeted" : budgetStatusText(s));
 /** Not budgeted is the work waiting, so it takes the warning colour. An order
@@ -250,7 +255,7 @@ export function BudgetQueue({
     });
   }, [ready, query, facetMatch]);
 
-  const quick = useQuickStatus(budgetWord, { countRows: base });
+  const quick = useQuickStatus(budgetWord, { countRows: base, words: QUICK_WORDS_4 });
   const quickMatches = quick.matches;
 
   const filtered = useMemo(() => base.filter(quickMatches), [base, quickMatches]);

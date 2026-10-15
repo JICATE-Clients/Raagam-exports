@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckSquare, Layers, Plus, Square, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -9,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { SelectionBar } from "@/components/ui/selection-bar";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
 import { useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
@@ -18,10 +16,8 @@ import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import {
   fmtKg,
   groupNetKg,
-  groupingMix,
   groupingProblem,
   moqOrderWeight,
-  sameSeasonYear,
   seasonKey,
 } from "@/lib/sales/sample-grouping/calc";
 import {
@@ -30,7 +26,7 @@ import {
   type GroupingData,
   type GroupRow,
 } from "@/lib/sales/sample-grouping/types";
-import { addToSampleGroup, createSampleGroup, deleteSampleGroup } from "@/lib/sales/sample-grouping/actions";
+import { createSampleGroup, deleteSampleGroup } from "@/lib/sales/sample-grouping/actions";
 import { GroupSheet } from "./group-sheet";
 
 /**
@@ -108,7 +104,6 @@ export function GroupingScreen({
   // Opens on the work still to do; a season with nothing left opens on its SWOs.
   const [tab, setTab] = useState<Tab>(() => (data.candidates.some((c) => !c.group_id) ? "ungrouped" : "grouped"));
   const [openId, setOpenId] = useState<string | null>(null);
-  const [addTo, setAddTo] = useState("");
   const sel = useRowSelection();
 
   /** Keep the address honest — a refresh or a shared link reopens this view. */
@@ -134,7 +129,6 @@ export function GroupingScreen({
   }, [data]);
   const scopedCandidates = useMemo(() => data.candidates.filter((x) => inSeason(x, season, year)), [data.candidates, season, year]);
   const scopedGroups = useMemo(() => data.groups.filter((x) => inSeason(x, season, year)), [data.groups, season, year]);
-  const scopedUncosted = data.uncosted.filter((x) => inSeason(x, season, year));
 
   // ---- the styles to group --------------------------------------------
   const candFacets = useFacetFilter(scopedCandidates, CANDIDATE_FACETS);
@@ -151,13 +145,6 @@ export function GroupingScreen({
   }, [scopedCandidates, query, candMatches]);
   const picked = data.candidates.filter((c) => sel.selectedKeys.has(c.key));
   const pickProblem = picked.length ? groupingProblem(picked.map((c) => ({ ...c, label: styleLabel(c) }))) : null;
-  /** What the ticks mix — said, never refused (client spec 2026-10-12: the
-   *  planner judges which blends and structures are compatible). */
-  const pickMix = !pickProblem && picked.length ? groupingMix(picked) : null;
-  const pickedNet = groupNetKg(picked.map((c) => c.kg));
-  /** SWOs these ticks could join — the same season and year (0707); any
-   *  status since 0713 made an SWO's samples editable throughout. */
-  const joinable = !pickProblem && picked.length ? data.groups.filter((g) => sameSeasonYear(picked[0], g)) : [];
 
   // ---- the two lists -----------------------------------------------------
   /* Every costed, ungrouped sample is offered. The PD Request is per SMP
@@ -187,20 +174,6 @@ export function GroupingScreen({
       sel.clear();
       router.refresh();
       setOpenId(res.id);
-    });
-  const join = () =>
-    startTransition(async () => {
-      const g = data.groups.find((x) => x.id === addTo);
-      if (!g) return;
-      const res = await addToSampleGroup(g.id, [...sel.selectedKeys]);
-      if (!res.ok) {
-        toastError(res.error);
-        return;
-      }
-      success(`Added to ${g.group_code}.`);
-      sel.clear();
-      setAddTo("");
-      router.refresh();
     });
   const del = (g: GroupRow) =>
     startTransition(async () => {
@@ -287,51 +260,48 @@ export function GroupingScreen({
         }
       />
 
-      {scopedUncosted.length ? (
-        <p className="text-sm text-muted-foreground">
-          {`${scopedUncosted.length} style${scopedUncosted.length === 1 ? "" : "s"} not costed yet: ${scopedUncosted.map((u) => u.smp_no ?? u.style_name).join(", ")}.`}{" "}
-          <Link href="/sales/sample-costing" className="text-primary underline underline-offset-2">
-            Open Costing
-          </Link>
-        </p>
-      ) : null}
 
-      <SelectionBar count={picked.length} onClear={sel.clear}>
-        <span className={`mr-2 text-sm ${pickProblem ? "text-danger" : "text-muted-foreground"}`}>
-          {pickProblem ?? `${fmtKg(pickedNet)} kg net → buys ${fmtKg(moqOrderWeight(pickedNet), 1)} kg at the 60 kg MOQ`}
-        </span>
-        {pickMix ? <span className="mr-2 text-sm text-warning">{pickMix}</span> : null}
-        {perms.canCreate && !pickProblem ? (
-          // toolbar-size: exempt -- the selection bar is not the header row; every button in it is sm together
-          <Button size="sm" disabled={isPending} onClick={create}>
-            <Plus className="h-4 w-4" />
-            {`Create group with ${picked.length} style${picked.length === 1 ? "" : "s"}`}
-          </Button>
-        ) : null}
-        {perms.canEdit && joinable.length ? (
-          <>
-            <Select value={addTo} onChange={(e) => setAddTo(e.target.value)} aria-label="Add to existing group" className="w-48">
-              <option value="">Add to existing group…</option>
-              {joinable.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {`${g.group_code} · ${fmtKg(groupNet(g))} kg`}
-                </option>
-              ))}
-            </Select>
-            {/* toolbar-size: exempt -- the selection bar is not the header row */}
-            <Button size="sm" variant="outline" disabled={isPending || !addTo} onClick={join}>
-              Add
+      {/* ONE ROW, READ LEFT TO RIGHT (user 2026-10-15, alignment option A):
+          count + Clear, then the actions with
+          Create last and filled. It was SelectionBar's two loose rows: the
+          count alone on the left, the figures pushed right, the warning cut. */}
+      {picked.length > 0 ? (
+        <div
+          role="region"
+          aria-label="Bulk actions"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2"
+        >
+          <span className="text-sm font-semibold">{`${picked.length} selected`}</span>
+          <button type="button" className="text-sm text-primary hover:underline" onClick={sel.clear}>
+            Clear
+          </button>
+          {/* The kg figure and "Add to existing group" went (user 2026-10-15,
+              "no need"; `addToSampleGroup` stays in actions.ts). A refusal still
+              shows here: Create is hidden while one stands, and a button that
+              vanishes with no reason reads as broken. */}
+          {pickProblem ? <span className="text-sm text-danger">{pickProblem}</span> : null}
+          <span className="flex-1" />
+          {perms.canCreate && !pickProblem ? (
+            // toolbar-size: exempt -- the selection bar is not the header row; every button in it is sm together
+            <Button size="sm" disabled={isPending} onClick={create}>
+              <Plus className="h-4 w-4" />
+              {`Create group (${picked.length})`}
             </Button>
-          </>
-        ) : null}
-      </SelectionBar>
+          ) : null}
+        </div>
+      ) : null}
 
       {tab === "ungrouped" ? (
         <>
-          {canPick && looseKeys.length > 1 ? (
-            <button type="button" className="text-xs text-primary hover:underline" onClick={() => sel.toggleAll(looseKeys)}>
-              {sel.selectedKeys.size === looseKeys.length ? "Clear ticks" : `Tick all ${looseKeys.length}`}
-            </button>
+          {/* "Tick all" with the count, above the cards. "Clear ticks" went:
+              the bar's Clear does it (user 2026-10-15, option A). */}
+          {canPick && looseKeys.length > 1 && sel.selectedKeys.size < looseKeys.length ? (
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <span>{`${looseKeys.length} to group`}</span>
+              <button type="button" className="text-primary hover:underline" onClick={() => sel.toggleAll(looseKeys)}>
+                Tick all
+              </button>
+            </div>
           ) : null}
           {/* ONE CARD PER SAMPLE (per sample and fabric, when a style was costed
               in two). A tap ticks it — the card body is one button, so a
@@ -354,7 +324,11 @@ export function GroupingScreen({
             )}
             subtitle={(c) => [c.customer, c.style_name].filter(Boolean).join(" · ") || "—"}
             state={() => "pending"}
-            pillText={() => "To group"}
+            /* No pill: every card here would say "To group", which the tab
+               says already, and it took the SMP number's width (user
+               2026-10-15). The queue's own card size, the same as Grouped's
+               (user, screenshot 3501) — a `columns={3}` track stretched a lone
+               card across half the pane (3502). */
             stats={(c) => [
               { label: "Pieces", value: String(c.sample_qty_pcs) },
               { label: "Net kg", value: c.kg == null ? "No weight" : fmtKg(c.kg, 1), lead: true },

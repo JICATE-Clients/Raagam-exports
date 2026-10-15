@@ -74,7 +74,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
-import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { fmtDate } from "@/lib/format";
 import { isRefusal } from "@/lib/orders/budget/totals";
 import {
@@ -223,12 +223,17 @@ const REGISTER_FACETS: FacetGroup<AmendmentRegisterRow>[] = [
  *  - abandoned / superseded → no word: closed without a decision. They show
  *    while the drawer's Status facet is set, when the box stands down.
  */
+/* FOUR WORDS SINCE 2026-10-15 (user: Pending · Under Progress · Approved ·
+   Draft). `returned` is being re-worked — Under Progress, out of Draft.
+   `rejected` reverted the order to V0 and CLOSED the entry, so it is neither
+   in progress nor approved: no word, like abandoned / superseded, reached
+   through the drawer's Status facet. */
 const QUICK_WORD: Record<AmendmentEntryStatus, QuickWord | null> = {
   pending_md_approval: "pending",
-  approved: "updated",
-  rejected: "updated",
+  approved: "approved",
+  rejected: null,
   draft: "draft",
-  returned: "draft",
+  returned: "progress",
   abandoned: null,
   superseded: null,
 };
@@ -313,6 +318,7 @@ export function AmendmentRegisterScreen({
     });
   }, [rows, query, facetMatch]);
   const quick = useQuickStatus(entryWord, {
+    words: QUICK_WORDS_4,
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
     /* The figure on each word, over the searched and faceted list with this

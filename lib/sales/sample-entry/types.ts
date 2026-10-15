@@ -472,9 +472,12 @@ export function sampleEntryProblems(
 
     /* EMBELLISHMENTS (0722): a started row owes its Type and Process — the two
        cells the grid marks required. Component stays optional (0421: a panel
-       still being decided is a legitimate half-answer). */
+       still being decided is a legitimate half-answer).
+       THE KIND ALONE IS NOT A START: Combos draws one grid per kind, and each
+       stamps its kind on the row it opens with — so a row holding nothing but
+       its grid's kind is the seed, and must not hold Save. */
     if (h.enquiry_action !== "quote")
-      s.processes.filter(styleProcessRowStarted).forEach((r, ri) => {
+      s.processes.filter((r) => styleProcessRowStarted({ ...r, kind: null })).forEach((r, ri) => {
         if (!r.kind || !r.process_id)
           add({ section: "combos", ...at, label: "Embellishment", message: `${who}, embellishment ${ri + 1}: pick the ${r.kind ? "Process" : "Type"}.`, strict: true });
       });
@@ -877,6 +880,9 @@ export type SampleEntryListRow = {
   is_draft: boolean;
   created_at: string;
   created_by: string | null;
+  /** Why the entry cannot be changed (an approved costing, an SMP revision),
+   *  or null — greys the row's pencil and bin (`sampleLocks`). */
+  locked_reason: string | null;
 };
 
 /**
@@ -890,7 +896,7 @@ export type PdRequestStatus = "requested" | "acknowledged" | "not_acknowledged" 
 export const PD_STATUS_LABEL: Record<PdRequestStatus, string> = {
   requested: "With Sample Dept",
   acknowledged: "Acknowledged",
-  not_acknowledged: "Not acknowledged",
+  not_acknowledged: "Not Acknowledged",
   cancelled: "Withdrawn",
 };
 
