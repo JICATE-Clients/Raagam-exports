@@ -838,7 +838,8 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     ];
 
     return (
-      <div className="space-y-4">
+      // White table headings, as on Order Entry (user 2026-10-15) — globals.css "PLAIN HEADINGS".
+      <div className="space-y-4" data-head-fill="plain">
         <PageHeader
           title="Style"
           description="Garment style master — coordinates, components and sizes."
@@ -2118,7 +2119,8 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     // app/(app)/layout.tsx, which is a flex item of a `h-screen` column. Leave
     // this as `space-y-4` and the editor sizes to its content instead, stranding
     // the footer above a strip of empty page.
-    <div className="flex h-full flex-col gap-4">
+    // `data-head-fill`: white table headings, as on Order Entry (user 2026-10-15).
+    <div className="flex h-full flex-col gap-4" data-head-fill="plain">
       <PageHeader
         title={editId ? "Edit Style" : "New Style"}
         description="Wire each ⓘ field from stored data. Blank grid rows are ignored."

@@ -93,7 +93,6 @@ import { SubDetailSheet, useSubSheetOrigin } from "@/components/orders/sub-detai
 import { CustomerDecisionSheet, type CustomerDecision } from "@/components/sales/customer-decision-sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
-import { BackLink } from "@/components/ui/back-link";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
@@ -2901,14 +2900,8 @@ export function SampleCostingScreen({
                   }}
                 />
               </Field>
-              <Field label="Costing No" htmlFor="sc-no">
-                <Input
-                  id="sc-no"
-                  readOnly
-                  value={meta.code ?? preview ?? ""}
-                  className="w-auto min-w-[5.5rem] field-sizing-content max-sm:w-full"
-                />
-              </Field>
+              {/* No Costing No box (user 2026-10-15, duplicates on the page): the
+                  number is generated and read-only, and the header already shows it. */}
               <Field label="Costing Date" required w="code" htmlFor={costingFieldId.date}>
                 <Input
                   id={costingFieldId.date}
@@ -2934,9 +2927,11 @@ export function SampleCostingScreen({
                   }}
                 >
                   {revisingFrom ? <option value="next">{revisionLabel(meta.version)} (new)</option> : null}
+                  {/* Revision only, no status (user 2026-10-15): the header's pill
+                      already says Under Progress / Approved for the one on screen. */}
                   {(revisions.length ? revisions : [{ id: editId ?? "", version: meta.version, status: meta.status }]).map((r) => (
                     <option key={r.id} value={r.id}>
-                      {`${revisionLabel(r.version)}${r.status === "superseded" ? "" : ` · ${STATUS_LABEL[r.status]}`}`}
+                      {revisionLabel(r.version)}
                     </option>
                   ))}
                 </Select>
@@ -3582,7 +3577,9 @@ export function SampleCostingScreen({
               </>
             );
           })()}
-          {t ? <div className="text-[11px] tabular-nums text-muted-foreground">{`₹ ${money(t.gross)} before freight & insurance`}</div> : null}
+          {/* The ₹ figure left this line (user 2026-10-15): it is the Breakdown's
+              "Price ₹" row below, so only the note on what the price excludes stays. */}
+          {t ? <div className="text-[11px] text-muted-foreground">Before freight &amp; insurance</div> : null}
         </div>
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2">
@@ -3746,26 +3743,18 @@ export function SampleCostingScreen({
 
   /* THE FOOTER'S STATUS is just the state of the sheet: the price bar at the top
      carries Net → Margin → FOB, so the dock that repeated them is gone. */
+  /* NOTHING THE PAGE ALREADY SAYS (user 2026-10-15): "Editing sample costing"
+     is the header's own label, and the Quoted / margin / Net figures are the
+     Quotation Summary's — so the footer keeps only a state the page shows
+     nowhere else. */
   const footerWord = dirty
     ? "Unsaved changes"
     : revisingFrom
       ? `New ${revisionShort(meta.version)}`
       : editId
-        ? "Editing sample costing"
+        ? null
         : "New sample costing";
-  const dock = (
-    <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 tabular-nums">
-      <span>{footerWord}</span>
-      {heroValue != null ? (
-        <>
-          <span aria-hidden className="h-4 w-px bg-border" />
-          <span className="font-semibold text-foreground">{`${t?.quoted != null ? "Quoted" : "FOB"} ${ccy ?? ""} ${heroValue.toFixed(2)} / ${unitWord}`.replace("  ", " ")}</span>
-          <span className={`font-semibold ${health ? HEALTH[health].text : "text-foreground"}`}>{`${pct(t?.effectiveMarginPct)} margin`}</span>
-          <span className="text-muted-foreground">{`Net ₹ ${money(t?.net)}`}</span>
-        </>
-      ) : null}
-    </span>
-  );
+  const dock = footerWord ? <span>{footerWord}</span> : null;
 
   const sections: FullScreenSection[] = [
     {
@@ -3887,9 +3876,8 @@ export function SampleCostingScreen({
           <Button variant="ghost" size="sm" onClick={closeEditor} aria-label="Back to list" className="h-10 w-10 shrink-0 px-0 text-lg md:hidden">
             ←
           </Button>
-          {/* Back on a desktop too (user 2026-10-14: "add clear Back buttons") —
-              the app's BackLink, not a second outline button. */}
-          <BackLink onBack={closeEditor} label="Costing" className="max-md:hidden" />
+          {/* No desktop "← Costing" (user 2026-10-15, reversing 2026-10-14's back
+              link): the Costing tab and the footer's Cancel already leave. */}
           <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-wrap">
             <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {revisingFrom ? "Revise Sample Costing" : !editable ? "View Sample Costing" : editId ? "Edit Sample Costing" : "New Sample Costing"}
