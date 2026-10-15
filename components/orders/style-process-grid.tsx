@@ -160,7 +160,7 @@ export function StyleProcessGrid({
         <Select
           value={r.kind ?? ""}
           disabled={readOnly}
-          required={styleProcessRowStarted(r)}
+          required={styleProcessRowStarted(r, { kindStamped: !!fixedKind })}
           className="h-8"
           onChange={(e) => {
             const next = isProcessKind(e.target.value) ? e.target.value : null;
@@ -212,7 +212,7 @@ export function StyleProcessGrid({
           onChange={(id) => patch(r.key, { process_id: id })}
           usedIds={r.kind ? usedByKind.get(r.kind) : null}
           disabled={readOnly}
-          required={styleProcessRowStarted(r)}
+          required={styleProcessRowStarted(r, { kindStamped: !!fixedKind })}
           /* Empty-and-explain. With no Type the list is deliberately empty
              (see style-processes.ts), so the placeholder has to say why —
              an empty dropdown with a generic "— Select —" reads as "the

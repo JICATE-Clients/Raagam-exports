@@ -59,7 +59,9 @@ export type CostSheetEdit = { draft: CostingDraft; onChange: (next: CostingDraft
 
 const patchBy = <T extends { key: string }>(xs: readonly T[], key: string, patch: Partial<T>): T[] => xs.map((x) => (x.key === key ? { ...x, ...patch } : x));
 
-/** A number cell edited in place. Paper-coloured whatever the theme: the sheet is paper. */
+/** A number cell edited in place. Paper-coloured whatever the theme: the sheet is paper.
+ *  Its look is `.cs-ed` in the sheet CSS, not `!` utilities — a layered `!important`
+ *  outranks every unlayered rule, so a table cell could never flatten it. */
 function Ed({ value, onChange, label, w = "w-24" }: { value: string; onChange: (v: string) => void; label: string; w?: string }) {
   return (
     <Input
@@ -72,7 +74,7 @@ function Ed({ value, onChange, label, w = "w-24" }: { value: string; onChange: (
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onFocus={(e) => e.currentTarget.select()}
-      className={`${w} !h-7 !border-[#037bb8] !bg-white !px-2 text-right font-semibold tabular-nums !text-[#0f1b26]`}
+      className={`${w} cs-ed text-right font-semibold tabular-nums`}
     />
   );
 }
@@ -84,7 +86,6 @@ export function CostSheetDocument({
   lead,
   trail,
   quietDownload = false,
-  lockedHint = "Save the revision to download or print",
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -96,8 +97,6 @@ export function CostSheetDocument({
   trail?: ReactNode;
   /** Another button is the next step (Submit), so Download PDF drops to outline. */
   quietDownload?: boolean;
-  /** Said IN PLACE of the downloads while locked — a disabled button's title never shows. */
-  lockedHint?: string;
   /** Present only while a revision is being worked — the report's cells become inputs. */
   edit?: CostSheetEdit;
 }) {
@@ -154,7 +153,7 @@ export function CostSheetDocument({
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {error ? <span className="text-sm text-danger">{error}</span> : null}
           {locked ? (
-            <span className="text-sm text-muted-foreground">{lockedHint}</span>
+            null
           ) : (
             <>
               <Button variant="outline" size="md" disabled={busy != null} onClick={() => void run("csv")}>
@@ -379,31 +378,68 @@ function Sheet({ model, s, idx, edit, view }: { model: CostSheetModel; s: SizeFi
                         rows.push(
                           <tr key={`${f.key}-parts`} className="sub">
                             <td colSpan={8}>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "center" }}>
+                              {/* THE YARNS AND PROCESSES BEHIND A BUILT FABRIC ARE A TABLE (user
+                                  2026-10-15, "change to table, refer to Overheads & extra charges"):
+                                  one line per yarn / process, Line · Type · Share % · Rate, each
+                                  with its own hover ✕ — not a wrapping strip of boxes where every
+                                  ✕ on the fabric showed at once. */}
+                              {!d.is_direct && d.yarns.length + d.processes.length > 0 ? (
+                                <table className="parts">
+                                  <thead>
+                                    <tr>
+                                      <th>Line</th>
+                                      <th>Type</th>
+                                      <th className="r">Share %</th>
+                                      <th className="r">Rate ₹ / kg</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {d.yarns.map((y, k) => (
+                                      <tr key={y.key}>
+                                        <td>
+                                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                            {opts ? <Pick label="Yarn" value={y.item_id} empty={y.yarn_name || `Yarn ${k + 1}`} options={opts.yarns} w="w-44" onPick={(id, name) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { item_id: id, yarn_name: name }) })} /> : y.yarn_name || `Yarn ${k + 1}`}
+                                            <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
+                                          </span>
+                                        </td>
+                                        <td className="dim">Yarn</td>
+                                        <td className="r">
+                                          <Ed w="w-16" label={`${y.yarn_name || "Yarn"} share %`} value={y.mix_pct} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { mix_pct: v }) })} />
+                                        </td>
+                                        <td className="r">
+                                          <Ed w="w-20" label={`${y.yarn_name || "Yarn"} rate ₹/kg`} value={y.rate} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { rate: v }) })} />
+                                        </td>
+                                      </tr>
+                                    ))}
+                                    {d.processes.map((q, k) => (
+                                      <tr key={q.key}>
+                                        <td>
+                                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                            {opts ? <Pick label="Process" value={q.process_id} empty={q.process_name || `Process ${k + 1}`} options={opts.processes} w="w-44" onPick={(id, name) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { process_id: id, process_name: name }) })} /> : q.process_name || `Process ${k + 1}`}
+                                            <RemoveX label={q.process_name || "process"} onClick={() => setFabric(f.key, { processes: d.processes.filter((x) => x.key !== q.key) })} />
+                                          </span>
+                                        </td>
+                                        <td className="dim">Process</td>
+                                        <td />
+                                        <td className="r">
+                                          <Ed w="w-20" label={`${q.process_name || "Process"} rate ₹/kg`} value={q.rate} onChange={(v) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { rate: v }) })} />
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              ) : null}
+                              {/* BELOW the table, one line: the Direct tick, then the two add pickers (user 2026-10-15,
+                                  "remove the extra space"; then "bring this down") — the add row used to be the table's last row. */}
+                              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 3 }}>
                                 <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                                   <input type="checkbox" checked={d.is_direct} onChange={(e) => setFabric(f.key, { is_direct: e.target.checked })} />
                                   <span className="dim">Direct rate (bought-in)</span>
                                 </label>
-                                {!d.is_direct ? (
+                                {!d.is_direct && opts ? (
                                   <>
-                                    {d.yarns.map((y, k) => (
-                                      <span key={y.key} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                        {opts ? <Pick label="Yarn" value={y.item_id} empty={y.yarn_name || `Yarn ${k + 1}`} options={opts.yarns} w="w-40" onPick={(id, name) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { item_id: id, yarn_name: name }) })} /> : <span className="dim">{y.yarn_name || `Yarn ${k + 1}`}</span>}
-                                        <Ed w="w-16" label={`${y.yarn_name || "Yarn"} share %`} value={y.mix_pct} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { mix_pct: v }) })} />
-                                        <span className="dim">%</span>
-                                        <Ed w="w-20" label={`${y.yarn_name || "Yarn"} rate ₹/kg`} value={y.rate} onChange={(v) => setFabric(f.key, { yarns: patchBy(d.yarns, y.key, { rate: v }) })} />
-                                        <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
-                                      </span>
-                                    ))}
-                                    {opts ? <Pick label="Add yarn" value={null} empty="+ Yarn" options={opts.yarns} w="w-28" onPick={(id, name) => setFabric(f.key, { yarns: [...d.yarns, { ...newYarnMix(), item_id: id, yarn_name: name }] })} /> : null}
-                                    {d.processes.map((q, k) => (
-                                      <span key={q.key} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                        {opts ? <Pick label="Process" value={q.process_id} empty={q.process_name || `Process ${k + 1}`} options={opts.processes} w="w-40" onPick={(id, name) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { process_id: id, process_name: name }) })} /> : <span className="dim">{q.process_name || `Process ${k + 1}`}</span>}
-                                        <Ed w="w-20" label={`${q.process_name || "Process"} rate ₹/kg`} value={q.rate} onChange={(v) => setFabric(f.key, { processes: patchBy(d.processes, q.key, { rate: v }) })} />
-                                        <RemoveX label={q.process_name || "process"} onClick={() => setFabric(f.key, { processes: d.processes.filter((x) => x.key !== q.key) })} />
-                                      </span>
-                                    ))}
-                                    {opts ? <Pick label="Add process" value={null} empty="+ Process" options={opts.processes} w="w-28" onPick={(id, name) => setFabric(f.key, { processes: [...d.processes, { ...newFabricProcess(), process_id: id, process_name: name }] })} /> : null}
+                                    <Pick label="Add yarn" value={null} empty="+ Yarn" options={opts.yarns} w="w-28" onPick={(id, name) => setFabric(f.key, { yarns: [...d.yarns, { ...newYarnMix(), item_id: id, yarn_name: name }] })} />
+                                    <Pick label="Add process" value={null} empty="+ Process" options={opts.processes} w="w-28" onPick={(id, name) => setFabric(f.key, { processes: [...d.processes, { ...newFabricProcess(), process_id: id, process_name: name }] })} />
                                   </>
                                 ) : null}
                               </div>
@@ -1423,12 +1459,12 @@ const CSS = `
 .cs-sheet .spec > div:last-child { border-bottom:0; }
 .cs-sheet .spec dt { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--cs-muted); font-weight:700; align-self:center; }
 .cs-sheet .spec dd { margin:0; font-weight:600; font-size:13px; min-width:0; overflow-wrap:anywhere; }
-.cs-sheet .fabblk { display:grid; grid-template-columns:minmax(0,1fr) 150px; gap:12px; align-items:stretch; }
-@media (max-width:860px){ .cs-sheet .fabblk { grid-template-columns:1fr; } }
-.cs-sheet .photo { border:1px dashed var(--cs-rule); border-radius:12px; background:var(--cs-soft); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-height:130px; overflow:hidden; color:var(--cs-muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; }
-.cs-sheet .photo img { width:100%; height:100%; object-fit:cover; flex:1; } .cs-sheet .photo svg { width:46px; height:46px; color:var(--cs-brand); opacity:.7; }
-.cs-sheet .tri { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr); gap:12px; align-items:start; }
-@media (max-width:1100px){ .cs-sheet .tri { grid-template-columns:1fr; } }
+.cs-sheet .fabblk { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-start; }
+.cs-sheet .fabblk > div { flex:0 1 auto; min-width:0; max-width:100%; }
+.cs-sheet .fabblk > .photo { flex:0 0 170px; }
+.cs-sheet .photo { border:1px dashed var(--cs-rule); border-radius:12px; background:var(--cs-soft); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:6px; min-height:130px; overflow:hidden; color:var(--cs-muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; }
+.cs-sheet .photo img { display:block; width:100%; height:auto; max-height:320px; object-fit:contain; border-radius:8px; } .cs-sheet .photo svg { width:46px; height:46px; color:var(--cs-brand); opacity:.7; }
+.cs-sheet .tri { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start; }
 .cs-sheet .comm { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:14px; align-items:start; }
 @media (max-width:860px){ .cs-sheet .comm { grid-template-columns:1fr; } }
 /* COMPACT — the commercial block is read at a glance, so it is one short band, not a poster. */
@@ -1498,11 +1534,43 @@ const CSS = `
 .cs-sheet summary::-webkit-details-marker { display:none; } .cs-sheet summary span { color:var(--cs-muted); font-weight:500; font-size:12.5px; }
 .cs-sheet .scroll { overflow-x:auto; }
 .cs-sheet table { width:100%; border-collapse:collapse; font-size:12px; }
-.cs-sheet th { text-align:left; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--cs-muted); padding:5px 12px; border-bottom:1px solid var(--cs-rule); white-space:nowrap; font-weight:700; background:#fff; }
-.cs-sheet td { padding:4px 12px; border-bottom:1px solid var(--cs-rule); white-space:nowrap; background:#fff; }
+.cs-sheet th { text-align:left; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--cs-muted); padding:4px 10px; border-bottom:1px solid var(--cs-rule); white-space:nowrap; font-weight:700; background:#fff; }
+.cs-sheet td { padding:3px 10px; border-bottom:1px solid var(--cs-rule); white-space:nowrap; background:#fff; }
 .cs-sheet tr:last-child td { border-bottom:0; } .cs-sheet .r { text-align:right; }
-.cs-sheet tr.sub td { background:var(--cs-soft); padding:6px 12px; font-size:12px; }
+.cs-sheet td { vertical-align:middle; }
+.cs-sheet tr.sub td { background:var(--cs-soft); padding:3px 8px; font-size:12px; }
+/* The fabric block's boxes are 26px, not 28 — the yarn/process lines stack five deep
+   (user 2026-10-15, "innum compact pannu"). Height only; the type size is unchanged. */
+.cs-sheet .fabblk input:not([type="checkbox"]), .cs-sheet .fabblk select { height:26px !important; }
+/* A nested line's ✕ shows on THAT line's hover — RowHoverRemove's reveal reads any
+   ancestor <tr>, so hovering the fabric's sub row would light every ✕ under it. */
+@media (hover:hover) { .cs-sheet table.parts tr:not(:hover) [data-row-remove]:not(:focus-visible) { opacity:0; } }
+.cs-sheet tr.sub table.parts { width:auto; margin:0; border:1px solid var(--cs-rule); border-radius:8px; border-collapse:separate; border-spacing:0; overflow:hidden; }
+.cs-sheet tr.sub table.parts td, .cs-sheet tr.sub table.parts th { background:#fff; padding:1px 6px; }
 .cs-sheet tr.total td { background:var(--cs-brand-tint); font-weight:800; color:var(--cs-brand-ink); }
+/* THE PAPER INPUT (Ed). Unlayered + !important so it beats the skin's green box. */
+.cs-sheet input.cs-ed { height:28px !important; padding-inline:8px !important; border-color:#037bb8 !important; background:#fff !important; color:#0f1b26 !important; }
+/* SPREADSHEET TABLES THAT HUG THEIR COLUMNS (user 2026-10-15: "intha table lam
+   erp-sheet-grid, erp-table-fit apply panni kudu"). Both skills' rules, written in
+   the sheet's own fixed paper palette rather than the app's data-grid-style="sheet"
+   marker, whose theme tokens would turn the paper dark in dark mode.
+   - FIT: each card is as wide as its table (w-fit + max-w-full), never stretched,
+     so the columns no longer open gaps between them. A long table still scrolls.
+   - GRID: a thin line between every cell; the card's own rounded border is the one
+     outer frame, so all four corners curve and there is no second frame.
+   - HEADER: grey band, sentence case. Type size unchanged.
+   - FLAT CELLS: a field in a cell has no box, radius or fill — the cell is the
+     field. Hover tints it, focus draws the blue inset. A field that is not the
+     cell's own value (the + Yarn / + Process add pickers) keeps its box. */
+.cs-sheet details { width:fit-content; max-width:100%; border-radius:8px; }
+.cs-sheet .scroll table { width:auto; }
+.cs-sheet .scroll :is(th, td) { border-right:1px solid var(--cs-rule); }
+.cs-sheet .scroll tr > :last-child { border-right:0; }
+.cs-sheet .scroll th { background:var(--cs-soft); text-transform:none; letter-spacing:normal; }
+.cs-sheet .scroll td:has(> input.cs-ed, > select) { padding:0; }
+.cs-sheet .scroll :is(td > input.cs-ed, td > select, td > span > select, td > span > input:not([type="checkbox"])) { border-color:transparent !important; border-radius:0 !important; background:transparent !important; box-shadow:none !important; }
+.cs-sheet .scroll :is(td > input.cs-ed, td > select, td > span > select, td > span > input:not([type="checkbox"])):hover { background:#f3f8fc !important; }
+.cs-sheet .scroll :is(td > input.cs-ed, td > select, td > span > select, td > span > input:not([type="checkbox"])):focus { box-shadow:inset 0 0 0 2px #037bb8 !important; outline:none !important; }
 .cs-sheet .apv { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 14px; padding:7px 18px; font-size:12.5px; border-bottom:1px solid var(--cs-rule); }
 .cs-sheet .apv span { font-size:12px; opacity:.85; }
 .cs-sheet .apv[data-tone="good"] { background:var(--cs-good-tint); color:var(--cs-good); }
