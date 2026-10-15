@@ -16862,7 +16862,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         8px gap), grey so the header band runs the box's full width. */}
     <div
       aria-hidden
-      className="hidden items-stretch border-b border-border bg-surface-muted pr-9 min-[1250px]:flex"
+      className="hidden items-stretch border-b border-border bg-surface pr-9 min-[1250px]:flex"
     >
       <div data-sheet-row="head" className={cn("grid flex-none border-r border-border", FABRIC_TRACK)}>
         {head("Structure", true)}
@@ -20125,7 +20125,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               table to its pane with no scroll — see globals.css. */}
           <SectionGrid wrap>
             {/* Yarn dyeing */}
-            <div data-grid-style="sheet" data-grid-fit="fill" className="min-w-0 flex-[1_1_18.5rem]">
+            <div data-grid-style="sheet" data-grid-cells="flat" data-grid-fit="fill" className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- TWO grids share the Color/Print Details section; without captions the operator
                    cannot tell which is which. */
@@ -20139,7 +20139,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               />
             </div>
             {/* Fabric dyeing */}
-            <div data-grid-style="sheet" data-grid-fit="fill" className="min-w-0 flex-[1_1_18.5rem]">
+            <div data-grid-style="sheet" data-grid-cells="flat" data-grid-fit="fill" className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- the other half of the pair above. */
                 label="Fabric Dyeing"
@@ -20152,7 +20152,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               />
             </div>
             {/* Roll form prints */}
-            <div data-grid-style="sheet" data-grid-fit="fill" className="min-w-0 flex-[1_1_13rem]">
+            <div data-grid-style="sheet" data-grid-cells="flat" data-grid-fit="fill" className="min-w-0 flex-[1_1_13rem]">
               <ChildGrid<PrintRow>
                 /* grid-caption: exempt -- the third of three grids in one section; without captions
                    the operator cannot tell which is which. */
@@ -20233,7 +20233,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               `tableAlways` removes was never going to fire here. Not
               `data-grid-fit="fill"`: stretched, Combo would grow to ~400px for
               a ~12-capital colourway name. */}
-          <div data-grid-style="sheet">
+          <div data-grid-style="sheet" data-grid-cells="flat">
           <ChildGrid<ComboRow>
             columns={comboColumns}
             rows={combos}
@@ -20308,7 +20308,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   to it, so every column has a width and the table hugs its own
                   752px — see the Packs column's note. A cap is only needed
                   for a column that fills. */}
-              <div data-grid-style="sheet">
+              <div data-grid-style="sheet" data-grid-cells="flat">
               <ChildGrid<PackTypeRow>
                 badge={
                   <span className="text-xs text-muted-foreground">
@@ -21456,7 +21456,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               the declared widths while values are typed (operator,
               2026-09-17); no `data-grid-fit="fill"`, which would stretch
               Consignee to fill the pane. */}
-          <div data-grid-style="sheet" className="[&_table]:table-fixed">
+          <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
           <ChildGrid<QuantityRow>
             columns={quantityColumns}
             rows={quantities}
@@ -22253,7 +22253,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               `tableAlways` keeps the table below ChildGrid's ~512px cards
               threshold, so the narrow panel still shows a headed grid. */}
           <div className="max-w-[442px] overflow-hidden rounded-lg border border-border">
-            <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-3 py-2">
+            <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2">
               <CheckCheck className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
               <div>
                 {/* The sub-line "Which milestones this order tracks, and their
@@ -22271,7 +22271,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   row's ✕ (it used to sit inside the Due Date box).
                   `TA_APPROVAL_FIELDS` / `_HEADERS` / `_ROWS` painted the old
                   card rows and are no longer applied. */}
-              <div data-grid-style="sheet" className="[&_table]:table-fixed">
+              <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
               <ChildGrid<TaApprovalRow>
                 columns={taApprovalColumns}
                 rows={taApprovalRows}
@@ -23721,6 +23721,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     // the footer above a strip of empty page.
     <div
       className="flex h-full flex-col gap-4"
+      /* WHITE TABLE HEADINGS ON ORDER ENTRY (user 2026-10-15: "order entry fulla
+         table heading la engaum gray colur vendam") — globals.css, "PLAIN HEADINGS". */
+      data-head-fill="plain"
       /* ONE LISTENER RATHER THAN ~40 SETTERS — see `touched`. Capture phase so a
          control that stops propagation (the pickers do) still counts, and
          `onInput` as well as `onClick` so typing registers without a click. */

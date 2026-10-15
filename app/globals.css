@@ -2634,6 +2634,18 @@ html[data-type-scale="compact"] .ty-badge-icon {
   letter-spacing: normal;
   font-size: 0.75rem;
 }
+/* PLAIN HEADINGS — `data-head-fill="plain"` on a screen's root (user 2026-10-15,
+   Order Entry: "table heading la engaum gray colur vendam"). Every table heading
+   under it — a sheet grid's `th`, a sheet-rows ladder's head row, a DataTable's
+   thead — is the page's white instead of the grey band. Per screen by design;
+   the grey stays everywhere else. `!important` because DataTable paints its
+   thead with a utility class and the sheet rules are unlayered. */
+[data-head-fill="plain"] thead,
+[data-head-fill="plain"] thead tr,
+[data-head-fill="plain"] thead th,
+[data-head-fill="plain"] [data-sheet-row="head"] {
+  background: var(--surface) !important;
+}
 [data-grid-style="sheet-rows"] [data-sheet-row="head"] > * {
   white-space: nowrap;
   overflow: hidden;
