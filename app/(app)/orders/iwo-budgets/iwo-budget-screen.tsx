@@ -47,7 +47,7 @@ import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import {
   createdByFacet,
   createdDateFacet,
@@ -290,8 +290,17 @@ type Form = { iwo_id: string | null; budget_date: string; remark: string };
  * approval state by name; while it is set the box stands down (the Budget
  * Approval rule, `useQuickStatus`'s `standDown`).
  */
+/* PENDING · UNDER PROGRESS · APPROVED · DRAFT (user 2026-10-15). Submitted
+   and Sent back are worked on and not approved, so both are Under Progress —
+   before this they read Updated beside the approved budgets. */
 const budgetWord = (t: IwoBudgetTask): QuickWord =>
-  !t.budget ? "pending" : t.budget.status === "draft" ? "draft" : "updated";
+  !t.budget
+    ? "pending"
+    : t.budget.status === "approved"
+      ? "approved"
+      : t.budget.status === "draft"
+        ? "draft"
+        : "progress";
 
 /**
  * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
@@ -422,6 +431,7 @@ export function IwoBudgetScreen({
     });
   }, [tasks, listQuery, facetMatches]);
   const quick = useQuickStatus(budgetWord, {
+    words: QUICK_WORDS_4,
     standDown: !!listFacets.values.budget,
     onPick: () => listFacets.set("budget", ""),
     countRows: base,

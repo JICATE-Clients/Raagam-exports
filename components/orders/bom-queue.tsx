@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
-import { Check, Clock, Pencil } from "lucide-react";
+import { BadgeCheck, Check, Clock, Hourglass, Pencil } from "lucide-react";
 import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -195,7 +195,16 @@ export function BomQueuePill({ status }: { status: BomStatus }) {
  * from unfiltered to Pending first for the same reason. Budget Approval
  * already opened on Pending; this makes the other three agree with it.
  */
-export type QuickWord = "pending" | "updated" | "draft";
+/* UNDER PROGRESS + APPROVED (user 2026-10-15: "all area need underprogress
+   tab … untouched entry pending, worked order under progress, approved fabric
+   plan approved tab, then draft"). Two words cannot say "worked on but not
+   finished", so that row had to sit under Pending or Updated and was wrong in
+   either. A screen opts in by passing its own `words` to `StatusSegment`
+   (BomQueue: `isApproved`); every other queue keeps its two or three words.
+   Rolled out on Fabric BOM FIRST, by request, before the sweep. */
+export type QuickWord = "pending" | "updated" | "draft" | "progress" | "approved";
+/** The four-word box, in the order the user listed it. */
+export const QUICK_WORDS_4: readonly QuickWord[] = ["pending", "progress", "approved", "draft"];
 /** The figure beside each word. Partial because a word with no rows is absent
  *  rather than zero — `StatusSegment` draws the `?? 0`, so the two readers
  *  (this box and the server-counted one below) cannot print it differently. */
@@ -235,6 +244,8 @@ const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
   pending: { text: "Pending", icon: Clock },
   updated: { text: "Updated", icon: Check },
   draft: { text: "Draft", icon: Pencil },
+  progress: { text: "Under Progress", icon: Hourglass },
+  approved: { text: "Approved", icon: BadgeCheck },
 };
 /* THE PRIMARY BUTTON'S OWN MARKERS, NOT JUST ITS TOKENS (user 2026-09-22,
    screenshot 145813 under Steel: "steel colour set aagi appo pending update
@@ -267,6 +278,7 @@ export function StatusSegment({
   draft = false,
   counts,
   updatedFirst = false,
+  words: ownWords,
 }: {
   /* A plain string, not `BomStatus`: the Budgets queue draws this same box
      over its own vocabulary (2026-09-21, "update and pending options … like
@@ -294,9 +306,12 @@ export function StatusSegment({
    *  Permissions: "the updated tab first, next pending"). Opt-in, so every
    *  Orders queue keeps Pending first — there Pending is the work to do. */
   updatedFirst?: boolean;
+  /** The screen's own words, in order — overrides `draft` / `updatedFirst`
+   *  (the four-word box, `QUICK_WORDS_4`). */
+  words?: readonly QuickWord[];
 }) {
   const base: QuickWord[] = updatedFirst ? ["updated", "pending"] : ["pending", "updated"];
-  const words: QuickWord[] = draft ? [...base, "draft"] : base;
+  const words: readonly QuickWord[] = ownWords ?? (draft ? [...base, "draft"] : base);
   const current = words.includes(value as QuickWord) ? (value as QuickWord) : null;
   const label = current ? QUICK[current].text : "all";
   return (
@@ -348,7 +363,9 @@ const QUICK_PARAM = "status";
 
 function readQuickParam(sp: ReadonlyURLSearchParams, param: string): QuickWord | null {
   const raw = sp.get(param);
-  return raw === "pending" || raw === "updated" || raw === "draft" ? raw : null;
+  return raw === "pending" || raw === "updated" || raw === "draft" || raw === "progress" || raw === "approved"
+    ? raw
+    : null;
 }
 
 /** Writes the word, KEEPING every other param — these routes carry `?new=1`,
@@ -385,9 +402,12 @@ export function useQuickStatus<R>(
     /** Updated drawn first AND opened on (user 2026-10-01, the Admin user
      *  lists) — see `StatusSegment`'s `updatedFirst`. */
     updatedFirst?: boolean;
+    /** The screen's own words — `QUICK_WORDS_4` for the Pending · Under
+     *  Progress · Approved · Draft box (user 2026-10-15). */
+    words?: readonly QuickWord[];
   } = {},
 ) {
-  const { draft = true, standDown = false, onPick, countRows, param = QUICK_PARAM, updatedFirst = false } = opts;
+  const { draft = true, standDown = false, onPick, countRows, param = QUICK_PARAM, updatedFirst = false, words } = opts;
   const sp = useSearchParams();
   /* SEEDED FROM THE URL, THEN OWNED HERE. The seed is what makes a shared link
      open on its own pile; the state is what makes a click instant. A Back that
@@ -418,6 +438,7 @@ export function useQuickStatus<R>(
       draft={draft}
       counts={counts}
       updatedFirst={updatedFirst}
+      words={words}
     />
   );
   return { value, matches, segment, counts };
@@ -456,6 +477,7 @@ export function useServerQuickStatus({
   counts,
   draft = true,
   param = QUICK_PARAM,
+  words,
 }: {
   /** The word the SERVER filtered by — the page's parsed `?status=`. */
   value: QuickWord | null;
@@ -463,6 +485,8 @@ export function useServerQuickStatus({
   counts?: QuickCounts | null;
   draft?: boolean;
   param?: string;
+  /** See `useQuickStatus`'s `words`. */
+  words?: readonly QuickWord[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -479,7 +503,7 @@ export function useServerQuickStatus({
     [param, router],
   );
   const segment = (
-    <StatusSegment value={value ?? ""} onChange={pick} draft={draft} counts={counts ?? undefined} />
+    <StatusSegment value={value ?? ""} onChange={pick} draft={draft} counts={counts ?? undefined} words={words} />
   );
   return { value, segment, isPending };
 }
@@ -583,6 +607,7 @@ export function BomQueue({
   quickStatus = false,
   quickDraft = false,
   fitUpdated = false,
+  isApproved,
   isPending = false,
 }: {
   tasks: BomTaskRow[];
@@ -631,8 +656,42 @@ export function BomQueue({
   /** The Updated table sized to its columns (`OrderQueueTable`'s `fit`) —
    *  opt-in, Material BOM only (client 2026-09-28). */
   fitUpdated?: boolean;
+  /**
+   * THE FOUR-WORD BOX — Pending · Under Progress · Approved · Draft (user
+   * 2026-10-15; Fabric BOM first). Given, the box stops reading `BomStatus`
+   * word for word and sorts each row by `queueWordOf` below. Omitted, the
+   * queue is exactly the Pending / Updated / Draft box it always was.
+   */
+  isApproved?: (t: BomTaskRow) => boolean;
   isPending?: boolean;
 }) {
+  /**
+   * WHICH WORD A ROW IS UNDER. Four-word mode:
+   *
+   *   no BOM / no lines            → Pending   (untouched)
+   *   order approved (has a BOM)   → Approved  (the MD approved its budget;
+   *                                             the BOM is locked with it)
+   *   saved with Save as Draft     → Draft
+   *   anything else saved          → Under Progress — Updated, Recalculate and
+   *                                  Unresolved alike: worked on, not approved
+   *
+   * Approved is tested before Draft because the lock is the stronger fact —
+   * an approved order's BOM cannot be worked on whatever its last save was.
+   * EVERY ROW LANDS UNDER ONE WORD, which the two-word box never managed:
+   * Recalculate and Unresolved used to be in no word at all.
+   */
+  const queueWordOf = useCallback(
+    (t: BomTaskRow): QuickWord | null => {
+      if (!isApproved) {
+        return t.status === "pending" || t.status === "updated" || t.status === "draft" ? t.status : null;
+      }
+      if (t.status === "pending") return "pending";
+      if (isApproved(t)) return "approved";
+      if (t.status === "draft") return "draft";
+      return "progress";
+    },
+    [isApproved],
+  );
   const [query, setQuery] = useState("");
   /* THE PENDING / UPDATED BOX KEEPS ITS OWN STATE (user, 2026-09-21: "Pending
      and Update should not be connected to the filters"). It used to write
@@ -648,9 +707,11 @@ export function BomQueue({
      the URL half is the same two helpers either way, so the two cannot spell
      the param differently. */
   const sp = useSearchParams();
-  const [quickFilter, setQuickFilter] = useState<"" | BomStatus>(
-    () => readQuickParam(sp, QUICK_PARAM) ?? "pending",
-  );
+  const [quickFilter, setQuickFilter] = useState<"" | QuickWord>(() => {
+    const w = readQuickParam(sp, QUICK_PARAM) ?? "pending";
+    // An old `?status=updated` link on a four-word queue lands on Approved.
+    return isApproved && w === "updated" ? "approved" : w;
+  });
   const pickQuick = useCallback((v: QuickWord) => {
     setQuickFilter(v);
     writeQuickParam(QUICK_PARAM, v);
@@ -663,14 +724,14 @@ export function BomQueue({
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return tasks.filter((t) => {
-      if (quickStatus && quickFilter && t.status !== quickFilter) return false;
+      if (quickStatus && quickFilter && queueWordOf(t) !== quickFilter) return false;
       if (!matchesFacets(t)) return false;
       if (!needle) return true;
       return [t.sc_no, t.order_code, t.po_no, t.customer_name].some((v) =>
         (v ?? "").toLowerCase().includes(needle),
       );
     });
-  }, [tasks, query, quickStatus, quickFilter, matchesFacets]);
+  }, [tasks, query, quickStatus, quickFilter, matchesFacets, queueWordOf]);
 
   /**
    * THE FIGURE ON EACH WORD (user 2026-09-24) — over the list with the search
@@ -695,12 +756,11 @@ export function BomQueue({
         )
       )
         continue;
-      if (t.status === "pending" || t.status === "updated" || t.status === "draft") {
-        c[t.status] = (c[t.status] ?? 0) + 1;
-      }
+      const w = queueWordOf(t);
+      if (w) c[w] = (c[w] ?? 0) + 1;
     }
     return c;
-  }, [tasks, query, matchesFacets]);
+  }, [tasks, query, matchesFacets, queueWordOf]);
 
   /**
    * WHAT THE QUEUE AMOUNTS TO — the one figure a merchandiser wants before
@@ -771,7 +831,9 @@ export function BomQueue({
         activeCount={facets.activeCount}
         leading={
           quickStatus ? (
-            quickDraft ? (
+            isApproved ? (
+              <StatusSegment value={quickFilter} onChange={pickQuick} words={QUICK_WORDS_4} counts={quickCounts} />
+            ) : quickDraft ? (
               <StatusSegment value={quickFilter} onChange={pickQuick} draft counts={quickCounts} />
             ) : (
               <StatusSegment value={quickFilter} onChange={pickQuick} counts={quickCounts} />
@@ -810,7 +872,10 @@ export function BomQueue({
           QUEUE'S OWN DETAILS (user, 2026-09-24, screenshot 3045). Pending and
           Draft are the work still to do and keep the cards below. Same rows,
           same search and facets, same click — only the drawing changes. */}
-      {quickStatus && quickFilter === "updated" ? (
+      {/* On the four-word box the table is APPROVED's — finished work. Under
+          Progress keeps the cards: its rows still carry a Recalculate or
+          Unresolved pill the table has no column for. */}
+      {quickStatus && quickFilter === (isApproved ? "approved" : "updated") ? (
         <OrderQueueTable<BomTaskRow>
           fit={fitUpdated}
           rows={filtered}

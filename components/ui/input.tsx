@@ -1,6 +1,7 @@
 import { forwardRef, type InputHTMLAttributes } from "react";
 import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
+import { hint } from "@/lib/ui/placeholders";
 
 /**
  * Is this control empty, for the mandatory-field hold?
@@ -141,7 +142,7 @@ export const Input = forwardRef<
      *  itself without being asked. */
     uppercase?: boolean;
   }
->(({ className, uppercase, onChange, readOnly: ownReadOnly, tabIndex, ...props }, ref) => {
+>(({ className, uppercase, onChange, readOnly: ownReadOnly, tabIndex, placeholder, ...props }, ref) => {
   /**
    * A LOCKED RECORD IS READ-ONLY (`LockScope`, field.tsx) — the field's own
    * `readOnly` OR the surface's lock. Two readers keep reading the CALLER'S
@@ -442,6 +443,7 @@ export const Input = forwardRef<
         : onChange
     }
     {...props}
+    placeholder={hint(placeholder)}
     /* AFTER the spread, deliberately. `onKeyDown` wraps and then CALLS
        `props.onKeyDown`, so a call site's handler still runs — but if the spread
        came last it would replace this one outright and the field would silently

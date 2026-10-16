@@ -700,13 +700,13 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
 export const rateMemoryKey = (fabricId: string | null, quality: string) =>
   fabricId ? `id:${fabricId}` : quality.trim() ? `q:${quality.trim().toUpperCase()}` : "";
 
-/** The margin floor in words, for the band. Since 2026-10-14 EVERY costing
- *  goes to the MD (see `submitSampleCosting`); the floor only warns. */
+/** The margin floor in words, for the band. Since 0725 the BUYER decides a
+ *  costing (no MD step, see `submitSampleCosting`); the floor only warns. */
 export const floorSentence = (lowest: number | null) =>
   lowest == null
     ? null
     : lowest < MARGIN_FLOOR_PCT
-      ? `Lowest margin ${lowest.toFixed(1)}% is under the ${MARGIN_FLOOR_PCT}% floor — the MD sees it flagged.`
+      ? `Lowest margin ${lowest.toFixed(1)}% is under the ${MARGIN_FLOOR_PCT}% floor — flagged red on the sheet.`
       : `Lowest margin ${lowest.toFixed(1)}% — clears the ${MARGIN_FLOOR_PCT}% floor.`;
 
 /** The tail of the "sent to the MD" toast: the margin, flagged when under the floor. */

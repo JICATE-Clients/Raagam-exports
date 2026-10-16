@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useEffectEvent } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 /**
  * Open ONE RECORD from a link — `?open=<id>` — the sibling of `useCreateIntent`
@@ -24,7 +24,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
  */
 export function useOpenIntent(onOpen: (id: string) => void) {
   const params = useSearchParams();
-  const router = useRouter();
   const pathname = usePathname();
   const open = useEffectEvent(onOpen);
 
@@ -32,9 +31,23 @@ export function useOpenIntent(onOpen: (id: string) => void) {
     const id = params.get("open");
     if (!id) return;
     open(id);
-    const next = new URLSearchParams(params.toString());
+    /*
+     * STRIPPED WITH `history.replaceState`, NOT `router.replace` (user
+     * 2026-10-15: "Back option is not working … for example costing").
+     * `router.replace` is ASYNC: until it commits, `window.location` still
+     * carries `?open=`. The status boxes write `?status=` with replaceState
+     * FROM `window.location`, so a click in that window wrote the stale
+     * `?open=` back; the effect re-fired and re-opened the record — and every
+     * editor's Back (which only flips local state to the list) was undone the
+     * moment it ran. Costing's own one-shot links hit this exact race on
+     * 2026-10-09 and moved to replaceState; this is the same fix for the ten
+     * screens that open a record from a link. replaceState is synchronous —
+     * nothing can read the old address after it — and Next keeps
+     * `useSearchParams` in step with it.
+     */
+    const next = new URLSearchParams(window.location.search);
     next.delete("open");
     const qs = next.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [params, pathname, router]);
+    window.history.replaceState(window.history.state, "", qs ? `${pathname}?${qs}` : pathname);
+  }, [params, pathname]);
 }

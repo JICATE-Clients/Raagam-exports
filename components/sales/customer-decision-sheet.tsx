@@ -15,7 +15,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -75,20 +75,22 @@ export function CustomerDecisionSheet({
         </>
       }
     >
-      <FieldGrid>
+      {/* One remark, at the `name` step (288px) — the free-text width every
+          master's Notes takes; the sheet is `sm`, so it never clips. */}
+      <FieldRow>
         <Field
           label={approving ? "Buyer's confirmation (email ref, agreed price)" : "Why did the buyer decline?"}
           required={!approving}
-          size="full"
+          w="name"
           htmlFor="cd-remark"
         >
           <Textarea id="cd-remark" rows={3} value={remark} onChange={(e) => setRemark(e.target.value)} />
         </Field>
-      </FieldGrid>
+      </FieldRow>
       <p className="mt-3 text-xs text-muted-foreground">
         {approving
           ? "Record this only once the buyer has confirmed by email. The quoted rates are locked, and so is the sample entry; Revise opens the next revision if the price has to change later."
-          : "The quote moves to Rejected. Revise re-opens it later as a new Draft."}
+          : "The quote moves to Rejected. Raise Revise opens the next revision as a Draft; saving it sends it back to the buyer."}
       </p>
     </Sheet>
   );

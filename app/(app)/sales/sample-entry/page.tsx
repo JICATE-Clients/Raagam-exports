@@ -7,7 +7,7 @@ import { SampleEntryScreen } from "./sample-entry-screen";
 
 /**
  * Sample ▸ Samples & Development ▸ Sample Entry — the list, with the entry
- * editor as an OVERLAY mode of it (raagam-screen-layout, the operator's rule 3).
+ * editor rendered instead of it as a page mount (Order Entry's shape).
  * doc/sample/sample-module-specification.md; data model in migration 0683.
  */
 export default async function SampleEntryPage({

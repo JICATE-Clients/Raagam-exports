@@ -31,9 +31,9 @@ export const metadata = { title: "Costing Reports" };
  *  each buyer counter-offer is a Rev) — said in words. */
 function reviseReason(status: string, isDraft: boolean | null): string | null {
   if (status === "approved" || status === "submitted" || status === "rejected") return null;
-  if (isDraft || status === "draft") return "This costing is still a Draft — edit it directly. Revise starts a new revision once it is sent to the buyer.";
+  if (isDraft || status === "draft") return "This costing is still a Draft — edit it directly. Once it is saved it is Under Progress with the buyer, and can be revised.";
   if (status === "superseded") return "A later revision replaced this one — open the latest revision to revise it.";
-  return "Only a costing sent to the buyer can be revised.";
+  return "Only a costing that is Under Progress, Approved or Rejected can be revised.";
 }
 
 export default async function CostingReportsPage({
@@ -54,11 +54,18 @@ export default async function CostingReportsPage({
   const cost = buildCostSheetModel(record, data, letterhead, history, facts);
   const quote = buildQuotationModel(record, data, letterhead, history, facts);
   return (
-    <div className="space-y-4">
+    // FILLS <main> (a flex column of fixed height) so the revision save bar can sit
+    // at the BOTTOM of the screen on a short tab — the MasterFullScreen footer's
+    // rule: sticky bottom-0 only reaches the bottom of its own container.
+    <div className="flex flex-1 flex-col gap-4">
       <PageHeader
         title="Costing Reports"
         description={[cost.costingNo, cost.revision, cost.style].filter(Boolean).join(" · ")}
-        back={{ href: `/sales/sample-costing?open=${record.id}`, label: "Costing" }}
+        /* The way back lives IN the report toolbar now (CostingReports' `lead`): the
+           header floats it right of the toolbar, and a float has nothing to sit
+           beside in this flex column, so it took a row of its own (user 2026-10-15,
+           screenshot 3523: "back costing need to relocate into the bar"). */
+        back={false}
       />
       <CostingReports
         cost={cost}
@@ -69,8 +76,9 @@ export default async function CostingReportsPage({
            writes the next Rev and every earlier Rev stays in the history. */
         openRevising={sp.revise === "1"}
         /* REVISE FROM THE REPORT (client 2026-10-09) — offered under the editor's own
-           two conditions: the costing is APPROVED and the reader may edit. A draft or
-           one with the MD is edited in place, and a superseded revision is history. */
+           conditions: the costing is Under Progress, Approved or Rejected (0725) and
+           the reader may edit. A Draft is edited in place, and a superseded revision
+           is history. */
         source={{
           record,
           /* ONLY WHAT THIS COSTING NAMES goes to the browser (not every enquiry and
@@ -93,6 +101,10 @@ export default async function CostingReportsPage({
             trims: live(data.trims),
           },
           history,
+          /* STILL REACHABLE AFTER 0728: a Rev raised from a REJECTED costing starts
+             as a Draft (save_sample_costing's parent branch), so "Send to Buyer" is
+             how it goes back Under Progress without reopening the editor. A Sample
+             Revision's proposal is also a Draft; the action refuses that one. */
           canSubmit: canEdit && record.status === "draft" && !record.is_draft && isEditableStatus(record.status),
         }}
         revise={

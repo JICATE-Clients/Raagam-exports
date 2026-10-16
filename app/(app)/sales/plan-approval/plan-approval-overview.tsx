@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronRight, ExternalLink } from "lucide-react";
+import { buttonClasses } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
 import { PlanReportView } from "@/components/sales/plan-reports";
+import { DecisionFacts, DecisionTitle, SampleDecisionColumns } from "@/components/sales/sample-decision-sheet";
 import { cn } from "@/lib/utils";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import type { TimelineRow } from "@/lib/approvals/types";
@@ -62,49 +64,41 @@ export function PlanApprovalOverview({
   const shades = h.revision?.shadesBefore ? shadeChanges(h.revision.shadesBefore, h.revision.shadesNow) : null;
 
   return (
-    <div className="grid items-start gap-3 xl:grid-cols-12">
-      {/* ═══ LEFT — the plan's identity ═══ */}
-      <div className="xl:col-span-3">
+    <SampleDecisionColumns
+      override={override}
+      /* CLICK ANYWHERE ON THE FIGURES OPENS THE FULL REPORT — the order
+         page's own pointer shortcut; the left card's button is the
+         keyboard's way in, so this is never mouse-only. */
+      onBodyClick={() => setReportOpen(true)}
+      identity={
         <Card>
           <CardBody className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="grid size-14 shrink-0 place-items-center rounded-2xl border border-border bg-primary-soft text-lg font-bold text-primary">
-                {plan.kind === "fabric" ? "FP" : "AP"}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-mono text-sm font-semibold text-foreground">{h.swoCode ?? h.iwoCode ?? "—"}</div>
-                <Truncated text={`Sample ${PLAN_KIND_LABEL[plan.kind]}`} className="block text-xs text-muted-foreground" />
-              </div>
-            </div>
+            <DecisionTitle
+              tile={plan.kind === "fabric" ? "FP" : "AP"}
+              number={h.swoCode ?? h.iwoCode ?? "—"}
+              sub={<Truncated text={`Sample ${PLAN_KIND_LABEL[plan.kind]}`} className="block text-xs text-muted-foreground" />}
+            />
             <div className="flex flex-wrap items-center gap-1.5">
               <StatusPill tone="info">{h.revisionNo ? `Rev #${h.revisionNo}` : "V0 · First approval"}</StatusPill>
               <StatusPill tone={planStatusTone(row)}>{planStatusText(row)}</StatusPill>
             </div>
-            <dl className="divide-y divide-border rounded-lg border border-border">
-              {(
-                [
-                  // The SWO's own words, only when it has some — the title above
-                  // already says its number.
-                  ...(h.description ? ([["Description", h.description]] as [string, string][]) : []),
-                  ["Season", h.season],
-                  ["Work order", h.iwoCode],
-                  ["Plan date", h.planDate ? fmtDate(h.planDate) : null],
-                  ["Submitted by", row.submitted_by_name],
-                  ["Submitted", row.submitted_at ? fmtDateTime(row.submitted_at) : null],
-                  // Only a plan that IS decided — a revision back with the approver
-                  // still carries the last decision's time, which read as this one's.
-                  ...(row.decided_at && (row.status === "approved" || row.status === "returned")
-                    ? ([["Decided", fmtDateTime(row.decided_at)]] as [string, string][])
-                    : []),
-                ] as [string, string | null][]
-              ).map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between gap-3 px-3 py-1.5">
-                  <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
-                  <dd className="m-0 min-w-0 text-right">
-                    <Truncated text={value ?? "—"} className="block text-xs font-semibold text-foreground" />
-                  </dd>
-                </div>
-              ))}
+            <DecisionFacts
+              facts={[
+                // The SWO's own words, only when it has some — the title above
+                // already says its number.
+                ...(h.description ? ([["Description", h.description]] as [string, string][]) : []),
+                ["Season", h.season],
+                ["Work order", h.iwoCode],
+                ["Plan date", h.planDate ? fmtDate(h.planDate) : null],
+                ["Submitted by", row.submitted_by_name],
+                ["Submitted", row.submitted_at ? fmtDateTime(row.submitted_at) : null],
+                // Only a plan that IS decided — a revision back with the approver
+                // still carries the last decision's time, which read as this one's.
+                ...(row.decided_at && (row.status === "approved" || row.status === "returned")
+                  ? ([["Decided", fmtDateTime(row.decided_at)]] as [string, string][])
+                  : []),
+              ]}
+            >
               {/* EVERY SAMPLE, ONE PER LINE — a run-on list cut off at "…" hid
                   which samples the approval covers (2026-10-13). */}
               <div className="flex items-start justify-between gap-3 px-3 py-1.5">
@@ -120,33 +114,33 @@ export function PlanApprovalOverview({
                     : "—"}
                 </dd>
               </div>
-            </dl>
+            </DecisionFacts>
             {/* THE DOCUMENT, AND THE PLAN ITSELF — the order's "View full order
                 data", plus the direct link the user asked for (2026-10-13). */}
             <button
               type="button"
               onClick={() => setReportOpen(true)}
-              className="flex h-8 w-full items-center justify-center gap-1 rounded-control border border-border px-3 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={buttonClasses({ variant: "outline", size: "sm", className: "w-full" })}
             >
               View full plan report
-              <ChevronRight className="size-3.5" aria-hidden />
+              <ChevronRight aria-hidden />
             </button>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => router.push(planReportHref(plan.kind, h.bomId))}
-                className="flex h-8 items-center justify-center gap-1 rounded-control border border-border px-2 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={buttonClasses({ variant: "outline", size: "sm" })}
               >
                 Report page
-                <ExternalLink className="size-3.5" aria-hidden />
+                <ExternalLink aria-hidden />
               </button>
               <button
                 type="button"
                 onClick={() => router.push(`${PLAN_EDITOR_PATH[plan.kind]}?open=${h.bomId}`)}
-                className="flex h-8 items-center justify-center gap-1 rounded-control border border-border px-2 text-xs font-medium text-primary hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={buttonClasses({ variant: "outline", size: "sm" })}
               >
                 Open plan
-                <ExternalLink className="size-3.5" aria-hidden />
+                <ExternalLink aria-hidden />
               </button>
             </div>
             {reportOpen && (
@@ -161,118 +155,99 @@ export function PlanApprovalOverview({
             )}
           </CardBody>
         </Card>
-      </div>
+      }
+      body={plan.kind === "fabric" ? <FabricMiddle plan={plan.report} /> : <AccessoriesMiddle plan={plan.report} />}
+      trail={
+        <>
+          {timeline && timeline.length > 0 && (
+            <Card>
+              <CardBody className="space-y-3">
+                <h2 className="text-sm font-semibold text-foreground">Approval</h2>
+                <ApprovalTimeline rows={timeline} resolveUserName={(id) => names[id]} />
+              </CardBody>
+            </Card>
+          )}
 
-      {/* ═══ MIDDLE — tiles, then what this approval buys ═══ */}
-      <div
-        className="min-w-0 cursor-pointer space-y-3 xl:col-span-6"
-        /* CLICK ANYWHERE ON THE FIGURES OPENS THE FULL REPORT — the order
-           page's own pointer shortcut; the left card's button is the
-           keyboard's way in, so this is never mouse-only. */
-        onClick={() => setReportOpen(true)}
-      >
-        {plan.kind === "fabric" ? <FabricMiddle plan={plan.report} /> : <AccessoriesMiddle plan={plan.report} />}
-      </div>
-
-      {/* ═══ RIGHT — the trail, what changed, the override ═══ */}
-      <div className="space-y-3 xl:col-span-3">
-        {timeline && timeline.length > 0 && (
-          <Card>
-            <CardBody className="space-y-3">
-              <h2 className="text-sm font-semibold text-foreground">Approval</h2>
-              <ApprovalTimeline rows={timeline} resolveUserName={(id) => names[id]} />
-            </CardBody>
-          </Card>
-        )}
-
-        {/* A REVISION IS DECIDED ON WHAT CHANGED — the order page's V0 vs
-            proposed, here the purchase lines against what was approved before
-            the revision reopened the plan. */}
-        {h.revision && changes && (
-          <Card>
-            <CardBody className="space-y-2">
-              <h2 className="text-sm font-semibold text-foreground">{`What changed · Rev #${h.revision.revisionNo}`}</h2>
-              <p className="text-xs text-muted-foreground">{`Reason: ${h.revision.reason} · raised ${fmtDate(h.revision.raisedAt)}`}</p>
-              {changes.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  {shades && shades.length ? "No purchase quantity changed." : "No purchase quantity changed — only the plan\u2019s details."}
-                </p>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-                      <th scope="col" className="py-1 pr-2 text-left font-semibold">Material</th>
-                      <th scope="col" className="px-2 py-1 text-right font-semibold">Was</th>
-                      <th scope="col" className="py-1 pl-2 text-right font-semibold">Now</th>
-                    </tr>
-                  </thead>
-                  <tbody className="tabular-nums">
-                    {changes.map((c, i) => (
-                      <tr key={i} className="border-b border-border/60">
-                        <th scope="row" className="py-1 pr-2 text-left font-normal">
-                          <Truncated text={c.name} className="block max-w-[9rem]" />
-                        </th>
-                        <td className="px-2 py-1 text-right text-muted-foreground">{c.before == null ? "—" : fmtNumber(c.before)}</td>
-                        <td
-                          className={cn(
-                            "py-1 pl-2 text-right font-semibold",
-                            c.before != null && c.now != null && c.now > c.before ? "text-warning" : "text-foreground",
-                          )}
-                        >
-                          {c.now == null ? "—" : `${fmtNumber(c.now)}${c.uom ? ` ${c.uom}` : ""}`}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {/* SHADES & COLOURS (0727) — a shade swapped at the same kilos is
-                  invisible to the purchase table above; this is where it shows.
-                  Absent on a revision raised before its snapshot existed. */}
-              {shades && shades.length > 0 ? (
-                <>
-                  <h3 className="pt-1 text-xs font-semibold text-foreground">Shades &amp; colours</h3>
+          {/* A REVISION IS DECIDED ON WHAT CHANGED — the order page's V0 vs
+              proposed, here the purchase lines against what was approved before
+              the revision reopened the plan. */}
+          {h.revision && changes && (
+            <Card>
+              <CardBody className="space-y-2">
+                <h2 className="text-sm font-semibold text-foreground">{`What changed · Rev #${h.revision.revisionNo}`}</h2>
+                <p className="text-xs text-muted-foreground">{`Reason: ${h.revision.reason} · raised ${fmtDate(h.revision.raisedAt)}`}</p>
+                {changes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {shades && shades.length ? "No purchase quantity changed." : "No purchase quantity changed — only the plan’s details."}
+                  </p>
+                ) : (
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-                        <th scope="col" className="py-1 pr-2 text-left font-semibold">Material · colour</th>
+                        <th scope="col" className="py-1 pr-2 text-left font-semibold">Material</th>
                         <th scope="col" className="px-2 py-1 text-right font-semibold">Was</th>
                         <th scope="col" className="py-1 pl-2 text-right font-semibold">Now</th>
                       </tr>
                     </thead>
                     <tbody className="tabular-nums">
-                      {shades.map((c, i) => (
+                      {changes.map((c, i) => (
                         <tr key={i} className="border-b border-border/60">
                           <th scope="row" className="py-1 pr-2 text-left font-normal">
-                            <Truncated text={`${c.name} · ${c.colour}`} className="block max-w-[11rem]" />
-                            <span className={cn("text-[10px]", c.kind === "added" ? "text-success" : c.kind === "removed" ? "text-danger" : "text-muted-foreground")}>
-                              {`${c.part} · ${c.kind === "added" ? "new" : c.kind === "removed" ? "dropped" : "qty changed"}`}
-                            </span>
+                            <Truncated text={c.name} className="block max-w-[9rem]" />
                           </th>
                           <td className="px-2 py-1 text-right text-muted-foreground">{c.before == null ? "—" : fmtNumber(c.before)}</td>
-                          <td className="py-1 pl-2 text-right font-semibold text-foreground">
+                          <td
+                            className={cn(
+                              "py-1 pl-2 text-right font-semibold",
+                              c.before != null && c.now != null && c.now > c.before ? "text-warning" : "text-foreground",
+                            )}
+                          >
                             {c.now == null ? "—" : `${fmtNumber(c.now)}${c.uom ? ` ${c.uom}` : ""}`}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </>
-              ) : null}
-            </CardBody>
-          </Card>
-        )}
-
-        {/* THE OVERRIDE, SAID BEFORE THE CLICK (the order page's rule) — the
-            header's action bar runs with `overrideNote={false}`. */}
-        {override && (
-          <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-warning">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            You are not an approver on this step — acting here is recorded as an override.
-          </div>
-        )}
-      </div>
-    </div>
+                )}
+                {/* SHADES & COLOURS (0727) — a shade swapped at the same kilos is
+                    invisible to the purchase table above; this is where it shows.
+                    Absent on a revision raised before its snapshot existed. */}
+                {shades && shades.length > 0 ? (
+                  <>
+                    <h3 className="pt-1 text-xs font-semibold text-foreground">Shades &amp; colours</h3>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
+                          <th scope="col" className="py-1 pr-2 text-left font-semibold">Material · colour</th>
+                          <th scope="col" className="px-2 py-1 text-right font-semibold">Was</th>
+                          <th scope="col" className="py-1 pl-2 text-right font-semibold">Now</th>
+                        </tr>
+                      </thead>
+                      <tbody className="tabular-nums">
+                        {shades.map((c, i) => (
+                          <tr key={i} className="border-b border-border/60">
+                            <th scope="row" className="py-1 pr-2 text-left font-normal">
+                              <Truncated text={`${c.name} · ${c.colour}`} className="block max-w-[11rem]" />
+                              <span className={cn("text-[10px]", c.kind === "added" ? "text-success" : c.kind === "removed" ? "text-danger" : "text-muted-foreground")}>
+                                {`${c.part} · ${c.kind === "added" ? "new" : c.kind === "removed" ? "dropped" : "qty changed"}`}
+                              </span>
+                            </th>
+                            <td className="px-2 py-1 text-right text-muted-foreground">{c.before == null ? "—" : fmtNumber(c.before)}</td>
+                            <td className="py-1 pl-2 text-right font-semibold text-foreground">
+                              {c.now == null ? "—" : `${fmtNumber(c.now)}${c.uom ? ` ${c.uom}` : ""}`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                ) : null}
+              </CardBody>
+            </Card>
+          )}
+        </>
+      }
+    />
   );
 }
 

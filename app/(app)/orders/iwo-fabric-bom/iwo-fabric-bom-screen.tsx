@@ -83,7 +83,7 @@ import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { createdMeta, hasCreatedInfo, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import {
   createdByFacet,
   createdDateFacet,
@@ -171,7 +171,8 @@ import {
 import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
 import { SmpColourSheet } from "./smp-colour-sheet";
-import { PlanRevisionSheet } from "@/components/sales/plan-revision-sheet";
+import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
+import { EmbeddedEditorWait } from "@/components/orders/embedded-editor-wait";
 import { PlanLockFence } from "@/components/sales/plan-lock-fence";
 import { planReportHref } from "@/lib/sales/plan-reports/types";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
@@ -453,7 +454,15 @@ function PaletteTable<T extends { key: string }>({
  * question, so the box stands down while it is set (the Budget Approval rule,
  * `useQuickStatus`'s `standDown`).
  */
-const bomWord = (t: IwoFabricBomTask): QuickWord => (!t.bom ? "pending" : t.bom.is_draft ? "draft" : "updated");
+/**
+ * PENDING · UNDER PROGRESS · APPROVED · DRAFT (user 2026-10-15, the sweep after
+ * Fabric BOM). No plan → Pending; the approver approved it → Approved; saved
+ * as a draft → Draft; any other saved plan — not yet sent, with the approver,
+ * or sent back — → Under Progress. Before this every saved plan read Updated,
+ * so a plan the approver returned sat beside the approved ones.
+ */
+const bomWord = (t: IwoFabricBomTask): QuickWord =>
+  !t.bom ? "pending" : t.bom.approval_status === "approved" ? "approved" : t.bom.is_draft ? "draft" : "progress";
 
 /**
  * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
@@ -534,6 +543,7 @@ export function IwoFabricBomScreen({
   sample = false,
   swos,
   initialOpen = null,
+  embed = null,
 }: {
   tasks: IwoFabricBomTask[];
   data: IwoFabricBomFormData;
@@ -546,6 +556,9 @@ export function IwoFabricBomScreen({
   swos?: SwoAwaitingIw[];
   /** A plan id to open on arrival (`?open=`). */
   initialOpen?: string | null;
+  /** EMBEDDED in Sample ▸ Revision's workspace (`useEmbeddedEditor`): open
+   *  this PLAN id, hide the list, and return to the revision on close. */
+  embed?: EmbedTarget | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -582,7 +595,6 @@ export function IwoFabricBomScreen({
     /** This user sent the live run — the editor then offers no decision. */
     mine: boolean;
   } | null>(null);
-  const [revisionOrigin, setRevisionOrigin] = useState<SheetOrigin | null | undefined>(undefined);
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
   const [palette, setPalette] = useState<Palette>(blankPalette);
   const [dias, setDias] = useState<DiaRow[]>([]);
@@ -660,6 +672,7 @@ export function IwoFabricBomScreen({
     });
   }, [tasks, listQuery, facetMatches]);
   const quick = useQuickStatus(bomWord, {
+    words: QUICK_WORDS_4,
     standDown: !!listFacets.values.bom,
     onPick: () => listFacets.set("bom", ""),
     countRows: base,
@@ -916,6 +929,16 @@ export function IwoFabricBomScreen({
     // WORKFLOWS.sample_fabric_plan — its subject is the plan).
     const t = taskById.get(id) ?? tasks.find((x) => x.bom?.id === id);
     if (t && (t.bom ? true : perms.canCreate)) openTask(t);
+  });
+  /* EMBEDDED IN SAMPLE ▸ REVISION'S WORKSPACE (2026-10-15) — the plan id the
+     revision reopened. Above every branch, like every hook. */
+  useEmbeddedEditor({
+    embed,
+    mode,
+    open: (bomId) => {
+      const t = tasks.find((x) => x.bom?.id === bomId);
+      if (t) openTask(t);
+    },
   });
 
   // ---- Yarn Process + Fabric Process (step 3) -------------------------------
@@ -1619,7 +1642,6 @@ export function IwoFabricBomScreen({
   const planStatus: FabricPlanApprovalStatus | null = planBom?.approval_status ?? null;
   const planRev = planBom?.revision_no ?? 0;
   const planLocked = planStatus === "submitted" || planStatus === "approved";
-  const planLabel = picked?.swo?.code ?? picked?.code ?? "This plan";
   const panel = approval && approval.forId === editId ? approval : null;
   /** The approver's Approve / Request Rework, when this user may decide it. */
   const decide =
@@ -3461,7 +3483,10 @@ export function IwoFabricBomScreen({
 
   return (
     <>
-      <div className="space-y-4">
+      {embed && mode === "list" && (
+        <EmbeddedEditorWait found={tasks.some((x) => x.bom?.id === embed.id)} returnHref={embed.returnHref} what="Fabric Plan" />
+      )}
+      <div className="space-y-4" hidden={!!embed}>
         <PageHeader
           title={sample ? "Fabric Plan" : "IWO Fabric Plan"}
           description={
@@ -3498,8 +3523,9 @@ export function IwoFabricBomScreen({
             // "Revision 1 open" and "Sent back" read as done. Green is approved,
             // red is sent back (the planner owes the next step), the rest neutral.
             state={(t): SampleCardState => {
-              const word = bomWord(t);
-              if (word !== "updated" || !t.bom) return ({ pending: "pending", draft: "draft", updated: "updated" } as const)[word];
+              // The card's colour reads the plan itself, not the box's word.
+              if (!t.bom) return "pending";
+              if (t.bom.is_draft) return "draft";
               if (t.bom.approval_status === "approved") return "updated";
               if (t.bom.approval_status === "returned") return "pending";
               return "neutral";
@@ -3616,9 +3642,10 @@ export function IwoFabricBomScreen({
                 action:
                   decide ??
                   (planStatus === "approved" && perms.canEdit ? (
+                    // ONE RAISE DOOR (2026-10-15): Sample ▸ Revision's page, this plan ticked.
                     <Button
                       variant="outline"
-                      onClick={(e) => setRevisionOrigin(e.currentTarget.getBoundingClientRect())}
+                      onClick={() => router.push(`/sales/sample-revision/new?plan=${encodeURIComponent(`fabric:${editId}`)}`)}
                     >
                       Raise Revision
                     </Button>
@@ -3652,22 +3679,6 @@ export function IwoFabricBomScreen({
         }}
       />
 
-      {sample && editId && revisionOrigin !== undefined && (
-        <PlanRevisionSheet
-          kind="fabric"
-          bomId={editId}
-          planLabel={planLabel}
-          nextRevision={planRev + 1}
-          origin={revisionOrigin}
-          onClose={() => setRevisionOrigin(undefined)}
-          onRaised={() => {
-            setRevisionOrigin(undefined);
-            loadApproval(editId);
-            router.refresh();
-          }}
-        />
-      )}
-
       {sample && colourLine && colourFor && (
         <SmpColourSheet
           open
@@ -3693,8 +3704,9 @@ export function IwoFabricBomScreen({
           onAddDia={(grp) => patchLine(colourLine.key, { cells: withOnlyDia(colourLine, colourLine.cells, addSmpDia(colourLine.cells, grp)) })}
           onRemoveDia={(k) => patchLine(colourLine.key, { cells: removeSmpDia(colourLine.cells, k) })}
           onAddColour={() => {
-            const { cells } = addSmpGroup(colourLine.cells, colourFor.smp);
+            const { cells, grp } = addSmpGroup(colourLine.cells, colourFor.smp);
             patchLine(colourLine.key, { cells: withOnlyDia(colourLine, colourLine.cells, cells) });
+            return grp;
           }}
           onRemoveColour={(grp) => patchLine(colourLine.key, { cells: removeSmpGroup(colourLine.cells, grp) })}
         />

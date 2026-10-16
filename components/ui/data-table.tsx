@@ -168,8 +168,10 @@ export function DataTable<T>({
         className={cn(
           "border-b",
           tight
-            ? "border-slate-200 bg-slate-50 dark:border-border dark:bg-surface-muted"
-            : "border-border bg-surface-muted",
+            // WHITE HEADER, FIRMER RULE (user 2026-10-15, "make it white" — globally). It was
+            // grey; the rule under it is what now says "header", see globals.css.
+            ? "border-border-strong bg-surface"
+            : "border-border-strong bg-surface",
         )}
       >
         {selectable && (

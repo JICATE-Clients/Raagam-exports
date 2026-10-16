@@ -11,6 +11,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { GRID_FRAME } from "@/components/masters/child-grid";
 import { cn } from "@/lib/utils";
 import { matchesSearch, searchTokens } from "@/lib/ui/search-match";
+import { hint } from "@/lib/ui/placeholders";
 
 /**
  * PICK SEVERAL FROM ONE LIST — the app's first multi-select.
@@ -416,7 +417,7 @@ export function MultiSelect({
       ? picked.map((o) => o.label).join(", ")
       : `${picked.length}${summaryNoun ? ` ${summaryNoun}` : ""} selected`
     : options.length
-      ? placeholder
+      ? (hint(placeholder) ?? "")
       : emptyLabel;
   /* Whether the one-line summary is actually clipped — the tooltip below stays
      silent on a summary that fits, like every other `Truncated` reveal. */
@@ -837,7 +838,7 @@ export function MultiSelect({
           data-lpignore="true"
           data-form-type="other"
           value={open ? query : summary}
-          placeholder={placeholder}
+          placeholder={hint(placeholder)}
           onClick={() => (open ? close() : openList())}
           onChange={(e) => {
             setQuery(e.target.value);

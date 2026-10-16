@@ -20,7 +20,8 @@ export default async function SampleAccessoriesPlanReportPage({ params }: { para
   if (!report) notFound();
   return (
     <div className="space-y-4">
-      <BackLink target={{ href: `/sales/sample-accessories-plan?open=${report.header.iwoId}`, label: "Accessories Plan" }} />
+      {/* To the LIST, where the Report icon lives — not into the plan editor (2026-10-15). */}
+      <BackLink target={{ href: "/sales/sample-accessories-plan", label: "Accessories Plan" }} />
       <PageHeader
         title="Sample Accessories Plan"
         description={[report.header.swoCode, report.header.revisionNo ? `Rev ${report.header.revisionNo}` : null].filter(Boolean).join(" · ")}

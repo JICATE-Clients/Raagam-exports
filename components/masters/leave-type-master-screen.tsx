@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
+import { ActiveField } from "@/components/ui/active-field";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -222,6 +223,16 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
           boxes and lines").
         */}
         <FieldGrid className="max-w-3xl">
+          {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only.
+              Until 2026-10-15 it sat last and showed on add too (client
+              2026-09-04); a new record is now born active. */}
+          <ActiveField
+            id="lt-active"
+            size="lg"
+            active={!form.inactive}
+            onChange={(on) => set({ inactive: !on })}
+            isNew={!editId}
+          />
           {/* Row 1 — ID · Description */}
           <Field label="ID" size="lg" required htmlFor="lt-code">
             <Input
@@ -303,22 +314,6 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
                 checked={form.loss_of_pay}
                 onChange={(v) => set({ loss_of_pay: v })}
                 label="Unpaid"
-              />
-            </div>
-          </Field>
-
-          {/*
-            Status is always on the form, add included — `submit()` sends
-            `inactive` on a create exactly as on an update, so a row could
-            always have been saved inactive and nothing on screen let anyone
-            say so (client 2026-09-04).
-          */}
-          <Field label="Status" size="lg">
-            <div className="flex h-8 items-center">
-              <Toggle
-                checked={form.inactive}
-                onChange={(v) => set({ inactive: v })}
-                label="Inactive"
               />
             </div>
           </Field>

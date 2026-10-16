@@ -127,7 +127,7 @@ export function buildQuotationModel(
     style: style?.name ?? null,
     description: style?.description ?? null,
     season: [enq?.season, enq?.season_year].filter(Boolean).join(" ") || null,
-    thumbUrl: style?.thumb_url ?? null,
+    thumbUrl: style?.report_image_url ?? null, // the ticked "Print on reports" picture (0731)
     currency: h.currency_code,
     shipMode: SHIP_MODES.find((x) => x.value === h.ship_mode)?.label ?? null,
     isSet,

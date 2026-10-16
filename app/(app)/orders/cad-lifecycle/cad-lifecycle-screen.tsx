@@ -47,8 +47,28 @@ import {
 import { useCadActions } from "@/components/orders/cad/use-cad-actions";
 import { PatternStatusCell } from "@/components/orders/cad/pattern-status-cell";
 
-/** Pending = CAD work still owed on the style; Updated = approved. */
-const cadWord = (r: CadStyleRow): QuickWord => (r.state === "approved" ? "updated" : "pending");
+/**
+ * Pending = PATTERN work still owed on the style; Updated = the pattern is done.
+ *
+ * THE PATTERN MAKER'S WORK, NOT THE BUYER'S (user 2026-10-15, screenshot 3499:
+ * "the pending updated is not listing properly"). This used to test
+ * `state === "approved"`, the BUYER's answer — so a style the pattern master
+ * had already marked Ready, or one already sent and waiting on the buyer,
+ * stayed under Pending, and Pending listed every row the queue had. This is
+ * the Pattern Master's queue (its own description: "Marking it Ready tells the
+ * merchandiser"), so their part ends at Ready:
+ *
+ *   Not assigned              → Pending  (nothing to work on yet is still owed)
+ *   Assigned, not Ready       → Pending
+ *   Assigned, Ready           → Updated
+ *   Sent / Approved           → Updated  (a pattern cannot be sent unless Ready)
+ *   Rework                    → Pending  (version n + 1 is owed)
+ */
+const cadWord = (r: CadStyleRow): QuickWord => {
+  if (r.state === "pending" || r.state === "approved") return "updated";
+  if (r.state === "allocated" && latestVersion(r.versions)?.pattern_status === "ready") return "updated";
+  return "pending";
+};
 
 export function CadLifecycleScreen({
   rows,

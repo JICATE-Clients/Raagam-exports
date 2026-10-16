@@ -4,7 +4,8 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
+import { ActiveField } from "@/components/ui/active-field";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
@@ -205,6 +206,16 @@ export function BankPicker({
         }
       >
         <div className="space-y-3">
+          {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+          {formEditId && (<FieldRow>
+            <ActiveField
+              id="bp-active"
+              w="name"
+              isNew={!formEditId}
+              active={!inactive}
+              onChange={(on) => setInactive(!on)}
+            />
+          </FieldRow>)}
           <Field label="Name" required htmlFor="bp-name">
             <Input
               id="bp-name"
@@ -235,15 +246,6 @@ export function BankPicker({
               </Select>
             </div>
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={inactive}
-              onChange={(e) => setInactive(e.target.checked)}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
           {/* Saying where the branch fields are beats an operator hunting this
               sheet for the IFSC box. */}
           <p className="text-xs text-muted-foreground">

@@ -9,7 +9,7 @@ import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { readPdSample } from "./service";
 
 /**
- * Sample ▸ PD Request · Acknowledge PD Request — the actions (types.ts).
+ * Sample ▸ PD Request · PD Acknowledge — the actions (types.ts).
  *
  * ONE REQUEST PER SMP (user 2026-10-14: "The PD request is for smp not for
  * swo"; 0724). 0723 had moved it onto the SWO the same day; that is reversed.
@@ -46,7 +46,7 @@ export async function loadPdReview(requestId: string) {
 
 /**
  * SEND THE PD REQUEST FOR ONE SMP. The Sample Department answers in the
- * approvals inbox or on Sample ▸ Acknowledge PD Request — Approve is
+ * approvals inbox or on Sample ▸ PD Acknowledge — Approve is
  * Acknowledged, Reject (reason mandatory) is Not Acknowledged — and the engine
  * tells the merchandiser either way. One request open per SMP (0719's index);
  * a Not Acknowledged one may be followed by a new one, and both stay on record.

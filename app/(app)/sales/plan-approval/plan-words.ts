@@ -11,10 +11,14 @@ import type { PlanApprovalRow } from "@/lib/sales/plan-reports/service";
  * STATED AS A MAP, as on the order screen: a fifth state is a type error here
  * rather than a row that silently belongs to no word.
  */
+/* FOUR WORDS SINCE 2026-10-15 (user: Pending · Under Progress · Approved ·
+   Draft across Orders and Sample). Rework Requested is back with the planner
+   being re-worked — Under Progress, no longer "decided" beside Approved.
+   The Plan Revision list reads this same map. */
 const WORD: Record<PlanApprovalRow["status"], QuickWord> = {
   submitted: "pending",
-  approved: "updated",
-  returned: "updated",
+  approved: "approved",
+  returned: "progress",
   open: "draft",
 };
 export const planWord = (r: PlanApprovalRow): QuickWord => WORD[r.status];

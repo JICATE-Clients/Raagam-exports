@@ -56,7 +56,7 @@ import { loadSwoCostingTrims, type SwoSampleTrims } from "@/lib/orders/iwo-mater
 import { createdMeta, hasCreatedInfo, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
-import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import {
   createdByFacet,
   createdDateFacet,
@@ -75,9 +75,9 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import type { ApprovalRun, CanActVerdict } from "@/lib/approvals/types";
-import { PlanRevisionSheet } from "@/components/sales/plan-revision-sheet";
+import { useEmbeddedEditor, type EmbedTarget } from "@/lib/use-embedded-editor";
+import { EmbeddedEditorWait } from "@/components/orders/embedded-editor-wait";
 import { PlanLockFence } from "@/components/sales/plan-lock-fence";
-import type { SheetOrigin } from "@/components/ui/sheet";
 import {
   getAccessoriesPlanApproval,
   submitSampleAccessoriesPlan,
@@ -240,7 +240,15 @@ const procFacts = (p: ProcRow): IwoMbProcessFacts => ({
  * question, so the box stands down while it is set (the Budget Approval rule,
  * `useQuickStatus`'s `standDown`).
  */
-const bomWord = (t: IwoMaterialBomTask): QuickWord => (!t.bom ? "pending" : t.bom.is_draft ? "draft" : "updated");
+/**
+ * PENDING · UNDER PROGRESS · APPROVED · DRAFT (user 2026-10-15, the sweep after
+ * Fabric BOM). No plan → Pending; the approver approved it → Approved; saved
+ * as a draft → Draft; any other saved plan — not yet sent, with the approver,
+ * or sent back — → Under Progress. Before this every saved plan read Updated,
+ * so a plan the approver returned sat beside the approved ones.
+ */
+const bomWord = (t: IwoMaterialBomTask): QuickWord =>
+  !t.bom ? "pending" : t.bom.approval_status === "approved" ? "approved" : t.bom.is_draft ? "draft" : "progress";
 
 /**
  * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
@@ -311,6 +319,7 @@ export function IwoMaterialBomScreen({
   sample = false,
   swos,
   initialOpen = null,
+  embed = null,
 }: {
   tasks: IwoMaterialBomTask[];
   data: IwoMaterialBomFormData;
@@ -324,6 +333,9 @@ export function IwoMaterialBomScreen({
   swos?: { id: string; code: string }[];
   /** A plan id to open on arrival (`?open=`). */
   initialOpen?: string | null;
+  /** EMBEDDED in Sample ▸ Revision's workspace (`useEmbeddedEditor`): open
+   *  this PLAN id, hide the list, and return to the revision on close. */
+  embed?: EmbedTarget | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -364,7 +376,6 @@ export function IwoMaterialBomScreen({
     /** This user sent the live run — the editor then offers no decision. */
     mine: boolean;
   } | null>(null);
-  const [revisionOrigin, setRevisionOrigin] = useState<SheetOrigin | null | undefined>(undefined);
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
   const [items, setItems] = useState<ItemRow[]>([]);
   const [procs, setProcs] = useState<ProcRow[]>([]);
@@ -400,6 +411,7 @@ export function IwoMaterialBomScreen({
     });
   }, [tasks, listQuery, facetMatches]);
   const quick = useQuickStatus(bomWord, {
+    words: QUICK_WORDS_4,
     standDown: !!listFacets.values.bom,
     onPick: () => listFacets.set("bom", ""),
     countRows: base,
@@ -676,6 +688,16 @@ export function IwoMaterialBomScreen({
     const t = taskById.get(id) ?? tasks.find((x) => x.bom?.id === id);
     if (t && (t.bom ? true : perms.canCreate)) openTask(t);
   });
+  /* EMBEDDED IN SAMPLE ▸ REVISION'S WORKSPACE (2026-10-15) — the plan id the
+     revision reopened. Above every branch, like every hook. */
+  useEmbeddedEditor({
+    embed,
+    mode,
+    open: (bomId) => {
+      const t = tasks.find((x) => x.bom?.id === bomId);
+      if (t) openTask(t);
+    },
+  });
 
   // ---- the quantity chain, previewed with the SAME function the save calls ----
 
@@ -793,7 +815,6 @@ export function IwoMaterialBomScreen({
   const planStatus: PlanApprovalStatus | null = planBom?.approval_status ?? null;
   const planRev = planBom?.revision_no ?? 0;
   const planLocked = planStatus === "submitted" || planStatus === "approved";
-  const planLabel = picked?.swo?.code ?? picked?.code ?? "This plan";
   const panel = approval && approval.forId === editId ? approval : null;
   const decide =
     panel?.run && panel.verdict && panel.run.status === "in_progress" && panel.verdict.can_act && !panel.mine ? (
@@ -1600,7 +1621,10 @@ export function IwoMaterialBomScreen({
 
   return (
     <>
-      <div className="space-y-4">
+      {embed && mode === "list" && (
+        <EmbeddedEditorWait found={tasks.some((x) => x.bom?.id === embed.id)} returnHref={embed.returnHref} what="Accessories Plan" />
+      )}
+      <div className="space-y-4" hidden={!!embed}>
         <PageHeader
           title={sample ? "Accessories Plan" : "IWO Accessories Plan"}
           description={
@@ -1635,8 +1659,9 @@ export function IwoMaterialBomScreen({
             // "Revision 1 open" and "Sent back" read as done. Green is approved,
             // red is sent back (the planner owes the next step), the rest neutral.
             state={(t): SampleCardState => {
-              const word = bomWord(t);
-              if (word !== "updated" || !t.bom) return ({ pending: "pending", draft: "draft", updated: "updated" } as const)[word];
+              // The card's colour reads the plan itself, not the box's word.
+              if (!t.bom) return "pending";
+              if (t.bom.is_draft) return "draft";
               if (t.bom.approval_status === "approved") return "updated";
               if (t.bom.approval_status === "returned") return "pending";
               return "neutral";
@@ -1735,7 +1760,11 @@ export function IwoMaterialBomScreen({
                 action:
                   decide ??
                   (planStatus === "approved" && perms.canEdit ? (
-                    <Button variant="outline" onClick={(e) => setRevisionOrigin(e.currentTarget.getBoundingClientRect())}>
+                    // ONE RAISE DOOR (2026-10-15): Sample ▸ Revision's page, this plan ticked.
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push(`/sales/sample-revision/new?plan=${encodeURIComponent(`accessories:${editId}`)}`)}
+                    >
                       Raise Revision
                     </Button>
                   ) : undefined),
@@ -1759,21 +1788,6 @@ export function IwoMaterialBomScreen({
         }}
       />
 
-      {sample && editId && revisionOrigin !== undefined && (
-        <PlanRevisionSheet
-          kind="accessories"
-          bomId={editId}
-          planLabel={planLabel}
-          nextRevision={planRev + 1}
-          origin={revisionOrigin}
-          onClose={() => setRevisionOrigin(undefined)}
-          onRaised={() => {
-            setRevisionOrigin(undefined);
-            loadApproval(editId);
-            router.refresh();
-          }}
-        />
-      )}
     </>
   );
 }

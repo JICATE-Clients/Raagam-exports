@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
+import { ActiveField } from "@/components/ui/active-field";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -263,6 +264,14 @@ export function AccountHeadMasterScreen({
             row past 12 wraps its last field onto an otherwise empty line. */}
         <SectionGrid>
           <DetailSection label="Details" cols={12}>
+            {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+            <ActiveField
+              id="ah-active"
+              size="lg"
+              isNew={!editId}
+              active={!form.inactive}
+              onChange={(on) => set({ inactive: !on })}
+            />
             <Field label="Name" size="lg" required htmlFor="ah-name">
               <Input
                 id="ah-name"
@@ -290,21 +299,6 @@ export function AccountHeadMasterScreen({
                 label="Cost head"
               />
             </Field>
-            {/* A tick, alone on the second row either way — `sm` fits the
-                caption in this narrow column and stops it inheriting `md`. */}
-            {editId && (
-              <Field size="sm">
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.inactive}
-                    onChange={(e) => set({ inactive: e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
-              </Field>
-            )}
           </DetailSection>
           <DetailSection label="Group Under" cols={12}>
             <Field size="lg">

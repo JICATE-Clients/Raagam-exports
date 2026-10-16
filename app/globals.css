@@ -2393,8 +2393,14 @@ html[data-type-scale="compact"] .ty-badge-icon {
 [data-grid-style="sheet"] table > :is(tbody, tfoot):last-child > tr:last-child > :last-child {
   border-bottom-right-radius: var(--radius-control, 0.5rem);
 }
+/* WHITE, WITH A FIRMER RULE UNDER IT (user 2026-10-15: "globally I can see grey bg in
+     table top and bottom — remove it, make it white"). The header went white once before
+     (08-28) and came back grey three days later because white-on-white "stopped reading as
+     a header" — that time nothing replaced the fill. Now the line under the header is
+     --border-strong, the token rule 4a of the layout skill uses for "a new kind of line". */
 [data-grid-style="sheet"] thead th {
-  background: var(--surface-muted);
+  background: var(--surface);
+  border-bottom-color: var(--border-strong);
   padding: 0.375rem 0.5rem;
   vertical-align: middle;
   /* SENTENCE CASE, ONE LINE (screenshot 114301: "ACTIONS" ran out of its
@@ -2628,7 +2634,9 @@ html[data-type-scale="compact"] .ty-badge-icon {
   border-right-width: 0;
 }
 [data-grid-style="sheet-rows"] [data-sheet-row="head"] {
-  background: var(--surface-muted);
+  /* White, as the sheet header above (user 2026-10-15). */
+  background: var(--surface);
+  border-bottom-color: var(--border-strong);
   /* Sentence case, as the `sheet` header does — see there. */
   text-transform: none;
   letter-spacing: normal;

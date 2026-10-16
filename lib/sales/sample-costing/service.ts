@@ -13,6 +13,7 @@ import { listSampleStyleProcesses } from "@/lib/sales/sample-entry/style-process
 import type { RevisionSource } from "./revision-history";
 import type { ApprovalFacts } from "./approval-line";
 import type { CostingListRow, CostingRecord, CostingStatus, ExtraChargeDraft, FabricDraft, PieceDraft, TrimDraft, WeightDraft } from "./types";
+import { coverOf, isImageFile } from "@/lib/orders/amendments/style-gallery";
 
 /**
  * Sample Costing — option lists, the list, one record (0688 / 0689).
@@ -35,8 +36,13 @@ export type CostingStyleOption = {
   unit_kind: string | null;
   /** The coordinates, in order — a SET's pieces (Top, Pants …). */
   coordinates: { id: string | null; name: string }[];
-  /** A signed URL to the style's first image (Sample Entry ▸ Image), or null. */
+  /** A signed URL to the style's COVER (Sample Entry ▸ Files: the ★, else the
+   *  first sketch, else the first picture — `coverOf`), or null. Screen only. */
   thumb_url: string | null;
+  /** A signed URL to the first picture ticked "Print on reports" (0731), or
+   *  null — what the Costing sheet and Quotation print. Never a guess: an
+   *  unticked style prints the placeholder. */
+  report_image_url: string | null;
   /** The sizes the style was ticked with in Sample Entry (`style_sizes`), in
    *  entry order — the only sizes the weights table offers (0693). */
   sizes: string[];
@@ -174,7 +180,7 @@ type EnquiryDb = {
         description: string | null;
         unit_kind: string | null;
         coordinates: { sno: number; coordinate_id: string | null; item: { name: string | null } | { name: string | null }[] | null }[] | null;
-        files: { sno: number; storage_path: string; mime_type: string | null; doc_kind: string | null }[] | null;
+        files: { sno: number; storage_path: string; mime_type: string | null; doc_kind: string | null; is_primary: boolean | null; print_on_report: boolean | null }[] | null;
         sizes: { sno: number; garment_size: string | null }[] | null;
         structures: {
           sno: number;
@@ -202,7 +208,7 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
         "id, code, customer_id, title, season, season_year, is_draft, customer:customers!customer_id(name), " +
           "styles(id, sno, sample_no, name, description, unit_kind, " +
           "coordinates:sample_style_coordinates(sno, coordinate_id, item:items!coordinate_id(name)), " +
-          "files:sample_style_files(sno, storage_path, mime_type, doc_kind), " +
+          "files:sample_style_files(sno, storage_path, mime_type, doc_kind, is_primary, print_on_report), " +
           "sizes:style_sizes(sno, garment_size), " +
           "structures:sample_style_fabric_structures(sno, structure_id, gsm, structure:categories!structure_id(name), " +
           "composition:compositions(lines:composition_lines(sno, description, mixing_pct))))",
@@ -227,17 +233,19 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
   const isCosted = (oppId: string, styleId: string) => costedEntry.has(oppId) || costedStyle.has(styleId);
 
   const imagePath = new Map<string, string>();
+  const reportPath = new Map<string, string>();
   for (const r of rows) {
     for (const st of r.styles ?? []) {
-      const img = [...(st.files ?? [])]
-        .sort((a, b) => a.sno - b.sno)
-        .find((f) => (f.mime_type ?? "").startsWith("image/"));
-      if (img) imagePath.set(st.id, img.storage_path);
+      const files = [...(st.files ?? [])].sort((a, b) => a.sno - b.sno);
+      const cover = coverOf(files);
+      if (cover) imagePath.set(st.id, cover.storage_path);
+      const printed = files.find((f) => f.print_on_report && isImageFile(f));
+      if (printed) reportPath.set(st.id, printed.storage_path);
     }
   }
   const signed = new Map<string, string>();
-  if (imagePath.size) {
-    const paths = [...imagePath.values()];
+  if (imagePath.size || reportPath.size) {
+    const paths = [...new Set([...imagePath.values(), ...reportPath.values()])];
     // A thumbnail that will not sign is a missing picture, never a failed page.
     const { data: urls } = await s.storage.from("sample-docs").createSignedUrls(paths, 60 * 60);
     for (const u of urls ?? []) if (u.path && u.signedUrl) signed.set(u.path, u.signedUrl);
@@ -274,6 +282,7 @@ async function getEnquiries(): Promise<{ enquiries: CostingEnquiryOption[]; styl
           .map((c) => ({ id: c.coordinate_id, name: one(c.item)?.name ?? "" }))
           .filter((c) => c.name),
         thumb_url: imagePath.has(st.id) ? (signed.get(imagePath.get(st.id)!) ?? null) : null,
+        report_image_url: reportPath.has(st.id) ? (signed.get(reportPath.get(st.id)!) ?? null) : null,
         sizes: [...(st.sizes ?? [])]
           .sort((a, b) => a.sno - b.sno)
           .map((z) => (z.garment_size ?? "").trim())

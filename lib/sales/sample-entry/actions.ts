@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { sampleEntryInput, type SampleEntryInput, type SampleEntryRecord } from "./types";
-import { getSampleEntryRecord } from "./service";
+import { getSampleEntryRecord, sampleLocks } from "./service";
 
 type SaveResult = { ok: true; id: string; code: string | null } | { ok: false; error: string };
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -51,6 +51,29 @@ export async function loadSampleEntry(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not load the sample entry." };
   }
+}
+
+/**
+ * The editor's lock: the DATABASE's sentence (`sample_entry_refusal`, the same
+ * test the save trigger runs) and the costing whose Raise Revise the banner
+ * links to — null when the sample has no costing to revise.
+ */
+export async function sampleEntryLockInfo(
+  id: string,
+): Promise<{ reason: string | null; costingId: string | null; revision: boolean }> {
+  if (!(await can("sales", "view"))) return { reason: null, costingId: null, revision: false };
+  const supabase = await createClient();
+  const [refusal, locks] = await Promise.all([
+    supabase.rpc("sample_entry_refusal", { p_opp: id }),
+    sampleLocks([{ id, code: null }]),
+  ]);
+  const reason = typeof refusal.data === "string" ? refusal.data : null;
+  return {
+    reason,
+    costingId: locks.get(id)?.costingId ?? null,
+    // An open SMP revision holds it (0716) — its sentence names the SMP-REV.
+    revision: !!reason && reason.includes("SMP-REV/"),
+  };
 }
 
 /**

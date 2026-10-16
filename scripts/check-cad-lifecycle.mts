@@ -47,6 +47,12 @@ import {
   type CadDispatch,
 } from "../lib/orders/cad-lifecycle/types";
 import { planPatternFill, type PatternFillEntry, type PatternFillLine } from "../lib/orders/fabric-bom/pattern-fill";
+import {
+  diaText,
+  patternLineFor,
+  planComponentFill,
+  type ComponentLineShape,
+} from "../lib/orders/fabric-bom/pattern-components";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -359,6 +365,53 @@ check("nothing to go on: null, never a guess", layoutForPart(null, "SINGLE JERSE
   );
   check("one entry takes one line", planPatternFill([pl(), pl({ colours: ["RED"] })], [en("a")], "resync").additions.length, 1);
   check("a line with no figures carries nothing", planPatternFill([pl({ table_dia: null, avg_pcs_weight_g: null })], [en("a")], "resync").fills.length, 0);
+}
+
+// PATTERN SHEET -> FABRIC BOM COMPONENTS, FILLED AND LOCKED (pattern-components.ts, 2026-10-15).
+{
+  const U = (n: number) => `00000000-0000-4000-8000-00000000002${n}`;
+  const same = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
+  const combos = () => ["WHITE", "NAVY"];
+  const pl = (over: Partial<PatternFillLine> = {}): PatternFillLine => ({
+    style_ref_no: "H1",
+    fabric_category_id: U(1),
+    width_form: "tubular",
+    parts: [{ coordinate_id: null, component_id: U(5) }],
+    colours: [],
+    size_wise: false,
+    table_dia: 60,
+    avg_pcs_weight_g: 180,
+    sizes: [],
+    ...over,
+  });
+  const ln = (key: string, over: Partial<ComponentLineShape> = {}): ComponentLineShape => ({
+    key,
+    style_ref_no: "H1",
+    combo: "WHITE",
+    structure_id: U(1),
+    coordinate_id: null,
+    component_id: U(5),
+    fabric_form: "",
+    ...over,
+  });
+  check("components: a covered row is locked", !!patternLineFor([pl()], ln("a"), same), true);
+  check("components: another part is not locked", patternLineFor([pl()], ln("a", { component_id: U(6) }), same), null);
+  check("components: another structure is not locked", patternLineFor([pl()], ln("a", { structure_id: U(2) }), same), null);
+  check("components: a colour the line does not name is not locked", patternLineFor([pl({ colours: ["NAVY"] })], ln("a"), same), null);
+  check("components: a coordinate-less part covers every coordinate", !!patternLineFor([pl()], ln("a", { coordinate_id: U(3) }), same), true);
+  check("components: another coordinate is not covered", patternLineFor([pl({ parts: [{ coordinate_id: U(4), component_id: U(5) }] })], ln("a", { coordinate_id: U(3) }), same), null);
+  check("components: open_width is stored as open", [...planComponentFill([pl({ width_form: "open_width" })], [ln("a")], "fill", same, combos).forms.values()], ["open"]);
+  check("components: an agreeing row is not re-written", planComponentFill([pl()], [ln("a", { fabric_form: "tubular" })], "fill", same, combos).forms.size, 0);
+  check("components: fill never adds", planComponentFill([pl()], [], "fill", same, combos).additions.length, 0);
+  check("components: resync adds one row per colourway", planComponentFill([pl()], [], "resync", same, combos).additions.map((a) => a.combo), ["WHITE", "NAVY"]);
+  check("components: resync adds only the missing colourway", planComponentFill([pl()], [ln("a")], "resync", same, combos).additions.map((a) => a.combo), ["NAVY"]);
+  check("components: a sheet colour list is the colourways", planComponentFill([pl({ colours: ["RED"] })], [], "resync", same, combos).additions.map((a) => a.combo), ["RED"]);
+  check("components: dia one answer", diaText(pl()), "60");
+  check(
+    "components: dia size-wise range",
+    diaText(pl({ size_wise: true, sizes: [{ size_id: U(7), table_dia: 72, avg_pcs_weight_g: null }, { size_id: U(8), table_dia: 80, avg_pcs_weight_g: null }] })),
+    "72–80",
+  );
 }
 
 if (failed > 0) {

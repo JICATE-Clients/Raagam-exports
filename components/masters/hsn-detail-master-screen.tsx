@@ -12,6 +12,7 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { ActiveField } from "@/components/ui/active-field";
 import { useToast } from "@/components/ui/toast";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -286,6 +287,13 @@ export function HsnDetailMasterScreen({
       >
         <div className="space-y-4">
           <DetailSection label="Details" cols={2}>
+            {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+            <ActiveField
+              id="hsn-active"
+              active={!form.inactive}
+              onChange={(on) => set({ inactive: !on })}
+              isNew={!editId}
+            />
             <div>
               {/* The picker owns the label, the "— Select —" row and the
                   inactive-value rule (an inactive class still resolves for a
@@ -341,17 +349,6 @@ export function HsnDetailMasterScreen({
               <DuplicateError error={dupError} id="hsn-code" />
             </div>
           </DetailSection>
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
         </div>
       </Sheet>
     </div>

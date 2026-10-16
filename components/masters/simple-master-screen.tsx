@@ -35,6 +35,7 @@ import { RecordViewSheet, type ViewSection } from "@/components/masters/record-v
 import { Sheet } from "@/components/ui/sheet";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
+import { ActiveField } from "@/components/ui/active-field";
 import { pairsFromRow } from "@/lib/record-pairs";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
@@ -1237,8 +1238,22 @@ export function SimpleMasterScreen<Row>({
           }
         >
           <FieldGrid className="max-w-3xl">
+            {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only.
+                Positive state over the engine's `status` string — the old tick read
+                `status === "inactive"`, so the mapping is that, inverted. */}
+            {hasStatus && !blockInRow && (
+              <ActiveField
+                id="sm-active"
+                size="lg"
+                isNew={editing.id === null}
+                active={editing.status !== "inactive"}
+                onChange={(on) =>
+                  setEditing((ed) => (ed ? { ...ed, status: on ? "active" : "inactive" } : ed))
+                }
+              />
+            )}
             {/*
-              FIRST, and blank while adding — the number does not exist until
+              Then the ID, blank while adding — the number does not exist until
               the row does, and an "(auto)" placeholder there would describe the
               box rather than the record. `readOnly` + `skipTab` keep it off the
               typing path while the mouse can still reach it, the same treatment
@@ -1290,22 +1305,13 @@ export function SimpleMasterScreen<Row>({
               record was SAVED, so it moved to the footer as "Save as Draft"
               (client 2026-09-05), where the legacy ERP has always had it and
               where two other masters in this sub-module already put it.
+
+              SUPERSEDED IN TWO RESPECTS (user 2026-10-15, AGENTS.md "Active
+              leads the form"): the switch now LEADS the form (above, first in
+              this grid) instead of trailing it, and it is EDIT ONLY — a new
+              record is born active, so `ActiveField` renders nothing while
+              adding. `toPayload` still carries `editing.status` on both paths.
             */}
-            {hasStatus && !blockInRow && (
-              <Field label="Status" size="lg">
-                <div className="flex h-8 items-center">
-                  <Toggle
-                    checked={editing.status === "inactive"}
-                    onChange={(v) =>
-                      setEditing((ed) =>
-                        ed ? { ...ed, status: v ? "inactive" : "active" } : ed,
-                      )
-                    }
-                    label="Inactive"
-                  />
-                </div>
-              </Field>
-            )}
           </FieldGrid>
         </Sheet>
       )}

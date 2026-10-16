@@ -13,7 +13,7 @@ import { PdRequestScreen } from "./pd-request-screen";
  * signed-in merchandiser) · To Department (Sample Department) · SMP No, its
  * styles fetched on the pick, remarks, and the tech packs carried forward.
  * Sending starts the `sample_pd_request` run, which alerts the department;
- * they answer on Sample ▸ Acknowledge PD Request.
+ * they answer on Sample ▸ PD Acknowledge.
  *
  * `?new=<opportunity id>` opens the form on that SMP, when one may be raised on it.
  */

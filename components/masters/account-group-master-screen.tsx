@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, type FieldSize } from "@/components/ui/field";
+import { ActiveField } from "@/components/ui/active-field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -75,7 +76,7 @@ const blankForm = () => ({
  * of Group sat alone on row 2.
  *
  *   row 1 — parent 3 + name 4 + nature 2 + debit_schedule 3 = 12
- *   row 2 — credit_schedule 3 + inactive 2 = 5  (inactive is edit-only)
+ *   row 2 — credit_schedule 3 = 3  (on edit, Status leads row 1 and shifts the rest)
  *
  * Four per row is the target (client 2026-07-29). The two Schedule pickers do
  * end up split across the two rows; they stay adjacent in tab order, and the
@@ -273,10 +274,17 @@ export function AccountGroupMasterScreen({
         {/* Six fields — one flat section (LAYOUT.md §4). Legacy field ORDER is
             preserved (Under first): these operators are migrating from
             RP-Software and type by muscle memory, so tab order is not ours to
-            improve. The Inactive tick used to need a hand-tuned `mt-7` to clear
-            the picker's label — on the 12-col track it just takes its own cell.
-            Widths come from FIELD_SIZE at the top of this file. */}
+            improve. Status leads on edit (it is not a typed field, so it does
+            not disturb that order). Widths come from FIELD_SIZE at the top of this file. */}
         <DetailSection label="Details" cols={12}>
+          {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+          <ActiveField
+            id="ag-active"
+            size={FIELD_SIZE.inactive}
+            isNew={!editId}
+            active={!form.inactive}
+            onChange={(on) => set({ inactive: !on })}
+          />
           {/* The pickers render their own labels — never double-label them. */}
           <Field size={FIELD_SIZE.parent_id}>
             <AccountGroupPicker
@@ -342,19 +350,6 @@ export function AccountGroupMasterScreen({
               canEdit={perms.canEdit}
             />
           </Field>
-          {editId && (
-            <Field size={FIELD_SIZE.inactive}>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
-            </Field>
-          )}
         </DetailSection>
       </Sheet>
     </div>

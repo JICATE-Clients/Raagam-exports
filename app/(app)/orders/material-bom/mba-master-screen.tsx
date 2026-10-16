@@ -7115,6 +7115,10 @@ export function MbaMasterScreen({
           stat={styleStat}
           quickStatus
           quickDraft
+          /* PENDING · UNDER PROGRESS · APPROVED · DRAFT (user 2026-10-15, the
+             sweep after Fabric BOM). Approved = the order is APPROVED;
+             `raiseFor` carries approved locks only. */
+          isApproved={(t) => !!raiseFor[t.id]}
           /* The Updated table fits its columns (erp-table-fit, 2026-09-28). */
           fitUpdated
           onOpen={openTask}

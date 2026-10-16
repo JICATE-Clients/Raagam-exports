@@ -20,7 +20,8 @@ export default async function SampleFabricPlanReportPage({ params }: { params: P
   if (!report) notFound();
   return (
     <div className="space-y-4">
-      <BackLink target={{ href: `/sales/sample-fabric-plan?open=${report.header.iwoId}`, label: "Fabric Plan" }} />
+      {/* To the LIST, where the Report icon lives — not into the plan editor (2026-10-15). */}
+      <BackLink target={{ href: "/sales/sample-fabric-plan", label: "Fabric Plan" }} />
       <PageHeader
         title="Sample Fabric Plan"
         description={[report.header.swoCode, report.header.revisionNo ? `Rev ${report.header.revisionNo}` : null].filter(Boolean).join(" · ")}

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardBody } from "@/components/ui/card";
+import { ActiveField } from "@/components/ui/active-field";
 import { DataTable } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -197,6 +198,14 @@ export function VendorsClient({
                 {editId ? "Edit vendor" : "New vendor"}
               </div>
 
+              {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+              <ActiveField
+                id="v-active"
+                active={form.is_active}
+                onChange={(on) => setForm({ ...form, is_active: on })}
+                isNew={!editId}
+              />
+
               <div className="sm:col-span-2">
                 <Label htmlFor="v-name">Name *</Label>
                 <Input
@@ -283,24 +292,6 @@ export function VendorsClient({
                     setForm({ ...form, address: e.target.value || null })
                   }
                 />
-              </div>
-
-              <div className="flex items-center gap-2 sm:col-span-2">
-                <input
-                  type="checkbox"
-                  id="v-active"
-                  checked={form.is_active}
-                  onChange={(e) =>
-                    setForm({ ...form, is_active: e.target.checked })
-                  }
-                  className="h-4 w-4 cursor-pointer"
-                />
-                <label
-                  htmlFor="v-active"
-                  className="cursor-pointer text-sm text-foreground"
-                >
-                  Active
-                </label>
               </div>
 
               <div className="flex justify-end gap-2 pt-1 sm:col-span-2">

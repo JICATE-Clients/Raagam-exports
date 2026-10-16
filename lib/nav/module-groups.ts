@@ -945,8 +945,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
   // had been split into five groups — Sample Management, PD Request, Sample
   // Planning, Approval, Revise — four of them holding one to three rows. That
   // was reversed: every Sample screen is a child of Sample Management, in the
-  // order the work runs (raise → cost → hand to PD → plan the material →
-  // approve → revise). The four dissolved hubs keep their URLs as redirects
+  // order the work runs (raise → cost → plan the material → approve →
+  // hand to PD → revise; PD Request · PD Acknowledge moved after Plan
+  // Approval, user 2026-10-15). The four dissolved hubs keep their URLs as redirects
   // here (`REDIRECTED` in scripts/check-module-groups.mts). Routes are
   // unchanged; `/sales` stays the redirect to Sample Entry it already was.
   "/sales": {
@@ -961,12 +962,12 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         children: [
           { href: "/sales/sample-entry", label: "Sample Entry", description: "Raise a sample — customer, styles, product info, combos and quantities" },
           { href: "/sales/sample-costing", label: "Costing", description: "Cost a sample style — fabric, CMT, embellishments and trims — send it to the buyer and record their answer" },
-          { href: "/sales/pd-request", label: "PD Request", description: "Hand a saved sample to the Sample Department" },
-          { href: "/sales/pd-acknowledge", label: "PD Acknowledge", description: "The Sample Department's queue — acknowledge a request, or return it with a reason" },
           { href: "/sales/sample-grouping", label: "Grouping", description: "Batch sample styles of one season into one fabric purchase" },
           { href: "/sales/sample-fabric-plan", label: "Fabric Plan", description: "Fabric for the sample work orders — consumption, dia and dyeing" },
           { href: "/sales/sample-accessories-plan", label: "Accessories Plan", description: "Sewing and packing accessories for the sample work orders" },
           { href: "/sales/plan-approval", label: "Plan Approval", description: "Approve or send back a submitted Fabric or Accessories Plan" },
+          { href: "/sales/pd-request", label: "PD Request", description: "Hand a saved sample to the Sample Department" },
+          { href: "/sales/pd-acknowledge", label: "PD Acknowledge", description: "The Sample Department's queue — acknowledge a request, or return it with a reason" },
           { href: "/sales/sample-revision", label: "Revision", description: "Change an approved Fabric or Accessories Plan — raise a revision, edit the plan, send it back for approval" },
         ],
       },

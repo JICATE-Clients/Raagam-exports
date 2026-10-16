@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
+import { ActiveField } from "@/components/ui/active-field";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -289,6 +290,14 @@ export function MerchandisingTeamMasterScreen({
             of its own. Three fields is too small a form for four-per-row to be
             a goal; sizing each to its data is the point (client 2026-07-29). */}
         <DetailSection label="Details" cols={12}>
+          {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+          <ActiveField
+            id="mt-active"
+            size="sm"
+            active={!form.inactive}
+            onChange={(on) => set({ inactive: !on })}
+            isNew={!editId}
+          />
           {/* `sm` like every other field in the masters, not the `lg` a team
               name would earn on its own — one width across the module, small
               form or not (client 2026-07-29). */}
@@ -322,19 +331,6 @@ export function MerchandisingTeamMasterScreen({
               onChange={(id) => set({ location_id: id ?? "" })}
             />
           </Field>
-          {editId && (
-            <Field size="sm">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
-            </Field>
-          )}
         </DetailSection>
       </Sheet>
     </div>

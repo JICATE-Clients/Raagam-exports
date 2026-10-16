@@ -7,7 +7,7 @@ import { labelOf, SAMPLE_TYPE_OPTIONS, TECH_PACK, type PdRequestStatus } from "@
 import type { PdFile, PdRequestRow, PdSample, PdSmpOption, PdStyleLine } from "./types";
 
 /**
- * Sample ▸ PD Request · Acknowledge PD Request — the reads (types.ts).
+ * Sample ▸ PD Request · PD Acknowledge — the reads (types.ts).
  *
  * A FAILED READ THROWS. An empty register reads as "nobody has asked the
  * Sample Department for anything", a real and unremarkable answer that nobody

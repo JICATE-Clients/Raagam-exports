@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
+import { ActiveField } from "@/components/ui/active-field";
 import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -387,6 +388,14 @@ export function CertificationMasterScreen({
                 BETWEEN the other two, so there is no pair here to pull onto one
                 row regardless. */}
             <DetailSection label="Details" cols={12}>
+              {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+              <ActiveField
+                id="cert-active"
+                size="lg"
+                isNew={!editId}
+                active={!form.inactive}
+                onChange={(on) => setForm({ ...form, inactive: !on })}
+              />
               <Field label="Certification Name" size="lg" required htmlFor="cert-name">
                 <Input
                   id="cert-name"
@@ -415,19 +424,6 @@ export function CertificationMasterScreen({
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                 />
               </Field>
-              {editId && (
-                <Field size="sm">
-                  <label className="flex h-8 cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={form.inactive}
-                      onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-                    />
-                    <span className="text-sm text-foreground">Inactive</span>
-                  </label>
-                </Field>
-              )}
             </DetailSection>
           </SectionColumn>
           <SectionColumn>

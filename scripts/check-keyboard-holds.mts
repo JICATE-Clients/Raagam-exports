@@ -430,6 +430,14 @@ for (const fieldAfter of [true, false]) {
   }
 }
 
+console.log("\n  A SHEET asks for the Excel key (user 2026-10-15, cost sheet Quotation)");
+for (const fieldAfter of [true, false]) {
+  for (const hasAdd of [true, false]) {
+    grid(`sheet: fieldAfter=${fieldAfter} hasAdd=${hasAdd} — always "row"`, enterInGrid({ ...LINE, fieldAfter, hasAdd, sheet: true }), "row");
+  }
+}
+grid("sheet: false is the same as not saying", enterInGrid({ ...LINE, fieldAfter: true, sheet: false }), "advance");
+
 console.log("\n  THE REPORTED BUG — a card row advances along itself");
 grid(
   "card, fields left in the row: decline, so `enterAdvances` moves ONE field",

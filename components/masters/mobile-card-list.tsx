@@ -1,10 +1,11 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Eye, FileText, Send, type LucideIcon } from "lucide-react";
+import { Eye, FileText, Send, Trash2, type LucideIcon } from "lucide-react";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Truncated } from "@/components/ui/truncated";
 import type { StatusTone } from "@/lib/ui/tone";
 import { cn } from "@/lib/utils";
@@ -104,6 +105,8 @@ export function MobileCardList<Row>({
   onView,
   canDelete = false,
   canDeleteRow,
+  deleteDisabledReason,
+  extraActions,
   onDelete,
   onReports,
   canReportsRow,
@@ -121,6 +124,7 @@ export function MobileCardList<Row>({
   columns = 1,
   queue = false,
   accent,
+  iconActions = false,
 }: {
   rows: Row[];
   getKey: (r: Row) => string;
@@ -152,6 +156,20 @@ export function MobileCardList<Row>({
    * cards in a grid row keep matching heights.
    */
   canDeleteRow?: (r: Row) => boolean;
+  /**
+   * WHY THIS ROW CANNOT BE DELETED — the card's twin of `RowActions`'
+   * `deleteDisabledReason` (AGENTS "Row actions": a LOCKED record keeps its
+   * bin, greyed, saying why; hiding is for missing permission only). Return a
+   * sentence to draw the Delete greyed with it as the tooltip; null/undefined
+   * draws the live two-step Delete. Read only where `canDeleteRow` passes.
+   */
+  deleteDisabledReason?: (r: Row) => string | null | undefined;
+  /**
+   * The row's OWN icons, drawn first in the footer, before View · Reports ·
+   * Send · Delete — e.g. an approval queue's Acknowledge / Not Acknowledged
+   * (Sample ▸ PD Acknowledge, 2026-10-15). Return null for a row with none.
+   */
+  extraActions?: (r: Row) => ReactNode;
   onDelete?: (r: Row) => void;
   /**
    * A document action reachable WITHOUT opening the row for edit — a printed
@@ -313,6 +331,15 @@ export function MobileCardList<Row>({
    * scans source text).
    */
   accent?: (r: Row) => string | undefined;
+  /**
+   * A `queue` card's Reports / Send as ICONS, no word (user 2026-10-15,
+   * Sample ▸ Costing, screenshot 3542: "report, revise, delete icon in single
+   * row"). Words beside three buttons outgrow a sixth of the pane and wrap the
+   * footer onto two lines. Opt-in, so every other queue keeps its words; the
+   * name moves to `aria-label` and `title`, since an icon with neither says
+   * nothing (which is why the 2026-09-18 card took titles away AND added words).
+   */
+  iconActions?: boolean;
 }) {
   if (rows.length === 0) {
     return (
@@ -323,7 +350,7 @@ export function MobileCardList<Row>({
   }
 
   const showDelete = canDelete && !!onDelete;
-  const showFooter = showDelete || !!onView || !!onReports || !!onSend || !!footerNote || !!hint;
+  const showFooter = showDelete || !!onView || !!onReports || !!onSend || !!extraActions || !!footerNote || !!hint;
   const grid = columns > 1;
 
   /** View · Reports · Delete — one definition, so every layout offers a row
@@ -333,52 +360,74 @@ export function MobileCardList<Row>({
    *  no title tooltips on these cards). An icon-only button with its `title=`
    *  taken away says nothing to a sighted user, so the word goes beside the
    *  icon instead; every other caller keeps the compact icon and its tooltip. */
+  const named = queue && !iconActions;
   const actions = (r: Row) => (
     <>
+      {extraActions?.(r)}
       {onView && (
         <Button
           variant="ghost"
           size="sm"
-          aria-label={queue ? undefined : "View"}
-          title={queue ? undefined : "View"}
+          aria-label={named ? undefined : "View"}
+          title={named ? undefined : "View"}
           onClick={() => onView(r)}
         >
           <Eye className="h-4 w-4" />
-          {queue && "View"}
+          {named && "View"}
         </Button>
       )}
       {onReports && (canReportsRow?.(r) ?? true) && (
         <Button
           variant="ghost"
           size="sm"
-          aria-label={queue ? undefined : "Reports"}
-          title={queue ? undefined : "Reports"}
+          aria-label={named ? undefined : "Reports"}
+          title={named ? undefined : "Reports"}
           onClick={() => onReports(r)}
+          className="shrink-0 whitespace-nowrap"
         >
           <FileText className="h-4 w-4" />
-          {queue && "Reports"}
+          {named && "Reports"}
         </Button>
       )}
       {onSend && (canSendRow?.(r) ?? true) && (
         <Button
           variant="ghost"
           size="sm"
-          aria-label={queue ? undefined : sendLabel}
-          title={queue ? undefined : sendLabel}
+          aria-label={named ? undefined : sendLabel}
+          title={named ? undefined : sendLabel}
           disabled={isPending}
           onClick={() => onSend(r)}
-          className="text-primary"
+          className="shrink-0 whitespace-nowrap text-primary"
         >
           <SendIcon className="h-4 w-4" />
-          {queue && sendLabel}
+          {named && sendLabel}
         </Button>
       )}
-      {showDelete && (canDeleteRow?.(r) ?? true) && (
-        <DeleteConfirmButton
-          isPending={isPending}
-          onConfirm={() => onDelete!(r)}
-        />
-      )}
+      {showDelete && (canDeleteRow?.(r) ?? true) && (() => {
+        const blocked = deleteDisabledReason?.(r);
+        return blocked ? (
+          /* THE BIN ICON, NOT THE WORD (user 2026-10-15, screenshot 3539: the
+             greyed "Delete" ran off a sixth-of-the-pane card beside Reports and
+             Raise Revise). A greyed action needs its REASON, which the tooltip
+             carries on hover and press — not its name. */
+          <Tooltip label={blocked} touch>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-disabled="true"
+              aria-label={`Delete — ${blocked}`}
+              className="h-8 w-8 shrink-0 cursor-not-allowed px-0 text-muted-foreground opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </Tooltip>
+        ) : (
+          <DeleteConfirmButton
+            isPending={isPending}
+            onConfirm={() => onDelete!(r)}
+          />
+        );
+      })()}
     </>
   );
 
@@ -387,6 +436,7 @@ export function MobileCardList<Row>({
    *  queue card drew an empty bordered strip under a pending order with
    *  nothing to delete and no reports (2026-10-03, phone audit). */
   const rowHasAction = (r: Row) =>
+    (!!extraActions && extraActions(r) != null) ||
     !!onView ||
     (!!onReports && (canReportsRow?.(r) ?? true)) ||
     (!!onSend && (canSendRow?.(r) ?? true)) ||
@@ -810,7 +860,9 @@ function QueueCard({
         <LabelledStats stats={stats} />
       </button>
       {(note || actions) && (
-        <div className="flex min-h-10 items-center gap-1 border-t border-border py-1 pl-4 pr-2">
+        /* `flex-wrap`: past what one line holds, the actions drop to a second
+           line INSIDE the card rather than running off its edge (2026-10-15). */
+        <div className="flex min-h-10 flex-wrap items-center justify-end gap-1 border-t border-border py-1 pl-4 pr-2">
           {/* truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); a date and a creator's name, the Created pair every listing carries */}
           <span className="block min-w-0 flex-1 truncate text-[11px] leading-tight text-muted-foreground">
             {note}

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { Input } from "@/components/ui/input";
 import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
-import { Toggle } from "@/components/ui/toggle";
+import { ActiveField } from "@/components/ui/active-field";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -259,6 +259,14 @@ export function LookupMasterScreen({
           {/* No Code input — the code is set automatically (blank → name server-side
               on create; edits keep the stored code via form.code passing through). */}
           <FieldRow align="start">
+          {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+          <ActiveField
+            id="lk-active"
+            w={FIELD_W.name}
+            isNew={!editId}
+            active={form.is_active}
+            onChange={(is_active) => setForm((f) => ({ ...f, is_active }))}
+          />
           <Field label="Name" required w={FIELD_W.name} htmlFor="lk-name">
             <Input
               id="lk-name"
@@ -292,16 +300,6 @@ export function LookupMasterScreen({
             />
           </Field>
           </FieldRow>
-          {editId && (
-            <FieldRow>
-              <Toggle
-                id="lk-active"
-                label="Active"
-                checked={form.is_active}
-                onChange={(is_active) => setForm({ ...form, is_active })}
-              />
-            </FieldRow>
-          )}
         </div>
       </Sheet>
     </div>
