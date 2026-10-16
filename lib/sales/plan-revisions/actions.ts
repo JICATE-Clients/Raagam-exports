@@ -56,6 +56,24 @@ export async function raisePlanRevision(input: {
 }
 
 /**
+ * "+ ADD MODULE" — PUT THE SWO'S OTHER PLAN INTO A REVISION ALREADY OPEN (0732,
+ * user 2026-10-15: Orders ▸ Order Revisions' option, copied). The plan is raised
+ * through the same per-plan raise, joins the entry with its reason and origin, and
+ * is refused while the entry is with the approver or already decided
+ * (`add_plan_to_sample_revision`). Answers the revision number it took.
+ */
+export async function addPlanToRevision(entryId: string, kind: "fabric" | "accessories", bomId: string): Promise<Result<{ revisionNo: number }>> {
+  // nav-path: exempt -- "Orders ▸ Edit" names the permission, not a menu row
+  if (!(await can("orders", "edit"))) return { ok: false, error: "Adding a plan to a revision needs Orders ▸ Edit." };
+  const s = await createClient();
+  const { data, error } = await s.rpc("add_plan_to_sample_revision", { p_entry: entryId, p_kind: kind, p_bom: bomId });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "sample_plan_revision.plan_added", entityType: "sample_plan_revision", entityId: entryId });
+  revalidate();
+  return { ok: true, revisionNo: Number(data) || 0 };
+}
+
+/**
  * ABANDON A REVISION ENTRY — every plan it reopened goes back exactly as it
  * was approved (0727's snapshot) and locks again; the revision closes as
  * abandoned. Refused while the approver holds it, and for a revision raised

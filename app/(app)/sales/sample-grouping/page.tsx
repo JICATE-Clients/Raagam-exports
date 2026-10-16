@@ -7,22 +7,10 @@ import { GroupingScreen } from "./grouping-screen";
  * structure and a yarn blend into one MOQ-rounded purchase
  * (doc/sample/product-grouping-specification.md; tables 0702 / 0703).
  * The next child after Costing: a style's kilos come from its costing.
- *
- * `?season=&year=` — the screen keeps them current, so a refresh or a shared
- * link opens the same season.
+ * Season and Year are Filters-panel facets on the screen (2026-10-15).
  */
-export default async function SampleGroupingPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ season?: string; year?: string }>;
-}) {
+export default async function SampleGroupingPage() {
   await requirePermission("sales", "view");
-  const sp = await searchParams;
-  const y = Number(sp.year);
-  const initial = {
-    season: (sp.season ?? "").trim(),
-    year: Number.isInteger(y) && y >= 2000 && y <= 2100 ? String(y) : "",
-  };
   const [data, canCreate, canEdit, canDelete, canRaiseIw] = await Promise.all([
     getGroupingData(),
     can("sales", "create"),
@@ -30,5 +18,5 @@ export default async function SampleGroupingPage({
     can("sales", "delete"),
     can("orders", "create"),
   ]);
-  return <GroupingScreen data={data} perms={{ canCreate, canEdit, canDelete, canRaiseIw }} initial={initial} />;
+  return <GroupingScreen data={data} perms={{ canCreate, canEdit, canDelete, canRaiseIw }} />;
 }

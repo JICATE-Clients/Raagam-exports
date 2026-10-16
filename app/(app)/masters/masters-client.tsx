@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { ActiveField } from "@/components/ui/active-field";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
@@ -181,6 +182,15 @@ function BuyersSection({
               <div className="col-span-2 text-sm font-semibold text-foreground">
                 {editId ? "Edit Buyer" : "New Buyer"}
               </div>
+              {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+              <div className="col-span-2 empty:hidden">
+                <ActiveField
+                  id="b-active"
+                  isNew={!editId}
+                  active={form.is_active}
+                  onChange={(on) => setForm((f) => ({ ...f, is_active: on }))}
+                />
+              </div>
 
               <div>
                 <Label htmlFor="b-code">Code *</Label>
@@ -270,23 +280,6 @@ function BuyersSection({
                     setForm({ ...form, address: e.target.value || null })
                   }
                 />
-              </div>
-              <div className="col-span-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="b-active"
-                  checked={form.is_active}
-                  onChange={(e) =>
-                    setForm({ ...form, is_active: e.target.checked })
-                  }
-                  className="h-4 w-4 cursor-pointer"
-                />
-                <label
-                  htmlFor="b-active"
-                  className="text-sm text-foreground cursor-pointer"
-                >
-                  Active
-                </label>
               </div>
               <div className="col-span-2 flex justify-end gap-2 pt-1">
                 <Button
@@ -449,6 +442,15 @@ function ItemsSection({
               <div className="col-span-2 text-sm font-semibold text-foreground">
                 {editId ? "Edit Item" : "New Item"}
               </div>
+              {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+              <div className="col-span-2 empty:hidden">
+                <ActiveField
+                  id="i-active"
+                  isNew={!editId}
+                  active={form.is_active}
+                  onChange={(on) => setForm((f) => ({ ...f, is_active: on }))}
+                />
+              </div>
 
               <div>
                 <Label htmlFor="i-code">Code *</Label>
@@ -489,23 +491,6 @@ function ItemsSection({
                   value={form.uom_id ?? null}
                   onChange={(id) => setForm({ ...form, uom_id: id })}
                 />
-              </div>
-              <div className="col-span-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="i-active"
-                  checked={form.is_active}
-                  onChange={(e) =>
-                    setForm({ ...form, is_active: e.target.checked })
-                  }
-                  className="h-4 w-4 cursor-pointer"
-                />
-                <label
-                  htmlFor="i-active"
-                  className="text-sm text-foreground cursor-pointer"
-                >
-                  Active
-                </label>
               </div>
               <div className="col-span-2 flex justify-end gap-2 pt-1">
                 <Button
@@ -641,6 +626,15 @@ function UomsSection({ uoms, io }: { uoms: Uom[]; io: IoPerms }) {
               <div className="col-span-2 text-sm font-semibold text-foreground">
                 {editId ? "Edit Unit of Measure" : "New Unit of Measure"}
               </div>
+              {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+              <div className="col-span-2 empty:hidden">
+                <ActiveField
+                  id="u-active"
+                  isNew={!editId}
+                  active={form.is_active}
+                  onChange={(on) => setForm((f) => ({ ...f, is_active: on }))}
+                />
+              </div>
 
               <div>
                 <Label htmlFor="u-code">Code *</Label>
@@ -659,23 +653,6 @@ function UomsSection({ uoms, io }: { uoms: Uom[]; io: IoPerms }) {
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   required
                 />
-              </div>
-              <div className="col-span-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="u-active"
-                  checked={form.is_active}
-                  onChange={(e) =>
-                    setForm({ ...form, is_active: e.target.checked })
-                  }
-                  className="h-4 w-4 cursor-pointer"
-                />
-                <label
-                  htmlFor="u-active"
-                  className="text-sm text-foreground cursor-pointer"
-                >
-                  Active
-                </label>
               </div>
               <div className="col-span-2 flex justify-end gap-2 pt-1">
                 <Button

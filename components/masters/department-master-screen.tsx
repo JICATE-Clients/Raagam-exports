@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
+import { ActiveField } from "@/components/ui/active-field";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -384,6 +385,19 @@ export function DepartmentMasterScreen({
               extra boxes and lines remove them").
             */}
             <FieldGrid className="max-w-3xl">
+              {/*
+                Status LEADS the form (AGENTS.md "Active leads the form"); edit
+                only. Supersedes the 2026-09-04 "status on Add too" row at the
+                bottom: a new record is born active, and `inactive` still
+                round-trips through `submit()` unchanged.
+              */}
+              <ActiveField
+                id="dep-active"
+                size="lg"
+                isNew={!editId}
+                active={!form.inactive}
+                onChange={(on) => set({ inactive: !on })}
+              />
               {/* Row 1 — Name · Doc Prefix */}
               <Field label="Name" size="lg" required htmlFor="dep-name">
                 <Input
@@ -463,23 +477,7 @@ export function DepartmentMasterScreen({
               </Field>
 
               {/*
-                Row 4 — Status, always on the form including add: `submit()`
-                sends `inactive` on a create exactly as on an update, so a row
-                could always have been saved inactive and nothing on screen let
-                anyone say so (client 2026-09-04).
-              */}
-              <Field label="Status" size="lg">
-                <div className="flex h-8 items-center">
-                  <Toggle
-                    checked={form.inactive}
-                    onChange={(v) => set({ inactive: v })}
-                    label="Inactive"
-                  />
-                </div>
-              </Field>
-
-              {/*
-                Row 5 — the item classes, one field holding six switches rather
+                Row 4 — the item classes, one field holding six switches rather
                 than a captioned card holding a 3-column checkbox grid of its
                 own. `full` so it takes the row: six labels do not fit in half.
               */}

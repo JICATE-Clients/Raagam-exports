@@ -354,7 +354,7 @@ type ListDbRow = {
  * latest live (not superseded) sample costing, the one "Cost this sample"
  * opens — or null when there is none.
  */
-export type SampleLock = { reason: string | null; costingId: string | null };
+export type SampleLock = { reason: string | null; costingId: string | null; stage: "approved" | "costing" | null };
 
 export async function sampleLocks(
   opps: { id: string; code: string | null }[],
@@ -404,10 +404,13 @@ export async function sampleLocks(
       } else if (!(rev.kinds ?? []).includes("sample_info")) {
         reason = `Sample Revision ${rev.revision_code} does not open Sample Info & Qty — add that module to the revision to change the sample entry.`;
       }
-    } else if (own.some((c) => c.status === "approved" || (c.status === "superseded" && !!c.approved_at))) {
-      reason = `${name} is approved by the buyer and locked — revise its costing to change it.`;
     }
-    out.set(o.id, { reason, costingId });
+    // 0725: any version the buyer accepted counts, a superseded one included.
+    const accepted = own.some((c) => c.status === "approved" || (c.status === "superseded" && !!c.approved_at));
+    if (!rev && accepted) {
+      reason = `${name} is approved by the buyer, so its entry is locked. A price, fabric or trim change goes through its costing's Raise Revise.`;
+    }
+    out.set(o.id, { reason, costingId, stage: accepted ? "approved" : live.length ? "costing" : null });
   }
   return out;
 }
@@ -448,10 +451,13 @@ export async function listSampleEntries(): Promise<SampleEntryListRow[]> {
       created_at: r.created_at,
       created_by: r.created_by,
       locked_reason: null,
+      costing_stage: null,
     } satisfies SampleEntryListRow;
   });
   const locks = await sampleLocks(rows);
-  return withCreators(rows.map((r) => ({ ...r, locked_reason: locks.get(r.id)?.reason ?? null })));
+  return withCreators(
+    rows.map((r) => ({ ...r, locked_reason: locks.get(r.id)?.reason ?? null, costing_stage: locks.get(r.id)?.stage ?? null })),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +485,8 @@ type StyleDb = Record<string, unknown> & {
         storage_path: string;
         mime_type: string | null;
         size_bytes: number | null;
+        is_primary: boolean | null;
+        print_on_report: boolean | null;
       }[]
     | null;
   /** 0715 — the structures picked, each with its GSM. */
@@ -513,7 +521,7 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
         "styles(*, coordinates:sample_style_coordinates(sno, coordinate_id), sizes:style_sizes(sno, garment_size), " +
         "structures:sample_style_fabric_structures(sno, structure_id, gsm, composition_id), " +
         "combos:style_combos(sno, combo, sizes:style_combo_sizes(sno, garment_size, order_qty)), " +
-        "files:sample_style_files(sno, doc_kind, file_name, storage_path, mime_type, size_bytes), " +
+        "files:sample_style_files(sno, doc_kind, file_name, storage_path, mime_type, size_bytes, is_primary, print_on_report), " +
         "quantities:sample_style_quantities(*, lines:sample_quantity_assort_lines(sno, combo, style_ref, no_of_cartons, inners_per_carton, " +
         "sizes:sample_quantity_assort_sizes(sno, garment_size, qty))))",
     )
@@ -621,6 +629,8 @@ export async function getSampleEntryRecord(id: string): Promise<SampleEntryRecor
         mime_type: f.mime_type ?? "",
         size_bytes: Number(f.size_bytes) || 0,
         style_ref_no: null,
+        is_primary: !!f.is_primary,
+        print_on_report: !!f.print_on_report,
       })),
       coordinates: bySno(st.coordinates).map((c) => ({ key: key(), coordinate_id: c.coordinate_id })),
       sizes,

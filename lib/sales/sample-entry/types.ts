@@ -26,6 +26,7 @@ import {
   type AssortMode,
 } from "@/lib/orders/amendments/qty-balance";
 import { styleProcessRowStarted, type StyleProcessRow } from "@/lib/orders/amendments/style-processes";
+import { isImageFile, normalizePrimary } from "@/lib/orders/amendments/style-gallery";
 
 // ---------------------------------------------------------------------------
 // Vocabularies. `value` is what is STORED (the CHECK constraints in 0368 / 0683);
@@ -621,6 +622,9 @@ export const sampleEntryInput = z
               storage_path: z.string().min(1).max(512),
               mime_type: z.string().max(120).nullable(),
               size_bytes: z.number().int().min(0).nullable(),
+              // 0731 — Order Entry's two picture flags (0621), same meaning.
+              is_primary: z.boolean(),
+              print_on_report: z.boolean(),
             }),
           ),
           coordinates: z.array(z.object({ sno: z.number().int(), coordinate_id: uuid })),
@@ -781,8 +785,10 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
         currency_code: s.billable ? s.currency_code : null,
         price: s.billable ? orNull(s.price) : null,
         exchange_rate: s.billable ? orNull(s.exchange_rate) : null,
-        files: s.files
-          .filter((f) => !!f.storage_path)
+        // `normalizePrimary` — one cover per style, never a PDF — the same
+        // function Order Entry's save path runs (0621 / 0731). A PDF never
+        // prints: the report paints an <img>.
+        files: normalizePrimary(s.files.filter((f) => !!f.storage_path))
           .map((f, fi) => ({
             sno: fi + 1,
             doc_kind: f.doc_kind === "sketch" ? "sketch" : f.doc_kind === "order_sheet" ? "tech_pack" : null,
@@ -790,6 +796,8 @@ export function toSampleEntryPayload(h: SampleHeaderDraft, all: StyleDraft[], is
             storage_path: f.storage_path,
             mime_type: f.mime_type || null,
             size_bytes: Number.isFinite(f.size_bytes) ? f.size_bytes : null,
+            is_primary: !!f.is_primary,
+            print_on_report: !!f.print_on_report && isImageFile(f),
           })),
         // A PCS line keeps its one coordinate (PIECES, prefilled — Order Entry's
         // rule, client 2026-08-29), a SET its two to six.
@@ -883,6 +891,10 @@ export type SampleEntryListRow = {
   /** Why the entry cannot be changed (an approved costing, an SMP revision),
    *  or null — greys the row's pencil and bin (`sampleLocks`). */
   locked_reason: string | null;
+  /** How far its costing has got — "approved" (a version the buyer accepted,
+   *  0725), "costing" (a live costing not yet accepted), or null (none yet).
+   *  The four-word box reads it (`sampleWordOf`). */
+  costing_stage: "approved" | "costing" | null;
 };
 
 /**

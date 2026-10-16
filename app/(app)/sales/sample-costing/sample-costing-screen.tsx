@@ -55,16 +55,15 @@ import {
   Calculator,
   CalendarRange,
   CircleX,
-  FilePenLine,
   Check,
   Clock,
   ChevronRight,
   Copy,
   GitCompare,
+  Hourglass,
   Pencil,
   RefreshCw,
   RotateCcw,
-  MessagesSquare,
   Ruler,
   Users,
   X,
@@ -95,7 +94,6 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdByFacet, createdDateFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
@@ -320,17 +318,18 @@ type CostingTab = "pending" | "progress" | "rejected" | "draft" | "approved";
  *  buyer's Quotation document itself is read-only) — update, Save, and the next
  *  Rev is written with every earlier Rev kept as history. */
 const raiseReviseHref = (id: string) => `/sales/sample-costing/${id}/reports?tab=cost-sheet&revise=1`;
-/* DESIGN B (user 2026-10-15): the standard ToggleGroup box, with icons that say
-   what each tab holds — a calculator for a sample still to be costed, a chat for
-   a quote with the buyer (not Send: there is no send step), circled marks for
-   the two buyer outcomes, a document-and-pen for a draft — each tinted in its
-   status colour while unlit. The lit tab keeps the primary colours. */
-const COSTING_TABS: { value: CostingTab; label: string; icon: typeof Clock; tone: string }[] = [
-  { value: "pending", label: "Pending", icon: Calculator, tone: "text-warning" },
-  { value: "progress", label: "Under Progress", icon: MessagesSquare, tone: "text-info" },
-  { value: "rejected", label: "Rejected", icon: CircleX, tone: "text-danger" },
-  { value: "draft", label: "Draft", icon: FilePenLine, tone: "text-muted-foreground" },
-  { value: "approved", label: "Approved", icon: BadgeCheck, tone: "text-success" },
+/* FABRIC PLAN'S ICONS (user 2026-10-15, screenshot 3534: "costing status need
+   to ui icon like fabric plan icons"). Same glyph per word as `StatusSegment`'s
+   QUICK map (components/orders/bom-queue.tsx) — Clock · Hourglass · BadgeCheck
+   · Pencil — and, like that box, untinted: only the lit tab carries colour.
+   Rejected has no Fabric Plan twin, so it keeps CircleX. Supersedes the same
+   morning's Design B (calculator / chat / pen-on-page, each status-tinted). */
+const COSTING_TABS: { value: CostingTab; label: string; icon: typeof Clock }[] = [
+  { value: "pending", label: "Pending", icon: Clock },
+  { value: "progress", label: "Under Progress", icon: Hourglass },
+  { value: "rejected", label: "Rejected", icon: CircleX },
+  { value: "draft", label: "Draft", icon: Pencil },
+  { value: "approved", label: "Approved", icon: BadgeCheck },
 ];
 const TAB_LABEL = Object.fromEntries(COSTING_TABS.map((t) => [t.value, t.label])) as Record<CostingTab, string>;
 const costingTabOf = (r: CostingListRow): CostingTab =>
@@ -578,7 +577,6 @@ export function SampleCostingScreen({
   // chevron that opened it. One open at a time by construction.
   const [buildKey, setBuildKey] = useState<string | null>(null);
   const [buildOrigin, captureBuildOrigin] = useSubSheetOrigin();
-  const [buildTab, setBuildTab] = useState<"mix" | "process">("mix");
 
   // ---- the steps: ONE open at a time (AGENTS.md "Folds are accordions") ----------
   // Tab or a click into a step opens it and folds the one behind.
@@ -1221,10 +1219,8 @@ export function SampleCostingScreen({
       const id = p.fieldId;
       // A breakdown field lives in its fabric's build-up: open the step and the build-up first.
       const inBuild = /^sc-fab-(?:yarn|mix)-(.+)$/.exec(id);
-      if (inBuild) {
-        setBuildKey(inBuild[1]);
-        setBuildTab("mix");
-      }
+      // Both tables show at once now (option A), so only the build-up opens.
+      if (inBuild) setBuildKey(inBuild[1]);
       fold.setOpenKey(cardOf(p.section));
       // Land on the field itself and ring it for 2 s.
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -1453,8 +1449,9 @@ export function SampleCostingScreen({
       header: "Weighted",
       align: "right",
       width: FIELD_WIDTH_CSS.hug,
-      // THE TABLE'S LAST ROW IS THE PRICE ROW (user 2026-10-14, option C) — see `priceBand`.
-      total: { kind: "derived", value: () => priceBand(f).price },
+      // The yarn SUBTOTAL (plan "Fabric Rate Layout" option A, 2026-10-15). The price row
+      // (option C, 2026-10-14) is now ONE line under both tables — see `fabricBuildUp`.
+      total: { kind: "derived", value: () => <b className="tabular-nums">{money(yarnRateOf(f))}</b> },
       cell: (y) => <Figure value={num(y.mix_pct) != null ? ((num(y.mix_pct) ?? 0) * (num(y.rate) ?? 0)) / 100 : null} formula="Mix % × Rate ÷ 100" />,
     },
   ];
@@ -1466,10 +1463,10 @@ export function SampleCostingScreen({
   const costingProcessColumns = (f: FabricDraft): ChildGridColumn<FabricProcessDraft>[] => [
     {
       header: "Process",
-      // 20rem, not `term`: this cell (with the "#") is where the price row's
-      // Yarn / KG and Process Loss % sit, and at 176px they ran into Price per KG
-      // (user 2026-10-14). 40 + 320 + 88 + the ✕ fits the 31rem column.
-      width: "20rem",
+      // `party` 200px (option A, 2026-10-15): the price row no longer sits in this
+      // table's last row, so the cell needs only a process name ("COMPACTING [OPEN
+      // WIDTH]" fits). It was 20rem to hold that row's Yarn / KG and Loss %.
+      width: FIELD_WIDTH_CSS.party,
       cell: (r) => (
         <TypeOrPick
           label="Special process"
@@ -1486,7 +1483,7 @@ export function SampleCostingScreen({
       header: "Rate / KG",
       align: "right",
       width: FIELD_WIDTH_CSS.hug,
-      total: { kind: "derived", value: () => priceBand(f).price },
+      total: { kind: "derived", value: () => <b className="tabular-nums">{money(fabricSubtotal(f) - yarnRateOf(f))}</b> },
       cell: (r) => (
         <NumInput
           aria-label="Process rate per KG"
@@ -1513,9 +1510,10 @@ export function SampleCostingScreen({
   const fabricRate = (f: FabricDraft): number | null => (f.is_direct ? num(f.direct_rate) : fabricPricePerKg(f));
 
   /**
-   * THE BUILD-UP, inline under the row: Yarn mixing | Processes, then the loss
-   * and the price per KG. The ToggleGroup only SHOWS one part at a time; both
-   * always count in the price.
+   * THE BUILD-UP: Yarn mixing and Processes SIDE BY SIDE, then one price row —
+   * Yarn / KG · Process Loss % · Price per KG. (Until 2026-10-15 a ToggleGroup
+   * showed one part at a time; option A of plan "Fabric Rate Layout" put both
+   * in view, as on the Revise cost sheet.)
    *
    * PROCESSES ARE ONE LIST, EACH ROW PICKED FROM THE PROCESS MASTER (user
    * 2026-10-08, "the way Order Entry lists processes"): KNITTING, DYEING,
@@ -1530,80 +1528,68 @@ export function SampleCostingScreen({
   const fabricBuildUp = (f: FabricDraft) => {
     const mix = hasYarnMix(f);
     const mixTotal = yarnMixTotal(f);
-    const yarnSub = yarnRateOf(f);
-    // Everything in the rate that is not yarn — the processes list, plus the legacy columns (0 today).
-    const procSub = fabricSubtotal(f) - yarnSub;
     const mixOk = Math.abs(mixTotal - 100) <= 0.001;
     return (
       <div id={`sc-build-${f.key}`} className="space-y-2">
-        {/* No "Type the price instead" here (user 2026-10-14). */}
-        <ToggleGroup<"mix" | "process">
-          label="Parts of the fabric rate"
-          value={buildTab}
-          onChange={setBuildTab}
-          options={[
-            { value: "mix", label: "Yarn mixing", after: <span className="tabular-nums opacity-80">{`₹ ${money(yarnSub)}`}</span> },
-            { value: "process", label: "Processes", after: <span className="tabular-nums opacity-80">{`₹ ${money(procSub)}`}</span> },
-          ]}
-        />
-        {/* The three numbers are the table's last row now (`priceBand`). */}
-        <div>
-        <div className="min-w-0">
-        {buildTab === "mix" ? (
-          <div className="space-y-2">
-            <div id={costingFieldId.yarnMix(f.key)} className="w-[31rem] max-w-full">
-              {/* default-row: exempt -- a fabric with no blend needs no mix line; the seeded one is dropped as blank */}
-              <div data-grid-style="sheet" className="[&_table]:table-fixed">
-                <ChildGrid<YarnMixDraft>
-                  // grid-caption: exempt -- the build-up's tab names it
-                  label="Yarn mix"
-                  columns={costingYarnColumns(f)}
-                  rows={mixRows(f)}
-                  tableAlways
-                  narrow
-                  keepOne
-                  totalsLabel={priceBand(f).label}
-                  addLabel="+ Add yarn"
-                  onAdd={() => setMix(f, (xs) => [...xs, blankYarn()])}
-                  onRemove={(y) => setMix(f, (xs) => xs.filter((x) => x.key !== y.key))}
-                />
-              </div>
-              {/* Said only when the mix is WRONG (user 2026-10-14 removed the
-                  "Mix adds up to 100%." confirmation and the intro line). */}
-              {mix && !mixOk ? (
-                <p className="m-0 mt-2 text-xs text-danger">
-                  {mixTotal < 100
-                      ? `Mix is ${mixTotal}%. ${+(100 - mixTotal).toFixed(2)}% still to place.`
-                      : `Mix is ${mixTotal}%. ${+(mixTotal - 100).toFixed(2)}% too much.`}
-                </p>
-              ) : null}
-              <FieldError>{msgFor(costingFieldId.yarnMix(f.key))}</FieldError>
+        {/* SIDE BY SIDE (user 2026-10-15, plan "Fabric Rate Layout" option A, then "same
+            apply for all"): Yarn mixing and Processes were a ToggleGroup showing one at a
+            time; now both tables sit in one row and wrap under only on a narrow pane. Each
+            wrapper takes a DEFINITE width (declared columns + 4.5rem of # and ✕) — never
+            w-max, which collapses a ChildGrid to its "+ Add" (screenshot 3543). Yarn: term
+            11 + num 4.5 + hug 5.5 + hug 5.5 = 26.5 + 4.5 = 31rem; Processes: party 12.5 +
+            hug 5.5 = 18 + 4.5 = 22.5rem. Each carries its SUBTOTAL; the price row (option C,
+            2026-10-14) is one line under both, so it is said once, not once per table. */}
+        <div className="flex flex-wrap items-start gap-4">
+          <div id={costingFieldId.yarnMix(f.key)} className="w-[31rem] max-w-full">
+            {/* default-row: exempt -- a fabric with no blend needs no mix line; the seeded one is dropped as blank */}
+            <div data-grid-style="sheet" className="[&_table]:table-fixed">
+              <ChildGrid<YarnMixDraft>
+                // grid-caption: exempt -- two grids share this row; the caption says which is which
+                label="Yarn mixing"
+                columns={costingYarnColumns(f)}
+                rows={mixRows(f)}
+                tableAlways
+                narrow
+                keepOne
+                totalsLabel="Yarn"
+                addLabel="+ Add yarn"
+                onAdd={() => setMix(f, (xs) => [...xs, blankYarn()])}
+                onRemove={(y) => setMix(f, (xs) => xs.filter((x) => x.key !== y.key))}
+              />
+            </div>
+            {/* Said only when the mix is WRONG (user 2026-10-14 removed the
+                "Mix adds up to 100%." confirmation and the intro line). */}
+            {mix && !mixOk ? (
+              <p className="m-0 mt-2 text-xs text-danger">
+                {mixTotal < 100
+                  ? `Mix is ${mixTotal}%. ${+(100 - mixTotal).toFixed(2)}% still to place.`
+                  : `Mix is ${mixTotal}%. ${+(mixTotal - 100).toFixed(2)}% too much.`}
+              </p>
+            ) : null}
+            <FieldError>{msgFor(costingFieldId.yarnMix(f.key))}</FieldError>
+          </div>
+          <div className="w-[22.5rem] max-w-full">
+            <div data-grid-style="sheet" className="[&_table]:table-fixed">
+              <ChildGrid<FabricProcessDraft>
+                // grid-caption: exempt -- two grids share this row; the caption says which is which
+                label="Processes"
+                columns={costingProcessColumns(f)}
+                rows={f.processes}
+                tableAlways
+                narrow
+                keepOne
+                totalsLabel="Processes"
+                addLabel="+ Add process"
+                onAdd={() => setProc(f, (xs) => [...xs, blankProcess()])}
+                onRemove={(r) => setProc(f, (xs) => xs.filter((x) => x.key !== r.key))}
+              />
             </div>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {/* Same 31rem as the yarn table (user 2026-10-14), so the price row
-                sits on one line in both tabs. */}
-            <div className="w-[31rem] max-w-full">
-              <div data-grid-style="sheet" className="[&_table]:table-fixed">
-                <ChildGrid<FabricProcessDraft>
-                  // grid-caption: exempt -- the build-up's tab names it
-                  label="Processes"
-                  columns={costingProcessColumns(f)}
-                  rows={f.processes}
-                  tableAlways
-                  narrow
-                  keepOne
-                  totalsLabel={priceBand(f).label}
-                  addLabel="+ Add process"
-                  onAdd={() => setProc(f, (xs) => [...xs, blankProcess()])}
-                  onRemove={(r) => setProc(f, (xs) => xs.filter((x) => x.key !== r.key))}
-                />
-              </div>
-            </div>
-          </div>
-        )}
         </div>
+        {/* THE PRICE ROW, ONCE, under both tables: Yarn / KG · Process Loss % · Price per KG. */}
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-border bg-surface-muted px-3 py-2">
+          {priceBand(f).label}
+          {priceBand(f).price}
         </div>
         <FieldError>{msgFor(costingFieldId.fabricRate(f.key))}</FieldError>
       </div>
@@ -1720,7 +1706,6 @@ export function SampleCostingScreen({
                 onClick={captureBuildOrigin(() => {
                   if (f.is_direct) patchFabric(f.key, { is_direct: false });
                   setBuildKey(f.key);
-                  setBuildTab("mix");
                 })}
               >
                 <Pencil aria-hidden />
@@ -4002,7 +3987,8 @@ export function SampleCostingScreen({
           origin={buildOrigin}
           parent="costing"
           grid
-          maxWidthClass="max-w-xl"
+          // Both tables side by side (~54rem) need the wider box (option A, 2026-10-15).
+          maxWidthClass="max-w-5xl"
           // No visible title (user 2026-10-14); the dialog still has a name.
           title={<span className="sr-only">Fabric price</span>}
         >
@@ -4124,7 +4110,7 @@ export function SampleCostingScreen({
             label={`Status: ${TAB_LABEL[tab]}`}
             value={tab}
             onChange={pickTab}
-            options={COSTING_TABS.map((t) => ({ value: t.value, label: t.label, icon: t.icon, iconTone: t.tone, count: tabCounts[t.value] }))}
+            options={COSTING_TABS.map((t) => ({ value: t.value, label: t.label, icon: t.icon, count: tabCounts[t.value] }))}
           />
         }
         right={`${filtered.length} of ${current.length} ${TAB_LABEL[tab]}`}
@@ -4162,7 +4148,12 @@ export function SampleCostingScreen({
           { label: "Date", value: r.awaiting ? "—" : fmtDate(r.costing_date) },
         ]}
         onOpen={(r) => (r.awaiting ? perms.canCreate && startCostingFor(r) : openById(r.id))}
-        footerNote={hasCreatedInfo(filtered) ? (r) => `Created ${createdMeta(r)}` : undefined}
+        /* NO "Created …" LINE, AND THE ACTIONS ARE ICONS (user 2026-10-15,
+           screenshot 3542: "the date is in two times … no need, remove it;
+           report, revise, delete icon in single row"). The card's Date figure
+           already dates it, and with the words gone Reports · Raise Revise ·
+           Delete fit one footer row instead of wrapping onto a second. */
+        iconActions
         canDelete={perms.canDelete}
         /* A LOCKED COSTING KEEPS ITS PENCIL AND BIN, GREYED, SAYING WHY (AGENTS
            "Row actions"). Only a sample with no sheet yet has nothing to delete;

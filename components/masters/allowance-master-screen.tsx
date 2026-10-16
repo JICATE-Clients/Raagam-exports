@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
+import { ActiveField } from "@/components/ui/active-field";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { MasterListShell } from "@/components/masters/master-list-shell";
@@ -253,6 +254,19 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
           just told to stop drawing.
         */}
         <FieldGrid className="max-w-3xl">
+          {/*
+            Status LEADS the form (AGENTS.md "Active leads the form"); edit only.
+            This supersedes the 2026-09-04 "status on Add too" placement at the
+            bottom: a new record is born active (the 2026-10-15 app-wide rule),
+            and `form.inactive` still round-trips through `submit()` unchanged.
+          */}
+          <ActiveField
+            id="al-active"
+            size="lg"
+            isNew={!editId}
+            active={!form.inactive}
+            onChange={(on) => set({ inactive: !on })}
+          />
           {/* Row 1 — ID · Name */}
           <Field label="ID" size="lg" htmlFor="al-id" skipTab>
             {/*
@@ -358,35 +372,6 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
               </Field>
             </>
           )}
-
-          {/*
-            STATUS IS ALWAYS ON THE FORM, ADD INCLUDED (client 2026-09-04: "like
-            a toggle so that if i wann make it active or inactive i can do
-            that"). It used to render only for an existing row, on the reasoning
-            that a record cannot be born switched off — but that was a UI choice
-            rather than a constraint: `submit()` sends `inactive: form.inactive`
-            on a create exactly as it does on an update, so the row could always
-            have been saved inactive and nothing on screen let anyone say so.
-
-            Being unconditional also settles the layout question that used to
-            justify hiding it. While it was edit-only it had to sit LAST, or the
-            cell it occupies would be missing on the New form and every pair
-            after it would swap sides between the two. Now it is present in
-            both, so the rows are identical either way and last is simply where
-            a record-level flag belongs — after the fields it describes.
-
-            `h-8` puts the switch on the same baseline as the inputs beside it,
-            the way `bank-master-screen`'s radio set does.
-          */}
-          <Field label="Status" size="lg">
-            <div className="flex h-8 items-center">
-              <Toggle
-                checked={form.inactive}
-                onChange={(v) => set({ inactive: v })}
-                label="Inactive"
-              />
-            </div>
-          </Field>
 
           {/*
             THREE FLAGS AS ONE FIELD, NOT A BOXED BAND.

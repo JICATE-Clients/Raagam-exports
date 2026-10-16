@@ -845,6 +845,13 @@ export interface GridEnterProbe {
   fieldAfter: boolean;
   /** Does this grid have a reachable "+ Add" of its own? */
   hasAdd: boolean;
+  /**
+   * Is this grid a SHEET — `data-grid-axis="sheet"` on its body? A sheet is a
+   * figures table whose columns are the same quantity (one column per size), so
+   * Enter means Excel's "down the column" there and nowhere else. Optional: every
+   * grid that does not say so keeps the 2026-09-29 next-field rule.
+   */
+  sheet?: boolean;
 }
 
 /**
@@ -903,6 +910,12 @@ export interface GridEnterProbe {
 export type GridEnter = "row" | "advance" | "add";
 
 export function enterInGrid(p: GridEnterProbe): GridEnter {
+  /* THE ONE LAYOUT THAT ASKS FOR THE EXCEL KEY (user 2026-10-15, the cost sheet's
+     Quotation: "make enter move down the column like excel"). A sheet's rows are
+     not records with fields along them — they are figures, and a column is one
+     size's prices — so walking ALONG a row is the wrong axis there. Opt-in by
+     marker, so the Contacts rule above holds for every other grid. */
+  if (p.sheet) return "row";
   if (p.fieldAfter) return "advance";
   return p.hasAdd ? "add" : "advance";
 }

@@ -39,6 +39,7 @@ import {
   AFFORDANCE_PAD_COMPACT,
   FieldAffordance,
 } from "@/components/ui/field-affordance";
+import { hint } from "@/lib/ui/placeholders";
 
 /** One selectable record. `sublabel` renders muted beside the label. */
 export type PickerRow = {
@@ -1346,7 +1347,7 @@ export function DataPicker({
            * Entry's Rejection Rule reads "No projection", because blank there
            * is a state of the order rather than an unanswered field.
            */
-          placeholder={selected ? selected.short ?? selected.label : (placeholder ?? "")}
+          placeholder={selected ? selected.short ?? selected.label : (hint(placeholder) ?? "")}
           // A picker trigger IS a field to the operator. The marker is what
           // makes `gridKeyNav` gate Enter-adds-row on `data-field-empty` — a
           // grid whose first cell is an empty picker used to grow a blank row

@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
+import { ActiveField } from "@/components/ui/active-field";
 import { useToast } from "@/components/ui/toast";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
@@ -150,6 +151,14 @@ export function AccountsClient({
                 {editId ? "Edit Account" : "New GL Account"}
               </div>
 
+              {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+              <ActiveField
+                id="acc-active"
+                active={form.is_active}
+                onChange={(on) => setForm({ ...form, is_active: on })}
+                isNew={!editId}
+              />
+
               <div>
                 <Label htmlFor="acc-code">Code *</Label>
                 <Input
@@ -188,18 +197,6 @@ export function AccountsClient({
                     </option>
                   ))}
                 </Select>
-              </div>
-
-              <div className="flex items-end pb-1">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={form.is_active}
-                    onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                    className="h-4 w-4 cursor-pointer"
-                  />
-                  Active
-                </label>
               </div>
 
               <div className="col-span-2 flex justify-end gap-2 pt-1">

@@ -54,6 +54,7 @@ import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
+import { FIELD_WIDTH_CSS } from "@/components/ui/field";
 import {
   PROCESS_KIND_OPTIONS,
   componentsForKind,
@@ -81,6 +82,7 @@ export function StyleProcessGrid({
   readOnly = false,
   kind: fixedKind,
   tableAlways = false,
+  compact = false,
 }: {
   /**
    * ONE KIND PER GRID (spec v8 §5, 2026-10-14 — Sample Entry ▸ Combos ▸
@@ -91,6 +93,10 @@ export function StyleProcessGrid({
    * Process. `rows` / `onChange` stay the WHOLE list, so the two grids share one
    * array and the save path is unchanged. Omitted (Order Entry's Style ▸
    * Process sheet), the grid is the mixed one with a Type per row, as before.
+   *
+   * NO CALLER PASSES IT SINCE 2026-10-15: Sample Entry went back to ONE mixed
+   * table (user, screenshot 3509: "make this into single table"). Kept, since
+   * the two-grid split is one prop away if the spec swings back.
    */
   kind?: ProcessKind;
   rows: StyleProcessRow[];
@@ -125,7 +131,19 @@ export function StyleProcessGrid({
    * Process keeps the responsive default.
    */
   tableAlways?: boolean;
+  /**
+   * COMPACT COLUMNS (user 2026-10-15, Sample Entry ▸ Embellishments: "compact
+   * the fields size"). Vocabulary steps, not local numbers: Type, Process and
+   * Component at `term` (176px — "Component Process", "GARMENT DYEING"; the
+   * pickers' Truncated reveal covers a longer name), Details at `party` (200px).
+   * ~730px of columns instead of ~960. Opt-in: Order Entry's Style ▸ Process
+   * sheet is sized against the default widths below, so it keeps them.
+   */
+  compact?: boolean;
 }) {
+  const W = compact
+    ? { type: FIELD_WIDTH_CSS.term, process: FIELD_WIDTH_CSS.term, component: FIELD_WIDTH_CSS.term, details: FIELD_WIDTH_CSS.party }
+    : { type: "12rem", process: "16rem", component: "12rem", details: "20rem" };
   // A fixed-kind grid sees its own rows; every write puts the other kind back.
   const rows = fixedKind ? allRows.filter((r) => r.kind === fixedKind) : allRows;
   const onChange = (next: StyleProcessRow[]) =>
@@ -155,7 +173,7 @@ export function StyleProcessGrid({
   const allColumns: ChildGridColumn<StyleProcessRow>[] = [
     {
       header: "Type",
-      width: "12rem",
+      width: W.type,
       cell: (r) => (
         <Select
           value={r.kind ?? ""}
@@ -203,7 +221,7 @@ export function StyleProcessGrid({
          above is chosen against. A column that declares no width contributes an
          unknown, and the surface can then only be sized by eye — which is how
          `sm` was picked in the first place. */
-      width: "16rem",
+      width: W.process,
       cell: (r) => (
         <RecordPicker
           label=""
@@ -225,7 +243,7 @@ export function StyleProcessGrid({
     },
     {
       header: "Component",
-      width: "12rem",
+      width: W.component,
       /**
        * WHICH CUT PANEL (0421). "Work on cut panels — printing a logo or
        * embroidery — before the garment is sewn" (client 2026-08-13).
@@ -255,6 +273,9 @@ export function StyleProcessGrid({
              something different in each, and a bare "— Select —" would say
              none of them. */
           placeholder={
+            /* Hidden app-wide since 2026-10-15 (`lib/ui/placeholders.ts`,
+               user: "no more placeholder anywhere"); the text stays here so
+               flipping that one switch brings it back. */
             r.kind === "component"
               ? components.length
                 ? "— Select —"
@@ -299,7 +320,7 @@ export function StyleProcessGrid({
        * right shape for a narrow pane and the wrong one for a modal chosen to
        * fit ~1040px of declared width.
        */
-      width: "20rem",
+      width: W.details,
       cell: (r) => (
         <Input
           value={r.details}

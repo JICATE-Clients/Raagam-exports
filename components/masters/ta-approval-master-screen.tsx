@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { Field, type FieldSize } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
+import { ActiveField } from "@/components/ui/active-field";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -212,6 +213,14 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
       >
         <SectionGrid>
           <DetailSection label="Details" cols={12}>
+            {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+            <ActiveField
+              id="ta-appr-active"
+              size={FIELD_SIZE.inactive}
+              active={form.is_active}
+              onChange={(on) => set({ is_active: on })}
+              isNew={!editId}
+            />
             <Field label="Name" required size={FIELD_SIZE.name} htmlFor="ta-appr-name">
               <Input
                 id="ta-appr-name"
@@ -243,19 +252,6 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
                 onChange={(e) => set({ standard_days: e.target.value })}
               />
             </Field>
-            {editId && (
-              <Field size={FIELD_SIZE.inactive}>
-                <label className="flex h-8 cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={!form.is_active}
-                    onChange={(e) => set({ is_active: !e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
-              </Field>
-            )}
           </DetailSection>
         </SectionGrid>
       </Sheet>

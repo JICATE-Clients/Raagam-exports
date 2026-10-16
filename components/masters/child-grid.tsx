@@ -1045,12 +1045,30 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
     );
     const at = all.indexOf(el);
     const add = ownAddControl(body);
+    const sheet = body.getAttribute("data-grid-axis") === "sheet";
     const verdict = enterInGrid({
       stacked,
       fieldAfter: at !== -1 && all.slice(at + 1).some((f) => !isOffTabPath(f)),
       hasAdd: !!add,
+      sheet,
     });
     if (verdict === "advance") return;
+    /* A SHEET WALKS COLUMN BY COLUMN, the way Excel's Enter does: down to the
+       next row that has a cell in this column (rows of plain figures have none
+       and are stepped over), then the top of the next column. Off the last cell
+       it DECLINES, so `enterAdvances` carries on to whatever follows the sheet. */
+    if (verdict === "row" && sheet && !fromChildGrid) {
+      const cols = rows.map((r) => fieldsIn(r).filter((f) => f.offsetParent !== null && !isOffTabPath(f)));
+      const c = cols[idx].indexOf(el);
+      const below = cols.slice(idx + 1).find((fs) => fs[c]);
+      const nextCol = below ? null : cols.find((fs) => fs[c + 1]);
+      const to = below?.[c] ?? nextCol?.[c + 1];
+      if (!to || c === -1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      focusField(to);
+      return;
+    }
     if (verdict === "add" && add) {
       e.preventDefault();
       e.stopPropagation();

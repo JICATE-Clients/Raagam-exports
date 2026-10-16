@@ -25,7 +25,7 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import { loadPdSample, sendPdRequest } from "@/lib/sales/pd-requests/actions";
 import { canRaisePd, PD_TO_DEPARTMENT, type PdQueueRow, type PdRequestRow, type PdSample, type PdSmpOption } from "@/lib/sales/pd-requests/types";
 import { PD_STATUS_LABEL } from "@/lib/sales/sample-entry/types";
-import { queueState, queueWord } from "@/lib/sales/pd-requests/words";
+import { PD_WORDS, queueState, queueWord } from "@/lib/sales/pd-requests/words";
 
 const PATH = "/sales/pd-request";
 
@@ -135,7 +135,7 @@ export function PdRequestScreen({
   }, [queue, query, facetMatch]);
   // The box stands down while the panel's Status is set (Plan Approval's rule).
   const quick = useQuickStatus(queueWord, {
-    draft: false,
+    words: PD_WORDS,
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
     countRows: searched,
@@ -257,7 +257,7 @@ export function PdRequestScreen({
         // Acknowledged SMPs read as a table, as every Sample queue's Updated does
         // — and only ever open read-only, so no pencil; the SMP No opens them.
         rowEdit={false}
-        table={quick.value === "updated" ? { title: "SMP No", subtitle: "Customer · Season" } : undefined}
+        table={quick.value === "approved" ? { title: "SMP No", subtitle: "Customer · Season" } : undefined}
         empty={
           queue.length
             ? "No SMPs match the search or the status box."

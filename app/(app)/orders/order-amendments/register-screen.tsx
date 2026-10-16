@@ -526,7 +526,9 @@ export function AmendmentRegisterScreen({
       return (
         <RowActions
           label={r.entry_no ?? r.re_no}
-          onView={() => router.push(openHref(r))}
+          /* NO EYE (user 2026-10-15, with Sample ▸ Revision: "no need that eye"). It
+             opened exactly what the Rev #n link in the Revision column opens. */
+          view={false}
           isPending={isPending}
           menu={[
             ...(r.garment_order_id

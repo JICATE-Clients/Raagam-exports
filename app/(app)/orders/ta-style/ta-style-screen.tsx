@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
+import { ActiveField } from "@/components/ui/active-field";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -349,6 +350,10 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
       <Card>
         <CardBody>
           <FieldGrid>
+            {/* Status LEADS the form (AGENTS.md "Active leads the form") — it
+                used to be a "Blocked" tick at the very bottom, under the
+                activity grid. Edit only: a new TA Style is born active. */}
+            <ActiveField id="tas-active" size="sm" isNew={!editId} active={!blocked} onChange={(on) => setBlocked(!on)} />
             <Field label="TA Style No" size="sm" htmlFor="tas-ref">
               <Input id="tas-ref" className="font-mono" value={editCode ?? "(auto)"} readOnly />
             </Field>
@@ -393,15 +398,6 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
 
       <Card>
         <CardBody className="flex flex-wrap items-center gap-6">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="h-4 w-4"
-              checked={blocked}
-              onChange={(e) => setBlocked(e.target.checked)}
-            />
-            Blocked
-          </label>
           <div className="flex-1" />
           <div className="text-sm">
             <span className="text-muted-foreground">Target Days: </span>

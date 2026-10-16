@@ -4,7 +4,8 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
+import { ActiveField } from "@/components/ui/active-field";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
@@ -272,6 +273,16 @@ export function CountryPicker({
         }
       >
         <div className="space-y-3">
+          {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+          {formEditId && (<FieldRow>
+            <ActiveField
+              id="cp-active"
+              w="name"
+              isNew={!formEditId}
+              active={!form.inactive}
+              onChange={(on) => setForm((f) => ({ ...f, inactive: !on }))}
+            />
+          </FieldRow>)}
           <Field label="Name" required htmlFor="cp-name">
             <Input
               id="cp-name"
@@ -339,15 +350,6 @@ export function CountryPicker({
               onChange={(e) => setForm((f) => ({ ...f, default_country: e.target.checked }))}
             />
             <span className="text-sm text-foreground">Default Country</span>
-          </label>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm((f) => ({ ...f, inactive: e.target.checked }))}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

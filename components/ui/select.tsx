@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { holdEmpty } from "@/components/ui/input";
+import { hint } from "@/lib/ui/placeholders";
 
 /**
  * Drop-in replacement for a native <select> (same API: <option> children,
@@ -236,7 +237,7 @@ export const Select = forwardRef<
         // The `All …` ones deliberately survived: on a FILTER that is a real
         // choice, not an empty state. Same default as the picker and the
         // Combobox; see data-picker.tsx.
-        placeholder={placeholder ?? ""}
+        placeholder={hint(placeholder) ?? ""}
         clearable={hasEmpty}
         disabled={disabled}
         // Carry the mandatory declaration across the native → listbox swap, or a

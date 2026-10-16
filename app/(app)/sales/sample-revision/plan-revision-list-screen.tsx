@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarRange, Eye, FileText, Plus, Undo2, Users } from "lucide-react";
+import { CalendarRange, FileText, Layers, Package, Plus, Undo2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -12,6 +12,8 @@ import { RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
+import { useToast } from "@/components/ui/toast";
+import { addPlanToRevision } from "@/lib/sales/plan-revisions/actions";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { QUICK_WORDS_4, useQuickStatus } from "@/components/orders/bom-queue";
 import { AMENDMENT_ORIGINS, originLabel } from "@/lib/orders/amendments/amendment-entry";
@@ -103,8 +105,13 @@ type Line = { line: "swo"; id: string; head: SwoHead } | ({ line: "rev"; sno: nu
 
 const swoOf = (r: PlanRevisionRow) => r.swoCode ?? r.iwoCode ?? r.bomId;
 
-export function PlanRevisionListScreen({ rows, canRaise }: { rows: PlanRevisionRow[]; canRaise: boolean }) {
+/** One plan of the unit, trimmed to what "+ Add module" needs. */
+type PlanIndexRow = { kind: PlanKind; bomId: string; swoCode: string | null; status: string };
+
+export function PlanRevisionListScreen({ rows, canRaise, plans: planIndex }: { rows: PlanRevisionRow[]; canRaise: boolean; plans: PlanIndexRow[] }) {
   const router = useRouter();
+  const toast = useToast();
+  const [adding, startAdding] = useTransition();
   const [query, setQuery] = useState("");
   const facets = useFacetFilter(rows, FACETS);
   const facetMatch = facets.matches;
@@ -134,6 +141,14 @@ export function PlanRevisionListScreen({ rows, canRaise }: { rows: PlanRevisionR
   const entryStatuses = useMemo(() => {
     const m = new Map<string, PlanRevisionStatus[]>();
     for (const r of rows) m.set(r.entryId, [...(m.get(r.entryId) ?? []), r.status]);
+    return m;
+  }, [rows]);
+
+  /* The plans each revision ENTRY reopened — its workspace has a tab for each, and
+     only those, so the Open icons offer exactly those. */
+  const entryKinds = useMemo(() => {
+    const m = new Map<string, Set<PlanKind>>();
+    for (const r of rows) m.set(r.entryId, (m.get(r.entryId) ?? new Set<PlanKind>()).add(r.kind));
     return m;
   }, [rows]);
 
@@ -188,8 +203,14 @@ export function PlanRevisionListScreen({ rows, canRaise }: { rows: PlanRevisionR
       ),
       { className: HUG },
     ),
+    /* SAME COLUMNS, SAME ORDER AS ORDERS ▸ ORDER REVISIONS (user 2026-10-15: "order
+       entry revisions same format we need for this sample revision"): Origin, then
+       Change Type — here the plan the revision reopened, one neutral chip as Orders
+       draws a module. Reason stays: a plan revision carries one and Orders' entry
+       shows its own on the entry page. Margin Delta has no plan equivalent. */
+    revCol("Origin", (r) => originLabel(r.origin), { className: HUG }),
     revCol(
-      "Plan",
+      "Change Type",
       (r) => (
         // One neutral chip: the pill tones are the STATUS vocabulary.
         <span className="inline-flex items-center whitespace-nowrap rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-foreground">
@@ -201,7 +222,6 @@ export function PlanRevisionListScreen({ rows, canRaise }: { rows: PlanRevisionR
     revCol("Reason", (r) => <Truncated className="block max-w-[18rem] text-sm">{r.reason}</Truncated>, {
       className: "min-w-[10rem] max-w-[18rem]",
     }),
-    revCol("Origin", (r) => originLabel(r.origin), { className: HUG }),
     revCol(
       "Status",
       (r) => (
@@ -216,8 +236,17 @@ export function PlanRevisionListScreen({ rows, canRaise }: { rows: PlanRevisionR
       const r = l;
       const label = `${r.swoCode ?? r.iwoCode ?? ""} Rev #${r.revisionNo}`;
       return (
+        /* ORDERS ▸ ORDER REVISIONS' ICONS (user 2026-10-15: "copy the option to revision"):
+           open each plan the revision reopened — Layers for Fabric, Package for
+           Accessories, Orders' own glyphs — then the report, then Abandon. NO EYE: the
+           Rev #n link opens the revision, as it does on Orders. */
         <div className="flex items-center justify-end gap-1">
-          <RowIconAction label="Open revision" name={label} icon={Eye} onClick={() => router.push(openHref(r))} />
+          {entryKinds.get(r.entryId)?.has("fabric") && (
+            <RowIconAction label="Open Fabric Plan" name={label} icon={Layers} onClick={() => router.push(planRevisionHref(r.entryId, "fabric"))} />
+          )}
+          {entryKinds.get(r.entryId)?.has("accessories") && (
+            <RowIconAction label="Open Accessories Plan" name={label} icon={Package} onClick={() => router.push(planRevisionHref(r.entryId, "accessories"))} />
+          )}
           <RowIconAction
             label={`${PLAN_KIND_LABEL[r.kind]} report`}
             name={label}
@@ -254,6 +283,26 @@ export function PlanRevisionListScreen({ rows, canRaise }: { rows: PlanRevisionR
     const approved = plans
       .filter((p) => p.planStatus === "approved")
       .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "fabric" ? -1 : 1))[0];
+    /* "+ ADD MODULE" (0732, user 2026-10-15 — Orders ▸ Order Revisions' order-line
+       button, copied): while this SWO has a revision being worked, its OTHER plan —
+       approved, not yet in that revision — can join it. Orders' button reads
+       "Add module" while amending and "Revise" otherwise; so does this one. */
+    const openRev = plans.find((p) => planRevisionIsOpen(p.status));
+    const inEntry = openRev ? entryKinds.get(openRev.entryId) : undefined;
+    const addable =
+      openRev && inEntry && !planIndex.some((p) => p.swoCode === h.swo && inEntry.has(p.kind) && p.status === "submitted")
+        ? planIndex.find((p) => p.swoCode === h.swo && !inEntry.has(p.kind) && p.status === "approved")
+        : undefined;
+    const addModule = (entryId: string, plan: PlanIndexRow) =>
+      startAdding(async () => {
+        const res = await addPlanToRevision(entryId, plan.kind, plan.bomId);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        toast.success(`${PLAN_KIND_LABEL[plan.kind]} added to the revision as Rev #${res.revisionNo}.`);
+        router.push(planRevisionHref(entryId, plan.kind));
+      });
     return (
       <div className="flex w-0 min-w-full flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
@@ -261,6 +310,12 @@ export function PlanRevisionListScreen({ rows, canRaise }: { rows: PlanRevisionR
           {h.season && <span className="text-xs text-muted-foreground">{h.season}</span>}
           {h.smpNos.length > 0 && <Truncated className="max-w-[24rem] text-xs text-muted-foreground">{h.smpNos.join(", ")}</Truncated>}
         </div>
+        {canRaise && openRev && addable && (
+          // toolbar-size: exempt -- a grid heading's action, dense like ChildGrid's + Add line
+          <Button variant="outline" size="sm" disabled={adding} onClick={() => addModule(openRev.entryId, addable)}>
+            <Plus className="h-3.5 w-3.5" /> Add module
+          </Button>
+        )}
         {canRaise && approved && !busy && (
           // toolbar-size: exempt -- a grid heading's action, dense like ChildGrid's + Add line
           <Button variant="outline" size="sm" onClick={() => router.push(`/sales/sample-revision/new?plan=${encodeURIComponent(`${approved.kind}:${approved.bomId}`)}`)}>

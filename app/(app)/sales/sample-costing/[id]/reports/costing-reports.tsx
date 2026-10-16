@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardList, FileText, GitBranchPlus, Save, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BackLink } from "@/components/ui/back-link";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Select } from "@/components/ui/select";
 import { ToggleGroup } from "@/components/ui/segmented";
@@ -165,6 +166,10 @@ export function CostingReports({
      ui"). The tabs, the document's size switch and downloads, and Revise / Submit
      were two rows; the document now draws the only row and these go into it. */
   const lead = (
+    <>
+    {/* First in the bar: the way back to the costing this report belongs to. */}
+    {/* To the LIST, where the Reports icon lives (user 2026-10-14: reports on the list only) — not into the editor (2026-10-15). */}
+    <BackLink target={{ href: "/sales/sample-costing", label: "Costing" }} />
     <ToggleGroup<Tab>
       role="tablist"
       label="Report"
@@ -175,6 +180,7 @@ export function CostingReports({
         { value: "quotation", label: "Quotation", icon: FileText },
       ]}
     />
+    </>
   );
   const trail = revising ? null : (
     <>
@@ -221,7 +227,14 @@ export function CostingReports({
   };
 
   return (
-    <div className="space-y-3">
+    /* THE SAVE BAR SITS AT THE BOTTOM OF THE SCREEN, LIKE AN EDITOR'S FOOTER (user
+       2026-10-15, screenshot 3522: "the bottom bar went to screen — set as bottom bar
+       how we use it in child"). On a short tab (Details) the bar rode up under the
+       content: `sticky bottom-0` can only reach the bottom of its OWN container, and
+       this root was only as tall as the sheet. It now fills the page (`flex-1`, the
+       page root fills <main>) and the sheet takes the slack, so the bar is last
+       and at the bottom on every tab — MasterFullScreen's "fills its scrollport". */
+    <div className="flex flex-1 flex-col gap-3">
       {message ? (
         <p
           className="rounded-lg border border-border px-3 py-2 text-sm"
@@ -232,7 +245,7 @@ export function CostingReports({
         </p>
       ) : null}
 
-      <div className={going ? "opacity-60 transition-opacity" : "transition-opacity"} aria-busy={going}>
+      <div className={going ? "flex-1 opacity-60 transition-opacity" : "flex-1 transition-opacity"} aria-busy={going}>
         {tab === "cost-sheet" ? <CostSheetDocument {...bar} model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
       </div>
 
@@ -242,9 +255,15 @@ export function CostingReports({
           MasterFullScreen footer's shape: edge to edge across the pane (`-mx-4`
           cancels <main>'s p-4), a top rule, `bg-primary-soft`, no corners, no
           shadow, pinned to the bottom edge while the report scrolls under it. */}
+      {/* FLUSH WITH THE WINDOW'S BOTTOM EDGE (user 2026-10-15, screenshot 3529: "still
+          floating — attach with bottom"). <main> keeps md:pb-6 under every page, and a
+          sticky box stops at that padding, so the bar hung 24px above the edge with a strip
+          of page under it. md:-bottom-6 sticks it into the padding; md:-mb-6 lets it reach
+          the edge at the end of a short tab too. Phones keep their gap: there it is the
+          room the bottom tab bar needs. */}
       {revising && draft ? (
         <div
-          className="sticky bottom-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border bg-primary-soft px-4 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
+          className="sticky bottom-0 z-20 -mx-4 flex md:-bottom-6 md:-mb-6 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border bg-primary-soft px-4 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
           role="region"
           aria-label="Revision in progress"
         >

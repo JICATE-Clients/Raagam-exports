@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
+import { ActiveField } from "@/components/ui/active-field";
 import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
@@ -149,6 +150,14 @@ export default function ContractorsClient({
                 {editId ? "Edit Contractor" : "New Contractor"}
               </div>
 
+              {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+              <ActiveField
+                id="c-active"
+                active={form.is_active}
+                onChange={(on) => setForm({ ...form, is_active: on })}
+                isNew={!editId}
+              />
+
               <div className="sm:col-span-2">
                 <Label htmlFor="c-name">Name *</Label>
                 <Input
@@ -194,20 +203,6 @@ export default function ContractorsClient({
                     </option>
                   ))}
                 </Select>
-              </div>
-              <div className="flex items-center gap-2 sm:pt-5">
-                <input
-                  type="checkbox"
-                  id="c-active"
-                  checked={form.is_active}
-                  onChange={(e) =>
-                    setForm({ ...form, is_active: e.target.checked })
-                  }
-                  className="h-4 w-4 cursor-pointer"
-                />
-                <label htmlFor="c-active" className="text-sm text-foreground cursor-pointer">
-                  Active
-                </label>
               </div>
               <div className="sm:col-span-2 flex justify-end gap-2 pt-1">
                 <Button type="button" variant="outline" size="sm" onClick={cancel}>

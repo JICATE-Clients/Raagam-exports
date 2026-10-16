@@ -14,7 +14,7 @@ import { SampleCards } from "@/components/sales/sample-queue";
 import { PdRequestSheet, pdRequestNo } from "@/components/sales/pd-request-sheet";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { PdRequestRow } from "@/lib/sales/pd-requests/types";
-import { pdState, pdWord } from "@/lib/sales/pd-requests/words";
+import { PD_WORDS, pdState, pdWord } from "@/lib/sales/pd-requests/words";
 import { PD_STATUS_LABEL } from "@/lib/sales/sample-entry/types";
 
 const PATH = "/sales/pd-acknowledge";
@@ -94,7 +94,7 @@ export function PdAcknowledgeScreen({
   // The box stands down while the panel's Status is set — two status filters
   // at once would only ever disagree (Plan Approval's rule).
   const quick = useQuickStatus(pdWord, {
-    draft: false,
+    words: PD_WORDS,
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
     countRows: searched,
@@ -105,7 +105,7 @@ export function PdAcknowledgeScreen({
   /* THE TWO DECISIONS IN THEIR OWN COLOURS — Plan Approval's row icons, drawn
      on every card so the footer never jitters; each opens the full sheet,
      where the decision is made with the request in front of it. */
-  const asTable = quick.value === "updated";
+  const asTable = quick.value === "approved";
   const decisions = (r: PdRequestRow) => {
     const decidable = canApprove && r.status === "requested";
     const why = canApprove ? "only a request still with the department" : "needs the approval permission";

@@ -27,6 +27,7 @@ import { MapPin, User, Users } from "lucide-react";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { ActiveField } from "@/components/ui/active-field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -129,7 +130,7 @@ const blankContact = (key: string): ContactRow => ({
  * shrink: its last field wraps onto a line of its own and the rest of that line
  * is left empty, and nothing in the build catches it. The arithmetic:
  *
- *   Details        name 3 + country 3 + inactive 3           =  9
+ *   Details        status 3 (edit only) + name 3 + country 3   =  9
  *   Address        street 3 + city 3 + state 3 + pin 3       = 12
  *                  addr country 3                           =  3
  *   Communication  land line 3 + mobile 3 + whatsapp 3 + e-mail 3 = 12
@@ -151,7 +152,7 @@ const blankContact = (key: string): ContactRow => ({
 const FIELD_SIZE = {
   name: "sm",
   country: "sm",
-  inactive: "sm", // a tick; it sits last in the row, so it takes the remainder
+  inactive: "sm", // the Status switch; it LEADS the row on edit
   street: "sm", // a single-line Input now — a Textarea sets the row's height
   city: "sm",
   state: "sm",
@@ -618,6 +619,14 @@ export function CourierDeliveryAddressMasterScreen({
             content: (
               <SectionBody title="Identity">
             <DetailSection label="Details" cols={12}>
+              {/* Status LEADS the form (AGENTS.md "Active leads the form"); edit only. */}
+              <ActiveField
+                id="cda-active"
+                size={FIELD_SIZE.inactive}
+                isNew={!editId}
+                active={!form.inactive}
+                onChange={(on) => set({ inactive: !on })}
+              />
               <Field label="Name" size={FIELD_SIZE.name} required htmlFor="cda-name">
                 <Input
                   id="cda-name"
@@ -654,19 +663,6 @@ export function CourierDeliveryAddressMasterScreen({
                   canDelete={perms.canDelete}
                 />
               </Field>
-              {editId && (
-                <Field size={FIELD_SIZE.inactive}>
-                  <label className="flex h-8 cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={form.inactive}
-                      onChange={(e) => set({ inactive: e.target.checked })}
-                    />
-                    <span className="text-sm text-foreground">Inactive</span>
-                  </label>
-                </Field>
-              )}
             </DetailSection>
               </SectionBody>
             ),

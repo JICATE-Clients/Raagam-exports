@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
+import { ActiveField } from "@/components/ui/active-field";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Ban, CalendarRange, CheckCircle2, ListChecks } from "lucide-react";
@@ -313,6 +314,10 @@ export function TaMastersClient({
                     nothing else: no `RequiredScope`, no `data-required-empty`, so
                     Tab walked straight past a blank box. One prop now draws the
                     star AND holds the cursor. */}
+                {/* Status LEADS the form (AGENTS.md "Active leads the form") —
+                    it was a "Blocked" tick after the three option boxes. Edit
+                    only: a new activity is born active. */}
+                <ActiveField id="ta-active" size="sm" isNew={!editingId} active={!blocked} onChange={(on) => setBlocked(!on)} />
                 <Field label="Short name" required size="sm" htmlFor="ta-short">
                   <Input
                     id="ta-short"
@@ -344,7 +349,7 @@ export function TaMastersClient({
                   />
                 </Field>
 
-                {/* The three tick boxes take a field slot each rather than
+                {/* The two tick boxes take a field slot each rather than
                     `sm:col-span-2 lg:col-span-1`, so they sit on the same track
                     as the fields above instead of a second width. A checkbox IS
                     a field on the arrow axis, so it stays in the typing path. */}
@@ -368,17 +373,6 @@ export function TaMastersClient({
                       onChange={(e) => setConsiderDelivery(e.target.checked)}
                     />
                     <span className="text-sm">Consider for delivery date</span>
-                  </label>
-                </Field>
-                <Field size="sm">
-                  <label className="flex h-9 items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-border accent-danger"
-                      checked={blocked}
-                      onChange={(e) => setBlocked(e.target.checked)}
-                    />
-                    <span className="text-sm">Blocked</span>
                   </label>
                 </Field>
               </FieldGrid>

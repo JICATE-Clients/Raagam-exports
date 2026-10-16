@@ -81,6 +81,7 @@ export function SampleCards<R>({
   deleteDisabledReason,
   actions,
   rowEdit = true,
+  iconActions = false,
 }: {
   rows: R[];
   getKey: (r: R) => string;
@@ -137,6 +138,9 @@ export function SampleCards<R>({
    *  read-only (a pencil that edits nothing promises what it cannot do). The
    *  number link still opens the row. */
   rowEdit?: boolean;
+  /** The card's Reports / Send as icons only, so they share one row with the
+   *  bin (MobileCardList `iconActions`). */
+  iconActions?: boolean;
 }) {
   /* EVERY LISTING PAGES ITSELF (AGENTS "Pagination"). The table mode's
      DataTable already does; the card grid did not, so a long Pending pile
@@ -234,6 +238,7 @@ export function SampleCards<R>({
       /* The card names its buttons in words, and a sixth of the pane has room for one. */
       sendLabel={cardSendLabel}
       sendIcon={sendIcon}
+      iconActions={iconActions}
       isPending={isPending}
       empty={empty}
     />

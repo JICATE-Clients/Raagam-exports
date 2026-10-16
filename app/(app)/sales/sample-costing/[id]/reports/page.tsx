@@ -54,11 +54,18 @@ export default async function CostingReportsPage({
   const cost = buildCostSheetModel(record, data, letterhead, history, facts);
   const quote = buildQuotationModel(record, data, letterhead, history, facts);
   return (
-    <div className="space-y-4">
+    // FILLS <main> (a flex column of fixed height) so the revision save bar can sit
+    // at the BOTTOM of the screen on a short tab — the MasterFullScreen footer's
+    // rule: sticky bottom-0 only reaches the bottom of its own container.
+    <div className="flex flex-1 flex-col gap-4">
       <PageHeader
         title="Costing Reports"
         description={[cost.costingNo, cost.revision, cost.style].filter(Boolean).join(" · ")}
-        back={{ href: `/sales/sample-costing?open=${record.id}`, label: "Costing" }}
+        /* The way back lives IN the report toolbar now (CostingReports' `lead`): the
+           header floats it right of the toolbar, and a float has nothing to sit
+           beside in this flex column, so it took a row of its own (user 2026-10-15,
+           screenshot 3523: "back costing need to relocate into the bar"). */
+        back={false}
       />
       <CostingReports
         cost={cost}

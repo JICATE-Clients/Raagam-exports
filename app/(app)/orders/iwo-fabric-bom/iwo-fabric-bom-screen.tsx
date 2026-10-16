@@ -3704,8 +3704,9 @@ export function IwoFabricBomScreen({
           onAddDia={(grp) => patchLine(colourLine.key, { cells: withOnlyDia(colourLine, colourLine.cells, addSmpDia(colourLine.cells, grp)) })}
           onRemoveDia={(k) => patchLine(colourLine.key, { cells: removeSmpDia(colourLine.cells, k) })}
           onAddColour={() => {
-            const { cells } = addSmpGroup(colourLine.cells, colourFor.smp);
+            const { cells, grp } = addSmpGroup(colourLine.cells, colourFor.smp);
             patchLine(colourLine.key, { cells: withOnlyDia(colourLine, colourLine.cells, cells) });
+            return grp;
           }}
           onRemoveColour={(grp) => patchLine(colourLine.key, { cells: removeSmpGroup(colourLine.cells, grp) })}
         />

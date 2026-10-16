@@ -953,6 +953,34 @@ one Button five heights — 59 of them `size="sm" className="h-7"`.
   with its own corners. Use `<Button>` or `buttonClasses()`; review catches the
   rest until the check learns to tell an action button from a row or a tile.
 
+## Active leads the form (STANDING)
+
+**A record's Active / Inactive status is the FIRST field of its editor** (user
+2026-10-15: "fix this for overall application … future modules also"). It is a
+fact about the whole record, so it is read before the fields it governs — 19
+editors had drawn it as a hand-rolled tick worded "Inactive", "Blocked" or
+"Active", and every one put it LAST.
+
+- **One primitive: `<ActiveField>`** (`components/ui/active-field.tsx`) — label
+  "Status", a green switch and the word Active / Inactive, stated POSITIVELY
+  (`active` true = on) whichever spelling the table uses. Place it as the first
+  child of the editor's first `FieldGrid` / `FieldRow` / `DetailSection`.
+- **Edit only.** `isNew` renders nothing — a new record is born active, so the
+  2026-07-23 "Inactive only on edit" rule is unchanged.
+- **It does not take the opening cursor.** It is a checkbox, and
+  `focusFirstField` skips checkboxes, so the editor still opens in its first
+  text field; Tab still reaches it.
+- **A child grid whose rows can be switched off shows the switch as its FIRST
+  column.**
+- **Not the listing.** A listing's Status cell is `StatusToggle` and the
+  Block / Unblock row action (client 2026-08-17); both stay as they are.
+
+`npm run check:active-first` (inside `build:check`) refuses a hand-rolled status
+tick, an `<ActiveField>` with any field before it in its container, and an
+Active / Inactive / Blocked grid column that is not first. Verified by being made
+to FAIL first (20 hand-rolled ticks, plus a probe for each of the other two
+rules). Opt out with `active-first: exempt -- <reason>`.
+
 ## Buttons: one job, one filled, three on top (STANDING)
 
 **Too many buttons was the complaint, not their shape** (user 2026-10-09,

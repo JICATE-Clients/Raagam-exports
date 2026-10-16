@@ -54,7 +54,7 @@ import { StyleProcessGrid } from "@/components/orders/style-process-grid";
 import type { ProcessKind, StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 import { Tooltip } from "@/components/ui/tooltip";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
-import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { MATRIX_SIZE_TOKEN, sizeColPx } from "@/components/orders/matrix-grid";
 import {
   MasterFullScreen,
@@ -274,13 +274,17 @@ const SAMPLE_FACETS: FacetGroup<SampleEntryListRow>[] = [
 ];
 
 /**
- * THE PENDING · UPDATED · DRAFT BOX — the one every Orders list carries
- * (`useQuickStatus`, the Garment Orders list's `leading` slot). A saved entry is
- * PENDING: the next step, the PD Request (spec §7.1), is not built yet, so
- * nothing moves an entry on to Updated today and that word counts 0 until it
- * does. Module-level so its identity is stable (the hook memoises on it).
+ * THE FOUR-WORD BOX — Pending · Under Progress · Approved · Draft (user
+ * 2026-10-15: "untouched entry pending, worked order under progress, approved
+ * … approved tab, then draft", the same box Plan Approval and the Orders queues
+ * carry). The old Pending · Updated · Draft box had nothing to put in Updated,
+ * which counted 0 forever. Now a sample's word is how far its COSTING has got
+ * (`costing_stage`, read by the same query that greys a locked row): none yet
+ * = Pending, a live costing = Under Progress, buyer-accepted (0725) =
+ * Approved. Module-level so its identity is stable (the hook memoises on it).
  */
-const sampleWordOf = (r: SampleEntryListRow): QuickWord => (r.is_draft ? "draft" : "pending");
+const sampleWordOf = (r: SampleEntryListRow): QuickWord =>
+  r.is_draft ? "draft" : r.costing_stage === "approved" ? "approved" : r.costing_stage === "costing" ? "progress" : "pending";
 const QUICK_LABEL: Record<QuickWord, string> = {
   pending: "Pending",
   updated: "Updated",
@@ -386,7 +390,7 @@ export function SampleEntryScreen({
     });
   }, [rows, query, facetMatches]);
   // Counted over every OTHER filter, so a word's figure is what clicking it shows.
-  const quick = useQuickStatus(sampleWordOf, { countRows: searched });
+  const quick = useQuickStatus(sampleWordOf, { words: QUICK_WORDS_4, countRows: searched });
   const filtered = searched.filter(quick.matches);
 
   // ---- option lists (derived; cheap passes over props) --------------------
@@ -470,20 +474,18 @@ export function SampleEntryScreen({
     is_single_style_pack: true,
     lines: [],
   });
-  const blankProcess = (kind: ProcessKind): StyleProcessRow => ({ key: newKey(), kind, process_id: null, component_id: null, details: "" });
-  /* ONE BLANK ROW PER EMBELLISHMENT GRID (user 2026-10-15). Combos shows two
-     fixed-kind grids over this one list, and each shows only its own kind — so
-     the old single `kind: null` seed was in NEITHER grid, both then seeded via
-     `seedRow` in the same render off the same stale list, and the second write
-     (Garment) erased the first: Component Process opened empty. Seeded here in
-     state, one per kind; a kind-stamped blank row is not "started"
-     (`kindStamped`) and the save drops any row with no Process. */
+  const blankProcess = (kind: ProcessKind | null): StyleProcessRow => ({ key: newKey(), kind, process_id: null, component_id: null, details: "" });
+  /* ONE TABLE, ONE BLANK ROW (user 2026-10-15, screenshot 3509: "make this into
+     single table"). Embellishments were two fixed-kind grids (spec v8 §5,
+     2026-10-14) seeded one blank row per kind; they are now ONE grid with a Type
+     column (Component / Garment Process), so the seed is one row with no Type —
+     seeded HERE in state, never by the grid's `seedRow`, which would mark every
+     entry "Unsaved" on open. Rows with nothing typed (a kind-only seed from the
+     two-grid days included) are dropped first, so reopening never stacks blanks;
+     the save still drops any row with no Process. */
   const seedProcesses = (rows: StyleProcessRow[]): StyleProcessRow[] => {
-    const kept = rows.filter((r) => r.kind);
-    return [
-      ...kept,
-      ...(["component", "garment"] as const).filter((k) => !kept.some((r) => r.kind === k)).map(blankProcess),
-    ];
+    const kept = rows.filter((r) => !!r.process_id || !!r.component_id || !!r.details.trim());
+    return kept.length ? kept : [blankProcess(null)];
   };
   const blankStyle = (): StyleDraft => ({
     key: newKey(),
@@ -1085,6 +1087,11 @@ export function SampleEntryScreen({
             bucket="sample-docs"
             folder={`sample/${editId ?? uploadFolder}`}
             kinds={SAMPLE_FILE_KINDS}
+            // Order Entry's two picture switches (user 2026-10-15): ★ the
+            // style's cover, and "Print on reports" — what the Costing sheet
+            // and Quotation print (0731).
+            primaryToggle
+            printToggle
             disabled={editId ? !perms.canEdit : !perms.canCreate}
           />
         </Field>
@@ -1139,7 +1146,13 @@ export function SampleEntryScreen({
        header cell adds 8px a side, and its `overflow: hidden; text-overflow:
        ellipsis` clipped the chip. So the column is the wider of the data's width
        and the chip's: 13px mono ≈ 8px a character + 14px chip + 16px cell. */
-    const colW = (z: string) => Math.max(sizeColPx(z, digits(z)), Math.ceil(z.trim().length * 8 + 14 + 16 + 4));
+    /* AND THE CELL'S OWN PADDING (user 2026-10-15, screenshot 3530: a two-digit
+       quantity showed as "1" — the totals read 10). `sizeColPx`'s 26px is the
+       `<Input>`'s chrome; this matrix also wraps each box in a `p-1.5` cell
+       (6px a side) that the formula never saw, so size S came out 42px and left
+       ~8px for digits. Other callers add their own pad (price-matrix `PAD_X`). */
+    const CELL_PAD = 12;
+    const colW = (z: string) => Math.max(sizeColPx(z, digits(z)) + CELL_PAD, Math.ceil(z.trim().length * 8 + 14 + 16 + 4));
     const widths = [NUM_W, COMBO_ID_W, ...sizes.map(colW), MATRIX_QTY_W];
     const tableWidth = widths.reduce((t, w) => t + w, 0);
     const orderSum = s.combos.reduce((t, c) => t + comboOrderQty(c, sizes), 0);
@@ -1592,11 +1605,10 @@ export function SampleEntryScreen({
   /** One Structure · GSM row edited (Product Info ▸ Fabric). */
   const patchStructure = (st: StyleDraft, key: string, patch: Partial<StructureDraft>) =>
     patchStyle(st.key, { structures: st.structures.map((x) => (x.key === key ? { ...x, ...patch } : x)) });
-  /** Product Info ▸ Fabric's Structure · Composition · GSM columns for one
-   *  style line — COMPACT (user 2026-10-13: "compact titten pannu"): # 2.5 +
-   *  Structure `party` 12.5 (holds "2X2 LYCRA DURBY RIB") + Composition `party`
-   *  12.5 (0726, holds "BCI COTTON 97%, ELASTANE 3%") + GSM 6 (a 3-4 digit GSM
-   *  and its hover ✕) = the 33.5rem pane they sit in. */
+  /** Product Info ▸ Fabric's Structure · GSM columns for one style line —
+   *  COMPACT (user 2026-10-13: "compact titten pannu"): # 2.5 + Structure
+   *  `party` 12.5 (holds "2X2 LYCRA DURBY RIB") + GSM 6 (a 3-4 digit GSM and
+   *  its hover ✕) = the 21rem pane they sit in. */
   const structureColumnsFor = (active: StyleDraft): ChildGridColumn<StructureDraft>[] => [
     {
       header: "Structure",
@@ -1615,22 +1627,10 @@ export function SampleEntryScreen({
         />
       ),
     },
-    {
-      /* COMPOSITION (spec v8 §7.1, user 2026-10-14 Q5; 0726): optional, from the
-         Composition master. The costing seeds this fabric's Yarn Mix from it, so
-         a composition typed once here is not typed again there. */
-      header: "Composition",
-      width: FIELD_WIDTH_CSS.party,
-      cell: (x) => (
-        <RecordPicker
-          label="Composition"
-          compact
-          items={data.compositions.filter((o) => o.id === x.composition_id || !o.inactive)}
-          value={x.composition_id}
-          onChange={(id) => patchStructure(active, x.key, { composition_id: id })}
-        />
-      ),
-    },
+    /* COMPOSITION column HIDDEN (user 2026-10-15: "composition field hide no
+       from product info"). It was 0726's optional pick from the Composition
+       master. `composition_id` stays on the draft, so a value already saved
+       passes through Save unchanged — only the field is gone. */
     {
       header: "GSM",
       width: "6rem",
@@ -1999,7 +1999,7 @@ export function SampleEntryScreen({
                   row is not offered again — it would be one structure counted
                   twice. The hover ✕ rides in the GSM cell (`RowHoverRemove`,
                   Ctrl+Del through `data-row-remove`); the last row keeps none. */}
-              <div className="w-[33.5rem] max-w-full">
+              <div className="w-[21rem] max-w-full">
                 <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
                   <ChildGrid<StructureDraft>
                     tableAlways
@@ -2246,10 +2246,16 @@ export function SampleEntryScreen({
                   parent that frame has no intrinsic width, measures a few pixels,
                   falls below the 512px `@lg` threshold and stacks. The hug already
                   comes from the declared column widths. */}
-              <PiLegend>Embellishments · Component Process</PiLegend>
+              {/* ONE TABLE (user 2026-10-15, screenshot 3509), REVERSING spec v8 §5's two
+                  headed grids: no `kind`, so StyleProcessGrid is its mixed form — a Type
+                  column per row, Component greyed on a Garment Process, Type change
+                  clearing a process that falls out of scope. Order Entry's Style ▸
+                  Process is the same grid. `compact`: Type, Process and Component
+                  at `term` 11rem, Details at `party` 12.5rem = 45.5rem (~730px) + #/✕ chrome
+                  (user 2026-10-15, "compact the fields size"). */}
+              <PiLegend>Embellishments</PiLegend>
               <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
                 <StyleProcessGrid
-                  kind="component"
                   rows={s.processes}
                   onChange={(next) => patchStyle(s.key, { processes: next })}
                   processes={data.processes}
@@ -2257,19 +2263,7 @@ export function SampleEntryScreen({
                   newKey={newKey}
                   readOnly={!!lock || viewOnly}
                   tableAlways
-                />
-              </div>
-              <PiLegend>Embellishments · Garment Process</PiLegend>
-              <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
-                <StyleProcessGrid
-                  kind="garment"
-                  rows={s.processes}
-                  onChange={(next) => patchStyle(s.key, { processes: next })}
-                  processes={data.processes}
-                  components={data.components}
-                  newKey={newKey}
-                  readOnly={!!lock || viewOnly}
-                  tableAlways
+                  compact
                 />
               </div>
             </div>

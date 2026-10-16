@@ -24,7 +24,7 @@ import {
   yarnRateOf,
   type GroupFigures,
 } from "./calc";
-import { SHIP_MODES, STATUS_LABEL, costingInputOf, isBlankPieceLine, liveRows, revisionShort, type CostingRecord, type CostingStatus } from "./types";
+import { SHIP_MODES, STATUS_LABEL, costingInputOf, isBlankPieceLine, isBlankWeight, liveRows, revisionShort, type CostingRecord, type CostingStatus } from "./types";
 import type { CostingEnquiryOption, CostingStyleOption } from "./service";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { RevisionHistoryRow } from "./revision-history";
@@ -94,6 +94,8 @@ export type CostSheetModel = {
   thumbUrl: string | null;
   currency: string | null;
   exchangeRate: number | null;
+  /** ₹ per unit of every other currency the sheet can be shown in (Quotes / Orders master). */
+  quoteRates: Record<string, number>;
   shipMode: string | null;
   isSet: boolean;
   unitWord: string;
@@ -130,7 +132,15 @@ export type CostSheetModel = {
       cells: ({ key: string; dim: boolean } | null)[];
       /** Every draft weight on this line: where the Loss % is written. */
       wkeys: string[];
+      /** What the line IS, so the editor can re-pick its piece, component and fabric. */
+      pieceKey: string;
+      componentIds: string[];
+      fabricKey: string | null;
     }[];
+    /** `rows` plus the lines with nothing typed on them yet — the report's editable
+     *  table draws these (a line just added by "+ Add row" is blank); the printout,
+     *  the exports and the charts read `rows`, which never carries one. */
+    editRows: CostSheetModel["weights"]["rows"];
   };
   ops: {
     piece: string;
@@ -161,6 +171,8 @@ export function buildCostSheetModel(
     styles: readonly CostingStyleOption[];
     components: readonly { id: string; name: string }[];
     trims: readonly { id: string; name: string }[];
+    /** ₹ per unit of each currency (Quotes / Orders master) — the cost sheet's "show in". */
+    quoteRates?: Record<string, number>;
   },
   company: DocLetterhead,
   history: RevisionHistoryRow[] = [],
@@ -238,14 +250,21 @@ export function buildCostSheetModel(
   const sizeCols = sizes.map((s) => s.size);
   const lineKey = (w: { piece_key: string; component_ids: string[]; fabric_key: string | null }) =>
     [w.piece_key, w.component_ids.join(","), w.fabric_key ?? ""].join("|");
-  const lines = new Map<string, { piece: string; component: string; fabric: string; grams: (number | null)[]; loss: Set<string>; cells: ({ key: string; dim: boolean } | null)[]; wkeys: string[] }>();
-  for (const w of live.weights) {
+  // Built from EVERY draft weight, blanks included, so a line keeps all its size cells
+  // while only some are typed and a line just added is on the editable table; a line
+  // whose weights are ALL blank is flagged and left out of `rows`.
+  const lines = new Map<string, { piece: string; pieceKey: string; componentIds: string[]; fabricKey: string | null; component: string; fabric: string; grams: (number | null)[]; loss: Set<string>; cells: ({ key: string; dim: boolean } | null)[]; wkeys: string[]; blank: boolean }>();
+  for (const w of d.weights) {
     const k = lineKey(w);
     let line = lines.get(k);
     if (!line) {
       const fi = live.fabrics.findIndex((f) => f.key === w.fabric_key);
       line = {
         piece: pieceName(w.piece_key),
+        pieceKey: w.piece_key,
+        componentIds: w.component_ids,
+        fabricKey: w.fabric_key,
+        blank: true,
         component: w.component_ids
           .map((id) => lookups.components.find((c) => c.id === id)?.name ?? "")
           .filter(Boolean)
@@ -264,8 +283,23 @@ export function buildCostSheetModel(
       if (w.size_name === col) line!.cells[i] = { key: w.key, dim: dimensionalGrams(w) != null };
     });
     line.wkeys.push(w.key);
+    if (!isBlankWeight(w)) line.blank = false;
     if (num(w.wastage_pct) != null) line.loss.add(String(num(w.wastage_pct)));
   }
+
+  const weightLines = [...lines.values()];
+  const weightRows: CostSheetModel["weights"]["rows"] = weightLines.map((l) => ({
+    piece: n > 1 ? l.piece : "",
+    component: l.component,
+    fabric: l.fabric,
+    grams: l.grams,
+    lossPct: [...l.loss].join(" / "),
+    cells: l.cells,
+    wkeys: l.wkeys,
+    pieceKey: l.pieceKey,
+    componentIds: l.componentIds,
+    fabricKey: l.fabricKey,
+  }));
 
   const ops: CostSheetModel["ops"] = [];
   for (const p of d.pieces) {
@@ -348,9 +382,10 @@ export function buildCostSheetModel(
     targetPrice: num(h.buyer_target_price),
     commissionPct: num(h.commission_pct) ?? 0,
     season: [enq?.season, enq?.season_year].filter(Boolean).join(" ") || null,
-    thumbUrl: style?.thumb_url ?? null,
+    thumbUrl: style?.report_image_url ?? null, // the ticked "Print on reports" picture (0731)
     currency: h.currency_code,
     exchangeRate: num(h.exchange_rate),
+    quoteRates: lookups.quoteRates ?? {},
     shipMode: SHIP_MODES.find((x) => x.value === h.ship_mode)?.label ?? null,
     isSet: style?.unit_kind === "set" || n > 1,
     unitWord: style?.unit_kind === "set" || n > 1 ? "set" : "piece",
@@ -362,15 +397,8 @@ export function buildCostSheetModel(
     fabrics,
     weights: {
       sizeLabels: sizes.map((s) => s.label),
-      rows: [...lines.values()].map((l) => ({
-        piece: n > 1 ? l.piece : "",
-        component: l.component,
-        fabric: l.fabric,
-        grams: l.grams,
-        lossPct: [...l.loss].join(" / "),
-        cells: l.cells,
-        wkeys: l.wkeys,
-      })),
+      rows: weightRows.filter((_, i) => !weightLines[i].blank),
+      editRows: weightRows,
     },
     ops,
     trims,

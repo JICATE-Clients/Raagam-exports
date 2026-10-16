@@ -21,8 +21,14 @@ import { cn } from "@/lib/utils";
  *   button it stood in the same row as "New Garment Order" and read as one
  *   more action to weigh, on ~110 list pages at once. It keeps the row's 36px
  *   line (`h-9`, "The header row") so it centres on the buttons beside it, but
- *   is primary-coloured text with no box. The label drops "Back to" — the ←
- *   already says it — and the full sentence stays in `aria-label`.
+ *   is primary-coloured text with no box.
+ *
+ * - **IT READS "← Back", EVERYWHERE (user 2026-10-15: "that back option
+ *   globally update it as just Back").** It used to print the parent's name
+ *   ("← Sample Management", "← Costing"), which read as a sub-module link
+ *   beside the screen's own title. The parent is still resolved — it is the
+ *   href, and the full "Back to <parent>" sentence stays in `aria-label` and
+ *   the tooltip — so callers keep passing `label` / `target` unchanged.
  *
  * - **It asks before discarding.** A `<Link>` out of a half-filled editor loses
  *   the work silently, and `confirmDiscard()` is the question Escape already
@@ -70,11 +76,12 @@ export function BackLink({
         tabIndex={-1}
         className={cn(BACK_CLASS, className)}
         aria-label={`Back to ${to}`}
+        title={`Back to ${to}`}
         onClick={() => {
           if (confirmDiscard()) onBack();
         }}
       >
-        ← {to}
+        ← Back
       </button>
     );
   }
@@ -87,11 +94,12 @@ export function BackLink({
       // reads a `size` prop and there is no Button element here to carry one.`
       className={cn(BACK_CLASS, className)}
       aria-label={`Back to ${to.label}`}
+      title={`Back to ${to.label}`}
       onClick={(e) => {
         if (!confirmDiscard()) e.preventDefault();
       }}
     >
-      ← {to.label}
+      ← Back
     </Link>
   );
 }

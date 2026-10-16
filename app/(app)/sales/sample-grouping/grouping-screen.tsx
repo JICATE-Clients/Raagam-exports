@@ -2,10 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckSquare, Layers, Plus, Square, Users } from "lucide-react";
+import { CalendarRange, CheckSquare, Layers, Plus, Square, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
@@ -18,7 +17,6 @@ import {
   groupNetKg,
   groupingProblem,
   moqOrderWeight,
-  seasonKey,
 } from "@/lib/sales/sample-grouping/calc";
 import {
   GROUP_STATUS_LABEL,
@@ -48,14 +46,28 @@ import { GroupSheet } from "./group-sheet";
  * costing's weights × Sample Entry's pieces (lib/sales/sample-grouping/calc.ts);
  * the screen sends candidate keys and the server weighs them again.
  *
- * Season and year live in the URL (`?season=&year=`), so a refresh or a shared
- * link keeps the operator's place.
+ * SEASON AND YEAR ARE FILTERS, NOT BOXES (user 2026-10-15, screenshot 3540:
+ * "two blank fields remove it — already we have filter option"). They stood as
+ * two unlabelled dropdowns at the head of the row, beside a Filters button that
+ * did the same job; they are now a "Season" group in that panel, on both tabs.
+ * The `?season=&year=` address they kept went with them — nothing linked to it.
  */
 
 /** Ungrouped = samples still to tick into an SWO; Grouped = the SWOs themselves. */
 type Tab = "ungrouped" | "grouped";
 
+/** Season · Year — one group, read off the row, shared by both tabs. */
+const seasonFacets = <R extends { season: string; season_year: number | null }>(): FacetGroup<R> => ({
+  title: "Season",
+  icon: <CalendarRange />,
+  facets: [
+    { key: "season", label: "Season", value: (x) => x.season.trim() || null },
+    { key: "year", label: "Year", value: (x) => (x.season_year != null ? String(x.season_year) : null) },
+  ],
+});
+
 const CANDIDATE_FACETS: FacetGroup<GroupingCandidate>[] = [
+  seasonFacets<GroupingCandidate>(),
   {
     title: "Buyer",
     icon: <Users />,
@@ -73,6 +85,7 @@ const CANDIDATE_FACETS: FacetGroup<GroupingCandidate>[] = [
     ],
   },
 ];
+const GROUP_FACETS: FacetGroup<GroupRow>[] = [seasonFacets<GroupRow>()];
 
 /** A sample is named by its SMP number (spec 2026-10-12: "replace the PRD
  *  number with the SMP number"); the style line's PRD stays searchable. */
@@ -82,53 +95,26 @@ const kgOfItem = (g: GroupRow, it: GroupRow["items"][number]) => (g.status === "
 const groupNet = (g: GroupRow) => (g.status === "draft" ? groupNetKg(g.items.map((it) => kgOfItem(g, it))) : g.net_required_weight_kg);
 const groupBuy = (g: GroupRow) => (g.status === "draft" ? moqOrderWeight(groupNet(g), g.moq_kg, g.batch_kg) : g.moq_purchased_weight_kg);
 
-/** Season and Year are a pair the filter states; "" means every season / year. */
-const inSeason = (x: { season: string; season_year: number | null }, season: string, year: string) =>
-  (!season || seasonKey(x.season) === seasonKey(season)) && (!year || String(x.season_year ?? "") === year);
-
 export function GroupingScreen({
   data,
   perms,
-  initial,
 }: {
   data: GroupingData;
   perms: { canCreate: boolean; canEdit: boolean; canDelete: boolean; canRaiseIw: boolean };
-  initial: { season: string; year: string };
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [season, setSeason] = useState(initial.season);
-  const [year, setYear] = useState(initial.year);
   const [query, setQuery] = useState("");
   // Opens on the work still to do; a season with nothing left opens on its SWOs.
   const [tab, setTab] = useState<Tab>(() => (data.candidates.some((c) => !c.group_id) ? "ungrouped" : "grouped"));
   const [openId, setOpenId] = useState<string | null>(null);
   const sel = useRowSelection();
 
-  /** Keep the address honest — a refresh or a shared link reopens this view. */
-  const remember = (patch: Partial<{ season: string; year: string }>) => {
-    const url = new URL(window.location.href);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) url.searchParams.set(k, v);
-      else url.searchParams.delete(k);
-    }
-    window.history.replaceState(null, "", url);
-  };
-
-  // ---- the season the screen is looking at ---------------------------------
-  const seasons = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const x of [...data.candidates, ...data.groups]) if (x.season.trim()) seen.set(seasonKey(x.season), x.season.trim());
-    return [...seen.values()].sort((a, b) => a.localeCompare(b));
-  }, [data]);
-  const years = useMemo(() => {
-    const ys = new Set<number>();
-    for (const x of [...data.candidates, ...data.groups]) if (x.season_year != null) ys.add(x.season_year);
-    return [...ys].sort((a, b) => b - a);
-  }, [data]);
-  const scopedCandidates = useMemo(() => data.candidates.filter((x) => inSeason(x, season, year)), [data.candidates, season, year]);
-  const scopedGroups = useMemo(() => data.groups.filter((x) => inSeason(x, season, year)), [data.groups, season, year]);
+  const scopedCandidates = data.candidates;
+  const groupFacets = useFacetFilter(data.groups, GROUP_FACETS);
+  const groupMatches = groupFacets.matches;
+  const scopedGroups = useMemo(() => data.groups.filter(groupMatches), [data.groups, groupMatches]);
 
   // ---- the styles to group --------------------------------------------
   const candFacets = useFacetFilter(scopedCandidates, CANDIDATE_FACETS);
@@ -205,45 +191,11 @@ export function GroupingScreen({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search SMP No, style, fabric, yarn or SWO…"
-        activeCount={tab === "ungrouped" ? candFacets.activeCount : 0}
-        onReset={tab === "ungrouped" && candFacets.activeCount ? candFacets.reset : undefined}
-        panel={tab === "ungrouped" ? candFacets.panel : undefined}
+        activeCount={(tab === "ungrouped" ? candFacets : groupFacets).activeCount}
+        onReset={(tab === "ungrouped" ? candFacets : groupFacets).activeCount ? (tab === "ungrouped" ? candFacets : groupFacets).reset : undefined}
+        panel={(tab === "ungrouped" ? candFacets : groupFacets).panel}
         leading={
           <>
-            <Select
-              value={season}
-              onChange={(e) => {
-                setSeason(e.target.value);
-                remember({ season: e.target.value });
-                sel.clear();
-              }}
-              aria-label="Season"
-              className="w-40"
-            >
-              <option value="">All seasons</option>
-              {seasons.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </Select>
-            <Select
-              value={year}
-              onChange={(e) => {
-                setYear(e.target.value);
-                remember({ year: e.target.value });
-                sel.clear();
-              }}
-              aria-label="Year"
-              className="w-32"
-            >
-              <option value="">All years</option>
-              {years.map((y) => (
-                <option key={y} value={String(y)}>
-                  {y}
-                </option>
-              ))}
-            </Select>
             <ToggleGroup<Tab>
               label="Show"
               value={tab}
@@ -341,7 +293,7 @@ export function GroupingScreen({
                 ? query || candFacets.activeCount
                   ? "Nothing matches the search or filters."
                   : "Every costed sample is grouped — see Grouped."
-                : "No costed samples for this season yet — a sample appears here once its costing is saved with a fabric and a garment weight."
+                : "No costed samples yet — a sample appears here once its costing is saved with a fabric and a garment weight."
             }
           />
         </>
@@ -369,7 +321,7 @@ export function GroupingScreen({
           canDeleteRow={(g) => g.status === "draft"}
           onDelete={del}
           isPending={isPending}
-          empty={scopedGroups.length ? "Nothing matches the search." : "No SWOs yet — tick samples under Ungrouped and create one."}
+          empty={data.groups.length ? "Nothing matches the search or filters." : "No SWOs yet — tick samples under Ungrouped and create one."}
         />
       )}
 

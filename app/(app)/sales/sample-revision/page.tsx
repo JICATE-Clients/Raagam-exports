@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
 import { listPlanRevisions } from "@/lib/sales/plan-revisions/service";
+import { listPlanApprovals } from "@/lib/sales/plan-reports/service";
 import { listSampleRevisions } from "@/lib/sales/sample-revisions/service";
 import { PlanRevisionListScreen } from "./plan-revision-list-screen";
 
@@ -25,6 +26,9 @@ export default async function SampleRevisionPage({ searchParams }: { searchParam
     const open = (await listSampleRevisions()).find((r) => r.opportunity_id === raise && (r.status === "draft" || r.status === "pending"));
     if (open) redirect(`/sales/sample-revision/${open.id}`);
   }
-  const [rows, canRaise] = await Promise.all([listPlanRevisions(), can("orders", "edit")]);
-  return <PlanRevisionListScreen rows={rows} canRaise={canRaise} />;
+  const [rows, canRaise, plans] = await Promise.all([listPlanRevisions(), can("orders", "edit"), listPlanApprovals()]);
+  // Every plan with its SWO and state — what "+ Add module" reads to find an SWO's
+  // OTHER plan, which the register (revisions only) may never have seen.
+  const planIndex = plans.map((p) => ({ kind: p.kind, bomId: p.bomId, swoCode: p.swoCode, status: p.status }));
+  return <PlanRevisionListScreen rows={rows} canRaise={canRaise} plans={planIndex} />;
 }

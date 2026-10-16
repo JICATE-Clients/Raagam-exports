@@ -13,6 +13,7 @@ import {
   AFFORDANCE_PAD_COMPACT,
   FieldAffordance,
 } from "@/components/ui/field-affordance";
+import { hint } from "@/lib/ui/placeholders";
 
 export interface ComboboxOption {
   value: string;
@@ -332,7 +333,7 @@ export function Combobox({
         aria-readonly={locked || undefined}
         readOnly={locked}
         value={shownValue}
-        placeholder={selected ? selected.label : placeholder}
+        placeholder={selected ? selected.label : (hint(placeholder) ?? "")}
         onFocus={openOnFocus ? openList : undefined}
         onClick={() => {
           if (!open) openList();

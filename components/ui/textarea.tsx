@@ -2,6 +2,7 @@ import { forwardRef, type TextareaHTMLAttributes } from "react";
 import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { holdEmpty } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { hint } from "@/lib/ui/placeholders";
 
 export const Textarea = forwardRef<
   HTMLTextAreaElement,
@@ -33,7 +34,7 @@ export const Textarea = forwardRef<
      */
     uppercase?: boolean;
   }
->(({ className, uppercase, onChange, ...props }, ref) => {
+>(({ className, uppercase, onChange, placeholder, ...props }, ref) => {
   const caps = uppercase ?? !props.readOnly;
   // A locked record is read-only (`LockScope`, field.tsx). Caps keep reading the
   // caller's own prop, as in input.tsx.
@@ -96,6 +97,7 @@ export const Textarea = forwardRef<
         : onChange
     }
     {...props}
+    placeholder={hint(placeholder)}
     readOnly={readOnly}
   />
   );
