@@ -41,7 +41,9 @@ import {
   type PatternMakerRow,
 } from "@/lib/orders/cad-lifecycle/types";
 import { useCadActions } from "./use-cad-actions";
-import { getCadPatternMakers } from "@/lib/orders/cad-lifecycle/actions";
+import { getCadPatternLock, getCadPatternMakers, setCadPatternLock } from "@/lib/orders/cad-lifecycle/actions";
+import { Toggle } from "@/components/ui/toggle";
+import { useToast } from "@/components/ui/toast";
 import { NEW_ORDER_CAD } from "./cad-pending";
 import { SectionBody } from "@/components/masters/master-full-screen";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -143,6 +145,37 @@ export function OrderCadTab({
   // Bumped after each saved step so the form remounts from the fresh record —
   // Assign → Send → Approval follow one another without a click in between.
   const [formNonce, setFormNonce] = useState(0);
+  /* PATTERN LOCK (0733, user 2026-10-16) — does this order's Pattern Sheet
+     lock and fill Fabric BOM? Saved the moment it is flipped: CAD is outside
+     the order lock, so the switch must work on an approved order too, where
+     the order's Save is refused. Saved orders only — a new order has no row
+     to hang it on, and no Fabric BOM yet. Declared above the early returns. */
+  const [lock, setLock] = useState<{ forOrder: string; locked: boolean; canEdit: boolean } | null>(null);
+  const [lockSaving, setLockSaving] = useState(false);
+  const { error: toastError } = useToast();
+  useEffect(() => {
+    if (!orderId) return;
+    let cancelled = false;
+    void getCadPatternLock(orderId).then((r) => {
+      if (cancelled || !r.ok) return;
+      setLock({ forOrder: orderId, locked: r.locked, canEdit: r.canEdit });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+  const lockHere = lock && lock.forOrder === orderId ? lock : null;
+  const flipLock = async (next: boolean) => {
+    if (!orderId || !lockHere) return;
+    setLockSaving(true);
+    setLock({ ...lockHere, locked: next });
+    const r = await setCadPatternLock(orderId, next);
+    setLockSaving(false);
+    if (!r.ok) {
+      setLock({ ...lockHere, locked: !next });
+      toastError(`The CAD lock was not saved — ${r.error}`);
+    }
+  };
 
   if (error) {
     return (
@@ -165,6 +198,25 @@ export function OrderCadTab({
       {/* SectionBody like every other Order Entry section (raagam-screen-layout),
           so the tab's title, spacing and full-width body match Order Info. */}
       <SectionBody title="CAD">
+        {lockHere && (
+          <FieldRow>
+            <Field label="Pattern Lock" w="term" htmlFor="cad-pattern-lock">
+              <span className="inline-flex min-h-9 items-center gap-2">
+                <Toggle
+                  id="cad-pattern-lock"
+                  checked={lockHere.locked}
+                  onChange={(v) => void flipLock(v)}
+                  disabled={!canEdit || !lockHere.canEdit || lockSaving}
+                />
+                <span className="text-sm text-muted-foreground">
+                  {lockHere.locked
+                    ? "Locked — Fabric BOM takes Roll Form, Finish Dia and weights from the Pattern Sheet"
+                    : "Unlocked — Fabric BOM is edited freely; the Pattern Sheet is not applied"}
+                </span>
+              </span>
+            </Field>
+          </FieldRow>
+        )}
         {onOrder.length === 0 && (
           <p className="text-sm text-muted-foreground">
             This order has no styles yet — add them on Order Info ▸ Style(s), then assign each one&apos;s CAD.

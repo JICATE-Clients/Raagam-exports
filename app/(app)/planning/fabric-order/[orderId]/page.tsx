@@ -7,6 +7,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { MpStatus } from "@/lib/planning/material-planning-types";
 import { FabricOrderDetail } from "./fabric-order-detail";
+import { statusTone as sharedStatusTone } from "@/lib/ui/status-tone";
 
 const STATUS_LABELS: Record<MpStatus, string> = {
   draft: "Draft",
@@ -16,12 +17,7 @@ const STATUS_LABELS: Record<MpStatus, string> = {
 };
 
 function statusTone(status: MpStatus): StatusTone {
-  switch (status) {
-    case "draft":     return "neutral";
-    case "submitted": return "warning";
-    case "approved":  return "success";
-    case "rejected":  return "danger";
-  }
+  return sharedStatusTone(status);
 }
 
 export default async function FabricOrderDetailPage({

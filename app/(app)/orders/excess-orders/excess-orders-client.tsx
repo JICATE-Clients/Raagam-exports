@@ -18,10 +18,9 @@ import { sectionValidity } from "@/lib/screens/validity";
 import { createExcessOrder, confirmExcessOrder, deleteExcessOrder } from "@/lib/orders/pack-ratio-actions";
 import type { ExcessOrderRow } from "@/lib/orders/pack-ratio-service";
 import type { OrderOption } from "@/lib/orders/order-options";
-import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
-const STATUS_TONE: Record<string, StatusTone> = { draft: "neutral", confirmed: "success", cancelled: "danger" };
 
 const BLANK = {
   sales_order_id: null as string | null,
@@ -84,7 +83,7 @@ export function ExcessOrdersClient({
     { header: "Req No", cell: (r) => r.req_no ?? "—" },
     { header: "PPM No", cell: (r) => r.ppm_no ?? "—" },
     { header: "Customer", cell: (r) => r.customer_name ?? "—" },
-    { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill> },
     { header: "Created", cell: (r) => <span className="text-xs tabular-nums">{fmtDate(r.created_at)}</span> },
     {
       /* Workflow, so it keeps a labelled column of its own (LAYOUT.md §6a). */

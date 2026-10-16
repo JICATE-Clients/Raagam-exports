@@ -276,19 +276,48 @@ export function registerContentEdge(
   };
 }
 
-function contentEdgeFor(root: HTMLElement): ((dir: 1 | -1) => boolean) | undefined {
-  for (let el: HTMLElement | null = root; el; el = el.parentElement) {
+/**
+ * EVERY PANE ON THE WAY OUT, INNERMOST FIRST (2026-10-16, Enter across tabs).
+ *
+ * The walk used to start at the SCOPE and return the first registration it met,
+ * which was enough while `MasterFullScreen` was the only thing that registered —
+ * its pane IS the scope. A document's `Tabs` panel sits INSIDE a scope (Sample
+ * Entry's style tabs inside the Styles section, Order Entry's tabs inside a
+ * page), so a walk from the scope could never see it. It now starts at the FIELD
+ * (`from`), and offers the move to each pane outward until one takes it: the
+ * last field of style 1 opens style 2; off the last style, the tabs decline and
+ * the section rail opens Product Info; off the last section everything has
+ * declined and the save ladder runs, exactly as before. `from` defaults to the
+ * scope, so a caller that does not pass it walks exactly the old path.
+ *
+ * `to` IS THE FIELD THE KEY WOULD OTHERWISE REACH, and it is what makes a pane
+ * an edge when the scope still has fields after it. A tab block followed by more
+ * fields in the same section never runs out of "next field", so without this the
+ * last field of tab 1 handed Enter straight to the field BELOW the block and tabs
+ * 2…n were skipped. With it, only the panes the move would LEAVE are asked — the
+ * walk stops at the first ancestor that also holds `to` — so a move that stays
+ * inside a pane never asks that pane, and the section rail (which holds both) is
+ * never asked mid-section.
+ */
+function contentEdgeFor(
+  root: HTMLElement,
+  from: HTMLElement = root,
+  to?: HTMLElement,
+): ((dir: 1 | -1) => boolean) | undefined {
+  const fns: ((dir: 1 | -1) => boolean)[] = [];
+  for (let el: HTMLElement | null = from; el; el = el.parentElement) {
+    if (to && el.contains(to)) break;
     const fn = paneEdges.get(el);
-    if (fn) return fn;
+    if (fn) fns.push(fn);
     // AN OVERLAY OWNS ITS OWN LAST FIELD. `Sheet` and the picker panels
     // createPortal to <body>, so they are already out of reach of an editor
     // pane's registration — but a dialog rendered in place would otherwise
     // switch the section of the editor BEHIND its own scrim when the operator
     // pressed Enter off its last field. Stop at the overlay instead, and the
     // save ladder takes over as it does on any standalone surface.
-    if (el.matches('[role="dialog"], [aria-modal="true"]')) return undefined;
+    if (el.matches('[role="dialog"], [aria-modal="true"]')) break;
   }
-  return undefined;
+  return fns.length ? (dir) => fns.some((fn) => fn(dir)) : undefined;
 }
 
 /**
@@ -301,6 +330,22 @@ function contentEdgeFor(root: HTMLElement): ((dir: 1 | -1) => boolean) | undefin
  * everywhere; ↓, Space and click open the picker.
  */
 const FIELD_TRIGGER = "[data-field-trigger]";
+
+/**
+ * `[data-enter-opens]` — A FIELD WHOSE ONLY VALUE IS WHAT IT OPENS (user
+ * 2026-10-16, Sample Entry ▸ Styles ▸ Files: "I click the Enter key, it went to
+ * the next field").
+ *
+ * A picker trigger takes Enter as "next field" because it has a value to step
+ * past and ↓ to open it. An UPLOAD button has neither: there is nothing typed to
+ * move on from and no list for ↓ to unfold, so Enter is the key an operator
+ * presses on it, and moving away is the surprise. On this marker Enter is left
+ * to the browser — the button's own click opens the file dialog — and the
+ * required hold lets it through (`keyFills`), so a blank mandatory upload opens
+ * on Enter instead of caging the cursor. Tab and ↓ are unchanged: Tab still
+ * moves on, ↓ still opens. Declared on the control, never guessed from it.
+ */
+const ENTER_OPENS = "[data-enter-opens]";
 
 /**
  * `[data-focus-optional]` — AN OPT-IN CONTROL, OFF THE DEFAULT TYPING PATH.
@@ -681,6 +726,8 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   const isTrigger = t instanceof HTMLElement && t.matches(FIELD_TRIGGER);
   if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement || isTrigger)) return;
   if (t instanceof HTMLInputElement && /^(button|submit|reset)$/.test(t.type)) return;
+  // Enter OPENS this one — the native click does it (see ENTER_OPENS).
+  if (t.matches(ENTER_OPENS)) return;
   // A TICK BOX IS THE ONE FIELD WHERE ENTER DOES NOT MOVE: it ticks. Enter has no
   // native meaning on a checkbox, so "advance" would make it a dead key again —
   // which is what it was before 2026-07-28, when it instead fell through and
@@ -758,6 +805,9 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   }
   if (next) {
     e.preventDefault();
+    // The next field is outside the TAB this one is in: open the next tab
+    // instead of walking past the rest of them (see `contentEdgeFor`'s `to`).
+    if (regionOf(t) === "content" && contentEdgeFor(root, t, next)?.(1)) return;
     // focusField, NOT .focus() — a bare focus leaves the caret at 0 and → then
     // refuses to leave the field until the whole value has been walked. See the
     // note on focusField.
@@ -770,7 +820,7 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   //    Gated on the CONTENT region, the same condition `cycleTab` applies — a
   //    field that happens to live in a footer is at the end of the footer, not
   //    at the end of the section's data.
-  if (regionOf(t) === "content" && contentEdgeFor(root)?.(1)) {
+  if (regionOf(t) === "content" && contentEdgeFor(root, t)?.(1)) {
     e.preventDefault();
     return;
   }
@@ -1025,6 +1075,8 @@ export type FillProbe = {
   /** Inside a `data-grid-row` — where `gridKeyNav` owns all four arrows and
    *  every one of them is a MOVE. The date branch below stands down on it. */
   inGrid: boolean;
+  /** Carries `data-enter-opens` — Enter opens it rather than leaving it. */
+  enterOpens?: boolean;
 };
 
 /**
@@ -1044,6 +1096,8 @@ export function keyFills(p: FillProbe, key: string): boolean {
   if (listOpen && (arrowY || key === "Enter")) return true;
   // A CLOSED list opens on ↓ — the only keyboard route to reaching a value.
   if (hasList && key === "ArrowDown") return true;
+  // An upload opens on Enter too: opening it is filling it (ENTER_OPENS).
+  if (p.enterOpens && key === "Enter") return true;
   // A native <select> has no popup to expand: ↑/↓ change the value in place, so
   // they are its entire keyboard interface. (The touch / SSR / multiple /
   // uncontrolled branch of components/ui/select.tsx.)
@@ -1098,6 +1152,7 @@ export function probeOf(el: HTMLElement): FillProbe {
     fieldTrigger: el.matches(FIELD_TRIGGER),
     inputType: el instanceof HTMLInputElement ? el.type.toLowerCase() : null,
     inGrid: !!el.closest("[data-grid-row]"),
+    enterOpens: el.matches(ENTER_OPENS),
   };
 }
 
@@ -1411,7 +1466,7 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
    * down.
    */
   if (!next) {
-    if (regionOf(t) === "content" && contentEdgeFor(root)?.(forward ? 1 : -1)) {
+    if (regionOf(t) === "content" && contentEdgeFor(root, t)?.(forward ? 1 : -1)) {
       e.preventDefault();
       return true;
     }
@@ -1829,7 +1884,12 @@ export function cycleTab(
   // mean there is no next field in this section — which is precisely where a rail
   // editor hands over to the next one.
   const wrapped = dir === 1 ? nextIdx <= idx : nextIdx >= idx;
-  if (wrapped && regionOf(items[idx]) === "content" && contentEdgeFor(root)?.(dir)) {
+  if (wrapped && regionOf(items[idx]) === "content" && contentEdgeFor(root, items[idx])?.(dir)) {
+    return true;
+  }
+  // Not off the surface, but off the TAB this field is in — same hand-off as
+  // Enter's, so Tab and Enter cannot disagree about where a tab ends.
+  if (!wrapped && regionOf(items[idx]) === "content" && contentEdgeFor(root, items[idx], items[nextIdx])?.(dir)) {
     return true;
   }
   /**

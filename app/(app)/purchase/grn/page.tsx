@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { GrnWithVendor } from "@/lib/purchase/grn-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -26,7 +27,7 @@ const columns: Column<GrnWithVendor>[] = [
   {
     header: "Status",
     cell: (r) => (
-      <StatusPill tone={r.status === "posted" ? "success" : "warning"}>
+      <StatusPill tone={statusTone(r.status === "posted" ? "posted" : "draft")}>
         {r.status === "posted" ? "Posted" : "Draft"}
       </StatusPill>
     ),

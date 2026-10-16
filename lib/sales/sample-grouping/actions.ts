@@ -17,7 +17,7 @@ import {
   sameSeasonYear,
 } from "./calc";
 import { getGroupingData } from "./service";
-import { candidateKey, GROUP_STATUS_LABEL, groupTermsInput, type GroupingCandidate, type GroupRow, type GroupStatus, type GroupTermsInput } from "./types";
+import { candidateKey, GROUP_STATUS_LABEL, groupTermsInput, samplesLockedReason, type GroupingCandidate, type GroupRow, type GroupStatus, type GroupTermsInput } from "./types";
 
 /**
  * Sample ▸ Grouping — every write.
@@ -181,6 +181,10 @@ export async function addToSampleGroup(groupId: string, keys: string[]): Promise
   const found = await groupById(groupId);
   if (typeof found === "string") return { ok: false, error: found };
   const { data, group } = found;
+  // Re-read here, not trusted from the screen: a tab opened before the plan
+  // was approved still shows the button.
+  const locked = samplesLockedReason(group);
+  if (locked) return { ok: false, error: locked };
   const picked = pick(data.candidates, keys);
   if (typeof picked === "string") return { ok: false, error: picked };
   const problem = forProblem(picked);
@@ -188,6 +192,10 @@ export async function addToSampleGroup(groupId: string, keys: string[]): Promise
   // Season and year only (0707) — a structure or blend mix is the planner's call.
   if (!sameSeasonYear(picked[0], group)) {
     return { ok: false, error: `${group.group_code} is for ${group.season} ${group.season_year} — these styles are another season.` };
+  }
+  const groupCustomer = group.items.find((it) => it.customer_id)?.customer_id ?? null;
+  if (groupCustomer && picked[0].customer_id !== groupCustomer) {
+    return { ok: false, error: `${group.group_code} is another customer's group — only the same Customer's samples can be added.` };
   }
   const s = await createClient();
   const { error } = await s.from("sample_group_items").insert(
@@ -222,6 +230,8 @@ export async function removeFromSampleGroup(groupId: string, itemId: string): Pr
   const found = await groupById(groupId);
   if (typeof found === "string") return { ok: false, error: found };
   const { data, group } = found;
+  const locked = samplesLockedReason(group);
+  if (locked) return { ok: false, error: locked };
   if (group.items.length <= 1) return { ok: false, error: "This is the group's only style — delete the group instead." };
   const s = await createClient();
   const { error } = await s.from("sample_group_items").delete().eq("id", itemId).eq("group_id", groupId);

@@ -13,7 +13,7 @@ import type {
 } from "@/lib/dashboard/types";
 import { Sparkline, ProgressBar } from "./charts";
 import { Icon } from "./icon";
-import { toneSoft, toStatusTone } from "./tone";
+import { toneBg, toneSoft, toStatusTone } from "./tone";
 
 /* ------------------------------------------------------------------ *
  * Section rule
@@ -31,10 +31,14 @@ export function SectionHeading({
 }) {
   return (
     <div className="flex items-center gap-3.5">
-      <span className="font-mono text-[11px] tracking-[0.06em] text-muted-foreground">
+      {/* The section number is the page's one brand marker per section (colour
+          pass 2026-10-16): a primary chip, so the eye can run down the page by
+          number. The title takes the heading navy, not the brand blue — a page
+          of blue titles would read as a page of links. */}
+      <span className="rounded-md bg-primary-soft px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-[0.06em] text-primary">
         {index}
       </span>
-      <h2 className="text-[13px] font-semibold tracking-[0.02em]">{title}</h2>
+      <h2 className="text-sm font-semibold tracking-[0.01em] text-heading">{title}</h2>
       <span className="h-px flex-1 bg-border" />
       {meta && <span className="text-[11px] text-muted-foreground">{meta}</span>}
     </div>
@@ -146,8 +150,15 @@ function DeltaChip({ delta, up }: { delta: string; up: boolean }) {
 }
 
 export function KpiCard({ kpi }: { kpi: HeroKpi }) {
+  const tone = kpi.up ? "primary" : "warning";
   return (
     <Card interactive className="relative min-w-0 animate-rise overflow-hidden p-4">
+      {/* A 3px rule along the top in the card's own tone (colour pass
+          2026-10-16). It carries the SAME meaning as the icon well — blue when
+          the figure is moving the right way, amber when it is not — so it adds
+          colour without adding a second thing to decode. A rule, not a tinted
+          card: the client has refused tinted grounds five times. */}
+      <span aria-hidden className={cn("absolute inset-x-0 top-0 h-[3px]", toneBg[tone])} />
       <div className="flex items-center justify-between gap-2.5">
         <p className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
           {kpi.label}
@@ -155,14 +166,14 @@ export function KpiCard({ kpi }: { kpi: HeroKpi }) {
         <span
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]",
-            toneSoft[kpi.up ? "primary" : "warning"],
+            toneSoft[tone],
           )}
         >
           <Icon name={kpi.icon} className="h-4 w-4" />
         </span>
       </div>
 
-      <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
+      <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-heading">
         {kpi.value}
       </p>
 
@@ -189,11 +200,13 @@ export function MiniStat({ stat }: { stat: MiniStatRow }) {
   const body = (
     <>
       <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-        <Icon name={stat.icon} className="h-3.5 w-3.5 shrink-0" />
+        {/* The icon carries the brand, the label stays quiet (colour pass
+            2026-10-16) — six grey icons in a row was most of the "grey". */}
+        <Icon name={stat.icon} className="h-3.5 w-3.5 shrink-0 text-primary" />
         <span className="truncate text-[10px] font-medium">{stat.label}</span>
       </div>
       <div className="mt-2 flex items-baseline gap-1.5">
-        <span className="text-lg font-semibold tabular-nums">{stat.value}</span>
+        <span className="text-lg font-semibold tabular-nums text-heading">{stat.value}</span>
         {stat.delta && (
           <span
             className={cn(
@@ -276,7 +289,7 @@ export function LeaderboardCard({
   return (
     <Card className="flex min-w-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold">{title}</h3>
+        <h3 className="text-sm font-semibold text-heading">{title}</h3>
         <span className="shrink-0 text-[11px] text-muted-foreground">{note}</span>
       </div>
       <div className="flex-1 px-4 py-2">
@@ -293,7 +306,15 @@ export function LeaderboardCard({
                     key={r.name}
                     className="flex items-center gap-3 border-b border-border py-2.5 last:border-0"
                   >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-muted text-[11px] font-semibold text-muted-foreground">
+                    {/* The leader's rank is marked in the bar's own blue; the
+                        rest match their teal bars — the chip and the bar say
+                        the same thing. */}
+                    <span
+                      className={cn(
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold",
+                        i === 0 ? toneSoft.primary : toneSoft.accent,
+                      )}
+                    >
                       {i + 1}
                     </span>
                     <div className="min-w-0 flex-1">

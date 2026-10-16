@@ -1,5 +1,7 @@
 import type { QuickWord } from "@/components/orders/bom-queue";
 import type { PlanApprovalRow } from "@/lib/sales/plan-reports/service";
+import { planApprovalTone } from "@/lib/sales/plan-reports/types";
+import type { StatusTone } from "@/lib/ui/status-tone";
 
 /**
  * THE APPROVER'S WORDS FOR A PLAN'S STATE — Order Budget Approval's own
@@ -37,9 +39,8 @@ export function planStatusText(r: Pick<PlanApprovalRow, "status" | "revisionNo">
   }
 }
 
-export function planStatusTone(r: Pick<PlanApprovalRow, "status" | "revisionNo">): "success" | "info" | "warning" | "neutral" {
-  if (r.status === "approved") return "success";
-  if (r.status === "submitted") return "info";
-  if (r.status === "returned" || r.revisionNo > 0) return "warning";
-  return "neutral";
+// One rule with the IWO screens — `planApprovalTone` — so a plan reads the
+// same colour wherever it is listed.
+export function planStatusTone(r: Pick<PlanApprovalRow, "status" | "revisionNo">): StatusTone {
+  return planApprovalTone(r.status, r.revisionNo);
 }

@@ -24,17 +24,15 @@ import {
 import type { HrLeave } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const TONE_OVERRIDES = {
+  // Pending here is not waiting on an approver (was info before the shared table, kept).
+  pending: "info",
+} as const;
 
 function tone(s: LeaveStatus): StatusTone {
-  switch (s) {
-    case "pending":
-      return "info";
-    case "approved":
-      return "success";
-    case "rejected":
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(s, TONE_OVERRIDES);
 }
 
 interface Props {

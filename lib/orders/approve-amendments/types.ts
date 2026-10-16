@@ -1,19 +1,12 @@
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 /** Approval decision states for a Garment Order Amendment (migration 0129). */
 export const APPROVAL_STATUSES = ["pending", "approved", "rejected"] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 export function approvalStatusTone(s: ApprovalStatus): StatusTone {
-  switch (s) {
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-    case "pending":
-    default:
-      return "warning";
-  }
+  return statusTone(s);
 }
 
 export function approvalStatusLabel(s: ApprovalStatus): string {

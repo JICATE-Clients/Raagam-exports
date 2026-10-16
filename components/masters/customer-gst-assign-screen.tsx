@@ -249,7 +249,7 @@ export function CustomerGstAssignScreen({
           <>
             {filtered.length} of {rows.length} · {missing} missing GSTIN
             {problems.size > 0 && (
-              <span className="ml-1 font-semibold text-amber-600 dark:text-amber-500">
+              <span className="ml-1 font-semibold text-warning">
                 · {problems.size} to check
               </span>
             )}

@@ -620,9 +620,10 @@ export function BudgetApprovalScreen({
           right={`${filtered.length} of ${rows.length}`}
         />
 
-        {/* AS WIDE AS ITS COLUMNS, not the pane (erp-table-fit skill, client
+        {/* FULL WIDTH since 2026-10-16 (user: "the sample entry table … over all
+            application"). WAS: as wide as its columns (erp-table-fit skill, client
             2026-09-28, screenshot 145600). */}
-        <div className="w-fit max-w-full">
+        <div>
         <DataTable
           columns={hugCreated(withCreatedColumns(columns, filtered))}
           rows={filtered}

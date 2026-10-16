@@ -91,7 +91,7 @@ export default async function ExportDetailPage({
             <CardTitle>Error</CardTitle>
           </CardHeader>
           <CardBody>
-            <p className="text-sm text-red-600">{exp.error_message}</p>
+            <p className="text-sm text-danger">{exp.error_message}</p>
           </CardBody>
         </Card>
       )}

@@ -153,7 +153,7 @@ export function PayslipClient({
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
                 Account 1 — Actual Wage
               </p>
-              <div className="rounded-md border border-blue-200 bg-blue-50/40 p-3 space-y-1">
+              <div className="rounded-md border border-info/25 bg-info-soft/40 p-3 space-y-1">
                 <div className="flex justify-between text-sm">
                   <span>Shift pay ({fmtNumber(line.days_worked)} days)</span>
                   <span className="tabular-nums font-medium">
@@ -166,7 +166,7 @@ export function PayslipClient({
                     <span className="tabular-nums font-medium">{fmtMoney(line.ot_wage)}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-sm font-semibold border-t border-blue-200 pt-1 mt-1">
+                <div className="flex justify-between text-sm font-semibold border-t border-info/25 pt-1 mt-1">
                   <span>Gross (A/C 1)</span>
                   <span className="tabular-nums">{fmtMoney(line.actual_gross)}</span>
                 </div>
@@ -182,7 +182,7 @@ export function PayslipClient({
                     <span className="tabular-nums">({fmtMoney(line.pf)})</span>
                   </div>
                 )}
-                <div className="flex justify-between text-sm font-bold border-t border-blue-300 pt-1 mt-1">
+                <div className="flex justify-between text-sm font-bold border-t border-info/40 pt-1 mt-1">
                   <span>Net (A/C 1)</span>
                   <span className="tabular-nums">{fmtMoney(line.actual_net)}</span>
                 </div>
@@ -191,10 +191,10 @@ export function PayslipClient({
 
             {/* A/C 2 — Extra wage */}
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-600">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-warning">
                 Account 2 — Extra Wage (no deductions)
               </p>
-              <div className="rounded-md border border-amber-200 bg-amber-50/40 p-3 space-y-1">
+              <div className="rounded-md border border-warning/25 bg-warning-soft/40 p-3 space-y-1">
                 {line.pieces > 0 && (
                   <div className="flex justify-between text-sm">
                     <span>Pieces produced</span>

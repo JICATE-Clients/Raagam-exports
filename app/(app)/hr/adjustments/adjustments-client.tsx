@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import { createAdjustment, endAdjustment, deleteAdjustment } from "@/lib/hr/extras-actions";
@@ -88,7 +89,7 @@ export function AdjustmentsClient({ rows, employees, canCreate, canEdit, canDele
     { header: "Kind", cell: (r) => <span className="text-sm">{ADJUSTMENT_KIND_LABELS[r.kind]}</span> },
     { header: "Label", cell: (r) => <span className="text-sm">{r.label}{r.recurring ? " · recurring" : ""}</span> },
     { header: "Amount", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.amount)}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={r.status === "active" ? "success" : "neutral"}>{r.status === "active" ? "Active" : "Ended"}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status === "active" ? "active" : "ended")}>{r.status === "active" ? "Active" : "Ended"}</StatusPill> },
     {
       header: "Actions",
       cell: (r) => (

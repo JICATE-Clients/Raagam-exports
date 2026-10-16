@@ -8,6 +8,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import type { BudgetStatus } from "@/lib/planning/budget-types";
 import { BUDGET_TYPE_LABELS } from "@/lib/planning/budget-types";
 import { BudgetDetail } from "./budget-detail";
+import { statusTone } from "@/lib/ui/status-tone";
 
 const BUDGET_STATUS_LABELS: Record<BudgetStatus, string> = {
   draft: "Draft",
@@ -17,16 +18,7 @@ const BUDGET_STATUS_LABELS: Record<BudgetStatus, string> = {
 };
 
 function budgetStatusTone(status: BudgetStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export default async function BudgetDetailPage({

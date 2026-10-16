@@ -8,7 +8,8 @@ import { ConfirmBulkButton } from "@/components/ui/selection-bar";
 import { Input } from "@/components/ui/input";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -372,7 +373,7 @@ export function AccessControlScreen({ data, meId, canCreate, canEdit, canDelete,
         !u.has_login ? (
           <StatusPill tone="neutral">No login yet</StatusPill>
         ) : (
-          <StatusPill tone={u.login_active ? "success" : "danger"}>{u.login_active ? "Active" : "Deactivated"}</StatusPill>
+          <StatusPill tone={activeTone(u.login_active)}>{u.login_active ? "Active" : "Deactivated"}</StatusPill>
         ),
     },
   ];

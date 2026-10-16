@@ -983,10 +983,10 @@ export function MultiSelect({
                     role="presentation"
                     /* LABEL — RULE — ALL (operator, 2026-09-17, reference
                        115610). `font-sans`: a heading, not a token. */
-                    className="col-span-full flex items-center gap-2 pt-2 font-sans text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    className="col-span-full flex items-center gap-2 pt-2 font-sans text-[10px] uppercase tracking-wider text-muted-foreground"
                   >
                     <span>{band.label}</span>
-                    <span aria-hidden className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
+                    <span aria-hidden className="h-px flex-1 bg-border" />
                     {(() => {
                       const ids = band.rows.map((o) => o.id);
                       const allOn = ids.every((x) => chosen.has(x));
@@ -1003,7 +1003,7 @@ export function MultiSelect({
                                 : [...values, ...ids.filter((x) => !chosen.has(x))],
                             );
                           }}
-                          className="text-[10px] font-medium uppercase tracking-wider text-blue-600 underline underline-offset-2 hover:text-blue-700 dark:text-blue-400"
+                          className="text-[10px] font-medium uppercase tracking-wider text-primary underline underline-offset-2 hover:text-primary/80"
                         >
                           {allOn ? "none" : "all"}
                         </button>

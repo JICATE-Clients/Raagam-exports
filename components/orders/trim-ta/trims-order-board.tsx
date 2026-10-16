@@ -84,7 +84,7 @@ export function TrimsOrderBoard({
           />
         </div>
 
-        <div className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
+        <div className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong">
           {view === "class" ? (
             <ClassLadder byClass={byClass} />
           ) : (

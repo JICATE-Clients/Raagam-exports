@@ -18,14 +18,10 @@ import type {
   ApplicabilityType,
   PriceConfirmationItem,
 } from "@/lib/purchase/price-confirmation-types";
+import { statusTone } from "@/lib/ui/status-tone";
 
 function pcStatusTone(status: PcStatus): StatusTone {
-  switch (status) {
-    case "draft": return "neutral";
-    case "submitted": return "warning";
-    case "approved": return "success";
-    case "rejected": return "danger";
-  }
+  return statusTone(status);
 }
 
 export default async function PriceConfirmationDetailPage({

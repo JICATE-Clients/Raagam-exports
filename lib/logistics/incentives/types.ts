@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const INCENTIVE_SCHEMES = ["rodtep", "drawback", "rosctl", "other"] as const;
 export type IncentiveScheme = (typeof INCENTIVE_SCHEMES)[number];
@@ -22,16 +23,7 @@ export const INCENTIVE_STATUS_LABELS: Record<IncentiveStatus, string> = {
 };
 
 export function incentiveStatusTone(status: IncentiveStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "filed":
-      return "info";
-    case "received":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface ExportIncentiveFile {

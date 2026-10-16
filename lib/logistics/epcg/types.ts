@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const EPCG_STATUSES = [
   "active",
@@ -16,17 +17,12 @@ export const EPCG_STATUS_LABELS: Record<EpcgStatus, string> = {
   cancelled: "Cancelled",
 };
 
+// An ACTIVE licence still owes its export obligation — Fulfilled is the
+// success state here, so Active reads as "in progress", not "done".
+const EPCG_TONES = { active: "info" } as const;
+
 export function epcgStatusTone(status: EpcgStatus): StatusTone {
-  switch (status) {
-    case "active":
-      return "info";
-    case "fulfilled":
-      return "success";
-    case "expired":
-      return "danger";
-    case "cancelled":
-      return "neutral";
-  }
+  return statusTone(status, EPCG_TONES);
 }
 
 export interface EpcgDeclaration {

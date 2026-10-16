@@ -1,5 +1,6 @@
 import { isRefusal, subtractWorkingDays } from "@/lib/ta/schedule";
 import { daysBetween } from "@/lib/calendar";
+import { statusTone, TASK_PROGRESS, type StatusTone } from "@/lib/ui/status-tone";
 
 /**
  * Material BOM (trims) T&A — steps 12–17 of `doc/order/materialbomtana.md`.
@@ -338,13 +339,15 @@ export function isOpenStep(s: Pick<TrimStep, "status">): boolean {
   return s.status !== "COMPLETED" && s.status !== "BYPASSED";
 }
 
-/** `StatusTone` values (lib/ui/tone), spelled out so this file stays import-light. */
-export const TRIM_STATUS_TONE: Record<TrimStepStatus, "success" | "warning" | "danger" | "info" | "neutral"> = {
-  PENDING: "neutral",
-  IN_PROGRESS: "info",
-  COMPLETED: "success",
-  OVERDUE: "danger",
-  BYPASSED: "neutral",
+/** `status-tone.ts` imports nothing but a type, so this file stays import-light. */
+// Read from the shared table (lib/ui/status-tone) with TASK_PROGRESS: a PENDING
+// step has not started, which makes no claim — unlike a pending approval.
+export const TRIM_STATUS_TONE: Record<TrimStepStatus, StatusTone> = {
+  PENDING: statusTone("PENDING", TASK_PROGRESS),
+  IN_PROGRESS: statusTone("IN_PROGRESS"),
+  COMPLETED: statusTone("COMPLETED"),
+  OVERDUE: statusTone("OVERDUE"),
+  BYPASSED: statusTone("BYPASSED"),
 };
 
 export const TRIM_STATUS_LABEL: Record<TrimStepStatus, string> = {

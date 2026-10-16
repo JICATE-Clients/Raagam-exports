@@ -19,15 +19,15 @@ import type { ReceivableStatus } from "@/lib/finance/types";
 import type { AgingBucket } from "@/lib/finance/calc";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const RECEIVABLE_STATUS_TONE_OVERRIDES = {
+  // Open is a live document here, already in motion, not an untouched one (was info before the shared table, kept).
+  open: "info",
+} as const;
 
 function receivableStatusTone(status: ReceivableStatus): StatusTone {
-  switch (status) {
-    case "open": return "info";
-    case "partially_received": return "warning";
-    case "received": return "success";
-    case "overdue": return "danger";
-    case "cancelled": return "neutral";
-  }
+  return statusTone(status, RECEIVABLE_STATUS_TONE_OVERRIDES);
 }
 
 const STATUS_LABELS: Record<ReceivableStatus, string> = {

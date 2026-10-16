@@ -11,13 +11,14 @@ import { NewJournalForm } from "./new-journal-form";
 import type { JournalEntry } from "@/lib/finance/types";
 import type { JournalStatus } from "@/lib/finance/types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const JOURNAL_STATUS_TONE_OVERRIDES = {
+  reversed: "warning", // this module's own word — not in the shared table
+} as const;
 
 function journalStatusTone(s: JournalStatus): StatusTone {
-  switch (s) {
-    case "draft": return "neutral";
-    case "posted": return "success";
-    case "reversed": return "warning";
-  }
+  return statusTone(s, JOURNAL_STATUS_TONE_OVERRIDES);
 }
 
 const STATUS_LABELS: Record<JournalStatus, string> = {

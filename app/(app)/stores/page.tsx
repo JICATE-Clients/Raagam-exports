@@ -7,6 +7,7 @@ import { fmtNumber } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 
 const operations = [
   { href: "/stores/opening-stock", label: "Opening Stock", desc: "Set initial balances", icon: PackagePlus },
@@ -90,7 +91,7 @@ export default async function StoresPage() {
                         </p>
                       </div>
                     </div>
-                    <StatusPill tone={s.is_active ? "success" : "neutral"}>
+                    <StatusPill tone={activeTone(s.is_active)}>
                       {s.is_active ? "Active" : "Inactive"}
                     </StatusPill>
                   </div>

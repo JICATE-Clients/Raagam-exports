@@ -2521,7 +2521,7 @@ export function ConsigneeMasterScreen({
                             only ever for an error that actually blocks Save. */}
                         {gstDup && (
                           <Field className="w-full -mt-1">
-                            <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                            <p className="flex items-center gap-1 text-xs text-warning">
                               <TriangleAlert className="h-4 w-4 shrink-0" />
                               Another consignee already carries this GST number — check you are not
                               keying the same party twice.

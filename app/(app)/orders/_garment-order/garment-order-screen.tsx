@@ -9860,7 +9860,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               }
             />
             {dup ? (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+              <p className="mt-1 text-xs text-warning">
                 Already listed above; it will be saved once.
               </p>
             ) : null}
@@ -22080,7 +22080,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 LOOK ONLY, by the user's choice: the 2026-09-15 text-until-
                 clicked cells, the red critical edge, Status and the quick
                 actions are untouched. */}
-            <div data-grid-style="sheet-rows" className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
+            <div data-grid-style="sheet-rows" className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong">
             {/* THE HEADER ROW, as the mock draws it: small, uppercase, widely
                 tracked, muted, on the card's own white with a single rule
                 under it - not the grey band of 09-12, which read as a second

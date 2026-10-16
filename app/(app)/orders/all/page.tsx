@@ -17,6 +17,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { statusTone } from "@/lib/ui/status-tone";
 // THE ALL ORDERS REGISTER — every confirmed order, with its SC No and status.
 //
 // It lived at `/orders` until 2026-08-13, where it was the module root and this
@@ -34,19 +35,15 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 // sites in lib/orders/actions.ts, lib/orders/amendments/actions.ts and
 // lib/orders/approve-amendments/actions.ts, which revalidate BOTH paths.
 
+const ORDER_STATUS_TONE_OVERRIDES = {
+  // Confirmed is a hand-off here, not the end of the document (was info before the shared table, kept).
+  confirmed: "info",
+  in_production: "warning", // this module's own word — not in the shared table
+  shipped: "success", // this module's own word — not in the shared table
+} as const;
+
 function orderStatusTone(status: OrderStatus): StatusTone {
-  switch (status) {
-    case "confirmed":
-      return "info";
-    case "in_production":
-      return "warning";
-    case "shipped":
-      return "success";
-    case "closed":
-      return "neutral";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status, ORDER_STATUS_TONE_OVERRIDES);
 }
 
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {

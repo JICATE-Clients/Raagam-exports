@@ -399,10 +399,23 @@ fallback in that file already records: a per-screen fix leaves a remainder.
   form reads and writes the app-wide size. `ChildGrid` is the one pinned caller — a
   grid's `pageSize` prop is part of that grid's layout, not what the operator meant
   by choosing 50 on a listing. Never pass `10` to pin a listing back to a local size.
-- **The bar renders only past one page.** A listing that fits is pixel-identical to
-  before; a small table inside a sheet or a card gains nothing. Same rule `ChildGrid`
-  applies to its own pager ("1–1 of 1" is chrome explaining that the one visible row
-  is the one visible row, client 2026-08-04).
+- **A page's MAIN LISTING always shows the bar; anything else only past one page**
+  (user 2026-10-16, screenshots 3575 / 3576: "the sample entry table and pagination
+  over all application"). Sample Entry (12 rows) had the full-height card and footer
+  pager while Plan Approval (7 rows) had neither, so two lists looked like two designs.
+  `useIsListing` in `data-table-frame.tsx` decides it in the browser: not in a dialog or
+  an editor (`isEditorScope`'s markers), not `bare`, and the only table in its pane. A
+  table inside a sheet, a dashboard card or an editor section keeps the old rule, which
+  is still `ChildGrid`'s ("1–1 of 1" explains the one visible row, client 2026-08-04).
+- **A listing is FULL WIDTH** (same day): never wrap one in `w-fit`. Columns may still
+  hug (`HUG`), so the extra width goes to the one name column — Sample Entry's shape.
+  This reverses erp-table-fit's 2026-09-28 "as wide as its columns" for LISTINGS only;
+  a table inside an editor section (Material BOM's requirement table) keeps it.
+  **Enforced by `npm run check:listing-width`** (inside `build:check`): a listing tag
+  under a shrinking wrapper (`w-fit`, `inline-*`, fixed `w-…`, `max-w-…`, any breakpoint,
+  followed through `const table = …; {table}`), and `data-table-frame.tsx` losing
+  `useIsListing`. Verified by being made to FAIL first — all 9 pre-fix sites. Opt out with
+  `listing-width: exempt -- <reason>`. **Its floor:** a list hand-written as `<table>`.
 - **It is a display slice, not a query.** The server still fetches every row it did
   before; a list of 3,000 rows is now 3,000 rows in the RSC payload showing 10.
   Server-side (keyset) paging is the next step for a listing that grows past what one
@@ -412,6 +425,37 @@ fallback in that file already records: a per-screen fix leaves a remainder.
 **Not yet enforced by a script.** A new `[id]`-route table that forgets
 `paginate={false}` pages a document. Until `audit_layout.py` gains a
 `--check paginate-document`, a detail page gets this right by reading this section.
+
+## Status colours come from one table (STANDING)
+
+**A status word draws the same colour on every screen** (2026-10-16). Before
+this, `StatusPill` mapped a TONE to a colour and nothing mapped a STATUS to a
+tone, so about 140 places each wrote their own: Draft was grey on seven screens and
+amber on five, Cancelled red on five and grey on three, Inactive red across
+Master Data and grey everywhere else.
+
+- **`statusTone(status, overrides?)`** in `lib/ui/status-tone.ts` is the rule;
+  `activeTone(flag)` and `draftTone(flag)` cover the two booleans. A module's
+  `xxxStatusTone()` may stay as a NAME for its callers, but its body delegates.
+- **Exact match, never substring.** `normalizeStatus` folds only case and
+  separators; "Not Approved" and "Partially Approved" are their own keys, and an
+  unknown word is neutral — never a guess.
+- **A genuine difference is a named override**, passed as
+  `statusTone(s, NAME)` and declared beside it with the reason: a CAD sheet's
+  Submitted is its finished state (success), a requisition's Approved still
+  waits on issue. `TASK_PROGRESS` names the commonest one — "pending" on a T&A
+  step means not started (neutral), on an approval it means waiting (warning).
+- **Cancelled is danger and Inactive is neutral, everywhere** — the two calls
+  the sweep standardised rather than preserved.
+
+`npm run check:status-tone` (inside `build:check`) asserts the table and each
+module's override through its own function, and fails any `case "approved":
+return "success"` or `{ approved: "success" }` that is not a named override.
+Verified by being made to FAIL first. Opt out with
+`// status-tone: exempt -- <reason>` (a progress bucket, a chart slice, a queue
+CARD state). Three files open in a parallel session on the day are listed in
+its `EXEMPT` as PENDING MIGRATION. Live reference: Administration ▸ System ▸
+Design Reference.
 
 ## Row actions: icons, no ⋮ (STANDING)
 

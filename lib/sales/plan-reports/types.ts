@@ -17,6 +17,7 @@
 
 import type { YarnFabricRequirementReport } from "@/lib/orders/fabric-bom/reports";
 import type { RequirementSheetData } from "@/lib/orders/requirement/service";
+import { statusTone, type StatusTone } from "@/lib/ui/status-tone";
 
 export type PlanKind = "fabric" | "accessories";
 
@@ -55,11 +56,12 @@ export function planApprovalLabel(status: PlanApprovalStatus, revisionNo: number
   }
 }
 
-export function planApprovalTone(status: PlanApprovalStatus, revisionNo: number): "success" | "info" | "warning" | "neutral" {
-  if (status === "approved") return "success";
-  if (status === "submitted") return "info";
-  if (status === "returned" || revisionNo > 0) return "warning";
-  return "neutral";
+// A REVISED plan back in draft is amber, not neutral: it was approved once and
+// is now being changed, which is worth seeing. Derived from `revisionNo`, so
+// it is a rule here rather than a word in the shared table.
+export function planApprovalTone(status: PlanApprovalStatus, revisionNo: number): StatusTone {
+  if (status === "open" && revisionNo > 0) return "warning";
+  return statusTone(status);
 }
 
 // ---------------------------------------------------------------------------

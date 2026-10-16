@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { fmtDate } from "@/lib/format";
 import type { ProcessMaterialReceipt } from "@/lib/stores/process-types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -32,7 +33,7 @@ export default async function ProcessReceiptsPage() {
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.status === "posted" ? "success" : "neutral"}>
+        <StatusPill tone={statusTone(r.status === "posted" ? "posted" : "draft")}>
           {r.status === "posted" ? "Posted" : "Draft"}
         </StatusPill>
       ),

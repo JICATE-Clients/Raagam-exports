@@ -17,18 +17,18 @@ import { ADVANCE_STATUS_LABELS, EMPLOYEE_TYPE_LABELS, type AdvanceStatus } from 
 import type { HrAdvance } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const TONE_OVERRIDES = {
+  // Open is a live document here, already in motion, not an untouched one (was warning before the shared table, kept).
+  open: "warning",
+  repaying: "info", // this module's own word — not in the shared table
+  // Closed is this document's normal completion, not a retirement (was success before the shared table, kept).
+  closed: "success",
+} as const;
 
 function tone(s: AdvanceStatus): StatusTone {
-  switch (s) {
-    case "open":
-      return "warning";
-    case "repaying":
-      return "info";
-    case "closed":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(s, TONE_OVERRIDES);
 }
 
 interface Props {

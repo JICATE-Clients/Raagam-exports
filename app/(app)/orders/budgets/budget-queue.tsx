@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { StatusMark } from "@/components/ui/status-mark";
 import { CalendarRange, Check, ClipboardCheck, Clock3, Pencil, Send, Users, X } from "lucide-react";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -380,7 +381,8 @@ export function BudgetQueue({
             {o.po_no ? <span className="font-mono"> · {o.po_no}</span> : null}
           </Truncated>
         )}
-        pill={(o) => <StatusPill tone={statusTone(statusOf(o))}>{statusText(statusOf(o))}</StatusPill>}
+        // An ICON on the card, the word in its tooltip — the tab already says it (components/ui/status-mark.tsx).
+        pill={(o) => <StatusMark word={statusText(statusOf(o))} tone={statusTone(statusOf(o))} />}
         stats={stats}
         /* THE BUDGET IT IS IN, by its number, or why it cannot be valued yet.
            A budget cannot be approved on an order with no sales value, so that

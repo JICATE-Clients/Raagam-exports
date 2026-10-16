@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { capsTextNullable } from "@/lib/validation/formats";
+import { statusTone, type StatusTone } from "@/lib/ui/status-tone";
 
 // ============================================================================
 // Orders ▸ CAD Markers (0460). doc/file.md §2.
@@ -24,8 +25,12 @@ export function cadStatusText(s: CadStatus): string {
 }
 /** NEUTRAL for a draft, not warning — `lib/ui/tone.ts`: neutral is "no claim",
  *  and work in progress is not work that has gone wrong (bom-status.ts's call). */
-export function cadStatusTone(s: CadStatus): "neutral" | "success" {
-  return s === "submitted" ? "success" : "neutral";
+// A CAD sheet's SUBMITTED is its finished state (nothing approves it after),
+// so it is success here — in the shared table "submitted" waits on an approver.
+const CAD_TONES = { submitted: "success" } as const;
+
+export function cadStatusTone(s: CadStatus): StatusTone {
+  return statusTone(s, CAD_TONES);
 }
 
 /**
@@ -63,20 +68,12 @@ export function cadQueueStatusText(s: CadQueueStatus): string {
   }
 }
 
-export function cadQueueStatusTone(s: CadQueueStatus): "warning" | "neutral" | "danger" | "success" {
-  switch (s) {
-    case "pending":
-      return "warning";
-    case "draft":
-      return "neutral";
-    // DANGER, not warning: a sheet marked submitted with panels nobody has
-    // weighed is the one state that reads as done downstream and is not. Every
-    // other tone lets it be left.
-    case "measuring":
-      return "danger";
-    default:
-      return "success";
-  }
+// MEASURING is DANGER: a sheet marked submitted with panels nobody has weighed
+// is the one state that reads as done downstream and is not.
+const CAD_QUEUE_TONES = { ...CAD_TONES, measuring: "danger" } as const;
+
+export function cadQueueStatusTone(s: CadQueueStatus): StatusTone {
+  return statusTone(s, CAD_QUEUE_TONES);
 }
 
 export interface CadComponentWeight {

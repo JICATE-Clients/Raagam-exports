@@ -10,20 +10,18 @@ import type { RunRow } from "@/lib/hr/payroll-service";
 import type { PayrollStatus } from "@/lib/hr/types";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const RUN_STATUS_TONE_OVERRIDES = {
+  calculated: "info", // this module's own word — not in the shared table
+  // Approved is a step in this document's life, not its end — work still follows it (was warning before the shared table, kept).
+  approved: "warning",
+  // Locked is the finished, signed-off state here (was success before the shared table, kept).
+  locked: "success",
+} as const;
 
 function runStatusTone(status: PayrollStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "calculated":
-      return "info";
-    case "approved":
-      return "warning";
-    case "locked":
-      return "success";
-    case "paid":
-      return "success";
-  }
+  return statusTone(status, RUN_STATUS_TONE_OVERRIDES);
 }
 
 const STATUS_LABELS: Record<PayrollStatus, string> = {

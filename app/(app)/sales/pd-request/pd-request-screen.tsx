@@ -1,5 +1,6 @@
 "use client";
 
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarRange, Layers, Plus, Users } from "lucide-react";
@@ -25,7 +26,7 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import { loadPdSample, sendPdRequest } from "@/lib/sales/pd-requests/actions";
 import { canRaisePd, PD_TO_DEPARTMENT, type PdQueueRow, type PdRequestRow, type PdSample, type PdSmpOption } from "@/lib/sales/pd-requests/types";
 import { PD_STATUS_LABEL } from "@/lib/sales/sample-entry/types";
-import { PD_WORDS, queueState, queueWord } from "@/lib/sales/pd-requests/words";
+import { PD_STATUS_KEYS, PD_STATUS_KEY_LABEL, PD_WORDS, pdStatusKey, pdStatusLabel, queueState, queueWord } from "@/lib/sales/pd-requests/words";
 
 const PATH = "/sales/pd-request";
 
@@ -48,9 +49,9 @@ function pdQueueFacets(options: PdSmpOption[]): FacetGroup<PdQueueRow>[] {
           counted: true,
           options: [
             { value: "none", label: "Not sent" },
-            ...(["requested", "acknowledged", "not_acknowledged", "cancelled"] as const).map((s) => ({ value: s, label: PD_STATUS_LABEL[s] })),
+            ...PD_STATUS_KEYS.map((s) => ({ value: s, label: PD_STATUS_KEY_LABEL[s] })),
           ],
-          match: (q, v) => (v === "none" ? !q.request : q.request?.status === v),
+          match: (q, v) => (v === "none" ? !q.request : !!q.request && pdStatusKey(q.request) === v),
         },
       ],
     },
@@ -140,6 +141,10 @@ export function PdRequestScreen({
     onPick: () => setFacet("status", ""),
     countRows: searched,
   });
+  /* CARD VIEW / LIST VIEW (user 2026-10-16) — the TABLE by default on every tab
+     (user, same day, screenshot 3578: "default … as table, now it's card"); the
+     operator's own pick is kept per screen. Above every early return. */
+  const viewMode = useViewMode("pd-request", "list");
   const shown = searched.filter(quick.matches);
   const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
 
@@ -211,6 +216,7 @@ export function PdRequestScreen({
         }
       />
       <FilterBar
+        trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
         leading={quick.segment}
         search={query}
         onSearch={setQuery}
@@ -230,7 +236,7 @@ export function PdRequestScreen({
             : [q.request?.smp_nos.join(", "), q.request?.customer].filter(Boolean).join(" · ")
         }
         state={queueState}
-        pillText={(q) => (q.request ? PD_STATUS_LABEL[q.request.status] : "Not sent")}
+        pillText={(q) => (q.request ? pdStatusLabel(q.request) : "Not sent")}
         stats={(q) => {
           const src = q.smp ?? q.request;
           return [
@@ -257,7 +263,8 @@ export function PdRequestScreen({
         // Acknowledged SMPs read as a table, as every Sample queue's Updated does
         // — and only ever open read-only, so no pencil; the SMP No opens them.
         rowEdit={false}
-        table={quick.value === "approved" ? { title: "SMP No", subtitle: "Customer · Season" } : undefined}
+        table={{ title: "SMP No", subtitle: "Customer · Season" }}
+        view={viewMode.view}
         empty={
           queue.length
             ? "No SMPs match the search or the status box."

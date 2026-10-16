@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Bell, ClipboardCheck, Info, ListChecks, OctagonAlert, Package, type LucideIcon } from "lucide-react";
+import { TriangleAlert, Bell, ClipboardCheck, Info, ListChecks, OctagonAlert, Package, type LucideIcon } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { getWorklist, type WorklistNote, type WorklistRow } from "@/lib/ta/worklist";
 import { getMyStaffTaKpi } from "@/lib/ta/kpi";
@@ -516,7 +516,7 @@ function Banner({
  * otherwise see: which rows were removed and why, and where to go and change it.
  */
 function NoteBanner({ note }: { note: WorklistNote }) {
-  const Icon = note.level === "info" ? Info : note.level === "warn" ? AlertTriangle : OctagonAlert;
+  const Icon = note.level === "info" ? Info : note.level === "warn" ? TriangleAlert : OctagonAlert;
 
   return (
     <Banner tone={note.level} icon={Icon}>

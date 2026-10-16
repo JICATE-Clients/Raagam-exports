@@ -5037,7 +5037,7 @@ export function MbaMasterScreen({
                     Amber and advisory — the requirement itself still computes,
                     and the consumption figure it shows is not wrong, only not
                     the purchase one. */}
-                <p className="mt-0.5 text-[10px] leading-tight text-amber-600 dark:text-amber-500">
+                <p className="mt-0.5 text-[10px] leading-tight text-warning">
                   Two pack sizes — pick one for the purchase quantity.
                 </p>
               </>
@@ -7040,7 +7040,10 @@ export function MbaMasterScreen({
             /* AS WIDE AS ITS COLUMNS (erp-table-fit, client 2026-09-28, screenshot
                142335): the eight columns spread across the whole section with
                a gap between each. `w-fit` sizes the table to them; `max-w-full`
-               keeps a long Item Name inside the section, where it wraps. */
+               keeps a long Item Name inside the section, where it wraps.
+               listing-width: exempt -- a SECTION of the Material BOM editor (the
+               order's requirement), not a page's list; sized by the 09-28 client
+               decision above. */
             <div className="w-fit max-w-full">
               <DataTable
                 columns={reqColumns}
@@ -7311,6 +7314,7 @@ export function MbaMasterScreen({
         sources={copySources.filter((s) => !editId || s.bom_id !== editId)}
         onPick={pickCopySource}
         isPending={isPending}
+        customerId={customerId}
       />
     </>
   );

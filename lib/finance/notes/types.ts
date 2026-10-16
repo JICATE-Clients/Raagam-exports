@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const NOTE_TYPES = ["debit", "credit"] as const;
 export type NoteType = (typeof NOTE_TYPES)[number];
@@ -28,16 +29,7 @@ export const NOTE_STATUS_LABELS: Record<NoteStatus, string> = {
 };
 
 export function noteStatusTone(status: NoteStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "issued":
-      return "info";
-    case "settled":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface FinanceNote {

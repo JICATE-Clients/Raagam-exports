@@ -397,6 +397,19 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
    * calling `.click()` on its `data-row-add` and then landing in the box that
    * opens — it already owns that landing, and two handlers racing for one caret
    * is how a cursor ends up somewhere neither of them meant.
+   *
+   * CAPTURE PHASE, OR THE ROW IS ALREADY THERE (client 2026-10-16, Sample Entry
+   * ▸ Product Info: "+ Add structure" made row 2 and left the cursor on the
+   * button). `landOnAddedRow` snapshots the fields BEFORE the add and diffs
+   * after it — so the snapshot must be taken before React renders. It was not:
+   * React 19 commits a click's update in a MICROTASK, and for a trusted event
+   * the browser drains microtasks between one listener and the next. React's
+   * delegated `onClick` sits on `document` too and was registered first, so by
+   * the time a bubble-phase listener here ran, the new row was in the DOM, in
+   * `before`, and the diff came back empty on every grid in the app. Measured
+   * (a real click AND Enter on a button, microtask-appending listener first):
+   * bubble saw the row, capture did not. Capture runs before every bubble
+   * listener, so the snapshot is the page as the operator clicked it.
    */
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -406,8 +419,8 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
       if (!btn || !isRowAddControl(btn)) return;
       landOnAddedRow(btn);
     };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
   }, []);
 
   useEffect(() => {

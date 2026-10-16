@@ -27,6 +27,7 @@ import {
 } from "@/lib/orders/amendments/qty-balance";
 import { styleProcessRowStarted, type StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 import { isImageFile, normalizePrimary } from "@/lib/orders/amendments/style-gallery";
+import { statusTone, type StatusTone } from "@/lib/ui/status-tone";
 
 // ---------------------------------------------------------------------------
 // Vocabularies. `value` is what is STORED (the CHECK constraints in 0368 / 0683);
@@ -912,11 +913,17 @@ export const PD_STATUS_LABEL: Record<PdRequestStatus, string> = {
   cancelled: "Withdrawn",
 };
 
-export const PD_STATUS_TONE: Record<PdRequestStatus, "info" | "success" | "danger" | "neutral"> = {
-  requested: "info",
-  acknowledged: "success",
-  not_acknowledged: "danger",
-  cancelled: "neutral",
+// Not Acknowledged is red from the shared table (2026-10-15: "the danger tone,
+// everywhere"). The other three are this request's own life: REQUESTED is with
+// the Sample Dept (moving), ACKNOWLEDGED is the answer, and CANCELLED is shown
+// as "Withdrawn" — the merchandiser's choice, not a failure, so it stays grey.
+const PD_TONES = { requested: "info", acknowledged: "success", cancelled: "neutral" } as const;
+
+export const PD_STATUS_TONE: Record<PdRequestStatus, StatusTone> = {
+  requested: statusTone("requested", PD_TONES),
+  acknowledged: statusTone("acknowledged", PD_TONES),
+  not_acknowledged: statusTone("not_acknowledged", PD_TONES),
+  cancelled: statusTone("cancelled", PD_TONES),
 };
 
 export type SampleEntryRecord = { id: string; code: string | null; header: SampleHeaderDraft; styles: StyleDraft[] };

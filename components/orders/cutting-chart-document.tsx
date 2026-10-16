@@ -1,7 +1,8 @@
 "use client";
 
-import { Download, FileSpreadsheet, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { cuttingCell, cuttingRows, sumOf, type CuttingChart, type CuttingFigures } from "@/lib/orders/cutting-chart/types";
 import {
   chartFacts,
@@ -56,18 +57,14 @@ export function CuttingChartDocument({ chart }: { chart: CuttingChart }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap justify-end gap-2 print:hidden">
-        <Button variant="outline" size="md" onClick={() => exportCuttingChartCsv(chart)}>
-          <FileSpreadsheet className="h-4 w-4" aria-hidden />
-          Excel
-        </Button>
         <Button variant="outline" size="md" onClick={() => exportCuttingChartPdf(chart, "print")}>
           <Printer className="h-4 w-4" aria-hidden />
           Print
         </Button>
-        <Button size="md" onClick={() => exportCuttingChartPdf(chart, "download")}>
-          <Download className="h-4 w-4" aria-hidden />
-          Download PDF
-        </Button>
+        <DownloadMenu
+          variant="primary"
+          formats={[asPdf(() => exportCuttingChartPdf(chart, "download")), asExcel(() => exportCuttingChartCsv(chart))]}
+        />
       </div>
 
       <div>

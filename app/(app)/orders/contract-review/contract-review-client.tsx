@@ -95,7 +95,7 @@ export function ContractReviewClient({
     { header: "Customer", cell: (r) => r.buyer_name ?? "—" },
     { header: "IOC Value", align: "right", cell: (r) => <span className="tabular-nums">{fmtMoney(r.ioc_value, r.currency_code)}</span> },
     { header: "Order Value", align: "right", cell: (r) => <span className="tabular-nums">{fmtMoney(r.order_value, r.currency_code)}</span> },
-    { header: "P/L %", align: "right", cell: (r) => <span className={`tabular-nums ${r.profit_loss_pct >= 0 ? "text-green-600" : "text-red-600"}`}>{r.profit_loss_pct.toFixed(1)}%</span> },
+    { header: "P/L %", align: "right", cell: (r) => <span className={`tabular-nums ${r.profit_loss_pct >= 0 ? "text-success" : "text-danger"}`}>{r.profit_loss_pct.toFixed(1)}%</span> },
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.approval_status] ?? "neutral"}>{r.approval_status}</StatusPill> },
     {
       /* The approval decision is workflow, not row CRUD — labelled column of

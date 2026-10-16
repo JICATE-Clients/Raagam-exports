@@ -19,6 +19,7 @@ import {
 import {
   iwoFabricGross,
   iwoRoutesByFabric,
+  iwoSourceByFabric,
   iwoYarnModePurchase,
   iwoYarnShades,
   iwoYdCombinationFilled,
@@ -626,13 +627,29 @@ async function writeYarns(
     // a purchased cloth suppresses (the order action's `processKindsOf`).
     const procIds = [...new Set(p.processes.map((r) => r.process_id).filter(Boolean))] as string[];
     const kinds = new Map<string, { is_knitting: boolean; is_dyeing: boolean }>();
+    // Which step BUYS the cloth (0583) — a fabric whose route opens with one
+    // buys no yarn (`iwoSourceByFabric`).
+    const clothBuying: { id: string; is_cloth_purchase: boolean }[] = [];
     if (procIds.length) {
-      const { data, error } = await s.from("processes").select("id, is_knitting, is_dyeing").in("id", procIds);
+      const { data, error } = await s.from("processes").select("id, is_knitting, is_dyeing, is_cloth_purchase").in("id", procIds);
       if (error) return `Could not read the process master's kind flags: ${error.message}`;
-      for (const r of (data ?? []) as { id: string; is_knitting: boolean | null; is_dyeing: boolean | null }[]) {
+      for (const r of (data ?? []) as { id: string; is_knitting: boolean | null; is_dyeing: boolean | null; is_cloth_purchase: boolean | null }[]) {
         kinds.set(r.id, { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false });
+        clothBuying.push({ id: r.id, is_cloth_purchase: r.is_cloth_purchase ?? false });
       }
     }
+    // The fabric stages rank a bought cloth as greige or dyed. An empty list
+    // would read every purchase as "unranked" and buy its yarn after all, so a
+    // failed read refuses rather than guesses.
+    const fabricStages = clothBuying.some((x) => x.is_cloth_purchase) ? (await getFabricProcessLookupRows()).stages : [];
+    if (clothBuying.some((x) => x.is_cloth_purchase) && !fabricStages.length) {
+      return "Could not read the fabric stages (GREIGE / DYED) — try again.";
+    }
+    const sourceByFabric = iwoSourceByFabric(
+      p.processes.filter((r) => fabricIds.includes(r.item_id)),
+      clothBuying,
+      fabricStages,
+    );
     const routes = iwoRoutesByFabric(
       p.processes
         .filter((r) => fabricIds.includes(r.item_id))
@@ -686,11 +703,11 @@ async function writeYarns(
           color_losses: colorLossesForStorage(st.color_wise_loss && !st.combo, st.color_losses).color_losses,
         })),
         decimals: kg?.decimals ?? null,
-        // Every IWO fabric is knitted from yarn (the order screen's Source
-        // control is hidden, so its default is the only answer). The shades
-        // are Details ▸ Yarn Dyed Details' — the same two arguments the
+        // Read off each fabric's route: a cloth that is bought buys no yarn
+        // (2026-10-16 — it used to be `new Map()`, every fabric "knitted").
+        // The shades are Details ▸ Yarn Dyed Details' — the same arguments the
         // preview passes.
-        sourceByFabric: new Map(),
+        sourceByFabric,
         shades,
       });
       out.push(

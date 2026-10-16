@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Check, ClipboardCheck, Clock, Info, OctagonAlert, Package, type LucideIcon } from "lucide-react";
+import { TriangleAlert, Check, ClipboardCheck, Clock, Info, OctagonAlert, Package, type LucideIcon } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import {
   getApprovalsWorklist,
@@ -470,6 +470,6 @@ function Banner({ tone, icon: Icon, children }: { tone: "info" | "warn" | "dange
 }
 
 function NoteBanner({ note }: { note: ApprovalWorklistNote }) {
-  const Icon = note.level === "info" ? Info : note.level === "warn" ? AlertTriangle : OctagonAlert;
+  const Icon = note.level === "info" ? Info : note.level === "warn" ? TriangleAlert : OctagonAlert;
   return <Banner tone={note.level} icon={Icon}>{note.text}</Banner>;
 }

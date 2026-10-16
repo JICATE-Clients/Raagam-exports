@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
@@ -162,7 +163,7 @@ export function LookupMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.is_active ? "success" : "neutral"}>
+        <StatusPill tone={activeTone(r.is_active)}>
           {r.is_active ? "Active" : "Inactive"}
         </StatusPill>
       ),
@@ -227,7 +228,7 @@ export function LookupMasterScreen({
                   <Truncated className="text-[15px] font-semibold text-foreground">{lookupLabel(kind, r)}</Truncated>
                   <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
-                <StatusPill tone={r.is_active ? "success" : "neutral"}>
+                <StatusPill tone={activeTone(r.is_active)}>
                   {r.is_active ? "Active" : "Inactive"}
                 </StatusPill>
               </div>

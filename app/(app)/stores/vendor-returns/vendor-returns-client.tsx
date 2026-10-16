@@ -18,20 +18,16 @@ import { createVendorReturn } from "@/lib/stores/extras-actions";
 import { VENDOR_RETURN_STATUS_LABELS, type VendorReturnStatus } from "@/lib/stores/extras-types";
 import type { VendorReturnWithRefs, StoreOption, VendorOption } from "@/lib/stores/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const TONE_OVERRIDES = {
+  replaced: "info", // this module's own word — not in the shared table
+  // Closed is this document's normal completion, not a retirement (was success before the shared table, kept).
+  closed: "success",
+} as const;
 
 function tone(s: VendorReturnStatus): StatusTone {
-  switch (s) {
-    case "draft":
-      return "neutral";
-    case "returned":
-      return "warning";
-    case "replaced":
-      return "info";
-    case "closed":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(s, TONE_OVERRIDES);
 }
 
 interface Props {

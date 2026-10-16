@@ -114,6 +114,8 @@
     "scripts/check-requirement-sheet.mts",
     "scripts/check-approval-tree.mts",
     "scripts/check-assort-style.mts",
+    "scripts/check-status-tone.mts",
+    "scripts/out/**",
     "scripts/mine-name-vocabularies.mts",
     "scripts/vocab-sources/**/*.mts"
   ]

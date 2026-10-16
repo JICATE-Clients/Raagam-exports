@@ -141,6 +141,11 @@ export function DataTable<T>({
   /* One padding token for th and td both, so the header can never sit on a
      different rhythm from the rows beneath it. */
   const pad = dense ? "px-2 py-1" : "px-3 py-2";
+  /* THE HEADER BREATHES (user 2026-10-16, screenshot 3564: the header "look
+     too sticked" — its words sat on the card's top edge). The same SIDE
+     padding as the cells, so a column label still starts where its values
+     start; only the band is taller, 4px above and below. */
+  const headPad = dense ? "px-2 py-2" : "px-3 py-3";
   const tight = compact && !dense;
   /* The column rule for `gridLines`, on th AND td so the lines run unbroken
      from the header band to the last row. */
@@ -153,10 +158,28 @@ export function DataTable<T>({
   const selected = selectedKeys ?? new Set<string>();
   const allSelected = rows.length > 0 && rows.every((r, i) => selected.has(getKey(r, i)));
 
-  const wrapperClassName = cn(
-    "overflow-x-auto",
-    !bare && "rounded-control border border-border bg-surface",
-  );
+  /* THE ROW ACTIONS STAY IN VIEW (Clean Modern, user 2026-10-16: "wide tables:
+     allow horizontal scrolling when needed without clipping important row
+     actions"). The action cluster is the column with a BLANK header (LAYOUT.md
+     §6a — the same test the phone card uses below), and when it is the LAST
+     column it is pinned to the right edge of the scroll region. A table that
+     fits sees no difference; a wide one scrolls its fields underneath while the
+     pencil and bin stay put — the fix Sample Entry hand-rolled on 10-09 by
+     hiding two columns, made once here.
+
+     A pinned cell needs an OPAQUE background or the scrolled cells show through
+     it, so it cannot borrow the row's translucent hover / selected wash. It
+     paints the same colour mixed onto `--surface` instead, which is what the
+     translucent wash looks like over a white row — both themes, every preset. */
+  const last = columns.length - 1;
+  const pinActions = last >= 0 && !columns.at(last)?.header;
+  const pinCell = (i: number) =>
+    pinActions && i === last
+      ? "sticky right-0 z-[1] bg-surface group-hover/row:bg-[color-mix(in_srgb,var(--surface-muted)_60%,var(--surface))] group-data-[selected=true]/row:bg-[color-mix(in_srgb,var(--primary)_5%,var(--surface))]"
+      : undefined;
+
+  // The card's chrome only — `DataTableFrame` owns the scroll region inside it.
+  const wrapperClassName = cn(!bare && "rounded-control border border-border bg-surface");
   /* `hidden md:table`, with the stacked cards below taking over — see the
      note above that block. Desktop is unchanged: `md:table` restores the
      element's own default display. */
@@ -165,17 +188,14 @@ export function DataTable<T>({
   const head = (
     <thead>
       <tr
-        className={cn(
-          "border-b",
-          tight
-            // WHITE HEADER, FIRMER RULE (user 2026-10-15, "make it white" — globally). It was
-            // grey; the rule under it is what now says "header", see globals.css.
-            ? "border-border-strong bg-surface"
-            : "border-border-strong bg-surface",
-        )}
+        // SOFT BLUE HEADER (user 2026-10-16: #EAF4FB band, #24465E ink, #C8DCE9
+        // rule; body stays white). Replaces 10-15's white header. Every density
+        // takes it — `compact` keeps only its smaller type. The colours are the
+        // `--table-head-*` tokens in globals.css, so dark mode has its own.
+        className="border-b border-[var(--table-head-border)] bg-[var(--table-head-bg)]"
       >
         {selectable && (
-          <th className={cn("w-10", pad)}>
+          <th className={cn("w-10", headPad)}>
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer"
@@ -197,13 +217,14 @@ export function DataTable<T>({
               // Archivo weight spec: table headers are "hierarchy through
               // case and spacing, not just weight" — the same reasoning
               // that keeps this bold at 12px rather than clotting).
-              pad,
+              headPad,
               vRule,
               "whitespace-nowrap",
               tight
-                ? "text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
-                : "text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
+                ? "text-[10px] font-bold uppercase tracking-wider text-[var(--table-head-fg)]"
+                : "text-xs font-bold uppercase tracking-[0.06em] text-[var(--table-head-fg)]",
               align[c.align ?? "left"],
+              pinActions && i === last && "sticky right-0 z-[2] bg-[var(--table-head-bg)]",
               c.className,
             )}
           >
@@ -249,14 +270,21 @@ export function DataTable<T>({
       <tr
         key={key}
         className={cn(
+          "group/row",
           tight
             ? "border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/80 dark:border-border dark:hover:bg-surface-muted/60"
-            : "border-b border-border last:border-0 hover:bg-surface-muted/60",
+            // CLEAN MODERN (user 2026-10-16): a SUBTLE row rule — the border
+            // token at 60%, so it follows dark mode and every preset — under
+            // the header's firm `--border-strong`. The header line says
+            // "header"; the row lines only separate. Hover is the same gentle
+            // wash it was.
+            : "border-b border-border/60 transition-colors last:border-0 hover:bg-surface-muted/60",
           href && "cursor-pointer",
           selected.has(key) && "bg-primary/5",
           rowClassName?.(row, ri),
         )}
         data-href={href}
+        data-selected={selected.has(key) || undefined}
       >
         {selectable && (
           <td className={cn("w-10 align-middle", pad)}>
@@ -285,6 +313,11 @@ export function DataTable<T>({
                  in its `className` (applied after this, so it wins). */
               "whitespace-nowrap align-middle",
               align[c.align ?? "left"],
+              // A right-aligned column is a figure column (this file's own
+              // contract, above) — equal-width digits so they line up down
+              // the column whether or not the cell remembered `tabular-nums`.
+              c.align === "right" && "tabular-nums",
+              pinCell(ci),
               c.className,
             )}
           >
@@ -438,6 +471,7 @@ export function DataTable<T>({
   return (
     <DataTableFrame
       paginate={paginate}
+      bare={bare}
       wrapperClassName={wrapperClassName}
       tableClassName={tableClassName}
       head={head}

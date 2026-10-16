@@ -1,11 +1,13 @@
 "use client";
 
+import type { ViewMode } from "@/components/ui/view-toggle";
 import type { ReactNode } from "react";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import type { StatusTone } from "@/lib/ui/tone";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FileText, Send, type LucideIcon } from "lucide-react";
+import { StatusMark, type StatusMarkKind } from "@/components/ui/status-mark";
 import { RowActions, RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
@@ -59,6 +61,7 @@ export function SampleCards<R>({
   title,
   subtitle,
   state,
+  mark,
   pillText,
   stats,
   onOpen,
@@ -82,6 +85,7 @@ export function SampleCards<R>({
   actions,
   rowEdit = true,
   iconActions = false,
+  view,
 }: {
   rows: R[];
   getKey: (r: R) => string;
@@ -91,6 +95,9 @@ export function SampleCards<R>({
   /** Omit where every card would say the same word the tab already says
    *  (Grouping ▸ Ungrouped's "To group", user 2026-10-15) — no pill is drawn. */
   pillText?: (r: R) => ReactNode;
+  /** The card's icon (components/ui/status-mark.tsx) when the word alone cannot
+   *  say it — a composite label such as "Approved · Rev 2". */
+  mark?: (r: R) => StatusMarkKind | undefined;
   /** The three figures, in the Orders card's order: the main one, the count,
    *  then the date or the scope. */
   stats: (r: R) => CardStat[];
@@ -141,13 +148,20 @@ export function SampleCards<R>({
   /** The card's Reports / Send as icons only, so they share one row with the
    *  bin (MobileCardList `iconActions`). */
   iconActions?: boolean;
+  /**
+   * CARD VIEW / LIST VIEW (user 2026-10-16, `ViewToggle`). When given, it
+   * decides the drawing and `table` only names the list's columns — so a screen
+   * offering the switch passes `table` on EVERY tab. Omitted, `table`'s presence
+   * decides as before, and a screen with no switch is unchanged.
+   */
+  view?: ViewMode;
 }) {
   /* EVERY LISTING PAGES ITSELF (AGENTS "Pagination"). The table mode's
      DataTable already does; the card grid did not, so a long Pending pile
      printed every card. Called above the table branch — hooks never sit below
      an early return. */
   const pg = usePagination(rows);
-  if (table) {
+  if (table && (view ? view === "list" : true)) {
     const figures = rows[0] ? stats(rows[0]) : [];
     const cols: Column<R>[] = [
       {
@@ -206,7 +220,7 @@ export function SampleCards<R>({
       )),
     ];
     return (
-      <div className="w-fit max-w-full">
+      <div>
         <DataTable columns={hugCreated(withCreatedColumns(cols, rows))} rows={rows} compact getKey={getKey} empty={empty} />
       </div>
     );
@@ -220,7 +234,8 @@ export function SampleCards<R>({
       getKey={getKey}
       title={title}
       subtitle={subtitle}
-      pill={pillText ? (r) => <SampleQueuePill state={state(r)}>{pillText(r)}</SampleQueuePill> : undefined}
+      // An ICON on the card, the word in its tooltip (components/ui/status-mark.tsx).
+      pill={pillText ? (r) => <StatusMark word={((x) => (typeof x === "string" ? x : ""))(pillText(r))} mark={mark?.(r)} tone={TONE[state(r)]} /> : undefined}
       stats={stats}
       tone={(r) => TONE[state(r)]}
       accent={(r) => (selected?.(r) ? "border-l-primary" : EDGE[state(r)])}

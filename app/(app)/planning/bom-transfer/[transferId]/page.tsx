@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { BomTransferDetail } from "./bom-transfer-detail";
+import { statusTone } from "@/lib/ui/status-tone";
 
 type TransferStatus = "draft" | "submitted" | "approved";
 
@@ -16,14 +17,7 @@ const TRANSFER_STATUS_LABELS: Record<TransferStatus, string> = {
 };
 
 function transferStatusTone(status: TransferStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-  }
+  return statusTone(status);
 }
 
 export default async function BomTransferDetailPage({

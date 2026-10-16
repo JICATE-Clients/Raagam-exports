@@ -26,21 +26,18 @@ import {
 } from "@/lib/production/extras-types";
 import type { InspectionWithRefs, OrderOption } from "@/lib/production/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone as sharedStatusTone } from "@/lib/ui/status-tone";
+
+const RESULT_TONE_OVERRIDES = {
+  // Pending here is not waiting on an approver (was neutral before the shared table, kept).
+  pending: "neutral",
+} as const;
 
 function resultTone(r: InspectionResult): StatusTone {
-  switch (r) {
-    case "pending":
-      return "neutral";
-    case "pass":
-      return "success";
-    case "fail":
-      return "danger";
-    case "rework":
-      return "warning";
-  }
+  return sharedStatusTone(r, RESULT_TONE_OVERRIDES);
 }
 function statusTone(s: InspectionStatus): StatusTone {
-  return s === "draft" ? "info" : s === "completed" ? "success" : "danger";
+  return sharedStatusTone(s);
 }
 
 interface Props {

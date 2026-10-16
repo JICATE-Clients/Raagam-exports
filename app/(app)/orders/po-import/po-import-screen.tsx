@@ -51,7 +51,7 @@ type Current = {
   previewUrl: string | null;
 };
 
-const AMBER = "rounded-md ring-2 ring-amber-400/70";
+const AMBER = "rounded-md ring-2 ring-warning/70";
 
 export function PoImportScreen({
   configured,
@@ -229,7 +229,7 @@ export function PoImportScreen({
       />
 
       {!configured && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+        <p className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
           PO reading is not set up on this deployment (ANTHROPIC_API_KEY is missing). You can still upload a file, but it
           cannot be read until an administrator sets the key.
         </p>
@@ -299,7 +299,7 @@ export function PoImportScreen({
           {/* ---- what was read ---- */}
           <div className="min-w-0 space-y-4" data-focus-scope>
             {problem && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{problem}</p>
+              <p className="rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p>
             )}
             {!stored && (
               <Card>
@@ -315,7 +315,7 @@ export function PoImportScreen({
             {stored && (
               <>
                 {open.length > 0 && (
-                  <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                  <div className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
                     <p className="font-semibold">Still to resolve</p>
                     <ul className="list-disc pl-5">
                       {open.map((o) => (
@@ -630,7 +630,7 @@ function TotalsCheck({
   const qtyOff = statedQty != null && Math.abs(statedQty - qty) > 0.5;
   const valueOff = statedValue != null && value != null && Math.abs(statedValue - value) > 0.5;
   return (
-    <div className={cn("rounded-md border px-3 py-2 text-sm", (qtyOff || valueOff) && "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40")}>
+    <div className={cn("rounded-md border px-3 py-2 text-sm", (qtyOff || valueOff) && "border-warning/30 bg-warning-soft")}>
       <p>
         Lines add up to <strong>{fmtNumber(qty)} pcs</strong>
         {value != null && (
@@ -642,12 +642,12 @@ function TotalsCheck({
         .
       </p>
       {statedQty != null && (
-        <p className={cn(qtyOff ? "text-amber-900 dark:text-amber-200" : "text-muted-foreground")}>
+        <p className={cn(qtyOff ? "text-warning" : "text-muted-foreground")}>
           The PO&apos;s own total quantity is {fmtNumber(statedQty)} pcs{qtyOff ? " — they do not match. Check the lines." : " — they match."}
         </p>
       )}
       {statedValue != null && value != null && (
-        <p className={cn(valueOff ? "text-amber-900 dark:text-amber-200" : "text-muted-foreground")}>
+        <p className={cn(valueOff ? "text-warning" : "text-muted-foreground")}>
           The PO&apos;s own total value is {fmtNumber(statedValue)}{valueOff ? " — they do not match." : " — they match."}
         </p>
       )}

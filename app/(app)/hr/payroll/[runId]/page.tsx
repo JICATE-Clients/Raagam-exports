@@ -17,20 +17,18 @@ import Link from "next/link";
 import type { LineWithName, ContractorPayrollWithName } from "@/lib/hr/payroll-service";
 import type { PayrollStatus } from "@/lib/hr/types";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const RUN_STATUS_TONE_OVERRIDES = {
+  calculated: "info", // this module's own word — not in the shared table
+  // Approved is a step in this document's life, not its end — work still follows it (was warning before the shared table, kept).
+  approved: "warning",
+  // Locked is the finished, signed-off state here (was success before the shared table, kept).
+  locked: "success",
+} as const;
 
 function runStatusTone(status: PayrollStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "calculated":
-      return "info";
-    case "approved":
-      return "warning";
-    case "locked":
-      return "success";
-    case "paid":
-      return "success";
-  }
+  return statusTone(status, RUN_STATUS_TONE_OVERRIDES);
 }
 
 
@@ -72,7 +70,7 @@ const workerColumns: Column<LineWithName>[] = [
   {
     header: "A/C 1 Gross",
     align: "right",
-    className: "bg-blue-50/60",
+    className: "bg-info-soft/60",
     cell: (row) => (
       <span className="tabular-nums text-sm font-medium">{fmtMoney(row.actual_gross)}</span>
     ),
@@ -80,7 +78,7 @@ const workerColumns: Column<LineWithName>[] = [
   {
     header: "ESI",
     align: "right",
-    className: "bg-blue-50/60",
+    className: "bg-info-soft/60",
     cell: (row) => (
       <span className="tabular-nums text-sm text-danger">{row.esi > 0 ? `(${fmtMoney(row.esi)})` : "—"}</span>
     ),
@@ -88,7 +86,7 @@ const workerColumns: Column<LineWithName>[] = [
   {
     header: "PF",
     align: "right",
-    className: "bg-blue-50/60",
+    className: "bg-info-soft/60",
     cell: (row) => (
       <span className="tabular-nums text-sm text-danger">{row.pf > 0 ? `(${fmtMoney(row.pf)})` : "—"}</span>
     ),
@@ -96,7 +94,7 @@ const workerColumns: Column<LineWithName>[] = [
   {
     header: "A/C 1 Net",
     align: "right",
-    className: "bg-blue-50/60",
+    className: "bg-info-soft/60",
     cell: (row) => (
       <span className="tabular-nums text-sm font-semibold">{fmtMoney(row.actual_net)}</span>
     ),
@@ -105,7 +103,7 @@ const workerColumns: Column<LineWithName>[] = [
   {
     header: "Pieces",
     align: "right",
-    className: "bg-amber-50/60",
+    className: "bg-warning-soft/60",
     cell: (row) => (
       <span className="tabular-nums text-sm">{row.pieces > 0 ? fmtNumber(row.pieces) : "—"}</span>
     ),
@@ -113,7 +111,7 @@ const workerColumns: Column<LineWithName>[] = [
   {
     header: "A/C 2 Extra",
     align: "right",
-    className: "bg-amber-50/60",
+    className: "bg-warning-soft/60",
     cell: (row) => (
       <span className="tabular-nums text-sm font-medium">
         {row.extra_wage > 0 ? fmtMoney(row.extra_wage) : "—"}
@@ -371,11 +369,11 @@ export default async function RunDetailPage({
           {isWorkerRun && (
             <div className="flex gap-3 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
-                <span className="inline-block h-3 w-3 rounded bg-blue-100" />
+                <span className="inline-block h-3 w-3 rounded bg-info-soft" />
                 A/C 1 — Actual wage (shift + OT, ESI/PF deducted)
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="inline-block h-3 w-3 rounded bg-amber-100" />
+                <span className="inline-block h-3 w-3 rounded bg-warning-soft" />
                 A/C 2 — Extra wage (no deductions)
               </span>
             </div>

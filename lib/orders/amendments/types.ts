@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { capsTextNullable, requiredKind } from "@/lib/validation/formats";
+import { draftTone, type StatusTone } from "@/lib/ui/status-tone";
 /* Client-safe (no `server-only`), same as `inactive.ts` itself — the option
    rules below run in the browser, inside the picker. */
 import type { Deactivatable } from "@/lib/masters/inactive";
@@ -2971,8 +2972,8 @@ export function mergeTaApprovalCompletions(
 
 export function amendmentStatusTone(
   a: Pick<GarmentOrderAmendment, "is_draft">,
-): "warning" | "success" {
-  return a.is_draft ? "warning" : "success";
+): StatusTone {
+  return draftTone(a.is_draft);
 }
 export function amendmentStatusText(
   a: Pick<GarmentOrderAmendment, "is_draft">,

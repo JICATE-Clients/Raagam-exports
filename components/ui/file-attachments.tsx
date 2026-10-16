@@ -649,13 +649,13 @@ export function FileAttachments({
    * `arrowOpensPicker`. Take that decline away and this cell becomes the cage
    * again — held, and with nothing left that opens it.
    *
-   * **↓ IS THE OPENER, AND ENTER IS NOT.** While the hold is on, `keyFills`
-   * answers false for Enter (it only fills on a list that is already open), so
-   * Enter is refused here. That is not a defect and it is not special to this
-   * control — it is what every picker in the app does, and AGENTS.md states it:
-   * "a CLOSED list opens on ↓ — the only keyboard route to reaching a value".
-   * Worth knowing anyway, because an operator reaching for Enter on a button
-   * gets a dead key and the reason is two files away.
+   * **ENTER OPENS IT TOO — `data-enter-opens` (user 2026-10-16).** This used
+   * to say "↓ is the opener, and Enter is not", the picker rule: Enter on a
+   * trigger moved to the next field. On an upload that was the surprise the
+   * operator reported ("I click the Enter key, it went to the next field") —
+   * there is no value here to step past, so Enter is the key reached for. The
+   * marker leaves Enter to the button's native click, and `keyFills` lets it
+   * through a required hold. Tab still moves on; ↓ still opens.
    *
    * **NO `data-row-add`.** The two markers must not meet on one element: a
    * control that is both a field and a grid's add button would be walked by
@@ -697,6 +697,7 @@ export function FileAttachments({
           variant="outline"
           size="sm"
           data-field-trigger
+          data-enter-opens
           /* The same marker `MultiSelect` sets, so anything reading "is this
              field answered" off the DOM reads one attribute across the app. */
           data-field-empty={rows.length ? "false" : "true"}

@@ -7,7 +7,8 @@ import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRegisterShortcut } from "@/lib/shortcuts";
@@ -395,7 +396,7 @@ export function MaterialHsnAssignScreen({
                       {r.category_id ? (catName.get(r.category_id) ?? "—") : "—"}
                     </td>
                     <td className="px-3 py-2">
-                      <StatusPill tone={r.is_active ? "success" : "danger"}>
+                      <StatusPill tone={activeTone(r.is_active)}>
                         {r.is_active ? "Active" : "Inactive"}
                       </StatusPill>
                     </td>
@@ -432,7 +433,7 @@ export function MaterialHsnAssignScreen({
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {d && <span className="text-[10px] font-bold uppercase tracking-wide text-warning">Edited</span>}
-                    <StatusPill tone={r.is_active ? "success" : "danger"}>
+                    <StatusPill tone={activeTone(r.is_active)}>
                       {r.is_active ? "Active" : "Inactive"}
                     </StatusPill>
                   </div>

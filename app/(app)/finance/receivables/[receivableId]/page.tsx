@@ -10,15 +10,15 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RecordReceiptForm } from "./record-receipt-form";
 import type { ReceivableStatus, ReceivableReceipt } from "@/lib/finance/types";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone as sharedStatusTone } from "@/lib/ui/status-tone";
+
+const STATUS_TONE_OVERRIDES = {
+  // Open is a live document here, already in motion, not an untouched one (was info before the shared table, kept).
+  open: "info",
+} as const;
 
 function statusTone(s: ReceivableStatus): StatusTone {
-  switch (s) {
-    case "open": return "info";
-    case "partially_received": return "warning";
-    case "received": return "success";
-    case "overdue": return "danger";
-    case "cancelled": return "neutral";
-  }
+  return sharedStatusTone(s, STATUS_TONE_OVERRIDES);
 }
 
 const STATUS_LABELS: Record<ReceivableStatus, string> = {

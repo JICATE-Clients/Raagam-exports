@@ -14,7 +14,8 @@
  * the only way to produce the value this takes.
  */
 
-import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone, TASK_PROGRESS } from "@/lib/ui/status-tone";
 import type { TnaDisplayState } from "@/lib/orders/ta/tna-types";
 
 /**
@@ -28,13 +29,6 @@ import type { TnaDisplayState } from "@/lib/orders/ta/tna-types";
  * TARGET is the one state here that is somebody's job today, so `delayed` is the
  * only `danger`.
  */
-const TONES: Record<TnaDisplayState, StatusTone> = {
-  pending: "neutral",
-  in_progress: "info",
-  done: "success",
-  delayed: "danger",
-};
-
 /**
  * THE LABEL IS NOT THE VALUE, and this is the one place they differ on purpose.
  *
@@ -65,7 +59,7 @@ export function TnaStatusBadge({
   daysLate?: number | null;
 }) {
   return (
-    <StatusPill tone={TONES[state]}>
+    <StatusPill tone={statusTone(state, TASK_PROGRESS)}>
       {LABELS[state]}
       {daysLate != null && daysLate > 0 && (
         // `tabular-nums` so a column of these does not jitter between 3 and 14.

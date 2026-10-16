@@ -25,6 +25,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { statusTone } from "@/lib/ui/status-tone";
 
 type CancelDetail = NonNullable<Awaited<ReturnType<typeof getPpmCancel>>>;
 
@@ -36,12 +37,7 @@ const PPM_STATUS_LABELS: Record<PpmStatus, string> = {
 };
 
 function ppmStatusTone(status: PpmStatus): StatusTone {
-  switch (status) {
-    case "draft":     return "neutral";
-    case "submitted": return "warning";
-    case "approved":  return "success";
-    case "rejected":  return "danger";
-  }
+  return statusTone(status);
 }
 
 // ---------- Item form fields ----------

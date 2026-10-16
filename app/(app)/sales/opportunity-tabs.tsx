@@ -44,7 +44,7 @@ import type {
 } from "@/lib/sales/types";
 import type { OpportunityRow, CostSheetWithItems, BrandOption, SeasonOption } from "@/lib/sales/service";
 import type { Buyer, Uom } from "@/lib/masters/types";
-import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
 // ---------------------------------------------------------------------------
@@ -73,29 +73,6 @@ interface Props {
 // ---------------------------------------------------------------------------
 // Status tone maps
 // ---------------------------------------------------------------------------
-
-const COST_STATUS_TONE: Record<string, StatusTone> = {
-  draft: "neutral",
-  submitted: "info",
-  approved: "success",
-  rejected: "danger",
-  superseded: "neutral",
-};
-
-const QUOTE_STATUS_TONE: Record<string, StatusTone> = {
-  draft: "neutral",
-  sent: "info",
-  accepted: "success",
-  rejected: "danger",
-};
-
-const SAMPLE_STATUS_TONE: Record<string, StatusTone> = {
-  requested: "neutral",
-  in_progress: "info",
-  sent: "warning",
-  approved: "success",
-  rejected: "danger",
-};
 
 // ---------------------------------------------------------------------------
 // Styles Tab
@@ -466,7 +443,7 @@ function StylesTab({
                           <Input className="w-24 text-xs" value={s.garment_size} onChange={(e) => updateComboSize(ci, si, "garment_size", e.target.value)} placeholder="Size" />
                           <Input className="w-20 text-xs" type="number" value={s.order_qty} onChange={(e) => updateComboSize(ci, si, "order_qty", e.target.value)} placeholder="Qty" />
                           <Input className="w-20 text-xs" type="number" value={s.expected_order_qty} onChange={(e) => updateComboSize(ci, si, "expected_order_qty", e.target.value)} placeholder="Exp" />
-                          <Button type="button" variant="ghost" size="sm" className="text-red-600 text-xs" onClick={() => removeComboSize(ci, si)}>x</Button>
+                          <Button type="button" variant="ghost" size="sm" className="text-danger text-xs" onClick={() => removeComboSize(ci, si)}>x</Button>
                         </div>
                       ))}
                       </div>
@@ -618,7 +595,7 @@ function CostSheetsTab({
     {
       header: "Status",
       cell: (row) => (
-        <StatusPill tone={COST_STATUS_TONE[row.status] ?? "neutral"}>
+        <StatusPill tone={statusTone(row.status)}>
           {row.status.charAt(0).toUpperCase() + row.status.slice(1)}
         </StatusPill>
       ),
@@ -1066,7 +1043,7 @@ function QuotesTab({
     {
       header: "Status",
       cell: (row) => (
-        <StatusPill tone={QUOTE_STATUS_TONE[row.status] ?? "neutral"}>
+        <StatusPill tone={statusTone(row.status)}>
           {row.status.charAt(0).toUpperCase() + row.status.slice(1)}
         </StatusPill>
       ),
@@ -1331,7 +1308,7 @@ function SamplesTab({
     {
       header: "Status",
       cell: (row) => (
-        <StatusPill tone={SAMPLE_STATUS_TONE[row.status] ?? "neutral"}>
+        <StatusPill tone={statusTone(row.status)}>
           {row.status.replace("_", " ")}
         </StatusPill>
       ),

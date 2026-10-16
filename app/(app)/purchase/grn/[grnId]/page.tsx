@@ -6,18 +6,11 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone, TASK_PROGRESS } from "@/lib/ui/status-tone";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { PostGrnButton } from "./_components/post-grn-button";
 import type { GrnLineWithPo } from "@/lib/purchase/grn-service";
 import type { QcStatus } from "@/lib/purchase/types";
-
-const qcTone: Record<QcStatus, "success" | "warning" | "danger" | "neutral"> =
-  {
-    passed: "success",
-    partial: "warning",
-    failed: "danger",
-    pending: "neutral",
-  };
 
 const qcLabel: Record<QcStatus, string> = {
   passed: "Passed",
@@ -58,7 +51,7 @@ const lineColumns: Column<GrnLineWithPo>[] = [
   {
     header: "QC",
     cell: (r) => (
-      <StatusPill tone={qcTone[r.qc_status]}>{qcLabel[r.qc_status]}</StatusPill>
+      <StatusPill tone={statusTone(r.qc_status, TASK_PROGRESS)}>{qcLabel[r.qc_status]}</StatusPill>
     ),
   },
   {

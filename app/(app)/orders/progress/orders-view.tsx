@@ -39,6 +39,7 @@ const SEGMENTS: { key: Segment; label: string }[] = [
   { key: "done", label: "Shipped / closed" },
 ];
 
+// status-tone: exempt -- progress BUCKETS (late / risk / ok / none / done), not document statuses
 const PILL_TONE = { late: "danger", risk: "warning", ok: "success", none: "neutral", done: "info" } as const;
 
 const inSegment = (i: ProgressItem, s: Segment) => (s === "open" ? i.bucket !== "done" : i.bucket === s);

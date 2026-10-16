@@ -3,18 +3,19 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
-import { Download, FileSpreadsheet, Plus, Printer } from "lucide-react";
+import { ChartPie, ChevronRight, Layers, Plus, Printer, Tag, TrendingUp } from "lucide-react";
 import { AddCharge, CellPick, Ed, EdText, RemoveX, type EditOptions } from "@/components/sales/cost-sheet-editors";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { Toggle } from "@/components/ui/toggle";
 import { gridKeyNav } from "@/components/masters/child-grid";
-import { ProcessFoldList, type FoldListColumn } from "@/components/orders/process-fold-list";
+import { useAccordion } from "@/lib/ui/use-accordion";
 import { Input } from "@/components/ui/input";
-import { FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { TypeOrPick } from "@/app/(app)/orders/_garment-order/type-or-pick";
 import { newFabric, newFabricProcess, newPieceLine, newTrim, newWeightRows, newYarnMix } from "@/lib/sales/sample-costing/revision-draft";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
+import { GlassRing } from "@/components/orders/budget-breakdown-chart";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
 import { MARGIN_TARGET_PCT, hasYarnMix, quoteKey, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
@@ -48,8 +49,6 @@ const TONE_VAR = {
   margin: "var(--cs-margin)",
 } as const;
 
-/** A cost group's colour, softened for the Charts receipt (user 2026-10-15: light, plain). */
-const softTone = (t: keyof typeof TONE_VAR) => `color-mix(in srgb, ${TONE_VAR[t]} 55%, #fff)`;
 
 /** The currency the sheet's figures are SHOWN in — null is rupees, the sheet's own unit. */
 type ShownCurrency = { code: string; sym: string; rate: number } | null;
@@ -100,7 +99,26 @@ function ShownAmount({ value, onChange, rate, children }: { value: string; onCha
  * redraw as you type. This component computes nothing — it only writes the typed
  * text back into the draft row each cell belongs to (`model` carries the keys).
  */
-export type CostSheetEdit = { draft: CostingDraft; onChange: (next: CostingDraft) => void; /** A quoted price was typed — the caller holds that one and stops recalculating it. */ onQuote?: (key: string) => void; /** The masters the row pickers list; without them the sheet edits figures only. */ options?: EditOptions };
+export type CostSheetEdit = {
+  draft: CostingDraft;
+  onChange: (next: CostingDraft) => void;
+  /** A quoted price was typed — the caller holds that one and stops recalculating it. */
+  onQuote?: (key: string) => void;
+  /** The masters the row pickers list; without them the sheet edits figures only. */
+  options?: EditOptions;
+  /* COSTING ENTRY IS THIS SCREEN TOO (client 2026-10-16: the Reports tab screen
+     replaces the step-by-step entry). A revision copies its sample, style, sizes,
+     currency and ship mode; a NEW costing has to choose them, so the entry screen
+     hands in its own controls for the few things a revision never edits. */
+  /** Details tab: SMP Number, Style, Costing Date, Revision — above the facts. */
+  details?: ReactNode;
+  /** Fabric tab: the sizes the weights are costed in — above Component consumption. */
+  sizes?: ReactNode;
+  /** Quotation tab: Currency and Ship Mode — above the terms. */
+  terms?: ReactNode;
+  /** What picking a fabric structure writes (the entry's remembered rates); default: the id and name only. */
+  pickFabric?: (fabric: FabricDraft, picked: { id: string | null; name: string }) => Partial<FabricDraft>;
+};
 
 const patchBy = <T extends { key: string }>(xs: readonly T[], key: string, patch: Partial<T>): T[] => xs.map((x) => (x.key === key ? { ...x, ...patch } : x));
 
@@ -156,18 +174,18 @@ export function CostSheetDocument({
   const [busy, setBusy] = useState<"pdf" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const s = model.sizes[idx] ?? model.sizes[0];
-  /* THE SHEET IS SHOWN IN THE QUOTED CURRENCY — USD — BY DEFAULT (user 2026-10-15: "by
-     default render the full costing in USD … that multi-currency option in the USD card").
-     Every amount converts from rupees at the costing's own exchange rate; the Quoted FOB
-     card's pick shows it in ₹ or any currency the Quotes / Orders master has a rate for.
-     A VIEW only: nothing stored changes, and the draft stays in rupees. Falls back to ₹
-     while the costing has no exchange rate to get there. (Earlier the same day the ₹ INR /
-     USD tabs were removed — "inr and usd field inga remove pannu"; this pick replaces them.) */
+  /* THE SHEET IS SHOWN IN RUPEES BY DEFAULT; ONLY THE QUOTED FOB IS IN THE QUOTED
+     CURRENCY (user 2026-10-16: "in quotation quoted FOB only default, otherwise
+     defaultly INR for whole report"). This REVERSES 2026-10-15's "by default render
+     the full costing in USD" — the costs are rupees, and the buyer's currency belongs
+     only on the price quoted to them. The Quoted FOB card's pick still shows the whole
+     sheet in USD or any currency the Quotes / Orders master has a rate for. A VIEW only:
+     nothing stored changes, and the draft stays in rupees. */
   const quotedCcy = model.currency && model.currency !== "INR" ? model.currency : null;
   const rateOf = (c: string): number | null =>
     c === "INR" ? 1 : c === quotedCcy ? (model.exchangeRate ?? null) : (model.quoteRates[c] ?? null);
   const [shownPick, setShownPick] = useState<string | null>(null);
-  const shownCode = shownPick ?? (quotedCcy && rateOf(quotedCcy) ? quotedCcy : "INR");
+  const shownCode = shownPick ?? "INR";
   const shownRate = rateOf(shownCode);
   const cur: ShownCurrency = shownCode === "INR" || !shownRate ? null : { code: shownCode, sym: ccySym(shownCode), rate: shownRate };
   const ccyCodes = [...new Set([...(quotedCcy ? [quotedCcy] : []), ...Object.keys(model.quoteRates), "INR"])].filter((c) => rateOf(c) != null);
@@ -187,10 +205,18 @@ export function CostSheetDocument({
     }
   }
 
+  /* NO EMPTY BAR (user 2026-10-16, screenshot 3574: "I can see bar blankly in
+     top, remove it"). On a new or locked costing every control here is absent
+     — no lead, no trail, one size, no export — and the frame was still drawn:
+     a bordered strip with nothing in it above the sheet. */
+  const shows = (n: ReactNode) => n != null && n !== false && n !== "";
+  const hasBar = shows(lead) || shows(trail) || model.sizes.length > 1 || error != null || !locked;
+
   return (
     <div className="space-y-3">
       <DocumentPrintStyles scope="cs" />
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm print:hidden">
+      {hasBar ? (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm print:hidden">
         {lead}
         {model.sizes.length > 1 ? (
           <ToggleGroup<string>
@@ -206,10 +232,6 @@ export function CostSheetDocument({
             null
           ) : (
             <>
-              <Button variant="outline" size="md" disabled={busy != null} onClick={() => void run("csv")}>
-                <FileSpreadsheet className="h-4 w-4" />
-                Excel
-              </Button>
               <Button
                 variant="outline"
                 size="md"
@@ -224,16 +246,19 @@ export function CostSheetDocument({
                 <Printer className="h-4 w-4" />
                 Print
               </Button>
-              <Button variant={quietDownload ? "outline" : undefined} size="md" disabled={busy != null} onClick={() => void run("pdf")}>
-                <Download className="h-4 w-4" />
-                {busy === "pdf" ? "Building…" : "Download PDF"}
-              </Button>
+              {/* Excel and PDF in one Download menu (user 2026-10-16, "globally fix"). */}
+              <DownloadMenu
+                variant={quietDownload ? "outline" : "primary"}
+                disabled={busy != null}
+                formats={[asPdf(() => run("pdf")), asExcel(() => run("csv"))]}
+              />
             </>
           )}
           {trail}
         </div>
       </div>
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} />
+      ) : null}
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} />
     </div>
   );
 }
@@ -245,7 +270,7 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn }) {
+function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void }) {
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -256,14 +281,13 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
   const SYM = cur ? cur.sym : "₹";
   /** ₹ per shown unit, for the amount boxes (`ShownAmount`); null = rupees. */
   const rate = cur ? cur.rate : null;
-  // OPENS ON QUOTATION (user 2026-10-14: "default open the quotation tab") — the
-  // last of the five tabs, the price the buyer is quoted.
-  const [tab, setTab] = useState(4);
-  /** The Charts receipt's hover link: the cost group under the pointer (line, legend or slice). */
-  const [hot, setHot] = useState<string | null>(null);
-  /* Fabric processes fold (option "Fabric Process Fold", 2026-10-15): ONE fabric open at
-     a time — `undefined` until the operator toggles, meaning "the first one". */
-  const [procOpen, setProcOpen] = useState<string | null | undefined>(undefined);
+  // OPENS ON DETAILS (user 2026-10-16: "default landing in quotation tab, update
+  // it as first details tab") — reverses 10-14's Quotation default. The sheet
+  // reads left to right from who and what is being costed.
+  const [tab, setTab] = useState(0);
+  /* Fabric bands fold (plan "Fabric Cost Single Table", 2026-10-16): ONE fabric open at a
+     time, the first one to begin with — the shared accordion (AGENTS "Folds are accordions"). */
+  const fabFold = useAccordion(edit?.draft.fabrics[0]?.key ?? null);
   // Fabric processing folds — one fabric open at a time, the first one to begin with.
   const setFabric = (key: string, patch: Partial<FabricDraft>) => edit?.onChange({ ...edit.draft, fabrics: patchBy(edit.draft.fabrics, key, patch) });
   const setPiece = (key: string, patch: Partial<PieceDraft>) => edit?.onChange({ ...edit.draft, pieces: patchBy(edit.draft.pieces, key, patch) });
@@ -273,6 +297,10 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
   const stateClass = model.status === "approved" ? "good" : model.status === "submitted" ? "warn" : model.status === "rejected" ? "bad" : "brand";
   /** The USD price in rupees at the sheet's own rate — the figure the ledger carries. */
   const inrOf = (v: number | null) => (v == null || model.exchangeRate == null ? null : v * model.exchangeRate);
+  /** The letterhead's price card: the FOB in the quoted currency (quoted, else
+   *  calculated — the same pair the Quotation tab's hint reads) and its rupees. */
+  const fobShown = s.quoted ?? s.calc;
+  const fobInr = inrOf(fobShown);
 
   // The waterfall: costs climb to Net, extras to Gross cost, margin and charges to the Price.
   type WfRow = { label: string; value: number; tone: keyof typeof TONE_VAR | null };
@@ -308,13 +336,6 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
     return { ...r, total, start, width: Math.abs(r.value) };
   });
 
-  const parts = priceParts(s);
-  const partTotal = parts.reduce((t, p) => t + p.value, 0) || 1;
-  const RING_R = 46; // the donut radius — `SYM` above is the currency symbol
-  const C = 2 * Math.PI * RING_R;
-  // Each slice starts where the ones before it end — computed up front, not by a
-  // counter mutated inside the render's map.
-  const offs = parts.map((_, i) => parts.slice(0, i).reduce((t, p) => t + (p.value / partTotal) * C, 0));
 
 
   /* Every editable table while revising: the app's grid keys (Enter along the line, then
@@ -369,7 +390,7 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
   const secConsumption = (
         <section className="blk" aria-label="Component consumption">
           <details open>
-            <summary>
+            <summary data-tone="fabric">
               Component consumption
             </summary>
             <div className="scroll">
@@ -530,41 +551,11 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
               </div>
   );
 
-  /*
-   * FABRIC PROCESSING COST — ONE TABLE, ONE ROW PER YARN; PROCESSES A SECTION OF THEIR OWN
-   * (user 2026-10-15, plan "Fabric Row Layout", option B: "this in single row and move
-   * processes as separate section"). Replaces the 220px fabric rail + one-open-fabric pane:
-   * every fabric is in view at once. A fabric's own cells — Fabric structure, Bought-in,
-   * Loss %, Price / kg and its ✕ — span its yarn rows; Yarn · Mix % · Rate / KG · Weighted
-   * are per yarn. Bought-in is one row with only its price to type. Hand-rolled (not
-   * ChildGrid) because a fabric's cells span rows, which ChildGrid cannot draw; it sits in
-   * `.appgrid`, so the paper's table rules leave it alone, and keeps the hand-rolled-grid
-   * markers (`data-grid-row`, the ✕'s `data-row-remove`, "+"'s `data-row-add`).
-   * Widths: term 11 + hug 5.5 + num 4.5 + term 11 + num 4.5 + hug 5.5 + hug 5.5 + hug 5.5
-   * + act 4 = 57rem (~912px).
-   */
-  /* FLAT, COMPACT, HUGGING (user 2026-10-15, plan "Fabric Sheet Compact"): the look is
-     `.fsheet` in the sheet CSS below — 28px rows, a cell IS its field (no box), blue = a
-     cell you type in, hover tints, focus draws the blue edge. `in` marks a cell holding a
-     field, so its padding goes and the field fills it. */
-  const TD = "in";
   const yarnFig = (y: YarnMixDraft) => {
     const m = Number(y.mix_pct);
     const r = Number(y.rate);
     return y.mix_pct.trim() !== "" && Number.isFinite(m) ? fx((m * (Number.isFinite(r) ? r : 0)) / 100) : "—";
   };
-  const plusBtn = (label: string, onClick: () => void) => (
-    <button
-      type="button"
-      data-row-add
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="fico"
-    >
-      <Plus className="h-3.5 w-3.5" aria-hidden />
-    </button>
-  );
 
   /* THE DRAFT'S FABRICS, NOT THE MODEL'S (2026-10-15): the model drops a fabric still
      blank (`liveRows` → `isBlankFabric`), so a row "+ Add row" had just made would not
@@ -584,67 +575,100 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
       lossPct: 0,
     };
 
+  /*
+   * FABRIC PROCESSING COST — ONE TABLE, FABRIC BANDS (user 2026-10-16, plan "Fabric Cost
+   * Single Table", option A). Replaces 10-15's two blocks — the yarn table and, below it,
+   * the "Fabric processes" fold list — so a fabric's price is read in one place.
+   *
+   * Each fabric is one <tbody>: a grey BAND (structure, blend, Bought-in, Price / kg,
+   * Loss %, ✕) that stays visible when folded, then — while open — a Yarn group and a
+   * Processes group, each with a count + subtotal on its group line, its lines, and its
+   * own "+ Add", and a working line closing it (Yarn + Processes = subtotal · + loss =
+   * price). ONE fabric open at a time (AGENTS "Folds are accordions", `useAccordion`):
+   * a click on the caret toggles, and the cursor arriving on a band's field claims it.
+   * Bought-in collapses to the band alone: the price is typed there, its yarn and process
+   * lines are hidden, not deleted. Processes stay priced once per FABRIC, as before.
+   *
+   * Hand-rolled (not ChildGrid) because the band's cells and the group lines span
+   * columns; it keeps the hand-rolled-grid markers (`data-grid-row`, the ✕'s
+   * `data-row-remove` via RemoveX, "+ Add"'s `data-row-add`).
+   * Widths: 20 + 6 + 7 + 8 + 8 + 6 + 3 = 58rem (~928px), hugging its columns.
+   */
   const fabricWorkbench = (() => {
     if (!edit) return null;
     const opts = edit.options;
-    /* "+ ADD ROW" (user 2026-10-15, screenshot 3546: "that add update it as add row") —
-       the same button Component consumption carries: a blank fabric row, filled in place.
-       While one is still blank it sends the cursor there instead of stacking another. */
+    /* "+ ADD FABRIC": a blank fabric, filled in place. While one is still blank the
+       cursor goes there instead of stacking another. The new fabric opens. */
     const addFabricRow = () => {
       const open = edit.draft.fabrics.find((x) => !x.fabric_id && !x.quality.trim());
       if (open) {
+        fabFold.setOpenKey(open.key);
         document.querySelector<HTMLElement>(`[data-fabric-row="${open.key}"] input`)?.focus();
         return;
       }
-      edit.onChange({ ...edit.draft, fabrics: [...edit.draft.fabrics, { ...newFabric(), is_direct: false, processes: [] }] });
+      const fresh = { ...newFabric(), is_direct: false, processes: [] };
+      edit.onChange({ ...edit.draft, fabrics: [...edit.draft.fabrics, fresh] });
+      fabFold.setOpenKey(fresh.key);
     };
     const removeFabric = (key: string) => edit.onChange({ ...edit.draft, fabrics: edit.draft.fabrics.filter((x) => x.key !== key) });
+    /* A held key that names no fabric here is another costing's (the editor does not
+       remount between records) — the first fabric opens instead. A null the operator
+       chose by folding stays null. */
+    const held = fabFold.openKey;
+    const openKey = held !== null && !edit.draft.fabrics.some((x) => x.key === held) ? (edit.draft.fabrics[0]?.key ?? null) : held;
+    const addLink = (label: string, onClick: () => void) => (
+      <button type="button" data-row-add className="faddrow" onClick={onClick}>
+        <Plus className="h-3.5 w-3.5" aria-hidden />
+        {label}
+      </button>
+    );
     return (
-      <div className="appgrid fsheet">
+      <div className="appgrid fsheet fband">
         <div className="max-w-full overflow-x-auto">
-          {/* Inline width: it HUGS its columns — term 11 + num 4.5 + num 4.5 + term 11 + num 4.5
-              + hug 5.5 + hug 5.5 + hug 5.5 + act 3 = 55rem — never the tab's width. */}
-          <table style={{ width: "55rem" }}>
+          <table style={{ width: "58rem" }}>
             <colgroup>
-              <col style={{ width: FIELD_WIDTH_CSS.term }} />
-              <col style={{ width: FIELD_WIDTH_CSS.num }} />
-              <col style={{ width: FIELD_WIDTH_CSS.num }} />
-              <col style={{ width: FIELD_WIDTH_CSS.term }} />
-              <col style={{ width: FIELD_WIDTH_CSS.num }} />
-              <col style={{ width: FIELD_WIDTH_CSS.hug }} />
-              <col style={{ width: FIELD_WIDTH_CSS.hug }} />
-              <col style={{ width: FIELD_WIDTH_CSS.hug }} />
+              <col style={{ width: "20rem" }} />
+              <col style={{ width: "6rem" }} />
+              <col style={{ width: "7rem" }} />
+              <col style={{ width: "8rem" }} />
+              <col style={{ width: "8rem" }} />
+              <col style={{ width: "6rem" }} />
               <col style={{ width: "3rem" }} />
             </colgroup>
             <thead>
               <tr>
-                <th>Fabric structure</th>
-                <th>Bought-in</th>
-                <th className="r">Loss %</th>
-                <th>Yarn</th>
+                <th>Fabric · yarn · process</th>
                 <th className="r">Mix %</th>
                 <th className="r">Rate / KG</th>
-                <th className="r">Weighted</th>
-                <th className="r">Price / kg</th>
+                <th className="r">Amount / KG</th>
+                <th className="r">Price / KG</th>
+                <th className="r">Loss %</th>
                 <th className="act"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             {edit.draft.fabrics.map((d) => {
               const f = figuresOf(d);
               const setY = (key: string, patch: Partial<YarnMixDraft>) => setFabric(f.key, { yarns: patchBy(d.yarns, key, patch) });
-              /* No blend yet: the fabric's one flat yarn rate is what Rate / KG edits — the
-                 "Yarn ₹ / kg" the old header carried. A blend's rate is each yarn's own. */
-              const blend = hasYarnMix(d);
-              /* Every yarn line has its own Rate / KG once there is more than one: a second
-                 line with no rate box read as broken (screenshot 3546). One line and no mix
-                 still edits the fabric's flat yarn rate. */
-              const perYarn = blend || d.yarns.length > 1;
-              const lines: (YarnMixDraft | null)[] = d.is_direct ? [null] : d.yarns.length ? d.yarns : [null];
-              const span = lines.length;
+              const setP = (key: string, patch: Partial<FabricProcessDraft>) => setFabric(f.key, { processes: patchBy(d.processes, key, patch) });
+              /* No blend yet: the fabric's one flat yarn rate is what Rate / KG edits. Once
+                 there is a mix or a second line, every yarn line carries its own rate. */
+              const perYarn = hasYarnMix(d) || d.yarns.length > 1;
+              const yarnLines: (YarnMixDraft | null)[] = d.yarns.length ? d.yarns : [null];
+              const procLines: (FabricProcessDraft | null)[] = d.processes.length ? d.processes : [null];
+              const flat = ([
+                ["knitting_rate", "Knitting (flat rate)"],
+                ["dyeing_rate", "Dyeing (flat rate)"],
+                ["finishing_rate", "Finishing (flat rate)"],
+              ] as const).filter(([k]) => d[k].trim() !== "");
               const share = yarnMixTotal(d);
-              const blendOff = !d.is_direct && blend ? Math.round((share - 100) * 100) / 100 : 0;
+              const blendOff = !d.is_direct && hasYarnMix(d) ? Math.round((share - 100) * 100) / 100 : 0;
               const priceMissing = f.direct && !(f.price != null && f.price > 0);
               const procs = f.knitting + f.dyeing + f.finishing + f.special;
+              const sub = f.yarn + procs;
+              const named = d.yarns.filter((y) => y.yarn_name.trim() || y.item_id);
+              const blendText = d.is_direct
+                ? "bought in finished"
+                : named.map((y) => `${y.mix_pct.trim() ? `${y.mix_pct}% ` : ""}${y.yarn_name || "yarn"}`).join(" · ");
               const warn = blendOff
                 ? blendOff < 0
                   ? `Mix is ${share}%. ${+Math.abs(blendOff).toFixed(2)}% still to place.`
@@ -652,44 +676,81 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
                 : priceMissing
                   ? "Type the price per kg."
                   : null;
+              const open = !d.is_direct && openKey === f.key;
+              const addYarn = () => setFabric(f.key, { yarns: [...(d.yarns.length ? d.yarns : [newYarnMix()]), newYarnMix()] });
+              const addProc = () => setFabric(f.key, { processes: [...(d.processes.length ? d.processes : [newFabricProcess()]), newFabricProcess()] });
               return (
-                <tbody key={f.key} data-grid-body data-fabric-row={f.key}>
-                  {lines.map((y, i) => (
-                    <tr key={y?.key ?? `${f.key}-one`} data-grid-row data-hover-row>
-                      {i === 0 ? (
-                        <>
-                          <td className={TD} rowSpan={span}>
-                            {opts ? (
-                              <TypeOrPick
-                                label="Fabric structure"
-                                options={opts.fabrics.map((o) => ({ id: o.id, name: o.name }))}
-                                valueId={d.fabric_id}
-                                text={d.quality}
-                                onChange={(v) => setFabric(f.key, { fabric_id: v.id, quality: v.name })}
-                                placeholder=""
-                                uppercase
-                              />
-                            ) : (
-                              <span className="px-1 font-medium">{f.name}</span>
-                            )}
-                          </td>
-                          <td className="tog" rowSpan={span}>
-                            <Toggle checked={d.is_direct} onChange={(v) => setFabric(f.key, { is_direct: v })} ariaLabel={`${f.name} bought in at a direct rate`} />
-                          </td>
-                          <td className={TD} rowSpan={span}>
-                            {d.is_direct ? null : (
-                              <NumInput aria-label={`${f.name} process loss percent`} value={d.process_loss_pct} onChange={(e) => setFabric(f.key, { process_loss_pct: e.target.value })} />
-                            )}
-                          </td>
-                        </>
-                      ) : null}
+                <tbody key={f.key} data-grid-body data-fabric-row={f.key} className={open ? "is-open" : undefined} {...fabFold.focusProps(f.key)}>
+                  <tr data-grid-row className="band">
+                    <td className="in bandname">
+                      <span className="bandhead">
+                        {d.is_direct ? (
+                          <span className="caret" aria-hidden />
+                        ) : (
+                          <button
+                            type="button"
+                            className="caret"
+                            aria-expanded={open}
+                            aria-label={`${open ? "Fold" : "Open"} ${f.name}`}
+                            tabIndex={-1}
+                            onClick={() => fabFold.toggle(f.key)}
+                          >
+                            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        )}
+                        {opts ? (
+                          <TypeOrPick
+                            label="Fabric structure"
+                            options={opts.fabrics.map((o) => ({ id: o.id, name: o.name }))}
+                            valueId={d.fabric_id}
+                            text={d.quality}
+                            onChange={(v) => setFabric(f.key, edit.pickFabric ? edit.pickFabric(d, v) : { fabric_id: v.id, quality: v.name })}
+                            placeholder=""
+                            uppercase
+                          />
+                        ) : (
+                          <span className="px-1 font-semibold">{f.name}</span>
+                        )}
+                      </span>
+                      {blendText ? <span className="blend">{blendText}</span> : null}
+                    </td>
+                    <td colSpan={2} className="tog">
+                      <span className="toglabel">
+                        <Toggle checked={d.is_direct} onChange={(v) => setFabric(f.key, { is_direct: v })} ariaLabel={`${f.name} bought in at a direct rate`} />
+                        Bought-in
+                      </span>
+                    </td>
+                    <td className="dim r">{d.is_direct ? "price includes loss" : null}</td>
+                    <td className={d.is_direct ? "in" : "r fig"}>
                       {d.is_direct ? (
-                        <td className="dim" colSpan={4}>
-                          Bought in finished: its price already includes loss.
-                        </td>
+                        <ShownAmount rate={rate} value={d.direct_rate} onChange={(v) => setFabric(f.key, { direct_rate: v })}>{(v, set) => <NumInput aria-label={`${f.name} price per kg`} aria-invalid={priceMissing || undefined} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
                       ) : (
-                        <>
-                          <td className={TD}>
+                        <b className="bandprice" title={`Yarn ${money(f.yarn)} + Processes ${money(procs)} = ${money(sub)} · +${fx(f.lossPct)}% loss`}>
+                          {SYM} {money(f.price)}
+                        </b>
+                      )}
+                    </td>
+                    <td className={d.is_direct ? "dim r" : "in"}>
+                      {d.is_direct ? "—" : <NumInput aria-label={`${f.name} process loss percent`} value={d.process_loss_pct} onChange={(e) => setFabric(f.key, { process_loss_pct: e.target.value })} />}
+                    </td>
+                    <td className="act">
+                      <span className="acts">
+                        <RemoveX label={f.name} onClick={() => removeFabric(f.key)} />
+                      </span>
+                    </td>
+                  </tr>
+
+                  {open ? (
+                    <>
+                      <tr className="grp">
+                        <td colSpan={7}>
+                          Yarn · {named.length || yarnLines.length}
+                          <span className="gsum">{money(f.yarn)}</span>
+                        </td>
+                      </tr>
+                      {yarnLines.map((y, i) => (
+                        <tr key={y?.key ?? `${f.key}-y`} data-grid-row data-hover-row className="line">
+                          <td className="in">
                             <TypeOrPick
                               label="Yarn"
                               options={(opts?.yarns ?? []).map((o) => ({ id: o.id, name: o.name }))}
@@ -704,14 +765,14 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
                               uppercase
                             />
                           </td>
-                          <td className={TD}>
+                          <td className="in">
                             <NumInput
                               aria-label="Mix percent"
                               value={y?.mix_pct ?? ""}
                               onChange={(e) => (y ? setY(y.key, { mix_pct: e.target.value }) : setFabric(f.key, { yarns: [{ ...newYarnMix(), mix_pct: e.target.value }] }))}
                             />
                           </td>
-                          <td className={TD}>
+                          <td className="in">
                             {perYarn && y ? (
                               <ShownAmount rate={rate} value={y.rate} onChange={(v) => setY(y.key, { rate: v })}>{(v, set) => <NumInput aria-label="Yarn rate per KG" value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
                             ) : i === 0 ? (
@@ -719,40 +780,90 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
                             ) : null}
                           </td>
                           <td className="r fig">{perYarn && y ? yarnFig(y) : i === 0 ? money(f.yarn) : ""}</td>
-                        </>
-                      )}
-                      {i === 0 ? (
-                        <td className={d.is_direct ? "in" : "r fig"} rowSpan={span}>
-                          {d.is_direct ? (
-                            <ShownAmount rate={rate} value={d.direct_rate} onChange={(v) => setFabric(f.key, { direct_rate: v })}>{(v, set) => <NumInput aria-label={`${f.name} price per kg`} aria-invalid={priceMissing || undefined} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
-                          ) : (
-                            <b
-                              className="tot"
-                              title={`Yarn ${money(f.yarn)} + Processes ${money(procs)} = ${money(f.yarn + procs)} · +${fx(f.lossPct)}% loss`}
-                            >
-                              {SYM} {money(f.price)}
-                            </b>
-                          )}
+                          <td />
+                          <td />
+                          <td className="act">
+                            <span className="acts">
+                              {y && d.yarns.length > 1 ? (
+                                <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
+                              ) : null}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="addln">
+                        <td colSpan={7}>{addLink("Add yarn", addYarn)}</td>
+                      </tr>
+
+                      <tr className="grp p">
+                        <td colSpan={7}>
+                          Processes · {d.processes.length + flat.length}
+                          <span className="gsum">{money(procs)}</span>
                         </td>
-                      ) : null}
-                      <td className="act">
-                        <span className="acts">
-                          {/* A yarn line's ✕; on the first line it is the FABRIC's own when there is nothing else to take. */}
-                          {!d.is_direct && y && d.yarns.length > 1 ? (
-                            <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
-                          ) : i === 0 ? (
-                            <RemoveX label={f.name} onClick={() => removeFabric(f.key)} />
-                          ) : null}
-                          {!d.is_direct && i === span - 1
-                            ? plusBtn(`Add a yarn to ${f.name}`, () => setFabric(f.key, { yarns: [...(d.yarns.length ? d.yarns : [newYarnMix()]), newYarnMix()] }))
-                            : null}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                      </tr>
+                      {procLines.map((q) => (
+                        <tr key={q?.key ?? `${f.key}-p`} data-grid-row data-hover-row className="line p">
+                          <td className="in">
+                            <TypeOrPick
+                              label="Process"
+                              options={(opts?.processes ?? []).map((o) => ({ id: o.id, name: o.name }))}
+                              valueId={q?.process_id ?? null}
+                              text={q?.process_name ?? ""}
+                              onChange={(v) =>
+                                q ? setP(q.key, { process_id: v.id, process_name: v.name }) : setFabric(f.key, { processes: [{ ...newFabricProcess(), process_id: v.id, process_name: v.name }] })
+                              }
+                              placeholder=""
+                              uppercase
+                            />
+                          </td>
+                          <td />
+                          <td className="in">
+                            <ShownAmount
+                              rate={rate}
+                              value={q?.rate ?? ""}
+                              onChange={(v) => (q ? setP(q.key, { rate: v }) : setFabric(f.key, { processes: [{ ...newFabricProcess(), rate: v }] }))}
+                            >
+                              {(v, set) => <NumInput aria-label="Process rate per KG" value={v} onChange={(e) => set(e.target.value)} />}
+                            </ShownAmount>
+                          </td>
+                          <td className="r fig">{q && q.rate.trim() !== "" && Number.isFinite(Number(q.rate)) ? fx(Number(q.rate)) : ""}</td>
+                          <td />
+                          <td />
+                          <td className="act">
+                            <span className="acts">
+                              {q ? <RemoveX label={q.process_name || "process"} onClick={() => setFabric(f.key, { processes: d.processes.filter((x) => x.key !== q.key) })} /> : null}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {/* Old costings' flat knitting / dyeing / finishing rates, until cleared. */}
+                      {flat.map(([k, label]) => (
+                        <tr key={k} data-grid-row className="line p">
+                          <td className="dim">{label}</td>
+                          <td />
+                          <td className="in">
+                            <ShownAmount rate={rate} value={d[k]} onChange={(v) => setFabric(f.key, { [k]: v } as Partial<FabricDraft>)}>{(v, set) => <NumInput aria-label={`${f.name} ${label}`} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
+                          </td>
+                          <td className="r fig">{fx(Number(d[k]) || 0)}</td>
+                          <td />
+                          <td />
+                          <td className="act" />
+                        </tr>
+                      ))}
+                      <tr className="addln">
+                        <td colSpan={7}>{addLink("Add process", addProc)}</td>
+                      </tr>
+                      <tr className="work">
+                        <td colSpan={7}>
+                          Yarn <b>{money(f.yarn)}</b> + Processes <b>{money(procs)}</b> = <b>{money(sub)}</b> · + {fx(f.lossPct)}% loss{" "}
+                          <b>{money(f.price != null ? f.price - sub : 0)}</b> <span className="eq">= <b>{money(f.price)} / kg</b></span>
+                        </td>
+                      </tr>
+                    </>
+                  ) : null}
                   {warn ? (
                     <tr>
-                      <td colSpan={9} className="warn">
+                      <td colSpan={7} className="warn">
                         {f.name}: {warn}
                       </td>
                     </tr>
@@ -762,170 +873,7 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
             })}
           </table>
         </div>
-        {/* "+ Add row", COMPACT (user 2026-10-15): a text link under the table rather than a
-            32px outline button — the button-shape rule allows only 36 / 32px buttons. */}
-        {opts ? (
-          <button type="button" data-row-add className="faddrow" onClick={addFabricRow}>
-            <Plus className="h-3.5 w-3.5" aria-hidden />
-            Add row
-          </button>
-        ) : null}
-      </div>
-    );
-  })();
-
-  /*
-   * FABRIC PROCESSES — A FOLD LIST (user 2026-10-15, screenshot 3548 "plan like this",
-   * plan "Fabric Process Fold"): Fabric Plan ▸ Yarn Process's shape — each built fabric is
-   * one line (its name, its yarn blend beneath, its processes ₹/kg), and opening it unfolds
-   * that fabric's process grid under the line. ONE open at a time (AGENTS "Folds are
-   * accordions"). `ProcessFoldList` is the shared component behind Yarn Process and the
-   * Budget fold, so the keyboard contract (Tab into the panel, arrows, Ctrl+Del) comes with
-   * it. Bought-in fabrics have no processes and are not listed. Old costings' flat
-   * knitting / dyeing / finishing rates stay as lines of their own until cleared.
-   */
-  type ProcFab = { key: string; name: string; blend: string; procs: number };
-  const procFoldColumns: FoldListColumn<ProcFab>[] = [
-    {
-      header: "Fabric",
-      width: "22rem",
-      cell: (r) => (
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-foreground">{r.name}</div>
-          <div className="truncate text-xs text-muted-foreground">{r.blend}</div>
-        </div>
-      ),
-    },
-    {
-      header: "Processes",
-      width: "8rem",
-      align: "right",
-      cell: (r) => <span className="font-mono text-xs font-semibold text-primary">{SYM} {money(r.procs)} / kg</span>,
-    },
-  ];
-
-  const processWorkbench = (() => {
-    if (!edit) return null;
-    const opts = edit.options;
-    const built = edit.draft.fabrics.filter((d) => !d.is_direct);
-    if (!built.length) return <p className="dim fbought px-3 py-2">No built fabrics: a bought-in fabric has no processes.</p>;
-    const rows: ProcFab[] = built.map((d) => {
-      const f = figuresOf(d);
-      const named = d.yarns.filter((y) => y.yarn_name.trim() || y.item_id);
-      return {
-        key: d.key,
-        name: f.name,
-        blend: named.length ? named.map((y) => `${y.yarn_name || "Yarn"}${y.mix_pct.trim() ? ` ${y.mix_pct}%` : ""}`).join(" · ") : "No yarn yet",
-        procs: f.knitting + f.dyeing + f.finishing + f.special,
-      };
-    });
-    const openKey = procOpen === undefined ? (rows[0]?.key ?? null) : procOpen;
-    return (
-      <div className="appgrid">
-        <ProcessFoldList<ProcFab>
-          columns={procFoldColumns}
-          rows={rows}
-          openKey={openKey}
-          onToggle={setProcOpen}
-          hug
-          ruled
-          renderPanel={(r) => {
-            const d = edit.draft.fabrics.find((x) => x.key === r.key);
-            if (!d) return null;
-            const setP = (key: string, patch: Partial<FabricProcessDraft>) => setFabric(d.key, { processes: patchBy(d.processes, key, patch) });
-            const flat = ([
-              ["knitting_rate", "Knitting (flat rate)"],
-              ["dyeing_rate", "Dyeing (flat rate)"],
-              ["finishing_rate", "Finishing (flat rate)"],
-            ] as const).filter(([k]) => d[k].trim() !== "");
-            const lines: (FabricProcessDraft | null)[] = d.processes.length ? d.processes : [null];
-            return (
-              <div className="fsheet">
-                {/* # 2.5 + party 12.5 + hug 5.5 + act 3 = 23.5rem, hugging. */}
-                <table style={{ width: "23.5rem" }}>
-                  <colgroup>
-                    <col style={{ width: "2.5rem" }} />
-                    <col style={{ width: FIELD_WIDTH_CSS.party }} />
-                    <col style={{ width: FIELD_WIDTH_CSS.hug }} />
-                    <col style={{ width: "3rem" }} />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th className="r">#</th>
-                      <th>Process</th>
-                      <th className="r">Rate / KG</th>
-                      <th className="act"><span className="sr-only">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody data-grid-body>
-                    {lines.map((q, i) => (
-                      <tr key={q?.key ?? `${d.key}-one`} data-grid-row data-hover-row>
-                        <td className="r dim">{i + 1}</td>
-                        <td className="in">
-                          <TypeOrPick
-                            label="Process"
-                            options={(opts?.processes ?? []).map((o) => ({ id: o.id, name: o.name }))}
-                            valueId={q?.process_id ?? null}
-                            text={q?.process_name ?? ""}
-                            onChange={(v) =>
-                              q ? setP(q.key, { process_id: v.id, process_name: v.name }) : setFabric(d.key, { processes: [{ ...newFabricProcess(), process_id: v.id, process_name: v.name }] })
-                            }
-                            placeholder=""
-                            uppercase
-                          />
-                        </td>
-                        <td className="in">
-                          <ShownAmount
-                            rate={rate}
-                            value={q?.rate ?? ""}
-                            onChange={(v) => (q ? setP(q.key, { rate: v }) : setFabric(d.key, { processes: [{ ...newFabricProcess(), rate: v }] }))}
-                          >
-                            {(v, set) => <NumInput aria-label="Process rate per KG" value={v} onChange={(e) => set(e.target.value)} />}
-                          </ShownAmount>
-                        </td>
-                        <td className="act">
-                          <span className="acts">
-                            {q ? <RemoveX label={q.process_name || "process"} onClick={() => setFabric(d.key, { processes: d.processes.filter((x) => x.key !== q.key) })} /> : null}
-                            {i === lines.length - 1
-                              ? plusBtn(`Add a process to ${r.name}`, () => setFabric(d.key, { processes: [...(d.processes.length ? d.processes : [newFabricProcess()]), newFabricProcess()] }))
-                              : null}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {flat.map(([k, label]) => (
-                      <tr key={k} data-grid-row>
-                        <td />
-                        <td className="dim">{label}</td>
-                        <td className="in">
-                          <ShownAmount rate={rate} value={d[k]} onChange={(v) => setFabric(d.key, { [k]: v } as Partial<FabricDraft>)}>{(v, set) => <NumInput aria-label={`${r.name} ${label}`} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
-                        </td>
-                        <td className="act" />
-                      </tr>
-                    ))}
-                    <tr>
-                      <td />
-                      <td className="dim">Processes</td>
-                      <td className="r fig">
-                        <b className="tot">{money(r.procs)}</b>
-                      </td>
-                      <td className="act" />
-                    </tr>
-                  </tbody>
-                </table>
-                <button
-                  type="button"
-                  data-row-add
-                  className="faddrow"
-                  onClick={() => setFabric(d.key, { processes: [...(d.processes.length ? d.processes : [newFabricProcess()]), newFabricProcess()] })}
-                >
-                  <Plus className="h-3.5 w-3.5" aria-hidden />
-                  Add process
-                </button>
-              </div>
-            );
-          }}
-        />
+        {opts ? addLink("Add fabric", addFabricRow) : null}
       </div>
     );
   })();
@@ -934,20 +882,11 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
         <section className="blk fabblk" aria-label="Fabric processing cost">
           <div className="flex min-w-0 flex-col gap-3">
             <details open className={edit && view !== "report" ? "plain" : undefined}>
-              <summary>
+              <summary data-tone="fabric">
                 Fabric processing cost <span>{SYM} per kg · yarn + processes, then loss</span>
               </summary>
               {edit && view !== "report" ? fabricWorkbench : fabricSummaryTable}
             </details>
-            {/* PROCESSES, A SECTION OF THEIR OWN while revising (option B, 2026-10-15). */}
-            {edit && view !== "report" ? (
-              <details open className="plain">
-                <summary>
-                  Fabric processes <span>{SYM} per kg · added before loss</span>
-                </summary>
-                {processWorkbench}
-              </details>
-            ) : null}
           </div>
           {/* Printout only: on screen the photo sits beside Component consumption (photoRail). */}
           {view === "report" ? photoRail : null}
@@ -1105,7 +1044,7 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
         <section className="tri" aria-label="Fabric, CMT and trims">
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
             <details open>
-              <summary>
+              <summary data-tone="fabric">
                 Fabric &amp; garment processes <span>{SYM} {money(s.fabric + s.process + s.testing)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
@@ -1146,7 +1085,7 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
           ) : null}
           {model.ops.some((o) => o.kind === "CMT") || edit?.options ? (
             <details open>
-              <summary>
+              <summary data-tone="cmt">
                 CMT operations <span>{SYM} {money(s.cmt)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
@@ -1181,7 +1120,7 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
           ) : null}
           {model.trims.length || edit?.options ? (
             <details open>
-              <summary>
+              <summary data-tone="trims">
                 Trims &amp; accessories <span>{SYM} {money(s.trims)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
@@ -1258,7 +1197,7 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
   const secGarment = (
         <section className="blk" aria-label="Garment cost">
           <details open>
-            <summary>
+            <summary data-tone="over">
               Garment cost <span>{SYM} per {model.unitWord}{model.sizes.length > 1 ? " · every size" : ""}</span>
             </summary>
             <div className="scroll">
@@ -1320,7 +1259,7 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
             </div>
           </details>
           <details open>
-            <summary>
+            <summary data-tone="over">
               Overheads &amp; extra charges <span>{SYM} {money(s.bank + s.wastage + s.overhead + s.extraOverhead)} / {model.unitWord}</span>
             </summary>
             <div className="scroll">
@@ -1585,16 +1524,20 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
                   {s.quoted != null ? "Quoted" : "Calculated"} FOB{model.sizes.length > 1 ? ` · size ${s.label}` : ""}
                 </div>
                 {/* "SHOW IN" — the Costing editor's Quotation-summary pick (user 2026-10-15):
-                    switches the WHOLE sheet's currency, USD by default. The price is the
-                    quote in the shown currency; the line under it is always rupees. */}
+                    switches the WHOLE sheet's currency, ₹ by default (2026-10-16). The
+                    quoted FOB itself stays in the QUOTED currency while the sheet is in ₹
+                    — it is the one figure the buyer is given — and follows the pick only
+                    to a third currency. The line under it is always rupees. */}
                 {(() => {
                   const q = quotedOf(s);
                   const inr = inrOf(q);
-                  const big = q == null ? null : show.code === show.quoted || !show.quoted ? q : show.code === "INR" ? inr : inr != null && cur ? inr / cur.rate : null;
+                  const inQuoted = !show.quoted || show.code === show.quoted || show.code === "INR";
+                  const big = q == null ? null : inQuoted ? q : inr != null && cur ? inr / cur.rate : null;
+                  const bigCode = !show.quoted ? "₹" : inQuoted ? ccy : (cur?.code ?? "");
                   return (
                     <>
                       <div className="qbigrow">
-                        <div className="qbig">{big == null ? "—" : `${show.code === "INR" ? "₹" : show.code === show.quoted ? ccy : cur?.code ?? ""} ${fx(big, 2)}`.trim()}</div>
+                        <div className="qbig">{big == null ? "—" : `${bigCode} ${fx(big, 2)}`.trim()}</div>
                         {show.codes.length > 1 ? (
                           <select
                             className="qccy"
@@ -1606,15 +1549,17 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
                             value={show.code}
                             onChange={(e) => show.onPick(e.target.value)}
                           >
+                            {/* "Sheet in …": the pick is the SHEET's currency, and a bare
+                                "INR" beside a USD price read as contradicting it. */}
                             {show.codes.map((c) => (
                               <option key={c} value={c}>
-                                {c === show.quoted ? `${c} ●` : c}
+                                {`Sheet in ${c}${c === show.quoted ? " ●" : ""}`}
                               </option>
                             ))}
                           </select>
                         ) : null}
                       </div>
-                      {inr != null && show.code !== "INR" ? (
+                      {inr != null && show.quoted && bigCode !== "₹" ? (
                         <div className="qinr">
                           ₹ {fx(inr)} per {model.unitWord}
                         </div>
@@ -1767,12 +1712,15 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
           </div>
   );
 
+  /* `tone` — the cost colour a tab's card is topped in (Option B, 2026-10-16), the
+     same `--cs-*` family as the section bars inside it. A tab that is not one cost
+     takes none and stays neutral. */
   const tabDefs = [
     { label: "Details", hint: "buyer & style" },
-    { label: "Fabric", hint: `${SYM} ${money(s.fabric)} / ${model.unitWord}` },
-    { label: "Operations & trims", hint: `${SYM} ${money(s.cmt + s.process + s.testing + s.trims)} / ${model.unitWord}` },
-    { label: "Cost & overheads", hint: `${SYM} ${money(s.grossCost)} total` },
-    { label: "Quotation", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}` },
+    { label: "Fabric", hint: `${SYM} ${money(s.fabric)} / ${model.unitWord}`, tone: "fabric" },
+    { label: "Operations & trims", hint: `${SYM} ${money(s.cmt + s.process + s.testing + s.trims)} / ${model.unitWord}`, tone: "cmt" },
+    { label: "Cost & overheads", hint: `${SYM} ${money(s.grossCost)} total`, tone: "over" },
+    { label: "Quotation", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}`, tone: "margin" },
     { label: "Revisions", hint: model.history.length > 1 ? `${model.history.length} revisions` : "first revision" },
     { label: "Charts", hint: "price at a glance" },
   ];
@@ -1787,27 +1735,92 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
   return (
     <article className="cs-sheet">
       <style>{CSS}</style>
-      <header className="mast">
-        <div className="brand">
-          {model.company.logo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={model.company.logo} alt="" className="logo" />
-          ) : (
-            <div className="mark">{(model.company.name ?? "R").slice(0, 1)}</div>
-          )}
-          <div>
-            <b>{model.company.name ?? "Raagam"}</b>
-            {model.company.unit ? <span>{model.company.unit}</span> : null}
+      {/* THE LETTERHEAD — OPTION B of the "Costing Report Header" mock-ups (user
+          2026-10-16: "Option B is okay"). A white letterhead under the four-colour
+          brand stripe the order reports carry (`SheetMasthead`), the document's
+          number and status beside the company, the style as the title, and ONE
+          coloured card for the figure the reader came for: the FOB, its rupees, the
+          rate and the margin. ON SCREEN AND ON PAPER — the old `.mast` letterhead was
+          print-only and the screen got a bare bar. The facts band under it replaces
+          the header chips; every fact prints only when the costing has it. */}
+      <header className="lh">
+        <div className="lh-stripe" aria-hidden>
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="lh-head">
+          <div className="lh-left">
+            <div className="lh-brand">
+              {model.company.logo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={model.company.logo} alt="" className="lh-logo" />
+              ) : (
+                <div className="lh-mark" aria-hidden>
+                  {(model.company.name ?? "R").trim().slice(0, 1)}
+                </div>
+              )}
+              <div className="min0">
+                <b>{model.company.name ?? "Raagam Exports"}</b>
+                {model.company.unit ? <span>{model.company.unit}</span> : null}
+              </div>
+            </div>
+            <div className="lh-title">
+              <span className="lh-kind">Sample Cost Sheet</span>
+              <span className="lh-no">
+                {model.costingNo ?? "—"} · {model.revision}
+              </span>
+              <span className={`pill ${stateClass}`}>{model.statusLabel}</span>
+            </div>
+            <h2 className="lh-style">
+              {model.description || model.style || "—"}
+              {model.customer ? <span> · {model.customer}</span> : null}
+            </h2>
+          </div>
+          <div className="lh-card">
+            <span className="k">
+              {s.quoted != null ? "Quoted" : "Calculated"} FOB / {model.unitWord}
+              {model.sizes.length > 1 ? ` · ${s.label}` : ""}
+            </span>
+            <span className="big">{fobShown == null ? "—" : `${ccy} ${fx(fobShown, 2)}`.trim()}</span>
+            {fobInr != null && ccy && ccy !== "INR" ? (
+              <span className="row">
+                Rupees <b>₹ {fx(fobInr)}</b>
+              </span>
+            ) : null}
+            {model.exchangeRate != null && ccy && ccy !== "INR" ? (
+              <span className="row">
+                Exchange rate <b>{fx(model.exchangeRate)}</b>
+              </span>
+            ) : null}
+            {eff != null ? (
+              <span className="marg" data-low={eff < 0 || undefined}>
+                Margin {eff.toFixed(1)}%
+              </span>
+            ) : null}
           </div>
         </div>
-        <div className="docid">
-          <span>Sample Cost Sheet · internal</span>
-          <span className="no">
-            {model.costingNo ?? "—"} · {model.revision}
-          </span>
-          <span>{model.date ? fmtDate(model.date) : ""}</span>
-          <span className={`pill ${stateClass}`}>{model.statusLabel}</span>
-        </div>
+        <dl className="lh-facts">
+          {(
+            [
+              ["SMP No", model.enquiryNo],
+              ["Style", model.style && model.description && model.style !== model.description ? model.style : null],
+              ["Season", model.season],
+              ["Fabric", [model.fabricFacts.structure, model.fabricFacts.gsm].filter(Boolean).join(" · ") || null],
+              ["Unit", model.isSet ? "SET" : null],
+              ["Ship", model.shipMode],
+              ["Date", model.date ? fmtDate(model.date) : null],
+            ] as const
+          ).map(([k, v]) =>
+            v ? (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ) : null,
+          )}
+        </dl>
       </header>
 
       {/* THE APPROVAL LINE (client 2026-10-09: "where is the approver") — how this
@@ -1818,49 +1831,22 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
       <div className="pad">
         {/* 1 · HEADER — the RAAGAM COSTING FORMAT's top block (client 2026-10-09). Only the
             lines this costing has a value for print: an empty "Buying Agent" row is chrome. */}
-        <section className="blk hdrblk" aria-label="Header">
-          <div className="hdr-title">
-            {/* ONE BAR ON SCREEN (user 2026-10-15: "too much wording … hold important only").
-                The doc number, status and date live here on screen; the letterhead above is
-                print-only, so a screen shows each fact once. "Garment costing", the PCS chip
-                (PCS is the default — only SET is worth flagging) and "Ship" are gone. */}
-            <div className="min0">
-              <span className="scr-only docno">
-                {model.costingNo ?? "—"} · {model.revision}
-              </span>
-              <span className={`scr-only pill ${stateClass}`}>{model.statusLabel}</span>
-              <h2>{model.description || model.style || "—"}</h2>
-              <div className="chips">
-                {model.season ? <span className="chip">{model.season}</span> : null}
-                {model.isSet ? <span className="chip">SET</span> : null}
-                {/* CHARTS FIT ONE SCREEN, so the two spec tables give way to their two
-                    facts that matter at a glance; the Report keeps the full block. */}
-                {view === "tabs" && tab === 6 && model.customer ? (
-                  <span className="chip">
-                    Buyer <b>{model.customer}</b>
-                  </span>
-                ) : null}
-                {view === "tabs" && tab === 6 && model.fabricFacts.structure ? (
-                  <span className="chip">
-                    Fabric <b>{model.fabricFacts.structure}</b>
-                  </span>
-                ) : null}
-                {model.shipMode ? (
-                  <span className="chip">{model.shipMode}</span>
-                ) : null}
+        {/* THE LETTERHEAD NOW CARRIES WHAT THIS BAR DID (Option B, 2026-10-16): number,
+            status, style, season, ship and date are all above, on screen and in print, so
+            the bar that repeated them is gone. What is left is the one line the letterhead
+            does not say — who approved it — and the full spec grid when printing. */}
+        {model.approval.tone !== "muted" || view === "report" ? (
+          <section className="blk hdrblk" aria-label="Header">
+            {/* A muted line (Draft, Superseded) only repeats the status pill — dropped. */}
+            {model.approval.tone !== "muted" ? (
+              <div className="apv" data-tone={model.approval.tone}>
+                <b>{model.approval.text}</b>
+                {model.approval.detail ? <span>{model.approval.detail}</span> : null}
               </div>
-              {model.date ? <span className="scr-only dim">{fmtDate(model.date)}</span> : null}
-              {/* A muted line (Draft, Superseded) only repeats the status pill — dropped. */}
-              {model.approval.tone !== "muted" ? (
-                <div className="apv" data-tone={model.approval.tone}>
-                  <b>{model.approval.text}</b>
-                  {model.approval.detail ? <span>{model.approval.detail}</span> : null}
-                </div>
-              ) : null}
-            </div>
-          </div>
-          {view === "report" ? specGrid : null}
-        </section>
+            ) : null}
+            {view === "report" ? specGrid : null}
+          </section>
+        ) : null}
 
 
         {/* FULL PAGE: the report exactly as it was, every section stacked. */}
@@ -1881,16 +1867,22 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
           <>
             <div className="ctabs" role="tablist" aria-label="Report sections" onKeyDown={onTabKey}>
               {tabDefs.map((t, i) => (
-                <button key={t.label} type="button" role="tab" id={`cs-tab-${i}`} aria-selected={tab === i} aria-controls="cs-tabpanel" tabIndex={tab === i ? 0 : -1} className="ctab" onClick={() => setTab(i)}>
+                <button key={t.label} type="button" role="tab" id={`cs-tab-${i}`} aria-selected={tab === i} aria-controls="cs-tabpanel" tabIndex={tab === i ? 0 : -1} className="ctab" data-tone={t.tone} onClick={() => setTab(i)}>
                   <span>{t.label}</span>
                   <small>{t.hint}</small>
                 </button>
               ))}
             </div>
             <div className="tpanel" role="tabpanel" id="cs-tabpanel" aria-labelledby={`cs-tab-${tab}`}>
-              {tab === 0 ? specGrid : null}
+              {tab === 0 ? (
+                <>
+                  {edit?.details}
+                  {specGrid}
+                </>
+              ) : null}
               {tab === 1 ? (
                 <>
+                  {edit?.sizes}
                   <div className="fabrow">
                     {secConsumption}
                     {photoRail}
@@ -1900,129 +1892,17 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
               ) : null}
               {tab === 2 ? secTri : null}
               {tab === 3 ? secGarment : null}
-              {tab === 4 ? secCommercial : null}
+              {tab === 4 ? (
+                <>
+                  {edit?.terms}
+                  {secCommercial}
+                </>
+              ) : null}
               {tab === 5 ? secHistory : null}
               {/* CHARTS IS A TAB, NOT A VIEW (user 2026-10-15: "Charts is one of the tabs
                   after Revisions — remove Tabs and Charts from the top, Tabs is default"). */}
               {tab === 6 ? (
-        /* THE CHARTS TAB IS THE RECEIPT (master 095e6a1a, user 2026-10-15, design E: "light aa
-           plain aa … neat aa") — merged into this branch's Charts TAB (tab 6). */
-        <section className={`rc${hot ? " hot" : ""}`} aria-label="Price charts" onMouseLeave={() => setHot(null)}>
-          <div className="rc-led">
-            <div className="rc-cap t">
-              How the price is built
-              <span>
-                {SYM} per {model.unitWord}
-                {model.sizes.length > 1 ? ` · size ${s.label}` : ""}
-              </span>
-            </div>
-            {wfRows.map((r, i) => {
-              const last = i === wfRows.length - 1;
-              const cls = r.total ? (last ? "tot" : "sub") : r.value < 0 ? "neg" : "";
-              const pct = s.price ? (r.width / s.price) * 100 : null;
-              return (
-                <div
-                  key={r.label}
-                  className={`rc-ln ${cls}${r.tone && hot === r.tone ? " on" : ""}`}
-                  style={{ ["--i" as string]: i }}
-                  onMouseEnter={() => setHot(r.tone)}
-                >
-                  <i className="sw" style={{ background: r.tone && r.value >= 0 ? softTone(r.tone) : "transparent" }} />
-                  <span className="t">{r.label}</span>
-                  <span className="ld" />
-                  <span className="t a">
-                    {r.value < 0 ? "−" : ""}
-                    {money(r.width)}
-                  </span>
-                  <span className="t p">{pct == null ? "" : `${pct.toFixed(1)}%`}</span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="rc-side">
-            <div className="rc-mix">
-              <svg viewBox="0 0 120 120" role="img" aria-label="Share of the price by cost group">
-                {parts.map((p, i) => {
-                  const len = (p.value / partTotal) * C;
-                  return (
-                    <circle
-                      key={p.label}
-                      className={hot === p.tone ? "on" : ""}
-                      cx="60"
-                      cy="60"
-                      r={RING_R}
-                      fill="none"
-                      stroke={softTone(p.tone)}
-                      strokeWidth="15"
-                      strokeDasharray={`${Math.max(len - 1.5, 0)} ${C}`}
-                      strokeDashoffset={-offs[i]}
-                      transform="rotate(-90 60 60)"
-                      onMouseEnter={() => setHot(p.tone)}
-                    />
-                  );
-                })}
-                <text className="t" x="60" y="65" textAnchor="middle" fontSize="15" fontWeight="700">
-                  {money(partTotal)}
-                </text>
-              </svg>
-              <div className="rc-lg">
-                {parts.map((p, i) => (
-                  <div key={p.label} className={hot === p.tone ? "on" : ""} style={{ ["--i" as string]: i }} onMouseEnter={() => setHot(p.tone)}>
-                    <i className="sw" style={{ background: softTone(p.tone) }} />
-                    <span className="t">{p.label}</span>
-                    <b className="t">{((p.value / partTotal) * 100).toFixed(1)}%</b>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {model.fabrics.length ? (
-              <div className="rc-fab">
-                <div className="rc-cap t">Fabric rate · {SYM} / kg</div>
-                {model.fabrics.map((f, i) => {
-                  const fin = f.finishing + f.special;
-                  const sub = f.yarn + f.knitting + f.dyeing + fin;
-                  const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
-                  const segs = (
-                    [
-                      ["Yarn", f.yarn, "var(--cs-fabric)"],
-                      ["Knitting", f.knitting, "var(--cs-cmt)"],
-                      ["Dyeing", f.dyeing, "var(--cs-over)"],
-                      [f.special ? "Finishing + special" : "Finishing", fin, "var(--cs-trims)"],
-                      [f.lossPct ? `Loss ${f.lossPct}%` : "Loss", loss, "var(--cs-muted)"],
-                    ] as const
-                  ).filter(([, v]) => v > 0);
-                  return (
-                    <div className="rc-f" key={f.key || f.name} style={{ ["--i" as string]: i }}>
-                      <div className="top t">
-                        <span>{f.name}</span>
-                        <span>{money(f.price)}</span>
-                      </div>
-                      {f.direct || !segs.length ? (
-                        <div className="parts t">Direct rate (bought-in)</div>
-                      ) : (
-                        <>
-                          <div className="bar" aria-hidden>
-                            {segs.map(([l, v, c]) => (
-                              <span key={l} style={{ flex: v, background: `color-mix(in srgb, ${c} 60%, #fff)` }} />
-                            ))}
-                          </div>
-                          <div className="parts t">
-                            {segs.map(([l, v], k) => (
-                              <span key={l}>
-                                {k ? " · " : ""}
-                                {l} <b>{money(v)}</b>
-                              </span>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        </section>
+                <CostCharts model={model} s={s} idx={idx} onSize={onSize} rows={wfRows} money={money} SYM={SYM} ccy={ccy} shownCode={cur ? cur.code : "INR"} />
               ) : null}
             </div>
           </>
@@ -2041,6 +1921,461 @@ function Sheet({ model, s, edit, view, cur, show }: { model: CostSheetModel; s: 
         </footer>
       ) : null}
     </article>
+  );
+}
+
+/* ===========================================================================
+ * THE CHARTS TAB — COMPACT GLASS (user 2026-10-16: "colourful interactive UI for
+ * the tab", then "compacted and better professional glass look", then — pointing
+ * at the order budget approval's ring — "have one chart round like this"; the
+ * mockup "Cost Sheet Charts" approved the same day with "okay build it").
+ *
+ * This REPLACES the 2026-10-15 receipt (design E, "light aa plain aa … neat aa").
+ * The later instruction governs; restoring the receipt needs a new decision.
+ *
+ * FOUR TILES, THEN THE PRICE STORY, THEN THE DRILL-DOWNS:
+ *  - Price · Gross cost · Margin (zoned against MARGIN_TARGET_PCT / FLOOR_PCT) ·
+ *    the biggest cost group;
+ *  - How the price is built (the waterfall as floating bars) · Where the price
+ *    goes (THE APPROVAL'S `GlassRing`, not a copy) · Margin vs target, and Cost
+ *    by size — a size row is a button that switches the whole sheet's size;
+ *  - Fabric rate per kg · Price across revisions (only once there IS a history).
+ *
+ * ONE HIGHLIGHT, THREE PLACES. Hover previews a cost group in the build-up, the
+ * ring and the legend at once; a click pins it (again, or Escape, lets go) —
+ * the approval ring's own "hover previews, a click picks" rule, for the same
+ * reason: a touch pointer "leaves" the moment the finger lifts.
+ *
+ * GLASS ON PAPER. The sheet is paper in both themes, but `GlassRing` reads the
+ * app's `--glass-*` and text tokens, which go dark under `.dark`. So `.cg`
+ * pins every token it uses to its light value (see the CSS) — the panel is a
+ * light glass panel in either theme, like the paper around it.
+ *
+ * SCREEN ONLY. Print and the PDF always use the full text report (`view`
+ * "report"), so nothing here reaches paper.
+ * ======================================================================== */
+type Tone = keyof typeof TONE_VAR;
+type Zone = "good" | "warn" | "bad";
+const zoneOf = (e: number | null): Zone | null =>
+  e == null ? null : e >= MARGIN_TARGET_PCT ? "good" : e >= FLOOR_PCT ? "warn" : "bad";
+const ZONE_WORD: Record<Zone, string> = { good: "On target", warn: "Below target", bad: "Below floor" };
+const ZONE_INK: Record<Zone, string> = { good: "var(--cs-good)", warn: "var(--cs-warn)", bad: "var(--cs-bad)" };
+const ZONE_TEXT: Record<Zone, string> = { good: "text-success", warn: "text-warning", bad: "text-danger" };
+/** The gauge's right edge — a margin past 30% pins to it. */
+const GAUGE_MAX = 30;
+
+type ChartRow = { label: string; value: number; tone: Tone | null; total: boolean; start: number; width: number };
+
+function CostCharts({
+  model,
+  s,
+  idx,
+  onSize,
+  rows,
+  money,
+  SYM,
+  ccy,
+  shownCode,
+}: {
+  model: CostSheetModel;
+  s: SizeFigures;
+  idx: number;
+  onSize?: (i: number) => void;
+  rows: ChartRow[];
+  money: (v: number | null | undefined) => string;
+  SYM: string;
+  ccy: string;
+  /** The currency the sheet is shown in — the price tile adds the quoted currency only when it differs. */
+  shownCode: string;
+}) {
+  const [hover, setHover] = useState<Tone | null>(null);
+  const [pinned, setPinned] = useState<Tone | null>(null);
+  const active = hover ?? pinned;
+  const pick = (k: Tone) => setPinned((p) => (p === k ? null : k));
+  const lift = (k: Tone | null) => (active ? (active === k ? " on" : " dim") : "");
+
+  const eff = s.effectiveMarginPct;
+  const zone = zoneOf(eff);
+  const parts = priceParts(s);
+  const partTotal = parts.reduce((t, p) => t + p.value, 0) || 1;
+  const pctOf = (v: number) => (v / partTotal) * 100;
+  const maxShare = Math.max(1, ...parts.map((p) => pctOf(p.value)));
+  const biggest = parts.filter((p) => p.tone !== "margin").sort((a, b) => b.value - a.value)[0];
+  const marginPart = parts.find((p) => p.tone === "margin");
+  const scaleMax = Math.max(1, ...rows.map((r) => r.start + r.width));
+  const focus = active ? parts.find((p) => p.tone === active) : null;
+  const fob = s.quoted ?? s.calc;
+
+  const centre = focus
+    ? { label: focus.label.replace("Embellishment & testing", "Emb. & test"), value: `${pctOf(focus.value).toFixed(1)}%`, sub: `${SYM} ${money(focus.value)}`, color: TONE_VAR[focus.tone] }
+    : { label: "Margin", value: eff == null ? "—" : `${eff.toFixed(1)}%`, sub: marginPart ? `${SYM} ${money(marginPart.value)}` : "", tone: zone ? ZONE_TEXT[zone] : "" };
+
+  const gaugeAt = (v: number) => (Math.min(Math.max(v, 0), GAUGE_MAX) / GAUGE_MAX) * 100;
+  const short = eff != null && eff < MARGIN_TARGET_PCT ? (MARGIN_TARGET_PCT / 100) * s.price - (marginPart?.value ?? 0) : null;
+
+  const sizeMax = Math.max(1, ...model.sizes.map((x) => x.price));
+  const hist = model.history;
+
+  return (
+    <section
+      className="cg"
+      aria-label="Price charts"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && pinned) {
+          e.stopPropagation();
+          setPinned(null);
+        }
+      }}
+    >
+      {/* 1 · THE FOUR TILES */}
+      <div className="cg-kpis">
+        <div className="cg-kpi cg-glass" style={{ ["--c" as string]: "var(--cs-brand)" }}>
+          <span className="dot"><Tag aria-hidden /></span>
+          <span className="k">
+            {s.quoted != null ? "Quoted" : "Calculated"} FOB{model.sizes.length > 1 ? ` · ${s.label}` : ""}
+          </span>
+          <span className="v">
+            {SYM} {money(s.price)}
+            {fob != null && ccy && shownCode !== ccy ? <small>{`${ccy} ${fx(fob, 2)}`}</small> : null}
+          </span>
+        </div>
+        <div className="cg-kpi cg-glass" style={{ ["--c" as string]: "var(--cs-over)" }}>
+          <span className="dot"><Layers aria-hidden /></span>
+          <span className="k">Gross cost</span>
+          <span className="v">
+            {SYM} {money(s.grossCost)}
+            <small>net {money(s.net)}</small>
+          </span>
+        </div>
+        <div className="cg-kpi cg-glass" style={{ ["--c" as string]: zone ? ZONE_INK[zone] : "var(--cs-muted)" }}>
+          <span className="dot"><TrendingUp aria-hidden /></span>
+          <span className="k">Margin</span>
+          <span className="v">
+            <span style={{ color: zone ? ZONE_INK[zone] : undefined }}>{eff == null ? "—" : `${eff.toFixed(1)}%`}</span>
+            {zone ? <span className={`cg-tag ${zone}`}>{ZONE_WORD[zone]}</span> : null}
+          </span>
+        </div>
+        <div className="cg-kpi cg-glass" style={{ ["--c" as string]: biggest ? TONE_VAR[biggest.tone] : "var(--cs-muted)" }}>
+          <span className="dot"><ChartPie aria-hidden /></span>
+          <span className="k">Biggest cost</span>
+          <span className="v">
+            {biggest?.label ?? "—"}
+            {biggest && s.price ? <small>{((biggest.value / s.price) * 100).toFixed(1)}% of price</small> : null}
+          </span>
+        </div>
+      </div>
+
+      <div className="cg-main">
+        {/* 2 · HOW THE PRICE IS BUILT — each cost climbs from where the last one ended. */}
+        <div className="cg-card cg-glass">
+          <div className="cg-cap">
+            <h4>How the price is built</h4>
+            <span>
+              {SYM} / {model.unitWord}
+              {model.sizes.length > 1 ? ` · ${s.label}` : ""}
+            </span>
+          </div>
+          <div className={`cg-wf${active ? " hot" : ""}`}>
+            {rows.map((r, i) => {
+              const last = i === rows.length - 1;
+              const fill = r.tone ? TONE_VAR[r.tone] : last ? "var(--cs-brand)" : "#3a5068";
+              const bar = (
+                <>
+                  <span className="l">
+                    {r.tone ? <i className="sw" style={{ background: fill }} /> : null}
+                    <span>{r.label}</span>
+                  </span>
+                  <span className="tr">
+                    <span className="b cg-gloss" style={{ left: `${(r.start / scaleMax) * 100}%`, width: `${Math.max((r.width / scaleMax) * 100, 0.6)}%`, backgroundColor: fill }} />
+                  </span>
+                  <span className={`a${r.value < 0 ? " neg" : ""}`}>
+                    {r.value < 0 ? "−" : ""}
+                    {money(r.width)}
+                  </span>
+                  <span className="p">{s.price ? `${((r.width / s.price) * 100).toFixed(1)}%` : ""}</span>
+                </>
+              );
+              return r.tone ? (
+                // button-shape: exempt -- a waterfall bar you can point at, not a pick-one switch
+                <button
+                  key={r.label}
+                  type="button"
+                  className={`cg-row${lift(r.tone)}`}
+                  aria-pressed={pinned === r.tone}
+                  onPointerEnter={(e) => e.pointerType === "mouse" && setHover(r.tone)}
+                  onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+                  onFocus={() => setHover(r.tone)}
+                  onBlur={() => setHover(null)}
+                  onClick={() => pick(r.tone as Tone)}
+                >
+                  {bar}
+                </button>
+              ) : (
+                <div key={r.label} className={`cg-row tot${last ? " final" : ""}`}>
+                  {bar}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 3 · WHERE THE PRICE GOES — the order budget approval's ring. */}
+        <div className="cg-card cg-glass">
+          <div className="cg-cap">
+            <h4>Where the price goes</h4>
+            <span>share of the price</span>
+          </div>
+          <div className="cg-mix">
+            <GlassRing
+              className="size-[8.75rem]"
+              discClassName="size-[5rem] [&>span:nth-child(2)]:text-[1.15rem]"
+              slices={parts.map((p) => ({ key: p.tone, amount: p.value, color: TONE_VAR[p.tone] }))}
+              base={partTotal}
+              active={active}
+              onHover={(k) => setHover(k as Tone | null)}
+              onPick={(k) => pick(k as Tone)}
+              centre={centre}
+            />
+            <div className="cg-lg">
+              {parts.map((p) => {
+                const pct = pctOf(p.value);
+                return (
+                  // button-shape: exempt -- a legend row linked to its ring slice, not a pick-one switch
+                  <button
+                    key={p.tone}
+                    type="button"
+                    className={lift(p.tone).trim()}
+                    style={{ ["--c" as string]: TONE_VAR[p.tone] }}
+                    aria-pressed={pinned === p.tone}
+                    onPointerEnter={(e) => e.pointerType === "mouse" && setHover(p.tone)}
+                    onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+                    onFocus={() => setHover(p.tone)}
+                    onBlur={() => setHover(null)}
+                    onClick={() => pick(p.tone)}
+                    title={`${p.label}: ${SYM} ${money(p.value)}`}
+                  >
+                    <i className="dot" />
+                    <span className="nm">{p.label}</span>
+                    <span className="sh" aria-hidden>
+                      <i style={{ width: `${(pct / maxShare) * 100}%` }} />
+                    </span>
+                    <b>{pct.toFixed(1)}%</b>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="cg-col">
+          {/* 4 · MARGIN VS TARGET — red under the floor, amber to the target, green past it. */}
+          <div className="cg-card cg-glass">
+            <div className="cg-cap">
+              <h4>Margin vs target</h4>
+              {zone ? <span className={`cg-tag ${zone}`}>{ZONE_WORD[zone]}</span> : <span>no margin yet</span>}
+            </div>
+            <div className="cg-track" aria-hidden>
+              <i className="cg-gloss" style={{ width: `${gaugeAt(FLOOR_PCT)}%`, backgroundColor: "#e88a82" }} />
+              <i className="cg-gloss" style={{ width: `${gaugeAt(MARGIN_TARGET_PCT) - gaugeAt(FLOOR_PCT)}%`, backgroundColor: "#efbd4f" }} />
+              <i className="cg-gloss" style={{ width: `${100 - gaugeAt(MARGIN_TARGET_PCT)}%`, backgroundColor: "#4fb377" }} />
+            </div>
+            <div className="cg-pin">
+              {eff != null ? (
+                <span className="m" style={{ left: `${gaugeAt(eff)}%` }}>
+                  <b>{eff.toFixed(1)}%</b>
+                </span>
+              ) : null}
+            </div>
+            <div className="cg-ax">
+              <span style={{ left: 0 }}>0%</span>
+              <span style={{ left: `${gaugeAt(FLOOR_PCT)}%`, transform: "translateX(-100%)", paddingRight: 3 }}>floor {FLOOR_PCT}</span>
+              <span style={{ left: `${gaugeAt(MARGIN_TARGET_PCT)}%`, paddingLeft: 3 }}>target {MARGIN_TARGET_PCT}</span>
+              <span style={{ right: 0 }}>{GAUGE_MAX}%</span>
+            </div>
+            {eff != null ? (
+              <p className="cg-msg">
+                {short == null ? (
+                  <>
+                    Clears the target by <b>{(eff - MARGIN_TARGET_PCT).toFixed(1)} pts</b>.
+                  </>
+                ) : (
+                  <>
+                    Needs <b>{SYM} {money(short)}</b> more per {model.unitWord} to reach {MARGIN_TARGET_PCT}%.
+                  </>
+                )}
+              </p>
+            ) : null}
+          </div>
+
+          {/* 5 · COST BY SIZE — a row IS the size switch, so the sheet follows the click. */}
+          {model.sizes.length > 1 ? (
+            <div className="cg-card cg-glass">
+              <div className="cg-cap">
+                <h4>Cost by size</h4>
+                <span>{onSize ? "click to show" : "margin per size"}</span>
+              </div>
+              <div className="cg-sz">
+                {model.sizes.map((x, i) => {
+                  const z = zoneOf(x.effectiveMarginPct);
+                  return (
+                    // button-shape: exempt -- a size bar that drives the toolbar's size switch
+                    <button
+                      key={x.label}
+                      type="button"
+                      aria-pressed={i === idx}
+                      disabled={!onSize}
+                      onClick={() => onSize?.(i)}
+                      title={`Size ${x.label}: ${SYM} ${money(x.price)}`}
+                    >
+                      <span className="n">{x.label}</span>
+                      <span className="st" style={{ width: `${(x.price / sizeMax) * 100}%` }}>
+                        {priceParts(x).map((p) => (
+                          <i key={p.tone} className="cg-gloss" style={{ flex: Math.max(p.value, 0), backgroundColor: TONE_VAR[p.tone] }} />
+                        ))}
+                      </span>
+                      <span className="r">
+                        {z && x.effectiveMarginPct != null ? <span className={`cg-tag ${z}`}>{x.effectiveMarginPct.toFixed(1)}%</span> : "—"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {model.fabrics.length || hist.length > 1 ? (
+        <div className={`cg-low${model.fabrics.length && hist.length > 1 ? "" : " one"}`}>
+          {/* 6 · FABRIC RATE — what a kilo is made of; hover a colour for its amount. */}
+          {model.fabrics.length ? (
+            <div className="cg-card cg-glass">
+              <div className="cg-cap">
+                <h4>Fabric rate</h4>
+                <span>{SYM} per kg</span>
+              </div>
+              <div className="cg-fab">
+                {model.fabrics.map((f) => {
+                  const fin = f.finishing + f.special;
+                  const sub = f.yarn + f.knitting + f.dyeing + fin;
+                  const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
+                  const segs = (
+                    [
+                      ["Yarn", f.yarn, "var(--cs-fabric)"],
+                      ["Knitting", f.knitting, "var(--cs-cmt)"],
+                      ["Dyeing", f.dyeing, "var(--cs-over)"],
+                      [f.special ? "Finishing + special" : "Finishing", fin, "var(--cs-trims)"],
+                      [f.lossPct ? `Loss ${f.lossPct}%` : "Loss", loss, "#b8c3cd"],
+                    ] as const
+                  ).filter(([, v]) => v > 0);
+                  const tot = segs.reduce((t, [, v]) => t + v, 0) || 1;
+                  return (
+                    <div key={f.key || f.name}>
+                      <div className="top">
+                        <span>{f.name}</span>
+                        <span>{SYM} {money(f.price)}</span>
+                      </div>
+                      {f.direct || !segs.length ? (
+                        <div className="keys">Direct rate (bought-in)</div>
+                      ) : (
+                        <>
+                          <div className="st">
+                            {segs.map(([l, v, c]) => (
+                              <i key={l} className="cg-gloss" title={`${l} · ${SYM} ${money(v)} · ${((v / tot) * 100).toFixed(0)}%`} style={{ flex: v, backgroundColor: c }} />
+                            ))}
+                          </div>
+                          <div className="keys">
+                            {segs.map(([l, v, c]) => (
+                              <span key={l}>
+                                <i style={{ background: c }} />
+                                {l} <b>{money(v)}</b>
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {/* 7 · PRICE ACROSS REVISIONS — only once the costing has been revised. */}
+          {hist.length > 1 ? <RevisionTrend hist={hist} ccy={ccy} /> : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/** The quoted price per revision as a line, each point's margin printed under it in its zone colour. */
+function RevisionTrend({ hist, ccy }: { hist: CostSheetModel["history"]; ccy: string }) {
+  const pts = hist.filter((h) => h.price != null) as (CostSheetModel["history"][number] & { price: number })[];
+  if (pts.length < 2) return null;
+  const W = 320, H = 118, L = 34, R = 18, T = 18, B = 26;
+  const prices = pts.map((p) => p.price);
+  const pad = Math.max((Math.max(...prices) - Math.min(...prices)) * 0.25, 0.05);
+  const lo = Math.min(...prices) - pad;
+  const hi = Math.max(...prices) + pad * 0.6;
+  const x = (i: number) => L + (i * (W - L - R)) / (pts.length - 1);
+  const y = (v: number) => T + ((hi - v) / (hi - lo)) * (H - T - B);
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.price).toFixed(1)}`).join(" ");
+  const area = `${line} L${x(pts.length - 1)},${H - B} L${x(0)},${H - B} Z`;
+  const first = pts[0].price;
+  const lastP = pts[pts.length - 1].price;
+  const change = first ? ((lastP - first) / first) * 100 : 0;
+  const ticks = [lo + pad * 0.4, (lo + hi) / 2, hi - pad * 0.3];
+  return (
+    <div className="cg-card cg-glass">
+      <div className="cg-cap">
+        <h4>Price across revisions</h4>
+        <span>
+          {ccy || "price"} · {change >= 0 ? "+" : ""}
+          {change.toFixed(1)}% since {pts[0].label}
+        </span>
+      </div>
+      <svg className="cg-rev" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Quoted price per revision">
+        <defs>
+          <linearGradient id="cg-rev-area" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="#037bb8" stopOpacity=".28" />
+            <stop offset="1" stopColor="#037bb8" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="rgba(15,27,38,.07)" />
+            <text x={L - 6} y={y(v) + 3.5} textAnchor="end" fontSize="9.5" fill="#5a6a79">
+              {fx(v, 2)}
+            </text>
+          </g>
+        ))}
+        <path d={area} fill="url(#cg-rev-area)" />
+        <path d={line} fill="none" stroke="#037bb8" strokeWidth="2.2" strokeLinejoin="round" />
+        {pts.map((p, i) => {
+          const z = zoneOf(p.marginPct);
+          const anchor = i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle";
+          return (
+            <g key={p.id}>
+              <title>{`${p.label}${p.date ? ` · ${fmtDate(p.date)}` : ""} · ${p.statusLabel}`}</title>
+              <circle cx={x(i)} cy={y(p.price)} r="11" fill="transparent" />
+              <circle cx={x(i)} cy={y(p.price)} r={p.current ? 6 : 4.5} fill={p.current ? "#037bb8" : "#fff"} stroke="#037bb8" strokeWidth="2.2" />
+              <text x={x(i)} y={y(p.price) - 10} textAnchor={anchor} fontSize="10" fontWeight="700" fill="#13304a">
+                {fx(p.price, 2)}
+              </text>
+              <text x={x(i)} y={H - 12} textAnchor="middle" fontSize="10" fontWeight={p.current ? 800 : 600} fill="#0f1b26">
+                {p.label.replace("Original (Rev 0)", "Rev 0")}
+              </text>
+              {p.marginPct != null ? (
+                <text x={x(i)} y={H - 1} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={z === "good" ? "#14803f" : z === "warn" ? "#9a6200" : "#b3261e"}>
+                  {p.marginPct.toFixed(1)}%
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
@@ -2150,56 +2485,125 @@ const CSS = `
 .cs-sheet .sec { display:flex; flex-direction:column; gap:8px; min-width:0; }
 .cs-sheet .sec-h { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .cs-sheet .sec-h h3 { font-size:15px; font-weight:800; } .cs-sheet .sec-h span { color:var(--cs-muted); font-size:12.5px; }
-/* THE CHARTS VIEW IS A RECEIPT (user 2026-10-15, design E). One card: the ledger
-   left, a small donut + legend and the fabric rates right; stacked on a narrow
-   pane. The card is the home page hero's surface — top-left smoke wash, a soft
-   brand-blue glow at the top-right, a soft lift and a 1px sheen. */
-.cs-sheet .rc { position:relative; isolation:isolate; overflow:hidden; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-  border:1px solid var(--cs-rule); border-radius:12px; background-color:#fff;
-  background-image:linear-gradient(152deg, rgb(22 24 29 / .055) 0%, rgb(22 24 29 / .012) 34%, rgb(22 24 29 / 0) 62%);
-  box-shadow:0 1px 2px rgb(16 24 40 / .06), 0 4px 14px rgb(16 24 40 / .06), inset 0 1px 0 rgb(255 255 255 / .75); }
-.cs-sheet .rc::before { content:""; position:absolute; z-index:-1; pointer-events:none; right:-40px; top:-96px; width:320px; height:224px;
-  border-radius:50%; background:var(--cs-brand-tint); opacity:.6; filter:blur(48px); }
-@media (max-width:860px){ .cs-sheet .rc { grid-template-columns:minmax(0,1fr); } .cs-sheet .rc-led { border-right:0; border-bottom:1px dashed var(--cs-rule); } }
-.cs-sheet .rc-led { padding:12px 12px 14px; border-right:1px dashed var(--cs-rule); min-width:0; }
-.cs-sheet .rc-side { padding:14px 18px; display:grid; gap:16px; align-content:start; min-width:0; }
-.cs-sheet .rc-cap { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--cs-muted);
-  display:flex; justify-content:space-between; gap:10px; padding:0 6px 6px; }
-.cs-sheet .rc-cap span { text-transform:none; letter-spacing:0; font-weight:500; font-size:12px; }
-.cs-sheet .rc-fab .rc-cap { padding:0; }
-.cs-sheet .rc .sw { display:block; width:9px; height:9px; border-radius:2px; }
-.cs-sheet .rc-ln { display:grid; grid-template-columns:10px auto minmax(12px,1fr) 76px 52px; align-items:baseline; column-gap:8px;
-  padding:3px 6px; border-radius:5px; font-size:13px; transition:background-color .2s, opacity .2s; }
-.cs-sheet .rc-ln .sw { align-self:center; }
-.cs-sheet .rc-ln .ld { border-bottom:1px dotted #b6c0c9; transform:translateY(-4px); }
-.cs-sheet .rc-ln .a { text-align:right; } .cs-sheet .rc-ln .p { text-align:right; color:var(--cs-muted); font-size:12px; }
-.cs-sheet .rc-ln.neg .a { color:var(--cs-bad); }
-.cs-sheet .rc-ln.sub { border-top:1px solid var(--cs-rule); border-radius:0; margin-top:3px; padding-top:5px; font-weight:700; }
-.cs-sheet .rc-ln.tot { border-top:3px double var(--cs-muted); border-radius:0; margin-top:6px; padding-top:7px; font-size:16px; font-weight:800; }
-.cs-sheet .rc-ln.sub .ld, .cs-sheet .rc-ln.tot .ld { border-bottom-color:transparent; }
-.cs-sheet .rc-ln:not(.sub):not(.tot):hover, .cs-sheet .rc-ln.on { background:var(--cs-soft); }
-.cs-sheet .rc-mix { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
-.cs-sheet .rc-mix svg { width:96px; height:96px; flex:none; overflow:visible; }
-.cs-sheet .rc-mix circle { transition:stroke-width .2s, opacity .2s; } .cs-sheet .rc-mix circle.on { stroke-width:19; }
-.cs-sheet .rc-mix text { fill:var(--cs-ink); }
-.cs-sheet .rc-lg { flex:1 1 240px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:3px 16px; font-size:12.5px; min-width:0; }
-.cs-sheet .rc-lg div { display:grid; grid-template-columns:10px 1fr auto; gap:8px; align-items:center; padding:2px 6px; border-radius:5px; transition:background-color .2s, opacity .2s; }
-.cs-sheet .rc-lg div:hover, .cs-sheet .rc-lg div.on { background:var(--cs-soft); }
-.cs-sheet .rc-lg b { font-weight:700; }
-.cs-sheet .rc.hot .rc-ln:not(.on) { opacity:.45; }
-.cs-sheet .rc.hot .rc-lg div:not(.on), .cs-sheet .rc.hot .rc-mix circle:not(.on) { opacity:.4; }
-.cs-sheet .rc-fab { border-top:1px solid var(--cs-rule); padding-top:12px; display:grid; gap:12px; }
-.cs-sheet .rc-f .top { display:flex; justify-content:space-between; gap:10px; font-weight:800; font-size:13px; }
-.cs-sheet .rc-f .bar { display:flex; gap:2px; height:8px; margin:5px 0 4px; border-radius:4px; overflow:hidden; background:var(--cs-soft); }
-.cs-sheet .rc-f .bar span { display:block; }
-.cs-sheet .rc-f .parts { color:var(--cs-muted); font-size:12px; } .cs-sheet .rc-f .parts b { color:var(--cs-ink); font-weight:700; }
-/* ONLY THE WORDS ARRIVE: opacity, no movement, no blur, no counting. */
-@keyframes cs-ink { from { opacity:0; } to { opacity:1; } }
-.cs-sheet .rc-ln .t { animation:cs-ink .5s cubic-bezier(.22,.8,.3,1) both; animation-delay:calc(var(--i, 0) * 55ms); }
-.cs-sheet .rc-lg .t { animation:cs-ink .45s cubic-bezier(.22,.8,.3,1) both; animation-delay:calc(250ms + var(--i, 0) * 60ms); }
-.cs-sheet .rc-f .t { animation:cs-ink .5s cubic-bezier(.22,.8,.3,1) both; animation-delay:calc(400ms + var(--i, 0) * 120ms); }
-.cs-sheet .rc-cap.t, .cs-sheet .rc-mix text.t { animation:cs-ink .5s cubic-bezier(.22,.8,.3,1) both; animation-delay:150ms; }
-@media (prefers-reduced-motion: reduce) { .cs-sheet .rc .t { animation:none; } .cs-sheet .rc-ln, .cs-sheet .rc-lg div, .cs-sheet .rc-mix circle { transition:none; } }
+/* THE CHARTS TAB — COMPACT GLASS (user 2026-10-16; see CostCharts). Replaces the
+   2026-10-15 receipt. Every token the shared GlassRing reads is PINNED here to its
+   light value, so the panel stays light glass on the paper sheet in either theme. */
+.cs-sheet .cg { --glass-ground:#eef3f8; --glass:rgba(255,255,255,.58); --glass-strong:rgba(255,255,255,.85); --glass-row:rgba(255,255,255,.45);
+  --glass-edge:rgba(255,255,255,.9); --glass-disc:rgba(255,255,255,.72); --glass-track:rgba(22,32,43,.07);
+  --glass-disc-shadow:inset 0 1px 0 #fff, 0 6px 18px -10px rgba(11,111,179,.4);
+  --cg-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 10px 28px -16px rgba(16,38,64,.35), 0 2px 6px -3px rgba(16,38,64,.12);
+  --foreground:var(--cs-ink); --muted-foreground:var(--cs-muted); --success:var(--cs-good); --warning:var(--cs-warn); --danger:var(--cs-bad);
+  position:relative; isolation:isolate; overflow:hidden; display:grid; gap:10px; padding:12px; border-radius:16px; border:1px solid var(--cs-rule);
+  background:
+    radial-gradient(38% 55% at 8% 10%, rgba(42,120,214,.28), transparent 70%),
+    radial-gradient(34% 50% at 92% 16%, rgba(232,123,164,.24), transparent 70%),
+    radial-gradient(40% 60% at 60% 100%, rgba(27,175,122,.22), transparent 70%),
+    var(--glass-ground); }
+@media (max-width:560px){ .cs-sheet .cg { padding:8px; } }
+.cs-sheet .cg-glass { background:var(--glass); -webkit-backdrop-filter:blur(16px) saturate(1.5); backdrop-filter:blur(16px) saturate(1.5);
+  border:1px solid var(--glass-edge); border-radius:14px; box-shadow:var(--cg-shadow); animation:cg-rise .4s cubic-bezier(.22,.8,.3,1) both; }
+@keyframes cg-rise { from { opacity:0; transform:translateY(4px); } }
+/* A light sheen on every bar: lighter at the top, the tone below. */
+.cs-sheet .cg-gloss { background-image:linear-gradient(180deg, rgba(255,255,255,.38), rgba(255,255,255,0) 60%); box-shadow:inset 0 1px 0 rgba(255,255,255,.45); }
+.cs-sheet .cg-tag { display:inline-flex; align-items:center; height:18px; padding-inline:7px; border-radius:9px; font-size:10.5px; font-weight:700; letter-spacing:0; }
+.cs-sheet .cg-tag.good { background:var(--cs-good-tint); color:var(--cs-good); } .cs-sheet .cg-tag.warn { background:var(--cs-warn-tint); color:var(--cs-warn); }
+.cs-sheet .cg-tag.bad { background:var(--cs-bad-tint); color:var(--cs-bad); }
+
+/* 1 · tiles */
+.cs-sheet .cg-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+@media (max-width:900px){ .cs-sheet .cg-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.cs-sheet .cg-kpi { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:10px; align-items:center; padding:9px 12px; }
+.cs-sheet .cg-kpi .dot { grid-row:span 2; width:30px; height:30px; border-radius:9px; display:grid; place-items:center; color:#fff;
+  background:linear-gradient(160deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c)); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 4px 10px -4px var(--c); }
+.cs-sheet .cg-kpi .dot svg { width:15px; height:15px; }
+.cs-sheet .cg-kpi .k { font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--cs-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cs-sheet .cg-kpi .v { font-size:18px; font-weight:800; letter-spacing:-.02em; color:#13304a; display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; min-width:0; }
+.cs-sheet .cg-kpi .v small { font-size:11px; font-weight:600; color:var(--cs-muted); letter-spacing:0; }
+
+/* panels */
+.cs-sheet .cg-main { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1.2fr) minmax(0,.85fr); gap:10px; }
+.cs-sheet .cg-low { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; }
+.cs-sheet .cg-low.one { grid-template-columns:minmax(0,1fr); }
+@media (max-width:1080px){ .cs-sheet .cg-main { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .cs-sheet .cg-main > :first-child { grid-column:1 / -1; } }
+@media (max-width:700px){ .cs-sheet .cg-main, .cs-sheet .cg-low { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cg-card { padding:10px 12px 12px; min-width:0; display:grid; gap:8px; align-content:start; }
+.cs-sheet .cg-col { display:grid; gap:10px; align-content:start; min-width:0; }
+.cs-sheet .cg-cap { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+.cs-sheet .cg-cap h4 { margin:0; font-size:12.5px; font-weight:700; color:#13304a; }
+.cs-sheet .cg-cap > span { font-size:11px; color:var(--cs-muted); }
+.cs-sheet .cg button { font:inherit; color:inherit; }
+.cs-sheet .cg button:focus-visible { outline:2px solid var(--cs-brand); outline-offset:1px; }
+
+/* 2 · build-up */
+.cs-sheet .cg-wf { display:grid; gap:1px; font-size:12.5px; }
+.cs-sheet .cg-row { display:grid; grid-template-columns:132px minmax(0,1fr) 58px 42px; align-items:center; gap:8px; height:24px; padding:0 6px; border-radius:7px;
+  border:0; background:transparent; text-align:left; cursor:pointer; transition:background-color .15s, opacity .2s; }
+@media (max-width:560px){ .cs-sheet .cg-row { grid-template-columns:100px minmax(0,1fr) 56px; } .cs-sheet .cg-row .p { display:none; } }
+.cs-sheet .cg-row:hover, .cs-sheet .cg-row.on { background:var(--glass-strong); }
+.cs-sheet .cg-row .l { display:flex; gap:6px; align-items:center; min-width:0; font-weight:500; }
+.cs-sheet .cg-row .l span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs-sheet .cg-row .sw { width:8px; height:8px; border-radius:2px; flex:none; }
+.cs-sheet .cg-row .tr { position:relative; height:12px; border-radius:4px; background:rgba(15,27,38,.045); }
+.cs-sheet .cg-row .b { position:absolute; top:0; bottom:0; border-radius:4px; transition:left .45s cubic-bezier(.22,.8,.3,1), width .45s cubic-bezier(.22,.8,.3,1); }
+.cs-sheet .cg-row .a { text-align:right; font-weight:600; } .cs-sheet .cg-row .a.neg { color:var(--cs-bad); }
+.cs-sheet .cg-row .p { text-align:right; color:var(--cs-muted); font-size:11px; }
+.cs-sheet .cg-row.tot { cursor:default; border-top:1px solid rgba(15,27,38,.08); border-radius:0; margin-top:2px; height:27px; }
+.cs-sheet .cg-row.tot .l, .cs-sheet .cg-row.tot .a { font-weight:800; }
+.cs-sheet .cg-row.final .a { font-size:13.5px; color:var(--cs-brand-ink); }
+.cs-sheet .cg-row.tot:hover { background:transparent; }
+.cs-sheet .cg-wf.hot .cg-row.dim { opacity:.38; }
+
+/* 3 · the ring + its legend */
+.cs-sheet .cg-mix { display:grid; grid-template-columns:8.75rem minmax(0,1fr); gap:12px; align-items:center; }
+@media (max-width:420px){ .cs-sheet .cg-mix { grid-template-columns:minmax(0,1fr); justify-items:center; } }
+.cs-sheet .cg-lg { display:grid; gap:4px; min-width:0; width:100%; font-size:12.5px; }
+.cs-sheet .cg-lg button { display:grid; grid-template-columns:10px minmax(0,1fr) 44px 42px; column-gap:8px; align-items:center; padding:4px 9px; border-radius:11px; cursor:pointer; text-align:left;
+  background:var(--glass-row); border:1px solid var(--glass-edge); transition:background-color .2s, opacity .2s; }
+.cs-sheet .cg-lg button:hover, .cs-sheet .cg-lg button.on { background:var(--glass-strong); }
+.cs-sheet .cg-lg button.dim { opacity:.45; }
+.cs-sheet .cg-lg .dot { width:9px; height:9px; border-radius:50%; background:var(--c); box-shadow:0 0 8px var(--c); }
+.cs-sheet .cg-lg .nm { font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs-sheet .cg-lg .sh { height:4px; border-radius:2px; background:var(--glass-track); overflow:hidden; }
+.cs-sheet .cg-lg .sh i { display:block; height:100%; border-radius:2px; background:var(--c); box-shadow:0 0 6px var(--c); transform-origin:left center; animation:viz-grow .8s cubic-bezier(.22,.8,.26,1) .15s both; }
+.cs-sheet .cg-lg b { font-weight:700; text-align:right; }
+
+/* 4 · margin gauge */
+.cs-sheet .cg-track { height:10px; border-radius:5px; overflow:hidden; display:flex; box-shadow:inset 0 1px 2px rgba(16,38,64,.15); }
+.cs-sheet .cg-track i { display:block; height:100%; }
+.cs-sheet .cg-pin { position:relative; height:20px; margin-top:-4px; }
+.cs-sheet .cg-pin .m { position:absolute; top:2px; transform:translateX(-50%); display:grid; justify-items:center; transition:left .45s cubic-bezier(.22,.8,.3,1); }
+.cs-sheet .cg-pin .m::before { content:""; border:5px solid transparent; border-bottom:6px solid var(--cs-ink); margin-top:-8px; }
+.cs-sheet .cg-pin .m b { font-size:11px; font-weight:800; background:var(--cs-ink); color:#fff; border-radius:5px; padding:0 6px; line-height:16px; }
+.cs-sheet .cg-ax { position:relative; height:13px; font-size:10.5px; color:var(--cs-muted); margin-top:-4px; }
+.cs-sheet .cg-ax span { position:absolute; white-space:nowrap; }
+.cs-sheet .cg-msg { font-size:11.5px; color:var(--cs-muted); margin:0; } .cs-sheet .cg-msg b { color:var(--cs-ink); }
+
+/* 5 · sizes */
+.cs-sheet .cg-sz { display:grid; gap:2px; font-size:12.5px; }
+.cs-sheet .cg-sz button { display:grid; grid-template-columns:30px minmax(0,1fr) 50px; gap:7px; align-items:center; height:25px; padding:0 6px; border-radius:7px; border:1px solid transparent; background:transparent; cursor:pointer; text-align:left; }
+.cs-sheet .cg-sz button:hover:not(:disabled) { background:var(--glass-strong); }
+.cs-sheet .cg-sz button:disabled { cursor:default; }
+.cs-sheet .cg-sz button[aria-pressed="true"] { background:var(--glass-strong); border-color:#b9dff2; box-shadow:0 2px 8px -4px rgba(3,123,184,.45); }
+.cs-sheet .cg-sz .n { font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs-sheet .cg-sz .st { display:flex; height:10px; border-radius:4px; overflow:hidden; gap:1px; }
+.cs-sheet .cg-sz .st i { display:block; height:100%; }
+.cs-sheet .cg-sz .r { text-align:right; }
+
+/* 6 · fabric rate */
+.cs-sheet .cg-fab { display:grid; gap:9px; }
+.cs-sheet .cg-fab .top { display:flex; justify-content:space-between; gap:8px; font-weight:700; font-size:12px; }
+.cs-sheet .cg-fab .top span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs-sheet .cg-fab .st { display:flex; gap:2px; height:12px; border-radius:5px; overflow:hidden; margin-top:4px; }
+.cs-sheet .cg-fab .st i { display:block; height:100%; cursor:help; transition:opacity .15s; }
+.cs-sheet .cg-fab .st:hover i:not(:hover) { opacity:.4; }
+.cs-sheet .cg-fab .keys { display:flex; flex-wrap:wrap; gap:2px 10px; margin-top:4px; font-size:11px; color:var(--cs-muted); }
+.cs-sheet .cg-fab .keys i { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:4px; }
+.cs-sheet .cg-fab .keys b { color:var(--cs-ink); }
+
+/* 7 · revisions */
+.cs-sheet .cg-rev { width:100%; height:auto; max-height:130px; display:block; }
+
+@media (prefers-reduced-motion: reduce) { .cs-sheet .cg-glass, .cs-sheet .cg-lg .sh i { animation:none; } .cs-sheet .cg-row .b, .cs-sheet .cg-pin .m { transition:none; } }
 .cs-sheet .two { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:18px; }
 @media (max-width:860px){ .cs-sheet .two { grid-template-columns:1fr; } }
 .cs-sheet .wf { display:flex; flex-direction:column; gap:3px; }
@@ -2568,6 +2972,35 @@ const CSS = `
 .cs-sheet .fsheet .faddrow:hover { background:#f3f8fc; }
 .cs-sheet .fsheet .faddrow:focus-visible { outline:2px solid #037bb8; outline-offset:0; }
 
+/* FABRIC BANDS (plan "Fabric Cost Single Table", option A, 2026-10-16). A fabric's band is
+   a grey 40px line that starts each block with a firmer rule; its Yarn and Processes
+   groups sit under it while open; process lines are tinted amber so the two groups read
+   apart; a working line closes the block. */
+.cs-sheet .fband tr.band td { background:#f5f7f9; height:40px; }
+.cs-sheet .fband tbody + tbody tr.band td { border-top:2px solid #c8dce9; }
+.cs-sheet .fband tr.band:hover td { background:#eef4f9; }
+.cs-sheet .fband td.bandname { padding:3px 0 3px 0; vertical-align:middle; }
+.cs-sheet .fband .bandhead { display:flex; align-items:center; gap:2px; }
+.cs-sheet .fband .bandhead :is(input, select) { font-weight:700; }
+.cs-sheet .fband .caret { flex:none; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-left:4px; border-radius:4px; color:var(--cs-muted); transition:transform .15s; }
+.cs-sheet .fband button.caret:hover { background:#e6edf3; }
+.cs-sheet .fband tbody.is-open .caret { transform:rotate(90deg); }
+.cs-sheet .fband .blend { display:block; padding-left:30px; font-size:11px; color:var(--cs-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cs-sheet .fband .toglabel { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cs-muted); }
+.cs-sheet .fband td.tog { text-align:left; }
+.cs-sheet .fband .bandprice { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:13.5px; font-weight:700; color:#3f7d17; }
+.cs-sheet .fband tr.grp td { height:24px; padding-left:30px; font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--cs-muted); background:#fff; }
+.cs-sheet .fband tr.grp.p td { color:#8a6512; }
+.cs-sheet .fband tr.grp .gsum { float:right; padding-right:3.5rem; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:12px; letter-spacing:0; text-transform:none; font-weight:600; color:var(--cs-ink); }
+.cs-sheet .fband tr.line > td:first-child { padding-left:22px; }
+.cs-sheet .fband tr.line > td.in:first-child { padding-left:22px; }
+.cs-sheet .fband tr.line.p > td:not(.in) { background:#fcf8ee; }
+.cs-sheet .fband tr.addln td { height:26px; padding-left:22px; background:#fff; }
+.cs-sheet .fband tr.work td { height:30px; padding-left:30px; font-size:12px; color:var(--cs-muted); background:#fff; }
+.cs-sheet .fband tr.work b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-weight:600; color:var(--cs-ink); }
+.cs-sheet .fband tr.work .eq b { color:#3f7d17; }
+@media (prefers-reduced-motion: reduce) { .cs-sheet .fband .caret { transition:none; } }
+
 /* OPERATIONS & TRIMS, COMPACT (user 2026-10-15, screenshot 3551: "next compact the fields").
    Each table HUGS its columns instead of stretching across the tab: a section no longer
    grows to fill its row, a table is as wide as its headings say — name 200, figure 88,
@@ -2588,4 +3021,58 @@ const CSS = `
 .cs-sheet .qbigrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .cs-sheet .qccy { height:28px; border:1px solid var(--cs-rule); border-radius:6px; background:#fff; padding:0 6px; font-size:12px; font-weight:700; color:#037bb8; cursor:pointer; }
 .cs-sheet .qccy:focus-visible { outline:2px solid #037bb8; outline-offset:1px; }
+
+/* ===== OPTION B — LETTERHEAD + PRICE CARD (user 2026-10-16, "Option B is okay";
+   artifact "Costing Report Header"). On screen AND in print. The stripe is the order
+   reports' own four colours (report-kit.tsx SheetMasthead); the card is the one block
+   of strong colour, and it carries the price. ===== */
+.cs-sheet .lh { background:#fff; border-bottom:1px solid var(--cs-rule); }
+.cs-sheet .lh-stripe { display:flex; height:5px; }
+.cs-sheet .lh-stripe span { flex:1; }
+.cs-sheet .lh-stripe span:nth-child(1) { background:#d98e04; } .cs-sheet .lh-stripe span:nth-child(2) { background:#6b7480; }
+.cs-sheet .lh-stripe span:nth-child(3) { background:#037bb8; } .cs-sheet .lh-stripe span:nth-child(4) { background:#85c227; }
+.cs-sheet .lh-head { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:16px; align-items:stretch; padding:14px 18px; border-bottom:2px solid var(--cs-ink); }
+.cs-sheet .lh-left { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.cs-sheet .lh-brand { display:flex; align-items:center; gap:10px; }
+.cs-sheet .lh-logo { height:40px; width:auto; object-fit:contain; flex:none; }
+.cs-sheet .lh-mark { width:40px; height:40px; border-radius:9px; background:var(--cs-brand); color:#fff; display:grid; place-items:center; font-weight:800; font-size:19px; flex:none; }
+.cs-sheet .lh-brand b { display:block; font-size:16px; font-weight:800; text-transform:uppercase; letter-spacing:.01em; }
+.cs-sheet .lh-brand span { display:block; font-size:11.5px; color:var(--cs-muted); text-transform:uppercase; letter-spacing:.06em; }
+.cs-sheet .lh-title { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; }
+.cs-sheet .lh-kind { font-size:11.5px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--cs-brand); }
+.cs-sheet .lh-no { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:16px; font-weight:600; color:var(--cs-ink); }
+.cs-sheet .lh-style { font-size:19px; font-weight:800; letter-spacing:-.01em; line-height:1.2; }
+.cs-sheet .lh-style span { color:var(--cs-muted); font-weight:600; font-size:15px; }
+.cs-sheet .lh-card { background:linear-gradient(160deg,#037bb8,#024f78); color:#fff; border-radius:12px; padding:12px 16px; min-width:200px; display:flex; flex-direction:column; justify-content:center; gap:3px; }
+.cs-sheet .lh-card .k { font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:#bfe0f2; font-weight:700; }
+.cs-sheet .lh-card .big { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:26px; font-weight:700; line-height:1.1; }
+.cs-sheet .lh-card .row { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:#d8ecf7; }
+.cs-sheet .lh-card .row b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; color:#fff; font-weight:600; }
+.cs-sheet .lh-card .marg { margin-top:4px; align-self:flex-start; font-size:12px; font-weight:700; color:#1d3b06; background:#c9ec8e; padding:2px 9px; border-radius:999px; }
+.cs-sheet .lh-card .marg[data-low] { color:#7a1a14; background:#fbd5d1; }
+.cs-sheet .lh-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px 18px; margin:0; padding:10px 18px; background:var(--cs-soft); }
+.cs-sheet .lh-facts dt { font-size:10.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--cs-muted); }
+.cs-sheet .lh-facts dd { margin:0; font-size:13.5px; font-weight:600; color:var(--cs-ink); }
+@media (max-width:640px) { .cs-sheet .lh-head { grid-template-columns:minmax(0,1fr); } .cs-sheet .lh-card { min-width:0; } }
+
+/* Option B's TABS: small cards on a pale band, each topped in its cost colour
+   (data-tone on the tab); the open one raised with a brand edge. */
+.cs-sheet .ctab { --tone:var(--cs-rule); }
+.cs-sheet .ctab[data-tone="fabric"] { --tone:var(--cs-fabric); } .cs-sheet .ctab[data-tone="cmt"] { --tone:var(--cs-cmt); }
+.cs-sheet .ctab[data-tone="over"] { --tone:var(--cs-over); } .cs-sheet .ctab[data-tone="margin"] { --tone:var(--cs-margin); }
+.cs-sheet .ctabs { gap:6px; padding:8px 10px; background:var(--cs-soft); border:1px solid var(--cs-rule); border-radius:10px; }
+.cs-sheet .ctab { border:1px solid var(--cs-rule); border-top:3px solid var(--tone); border-radius:8px; background:#fff; margin-bottom:0; padding:5px 12px 6px; }
+.cs-sheet .ctab:hover { background:#fff; box-shadow:0 4px 10px -8px rgb(2 79 120 / .5); }
+.cs-sheet .ctab[aria-selected="true"]:not([data-tone]) { --tone:var(--cs-brand); }
+.cs-sheet .ctab[aria-selected="true"] { background:#fff; border-color:var(--cs-brand); border-top:3px solid var(--tone); box-shadow:0 6px 14px -10px rgb(2 79 120 / .6); }
+
+/* Option B's SECTION BARS: each section's title row in its cost colour — tint,
+   ink, and a 2px rule on top — so the body speaks the tabs' and card's colours. */
+.cs-sheet summary[data-tone] { background:var(--tint); color:var(--ink); border-top:2px solid var(--tone); text-transform:uppercase; font-size:12px; letter-spacing:.06em; padding:7px 12px; }
+.cs-sheet summary[data-tone] span { text-transform:none; letter-spacing:0; color:var(--ink); opacity:.8; }
+.cs-sheet summary[data-tone="fabric"] { --tone:var(--cs-fabric); --tint:#e6f5fc; --ink:#024f78; }
+.cs-sheet summary[data-tone="cmt"] { --tone:var(--cs-cmt); --tint:#e4f5f2; --ink:#146b60; }
+.cs-sheet summary[data-tone="trims"] { --tone:var(--cs-trims); --tint:#fcf3df; --ink:#8a5a00; }
+.cs-sheet summary[data-tone="over"] { --tone:var(--cs-over); --tint:#efebfa; --ink:#5a44a8; }
+.cs-sheet details.plain > summary[data-tone] { padding:6px 10px; border-radius:6px; margin-bottom:6px; }
 `;

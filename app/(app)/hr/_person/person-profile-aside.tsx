@@ -3,7 +3,8 @@
 import { Cake, Droplets, Mail, MapPin, Phone, UserRound } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
 import { PhotoUpload } from "@/components/ui/photo-upload";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -163,7 +164,7 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
                 </span>
               )}
               {p.isEditing ? (
-                <StatusPill tone={p.isActive ? "success" : "neutral"}>
+                <StatusPill tone={activeTone(p.isActive)}>
                   {p.isActive ? "Active" : "Inactive"}
                 </StatusPill>
               ) : (

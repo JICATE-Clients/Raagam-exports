@@ -32,7 +32,6 @@ import {
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { CostingSummary } from "./calc";
 import { offered, priceText, type QuotationHistoryRow } from "./quotation";
-import { changeText } from "./revision-history";
 
 export type QuotationSheet = {
   costingNo: string | null;
@@ -163,34 +162,11 @@ export async function exportQuotationPdf(
     },
   });
 
-  /* WHERE THIS QUOTATION STANDS IN THE NEGOTIATION (client 2026-10-09) — Rev 0 →
-     Rev 1 → Rev 2 with the price each carried and how it moved. Prices only: the
-     model this reads has the margin stripped out. Absent for a costing that was
-     never revised. */
-  if (q.history && q.history.length > 0) {
-    const afterPrice = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-    const histTop = drawCardHeader(doc, M, afterPrice + 16, CW, BRAND, "Revision history");
-    autoTable(doc, {
-      startY: histTop,
-      margin: { left: M, right: M, top: 40 },
-      theme: "plain",
-      styles: cardTableStyles(),
-      headStyles: cardTableHead(),
-      head: [["Revision", "Date", "Status", `Price (${q.currency ?? ""})`, "Change"]],
-      body: q.history.map((r) => [
-        r.current ? `${r.label}  (this quotation)` : r.label,
-        r.date ? fmtDate(r.date) : "—",
-        r.statusLabel,
-        r.price == null ? "—" : r.price.toFixed(2),
-        changeText(r.changePct),
-      ]),
-      columnStyles: { 3: { halign: "right" }, 4: { halign: "right" } },
-      didParseCell: (d) => {
-        paintRow(d as Parameters<typeof paintRow>[0], { tone: BRAND });
-        if (d.section === "body" && q.history?.[d.row.index]?.current) d.cell.styles.fontStyle = "bold";
-      },
-    });
-  }
+  /* NO REVISION HISTORY ON THE QUOTATION (user 2026-10-16: "no need to Revision
+     history, remove it from quotation report"). The table of Rev 0 → Rev 1 prices
+     (client 2026-10-09) came off the screen and this PDF together; the buyer's
+     document states the price in force, and the trail stays on the internal Cost
+     Sheet's Revisions tab. */
 
   const end = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   doc.setFont("helvetica", "normal");

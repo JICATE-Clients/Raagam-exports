@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const PRV_STATUSES = ["draft", "finalised", "cancelled"] as const;
 export type PrvStatus = (typeof PRV_STATUSES)[number];
@@ -11,14 +12,7 @@ export const PRV_STATUS_LABELS: Record<PrvStatus, string> = {
 };
 
 export function prvStatusTone(status: PrvStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "finalised":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface ProvisionalInvoice {

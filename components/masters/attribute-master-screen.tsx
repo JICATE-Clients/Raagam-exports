@@ -11,7 +11,8 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PaginationBar } from "@/components/ui/pagination";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
@@ -210,7 +211,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.is_active ? "success" : "danger"}>
+        <StatusPill tone={activeTone(r.is_active)}>
           {r.is_active ? "Active" : "Inactive"}
         </StatusPill>
       ),
@@ -318,7 +319,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
-                <StatusPill tone={r.is_active ? "success" : "danger"}>
+                <StatusPill tone={activeTone(r.is_active)}>
                   {r.is_active ? "Active" : "Inactive"}
                 </StatusPill>
               </div>

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { REQUIREMENT_BASES } from "@/lib/orders/material-bom/requirement";
 import { AXES, canonicalAxes, type Axis } from "@/lib/orders/bom-explosion/exploder";
 import { capsTextNullable } from "@/lib/validation/formats";
+import { draftTone, type StatusTone } from "@/lib/ui/status-tone";
 
 // ============================================================================
 // Orders ▸ Material BOM (0265, reshaped by 0418). Step 2 of the client's
@@ -1123,8 +1124,8 @@ export type MbaProcessInput = z.infer<typeof mbaProcessInput>;
  *  question `status.ts` answers ("has this order been planned, and is the plan
  *  still current?"). Both are shown: this one inside the editor, that one on the
  *  two lists. */
-export function mbaStatusTone(is_draft: boolean): "warning" | "success" {
-  return is_draft ? "warning" : "success";
+export function mbaStatusTone(is_draft: boolean): StatusTone {
+  return draftTone(is_draft);
 }
 export function mbaStatusText(is_draft: boolean): string {
   return is_draft ? "Draft" : "Recorded";

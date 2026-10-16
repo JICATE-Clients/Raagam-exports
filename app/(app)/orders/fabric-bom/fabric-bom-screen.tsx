@@ -57,6 +57,7 @@ import {
   Ruler,
   Spool,
   CalendarClock,
+  Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RowHoverRemove } from "@/components/ui/row-hover-remove";
@@ -86,6 +87,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { Sheet } from "@/components/ui/sheet";
+import { CopySourceChooser, PreviewChip } from "@/components/orders/copy-source-chooser";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Truncated } from "@/components/ui/truncated";
 import { Toggle } from "@/components/ui/toggle";
@@ -347,6 +349,14 @@ const nextKey = () => `k${keySeq++}`;
  * it, whose off-state is not its stored state.
  */
 const SHOW_FABRIC_SOURCE = false;
+
+/**
+ * FABRIC PLAN ▸ DIA / SIZE WIDTH DETAILS IS HIDDEN "FOR NOW" (user 2026-10-16,
+ * screenshot 3580: "the last table hide it"). Only the panel goes: the rows
+ * still load and save untouched, nothing requires them, and flipping this back
+ * to `true` restores the panel with nothing to rebuild.
+ */
+const SHOW_DIA_PANEL = false;
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -4950,7 +4960,9 @@ export function FabricBomScreen({
     let cancelled = false;
     loadPatternForFabricBom(id).then((res) => {
       if (cancelled || !res.ok) return;
-      setPatternState({ forOrder: id, lines: res.lines, styles: res.styles });
+      /* UNLOCKED ON ORDER ENTRY ▸ CAD (0733, user 2026-10-16): the sheet's lines
+         are dropped here, so nothing below locks, fills or adds from them. */
+      setPatternState({ forOrder: id, lines: res.locked ? res.lines : [], styles: res.styles });
     });
     return () => {
       cancelled = true;
@@ -5957,7 +5969,7 @@ export function FabricBomScreen({
                 return st.value === "ready" ? (
                   <span className="text-xs text-muted-foreground">Pattern: Ready</span>
                 ) : (
-                  <span className="text-xs text-amber-700 dark:text-amber-400">
+                  <span className="text-xs text-warning">
                     Pattern: {st.label} — not Ready yet
                   </span>
                 );
@@ -8596,16 +8608,17 @@ export function FabricBomScreen({
         .filter((b) => (b.dias ?? []).length > 0 || (b.lines ?? []).length > 0)
         .map((b) => ({
           id: b.id,
-          label: [
-            b.code ?? "(no code)",
-            b.garment_order?.customer?.name ?? null,
-            b.garment_order?.po_no ?? b.garment_order?.code ?? null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
+          code: b.code ?? "(no code)",
+          customer: b.garment_order?.customer?.name ?? null,
+          orderNo: b.garment_order?.po_no ?? b.garment_order?.code ?? null,
+          dias: (b.dias ?? []).length,
+          lines: (b.lines ?? []).length,
         })),
     [boms, editId],
   );
+  /** The Copy-from chooser (2026-10-16) — it replaced a native dropdown that
+   *  could not be searched. */
+  const [copyOpen, setCopyOpen] = useState(false);
 
   /**
    * COPY ANOTHER BOM'S SIZE DETAILS AND FABRIC LINES INTO THIS ONE.
@@ -9242,25 +9255,41 @@ export function FabricBomScreen({
       header: "Type",
       cardLabel: "Knit type",
       width: "6rem",
-      cell: (r) => <ClothText value={r.structureType} />,
+      cell: (r) => (comboWise(r) ? <ClothText value={r.structureType} /> : null),
     },
     {
       header: "Type",
       cardLabel: "Roll form",
       width: "5.5rem",
-      cell: (r) => <ClothText value={r.form} />,
+      cell: (r) => (comboWise(r) ? <ClothText value={r.form} /> : null),
     },
     {
       header: "Assort Color",
       width: "9rem",
-      cell: (r) => <ClothText value={r.combos.join(", ")} />,
+      cell: (r) => (comboWise(r) ? <ClothText value={r.combos.join(", ")} /> : null),
     },
     {
       header: "Components",
       width: "9rem",
-      cell: (r) => <ClothText value={r.panels.join(", ")} />,
+      cell: (r) => (comboWise(r) ? <ClothText value={r.panels.join(", ")} /> : null),
     },
   ];
+
+  /*
+   * TYPE · TYPE · ASSORT COLOR · COMPONENTS · PROCESS SHOW ONLY UNDER COMBO
+   * COLOR (user 2026-10-16, screenshot 3579: "these tabs only show while
+   * enabling the combo color … if the combo color is disabled hide it").
+   *
+   * Per fabric: a row whose Route per ▸ Combo Color is off leaves those cells
+   * empty. Per list: while NO fabric has it on, the columns and their headings
+   * go altogether and the list keeps Fabric Description and Route per only.
+   * The route is never lost with the Process column — with no fold button,
+   * `ProcessFoldList` makes the whole line the opener (the Yarn Process shape,
+   * still on the Tab path through `data-row-open`).
+   */
+  const comboWise = (r: { item_id: string }) => scopeFor(r.item_id).assort_color_wise;
+  const anyComboWise = fabricRouteRows.some(comboWise);
+  const shownRouteColumns = anyComboWise ? fabricRouteColumns : fabricRouteColumns.slice(0, 1);
 
   /**
    * HAS THE ORDER DECLARED A PRINT? (0528) — "if the user has not configured
@@ -9320,29 +9349,65 @@ export function FabricBomScreen({
               "permanently closed gate" this module has already been told off
               for once. */}
           {copySources.length > 0 && (
-            <div className="mb-3 flex items-center justify-end gap-2">
-              <label htmlFor="fb-copy" className="text-xs text-muted-foreground">
-                Copy from
-              </label>
-              <Select
-                id="fb-copy"
-                compact
-                className="h-8 w-64"
-                value=""
-                onChange={(e) => {
-                  const id = e.target.value;
-                  if (id) copyFromBom(id);
-                }}
-              >
-                <option value="" />
-                {copySources.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
+            <div className="mb-3 flex items-center justify-end">
+              <Button type="button" variant="outline" size="sm" onClick={() => setCopyOpen(true)}>
+                <Copy className="h-4 w-4" aria-hidden />
+                Copy from…
+              </Button>
             </div>
           )}
+          {/* A SEARCHABLE CHOOSER, NOT A DROPDOWN (user 2026-10-16). It used to
+              be a `<Select>` used as a command, unsearchable however many BOMs
+              there were. Still additive: Copy adds only what is not here. */}
+          <CopySourceChooser<(typeof copySources)[number]>
+            open={copyOpen}
+            onClose={() => setCopyOpen(false)}
+            title="Copy from another fabric BOM"
+            intro="Adds the size details and fabric lines this BOM does not have yet. Style and combo are not copied — they belong to the other order."
+            items={copySources}
+            getId={(o) => o.id}
+            searchText={(o) => [o.code, o.customer, o.orderNo]}
+            searchPlaceholder="Search BOM, customer or order…"
+            filters={
+              pickedOrder?.customer_name
+                ? [{ key: "customer", label: "This customer", test: (o) => o.customer === pickedOrder.customer_name }]
+                : undefined
+            }
+            groups={
+              pickedOrder?.customer_name
+                ? [{ label: `This customer · ${pickedOrder.customer_name}`, test: (o) => o.customer === pickedOrder.customer_name }]
+                : undefined
+            }
+            renderRow={(o) => (
+              <span className="flex items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="block font-mono text-xs font-medium text-foreground">{o.code}</span>
+                  {/* Selects on click, so `touch={false}` — see BomCopySheet. */}
+                  <Truncated
+                    touch={false}
+                    text={[o.customer, o.orderNo].filter(Boolean).join(" · ") || "—"}
+                    className="block text-xs text-muted-foreground"
+                  />
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {o.lines} {o.lines === 1 ? "line" : "lines"}
+                </span>
+              </span>
+            )}
+            renderPreview={(o) => (
+              <span className="flex flex-wrap gap-1">
+                <PreviewChip>{o.dias} {o.dias === 1 ? "size detail" : "size details"}</PreviewChip>
+                <PreviewChip>{o.lines} fabric {o.lines === 1 ? "line" : "lines"}</PreviewChip>
+                <PreviewChip>Only what is missing is added</PreviewChip>
+              </span>
+            )}
+            onCopy={(id) => {
+              setCopyOpen(false);
+              copyFromBom(id);
+            }}
+            copyLabel={(o) => `Copy from ${o.code}`}
+            emptyHint="No other fabric BOM to copy from yet."
+          />
           {/**
            * WIDTHS, NOT TWELFTHS (client 2026-09-03: Customer and Delivery
            * "stretched excessively wide compared to their text content").
@@ -9818,6 +9883,7 @@ export function FabricBomScreen({
 
                 TWO COLUMNS IN ONE ROW — Type beside Dia / Size / Width, which
                 is what the extra 70px of width is for. */}
+            {SHOW_DIA_PANEL && (
             <PaletteTable<DiaRow>
               label="Dia / Size Width Details"
               columns={diaColumns}
@@ -9832,6 +9898,7 @@ export function FabricBomScreen({
               }
               addLabel="+ Add dia"
             />
+            )}
           </div>
         </SectionBody>
       ),
@@ -10282,7 +10349,7 @@ export function FabricBomScreen({
                             return ps.value === "ready" ? (
                               <span className="text-xs text-muted-foreground">Pattern: Ready</span>
                             ) : (
-                              <span className="text-xs text-amber-700 dark:text-amber-400">
+                              <span className="text-xs text-warning">
                                 Pattern: {ps.label} — not Ready yet
                               </span>
                             );
@@ -10630,11 +10697,11 @@ export function FabricBomScreen({
             </p>
           ) : (
             <ProcessFoldList<FabricRouteRow>
-              columns={fabricRouteColumns}
+              columns={shownRouteColumns}
               rows={fabricRouteRows}
               openKey={openFabricId}
               onToggle={setOpenFabricId}
-              foldHeader="Process"
+              foldHeader={anyComboWise ? "Process" : undefined}
               afterFold={[
                 {
                 /* "ROUTE PER", NOT "GROUP BY" (2026-09-16) — AND THE OLD
@@ -10754,12 +10821,13 @@ export function FabricBomScreen({
                  count, because a half-typed step is not a step. "No route yet"
                  is a complete answer: a fabric bought finished and cut runs
                  none, which is why nothing here blocks Save. */
-              foldSummary={(r) => {
+              foldSummary={anyComboWise ? (r) => {
+                if (!comboWise(r)) return "";
                 const steps = routeStepCount(
                   procs.filter((p) => p.item_id === r.item_id && inCard(p, r)),
                 );
                 return steps ? `${steps} step${steps === 1 ? "" : "s"}` : "No route yet";
-              }}
+              } : undefined}
               renderPanel={(r) => {
                 const scope = scopeFor(r.item_id);
                 /* THE SOURCE THE FIGURES USE — read off the route since

@@ -51,6 +51,7 @@ import {
   type VendorNomination,
   type VendorOption,
 } from "@/lib/masters/vendor-nominations";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // ---------- helpers ----------
 
@@ -62,16 +63,7 @@ const BOM_STATUS_LABELS: Record<BomStatus, string> = {
 };
 
 function bomStatusTone(status: BomStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 const PROCESS_STAGE_OPTIONS = ["grey", "dyed", "print", "wash"] as const;

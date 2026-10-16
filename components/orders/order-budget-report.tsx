@@ -1,8 +1,9 @@
 "use client";
 
 import { Fragment } from "react";
-import { Download, FileSpreadsheet, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { fmtDate } from "@/lib/format";
 import type { BudgetGroupHead, Fig, OrderBudgetReport } from "@/lib/orders/budget/report";
 import { inr, isFigRefusal, qtyCell } from "@/lib/orders/budget/report-format";
@@ -78,18 +79,14 @@ export function OrderBudgetReportView({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap justify-end gap-2 print:hidden">
-        <Button variant="outline" size="md" onClick={() => exportOrderBudgetCsv(data, showAmendment)}>
-          <FileSpreadsheet className="h-4 w-4" aria-hidden />
-          Excel
-        </Button>
         <Button variant="outline" size="md" onClick={() => exportOrderBudgetPdf(data, "print", showAmendment)}>
           <Printer className="h-4 w-4" aria-hidden />
           Print
         </Button>
-        <Button size="md" onClick={() => exportOrderBudgetPdf(data, "download", showAmendment)}>
-          <Download className="h-4 w-4" aria-hidden />
-          Download PDF
-        </Button>
+        <DownloadMenu
+          variant="primary"
+          formats={[asPdf(() => exportOrderBudgetPdf(data, "download", showAmendment)), asExcel(() => exportOrderBudgetCsv(data, showAmendment))]}
+        />
       </div>
 
       <div>

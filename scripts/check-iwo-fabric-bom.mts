@@ -19,7 +19,8 @@ import {
   yarnPurchase,
   type FabricComposition,
 } from "../lib/orders/fabric-bom/yarn-process.ts";
-import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase, iwoYarnShades } from "../lib/orders/iwo-fabric-bom/yarn.ts";
+import { iwoFabricGross, iwoRoutesByFabric, iwoSourceByFabric, iwoYarnModePurchase, iwoYarnShades } from "../lib/orders/iwo-fabric-bom/yarn.ts";
+import { sampleYarnFabricReport } from "../lib/sales/plan-reports/yarn-fabric.ts";
 import { dyeingWorkOrderLines } from "../lib/orders/iwo-fabric-bom/dyeing.ts";
 import {
   cellKey,
@@ -954,6 +955,62 @@ check("§18 the attribute and the sheet are gone", /plan_by|openBreakup|FabricBr
     ).map((l) => [l.loss_pct, l.greige_kg]),
     [[4.94, 2.21]],
   );
+}
+
+// §22 — A CLOTH BOUGHT BY THE ROLL BUYS NO YARN (user 2026-10-16: "yarn
+// purchase showing with total of the fabric purchases"). SWO 0002's shape:
+// Single Jersey knitted, Lycra Rib's route opening with FABRIC PURCHASE.
+{
+  const KNIT = "p-knit";
+  const BUY = "p-fabric-purchase";
+  const DYE22 = "p-dyeing";
+  const GREIGE = "st-greige";
+  const steps = [
+    { item_id: FAB, stage_id: GREIGE, process_id: KNIT, loss_pct: 0 },
+    { item_id: FAB2, stage_id: GREIGE, process_id: BUY, loss_pct: 0 },
+  ];
+  const sources = iwoSourceByFabric(
+    steps,
+    [
+      { id: KNIT, is_cloth_purchase: false },
+      { id: BUY, is_cloth_purchase: true },
+    ],
+    [{ id: GREIGE, code: "GREIGE", name: "GREIGE" }],
+  );
+  check("§22 a route opening with FABRIC PURCHASE reads as a greige purchase", sources.get(FAB2), "greige_purchase");
+  check("§22 a knitted route stays yarn + knitting", sources.get(FAB), "yarn_knit");
+  const lines22 = [
+    { item_id: FAB, req_kgs: 190 },
+    { item_id: FAB2, req_kgs: 25 },
+  ];
+  const cotton = (src: Map<string, "yarn_knit" | "greige_purchase" | "dyed_purchase">) =>
+    yarnPurchase(COTTON, iwoFabricGross(lines22, KG, name), comps, iwoRoutesByFabric(steps, noKinds), [], 3, src, []);
+  check("§22 cotton is the KNITTED cloth's only — the bought rib leaves the sum", qty(cotton(sources)), 190);
+  // The old call (`new Map()`, every fabric knitted) is the bug: 190 + 60% of 25.
+  check("§22 without the route's source the rib was charged as yarn too", qty(cotton(new Map())), 205);
+  const lycra = yarnPurchase(LYCRA, iwoFabricGross(lines22, KG, name), comps, iwoRoutesByFabric(steps, noKinds), [], 3, sources, []);
+  check("§22 a yarn only the bought cloth uses is refused, not bought", isRefusal(lycra), true);
+
+  // …and the sample report states it as FABRIC PURCHASE instead.
+  const rep = sampleYarnFabricReport({
+    header: {} as never,
+    lines: [
+      { sample: "SMP 1", itemId: FAB, fabric: "SINGLE JERSEY", stageId: null, form: null, gsm: null, colour: "WHITE", dia: null, print: null, part: null, reqKg: 190 },
+      { sample: "SMP 1", itemId: FAB2, fabric: "RIB", stageId: null, form: null, gsm: null, colour: "WHITE", dia: null, print: null, part: null, reqKg: 25 },
+    ],
+    yarns: [{ itemId: COTTON, yarn: "COTTON", buyStage: null, colourBy: null, purchaseQty: 190, uom: "KGS", refusal: null, shades: [] }],
+    steps: [
+      { itemId: FAB, sno: 1, processId: KNIT, processName: "KNITTING", isPrint: false, isClothPurchase: false, isDyeing: false, stage: { id: GREIGE, code: "GREIGE", name: "GREIGE" }, lossPct: 0, colorLosses: null },
+      { itemId: FAB2, sno: 1, processId: BUY, processName: "FABRIC PURCHASE", isPrint: false, isClothPurchase: true, isDyeing: false, stage: { id: GREIGE, code: "GREIGE", name: "GREIGE" }, lossPct: 0, colorLosses: null },
+      { itemId: FAB2, sno: 2, processId: DYE22, processName: "DYEING", isPrint: false, isClothPurchase: false, isDyeing: true, stage: { id: "st-dyed", code: "DYED", name: "DYED" }, lossPct: 10, colorLosses: null },
+    ],
+  });
+  check(
+    "§22 the report's Fabric Purchase holds the bought rib only, grossed through its route (25 ÷ 0.9)",
+    rep.clothPurchase.map((c) => [c.fabricName, c.source, c.netWt, c.purchaseWt]),
+    [["RIB", "greige_purchase", 25, 27.777778]],
+  );
+  check("§22 Fabric Purchase totals in one unit", rep.clothPurchaseTotal, { qty: 27.777778, uomCode: "KGS" });
 }
 
 if (failed) {
