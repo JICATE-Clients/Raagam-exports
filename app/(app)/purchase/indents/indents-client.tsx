@@ -18,18 +18,17 @@ import { createPurchaseIndent } from "@/lib/purchase/extras-actions";
 import { INDENT_STATUS_LABELS, type IndentStatus } from "@/lib/purchase/extras-types";
 import type { PurchaseIndentWithRefs, OrderOption } from "@/lib/purchase/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const TONE_OVERRIDES = {
+  // Open is a live document here, already in motion, not an untouched one (was warning before the shared table, kept).
+  open: "warning",
+  acknowledged: "info", // this module's own word — not in the shared table
+  converted: "success", // this module's own word — not in the shared table
+} as const;
 
 function tone(s: IndentStatus): StatusTone {
-  switch (s) {
-    case "open":
-      return "warning";
-    case "acknowledged":
-      return "info";
-    case "converted":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(s, TONE_OVERRIDES);
 }
 
 interface Props {

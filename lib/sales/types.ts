@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const OPPORTUNITY_STAGES = [
   "enquiry",
@@ -66,16 +67,7 @@ export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
 };
 
 export function quoteStatusTone(status: QuoteStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "sent":
-      return "info";
-    case "accepted":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface Opportunity {

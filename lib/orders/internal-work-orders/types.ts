@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { capsTextNullable } from "@/lib/validation/formats";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const IWO_STATUSES = [
   "draft",
@@ -18,16 +19,7 @@ export const IWO_STATUS_LABELS: Record<IwoStatus, string> = {
 };
 
 export function iwoStatusTone(status: IwoStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "issued":
-      return "info";
-    case "completed":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 /**

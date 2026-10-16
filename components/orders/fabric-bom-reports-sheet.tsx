@@ -389,7 +389,7 @@ function EntryRegisterView({
 
   if (!data) return null;
   if (isReportRefusal(data)) {
-    return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
+    return <div className="rounded-md border border-border bg-white p-4 text-sm text-danger">{data.refused}</div>;
   }
 
   return (
@@ -942,7 +942,7 @@ function RequirementReportView({
 
   if (!data) return null;
   if (isReportRefusal(data)) {
-    return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
+    return <div className="rounded-md border border-border bg-white p-4 text-sm text-danger">{data.refused}</div>;
   }
 
   const openYarnLine = data.yarns.find((y) => y.itemId === openYarn) ?? null;
@@ -1030,7 +1030,7 @@ function RequirementReportView({
                   {(y.greigeQty ?? y.purchaseQty) != null ? fmtNumber((y.greigeQty ?? y.purchaseQty) as number) : "—"}
                 </Td>
                 <Td right mono>—</Td>
-                <Td right mono wrap={!!y.refusalReason} className={y.refusalReason ? "text-destructive" : ""}>
+                <Td right mono wrap={!!y.refusalReason} className={y.refusalReason ? "text-danger" : ""}>
                   {(y.greigeQty ?? y.purchaseQty) != null
                     ? fmtNumber((y.greigeQty ?? y.purchaseQty) as number)
                     : (y.refusalReason ?? "—")}
@@ -1347,7 +1347,7 @@ function FabricAllocationSection({ allocation }: { allocation: YarnFabricRequire
         totalLabel="To the cutting table"
       >
       {isReportRefusal(allocation) ? (
-        <div className="border-x border-b border-border bg-white px-4 py-3 text-[12.5px] text-destructive">
+        <div className="border-x border-b border-border bg-white px-4 py-3 text-[12.5px] text-danger">
           {allocation.refused}
         </div>
       ) : allocation.rows.length === 0 ? (
@@ -1415,7 +1415,7 @@ function PrintRequirementView({
 }) {
   if (!data) return null;
   if (isReportRefusal(data)) {
-    return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
+    return <div className="rounded-md border border-border bg-white p-4 text-sm text-danger">{data.refused}</div>;
   }
   const p = data.printing;
   return (

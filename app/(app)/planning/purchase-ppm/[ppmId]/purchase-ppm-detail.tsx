@@ -25,6 +25,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { fmtDate, fmtNumber, fmtMoney } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { statusTone } from "@/lib/ui/status-tone";
 
 type PpmDetail = NonNullable<Awaited<ReturnType<typeof getPurchasePpm>>>;
 
@@ -36,21 +37,17 @@ const PPM_STATUS_LABELS: Record<PpmStatus, string> = {
 };
 
 function ppmStatusTone(status: PpmStatus): StatusTone {
-  switch (status) {
-    case "draft":     return "neutral";
-    case "submitted": return "warning";
-    case "approved":  return "success";
-    case "rejected":  return "danger";
-  }
+  return statusTone(status);
 }
 
+const ACK_STATUS_TONE_OVERRIDES = {
+  a: "success", // this module's own word — not in the shared table
+  r: "danger", // this module's own word — not in the shared table
+  v: "warning", // this module's own word — not in the shared table
+} as const;
+
 function ackStatusTone(ack: string): StatusTone {
-  switch (ack) {
-    case "A": return "success";
-    case "R": return "danger";
-    case "V": return "warning";
-    default:  return "neutral";
-  }
+  return statusTone(ack, ACK_STATUS_TONE_OVERRIDES);
 }
 
 // ---------- Item form fields ----------

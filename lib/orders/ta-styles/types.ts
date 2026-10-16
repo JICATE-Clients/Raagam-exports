@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { draftTone, statusTone } from "@/lib/ui/status-tone";
 
 /** Embedded activity name (from ta_activities) for grid display. */
 export type TaActivityRef = { id: string; short_name: string | null; name: string | null };
@@ -55,9 +56,7 @@ export type TaStyleInput = z.infer<typeof taStyleInput>;
 
 /** Status pill: Draft (unsaved workflow) / Blocked / Active. */
 export function taStyleStatusTone(s: Pick<TaStyle, "is_draft" | "blocked">): StatusTone {
-  if (s.is_draft) return "warning";
-  if (s.blocked) return "danger";
-  return "success";
+  return s.is_draft ? draftTone(true) : statusTone(s.blocked ? "blocked" : "active");
 }
 export function taStyleStatusLabel(s: Pick<TaStyle, "is_draft" | "blocked">): string {
   if (s.is_draft) return "Draft";

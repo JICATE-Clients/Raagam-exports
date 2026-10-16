@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Sheet, Printer, BarChart3, Table2 } from "lucide-react";
+import { Printer, BarChart3, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
 import { usePermission } from "@/lib/auth/permission-context";
@@ -78,22 +79,9 @@ export function ReportToolbar<T>({
       )}
 
       <div className="flex items-center gap-2">
+        {/* PDF and Excel in one Download menu (user 2026-10-16, "globally fix"). */}
         {canExport && (
-          <>
-            <Button variant="outline" size="sm" onClick={handlePdf} disabled={empty}>
-              <FileText className="h-4 w-4" />
-              PDF
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExcel}
-              disabled={empty || busy}
-            >
-              <Sheet className="h-4 w-4" />
-              {busy ? "Exporting…" : "Excel"}
-            </Button>
-          </>
+          <DownloadMenu size="sm" disabled={empty || busy} busyLabel="Exporting…" formats={[asPdf(handlePdf), asExcel(handleExcel)]} />
         )}
         <Button variant="outline" size="sm" onClick={() => window.print()}>
           <Printer className="h-4 w-4" />

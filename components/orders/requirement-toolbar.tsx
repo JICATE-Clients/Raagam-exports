@@ -1,7 +1,8 @@
 "use client";
 
-import { Download, FileSpreadsheet, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { exportAccessoriesCsv, exportAccessoriesRequirementPdf } from "@/lib/orders/requirement/export";
 import type { RequirementSheetData } from "@/lib/orders/requirement/service";
 
@@ -25,18 +26,14 @@ import type { RequirementSheetData } from "@/lib/orders/requirement/service";
 export function RequirementToolbar({ data }: { data: RequirementSheetData }) {
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <Button variant="outline" size="md" onClick={() => exportAccessoriesCsv(data)}>
-        <FileSpreadsheet className="h-4 w-4" />
-        Excel
-      </Button>
       <Button variant="outline" size="md" onClick={() => void exportAccessoriesRequirementPdf(data, "print")}>
         <Printer className="h-4 w-4" />
         Print
       </Button>
-      <Button size="md" onClick={() => void exportAccessoriesRequirementPdf(data)}>
-        <Download className="h-4 w-4" />
-        Download PDF
-      </Button>
+      <DownloadMenu
+        variant="primary"
+        formats={[asPdf(() => exportAccessoriesRequirementPdf(data)), asExcel(() => exportAccessoriesCsv(data))]}
+      />
     </div>
   );
 }

@@ -32,6 +32,7 @@ import {
   type FrozenScope,
 } from "@/lib/orders/amendments/amendment-entry";
 import type { StatusTone } from "@/lib/ui/tone";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // ---------------------------------------------------------------------------
 // The keys (spec §3.1 → findings §8)
@@ -293,9 +294,13 @@ export const GRANT_STATUS_LABEL: Readonly<Record<OverrideGrantStatus, string>> =
   disabled: "Disabled",
 };
 
+// EXPIRED is neutral here, not the shared table's danger: a grant is BORN with
+// an end date (≤ 30 days), so reaching it is the plan working, not a failure.
+const GRANT_TONES = { expired: "neutral" } as const;
+
 export const GRANT_STATUS_TONE: Readonly<Record<OverrideGrantStatus, StatusTone>> = {
-  active: "success",
-  expired: "neutral",
-  revoked: "danger",
-  disabled: "neutral",
+  active: statusTone("active", GRANT_TONES),
+  expired: statusTone("expired", GRANT_TONES),
+  revoked: statusTone("revoked", GRANT_TONES),
+  disabled: statusTone("disabled", GRANT_TONES),
 };

@@ -1,10 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { Copy } from "lucide-react";
-import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { CopySourceChooser, PreviewChip } from "@/components/orders/copy-source-chooser";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate } from "@/lib/format";
 import type { BomCopySource } from "@/lib/orders/material-bom-amendment/types";
@@ -25,6 +23,9 @@ import type { BomCopySource } from "@/lib/orders/material-bom-amendment/types";
  * A source is offered only when it is RECORDED and has lines: a draft is
  * someone's half-finished thinking, and copying it spreads the half-finished
  * state to a second order where it is harder to notice.
+ *
+ * Drawn by `CopySourceChooser` (2026-10-16): search, This customer, a preview,
+ * then Copy. The amber `BomCopyConfirm` below still asks before replacing.
  */
 export function BomCopySheet({
   open,
@@ -32,82 +33,65 @@ export function BomCopySheet({
   sources,
   onPick,
   isPending,
+  customerId = null,
 }: {
   open: boolean;
   onClose: () => void;
   sources: BomCopySource[];
   onPick: (bomId: string) => void;
   isPending?: boolean;
+  /** This order's customer — their BOMs are listed first and get a filter. */
+  customerId?: string | null;
 }) {
-  const [q, setQ] = useState("");
-
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return sources;
-    return sources.filter((s) =>
-      [s.sc_no, s.customer_name, s.code].some((v) => (v ?? "").toLowerCase().includes(needle)),
-    );
-  }, [sources, q]);
-
+  const sameCustomer = (s: BomCopySource) => !!customerId && s.customer_id === customerId;
+  const customerName = sources.find(sameCustomer)?.customer_name;
   return (
-    <Sheet open={open} onClose={onClose} title="Copy material list from" size="sm">
-      <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          Brings across the materials, their per-garment ratios and how each one splits.
-          Quantities are recalculated for this order.
-        </p>
-
-        {/* caps-input: exempt -- a search QUERY is not a stored value. */}
-        <Input uppercase={false}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search RE No or customer…"
-          aria-label="Search orders to copy from"
-        />
-
-        {shown.length === 0 ? (
-          <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-            {sources.length === 0
-              ? "No recorded material BOM to copy from yet."
-              : "No order matches that search."}
-          </p>
-        ) : (
-          <ul className="max-h-[52vh] space-y-1 overflow-y-auto">
-            {shown.map((s) => (
-              <li key={s.bom_id}>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => onPick(s.bom_id)}
-                  className="flex w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left transition-colors hover:bg-surface-muted disabled:opacity-60"
-                >
-                  {/* THE ROW COMMITS ON CLICK, so `touch={false}`: a
-                      press-and-hold meant to READ a long customer name would
-                      reveal it and pick the source in the same gesture. The same
-                      exemption the picker option rows carry. */}
-                  <span className="min-w-0">
-                    <Truncated
-                      touch={false}
-                      className="block font-mono text-xs font-medium text-foreground"
-                    >
-                      {s.sc_no ?? s.code ?? "—"}
-                    </Truncated>
-                    <Truncated
-                      touch={false}
-                      text={`${s.customer_name ?? "—"} · ${fmtDate(s.amend_date)}`}
-                      className="block text-xs text-muted-foreground"
-                    />
-                  </span>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {s.line_count} {s.line_count === 1 ? "line" : "lines"}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </Sheet>
+    <CopySourceChooser<BomCopySource>
+      open={open}
+      onClose={onClose}
+      title="Copy material list from"
+      intro="Brings across the materials, their per-garment ratios and how each one splits. Quantities are recalculated for this order."
+      items={sources}
+      getId={(s) => s.bom_id}
+      searchText={(s) => [s.sc_no, s.customer_name, s.code]}
+      searchPlaceholder="Search RE No or customer…"
+      filters={customerName ? [{ key: "customer", label: "This customer", test: sameCustomer }] : undefined}
+      groups={customerName ? [{ label: `This customer · ${customerName}`, test: sameCustomer }] : undefined}
+      renderRow={(s) => (
+        <span className="flex items-center justify-between gap-3">
+          {/* THE ROW SELECTS ON CLICK, so `touch={false}`: a press-and-hold
+              meant to READ a long customer name would reveal it and pick the
+              source in the same gesture. The same exemption the picker option
+              rows carry. */}
+          <span className="min-w-0">
+            <Truncated touch={false} className="block font-mono text-xs font-medium text-foreground">
+              {s.sc_no ?? s.code ?? "—"}
+            </Truncated>
+            <Truncated
+              touch={false}
+              text={`${s.customer_name ?? "—"} · ${fmtDate(s.amend_date)}`}
+              className="block text-xs text-muted-foreground"
+            />
+          </span>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {s.line_count} {s.line_count === 1 ? "line" : "lines"}
+          </span>
+        </span>
+      )}
+      renderPreview={(s) => (
+        <span className="flex flex-wrap gap-1">
+          <PreviewChip>
+            {s.line_count} {s.line_count === 1 ? "material" : "materials"}
+          </PreviewChip>
+          <PreviewChip>Ratios and splits</PreviewChip>
+          <PreviewChip>Quantities recalculated</PreviewChip>
+        </span>
+      )}
+      onCopy={(id) => onPick(id)}
+      copyLabel={(s) => `Copy from ${s.sc_no ?? s.code ?? "this BOM"}`}
+      emptyHint="No recorded material BOM to copy from yet."
+      isPending={isPending}
+    />
   );
 }
 

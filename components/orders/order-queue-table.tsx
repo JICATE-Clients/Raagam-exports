@@ -169,7 +169,10 @@ export function OrderQueueTable<T extends { id: string; created_at?: string | nu
       empty={empty}
     />
   );
-  return fit ? <div className="w-fit max-w-full">{table}</div> : table;
+  // FULL WIDTH, LIKE SAMPLE ENTRY (user 2026-10-16: "the sample entry table and
+  // pagination over all application"). `fit` still hugs every column but
+  // Customer, so the extra width goes to the name — the frame no longer shrinks.
+  return table;
 }
 
 /** A figure cell — right-aligned tabular digits, Order Entry's Quantity shape.

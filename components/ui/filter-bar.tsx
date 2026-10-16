@@ -36,6 +36,7 @@ export function FilterBar({
   onReset,
   right,
   leading,
+  trailing,
   panel,
   searchRef,
   dateFilter,
@@ -60,12 +61,16 @@ export function FilterBar({
   /** Number of filters currently applied — shown as a badge on the button. */
   activeCount?: number;
   onReset?: () => void;
-  /** Right-aligned status text (e.g. "3 of 12 · 0 missing"). */
+  /** Accepted and NOT rendered since 2026-10-16 — see the note in the body.
+   *  Was right-aligned status text (e.g. "3 of 12 · 0 missing"). */
   right?: ReactNode;
   /** A compact control at the FRONT of the row, before the search box — e.g. a
    *  segmented status switch. Opt-in; every screen that passes nothing is
    *  unchanged. */
   leading?: ReactNode;
+  /** A compact control at the END of the row, after Filters / Reset — the
+   *  Card View / List View switch (`ViewToggle`). Opt-in. */
+  trailing?: ReactNode;
   /** A whole panel drawn INSTEAD of the default facet grid when Filters is
    *  open — for a screen whose filters need their own layout (Material BOM's
    *  grouped drawer). Opt-in; unmounted while closed, so it restarts from its
@@ -74,6 +79,7 @@ export function FilterBar({
   /** Ref to the search input, so a parent can focus it (Ctrl+F shortcut). */
   searchRef?: RefObject<HTMLInputElement | null>;
 }) {
+  void right; // not rendered — see "NO COUNT ABOVE THE TABLE" below
   const [open, setOpen] = useState(false);
   const showDate = !!dateFilter && dateFilter.enabled !== false;
   const hasFilters = !!children || showDate || !!panel;
@@ -136,8 +142,19 @@ export function FilterBar({
           </button>
         )}
 
-        <div className="flex-1" />
-        {right && <div className="text-xs text-muted-foreground">{right}</div>}
+        {trailing}
+
+        {/* NO COUNT ABOVE THE TABLE, ON ANY LISTING (user 2026-10-16: "12 of
+            12 Updated … top of the screen table, remove it globally"). Every
+            one of the 28 callers passes a "shown of total" string here, some
+            with the quick-filter word or a summary appended — and the pager
+            under the table already says "1–10 of 12", while the status switch
+            beside the search box already carries each word's count. So the
+            line was the third copy of one number.
+            Removed HERE, once, rather than at 28 call sites, the same way
+            PageHeader dropped its visible title: `right` is still accepted and
+            ignored, so no screen has to change and putting it back is this one
+            line. */}
       </div>
 
       {hasFilters && open && panel}

@@ -483,7 +483,7 @@ function RecordOutputTab({
                     <span
                       className={
                         availability.availableQty === 0
-                          ? "font-medium text-destructive"
+                          ? "font-medium text-danger"
                           : "font-medium text-foreground"
                       }
                     >

@@ -263,6 +263,8 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/admin/notifications": null,
   // Five fixed jobs — a count of them says nothing.
   "/admin/jobs": null,
+  // A reference page, not a list — there is nothing to count.
+  "/admin/design-reference": null,
 };
 
 /** The table a card counts, or `null` when it has none. */

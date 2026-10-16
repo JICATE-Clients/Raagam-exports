@@ -1,5 +1,6 @@
 "use client";
 
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
 import { useMemo, useState } from "react";
 import { CalendarRange, Check, Layers, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,8 +15,7 @@ import { SampleCards } from "@/components/sales/sample-queue";
 import { PdRequestSheet, pdRequestNo } from "@/components/sales/pd-request-sheet";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { PdRequestRow } from "@/lib/sales/pd-requests/types";
-import { PD_WORDS, pdState, pdWord } from "@/lib/sales/pd-requests/words";
-import { PD_STATUS_LABEL } from "@/lib/sales/sample-entry/types";
+import { PD_STATUS_KEYS, PD_STATUS_KEY_LABEL, PD_WORDS, pdState, pdStatusKey, pdStatusLabel, pdWord } from "@/lib/sales/pd-requests/words";
 
 const PATH = "/sales/pd-acknowledge";
 
@@ -37,8 +37,9 @@ function pdFacets(rows: PdRequestRow[]): FacetGroup<PdRequestRow>[] {
           all: "All",
           wide: true,
           counted: true,
-          options: (["requested", "acknowledged", "not_acknowledged", "cancelled"] as const).map((s) => ({ value: s, label: PD_STATUS_LABEL[s] })),
-          match: (r, v) => r.status === v,
+          // File Not Received is its own option (2026-10-16) — a Not Acknowledged, named.
+          options: PD_STATUS_KEYS.map((s) => ({ value: s, label: PD_STATUS_KEY_LABEL[s] })),
+          match: (r, v) => pdStatusKey(r) === v,
         },
       ],
     },
@@ -106,6 +107,10 @@ export function PdAcknowledgeScreen({
      on every card so the footer never jitters; each opens the full sheet,
      where the decision is made with the request in front of it. */
   const asTable = quick.value === "approved";
+  /* CARD VIEW / LIST VIEW (user 2026-10-16) — the TABLE by default on every tab
+     (user, same day, screenshot 3578: "default … as table, now it's card"); the
+     operator's own pick is kept per screen. Above every early return. */
+  const viewMode = useViewMode("pd-acknowledge", "list");
   const decisions = (r: PdRequestRow) => {
     const decidable = canApprove && r.status === "requested";
     const why = canApprove ? "only a request still with the department" : "needs the approval permission";
@@ -177,6 +182,7 @@ export function PdAcknowledgeScreen({
         </p>
       )}
       <FilterBar
+        trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
         leading={quick.segment}
         search={query}
         onSearch={setQuery}
@@ -194,7 +200,7 @@ export function PdAcknowledgeScreen({
           [r.swo_no ? `SWO ${r.swo_no}` : null, r.customer, r.created_by_name ? `from ${r.created_by_name}` : null].filter(Boolean).join(" · ")
         }
         state={pdState}
-        pillText={(r) => PD_STATUS_LABEL[r.status]}
+        pillText={(r) => pdStatusLabel(r)}
         stats={(r) => [
           { label: "Qty", value: `${fmtNumber(r.pieces)} pcs`, lead: true },
           { label: "Type", value: r.sample_types.join(", ") || "—" },
@@ -205,7 +211,8 @@ export function PdAcknowledgeScreen({
         // The answered pile only ever opens read-only — no pencil; the SMP No opens it.
         rowEdit={false}
         footerNote={hasCreatedInfo(rows) ? (r) => `Sent ${createdMeta(r)}` : undefined}
-        table={asTable ? { title: "SMP No", subtitle: "Customer · From" } : undefined}
+        table={{ title: "SMP No", subtitle: "Customer · From" }}
+        view={viewMode.view}
         empty={
           !rows.length
             ? "No PD Request has been sent yet — merchandisers send them from Sample ▸ PD Request."

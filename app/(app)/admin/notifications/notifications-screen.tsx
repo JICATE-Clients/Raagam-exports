@@ -7,6 +7,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Stat } from "@/components/ui/stat";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { Select } from "@/components/ui/select";
@@ -42,15 +43,15 @@ type Perms = { canEdit: boolean; canCreate: boolean; canDelete: boolean };
 
 type LogFilters = { event: string; status: string; from: string; to: string };
 
-const STATUS_TONE: Record<DispatchStatus, StatusTone> = {
-  delivered: "success",
+// Delivered / Disabled / Error read from the shared table (lib/ui/status-tone).
+// The rest are this log's own words: a fallback or a failed push still reached
+// SOMEONE (amber), nobody at all is red, and a recalled alert is retired.
+const DISPATCH_TONES = {
   fell_back: "warning",
   no_recipients: "danger",
-  disabled: "neutral",
   push_failed: "warning",
   recalled: "neutral",
-  error: "danger",
-};
+} as const;
 
 /** Only an administrator's own sends can be taken back (0676 enforces it too). */
 const RECALLABLE = new Set(["admin.broadcast", "admin.test"]);
@@ -466,7 +467,7 @@ function LogTab({
     {
       header: "Result",
       cell: (r) => (
-        <StatusPill tone={STATUS_TONE[r.status]} className="whitespace-nowrap">
+        <StatusPill tone={statusTone(r.status, DISPATCH_TONES)} className="whitespace-nowrap">
           {DISPATCH_STATUS_LABEL[r.status]}
         </StatusPill>
       ),

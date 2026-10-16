@@ -3,6 +3,7 @@ import { getActivity, getAlerts } from "@/lib/dashboard/service";
 import type { DashboardCaps } from "@/lib/dashboard/types";
 import { AlertList, PanelCard, TimelineList } from "@/components/dashboard/lists";
 import { cn } from "@/lib/utils";
+import { StatusPill } from "@/components/ui/status-pill";
 
 /**
  * Section 04b — recent activity beside the alert list.
@@ -49,9 +50,9 @@ export async function ActivityAndAlerts({ caps }: { caps: DashboardCaps }) {
         title="Alerts"
         aside={
           alerts.length > 0 ? (
-            <span className="inline-flex shrink-0 rounded-full bg-danger-soft px-2.5 py-0.5 text-[11px] font-semibold text-danger">
+            <StatusPill tone="danger" className="shrink-0">
               {alerts.length} active
-            </span>
+            </StatusPill>
           ) : undefined
         }
       >

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // ============================================================================
 // Orders ▸ Order Execution ▸ Packing List Advice — rebuilt 2026-09-18 (0579)
@@ -33,14 +34,7 @@ export const PLA_STATUS_LABELS: Record<PlaStatus, string> = {
 };
 
 export function plaStatusTone(status: PlaStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "finalised":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface PackingAdviceLine {

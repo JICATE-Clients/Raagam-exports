@@ -62,7 +62,7 @@ export function SheetOpening({
       )}
       <div className="mt-4">
         {isReportRefusal(q) ? (
-          <div className="rounded-lg border border-border bg-[#fdf1f1] px-4 py-2.5 text-[12.5px] font-medium text-destructive">
+          <div className="rounded-lg border border-border bg-[#fdf1f1] px-4 py-2.5 text-[12.5px] font-medium text-danger">
             {q.refused}
           </div>
         ) : (

@@ -884,6 +884,9 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
   // Text-like inputs and picker triggers navigate; native selects and textareas
   // keep their own Enter/arrow meaning (change value / insert newline).
   const isTrigger = el.matches("[data-field-trigger]");
+  // An upload cell OPENS on Enter (`data-enter-opens`, lib/focus.ts). Declined
+  // without preventDefault, so the button's native click opens the file dialog.
+  if (e.key === "Enter" && el.matches("[data-enter-opens]")) return;
   if (!isTrigger) {
     if (!(el instanceof HTMLInputElement)) return;
     // Radios keep their native arrow semantics (↑/↓ move within the group).

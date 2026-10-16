@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, RotateCcw, X, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Check, ChevronDown, FileX, RotateCcw, X, TriangleAlert } from "lucide-react";
+import { Button, buttonClasses } from "@/components/ui/button";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { FILE_NOT_RECEIVED } from "@/lib/sales/pd-requests/words";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
@@ -108,6 +110,8 @@ export function ApprovalActionBar({
   const [isPending, start] = useTransition();
   const [pending, setPending] = useState<RunAction | null>(null);
   const [comment, setComment] = useState("");
+  /** `acknowledge` only: the reject being confirmed is File Not Received. */
+  const [fileMissing, setFileMissing] = useState(false);
 
   if (!verdict.can_act || run.status !== "in_progress") return null;
 
@@ -127,7 +131,10 @@ export function ApprovalActionBar({
       : { title: "Approve this request?", verb: "Approve", needsComment: false },
     return: { title: "Return for changes?", verb: "Return", needsComment: true },
     reject: acknowledge
-      ? { title: "Mark this request Not Acknowledged?", verb: "Not Acknowledged", needsComment: true }
+      ? fileMissing
+        ? /* The reason IS the choice — written for them (see `submit`); a note is optional. */
+          { title: "Mark this request File Not Received?", verb: "File Not Received", needsComment: false }
+        : { title: "Mark this request Not Acknowledged?", verb: "Not Acknowledged", needsComment: true }
       : rework
       ? { title: "Send back for rework?", verb: "Request Rework", needsComment: true }
       : { title: "Reject this request?", verb: "Reject", needsComment: true },
@@ -141,12 +148,16 @@ export function ApprovalActionBar({
   function submit() {
     if (!pending) return;
     const action = pending;
+    const note = comment.trim();
+    /* FILE NOT RECEIVED leads the remark with the fixed reason — the marker
+       `isFileNotReceived` reads back on every PD screen (lib/sales/pd-requests/words.ts). */
+    const sent = acknowledge && fileMissing && action === "reject" ? (note ? `${FILE_NOT_RECEIVED} — ${note}` : FILE_NOT_RECEIVED) : note;
     start(async () => {
       const res = await actOnRun({
         runId: run.id,
         action,
         lockVersion: run.lock_version,
-        comment: comment.trim() || undefined,
+        comment: sent || undefined,
         subjectPath,
       });
       if (res.ok) {
@@ -157,7 +168,9 @@ export function ApprovalActionBar({
               : "Approved"
             : action === "reject"
               ? acknowledge
-                ? "Marked Not Acknowledged"
+                ? fileMissing
+                  ? "Marked File Not Received"
+                  : "Marked Not Acknowledged"
                 : rework
                 ? "Sent back for rework"
                 : "Rejected"
@@ -165,6 +178,7 @@ export function ApprovalActionBar({
         );
         setPending(null);
         setComment("");
+        setFileMissing(false);
         /* NO SECOND PAGE LOAD WHEN THE ACTION ALREADY SENT ONE (2026-09-24,
            "approving takes 3 s"). `actOnRun` calls `revalidatePath` on
            /approvals and on `subjectPath`, and a server action that revalidates
@@ -202,12 +216,35 @@ export function ApprovalActionBar({
             demands would be written without knowing what it was for. */}
         {isOverride && overrideNote && (
           <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-xs font-medium text-warning">
-            <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+            <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
             You are not an approver on this step — acting here is recorded as an
             override
           </span>
         )}
 
+        {/* THE DEPARTMENT'S ANSWER IS ONE DROPDOWN (user 2026-10-16: "acknowledged,
+            not acknowledged, file not received in dropdown"). Three answers, one
+            control — each opens the same confirm below. File Not Received is the
+            engine's reject with its reason filled in. */}
+        {acknowledge ? (
+          <div className="ml-auto">
+            <DropdownMenu
+              label="Decision"
+              align="right"
+              triggerClassName={buttonClasses({ variant: "primary", size: "sm" })}
+              trigger={
+                <>
+                  Decision <ChevronDown aria-hidden />
+                </>
+              }
+              items={[
+                { label: "Acknowledged", icon: Check, onClick: () => { setFileMissing(false); setPending("approve"); }, disabled: isPending },
+                { label: "Not Acknowledged", icon: X, danger: true, onClick: () => { setFileMissing(false); setPending("reject"); }, disabled: isPending },
+                { label: "File Not Received", icon: FileX, danger: true, onClick: () => { setFileMissing(true); setPending("reject"); }, disabled: isPending },
+              ]}
+            />
+          </div>
+        ) : (
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
@@ -241,6 +278,7 @@ export function ApprovalActionBar({
             {COPY.approve.verb}
           </Button>
         </div>
+        )}
       </div>
 
       {/* A `Sheet`, not a hand-rolled overlay: it already registers with
@@ -253,22 +291,33 @@ export function ApprovalActionBar({
         onClose={() => {
           setPending(null);
           setComment("");
+          setFileMissing(false);
         }}
         title={pending ? COPY[pending].title : ""}
-        /* `sm` and not full-screen: this is one textarea and two buttons. A
-           full-bleed takeover for a confirm reads as a much larger decision
-           than it is. */
+        /* A CENTRED POP-UP, NOT A SIDE DRAWER (user 2026-10-16: "approval now as
+           side screen — update it as center pop-up while approving"). It was
+           `fullScreen={false}`, Sheet's right-hand slide-over; `sm` on its own is
+           Sheet's centred box over the content pane — the shape the buyer's
+           Customer Approved / Rejected confirm already takes. Still `sm`: one
+           textarea and two buttons, never a full-bleed takeover. One component,
+           so every approval screen (inbox, budget, plan, fines, IWO BOMs, sample
+           decisions) changes together. */
         size="sm"
-        fullScreen={false}
+        alignToPane
+        /* The bar is often mounted INSIDE a sheet (the inbox's decision sheet,
+           Sample ▸ decision) — the confirm must stack above its host. 120 is the
+           level every nested sheet in this app uses. */
+        zIndexBase={120}
         footer={
           <div className="flex items-center justify-end gap-2">
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="md"
               onClick={() => {
                 setPending(null);
                 setComment("");
+                setFileMissing(false);
               }}
               disabled={isPending}
             >
@@ -276,7 +325,7 @@ export function ApprovalActionBar({
             </Button>
             <Button
               type="button"
-              size="sm"
+              size="md"
               onClick={submit}
               disabled={!canSubmit || isPending}
             >
@@ -290,8 +339,13 @@ export function ApprovalActionBar({
             nothing and reads as a width that was set (`--check field-track`
             catches exactly that). The sheet body is already one column wide, so
             the field fills it without being told to. */}
+        {acknowledge && fileMissing && pending === "reject" ? (
+          <p className="text-sm">
+            The merchandiser sees <b>{FILE_NOT_RECEIVED}</b> as the reason, with your note after it.
+          </p>
+        ) : null}
         <Field
-          label={commentRequired ? "Reason" : "Comment"}
+          label={commentRequired ? "Reason" : acknowledge && fileMissing ? "Note (optional)" : "Comment"}
           required={commentRequired}
           htmlFor="approval-comment"
         >

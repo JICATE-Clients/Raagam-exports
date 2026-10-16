@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const FC_STATUSES = [
   "booked",
@@ -19,18 +20,7 @@ export const FC_STATUS_LABELS: Record<FcStatus, string> = {
 };
 
 export function fcStatusTone(status: FcStatus): StatusTone {
-  switch (status) {
-    case "booked":
-      return "info";
-    case "partially_utilised":
-      return "warning";
-    case "utilised":
-      return "success";
-    case "cancelled":
-      return "neutral";
-    case "expired":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface ForwardContract {

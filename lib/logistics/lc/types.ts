@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const LC_STATUSES = [
   "draft",
@@ -19,18 +20,7 @@ export const LC_STATUS_LABELS: Record<LcStatus, string> = {
 };
 
 export function lcStatusTone(status: LcStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "active":
-      return "success";
-    case "amended":
-      return "info";
-    case "expired":
-      return "danger";
-    case "closed":
-      return "neutral";
-  }
+  return statusTone(status);
 }
 
 export interface LcDetail {

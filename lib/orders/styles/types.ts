@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { capsName, capsTextNullable } from "@/lib/validation/formats";
 import { styleProblems } from "./rules";
+import { draftTone, statusTone, type StatusTone } from "@/lib/ui/status-tone";
 
 // ============================================================================
 // Garment Orders ▸ Style master (0124, phase 1 content pass 0392). Header +
@@ -340,8 +341,8 @@ export type GarmentStyleInput = z.infer<typeof garmentStyleInput>;
 
 export function styleStatusTone(
   s: Pick<GarmentStyle, "is_draft" | "blocked">,
-): "warning" | "danger" | "success" {
-  return s.is_draft ? "warning" : s.blocked ? "danger" : "success";
+): StatusTone {
+  return s.is_draft ? draftTone(true) : statusTone(s.blocked ? "blocked" : "active");
 }
 export function styleStatusText(
   s: Pick<GarmentStyle, "is_draft" | "blocked">,

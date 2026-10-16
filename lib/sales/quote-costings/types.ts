@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // ============================================================================
 // Sales ▸ Marketing ▸ Quote Preparation (costing sheet) — 0270 `quote_costings`.
@@ -19,17 +20,12 @@ export const QC_STATUS_LABELS: Record<QcStatus, string> = {
   rejected: "Rejected",
 };
 
+// FINALISED is not the end of a quote costing — Approved is — so it reads as
+// "moving" (info) here rather than the shared table's success.
+const QC_TONES = { finalised: "info" } as const;
+
 export function qcStatusTone(status: QcStatus): StatusTone {
-  switch (status) {
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-    case "finalised":
-      return "info";
-    default:
-      return "neutral";
-  }
+  return statusTone(status, QC_TONES);
 }
 
 export interface QuoteCosting {

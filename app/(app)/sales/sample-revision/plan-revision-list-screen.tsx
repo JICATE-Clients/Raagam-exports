@@ -351,7 +351,7 @@ export function PlanRevisionListScreen({ rows, canRaise, plans: planIndex }: { r
         right={`${filtered.length} of ${rows.length}`}
       />
       {/* dup-check: exempt -- a dated revision log; a second revision of a plan is how it is changed again */}
-      <div className="w-fit max-w-full">
+      <div>
         <DataTable
           columns={hugCreated(withCreatedColumns(columns, lines))}
           rows={lines}

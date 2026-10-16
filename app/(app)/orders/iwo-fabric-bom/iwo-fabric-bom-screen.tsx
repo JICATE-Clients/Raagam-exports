@@ -58,6 +58,7 @@
  * (`iwoYarnShades`, the same call the save makes).
  */
 
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarRange, ClipboardList, Layers, ListChecks, Scale, Shirt, Spool, Users, Waypoints } from "lucide-react";
@@ -81,7 +82,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
-import { createdMeta, hasCreatedInfo, withCreatedColumns } from "@/components/ui/created-columns";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import {
@@ -158,6 +159,7 @@ import {
   IWO_COLOUR_BY_OPTIONS,
   iwoFabricGross,
   iwoRoutesByFabric,
+  iwoSourceByFabric,
   iwoYarnModePurchase,
   iwoYarnShades,
   type IwoColourBy,
@@ -677,6 +679,9 @@ export function IwoFabricBomScreen({
     onPick: () => listFacets.set("bom", ""),
     countRows: base,
   });
+  /* CARD VIEW / LIST VIEW (user 2026-10-16) — the tab's own default until the
+     operator picks; then this screen keeps the pick. Above every early return. */
+  const viewMode = useViewMode("iwo-fabric-bom", quick.value === "updated" ? "list" : "cards");
   const qm = quick.matches;
   const listed = useMemo(() => base.filter(qm), [base, qm]);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
@@ -1050,6 +1055,9 @@ export function IwoFabricBomScreen({
     })),
     processKinds,
   );
+  /** Each fabric's source off its route — a bought cloth buys no yarn. The
+   *  save derives it with the same helper from the same rows. */
+  const sourceByFabric = iwoSourceByFabric(procs, data.processes, data.processLookups.stages);
 
   /** THE COLOURS OF ONE FABRIC'S LINES — what a COLOR WISE step on its route,
    *  or on a yarn it is made of, lists in [Color Loss]. An IWO has no
@@ -1135,8 +1143,8 @@ export function IwoFabricBomScreen({
   };
 
   /** One yarn's purchase weight, or the refusal standing in for it — the order
-   *  engine, with the arguments the save passes (no source; shades on a DYED
-   *  Yarn IWO line, 0592). */
+   *  engine, with the arguments the save passes (each fabric's route source;
+   *  shades on a DYED Yarn IWO line, 0592). */
   const weightFor = (r: YarnRow) => {
     if (yarnMode) {
       const l = yarnLines.find((x) => x.item_id === r.item_id);
@@ -1179,7 +1187,7 @@ export function IwoFabricBomScreen({
         color_losses: colorLossesFromDraft(st.color_wise_loss && !st.combo, st.color_losses),
       })),
       decimals: data.kgUom?.decimals ?? null,
-      sourceByFabric: new Map(),
+      sourceByFabric,
       shades: yarnShades,
     });
   };
@@ -3497,6 +3505,7 @@ export function IwoFabricBomScreen({
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Fabric Plan</Button> : undefined}
         />
         <FilterBar
+          trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
           leading={quick.segment}
           search={listQuery}
           onSearch={setListQuery}
@@ -3532,6 +3541,16 @@ export function IwoFabricBomScreen({
             }}
             // A saved sample plan's word is its APPROVAL (0718) — "Saved" alone
             // says nothing about whether its yarn may be bought.
+            // The labels are composite ("Approved · Rev 2"), so the icon reads the status itself.
+            mark={(t) =>
+              !t.bom || t.bom.is_draft || t.bom.approval_status === "returned"
+                ? "todo"
+                : t.bom.approval_status === "approved"
+                  ? "done"
+                  : t.bom.approval_status === "submitted"
+                    ? "wait"
+                    : "todo"
+            }
             pillText={(t) =>
               !t.bom ? "Not started" : t.bom.is_draft ? "Draft" : fabricPlanApprovalLabel(t.bom.approval_status, t.bom.revision_no)
             }
@@ -3547,7 +3566,11 @@ export function IwoFabricBomScreen({
             // A saved plan opens for anyone who can see it — the lock and
             // `viewOnly` decide what they may change.
             onOpen={(t) => (t.bom ? true : perms.canCreate) && openTask(t)}
-            footerNote={hasCreatedInfo(tasks) ? (t) => `Created ${createdMeta(t)}` : undefined}
+            /* NO "Created …" LINE ON THE CARD (user 2026-10-16: "Fabric plan
+               created date in card remove it"). The card's footer carried the
+               Created pair under AGENTS.md's mobile-card rule; on these cards it
+               is removed on instruction. The Updated TABLE below still ends in
+               Created Date / Created User (`withCreatedColumns`). */
             canDelete={perms.canDelete}
             canDeleteRow={(t) => !!t.bom && t.bom.approval_status !== "submitted" && t.bom.approval_status !== "approved"}
             onDelete={del}
@@ -3558,7 +3581,8 @@ export function IwoFabricBomScreen({
             isPending={isPending}
             // Updated is done work — a table, as Orders draws it; Pending and
             // Draft stay cards (user 2026-10-13).
-            table={quick.value === "updated" ? { title: "SWO No", subtitle: "SMP No" } : undefined}
+            table={{ title: "SWO No", subtitle: "SMP No" }}
+        view={viewMode.view}
             empty={
               !tasks.length
                 ? "No sample work orders For Yarn or Fabric at this unit yet — + New Fabric Plan raises one."

@@ -33,6 +33,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { statusTone as sharedStatusTone } from "@/lib/ui/status-tone";
 
 type ConsumptionDetail = NonNullable<Awaited<ReturnType<typeof getFabricConsumption>>>;
 
@@ -44,12 +45,7 @@ const STATUS_LABELS: Record<MpStatus, string> = {
 };
 
 function statusTone(status: MpStatus): StatusTone {
-  switch (status) {
-    case "draft":     return "neutral";
-    case "submitted": return "warning";
-    case "approved":  return "success";
-    case "rejected":  return "danger";
-  }
+  return sharedStatusTone(status);
 }
 
 // ---------- Component form fields ----------

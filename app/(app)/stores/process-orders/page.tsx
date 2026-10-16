@@ -13,17 +13,14 @@ import type { ProcStatus } from "@/lib/stores/process-types";
 import type { ProcWithVendor } from "@/lib/stores/process-service";
 import Link from "next/link";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const PROC_STATUS_TONE_OVERRIDES = {
+  in_process: "warning", // this module's own word — not in the shared table
+} as const;
 
 function procStatusTone(status: ProcStatus): StatusTone {
-  switch (status) {
-    case "draft": return "neutral";
-    case "issued": return "info";
-    case "in_process": return "warning";
-    case "partially_received": return "warning";
-    case "received": return "success";
-    case "closed": return "neutral";
-    case "cancelled": return "danger";
-  }
+  return statusTone(status, PROC_STATUS_TONE_OVERRIDES);
 }
 
 export default async function ProcessOrdersPage() {

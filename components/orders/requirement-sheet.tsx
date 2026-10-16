@@ -76,7 +76,7 @@ export function RequirementSheetDocument({ data }: { data: RequirementSheetData 
         </p>
 
         {!h && data.header && isReportRefusal(data.header) && (
-          <p className="mb-3 rounded-sm bg-[#fdf1f1] px-3 py-2 text-[12px] font-medium text-destructive">{data.header.refused}</p>
+          <p className="mb-3 rounded-sm bg-[#fdf1f1] px-3 py-2 text-[12px] font-medium text-danger">{data.header.refused}</p>
         )}
 
         {rows.length > 0 && (

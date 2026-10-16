@@ -11,6 +11,7 @@ import {
   ProgressBar,
 } from "@/components/dashboard/charts";
 import { CellView } from "@/components/dashboard/cards";
+import { StatusPill } from "@/components/ui/status-pill";
 
 /**
  * Section 02 — the trend charts.
@@ -76,16 +77,10 @@ export async function AnalyticsSection({
           subtitle="invoiced vs received · last 12 months"
           aside={
             yoy != null ? (
-              <span
-                className={
-                  yoy >= 0
-                    ? "inline-flex shrink-0 items-center rounded-full bg-success-soft px-2.5 py-1 text-[11px] font-semibold text-success"
-                    : "inline-flex shrink-0 items-center rounded-full bg-danger-soft px-2.5 py-1 text-[11px] font-semibold text-danger"
-                }
-              >
+              <StatusPill tone={yoy >= 0 ? "success" : "danger"} className="shrink-0">
                 {yoy >= 0 ? "+" : ""}
                 {yoy.toFixed(1)}% vs prior 6 months
-              </span>
+              </StatusPill>
             ) : undefined
           }
         >

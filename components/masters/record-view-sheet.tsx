@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { cn } from "@/lib/utils";
 
 /**
@@ -97,13 +98,7 @@ const SECTION_ACCENTS = [
  * 2026-09-07: "formatted data … more professional" — a column of plain "No"s
  * read as inert text with nothing to tell a reader which ones matter).
  */
-const BOOLEAN_TONE: Record<string, "success" | "neutral" | "danger"> = {
-  Yes: "success",
-  Active: "success",
-  No: "neutral",
-  Inactive: "neutral",
-  Blocked: "danger",
-};
+const BOOLEAN_WORDS = new Set(["Yes", "Active", "No", "Inactive", "Blocked"]);
 
 /** A bare number, exactly as `scalar()` stringifies one — never a formatted
  *  date or code, both of which fail this on purpose. */
@@ -125,7 +120,7 @@ export function ViewPairs({ pairs }: { pairs: readonly ViewPair[] }) {
         // Only a plain string value is ever a candidate — a caller-supplied
         // pill (`value` is a `ReactNode`) passes through untouched, so this
         // never double-badges a status a screen already styled itself.
-        const tone = typeof v === "string" ? BOOLEAN_TONE[v] : undefined;
+        const tone = typeof v === "string" && BOOLEAN_WORDS.has(v) ? statusTone(v) : undefined;
         // A NUMBER GETS tabular-nums BUT NOT text-right. Right-aligning it
         // (the `data-table.tsx` column rule) threw it to the far edge of a
         // half-screen card, a card-width away from its label — the blank space

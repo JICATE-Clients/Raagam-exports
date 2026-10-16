@@ -41,24 +41,15 @@ import type { PoLineItem, PoStatus } from "@/lib/purchase/types";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { PoDeliveryEditor } from "./po-delivery-editor";
 import { useAccordion } from "@/lib/ui/use-accordion";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const PO_STATUS_TONE_OVERRIDES = {
+  // Approved is a step in this document's life, not its end — work still follows it (was info before the shared table, kept).
+  approved: "info",
+} as const;
 
 function poStatusTone(status: PoStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "pending_approval":
-      return "warning";
-    case "approved":
-      return "info";
-    case "partially_received":
-      return "warning";
-    case "received":
-      return "success";
-    case "closed":
-      return "neutral";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status, PO_STATUS_TONE_OVERRIDES);
 }
 
 // ---------- line form ----------

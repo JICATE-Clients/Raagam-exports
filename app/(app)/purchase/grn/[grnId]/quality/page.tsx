@@ -12,22 +12,25 @@ import { fmtDate } from "@/lib/format";
 import type { GanQualityCheck, GanStatus, GanResult } from "@/lib/purchase/gan-types";
 import Link from "next/link";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const GAN_STATUS_TONE_OVERRIDES = {
+  // Pending here is not waiting on an approver (was neutral before the shared table, kept).
+  pending: "neutral",
+  // In progress here is waiting on someone else (was warning before the shared table, kept).
+  in_progress: "warning",
+} as const;
 
 function ganStatusTone(status: GanStatus): StatusTone {
-  switch (status) {
-    case "pending": return "neutral";
-    case "in_progress": return "warning";
-    case "completed": return "success";
-  }
+  return statusTone(status, GAN_STATUS_TONE_OVERRIDES);
 }
 
+const GAN_RESULT_TONE_OVERRIDES = {
+  conditional: "warning", // this module's own word — not in the shared table
+} as const;
+
 function ganResultTone(result: GanResult | null): StatusTone {
-  switch (result) {
-    case "pass": return "success";
-    case "fail": return "danger";
-    case "conditional": return "warning";
-    default: return "neutral";
-  }
+  return statusTone(result, GAN_RESULT_TONE_OVERRIDES);
 }
 
 export default async function GanQualityPage({

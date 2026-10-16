@@ -55,18 +55,12 @@ import {
   SUPPLY_TYPES,
   APPROVAL_PARAM_STATUSES,
 } from "@/lib/orders/order-detail-types";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // ---------- helpers ----------
 
 function amendmentStatusTone(status: AmendmentStatus): StatusTone {
-  switch (status) {
-    case "pending":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 // ---------- per-milestone edit row ----------

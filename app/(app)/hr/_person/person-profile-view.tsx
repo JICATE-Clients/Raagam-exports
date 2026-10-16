@@ -29,7 +29,8 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { getPersonChildren } from "./person-children";
@@ -478,7 +479,7 @@ export function PersonProfileView({
                         ID {code}
                       </span>
                     )}
-                    <StatusPill tone={isActive ? "success" : "neutral"}>
+                    <StatusPill tone={activeTone(isActive)}>
                       {isActive ? "Active" : "Inactive"}
                     </StatusPill>
                   </div>

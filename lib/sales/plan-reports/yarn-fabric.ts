@@ -1,5 +1,6 @@
 import type {
   BomDocHeader,
+  ClothPurchaseLine,
   StageBreakdownGroup,
   StageBreakdownLine,
   YarnDyeingLine,
@@ -9,6 +10,7 @@ import type {
 import { mergeGreigeLines } from "@/lib/orders/fabric-bom/stage-ledger";
 import { printRequirement, type PrintRequirementRow } from "@/lib/orders/fabric-bom/print-route";
 import { stageRank } from "@/lib/orders/fabric-bom/stage-routes";
+import { clothPurchaseLabel, type FabricSource } from "@/lib/orders/fabric-bom/fabric-source";
 import { comboKey } from "@/lib/orders/fabric-bom/yarn-process";
 
 /**
@@ -39,6 +41,11 @@ import { comboKey } from "@/lib/orders/fabric-bom/yarn-process";
  *    dyed), their loss read back from planned vs purchase — never re-derived.
  *  - The process sections walk each line's route BACKWARD from its Req Wt with
  *    the engine's loss rule (divide by 1 − L), exactly as the order ledger does.
+ *  - A cloth whose route OPENS with a purchase step (FABRIC PURCHASE, DYED
+ *    FABRIC PURCHASE) is bought by the roll: it is a Fabric Purchase line —
+ *    Req Wt grossed back through the whole route, the order's `net × ladder`
+ *    — and buys no yarn (the plan's save leaves it out of the yarn rows,
+ *    `iwoSourceByFabric`, 2026-10-16).
  *  - Fabric Allocation lists the lines themselves: Req Wt is the cloth issued
  *    to cutting (a sample plan stores no separate cutting wastage, so net =
  *    allocated).
@@ -158,6 +165,8 @@ export function sampleYarnFabricReport(input: SampleYarnFabricInput): YarnFabric
       })()
     : null;
 
+  const text = (v: string | null | undefined) => v ?? "";
+
   // ---- The process sections ------------------------------------------------
   const stepsByItem = new Map<string, SampleYarnFabricInput["steps"]>();
   for (const st of [...input.steps].sort((a, b) => a.sno - b.sno)) {
@@ -171,18 +180,32 @@ export function sampleYarnFabricReport(input: SampleYarnFabricInput): YarnFabric
   const byProcess = new Map<string, StageBreakdownGroup>();
   const stagesOf = new Map<string, Map<string, { id: string; code: string | null; name: string }>>();
   const refusals: string[] = [];
+  /** Bought cloth, one line per (fabric, colour) — the order's grain. */
+  const clothBy = new Map<string, ClothPurchaseLine>();
+  const kgCode = input.yarns.find((y) => y.uom)?.uom ?? null;
+  /** A route opening with a purchase step buys the cloth — greige or dyed by
+   *  that step's stage, the order's `branchSource` rule. An unranked stage
+   *  buys nothing (null), exactly as there. */
+  const sourceOf = (route: SampleYarnFabricInput["steps"]): FabricSource | null => {
+    const first = route[0];
+    if (!first?.isClothPurchase || !first.stage) return null;
+    const rank = stageRank(first.stage);
+    return rank === 0 ? "greige_purchase" : rank != null && rank >= 1 ? "dyed_purchase" : null;
+  };
   for (const l of input.lines) {
     const route = stepsByItem.get(l.itemId) ?? [];
     if (!route.length || !(l.reqKg > 0)) continue;
     const colour = comboKey(l.colour);
     // BACKWARD from the cutting table: the last step delivers Req Wt.
     let out = l.reqKg;
+    let walked = true;
     for (let i = route.length - 1; i >= 0; i--) {
       const st = route[i];
       const own = st.colorLosses ? Object.entries(st.colorLosses).find(([k]) => comboKey(k) === colour)?.[1] : undefined;
       const loss = typeof own === "number" && Number.isFinite(own) ? own : (st.lossPct ?? 0);
       if (!(loss < 100)) {
         refusals.push(`${l.fabric} · ${st.processName}: a ${loss}% loss leaves nothing — check the Fabric Process route.`);
+        walked = false;
         break;
       }
       const input_ = out / (1 - loss / 100);
@@ -232,9 +255,34 @@ export function sampleYarnFabricReport(input: SampleYarnFabricInput): YarnFabric
       g.toOrderedTotal += line.toOrderedWt;
       out = input_;
     }
+    // What enters the FIRST step is what is bought, when that step buys it.
+    const source = walked ? sourceOf(route) : null;
+    const label = source ? clothPurchaseLabel(source) : null;
+    if (source && label) {
+      const key = `${l.itemId}|${colour}`;
+      const held = clothBy.get(key);
+      if (held) {
+        held.netWt = r6(held.netWt + l.reqKg);
+        held.purchaseWt = r6(held.purchaseWt + out);
+      } else {
+        clothBy.set(key, {
+          fabricId: l.itemId,
+          fabricName: l.fabric,
+          source,
+          label,
+          combo: l.colour || null,
+          component: null,
+          netWt: r6(l.reqKg),
+          purchaseWt: r6(out),
+          uomCode: kgCode,
+        });
+      }
+    }
   }
+  const clothPurchase = [...clothBy.values()].sort(
+    (a, b) => a.fabricName.localeCompare(b.fabricName) || text(a.combo).localeCompare(text(b.combo)),
+  );
 
-  const text = (v: string | null | undefined) => v ?? "";
   for (const [pid, g] of byProcess) {
     g.stages = [...(stagesOf.get(pid)?.values() ?? [])];
     // One greige lot per fabric, not one per colour (the order report's rule).
@@ -293,8 +341,8 @@ export function sampleYarnFabricReport(input: SampleYarnFabricInput): YarnFabric
     yarnDyeing,
     yarnDyeingTotal,
     conversion: [],
-    clothPurchase: [],
-    clothPurchaseTotal: null,
+    clothPurchase,
+    clothPurchaseTotal: oneUnitTotal(clothPurchase.map((c) => ({ qty: c.purchaseWt, uom: c.uomCode }))),
     stageBreakdown,
     printing: printRequirement(printRows),
     allocation: {

@@ -57,6 +57,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // ---------- status helpers ----------
 
@@ -68,16 +69,7 @@ const BUDGET_STATUS_LABELS: Record<BudgetStatus, string> = {
 };
 
 function budgetStatusTone(status: BudgetStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 // ============================================================================

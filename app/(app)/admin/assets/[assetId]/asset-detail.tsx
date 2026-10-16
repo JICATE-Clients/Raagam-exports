@@ -10,6 +10,11 @@ import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
+
+// An asset coming BACK is the assignment closing normally — success here, not
+// the shared table's "returned" (sent back for rework).
+const ASSET_TONES = { returned: "success" } as const;
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
 import {
@@ -72,7 +77,7 @@ export function AssetDetail({ assetId, status, assignments, itemName, canEdit, c
     { header: "Department", cell: (r) => <span className="text-sm">{r.department ?? "—"}</span> },
     { header: "Assigned", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.assigned_date)}</span> },
     { header: "Returned", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.returned_date)}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={r.status === "assigned" ? "info" : "success"}>{r.status === "assigned" ? "Assigned" : "Returned"}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status === "assigned" ? "assigned" : "returned", ASSET_TONES)}>{r.status === "assigned" ? "Assigned" : "Returned"}</StatusPill> },
     ...(canEdit
       ? [{ header: "Return", align: "right" as const, cell: (r: AssetAssignment) => (
           r.status === "assigned" ? (

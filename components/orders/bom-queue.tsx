@@ -1,5 +1,7 @@
 "use client";
 
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
+import { StatusMark } from "@/components/ui/status-mark";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
 import { BadgeCheck, Check, Clock, Hourglass, Pencil } from "lucide-react";
@@ -13,7 +15,6 @@ import { ToggleGroup } from "@/components/ui/segmented";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
 import { DaysOut } from "@/components/orders/days-out";
-import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import {
   createdByFacet,
   urgencyFacet,
@@ -712,6 +713,12 @@ export function BomQueue({
     // An old `?status=updated` link on a four-word queue lands on Approved.
     return isApproved && w === "updated" ? "approved" : w;
   });
+  /* CARD VIEW / LIST VIEW (user 2026-10-16) — the queue's own switch, after
+     Filters. Until the operator picks, the tab decides as before (Updated /
+     Approved a list, the work still to do as cards); then this screen keeps
+     the pick. Rows, search, facets and the click are the same either way. */
+  const tableTab = quickStatus && quickFilter === (isApproved ? "approved" : "updated");
+  const viewMode = useViewMode(`bom-queue:${noun}`, tableTab ? "list" : "cards");
   const pickQuick = useCallback((v: QuickWord) => {
     setQuickFilter(v);
     writeQuickParam(QUICK_PARAM, v);
@@ -790,10 +797,6 @@ export function BomQueue({
     return tasks.length > 0 ? `Every confirmed order has a current ${noun} plan.` : null;
   }, [tasks, noun]);
 
-  /** False when the service does not select `created_at` — then the card shows
-   *  no Created line at all, rather than a dangling date. `hasCreatedInfo` is the
-   *  same guard `withCreatedColumns` applies to a table. */
-  const showCreated = hasCreatedInfo(tasks);
 
 
   return (
@@ -829,6 +832,7 @@ export function BomQueue({
         onSearch={setQuery}
         searchPlaceholder="Search RE No, PO or customer…"
         activeCount={facets.activeCount}
+        trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
         leading={
           quickStatus ? (
             isApproved ? (
@@ -875,7 +879,7 @@ export function BomQueue({
       {/* On the four-word box the table is APPROVED's — finished work. Under
           Progress keeps the cards: its rows still carry a Recalculate or
           Unresolved pill the table has no column for. */}
-      {quickStatus && quickFilter === (isApproved ? "approved" : "updated") ? (
+      {viewMode.view === "list" ? (
         <OrderQueueTable<BomTaskRow>
           fit={fitUpdated}
           rows={filtered}
@@ -954,7 +958,8 @@ export function BomQueue({
             {t.po_no ? <span className="font-mono"> · {t.po_no}</span> : null}
           </>
         )}
-        pill={(t) => <BomQueuePill status={t.status} />}
+        // An ICON on the card, the word in its tooltip — the tab already says it (components/ui/status-mark.tsx).
+        pill={(t) => <StatusMark word={bomStatusText(t.status)} tone={queueTone(t.status)} />}
         stats={(t) => bomCardStats(t, stat(t))}
         /* THE QUEUE CARD (operator, 2026-09-18, reference screenshot) — see
            `queue` on `MobileCardList`. A tap opens the BOM straight away; no
@@ -968,14 +973,11 @@ export function BomQueue({
            is SORTED by `BOM_STATUS_RANK` ("what needs doing, first"). */
         tone={(t) => queueTone(t.status)}
         accent={(t) => QUEUE_THEME[t.status]?.edge}
-        /* THE CREATED PAIR SHARES THE DRAWER'S FOOTER WITH THE BUTTONS —
-           AGENTS.md wants it APPENDED to the screen's own meta, not
-           substituted for it. Still gated on `hasCreatedInfo`, so a service
-           that stops selecting `created_at` shows nothing rather than a
-           dangling date. */
-        /* "Created " IN WORDS — in the drawer the pair sits alone beside the
-           buttons, with no column header to say what the date is. */
-        footerNote={showCreated ? (t) => `Created ${createdMeta(t)}` : undefined}
+        /* NO "Created …" LINE ON THE CARD (user 2026-10-16, after removing it
+           from Sample ▸ Fabric Plan: "yes" to the Orders queues too). It sat in
+           the card's footer beside the buttons under AGENTS.md's mobile-card
+           rule; on these queue cards it is removed on instruction, for every
+           screen this component draws — Fabric Plan and Accessories Plan. */
         onEdit={onOpen}
         canDelete={canDelete}
         /* Only an order that HAS a BOM has anything to delete — that is the

@@ -44,6 +44,7 @@
  */
 
 import type { StatusTone } from "@/lib/ui/tone";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const BOM_STATUSES = [
   "pending",
@@ -127,22 +128,10 @@ export function bomStatusText(s: BomStatus): string {
   }
 }
 
+// Recalculate and Unresolved are DANGER in the shared table on purpose: a stale
+// plan that reads as amber gets left, and leaving it is the failure.
 export function bomStatusTone(s: BomStatus): StatusTone {
-  switch (s) {
-    case "pending":
-      return "warning";
-    // NEUTRAL, not warning. `lib/ui/tone.ts`: neutral is "no claim", and a draft
-    // makes none — it is work in progress, not work that has gone wrong.
-    case "draft":
-      return "neutral";
-    case "updated":
-      return "success";
-    // DANGER for both, and deliberately: these are the two act-on-it states. A
-    // stale plan that reads as amber gets left, and leaving it is the failure.
-    case "recalculate":
-    default:
-      return "danger";
-  }
+  return statusTone(s);
 }
 
 /** One line explaining a status, for a tooltip or an empty state. */

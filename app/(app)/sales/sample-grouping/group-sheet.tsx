@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Undo2, X } from "lucide-react";
+import { Check, Lock, Plus, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet } from "@/components/ui/sheet";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -18,10 +18,14 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
   GROUP_STATUS_LABEL,
   GROUP_STATUS_TONE,
+  samplesLockedReason,
+  type GroupingCandidate,
   type GroupItemRow,
   type GroupRow,
 } from "@/lib/sales/sample-grouping/types";
+import { sameSeasonYear } from "@/lib/sales/sample-grouping/calc";
 import {
+  addToSampleGroup,
   approveAndRaiseSampleGroupIw,
   approveSampleGroup,
   raiseSampleGroupIw,
@@ -54,10 +58,13 @@ import {
 
 export function GroupSheet({
   group,
+  candidates,
   perms,
   onClose,
 }: {
   group: GroupRow;
+  /** Every candidate; the sheet offers the ungrouped ones that may join. */
+  candidates: GroupingCandidate[];
   perms: { canEdit: boolean; canRaiseIw: boolean };
   onClose: () => void;
 }) {
@@ -68,6 +75,52 @@ export function GroupSheet({
   const [desc, setDesc] = useState(savedDesc);
   const dirty = desc.trim().toUpperCase() !== savedDesc.trim().toUpperCase();
   useUnsavedGuard(dirty || isPending);
+
+  /* ADD AND REMOVE UNTIL A PLAN IS APPROVED (user 2026-10-16). The reason is
+     the same function the server refuses with, so the grey ✕ and the refusal
+     can never disagree. */
+  const locked = samplesLockedReason(group);
+  const [adding, setAdding] = useState<SheetOrigin | null>(null);
+  const [addKeys, setAddKeys] = useState<Set<string>>(() => new Set());
+  /** Who may join: ungrouped, same season and year, same customer (the
+   *  one-customer rule addToSampleGroup also enforces). */
+  const groupCustomer = group.items.find((it) => it.customer_id)?.customer_id ?? null;
+  const joinable = useMemo(
+    () =>
+      candidates.filter(
+        (c) => !c.group_id && sameSeasonYear(c, group) && (!groupCustomer || c.customer_id === groupCustomer),
+      ),
+    [candidates, group, groupCustomer],
+  );
+  const closeAdd = () => {
+    setAdding(null);
+    setAddKeys(new Set());
+  };
+  const toggleAdd = (key: string) =>
+    setAddKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const addPicked = () =>
+    startTransition(async () => {
+      const n = addKeys.size;
+      const res = await addToSampleGroup(group.id, [...addKeys]);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      success(`${n} sample${n === 1 ? "" : "s"} added to ${group.group_code}.`);
+      closeAdd();
+      router.refresh();
+    });
+  const joinColumns: Column<GroupingCandidate>[] = [
+    { header: "SMP No", cell: (c) => <span className="font-mono text-xs">{c.enquiry_no ?? c.sample_no ?? "—"}</span> },
+    { header: "Style", cell: (c) => <Truncated className="block max-w-[9rem] text-xs font-medium">{c.style_name || "—"}</Truncated> },
+    { header: "Fabric", cell: (c) => <Truncated className="block max-w-[8rem] text-xs">{c.fabric_structure ?? "—"}</Truncated> },
+    { header: "Qty", align: "right", cell: (c) => <span className="block text-right font-mono tabular-nums text-xs">{c.sample_qty_pcs}</span> },
+  ];
 
   const run = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, said: string) =>
     startTransition(async () => {
@@ -105,7 +158,8 @@ export function GroupSheet({
       : []),
     { header: "Qty (pcs)", align: "right", cell: (it) => <span className="block text-right font-mono tabular-nums text-xs">{it.sample_qty_pcs}</span> },
   ];
-  // Samples stay editable at every status (0713, user 2026-10-12).
+  // Samples stay editable at every group status (0713) — until a plan is
+  // approved (2026-10-16), when the ✕ greys with the reason.
   if (perms.canEdit) {
     itemColumns.push(
       rowActionsColumn((it) => (
@@ -118,7 +172,7 @@ export function GroupSheet({
               name={it.enquiry_no ?? it.style_name}
               icon={X}
               danger
-              disabledReason={group.items.length <= 1 ? "The group's only style — delete the group instead." : null}
+              disabledReason={locked ?? (group.items.length <= 1 ? "The group's only style — delete the group instead." : null)}
               onClick={() => run(() => removeFromSampleGroup(group.id, it.id), `${it.enquiry_no ?? "Style"} removed from ${group.group_code}.`)}
             />
           }
@@ -202,21 +256,80 @@ export function GroupSheet({
         </>
       }
     >
-      <div className="space-y-4">
-        {/* name-step width: a short batch name, not prose. */}
-        <section className="max-w-[24rem]">
+      {/* ONE COLUMN, ONE EDGE (user 2026-10-16: "align the grouping UI"). The
+          three parts used to end at three different widths — a 24rem
+          Description, a lone "Add samples" row under it, a fit-to-content
+          table — so nothing lined up on the right. Now Description and
+          "Add samples" share ONE row (the button on the field's baseline, at
+          the field's 36px height), the lock reason sits under that row, and
+          the samples table runs the sheet's full width beneath. */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          {/* name-step width: a short batch name, not prose. */}
           <Field label="Description" w="name" htmlFor="grp-desc">
             <Input id="grp-desc" value={desc} onChange={(e) => setDesc(e.target.value)} readOnly={!perms.canEdit} maxLength={500} />
           </Field>
-        </section>
-
-        {/* No "Add a sample…" picker here (user 2026-10-14) — samples join a
-            group from the Grouping list. */}
-
-        <div className="w-fit max-w-full">
-          <DataTable columns={withCreatedColumns(itemColumns, group.items)} rows={group.items} getKey={(it) => it.id} compact paginate={false} empty="No styles in this group." />
+          {/* ADD BACK (user 2026-10-16: "add option after creating group"):
+              one button, opening a small list of the samples that may join.
+              Locked = greyed, the reason said once in words below — a disabled
+              button gets no hover. */}
+          {perms.canEdit ? (
+            <Button
+              variant="outline"
+              size="md"
+              disabled={!!locked || isPending}
+              onClick={(e) => setAdding(e.currentTarget.getBoundingClientRect())}
+            >
+              <Plus aria-hidden />
+              Add samples
+            </Button>
+          ) : null}
         </div>
+        {perms.canEdit && locked ? (
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Lock className="size-3.5 shrink-0" aria-hidden />
+            {locked}
+          </p>
+        ) : null}
+
+        <DataTable columns={withCreatedColumns(itemColumns, group.items)} rows={group.items} getKey={(it) => it.id} compact paginate={false} empty="No styles in this group." />
       </div>
+
+      {adding ? (
+        <Sheet
+          open
+          onClose={closeAdd}
+          size="sm"
+          /* checkbox 40 + SMP 110 + Style 144 + Fabric 128 + Qty 60 ≈ 480px → lg (512). */
+          maxWidthClass="max-w-lg"
+          alignToPane
+          origin={adding}
+          title={`Add samples to ${group.group_code}`}
+          footer={
+            <>
+              <Button variant="outline" size="md" onClick={closeAdd}>
+                Cancel
+              </Button>
+              <Button size="md" disabled={!addKeys.size || isPending} onClick={addPicked}>
+                {isPending ? "Adding…" : `Add (${addKeys.size})`}
+              </Button>
+            </>
+          }
+        >
+          <DataTable
+            columns={joinColumns}
+            rows={joinable}
+            getKey={(c) => c.key}
+            compact
+            paginate={false}
+            selectable
+            selectedKeys={addKeys}
+            onToggle={toggleAdd}
+            onToggleAll={() => setAddKeys((prev) => (prev.size === joinable.length ? new Set() : new Set(joinable.map((c) => c.key))))}
+            empty={`No ungrouped samples for ${group.season} ${group.season_year}${groupCustomer ? " and this customer" : ""}.`}
+          />
+        </Sheet>
+      ) : null}
     </Sheet>
   );
 }

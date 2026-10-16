@@ -16,16 +16,12 @@ import { fmtMoney, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { OpportunityTabs } from "../opportunity-tabs";
-import type { StatusTone } from "@/components/ui/status-pill";
-import type { OpportunityStage } from "@/lib/sales/types";
+import { statusTone } from "@/lib/ui/status-tone";
 
-const STAGE_TONE: Record<OpportunityStage, StatusTone> = {
-  enquiry: "neutral",
-  costing: "info",
-  quoted: "warning",
-  won: "success",
-  lost: "danger",
-};
+// A PIPELINE STAGE, not a document status: Won / Lost come from the shared
+// table, and the three working stages keep their own ladder — Quoted is amber
+// because the next move is the buyer's.
+const STAGE_TONES = { enquiry: "neutral", costing: "info", quoted: "warning" } as const;
 
 interface PageProps {
   params: Promise<{ opportunityId: string }>;
@@ -86,7 +82,7 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
         )}
         <div className="flex items-center gap-1.5">
           <span className="text-muted-foreground">Stage:</span>
-          <StatusPill tone={STAGE_TONE[opportunity.stage]}>
+          <StatusPill tone={statusTone(opportunity.stage, STAGE_TONES)}>
             {opportunity.stage.charAt(0).toUpperCase() +
               opportunity.stage.slice(1)}
           </StatusPill>

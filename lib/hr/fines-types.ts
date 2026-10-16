@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/lib/ui/tone";
+import { statusTone } from "@/lib/ui/status-tone";
 
 /**
  * HR STAFF FINES & SALARY DEDUCTIONS (0629, doc/order/punishment fine.md).
@@ -22,11 +23,11 @@ export const FINE_STATUS_LABELS: Record<FineStatus, string> = {
 };
 
 export const FINE_STATUS_TONES: Record<FineStatus, StatusTone> = {
-  draft: "neutral",
-  pending: "warning",
-  approved: "success",
-  rejected: "danger",
-  abandoned: "neutral",
+  draft: statusTone("draft"),
+  pending: statusTone("pending"),
+  approved: statusTone("approved"),
+  rejected: statusTone("rejected"),
+  abandoned: statusTone("abandoned"),
 };
 
 /** Direct = a flat amount; the other two derive it from the monthly salary. */

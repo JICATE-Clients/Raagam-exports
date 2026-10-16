@@ -107,6 +107,7 @@ export const RISK_LABELS: Record<RiskLevel, string> = {
   cancelled: "Cancelled",
 };
 
+// status-tone: exempt -- a RISK scale: a closed or cancelled order carries no delivery risk, so grey
 export const RISK_TONES: Record<RiskLevel, StatusTone> = {
   late: "danger",
   at_risk: "warning",

@@ -12,6 +12,7 @@ import type { BudgetRow } from "@/lib/planning/budget-service";
 import type { BudgetStatus, BudgetType } from "@/lib/planning/budget-types";
 import { BUDGET_TYPE_LABELS } from "@/lib/planning/budget-types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
 
 const BUDGET_STATUS_LABELS: Record<BudgetStatus, string> = {
   draft: "Draft",
@@ -21,16 +22,7 @@ const BUDGET_STATUS_LABELS: Record<BudgetStatus, string> = {
 };
 
 function budgetStatusTone(status: BudgetStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 const columns: Column<BudgetRow>[] = [

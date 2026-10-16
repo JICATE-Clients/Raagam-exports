@@ -29,6 +29,7 @@
  * the same function the save calls. The preview is the stored figure.
  */
 
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Boxes, CalendarRange, ClipboardList, Layers, Users, Workflow } from "lucide-react";
@@ -416,6 +417,9 @@ export function IwoMaterialBomScreen({
     onPick: () => listFacets.set("bom", ""),
     countRows: base,
   });
+  /* CARD VIEW / LIST VIEW (user 2026-10-16) — the tab's own default until the
+     operator picks; then this screen keeps the pick. Above every early return. */
+  const viewMode = useViewMode("iwo-material-bom", quick.value === "updated" ? "list" : "cards");
   const qm = quick.matches;
   const listed = useMemo(() => base.filter(qm), [base, qm]);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
@@ -1635,6 +1639,7 @@ export function IwoMaterialBomScreen({
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Accessories Plan</Button> : undefined}
         />
         <FilterBar
+          trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
           leading={quick.segment}
           search={listQuery}
           onSearch={setListQuery}
@@ -1667,6 +1672,16 @@ export function IwoMaterialBomScreen({
               return "neutral";
             }}
             // A saved sample plan's word is its APPROVAL (0720).
+            // The labels are composite ("Approved · Rev 2"), so the icon reads the status itself.
+            mark={(t) =>
+              !t.bom || t.bom.is_draft || t.bom.approval_status === "returned"
+                ? "todo"
+                : t.bom.approval_status === "approved"
+                  ? "done"
+                  : t.bom.approval_status === "submitted"
+                    ? "wait"
+                    : "todo"
+            }
             pillText={(t) =>
               !t.bom ? "Not started" : t.bom.is_draft ? "Draft" : planApprovalLabel(t.bom.approval_status, t.bom.revision_no)
             }
@@ -1687,7 +1702,8 @@ export function IwoMaterialBomScreen({
             isPending={isPending}
             // Updated is done work — a table, as Orders draws it; Pending and
             // Draft stay cards (user 2026-10-13).
-            table={quick.value === "updated" ? { title: "SWO No", subtitle: "SMP No" } : undefined}
+            table={{ title: "SWO No", subtitle: "SMP No" }}
+        view={viewMode.view}
             empty={
               !tasks.length
                 ? "No accessories plans at this unit yet — + New Accessories Plan, then pick the SWO."

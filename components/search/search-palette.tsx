@@ -381,7 +381,7 @@ export function SearchPalette({
                         onClick={() => toggle(item.href)}
                         className={cn(
                           "flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-surface",
-                          pinned ? "text-amber-500" : "text-muted-foreground",
+                          pinned ? "text-warning" : "text-muted-foreground",
                         )}
                       >
                         <Star className={cn("h-4 w-4", pinned && "fill-current")} />

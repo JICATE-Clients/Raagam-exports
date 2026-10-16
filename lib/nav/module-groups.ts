@@ -1429,7 +1429,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "system",
         label: "System",
-        description: "Notifications, and the scheduled jobs behind them",
+        description: "Notifications, the scheduled jobs behind them, and the design reference",
         // doc/admin/notification-management-plan.md §5. Scheduled Jobs is its
         // own row, not a Notifications tab: the jobs advance approvals and
         // raise order alerts, not only notifications.
@@ -1443,6 +1443,11 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
             href: "/admin/jobs",
             label: "Scheduled Jobs",
             description: "The automatic jobs — when each last ran, whether it is late, and Run now",
+          },
+          {
+            href: "/admin/design-reference",
+            label: "Design Reference",
+            description: "Buttons, status colours, colour tokens and icons — live, in your theme",
           },
         ],
       },

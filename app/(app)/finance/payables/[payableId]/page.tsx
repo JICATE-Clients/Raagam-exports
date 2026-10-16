@@ -11,15 +11,15 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { ApproveButton, RecordPaymentForm } from "./payable-actions";
 import type { PayableStatus, MatchStatus, PayablePayment } from "@/lib/finance/types";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const PAYABLE_STATUS_TONE_OVERRIDES = {
+  // Approved is a step in this document's life, not its end — work still follows it (was info before the shared table, kept).
+  approved: "info",
+} as const;
 
 function payableStatusTone(s: PayableStatus): StatusTone {
-  switch (s) {
-    case "draft": return "neutral";
-    case "approved": return "info";
-    case "partially_paid": return "warning";
-    case "paid": return "success";
-    case "cancelled": return "neutral";
-  }
+  return statusTone(s, PAYABLE_STATUS_TONE_OVERRIDES);
 }
 
 const PAYABLE_STATUS_LABELS: Record<PayableStatus, string> = {
@@ -30,12 +30,14 @@ const PAYABLE_STATUS_LABELS: Record<PayableStatus, string> = {
   cancelled: "Cancelled",
 };
 
+const MATCH_STATUS_TONE_OVERRIDES = {
+  unmatched: "neutral", // this module's own word — not in the shared table
+  matched: "success", // this module's own word — not in the shared table
+  exception: "danger", // this module's own word — not in the shared table
+} as const;
+
 function matchStatusTone(s: MatchStatus): StatusTone {
-  switch (s) {
-    case "unmatched": return "neutral";
-    case "matched": return "success";
-    case "exception": return "danger";
-  }
+  return statusTone(s, MATCH_STATUS_TONE_OVERRIDES);
 }
 
 const MATCH_STATUS_LABELS: Record<MatchStatus, string> = {

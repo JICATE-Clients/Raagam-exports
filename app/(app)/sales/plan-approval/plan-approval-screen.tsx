@@ -318,10 +318,10 @@ export function PlanApprovalScreen({
           right={`${filtered.length} of ${rows.length}`}
         />
 
-        {/* AS WIDE AS ITS COLUMNS, not the pane (the order screen's rule) —
-            from `md` only: below it the table is stacked cards, and a card
-            shrunk to its content stopped short of the phone's edge. */}
-        <div className="max-w-full md:w-fit">
+        {/* FULL WIDTH, LIKE SAMPLE ENTRY (user 2026-10-16, screenshots 3575 /
+            3576). It was `md:w-fit`, hugging its columns and leaving a blank
+            strip beside the table. */}
+        <div>
           <DataTable
             columns={hugCreated(withCreatedColumns(columns, filtered))}
             rows={filtered}

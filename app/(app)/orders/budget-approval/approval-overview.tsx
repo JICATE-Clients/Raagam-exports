@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import {
-  AlertTriangle,
+  TriangleAlert,
   Ban,
   Check,
   ChevronRight,
@@ -337,7 +337,7 @@ export function ApprovalOverview({
             bar, which now sits in the page header (`overrideNote={false}`). */}
         {override && (
           <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-warning">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             You are not an approver on this step — acting here is recorded as an override.
           </div>
         )}
@@ -443,7 +443,7 @@ const STEP_ICON: Record<EventAction, typeof Check> = {
   return: RotateCcw,
   cancel: Ban,
   delegate: UserCog,
-  sla_breach: AlertTriangle,
+  sla_breach: TriangleAlert,
 };
 const STEP_WORD: Record<EventAction, string> = {
   submit: "Submitted",

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, RotateCw, Home } from "lucide-react";
+import { TriangleAlert, RotateCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 
@@ -42,7 +42,7 @@ export default function AppError({
       <Card className="w-full max-w-md">
         <CardBody className="flex flex-col items-center gap-4 py-8 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-danger/10 text-danger">
-            <AlertTriangle className="h-6 w-6" />
+            <TriangleAlert className="h-6 w-6" />
           </div>
 
           <div className="space-y-1.5">

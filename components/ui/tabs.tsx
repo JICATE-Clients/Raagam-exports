@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { focusFirstField, focusLastField, registerContentEdge } from "@/lib/focus";
 
 /**
  * The app's tab strip — the shape a DOCUMENT wears.
@@ -148,6 +149,58 @@ export function Tabs({
   useEffect(() => {
     const el = stripRef.current?.querySelector<HTMLElement>(`[data-tab-key="${CSS.escape(active ?? "")}"]`);
     el?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [active]);
+
+  /**
+   * ENTER OFF A TAB'S LAST FIELD OPENS THE NEXT TAB (user 2026-10-16: "Enter on
+   * the last field of a tab → the next tab's first field"). Tab, Shift+Tab and
+   * the arrows read the same hand-off, so all of them cross tabs alike.
+   *
+   * Only one tab is mounted at a time — the next field lives in a panel that
+   * does not exist yet — which is exactly the section rail's problem, so this
+   * is the rail's answer: publish an edge with `registerContentEdge` and let
+   * `lib/focus.ts` ask it. Nothing here listens for a key. Off the LAST tab it
+   * declines, so an enclosing section rail opens its next section, and off the
+   * last of those the save ladder runs — Enter saves only off the last field of
+   * the whole document.
+   *
+   * Disabled tabs are stepped over. On a strip with no editor around it (a
+   * report's tabs, a listing's) nothing changes: `enterAdvances` stands down on
+   * a surface that cannot save before it ever reaches an edge, and Tab is only
+   * claimed on an editor.
+   */
+  const panelRef = useRef<HTMLDivElement>(null);
+  const landingRef = useRef<"first" | "last" | null>(null);
+  // Registered once, so it reads the live list through refs (smp-colour-sheet's
+  // shape) — synced in an effect, never written during render.
+  const navRef = useRef({ items, active });
+  const selectRef = useRef(select);
+  useEffect(() => {
+    navRef.current = { items, active };
+    selectRef.current = select;
+  });
+  useEffect(
+    () =>
+      registerContentEdge(panelRef.current, (dir) => {
+        const { items: list, active: at } = navRef.current;
+        let i = list.findIndex((x) => x.key === at) + dir;
+        while (i >= 0 && i < list.length && list[i].disabled) i += dir;
+        if (i < 0 || i >= list.length) return false;
+        landingRef.current = dir === 1 ? "first" : "last";
+        selectRef.current(list[i].key);
+        return true;
+      }),
+    [],
+  );
+  // Land in the panel the hand-off just opened. Same commit as the switch, so
+  // the panel's fields already exist; a parent that switches by its own
+  // `value` (controlled) re-renders into this effect the same way.
+  useEffect(() => {
+    const land = landingRef.current;
+    if (!land) return;
+    landingRef.current = null;
+    if (land === "last") focusLastField(panelRef.current);
+    else focusFirstField(panelRef.current);
   }, [active]);
 
   /**
@@ -351,7 +404,7 @@ export function Tabs({
         })}
         {after != null && <div className="flex shrink-0 items-center pb-1 pl-1">{after}</div>}
       </div>
-      <div className={cn("pt-4", side && "@min-[76.5rem]/tabs:min-w-0 @min-[76.5rem]/tabs:pt-0")} role="tabpanel">
+      <div ref={panelRef} className={cn("pt-4", side && "@min-[76.5rem]/tabs:min-w-0 @min-[76.5rem]/tabs:pt-0")} role="tabpanel">
         {current?.content}
       </div>
     </div>

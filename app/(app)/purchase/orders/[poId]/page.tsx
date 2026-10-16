@@ -12,24 +12,15 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { PO_STATUS_LABELS } from "@/lib/purchase/types";
 import type { PoStatus } from "@/lib/purchase/types";
 import { PoDetail } from "./po-detail";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const PO_STATUS_TONE_OVERRIDES = {
+  // Approved is a step in this document's life, not its end — work still follows it (was info before the shared table, kept).
+  approved: "info",
+} as const;
 
 function poStatusTone(status: PoStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "pending_approval":
-      return "warning";
-    case "approved":
-      return "info";
-    case "partially_received":
-      return "warning";
-    case "received":
-      return "success";
-    case "closed":
-      return "neutral";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status, PO_STATUS_TONE_OVERRIDES);
 }
 
 export default async function PoDetailPage({

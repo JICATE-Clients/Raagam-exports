@@ -11,6 +11,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import type { GarmentBomRow } from "@/lib/planning/bom-service";
 import type { BomStatus } from "@/lib/planning/bom-types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
 
 const BOM_STATUS_LABELS: Record<BomStatus, string> = {
   draft: "Draft",
@@ -20,16 +21,7 @@ const BOM_STATUS_LABELS: Record<BomStatus, string> = {
 };
 
 function bomStatusTone(status: BomStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 const columns: Column<GarmentBomRow>[] = [

@@ -329,6 +329,7 @@ export function GroupingScreen({
         <GroupSheet
           key={`${open.id}:${open.status}`}
           group={open}
+          candidates={data.candidates}
           perms={perms}
           onClose={() => setOpenId(null)}
         />

@@ -21,25 +21,16 @@ import type { PoWithVendor } from "@/lib/purchase/po-service";
 import type { PoStatus } from "@/lib/purchase/types";
 import { PO_STATUS_LABELS } from "@/lib/purchase/types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // StatusPill tones by PO status
+const PO_STATUS_TONE_OVERRIDES = {
+  // Approved is a step in this document's life, not its end — work still follows it (was info before the shared table, kept).
+  approved: "info",
+} as const;
+
 function poStatusTone(status: PoStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "pending_approval":
-      return "warning";
-    case "approved":
-      return "info";
-    case "partially_received":
-      return "warning";
-    case "received":
-      return "success";
-    case "closed":
-      return "neutral";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status, PO_STATUS_TONE_OVERRIDES);
 }
 
 // We need PoWithVendor extended with lines for open balance, but listPurchaseOrders

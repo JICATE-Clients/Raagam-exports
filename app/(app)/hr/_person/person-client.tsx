@@ -43,7 +43,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import type { Column } from "@/components/ui/data-table";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -4511,7 +4512,7 @@ export default function PersonClient({
       header: "Status",
       cell: (r) => (
         <span className="inline-flex flex-wrap gap-1">
-          <StatusPill tone={r.is_active ? "success" : "neutral"}>
+          <StatusPill tone={activeTone(r.is_active)}>
             {r.is_active ? "Active" : "Inactive"}
           </StatusPill>
           {"blocked" in r && r.blocked && (

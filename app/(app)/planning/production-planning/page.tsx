@@ -11,6 +11,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import type { ProductionPlan, PpStatus } from "@/lib/planning/production-planning-types";
 import { DATE_TYPE_LABELS } from "@/lib/planning/production-planning-types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone as sharedStatusTone } from "@/lib/ui/status-tone";
 
 const STATUS_LABELS: Record<PpStatus, string> = {
   draft: "Draft",
@@ -20,12 +21,7 @@ const STATUS_LABELS: Record<PpStatus, string> = {
 };
 
 function statusTone(status: PpStatus): StatusTone {
-  switch (status) {
-    case "draft":     return "neutral";
-    case "submitted": return "warning";
-    case "approved":  return "success";
-    case "rejected":  return "danger";
-  }
+  return sharedStatusTone(status);
 }
 
 const columns: Column<ProductionPlan>[] = [

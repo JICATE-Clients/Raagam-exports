@@ -5,16 +5,15 @@ import { getDc, getDcLines } from "@/lib/purchase/grn-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { dcLineBalance } from "@/lib/purchase/types";
 import { RecordReturnButton } from "./_components/record-return-button";
 import type { DcLineItem, DcStatus } from "@/lib/purchase/types";
 
-const statusTone: Record<DcStatus, "info" | "warning" | "success"> = {
-  issued: "info",
-  partially_returned: "warning",
-  closed: "success",
-};
+// A delivery challan CLOSED is every piece back from the job worker — its
+// normal completion, so success rather than the shared table's retired grey.
+const DC_TONES = { closed: "success" } as const;
 
 const statusLabel: Record<DcStatus, string> = {
   issued: "Issued",
@@ -42,7 +41,7 @@ export default async function DcDetailPage({
         description="Delivery Challan — track material sent to processor and returns"
         actions={
           <div className="flex items-center gap-2">
-            <StatusPill tone={statusTone[dc.status]}>
+            <StatusPill tone={statusTone(dc.status, DC_TONES)}>
               {statusLabel[dc.status]}
             </StatusPill>
             <Link

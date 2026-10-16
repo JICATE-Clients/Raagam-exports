@@ -14,6 +14,7 @@ import {
   type AmendmentSource,
   type AmendmentType,
 } from "./amendment";
+import { statusTone, type StatusTone } from "@/lib/ui/status-tone";
 
 // ============================================================================
 // Orders ▸ Budgeting (step 5) and Approval (step 6), over ONE table (0428).
@@ -45,18 +46,8 @@ export function budgetStatusText(s: BudgetStatus): string {
   }
 }
 
-export function budgetStatusTone(s: BudgetStatus): "neutral" | "warning" | "success" | "danger" {
-  switch (s) {
-    // NEUTRAL — `lib/ui/tone.ts`: neutral is "no claim", and a draft makes none.
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    default:
-      return "danger";
-  }
+export function budgetStatusTone(s: BudgetStatus): StatusTone {
+  return statusTone(s);
 }
 
 /**

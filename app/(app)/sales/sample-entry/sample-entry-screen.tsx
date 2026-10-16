@@ -54,7 +54,7 @@ import { StyleProcessGrid } from "@/components/orders/style-process-grid";
 import type { ProcessKind, StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 import { Tooltip } from "@/components/ui/tooltip";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
-import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { MATRIX_SIZE_TOKEN, sizeColPx } from "@/components/orders/matrix-grid";
 import {
   MasterFullScreen,
@@ -128,6 +128,7 @@ import {
   sampleEntryLockInfo,
   saveSampleEntry,
 } from "@/lib/sales/sample-entry/actions";
+import { fetchQuoteRate } from "@/lib/sales/sample-costing/actions";
 import { AssortmentSheet } from "./assortment-sheet";
 import { AllocationStrip } from "./allocation-strip";
 
@@ -229,10 +230,10 @@ const SAMPLE_FACETS: FacetGroup<SampleEntryListRow>[] = [
         all: "All",
         counted: true,
         options: [
+          { value: "updated", label: "Updated" },
           { value: "draft", label: "Draft" },
-          { value: "saved", label: "Saved" },
         ],
-        match: (r, v) => (r.is_draft ? "draft" : "saved") === v,
+        match: (r, v) => (r.is_draft ? "draft" : "updated") === v,
       },
       { key: "date", label: "Date", all: "Any date", date: (r) => r.received_date },
     ],
@@ -274,17 +275,16 @@ const SAMPLE_FACETS: FacetGroup<SampleEntryListRow>[] = [
 ];
 
 /**
- * THE FOUR-WORD BOX — Pending · Under Progress · Approved · Draft (user
- * 2026-10-15: "untouched entry pending, worked order under progress, approved
- * … approved tab, then draft", the same box Plan Approval and the Orders queues
- * carry). The old Pending · Updated · Draft box had nothing to put in Updated,
- * which counted 0 forever. Now a sample's word is how far its COSTING has got
- * (`costing_stage`, read by the same query that greys a locked row): none yet
- * = Pending, a live costing = Under Progress, buyer-accepted (0725) =
- * Approved. Module-level so its identity is stable (the hook memoises on it).
+ * THE TWO-WORD BOX — Updated · Draft (user 2026-10-16: "updated, Draft —
+ * sample entry now update the status tabs"). Reverses 10-15's Pending · Under
+ * Progress · Approved · Draft: those words described the COSTING, which has its
+ * own screen and its own box; this list is the entries, and an entry is either
+ * saved in full (Updated) or parked as a Draft. Updated is drawn first and
+ * opened on. `costing_stage` is still read — it greys a locked row. Module-level
+ * so its identity is stable (the hook memoises on it).
  */
-const sampleWordOf = (r: SampleEntryListRow): QuickWord =>
-  r.is_draft ? "draft" : r.costing_stage === "approved" ? "approved" : r.costing_stage === "costing" ? "progress" : "pending";
+const SAMPLE_WORDS: readonly QuickWord[] = ["updated", "draft"];
+const sampleWordOf = (r: SampleEntryListRow): QuickWord => (r.is_draft ? "draft" : "updated");
 const QUICK_LABEL: Record<QuickWord, string> = {
   pending: "Pending",
   updated: "Updated",
@@ -390,7 +390,7 @@ export function SampleEntryScreen({
     });
   }, [rows, query, facetMatches]);
   // Counted over every OTHER filter, so a word's figure is what clicking it shows.
-  const quick = useQuickStatus(sampleWordOf, { words: QUICK_WORDS_4, countRows: searched });
+  const quick = useQuickStatus(sampleWordOf, { words: SAMPLE_WORDS, updatedFirst: true, countRows: searched });
   const filtered = searched.filter(quick.matches);
 
   // ---- option lists (derived; cheap passes over props) --------------------
@@ -651,6 +651,19 @@ export function SampleEntryScreen({
   const revealFirstProblem = () =>
     reveal(sampleProblems.find((p) => p.message === validity.first?.message) ?? sampleProblems[0]);
 
+  /** The picked currency's ₹ rate into that style's Exchange Rate box. */
+  function fetchExchangeRate(styleKey: string, code: string) {
+    start(async () => {
+      const res = await fetchQuoteRate(code, header.received_date || null);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      patchStyle(styleKey, { exchange_rate: String(res.rate) });
+      success(`${code} rate ${res.rate} from ${res.source}${res.effectiveFrom ? `, ${fmtDate(res.effectiveFrom)}` : ""}.`);
+    });
+  }
+
   function submit(asDraft: boolean) {
     if (asDraft) {
       // A draft still needs what makes it a record at all.
@@ -705,7 +718,7 @@ export function SampleEntryScreen({
   /**
    * THE GARMENT ORDERS LIST'S CELLS (garment-order-screen.tsx, `compact` table):
    * text-xs throughout, the number a mono link, dates `tabular-nums`, figures
-   * right-aligned `font-mono`. No Status column — the Pending · Draft box above
+   * right-aligned `font-mono`. No Status column — the Updated · Draft box above
    * answers it, as it does on Orders. No eye: the Enquiry No link already opens
    * the entry, and on Orders the eye's slot is the Reports icon, which an entry
    * gains once a sample report exists (spec §7, deferred).
@@ -2132,13 +2145,18 @@ export function SampleEntryScreen({
                         compact
                         currencies={data.currencies}
                         value={active.currency_code}
-                        onChange={(code) =>
+                        onChange={(code) => {
                           patchStyle(active.key, {
                             currency_code: code,
                             // Order Entry's rule: picking INR fills a BLANK rate with 1.
                             ...(code === "INR" && !active.exchange_rate.trim() ? { exchange_rate: "1" } : {}),
-                          })
-                        }
+                          });
+                          // FETCHED, NOT TYPED (user 2026-10-16): any other currency's
+                          // rate is fetched for the entry's date — the register first,
+                          // else the ECB / market rate (`fetchQuoteRate`). The box
+                          // stays editable; a rate is per currency, so it is replaced.
+                          if (code && code !== "INR") fetchExchangeRate(active.key, code);
+                        }}
                         canCreate={masterPerms.canCreate}
                         canEdit={masterPerms.canEdit}
                       />
@@ -2552,7 +2570,14 @@ export function SampleEntryScreen({
           pencil / bin were clipped to a sliver). Below a 1900px viewport the two Created
           columns step aside and the frame scrolls instead of hiding the overflow; the
           no-scrollbar look stays on a wide screen where everything fits. */}
-      <div className="w-fit max-w-full min-[1900px]:[&_.overflow-x-auto]:overflow-x-hidden [&_td:nth-last-child(2)]:max-w-[8rem] [&_td:nth-last-child(2)]:truncate">
+      {/* 2026-10-16: the ≥1900px `overflow-x-hidden` is gone — with the row icons
+          pinned by `DataTable`, a table that does not fit scrolls its fields under
+          them, which hiding the overflow would have turned back into clipping. */}
+      {/* FULL WIDTH (user 2026-10-16, screenshot 3565: the card should meet the
+          pane's side as it meets its bottom). Was `w-fit` (10-08, erp-table-fit);
+          the short columns still hug through `HUG`, so the extra width goes to the
+          unsized Customer column rather than spreading every column apart. */}
+      <div className="[&_td:nth-last-child(2)]:max-w-[8rem] [&_td:nth-last-child(2)]:truncate">
         <DataTable
           columns={hugCreated(withCreatedColumns(listColumns, filtered)).map((c) =>
             c.header === "Created Date" || c.header === "Created User"
@@ -2560,11 +2585,12 @@ export function SampleEntryScreen({
               : c,
           )}
           rows={filtered}
-          // TIGHT ROWS, px-2 py-1 (user 2026-10-08: remove the sideways scrollbar,
-          // "innum compact"). `compact` kept px-3 and, with Created Date / User
-          // added, ran ~40px wider than the pane — a scrollbar under one row and
-          // the row icons cut off. `dense` takes 8px off every column's padding.
-          dense
+          // DEFAULT SPACING AGAIN (user 2026-10-16, screenshot 3564: the cells
+          // too tight — "spaces between cell"). `dense` (px-2 py-1) came in on
+          // 10-08 only to dodge a sideways scrollbar that cut the row icons
+          // off. The icons are now pinned to the table's right edge by
+          // `DataTable` itself, so a narrow window scrolls the fields under
+          // them instead, and the list can have its 12px column gaps back.
           getKey={(r) => r.id}
           empty={
             !rows.length

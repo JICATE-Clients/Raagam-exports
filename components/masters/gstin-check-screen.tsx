@@ -64,7 +64,7 @@ function Row({
           "mt-0.5 h-4 w-4 shrink-0",
           tone === "ok" && "text-accent",
           tone === "bad" && "text-danger",
-          tone === "warn" && "text-amber-600 dark:text-amber-500",
+          tone === "warn" && "text-warning",
           (tone === "muted" || tone === "locked") && "text-muted-foreground/50",
         )}
       />
@@ -74,7 +74,7 @@ function Row({
             "text-[13.5px] text-foreground",
             mono && "font-mono",
             tone === "bad" && "text-danger",
-            tone === "warn" && "text-amber-600 dark:text-amber-500",
+            tone === "warn" && "text-warning",
             (tone === "muted" || tone === "locked") && "text-muted-foreground",
           )}
         >

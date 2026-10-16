@@ -6,6 +6,7 @@ import { addDays, dayOfWeek } from "@/lib/calendar";
 import type { CalEvent, CalKind, CalendarData } from "@/lib/my-calendar/data";
 import { monthDays, monthGrid, stepCursor, type CalView } from "@/lib/my-calendar/view";
 import { Card } from "@/components/ui/card";
+import { StatusPill } from "@/components/ui/status-pill";
 import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import { Truncated } from "@/components/ui/truncated";
 
@@ -75,10 +76,10 @@ export function MyCalendar({ data, view, cursor }: { data: CalendarData; view: C
           </Link>
         )}
         {data.available && (
-          <span className="ml-2 flex flex-wrap gap-1.5 text-xs font-semibold">
-            {overdue.length > 0 && <span className="rounded-full bg-danger-soft px-2 py-0.5 text-danger">{overdue.length} overdue</span>}
-            {view === "day" && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{onDay.length} on this day</span>}
-            {view === "day" && <span className="rounded-full bg-surface-muted px-2 py-0.5 text-foreground">{next.length} next 7 days</span>}
+          <span className="ml-2 flex flex-wrap gap-1.5">
+            {overdue.length > 0 && <StatusPill tone="danger">{overdue.length} overdue</StatusPill>}
+            {view === "day" && <StatusPill tone="warning">{onDay.length} on this day</StatusPill>}
+            {view === "day" && <StatusPill tone="neutral">{next.length} next 7 days</StatusPill>}
           </span>
         )}
         <span className="ml-auto flex flex-wrap items-center gap-2">

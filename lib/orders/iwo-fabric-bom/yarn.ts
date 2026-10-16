@@ -45,6 +45,8 @@ import {
   type YarnShade,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { yarnShadesFrom } from "@/lib/orders/fabric-bom/yarn-dyed";
+import { effectiveFabricSource, sourceFromRoute, type FabricSource } from "@/lib/orders/fabric-bom/fabric-source";
+import type { FabricStageLike } from "@/lib/orders/fabric-bom/stage-routes";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 
 /** One fabric line as this file reads it. `color_name` (0599, the Details
@@ -220,6 +222,38 @@ export function iwoRoutesByFabric(
       is_dyeing: kind?.is_dyeing ?? false,
     });
     out.set(p.item_id, list);
+  }
+  return out;
+}
+
+/**
+ * EACH FABRIC'S SOURCE, READ OFF ITS ROUTE (2026-10-16) — so a cloth whose
+ * route opens with FABRIC PURCHASE buys no yarn.
+ *
+ * Both callers used to pass `sourceByFabric: new Map()`, on the reasoning that
+ * "every IWO fabric is knitted from yarn" because the order screen's Source
+ * control is hidden here. But an IWO route CAN open with a purchase step, and
+ * then the bought cloth's whole weight was charged as yarn as well: on SWO
+ * 0002 the 25 kg of bought Lycra Rib came back as 23.75 kg cotton + 1.25 kg
+ * elastane, so Yarn Purchase read as the TOTAL of the fabrics, purchased ones
+ * included (user 2026-10-16). The order derives the source from the route
+ * (`sourceFromRoute`, the Source control being a read-out of it), and this is
+ * that same derivation, so an IWO and an order read one route one way.
+ *
+ * `steps` in route order. A fabric with no route stays "yarn_knit"; a fabric
+ * whose branches disagree reads as yarn_knit for the arithmetic, the order's
+ * own rule (`effectiveFabricSource`) — an IWO step names no colourway, so it
+ * has one branch and cannot disagree.
+ */
+export function iwoSourceByFabric(
+  steps: readonly { item_id: string; stage_id: string | null; process_id: string | null }[],
+  processes: readonly { id: string; is_cloth_purchase?: boolean | null }[],
+  stages: readonly FabricStageLike[],
+): Map<string, FabricSource> {
+  const options = processes.map((p) => ({ id: p.id, is_cloth_purchase: !!p.is_cloth_purchase }));
+  const out = new Map<string, FabricSource>();
+  for (const [itemId, derived] of sourceFromRoute(steps, options, stages)) {
+    out.set(itemId, effectiveFabricSource("yarn_knit", derived));
   }
   return out;
 }

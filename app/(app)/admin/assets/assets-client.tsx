@@ -18,18 +18,15 @@ import { createAsset } from "@/lib/admin/extras-actions";
 import { ASSET_STATUS_LABELS, type AssetStatus } from "@/lib/admin/extras-types";
 import type { AssetItemOption, AssetWithRefs, LocationOption } from "@/lib/admin/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const TONE_OVERRIDES = {
+  retired: "neutral", // this module's own word — not in the shared table
+  disposed: "danger", // this module's own word — not in the shared table
+} as const;
 
 function tone(s: AssetStatus): StatusTone {
-  switch (s) {
-    case "active":
-      return "success";
-    case "assigned":
-      return "info";
-    case "retired":
-      return "neutral";
-    case "disposed":
-      return "danger";
-  }
+  return statusTone(s, TONE_OVERRIDES);
 }
 
 interface Props {

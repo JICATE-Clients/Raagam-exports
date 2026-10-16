@@ -65,6 +65,13 @@ check("dialog trigger: ↓ opens the dialog", keyFills(TRIGGER, "ArrowDown"), tr
 check("native select: ↓ changes the value", keyFills(NATIVE_SELECT, "ArrowDown"), true);
 check("native select: ↑ changes the value", keyFills(NATIVE_SELECT, "ArrowUp"), true);
 
+console.log("\nAN UPLOAD OPENS ON ENTER (data-enter-opens, 2026-10-16)");
+const UPLOAD: FillProbe = { ...TRIGGER, enterOpens: true };
+check("upload: Enter opens the file dialog", keyFills(UPLOAD, "Enter"), true);
+check("upload: ↓ still opens it", keyFills(UPLOAD, "ArrowDown"), true);
+check("upload: Tab is still a departure", keyFills(UPLOAD, "Tab"), false);
+check("dialog trigger WITHOUT the marker: Enter is still 'next field'", keyFills(TRIGGER, "Enter"), false);
+
 console.log("\nTHE HOLD STILL HOLDS — movement is still refused");
 check("closed picker: Enter is 'next field'", keyFills(PICKER_SHUT, "Enter"), false);
 check("closed picker: ↑ is 'field above'", keyFills(PICKER_SHUT, "ArrowUp"), false);

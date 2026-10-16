@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /**
  * A two-or-three way choice with EVERY OPTION NAMED on screen.
@@ -194,6 +195,12 @@ export type ToggleOption<T extends string> = {
   after?: ReactNode;
   disabled?: boolean;
   title?: string;
+  /**
+   * The app's own hover bubble (`Tooltip`) — for an ICON-ONLY word, whose
+   * meaning is otherwise invisible (Card View / List View, user 2026-10-16).
+   * Give such an option an sr-only `label` as well, so it is announced.
+   */
+  tooltip?: string;
 };
 
 /**
@@ -231,7 +238,7 @@ export function ToggleGroup<T extends string>({
       {options.map((o) => {
         const lit = value === o.value;
         const Icon = o.icon;
-        return (
+        const button = (
           <button
             key={o.value}
             type="button"
@@ -248,6 +255,13 @@ export function ToggleGroup<T extends string>({
             {o.count != null && <span className="tabular-nums opacity-80">({o.count})</span>}
             {o.after}
           </button>
+        );
+        return o.tooltip ? (
+          <Tooltip key={o.value} label={o.tooltip} className="inline-flex h-full">
+            {button}
+          </Tooltip>
+        ) : (
+          button
         );
       })}
     </div>

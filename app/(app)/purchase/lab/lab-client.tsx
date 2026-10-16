@@ -36,18 +36,10 @@ import type { LabTestStandard } from "@/lib/purchase/extras-types";
 import type { LabTestWithRefs, OrderOption, BuyerOption, VendorForPicker } from "@/lib/purchase/extras-service";
 import type { Item } from "@/lib/masters/types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
 
 function testTone(s: LabTestStatus): StatusTone {
-  switch (s) {
-    case "draft":
-      return "neutral";
-    case "issued":
-      return "info";
-    case "passed":
-      return "success";
-    case "failed":
-      return "danger";
-  }
+  return statusTone(s);
 }
 
 interface Props {

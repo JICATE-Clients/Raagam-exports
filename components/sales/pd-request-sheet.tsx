@@ -17,7 +17,8 @@ import {
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { loadPdReview } from "@/lib/sales/pd-requests/actions";
 import { PD_TO_DEPARTMENT, type PdRequestRow } from "@/lib/sales/pd-requests/types";
-import { PD_STATUS_LABEL, PD_STATUS_TONE } from "@/lib/sales/sample-entry/types";
+import { PD_STATUS_TONE } from "@/lib/sales/sample-entry/types";
+import { pdStatusLabel } from "@/lib/sales/pd-requests/words";
 
 type Review = Awaited<ReturnType<typeof loadPdReview>>;
 
@@ -136,7 +137,7 @@ export function PdRequestSheet({
               <CardBody className="space-y-3">
                 <h2 className="flex items-center justify-between gap-2 text-sm font-semibold text-foreground">
                   Status
-                  <StatusPill tone={PD_STATUS_TONE[row.status]}>{PD_STATUS_LABEL[row.status]}</StatusPill>
+                  <StatusPill tone={PD_STATUS_TONE[row.status]}>{pdStatusLabel(row)}</StatusPill>
                 </h2>
                 {decided ? (
                   <p className="text-xs text-muted-foreground">

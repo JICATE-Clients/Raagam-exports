@@ -19,14 +19,8 @@ import { SQ_SUB_TYPES, SOURCING_TYPES, deriveSqQuantities } from "@/lib/sales/sq
 import { isInactive } from "@/lib/masters/inactive";
 import type { GarmentRejectionRule } from "@/lib/masters/garment-rejection-rule-types";
 import type { SqDetailRow } from "@/lib/sales/sq-service";
-import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-
-const STATUS_TONE: Record<string, StatusTone> = {
-  draft: "neutral",
-  confirmed: "success",
-  cancelled: "danger",
-};
 
 export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: GarmentRejectionRule[] }) {
   const router = useRouter();
@@ -130,7 +124,7 @@ export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: G
     { header: "Source", cell: (r) => r.sourcing_type?.replace("_", " ") ?? "—" },
     { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.order_qty}</span> },
     { header: "SQ Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.sq_qty}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill> },
     /* Confirm is the workflow step this screen exists for — its own labelled
        column, not a ⋮ item (LAYOUT.md §6a). */
     {

@@ -1,4 +1,4 @@
-import { Check, X, RotateCcw, Clock, Ban, UserCog, AlertTriangle } from "lucide-react";
+import { Check, X, RotateCcw, Clock, Ban, UserCog, TriangleAlert } from "lucide-react";
 import { fmtDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
@@ -31,7 +31,7 @@ const ICONS: Record<EventAction, typeof Check> = {
   return: RotateCcw,
   cancel: Ban,
   delegate: UserCog,
-  sla_breach: AlertTriangle,
+  sla_breach: TriangleAlert,
 };
 
 /* The action's own word. `approve` on a step reads "Approved" as a fact about

@@ -32,6 +32,7 @@
 import { isRefusal, type Refusal } from "@/lib/orders/budget/totals";
 import { kpisFromJson, type BudgetKpis } from "@/lib/orders/budget/amendment";
 import type { StatusTone } from "@/lib/ui/tone";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // ---------------------------------------------------------------------------
 // Categories
@@ -820,21 +821,13 @@ export function entryStatusLabel(s: AmendmentEntryStatus): string {
   }
 }
 
+// RETURNED here is not "sent back for rework": it is an entry whose reject
+// could NOT revert (pre-0619, or `revert_error`), so the order is stuck open
+// and someone has to act — danger, not the shared table's warning.
+const ENTRY_TONES = { returned: "danger" } as const;
+
 export function entryStatusTone(s: AmendmentEntryStatus): StatusTone {
-  switch (s) {
-    case "approved":
-      return "success";
-    case "pending_md_approval":
-      return "warning";
-    case "rejected":
-    case "returned":
-      return "danger";
-    case "abandoned":
-    case "superseded":
-      return "neutral";
-    default:
-      return "info";
-  }
+  return statusTone(s, ENTRY_TONES);
 }
 
 /** Is the entry still open — being worked on, with the MD, or returned? */

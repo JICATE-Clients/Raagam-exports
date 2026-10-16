@@ -641,9 +641,10 @@ export function AmendmentRegisterScreen({
       />
 
       {/* dup-check: exempt -- a dated amendment entry; a second entry on the same RE is how a revision is raised */}
-      {/* AS WIDE AS ITS COLUMNS, not the pane (erp-table-fit skill, client
+      {/* FULL WIDTH since 2026-10-16 (user: "the sample entry table … over all
+            application"). WAS: as wide as its columns (erp-table-fit skill, client
           2026-09-28). */}
-      <div className="w-fit max-w-full">
+      <div>
       <DataTable
         columns={hugCreated(withCreatedColumns(columns, lines))}
         rows={lines}

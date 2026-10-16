@@ -20,20 +20,17 @@ import { Button } from "@/components/ui/button";
 import { OrderTabs } from "@/app/(app)/orders/order-tabs";
 import type { OrderStatus } from "@/lib/orders/types";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const ORDER_STATUS_TONE_OVERRIDES = {
+  // Confirmed is a hand-off here, not the end of the document (was info before the shared table, kept).
+  confirmed: "info",
+  in_production: "warning", // this module's own word — not in the shared table
+  shipped: "success", // this module's own word — not in the shared table
+} as const;
 
 function orderStatusTone(status: OrderStatus): StatusTone {
-  switch (status) {
-    case "confirmed":
-      return "info";
-    case "in_production":
-      return "warning";
-    case "shipped":
-      return "success";
-    case "closed":
-      return "neutral";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status, ORDER_STATUS_TONE_OVERRIDES);
 }
 
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
