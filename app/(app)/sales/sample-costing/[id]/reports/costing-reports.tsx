@@ -6,7 +6,6 @@ import { ClipboardList, FileText, GitBranchPlus, Save, Send, X } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { BackLink } from "@/components/ui/back-link";
 import { Tooltip } from "@/components/ui/tooltip";
-import { Select } from "@/components/ui/select";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
 import type { EditOptions } from "@/components/sales/cost-sheet-editors";
@@ -85,8 +84,6 @@ export function CostingReports({
      ten seconds reads as a dead button (client 2026-10-09: "I clicked it, it is not
      opening"). Every jump this page makes goes through one transition: the control
      says so and the page dims until the next screen is ready. */
-  const [going, startGo] = useTransition();
-  const go = (href: string) => startGo(() => router.push(href));
   const [saving, startSave] = useTransition();
   const [tab, setTab] = useState<Tab>(initial);
 
@@ -184,29 +181,16 @@ export function CostingReports({
   );
   const trail = revising ? null : (
     <>
-      {/* PICK A REVISION, AND THE WHOLE SHEET FOLLOWS (client 2026-10-09: "the
-          sheet will visually update — the chart, the cost, everything"). Each
-          revision is its own saved costing, so choosing one opens THAT
-          revision's report on the tab already open. */}
-      {cost.history.length > 1 ? (
-        /* "(shown)" is gone (user 2026-10-17, "the rev look duplicated"): the closed
-           picker already says which revision is shown, and the open list marks it. */
-        <Select value={cost.id} disabled={going} onChange={(e) => go(`/sales/sample-costing/${e.target.value}/reports?tab=${tab}`)} aria-label="Revision shown" className="w-44">
-          {cost.history.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.label.replace("Original (Rev 0)", "Rev 0")}
-              {r.price != null ? ` · ${cost.currency ?? ""} ${r.price.toFixed(2)}` : ""}
-            </option>
-          ))}
-        </Select>
-      ) : null}
+      {/* NO REVISION PICKER HERE (user 2026-10-17, screenshot 3606: "remove the top bar
+          rev option … already we have separate tab for it"). The sheet's Revisions tab
+          lists every revision and each row opens that revision's report. */}
       {revise ? (
         /* The button says "Revise" alone — "Revise → Rev 2" beside "Rev 1 · USD 4.50" read
            Rev twice (user 2026-10-17). The next number moves into the tooltip. */
         <Tooltip label={revise.reason ?? `Make ${revise.nextLabel}: change fabric rate, CMT or margin right here and watch the report update`}>
           {/* A disabled button swallows the hover, so it lets the pointer through to
               the Tooltip's own wrapper — otherwise the reason it is greyed never shows. */}
-          <Button variant="outline" size="md" className={revise.reason ? "pointer-events-none" : undefined} disabled={!!revise.reason || going} onClick={startRevising}>
+          <Button variant="outline" size="md" className={revise.reason ? "pointer-events-none" : undefined} disabled={!!revise.reason} onClick={startRevising}>
             <GitBranchPlus className="h-4 w-4" />
             Revise
           </Button>
@@ -248,7 +232,7 @@ export function CostingReports({
         </p>
       ) : null}
 
-      <div className={going ? "flex-1 opacity-60 transition-opacity" : "flex-1 transition-opacity"} aria-busy={going}>
+      <div className="flex-1">
         {tab === "cost-sheet" ? <CostSheetDocument {...bar} model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
       </div>
 

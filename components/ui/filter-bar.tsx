@@ -96,8 +96,13 @@ export function FilterBar({
           placeholder={searchPlaceholder}
           /* Phone: the search takes what the Filters icon leaves on ITS line
              (user 2026-10-03, phone audit) — it was `w-full`, which pushed
-             Filters onto a row of its own above every list. */
-          className="h-9 min-w-0 flex-1 basis-40 text-base sm:w-64 sm:flex-none md:text-sm"
+             Filters onto a row of its own above every list.
+             THE SEARCH GIVES WAY FIRST (user 2026-10-17, screenshot 3612, "globally"):
+             it was a fixed 16rem from `sm` up, so on a row also holding the status
+             tabs, Filters, the view toggle and the floated header actions, the LAST
+             control wrapped onto a line of its own. Now it grows to 16rem when there
+             is room and shrinks to 9rem before anything is pushed off the row. */
+          className="h-9 min-w-36 flex-1 text-base sm:max-w-64 md:text-sm"
         />
 
         {hasFilters && (

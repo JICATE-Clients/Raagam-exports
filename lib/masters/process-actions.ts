@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { baseStageProblem, processInput, type ProcessInput } from "./process-types";
+import { baseStageProblem, cmtStageProblem, processInput, type ProcessInput } from "./process-types";
 import { checkDuplicateName } from "./dup-guard";
 import { deleteOrDeactivate } from "./delete-guard";
 
@@ -131,10 +131,15 @@ export async function createProcess(data: ProcessInput): Promise<Result> {
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const baseProblem = baseStageProblem(p.data);
   if (baseProblem) return fail(baseProblem);
+  const stageProblem = cmtStageProblem(p.data);
+  if (stageProblem) return fail(stageProblem);
   const s = await createClient();
   const { sub_categories: _drop, fabric_stages: _dropStages, ...header } = p.data;
   void _drop;
   void _dropStages;
+  // A stage belongs to a CMT operation only — 0734's check refuses it on
+  // anything else, so a kind switched away from CMT takes its stage with it.
+  if ("cmt_stage" in header && header.garment_kind !== "cmt") header.cmt_stage = null;
   const {
     data: { user },
   } = await s.auth.getUser();
@@ -179,6 +184,8 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const baseProblem = baseStageProblem(p.data);
   if (baseProblem) return fail(baseProblem);
+  const stageProblem = cmtStageProblem(p.data);
+  if (stageProblem) return fail(stageProblem);
   const s = await createClient();
   /* BOTH CHILD GRIDS COME OFF THE HEADER, and `fabric_stages` was missed when
      0563 added it — `createProcess` above strips both, this one stripped only
@@ -190,6 +197,9 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
   const { sub_categories: _drop, fabric_stages: _dropStages, ...header } = p.data;
   void _drop;
   void _dropStages;
+  // A stage belongs to a CMT operation only — 0734's check refuses it on
+  // anything else, so a kind switched away from CMT takes its stage with it.
+  if ("cmt_stage" in header && header.garment_kind !== "cmt") header.cmt_stage = null;
   const dup = await checkDuplicateName(s, "processes", header.name, { excludeId: id });
   if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("processes").update(header).eq("id", id);

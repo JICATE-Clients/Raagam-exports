@@ -152,7 +152,7 @@ export type CostSheetModel = {
     lineKey: string | null;
     field: "cmt" | "line" | "testing";
   }[];
-  trims: { key: string; piece: string; name: string; pricing: string; qty: string; cost: number }[];
+  trims: { key: string; piece: string; name: string; direct: boolean; items: string; pcs: string; consQty: number; rate: number; cost: number }[];
   /** Overheads ▸ one row per line, ₹ per size (a set's pieces summed). */
   overheads: { name: string; type: string; value: string; perSize: number[]; side: "cost" | "price"; edit: { kind: "bank" | "waste" | "overhead" | "extra"; key?: string } }[];
   terms: { margin: number; wastage: number; overhead: number; discount: number; freight: number; insurance: number };
@@ -324,9 +324,19 @@ export function buildCostSheetModel(
     return {
       key: t.key,
       piece: pieceName(t.piece_key),
-      name: t.description || lookups.trims.find((x) => x.id === t.item_id)?.name || "",
-      pricing: direct ? `Direct ₹${fx(num(t.rate))}` : `₹${fx(price)} ÷ ${size ?? 1}`,
-      qty: t.qty || (direct ? "1" : ""),
+      // The picked item's name first (category already cut, service trimItems), so a line
+      // saved before 2026-10-17 with "CATEGORY / NAME" in its description reads short too.
+      name: lookups.trims.find((x) => x.id === t.item_id)?.name || t.description || "",
+      /* THE OLD RP COLUMNS (client 2026-10-17: "field labels same as old"): Direct Rate ·
+         No of Items · No of Pcs · Cons Qty · Rate · Cost. A pack is No of Items (the stored
+         `qty`) over No of Pcs (`pack_size`) at Rate (`pack_price`), so Cons Qty = items ÷
+         pcs and Cost = Cons Qty × Rate — the same figure trimCostPerPiece computes as
+         price ÷ size × qty. Direct: no pack, Cons Qty 1, Rate is the ₹ per piece. */
+      direct,
+      items: direct ? "" : t.qty,
+      pcs: direct ? "" : t.pack_size,
+      consQty: direct ? 1 : size ? (num(t.qty) ?? 0) / size : num(t.qty) ?? 0,
+      rate: (direct ? num(t.rate) : price) ?? 0,
       cost: trimCostPerPiece(t).cost,
     };
   });

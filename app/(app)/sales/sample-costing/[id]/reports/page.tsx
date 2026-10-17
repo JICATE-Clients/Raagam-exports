@@ -96,9 +96,10 @@ export default async function CostingReportsPage({
             fabrics: live(data.fabrics),
             yarns: live(data.yarns),
             processes: live(data.processes),
-            garmentProcesses: data.garmentProcesses.filter((r) => !isInactive(r)).map((r) => ({ id: r.id, name: r.name, garment_kind: r.garment_kind })),
+            garmentProcesses: data.garmentProcesses.filter((r) => !isInactive(r)).map((r) => ({ id: r.id, name: r.name, garment_kind: r.garment_kind, cmt_stage: r.cmt_stage, standard_rate: r.standard_rate })),
             components: live(data.components),
             trims: live(data.trims),
+            lockedFabrics: data.styles.find((s) => s.id === record.draft.header.style_id)?.structures.map((x) => x.id) ?? [],
           },
           history,
           /* STILL REACHABLE AFTER 0728: a Rev raised from a REJECTED costing starts
