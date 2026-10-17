@@ -39,6 +39,7 @@ import {
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
+import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import {
   ChildGrid,
@@ -23771,6 +23772,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         >
           ←
         </Button>
+        {/* THE WAY OUT IS SAID ON A DESKTOP TOO (user 2026-10-17, copied from
+            Sample Entry): the app's own BackLink, same words and same
+            discard question as every other Back. */}
+        <BackLink onBack={() => setMode("list")} label="Garment Orders" className="max-md:hidden" />
         <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-col max-md:items-start max-md:gap-0">
           <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
             {viewOnly
