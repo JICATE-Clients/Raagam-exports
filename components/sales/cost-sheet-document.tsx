@@ -4,13 +4,15 @@ import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { ChevronRight, Plus, Printer } from "lucide-react";
-import { AddCharge, CellPick, Ed, EdText, RemoveX, type EditOptions } from "@/components/sales/cost-sheet-editors";
+import { AddCharge, CellPick, Ed, EdText, Pick, RemoveX, type EditOptions } from "@/components/sales/cost-sheet-editors";
+import { CMT_STAGES, CMT_STAGE_LABEL, type CmtStage } from "@/lib/masters/process-types";
 import { Button } from "@/components/ui/button";
 import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { Toggle } from "@/components/ui/toggle";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { TypeOrPick } from "@/app/(app)/orders/_garment-order/type-or-pick";
 import { newFabric, newFabricProcess, newPieceLine, newTrim, newWeightRows, newYarnMix } from "@/lib/sales/sample-costing/revision-draft";
 import { ToggleGroup } from "@/components/ui/segmented";
@@ -19,7 +21,7 @@ import { GlassRing } from "@/components/orders/budget-breakdown-chart";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
 import { MARGIN_TARGET_PCT, hasYarnMix, quoteKey, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
-import { isBlankExtra, isBlankPieceLine, isBlankTrim, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
+import { isBlankExtra, isBlankPieceLine, isBlankTrim, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type PieceLineDraft, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
 import { changeText } from "@/lib/sales/sample-costing/revision-history";
 
 /**
@@ -114,6 +116,8 @@ export type CostSheetEdit = {
   details?: ReactNode;
   /** Fabric tab: the sizes the weights are costed in — above Component consumption. */
   sizes?: ReactNode;
+  /** Size-Wise is Yes: the single Pcs Wgt column is not drawn while no size is added. */
+  sizeWise?: boolean;
   /** Quotation tab: Currency and Ship Mode — above the terms. */
   terms?: ReactNode;
   /** What picking a fabric structure writes (the entry's remembered rates); default: the id and name only. */
@@ -146,6 +150,7 @@ export function CostSheetDocument({
   lead,
   trail,
   quietDownload = false,
+  entry = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -159,6 +164,11 @@ export function CostSheetDocument({
   quietDownload?: boolean;
   /** Present only while a revision is being worked — the report's cells become inputs. */
   edit?: CostSheetEdit;
+  /** THE COST ENTRY (user 2026-10-17): no letterhead on screen (the company / CST No /
+   *  Quoted FOB block — the editor's own header already says it) and no Print or
+   *  Download ("costing entry no need this option"). Reports and Revise keep both:
+   *  that is where a costing is printed and sent. */
+  entry?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -210,7 +220,8 @@ export function CostSheetDocument({
      — no lead, no trail, one size, no export — and the frame was still drawn:
      a bordered strip with nothing in it above the sheet. */
   const shows = (n: ReactNode) => n != null && n !== false && n !== "";
-  const hasBar = shows(lead) || shows(trail) || model.sizes.length > 1 || error != null || !locked;
+  const outputs = !locked && !entry;
+  const hasBar = shows(lead) || shows(trail) || model.sizes.length > 1 || error != null || outputs;
 
   return (
     <div className="space-y-3">
@@ -234,10 +245,10 @@ export function CostSheetDocument({
           {trail ? (
             <>
               {trail}
-              {locked ? null : <span aria-hidden className="mx-1 h-6 w-px bg-border" />}
+              {outputs ? <span aria-hidden className="mx-1 h-6 w-px bg-border" /> : null}
             </>
           ) : null}
-          {locked ? (
+          {!outputs ? (
             null
           ) : (
             <>
@@ -266,7 +277,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} />
     </div>
   );
 }
@@ -278,7 +289,7 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void }) {
+function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean }) {
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -300,6 +311,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
   const setFabric = (key: string, patch: Partial<FabricDraft>) => edit?.onChange({ ...edit.draft, fabrics: patchBy(edit.draft.fabrics, key, patch) });
   const setPiece = (key: string, patch: Partial<PieceDraft>) => edit?.onChange({ ...edit.draft, pieces: patchBy(edit.draft.pieces, key, patch) });
   const eff = s.effectiveMarginPct;
+  /** The FOB card's tone: under the floor, short of the target, or clear of it. */
+  const effTone = eff == null ? null : eff < FLOOR_PCT ? "bad" : eff < MARGIN_TARGET_PCT ? "warn" : "good";
   const pin = eff == null ? null : (Math.min(Math.max(eff, 0), 30) / 30) * 100;
   const ccy = model.currency ?? "";
   const stateClass = model.status === "approved" ? "good" : model.status === "submitted" ? "warn" : model.status === "rejected" ? "bad" : "brand";
@@ -389,6 +402,36 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
   /** Re-pick what a line is: written to every size's weight on it, so it stays one line. */
   const setLine = (r: (typeof weightRows)[number], patch: { piece_key?: string; component_ids?: string[]; fabric_key?: string }) =>
     edit?.onChange({ ...edit.draft, weights: edit.draft.weights.map((x) => (r.wkeys.includes(x.key) ? { ...x, ...patch } : x)) });
+  /* THE FABRIC IS CHOSEN HERE, ONCE (client 2026-10-17, screenshot 3595): the Fabric
+     column lists the fabric structures. A structure already on the sheet is reused —
+     two lines, one fabric, priced once; a new one becomes a fabric band in Fabric
+     processing cost (a still-blank seeded fabric is named rather than a second added),
+     filled from the entry's rate memory through `pickFabric` as before. A fabric typed
+     in before structures were picked (no id) stays offered by its name. */
+  const fabricChoices = edit?.options
+    ? [
+        ...edit.options.fabrics.map((o) => ({ id: o.id, name: o.name })),
+        ...edit.draft.fabrics.filter((x) => !x.fabric_id && x.quality.trim()).map((x) => ({ id: `q:${x.key}`, name: x.quality })),
+      ]
+    : [];
+  const pickLineFabric = (r: (typeof weightRows)[number], v: { id: string | null; name: string }) => {
+    if (!edit || (!v.id && !v.name.trim())) return;
+    const fabrics = edit.draft.fabrics;
+    let target = v.id?.startsWith("q:")
+      ? fabrics.find((x) => `q:${x.key}` === v.id)
+      : fabrics.find((x) => (v.id ? x.fabric_id === v.id : !x.fabric_id && x.quality.trim().toUpperCase() === v.name.trim().toUpperCase()));
+    let next = fabrics;
+    if (!target) {
+      const blank = fabrics.find((x) => !x.fabric_id && !x.quality.trim());
+      const base: FabricDraft = { ...(blank ?? { ...newFabric(), processes: [] }), is_direct: false };
+      const named: FabricDraft = { ...base, ...(edit.pickFabric ? edit.pickFabric(base, v) : { fabric_id: v.id, quality: v.name }) };
+      target = named;
+      next = blank ? fabrics.map((x) => (x.key === blank.key ? named : x)) : [...fabrics, named];
+    }
+    const key = target.key;
+    edit.onChange({ ...edit.draft, fabrics: next, weights: edit.draft.weights.map((x) => (r.wkeys.includes(x.key) ? { ...x, fabric_key: key } : x)) });
+    fabFold.setOpenKey(key);
+  };
   /** "+ Add row" — one weight per size column, like every line. Lines group by
    *  (piece, component, fabric), so a second blank line would merge into the first:
    *  while one is still blank, the button sends the cursor to it instead. */
@@ -402,25 +445,55 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
     }
     edit.onChange({ ...edit.draft, weights: [...edit.draft.weights, ...newWeightRows(edit.draft.pieces[0]?.key ?? "", [], null, model.sizes.map((x) => x.size))] });
   };
-  const consumptionCols = (model.pieceCount > 1 ? 1 : 0) + 2 + model.weights.sizeLabels.length + 1 + (edit ? 1 : 0);
+  /* SIZE-WISE YES / NO (client 2026-10-17). No = the one "All sizes" column, headed
+     "Avg Pcs Wgt": one piece weight costs every size. Yes = a column per size,
+     then an Avg column — each line's grams over the size count (Avg PCS Wgt), and on
+     the total row the fabric cost over the size count (Avg Piece Rate / PCS). */
+  const sizeWise = model.weights.sizeLabels.length > 1;
+  // No = one weight for every size, so the heading names no size (user 2026-10-17: "if No
+  // means avg pcs weight only, how does it still mention the size").
+  const weightHead = (l: string) => (l === "All sizes" ? "Avg Pcs Wgt" : l);
+  const avgOf = (xs: readonly (number | null)[]) => (xs.length ? xs.reduce<number>((s, x) => s + (x ?? 0), 0) / xs.length : 0);
+  /** Yes with no size added yet: the Pcs Wgt column goes; the sizes bar asks for sizes. */
+  const noWeightCol = !!edit?.sizeWise && !sizeWise && model.weights.sizeLabels[0] === "All sizes";
+  const consumptionCols = (model.pieceCount > 1 ? 1 : 0) + 2 + (noWeightCol ? 0 : model.weights.sizeLabels.length) + (sizeWise ? 1 : 0) + (edit ? 1 : 0);
 
+  /* NO LOSS % COLUMN AFTER THE SIZES (client 2026-10-17): the cutting-waste allowance is
+     no longer shown or typed here. Each line keeps the wastage it carries — a new line
+     the spec's 3 % (`newWeightRows`) — and the price still includes it. */
   const secConsumption = (
-        <section className="blk" aria-label="Component consumption">
+        <section className="blk cons" aria-label="Component consumption">
           <details open>
             <summary data-tone="fabric">
               Component consumption
             </summary>
             <div className="scroll">
-              <table>
+              {/* COMPACT (user 2026-10-17, screenshot 3602): Piece 8rem, Fabric 14rem, 5.5rem a
+                  size, Avg 6.5rem, ✕ 2.5rem. Component is 16rem too (same day, "why this
+                  much"): taking what was left of the 54rem column made it ~40rem wide for a
+                  name like NECK TAPE, so the table is the sum of its columns. An explicit
+                  width, because table-layout:fixed does nothing on a width:auto table and an
+                  input's intrinsic width would widen the column again. */}
+              <table style={{ width: `${(model.pieceCount > 1 ? 8 : 0) + 16 + 14 + (noWeightCol ? 0 : model.weights.sizeLabels.length) * 5.5 + (sizeWise ? 6.5 : 0) + (edit ? 2.5 : 0)}rem` }}>
+                <colgroup>
+                  {model.pieceCount > 1 ? <col style={{ width: "8rem" }} /> : null}
+                  <col style={{ width: "16rem" }} />
+                  <col style={{ width: "14rem" }} />
+                  {(noWeightCol ? [] : model.weights.sizeLabels).map((l) => (
+                    <col key={l} style={{ width: "5.5rem" }} />
+                  ))}
+                  {sizeWise ? <col style={{ width: "6.5rem" }} /> : null}
+                  {edit ? <col style={{ width: "2.5rem" }} /> : null}
+                </colgroup>
                 <thead>
                   <tr>
                     {model.pieceCount > 1 ? <th>Piece</th> : null}
                     <th>Component</th>
                     <th>Fabric</th>
-                    {model.weights.sizeLabels.map((l) => (
-                      <th key={l} className="r">{l}</th>
+                    {(noWeightCol ? [] : model.weights.sizeLabels).map((l) => (
+                      <th key={l} className="r">{weightHead(l)}</th>
                     ))}
-                    <th className="r">Loss %</th>
+                    {sizeWise ? <th className="r" title="Avg PCS Wgt — the sizes' grams over the size count">Avg PCS Wgt</th> : null}
                     {actHead}
                   </tr>
                 </thead>
@@ -429,22 +502,43 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                     <tr key={r.wkeys[0] ?? i} data-grid-row>
                       {model.pieceCount > 1 ? <td>{edit?.options ? <CellPick label="Piece" options={edit.draft.pieces.map((p) => ({ id: p.key, name: p.piece_name || "GARMENT" }))} value={{ id: r.pieceKey, name: r.piece }} onPick={(v) => v.id && setLine(r, { piece_key: v.id })} /> : r.piece}</td> : null}
                       <td>
-                        {/* A line weighing two components together (0699) keeps its "A + B" as text:
-                            one picker would replace both with one. */}
-                        {edit?.options && r.componentIds.length <= 1 ? (
-                          <CellPick label="Component" options={edit.options.components} value={{ id: r.componentIds[0] ?? null, name: r.component }} onPick={(v) => v.id && setLine(r, { component_ids: [v.id] })} />
+                        {/* SEVERAL COMPONENTS ON ONE LINE (client 2026-10-17): Front, Back and
+                            Sleeve cut from one fabric are ticked together, so the fabric and the
+                            weights are typed once. The list searches as you type. A line keeps
+                            at least one component — unticking the last is refused. */}
+                        {edit?.options ? (
+                          <MultiSelect
+                            compact
+                            label="Components"
+                            hideChips
+                            summarizeLabels
+                            summaryNoun="components"
+                            inputClassName="h-7 text-xs"
+                            panelClassName="min-w-64"
+                            options={edit.options.components.map((o) => ({ id: o.id, label: o.name }))}
+                            values={r.componentIds}
+                            onChange={(ids) => ids.length && setLine(r, { component_ids: ids })}
+                          />
                         ) : (
                           r.component
                         )}
                       </td>
                       <td>
                         {edit?.options ? (
-                          <CellPick label="Fabric" options={edit.draft.fabrics.map((f, k) => ({ id: f.key, name: f.quality || `Fabric ${k + 1}` }))} value={{ id: r.fabricKey, name: r.fabric }} onPick={(v) => v.id && setLine(r, { fabric_key: v.id })} />
+                          <CellPick
+                            label="Fabric"
+                            options={fabricChoices}
+                            value={(() => {
+                              const cur = edit.draft.fabrics.find((x) => x.key === r.fabricKey);
+                              return { id: cur ? (cur.fabric_id ?? `q:${cur.key}`) : null, name: r.fabric };
+                            })()}
+                            onPick={(v) => pickLineFabric(r, v)}
+                          />
                         ) : (
                           r.fabric
                         )}
                       </td>
-                      {r.grams.map((g, j) => {
+                      {(noWeightCol ? [] : r.grams).map((g, j) => {
                         const cell = r.cells[j];
                         const w = edit && cell && !cell.dim ? edit.draft.weights.find((x) => x.key === cell.key) : null;
                         return (
@@ -453,13 +547,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                           </td>
                         );
                       })}
-                      <td className="r">
-                        {edit && r.wkeys.length ? (
-                          <Ed w="w-16" label={`${r.component} — loss %`} value={edit.draft.weights.find((x) => x.key === r.wkeys[0])?.wastage_pct ?? ""} onChange={(v) => edit.onChange({ ...edit.draft, weights: edit.draft.weights.map((x) => (r.wkeys.includes(x.key) ? { ...x, wastage_pct: v } : x)) })} />
-                        ) : (
-                          r.lossPct
-                        )}
-                      </td>
+                      {sizeWise ? <td className="r dim">{r.grams.some((g) => g != null) ? fx(avgOf(r.grams)) : ""}</td> : null}
                       {edit ? (
                         <td className="act">
                           {r.wkeys.length && weightRows.length > 1 ? <RemoveX label={r.component || "weight line"} onClick={() => edit.onChange({ ...edit.draft, weights: edit.draft.weights.filter((x) => !r.wkeys.includes(x.key)) })} /> : null}
@@ -479,10 +567,14 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                   ) : null}
                   <tr className="total">
                     <td colSpan={(model.pieceCount > 1 ? 1 : 0) + 2}>Fabric cost {SYM} / {model.unitWord}</td>
-                    {model.sizes.map((x) => (
+                    {(noWeightCol ? [] : model.sizes).map((x) => (
                       <td key={x.label} className="r">{money(x.fabric)}</td>
                     ))}
-                    <td />
+                    {sizeWise ? (
+                      <td className="r" title="Avg Piece Rate / PCS — the sizes' fabric cost over the size count">
+                        {money(avgOf(model.sizes.map((x) => x.fabric)))}
+                      </td>
+                    ) : null}
                     {actGap}
                   </tr>
                 </tbody>
@@ -598,7 +690,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
    * the "Fabric processes" fold list — so a fabric's price is read in one place.
    *
    * Each fabric is one <tbody>: a grey BAND (structure, blend, Bought-in, Price / kg,
-   * Loss %, ✕) that stays visible when folded, then — while open — a Yarn group and a
+   * ✕) that stays visible when folded, then — while open — a Yarn group and a
    * Processes group, each with a count + subtotal on its group line, its lines, and its
    * own "+ Add", and a working line closing it (Yarn + Processes = subtotal · + loss =
    * price). ONE fabric open at a time (AGENTS "Folds are accordions", `useAccordion`):
@@ -606,64 +698,65 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
    * Bought-in collapses to the band alone: the price is typed there, its yarn and process
    * lines are hidden, not deleted. Processes stay priced once per FABRIC, as before.
    *
-   * Hand-rolled (not ChildGrid) because the band's cells and the group lines span
-   * columns; it keeps the hand-rolled-grid markers (`data-grid-row`, the ✕'s
-   * `data-row-remove` via RemoveX, "+ Add"'s `data-row-add`).
-   * Widths: 20 + 6 + 7 + 8 + 8 + 6 + 3 = 58rem (~928px), hugging its columns.
+   * OPTION B, 2026-10-17 (plan "Fabric Processing Layout", user "okay do"): while open,
+   * Yarn and Processes sit SIDE BY SIDE under the band, each a small table of only its
+   * own columns — the shared column grid left Mix % and Price / KG standing empty on
+   * every process line (the "blank yellow" cells, screenshot 3595). The working line
+   * runs across both. Loss % is the one box in that line: a loss is the FABRIC's, never
+   * a line's, and it still prices the fabric (spec v8 §2.2's dual loss).
+   *
+   * NO FABRIC IS CHOSEN HERE (same day: "don't allow to choose fabric again, we choose
+   * in the fabric fields"). Component consumption's Fabric column picks the structure;
+   * a structure new to the sheet becomes a band on its own (`pickLineFabric`). So the
+   * band shows the name as text and "+ Add fabric" is gone; ✕ still drops an unused one.
+   *
+   * Hand-rolled (not ChildGrid) because the band spans columns; it keeps the
+   * hand-rolled-grid markers (`data-grid-row`, the ✕'s `data-row-remove` via RemoveX,
+   * "+ Add"'s `data-row-add`).
    */
   const fabricWorkbench = (() => {
     if (!edit) return null;
     const opts = edit.options;
-    /* "+ ADD FABRIC": a blank fabric, filled in place. While one is still blank the
-       cursor goes there instead of stacking another. The new fabric opens. */
-    const addFabricRow = () => {
-      const open = edit.draft.fabrics.find((x) => !x.fabric_id && !x.quality.trim());
-      if (open) {
-        fabFold.setOpenKey(open.key);
-        document.querySelector<HTMLElement>(`[data-fabric-row="${open.key}"] input`)?.focus();
-        return;
-      }
-      const fresh = { ...newFabric(), is_direct: false, processes: [] };
-      edit.onChange({ ...edit.draft, fabrics: [...edit.draft.fabrics, fresh] });
-      fabFold.setOpenKey(fresh.key);
-    };
-    const removeFabric = (key: string) => edit.onChange({ ...edit.draft, fabrics: edit.draft.fabrics.filter((x) => x.key !== key) });
+    const removeFabric = (key: string) =>
+      edit.onChange({
+        ...edit.draft,
+        fabrics: edit.draft.fabrics.filter((x) => x.key !== key),
+        weights: edit.draft.weights.map((w) => (w.fabric_key === key ? { ...w, fabric_key: null } : w)),
+      });
+    /* A fabric not yet named (a new sheet's seeded blank) is not a band: it is named
+       by being picked in Component consumption, which reuses it. */
+    const shown = edit.draft.fabrics.filter((x) => x.fabric_id || x.quality.trim());
     /* A held key that names no fabric here is another costing's (the editor does not
        remount between records) — the first fabric opens instead. A null the operator
        chose by folding stays null. */
     const held = fabFold.openKey;
-    const openKey = held !== null && !edit.draft.fabrics.some((x) => x.key === held) ? (edit.draft.fabrics[0]?.key ?? null) : held;
+    const openKey = held !== null && !shown.some((x) => x.key === held) ? (shown[0]?.key ?? null) : held;
     const addLink = (label: string, onClick: () => void) => (
       <button type="button" data-row-add className="faddrow" onClick={onClick}>
         <Plus className="h-3.5 w-3.5" aria-hidden />
         {label}
       </button>
     );
+    if (!shown.length) return <p className="fempty">Pick a fabric in Component consumption above. It is priced here.</p>;
     return (
       <div className="appgrid fsheet fband">
         <div className="max-w-full overflow-x-auto">
-          <table style={{ width: "58rem" }}>
+          <table className="fbands">
             <colgroup>
-              <col style={{ width: "20rem" }} />
-              <col style={{ width: "6rem" }} />
+              <col />
               <col style={{ width: "7rem" }} />
-              <col style={{ width: "8rem" }} />
-              <col style={{ width: "8rem" }} />
-              <col style={{ width: "6rem" }} />
+              <col style={{ width: "9rem" }} />
               <col style={{ width: "3rem" }} />
             </colgroup>
             <thead>
               <tr>
-                <th>Fabric · yarn · process</th>
-                <th className="r">Mix %</th>
-                <th className="r">Rate / KG</th>
-                <th className="r">Amount / KG</th>
+                <th>Fabric</th>
+                <th className="c">Bought-in</th>
                 <th className="r">Price / KG</th>
-                <th className="r">Loss %</th>
                 <th className="act"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
-            {edit.draft.fabrics.map((d) => {
+            {shown.map((d) => {
               const f = figuresOf(d);
               const setY = (key: string, patch: Partial<YarnMixDraft>) => setFabric(f.key, { yarns: patchBy(d.yarns, key, patch) });
               const setP = (key: string, patch: Partial<FabricProcessDraft>) => setFabric(f.key, { processes: patchBy(d.processes, key, patch) });
@@ -684,7 +777,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
               const sub = f.yarn + procs;
               const named = d.yarns.filter((y) => y.yarn_name.trim() || y.item_id);
               const blendText = d.is_direct
-                ? "bought in finished"
+                ? "bought in finished · price includes loss"
                 : named.map((y) => `${y.mix_pct.trim() ? `${y.mix_pct}% ` : ""}${y.yarn_name || "yarn"}`).join(" · ");
               const warn = blendOff
                 ? blendOff < 0
@@ -694,12 +787,22 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                   ? "Type the price per kg."
                   : null;
               const open = !d.is_direct && openKey === f.key;
+              const fromEntry = !!(d.fabric_id && opts?.lockedFabrics?.includes(d.fabric_id));
+              /* THE YARN IS SAMPLE ENTRY'S TOO (client 2026-10-17, screenshot 3598: "restrict
+                 it, it's fetched from the top section"). A Sample Entry fabric whose
+                 composition seeded its yarn lines shows yarn and Mix % as text — no list, no
+                 "+ Add yarn", no ✕ — and only the rate is typed. Change the composition in
+                 Sample Entry. A Sample Entry fabric with no composition stays open. */
+              const yarnLocked = fromEntry && named.length > 0;
               const addYarn = () => setFabric(f.key, { yarns: [...(d.yarns.length ? d.yarns : [newYarnMix()]), newYarnMix()] });
               const addProc = () => setFabric(f.key, { processes: [...(d.processes.length ? d.processes : [newFabricProcess()]), newFabricProcess()] });
               return (
                 <tbody key={f.key} data-grid-body data-fabric-row={f.key} className={open ? "is-open" : undefined} {...fabFold.focusProps(f.key)}>
                   <tr data-grid-row className="band">
-                    <td className="in bandname">
+                    {/* The whole name cell opens the fabric (user 2026-10-17): the 22px caret
+                        alone was the only target, and a click on the name did nothing. The
+                        caret's own click bubbles here, so it carries no handler of its own. */}
+                    <td className={d.is_direct ? "bandname" : "bandname clickable"} onClick={d.is_direct ? undefined : () => fabFold.toggle(f.key)}>
                       <span className="bandhead">
                         {d.is_direct ? (
                           <span className="caret" aria-hidden />
@@ -710,34 +813,18 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                             aria-expanded={open}
                             aria-label={`${open ? "Fold" : "Open"} ${f.name}`}
                             tabIndex={-1}
-                            onClick={() => fabFold.toggle(f.key)}
                           >
                             <ChevronRight className="h-3.5 w-3.5" aria-hidden />
                           </button>
                         )}
-                        {opts ? (
-                          <TypeOrPick
-                            label="Fabric structure"
-                            options={opts.fabrics.map((o) => ({ id: o.id, name: o.name }))}
-                            valueId={d.fabric_id}
-                            text={d.quality}
-                            onChange={(v) => setFabric(f.key, edit.pickFabric ? edit.pickFabric(d, v) : { fabric_id: v.id, quality: v.name })}
-                            placeholder=""
-                            uppercase
-                          />
-                        ) : (
-                          <span className="px-1 font-semibold">{f.name}</span>
-                        )}
+                        <span className="px-1 font-semibold">{f.name}</span>
+                        {fromEntry ? <span className="fsrc">from Sample Entry</span> : null}
                       </span>
                       {blendText ? <span className="blend">{blendText}</span> : null}
                     </td>
-                    <td colSpan={2} className="tog">
-                      <span className="toglabel">
-                        <Toggle checked={d.is_direct} onChange={(v) => setFabric(f.key, { is_direct: v })} ariaLabel={`${f.name} bought in at a direct rate`} />
-                        Bought-in
-                      </span>
+                    <td className="tog">
+                      <Toggle checked={d.is_direct} onChange={(v) => setFabric(f.key, { is_direct: v })} ariaLabel={`${f.name} bought in at a direct rate`} />
                     </td>
-                    <td className="dim r">{d.is_direct ? "price includes loss" : null}</td>
                     <td className={d.is_direct ? "in" : "r fig"}>
                       {d.is_direct ? (
                         <ShownAmount rate={rate} value={d.direct_rate} onChange={(v) => setFabric(f.key, { direct_rate: v })}>{(v, set) => <NumInput aria-label={`${f.name} price per kg`} aria-invalid={priceMissing || undefined} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
@@ -747,9 +834,6 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                         </b>
                       )}
                     </td>
-                    <td className={d.is_direct ? "dim r" : "in"}>
-                      {d.is_direct ? "—" : <NumInput aria-label={`${f.name} process loss percent`} value={d.process_loss_pct} onChange={(e) => setFabric(f.key, { process_loss_pct: e.target.value })} />}
-                    </td>
                     <td className="act">
                       <span className="acts">
                         <RemoveX label={f.name} onClick={() => removeFabric(f.key)} />
@@ -758,129 +842,164 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                   </tr>
 
                   {open ? (
-                    <>
-                      <tr className="grp">
-                        <td colSpan={7}>
-                          Yarn · {named.length || yarnLines.length}
-                          <span className="gsum">{money(f.yarn)}</span>
-                        </td>
-                      </tr>
-                      {yarnLines.map((y, i) => (
-                        <tr key={y?.key ?? `${f.key}-y`} data-grid-row data-hover-row className="line">
-                          <td className="in">
-                            <TypeOrPick
-                              label="Yarn"
-                              options={(opts?.yarns ?? []).map((o) => ({ id: o.id, name: o.name }))}
-                              valueId={y?.item_id ?? null}
-                              text={y?.yarn_name ?? ""}
-                              onChange={(v) =>
-                                y
-                                  ? setY(y.key, { item_id: v.id, yarn_name: v.name })
-                                  : setFabric(f.key, { yarns: [{ ...newYarnMix(), item_id: v.id, yarn_name: v.name }] })
-                              }
-                              placeholder=""
-                              uppercase
-                            />
-                          </td>
-                          <td className="in">
-                            <NumInput
-                              aria-label="Mix percent"
-                              value={y?.mix_pct ?? ""}
-                              onChange={(e) => (y ? setY(y.key, { mix_pct: e.target.value }) : setFabric(f.key, { yarns: [{ ...newYarnMix(), mix_pct: e.target.value }] }))}
-                            />
-                          </td>
-                          <td className="in">
-                            {perYarn && y ? (
-                              <ShownAmount rate={rate} value={y.rate} onChange={(v) => setY(y.key, { rate: v })}>{(v, set) => <NumInput aria-label="Yarn rate per KG" value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
-                            ) : i === 0 ? (
-                              <ShownAmount rate={rate} value={d.yarn_rate} onChange={(v) => setFabric(f.key, { yarn_rate: v })}>{(v, set) => <NumInput aria-label={`${f.name} yarn rate per kg`} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
-                            ) : null}
-                          </td>
-                          <td className="r fig">{perYarn && y ? yarnFig(y) : i === 0 ? money(f.yarn) : ""}</td>
-                          <td />
-                          <td />
-                          <td className="act">
-                            <span className="acts">
-                              {y && d.yarns.length > 1 ? (
-                                <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
-                              ) : null}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                      <tr className="addln">
-                        <td colSpan={7}>{addLink("Add yarn", addYarn)}</td>
-                      </tr>
+                    <tr className="fopen">
+                      <td colSpan={4}>
+                        <div className="fsplit">
+                          <div className="fpart">
+                            <div className="grp">
+                              Yarn · {named.length || yarnLines.length}
+                              <span className="gsum">{money(f.yarn)}</span>
+                            </div>
+                            <table className="ftab">
+                              <colgroup>
+                                <col />
+                                <col style={{ width: "4.5rem" }} />
+                                <col style={{ width: "6rem" }} />
+                                <col style={{ width: "6rem" }} />
+                                {yarnLocked ? null : <col style={{ width: "2.5rem" }} />}
+                              </colgroup>
+                              <thead>
+                                <tr>
+                                  <th>Yarn</th>
+                                  <th className="r">Mix %</th>
+                                  <th className="r">Rate / KG</th>
+                                  <th className="r">Amount</th>
+                                  {yarnLocked ? null : <th className="act"><span className="sr-only">Actions</span></th>}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {yarnLines.map((y, i) => (
+                                  <tr key={y?.key ?? `${f.key}-y`} data-grid-row data-hover-row>
+                                    {yarnLocked ? (
+                                      <td title="From Sample Entry's composition">{y?.yarn_name}</td>
+                                    ) : (
+                                    <td className="in">
+                                      <TypeOrPick
+                                        label="Yarn"
+                                        options={(opts?.yarns ?? []).map((o) => ({ id: o.id, name: o.name }))}
+                                        valueId={y?.item_id ?? null}
+                                        text={y?.yarn_name ?? ""}
+                                        onChange={(v) =>
+                                          y
+                                            ? setY(y.key, { item_id: v.id, yarn_name: v.name })
+                                            : setFabric(f.key, { yarns: [{ ...newYarnMix(), item_id: v.id, yarn_name: v.name }] })
+                                        }
+                                        placeholder=""
+                                        uppercase
+                                      />
+                                    </td>
+                                    )}
+                                    {yarnLocked ? (
+                                      <td className="r fig">{y?.mix_pct}</td>
+                                    ) : (
+                                      <td className="in">
+                                        <NumInput
+                                          aria-label="Mix percent"
+                                          value={y?.mix_pct ?? ""}
+                                          onChange={(e) => (y ? setY(y.key, { mix_pct: e.target.value }) : setFabric(f.key, { yarns: [{ ...newYarnMix(), mix_pct: e.target.value }] }))}
+                                        />
+                                      </td>
+                                    )}
+                                    <td className="in">
+                                      {perYarn && y ? (
+                                        <ShownAmount rate={rate} value={y.rate} onChange={(v) => setY(y.key, { rate: v })}>{(v, set) => <NumInput aria-label="Yarn rate per KG" value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
+                                      ) : i === 0 ? (
+                                        <ShownAmount rate={rate} value={d.yarn_rate} onChange={(v) => setFabric(f.key, { yarn_rate: v })}>{(v, set) => <NumInput aria-label={`${f.name} yarn rate per kg`} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
+                                      ) : null}
+                                    </td>
+                                    <td className="r fig">{perYarn && y ? yarnFig(y) : i === 0 ? money(f.yarn) : ""}</td>
+                                    {yarnLocked ? null : (
+                                      <td className="act">
+                                        <span className="acts">
+                                          {y && d.yarns.length > 1 ? (
+                                            <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
+                                          ) : null}
+                                        </span>
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {yarnLocked ? <span className="fnote">Yarn and mix from Sample Entry&apos;s composition</span> : addLink("Add yarn", addYarn)}
+                          </div>
 
-                      <tr className="grp p">
-                        <td colSpan={7}>
-                          Processes · {d.processes.length + flat.length}
-                          <span className="gsum">{money(procs)}</span>
-                        </td>
-                      </tr>
-                      {procLines.map((q) => (
-                        <tr key={q?.key ?? `${f.key}-p`} data-grid-row data-hover-row className="line p">
-                          <td className="in">
-                            <TypeOrPick
-                              label="Process"
-                              options={(opts?.processes ?? []).map((o) => ({ id: o.id, name: o.name }))}
-                              valueId={q?.process_id ?? null}
-                              text={q?.process_name ?? ""}
-                              onChange={(v) =>
-                                q ? setP(q.key, { process_id: v.id, process_name: v.name }) : setFabric(f.key, { processes: [{ ...newFabricProcess(), process_id: v.id, process_name: v.name }] })
-                              }
-                              placeholder=""
-                              uppercase
-                            />
-                          </td>
-                          <td />
-                          <td className="in">
-                            <ShownAmount
-                              rate={rate}
-                              value={q?.rate ?? ""}
-                              onChange={(v) => (q ? setP(q.key, { rate: v }) : setFabric(f.key, { processes: [{ ...newFabricProcess(), rate: v }] }))}
-                            >
-                              {(v, set) => <NumInput aria-label="Process rate per KG" value={v} onChange={(e) => set(e.target.value)} />}
-                            </ShownAmount>
-                          </td>
-                          <td className="r fig">{q && q.rate.trim() !== "" && Number.isFinite(Number(q.rate)) ? fx(Number(q.rate)) : ""}</td>
-                          <td />
-                          <td />
-                          <td className="act">
-                            <span className="acts">
-                              {q ? <RemoveX label={q.process_name || "process"} onClick={() => setFabric(f.key, { processes: d.processes.filter((x) => x.key !== q.key) })} /> : null}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                      {/* Old costings' flat knitting / dyeing / finishing rates, until cleared. */}
-                      {flat.map(([k, label]) => (
-                        <tr key={k} data-grid-row className="line p">
-                          <td className="dim">{label}</td>
-                          <td />
-                          <td className="in">
-                            <ShownAmount rate={rate} value={d[k]} onChange={(v) => setFabric(f.key, { [k]: v } as Partial<FabricDraft>)}>{(v, set) => <NumInput aria-label={`${f.name} ${label}`} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
-                          </td>
-                          <td className="r fig">{fx(Number(d[k]) || 0)}</td>
-                          <td />
-                          <td />
-                          <td className="act" />
-                        </tr>
-                      ))}
-                      <tr className="addln">
-                        <td colSpan={7}>{addLink("Add process", addProc)}</td>
-                      </tr>
-                      <tr className="work">
-                        <td colSpan={7}>
-                          Yarn <b>{money(f.yarn)}</b> + Processes <b>{money(procs)}</b> = <b>{money(sub)}</b> · + {fx(f.lossPct)}% loss{" "}
+                          <div className="fpart p">
+                            <div className="grp p">
+                              Processes · {d.processes.filter((q) => q.process_id || q.process_name.trim()).length + flat.length}
+                              <span className="gsum">{money(procs)}</span>
+                            </div>
+                            <table className="ftab">
+                              <colgroup>
+                                <col />
+                                <col style={{ width: "7rem" }} />
+                                <col style={{ width: "2.5rem" }} />
+                              </colgroup>
+                              <thead>
+                                <tr>
+                                  <th>Process</th>
+                                  <th className="r">Rate / KG</th>
+                                  <th className="act"><span className="sr-only">Actions</span></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {procLines.map((q) => (
+                                  <tr key={q?.key ?? `${f.key}-p`} data-grid-row data-hover-row>
+                                    <td className="in">
+                                      <TypeOrPick
+                                        label="Process"
+                                        options={(opts?.processes ?? []).map((o) => ({ id: o.id, name: o.name }))}
+                                        valueId={q?.process_id ?? null}
+                                        text={q?.process_name ?? ""}
+                                        onChange={(v) =>
+                                          q ? setP(q.key, { process_id: v.id, process_name: v.name }) : setFabric(f.key, { processes: [{ ...newFabricProcess(), process_id: v.id, process_name: v.name }] })
+                                        }
+                                        placeholder=""
+                                        uppercase
+                                      />
+                                    </td>
+                                    <td className="in">
+                                      <ShownAmount
+                                        rate={rate}
+                                        value={q?.rate ?? ""}
+                                        onChange={(v) => (q ? setP(q.key, { rate: v }) : setFabric(f.key, { processes: [{ ...newFabricProcess(), rate: v }] }))}
+                                      >
+                                        {(v, set) => <NumInput aria-label="Process rate per KG" value={v} onChange={(e) => set(e.target.value)} />}
+                                      </ShownAmount>
+                                    </td>
+                                    <td className="act">
+                                      <span className="acts">
+                                        {q ? <RemoveX label={q.process_name || "process"} onClick={() => setFabric(f.key, { processes: d.processes.filter((x) => x.key !== q.key) })} /> : null}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                                {/* Old costings' flat knitting / dyeing / finishing rates, until cleared. */}
+                                {flat.map(([k, label]) => (
+                                  <tr key={k} data-grid-row>
+                                    <td className="dim">{label}</td>
+                                    <td className="in">
+                                      <ShownAmount rate={rate} value={d[k]} onChange={(v) => setFabric(f.key, { [k]: v } as Partial<FabricDraft>)}>{(v, set) => <NumInput aria-label={`${f.name} ${label}`} value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
+                                    </td>
+                                    <td className="act" />
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {addLink("Add process", addProc)}
+                          </div>
+                        </div>
+                        <div className="work">
+                          Yarn <b>{money(f.yarn)}</b> + Processes <b>{money(procs)}</b> = <b>{money(sub)}</b> · +{" "}
+                          <NumInput aria-label={`${f.name} process loss percent`} className="lossbox" value={d.process_loss_pct} onChange={(e) => setFabric(f.key, { process_loss_pct: e.target.value })} />% loss{" "}
                           <b>{money(f.price != null ? f.price - sub : 0)}</b> <span className="eq">= <b>{money(f.price)} / kg</b></span>
-                        </td>
-                      </tr>
-                    </>
+                        </div>
+                      </td>
+                    </tr>
                   ) : null}
                   {warn ? (
                     <tr>
-                      <td colSpan={7} className="warn">
+                      <td colSpan={4} className="warn">
                         {f.name}: {warn}
                       </td>
                     </tr>
@@ -890,7 +1009,6 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
             })}
           </table>
         </div>
-        {opts ? addLink("Add fabric", addFabricRow) : null}
       </div>
     );
   })();
@@ -905,7 +1023,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
               {edit && view !== "report" ? fabricWorkbench : fabricSummaryTable}
             </details>
           </div>
-          {/* Printout only: on screen the photo sits beside Component consumption (photoRail). */}
+          {/* Printout only: on screen the photo sits on the Details tab (photoRail). */}
           {view === "report" ? photoRail : null}
         </section>
   );
@@ -972,7 +1090,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
         )
       : [];
   const blankTrims: TrimRow[] = edit
-    ? edit.draft.trims.filter(isBlankTrim).map((t) => ({ key: t.key, piece: model.pieceCount > 1 ? pieceName(t.piece_key) : "", name: "", pricing: "", qty: "", cost: 0 }))
+    ? edit.draft.trims.filter(isBlankTrim).map((t) => ({ key: t.key, piece: model.pieceCount > 1 ? pieceName(t.piece_key) : "", name: "", direct: t.is_direct !== false, items: "", pcs: "", consQty: 0, rate: 0, cost: 0 }))
     : [];
   /** The line under an op row, and its piece — null for CMT (direct) / testing rows. */
   const lineOf = (o: OpRow) => {
@@ -980,17 +1098,54 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
     const line = o.field === "line" && o.lineKey ? piece?.lines.find((l) => l.key === o.lineKey) : undefined;
     return piece && line ? { piece, line } : null;
   };
+  const procOf = (id: string | null) => (id ? edit?.options?.garmentProcesses.find((x) => x.id === id) : undefined);
+  /** A CMT line's stage (0734): the one picked on the draft, else its operation's
+   *  own `cmt_stage` from the Process master. */
+  const lineStage = (line: PieceLineDraft): CmtStage | null => line.stage ?? procOf(line.process_id)?.cmt_stage ?? null;
   const opName = (o: OpRow) => {
     const pl = edit?.options ? lineOf(o) : null;
     if (!edit?.options || !pl) return o.name;
     const { piece, line } = pl;
-    const list = edit.options.garmentProcesses.filter((x) => x.garment_kind === line.kind);
+    // A picked stage narrows the CMT list to that stage's operations; with no
+    // stage yet every CMT operation is offered, and picking one fills the stage.
+    const stage = line.kind === "cmt" ? lineStage(line) : null;
+    const list = edit.options.garmentProcesses.filter((x) => x.garment_kind === line.kind && (!stage || x.cmt_stage === stage));
     return (
       <CellPick
         label={line.kind === "cmt" ? "CMT operation" : "Process"}
         options={list}
         value={{ id: line.process_id, name: line.process_name }}
-        onPick={(v) => setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { process_id: v.id, process_name: v.name }) })}
+        onPick={(v) => {
+          const p = procOf(v.id);
+          // The master's standard rate is a STARTING figure: it fills a blank rate
+          // and never overwrites one the operator typed.
+          const prefill = p?.standard_rate != null && !line.rate.trim() ? { rate: String(p.standard_rate) } : {};
+          const staged = p?.cmt_stage ? { stage: p.cmt_stage } : {};
+          setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { process_id: v.id, process_name: v.name, ...staged, ...prefill }) });
+        }}
+      />
+    );
+  };
+  /** The Stage cell of a CMT line. Re-picking a stage clears an operation that
+   *  is not in it (AGENTS.md, Cascading filters: clear a held value only when it
+   *  really falls out of scope). */
+  const opStage = (o: OpRow) => {
+    const pl = edit?.options ? lineOf(o) : null;
+    if (!pl) return null;
+    const { piece, line } = pl;
+    return (
+      <Pick
+        label="Stage"
+        value={lineStage(line)}
+        options={STAGE_OPTS}
+        empty="Stage"
+        w="w-28"
+        onPick={(id) => {
+          const st = id as CmtStage;
+          const held = procOf(line.process_id);
+          const keep = !line.process_id || held?.cmt_stage === st;
+          setPiece(piece.key, { lines: patchBy(piece.lines, line.key, keep ? { stage: st } : { stage: st, process_id: null, process_name: "" }) });
+        }}
       />
     );
   };
@@ -1055,14 +1210,17 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
     </tr>
   );
   const opCols = (model.pieceCount > 1 ? 1 : 0) + 2 + (edit ? 1 : 0);
-  const trimCols = (model.pieceCount > 1 ? 1 : 0) + 4 + (edit ? 1 : 0);
+  /** The CMT table's Stage column (0734) — while editing only: the stage comes
+   *  from the Process master, which the read-only sheet does not carry. */
+  const stageCol = !!edit?.options;
+  const trimCols = (model.pieceCount > 1 ? 1 : 0) + 7 + (edit ? 1 : 0);
 
   const secTri = (
-        <section className="tri" aria-label="Fabric, CMT and trims">
+        <section className="tri" aria-label="Processes, CMT and trims">
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
             <details open>
               <summary data-tone="fabric">
-                Fabric &amp; garment processes <span>{SYM} {money(s.fabric + s.process + s.testing)} / {model.unitWord}</span>
+                Garment processes <span>{SYM} {money(s.process + s.testing)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
                 <table>
@@ -1074,13 +1232,10 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                       {actHead}
                     </tr>
                   </thead>
+                  {/* No Fabric cost row (client 2026-10-17): the Fabric tab owns that subtotal and the
+                      Quotation summary carries it, so repeating it here showed one figure twice and
+                      made this band's total disagree with the "Operations & trims" chip above. */}
                   <tbody {...gridBody}>
-                    <tr data-grid-row>
-                      {model.pieceCount > 1 ? <td /> : null}
-                      <td>Fabric cost{model.sizes.length > 1 ? ` · ${s.label}` : ""}</td>
-                      <td className="r">{money(s.fabric)}</td>
-                      {actGap}
-                    </tr>
                     {[...model.ops.filter((o) => o.kind !== "CMT"), ...blankOps("embellishment")].map((o, i) => (
                       <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
                         {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
@@ -1090,11 +1245,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                       </tr>
                     ))}
                     {edit?.options ? addRow(opCols, () => addOpLine("embellishment")) : null}
-                    <tr className="total">
-                      <td colSpan={model.pieceCount > 1 ? 2 : 1}>Fabric, processes &amp; testing</td>
-                      <td className="r">{money(s.fabric + s.process + s.testing)}</td>
-                      {actGap}
-                    </tr>
+                    {/* No total row (user 2026-10-17): the band's header already carries the
+                        same figure, so a footer total printed it twice. */}
                   </tbody>
                 </table>
               </div>
@@ -1110,6 +1262,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                   <thead>
                     <tr>
                       {model.pieceCount > 1 ? <th className="c-piece">Piece</th> : null}
+                      {stageCol ? <th className="c-stage">Stage</th> : null}
                       <th className="c-name">Operation</th>
                       <th className="r c-num">Rate {SYM}</th>
                       {actHead}
@@ -1119,17 +1272,15 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                     {[...model.ops.filter((o) => o.kind === "CMT"), ...blankOps("cmt")].map((o, i) => (
                       <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
                         {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
+                        {stageCol ? <td>{opStage(o)}</td> : null}
                         <td>{opName(o)}</td>
                         <td className="r">{opRate(o)}</td>
                         {opRemove(o)}
                       </tr>
                     ))}
-                    {edit?.options ? addRow(opCols, () => addOpLine("cmt")) : null}
-                    <tr className="total">
-                      <td colSpan={model.pieceCount > 1 ? 2 : 1}>CMT</td>
-                      <td className="r">{money(s.cmt)}</td>
-                      {actGap}
-                    </tr>
+                    {edit?.options ? addRow(opCols + (stageCol ? 1 : 0), () => addOpLine("cmt")) : null}
+                    {/* No total row (user 2026-10-17): the band's header already carries the
+                        same figure, so a footer total printed it twice. */}
                   </tbody>
                 </table>
               </div>
@@ -1146,8 +1297,12 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                     <tr>
                       {model.pieceCount > 1 ? <th className="c-piece">Piece</th> : null}
                       <th className="c-name">Trim</th>
-                      <th className="c-price">Pricing</th>
-                      <th className="r c-num">Consumption</th>
+                      {/* The old RP labels, word for word (client 2026-10-17). */}
+                      <th className="c-tick">Direct Rate</th>
+                      <th className="r c-qty">No of Items</th>
+                      <th className="r c-qty">No of Pcs</th>
+                      <th className="r c-qty">Cons Qty</th>
+                      <th className="r c-num">Rate {SYM}</th>
                       <th className="r c-num">Cost {SYM}</th>
                       {actHead}
                     </tr>
@@ -1157,38 +1312,35 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                       <tr key={t.key} data-grid-row data-line-key={t.key}>
                         {model.pieceCount > 1 ? <td>{trimPiece(t)}</td> : null}
                         <td>{trimName(t)}</td>
-                        <td className="dim">
-                          {(() => {
-                            const d = edit?.draft.trims.find((x) => x.key === t.key);
-                            if (!edit || !d) return t.pricing;
-                            const set = (patch: Partial<typeof d>) => edit.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, d.key, patch) });
-                            // Direct: the flat ₹ per piece. Packed: the pack price (consumption beside it does the rest).
-                            return (
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                  <input type="checkbox" checked={d.is_direct !== false} onChange={(e) => set({ is_direct: e.target.checked })} />
-                                  <span>Direct</span>
-                                </label>
-                                {d.is_direct !== false ? (
-                                  <ShownAmount rate={rate} value={d.rate} onChange={(v) => set({ rate: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — direct rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
+                        {(() => {
+                          /* Direct Rate ticked: no pack, so No of Items / No of Pcs stay empty
+                             and Rate is the ₹ per piece. Unticked: Items over Pcs is the Cons
+                             Qty (read-only — the back end divides), Rate is the pack's price. */
+                          const d = edit?.draft.trims.find((x) => x.key === t.key);
+                          const set = (patch: Partial<NonNullable<typeof d>>) => d && edit?.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, d.key, patch) });
+                          const direct = d ? d.is_direct !== false : t.direct;
+                          return (
+                            <>
+                              <td className="c">
+                                {edit && d ? <input type="checkbox" aria-label={`${t.name || "Trim"} — direct rate`} checked={direct} onChange={(e) => set({ is_direct: e.target.checked })} /> : t.direct ? "✓" : ""}
+                              </td>
+                              <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of items`} value={d.qty} onChange={(v) => set({ qty: v })} /> : t.items}</td>
+                              <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of pcs`} value={d.pack_size} onChange={(v) => set({ pack_size: v })} /> : t.pcs}</td>
+                              <td className="r dim">{t.consQty ? t.consQty.toFixed(3) : ""}</td>
+                              <td className="r">
+                                {edit && d ? (
+                                  direct ? (
+                                    <ShownAmount rate={rate} value={d.rate} onChange={(v) => set({ rate: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
+                                  ) : (
+                                    <ShownAmount rate={rate} value={d.pack_price} onChange={(v) => set({ pack_price: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
+                                  )
                                 ) : (
-                                  <>
-                                    <ShownAmount rate={rate} value={d.pack_price} onChange={(v) => set({ pack_price: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — pack price ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
-                                    <Ed w="w-16" label={`${t.name} — pack size`} value={d.pack_size} onChange={(v) => set({ pack_size: v })} />
-                                  </>
+                                  money(t.rate)
                                 )}
-                              </span>
-                            );
-                          })()}
-                        </td>
-                        <td className="r">
-                          {(() => {
-                            const d = edit?.draft.trims.find((x) => x.key === t.key);
-                            if (!edit || !d || d.is_direct !== false) return t.qty;
-                            const set = (patch: Partial<typeof d>) => edit.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, d.key, patch) });
-                            return <Ed w="w-20" label={`${t.name} — consumption`} value={d.qty} onChange={(v) => set({ qty: v })} />;
-                          })()}
-                        </td>
+                              </td>
+                            </>
+                          );
+                        })()}
                         <td className="r">{money(t.cost)}</td>
                         {edit ? (
                           <td className="act">
@@ -1198,11 +1350,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                       </tr>
                     ))}
                     {edit?.options ? addRow(trimCols, addTrimLine) : null}
-                    <tr className="total">
-                      <td colSpan={model.pieceCount > 1 ? 4 : 3}>Trims</td>
-                      <td className="r">{money(s.trims)}</td>
-                      {actGap}
-                    </tr>
+                    {/* No total row (user 2026-10-17): the band's header already carries the
+                        same figure, so a footer total printed it twice. */}
                   </tbody>
                 </table>
               </div>
@@ -1462,7 +1611,10 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                         {model.exchangeRate != null ? <span className="why"> · at ₹ {fx(model.exchangeRate)} / {ccy}</span> : null}
                       </td>
                     </tr>
-                    {figRow("Calculated", (x) => x.calc)}
+                    {/* 4 decimals (user 2026-10-17, screenshot 3597): the calculated USD
+                        price is the exact figure the quote is rounded FROM, so it shows
+                        the digits a 2dp round hides. The typed quote stays as typed. */}
+                    {figRow("Calculated", (x) => x.calc, { digits: 4 })}
                     {edit
                       ? edit.draft.pieces.map((p) => (
                           <tr data-grid-row key={p.key}>
@@ -1722,7 +1874,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
   const specRight = specCol([
     ["Date", model.date ? fmtDate(model.date) : null, true],
     ["Season", model.season, true],
-    ["Ship", model.shipMode],
+    // Not on the Details tab (user 2026-10-17): Ship Mode is set on the Quotation tab. Print keeps it.
+    ["Ship", view === "report" ? model.shipMode : null],
     ["Unit", model.isSet ? "SET" : null, true],
     ["Currency", ccy ? `${ccy}${model.exchangeRate ? ` @ ₹ ${fx(model.exchangeRate)}` : ""}` : null, true],
     ["Size group", model.sizeGroup],
@@ -1730,7 +1883,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
   ]);
   const specGrid =
     specLeft || specRight ? (
-      <div className="hdr-grid">
+      <div className={view === "report" ? "hdr-grid" : "hdr-grid inline"}>
         {specLeft}
         {specRight}
       </div>
@@ -1767,7 +1920,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
           rate and the margin. ON SCREEN AND ON PAPER — the old `.mast` letterhead was
           print-only and the screen got a bare bar. The facts band under it replaces
           the header chips; every fact prints only when the costing has it. */}
-      <header className="lh">
+      <header className="lh" data-screen-hide={letterhead ? undefined : ""}>
         <div className="lh-stripe" aria-hidden>
           <span />
           <span />
@@ -1811,24 +1964,66 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
           {/* COMPACT (user 2026-10-17): five stacked lines became three — the margin chip
               shares the label's line, and rupees + rate share one muted line whose ₹ and
               @ say what the dropped words "Rupees" / "Exchange rate" did. */}
-          <div className="lh-card">
+          <div className="lh-card" data-tone={effTone ?? undefined}>
             <span className="top">
               <span className="k">
                 {s.quoted != null ? "Quoted" : "Calculated"} FOB / {model.unitWord}
                 {model.sizes.length > 1 ? ` · ${s.label}` : ""}
               </span>
               {eff != null ? (
-                <span className="marg" data-low={eff < 0 || undefined}>
+                <span className="marg" data-tone={effTone ?? undefined}>
                   Margin {eff.toFixed(1)}%
                 </span>
               ) : null}
             </span>
-            <span className="big">{fobShown == null ? "—" : `${ccy} ${fx(fobShown, 2)}`.trim()}</span>
-            {ccy && ccy !== "INR" && (fobInr != null || model.exchangeRate != null) ? (
-              <span className="row">
-                {fobInr != null ? <b>₹ {fx(fobInr)}</b> : null}
-                {fobInr != null && model.exchangeRate != null ? <span aria-hidden> · </span> : null}
-                {model.exchangeRate != null ? <span title="Exchange rate">@ {fx(model.exchangeRate)}</span> : null}
+            {/* COMPACT (user 2026-10-17): the price and its rupees share one line. */}
+            <span className="mid">
+              <span className="big">{fobShown == null ? "—" : `${ccy} ${fx(fobShown, 2)}`.trim()}</span>
+              {ccy && ccy !== "INR" && (fobInr != null || model.exchangeRate != null) ? (
+                <span className="row">
+                  {fobInr != null ? <b>₹ {fx(fobInr)}</b> : null}
+                  {fobInr != null && model.exchangeRate != null ? <span aria-hidden> · </span> : null}
+                  {model.exchangeRate != null ? <span title="Exchange rate">@ {fx(model.exchangeRate)}</span> : null}
+                </span>
+              ) : null}
+            </span>
+            {/* THE MARGIN METER (user 2026-10-17: "inside this card … a magic kind of
+                thing, the user will get happy"). The margin as a bar on the 0 → 30%
+                scale with the floor and target zones, the target as a tick, and one
+                sentence saying where it stands. The bar sweeps in when the card opens,
+                and a margin that clears the target gets a single shine across the card:
+                the reward is the figure being right. Paper and reduced-motion get it
+                still. */}
+            {eff != null && effTone ? (
+              <span
+                className="lh-meter"
+                style={{
+                  ["--m" as string]: `${(Math.max(0, Math.min(eff, GAUGE_MAX)) / GAUGE_MAX) * 100}%`,
+                  ["--f" as string]: `${(FLOOR_PCT / GAUGE_MAX) * 100}%`,
+                  ["--t" as string]: `${(MARGIN_TARGET_PCT / GAUGE_MAX) * 100}%`,
+                }}
+              >
+                <span className="bar" aria-hidden>
+                  <i className="fill" />
+                  <i className="tick" />
+                </span>
+                {/* Short, beside the bar (compact, user 2026-10-17); the full sentence is the tooltip. */}
+                <span
+                  className="say"
+                  title={
+                    effTone === "good"
+                      ? `${(eff - MARGIN_TARGET_PCT).toFixed(1)} pts above the ${MARGIN_TARGET_PCT}% target`
+                      : effTone === "warn"
+                        ? `${(MARGIN_TARGET_PCT - eff).toFixed(1)} pts short of the ${MARGIN_TARGET_PCT}% target`
+                        : `Under the ${FLOOR_PCT}% floor`
+                  }
+                >
+                  {effTone === "good"
+                    ? `✓ +${(eff - MARGIN_TARGET_PCT).toFixed(1)} vs ${MARGIN_TARGET_PCT}%`
+                    : effTone === "warn"
+                      ? `−${(MARGIN_TARGET_PCT - eff).toFixed(1)} vs ${MARGIN_TARGET_PCT}%`
+                      : `under ${FLOOR_PCT}%`}
+                </span>
               </span>
             ) : null}
           </div>
@@ -1897,20 +2092,29 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
               ))}
             </div>
             <div className="tpanel" role="tabpanel" id="cs-tabpanel" aria-labelledby={`cs-tab-${tab}`}>
+              {/* THE STYLE PHOTO IS ON DETAILS (user 2026-10-17: "the fabric picture field move
+                  to the details tab"), beside the sample, style and fabric facts it shows;
+                  the Fabric tab gives Component consumption the whole row. */}
               {tab === 0 ? (
-                <>
-                  {edit?.details}
-                  {specGrid}
-                </>
+                <div className="detrow">
+                  <div className="min-w-0">
+                    {edit?.details}
+                    {specGrid}
+                  </div>
+                  {photoRail}
+                </div>
               ) : null}
               {tab === 1 ? (
                 <>
                   {edit?.sizes}
-                  <div className="fabrow">
+                  {/* ONE COLUMN, ONE WIDTH (user 2026-10-17, screenshot 3607: "in report we align
+                      these two sections into one — can't we in cost entry"). Both sections
+                      take the stack's width, so their edges and header bars line up the way
+                      the report's do. */}
+                  <div className={edit ? "fabstack" : undefined}>
                     {secConsumption}
-                    {photoRail}
+                    {secFabric}
                   </div>
-                  {secFabric}
                 </>
               ) : null}
               {tab === 2 ? secTri : null}
@@ -1999,6 +2203,8 @@ const ZONE_WORD: Record<Zone, string> = { good: "On target", warn: "Below target
 const ZONE_TEXT: Record<Zone, string> = { good: "text-success", warn: "text-warning", bad: "text-danger" };
 /** The gauge's right edge — a margin past 30% pins to it. */
 const GAUGE_MAX = 30;
+/** The five CMT stages as picker options, in the floor's order (0734). */
+const STAGE_OPTS = CMT_STAGES.map((st) => ({ id: st, name: CMT_STAGE_LABEL[st] }));
 
 /** The two steps from the calculated rupee price to the FOB the header shows, both exact
  *  from the engine's own figures (`calc` = (price + freight + insurance) / rate):
@@ -2488,6 +2694,13 @@ const CSS = `
 .cs-sheet .spec > div:last-child { border-bottom:0; }
 .cs-sheet .spec dt { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--cs-muted); font-weight:700; align-self:center; }
 .cs-sheet .spec dd { margin:0; font-weight:600; font-size:13px; min-width:0; overflow-wrap:anywhere; }
+/* ON SCREEN, ONE LINE OF FACTS (user 2026-10-17, screenshot 3600: "compact this field,
+   no need this much"): label · value pairs in a wrapping row, the shape of the
+   Customer · Season · Description line above them. The printout keeps the boxes. */
+.cs-sheet .hdr-grid.inline { display:flex; flex-wrap:wrap; gap:6px 28px; margin-top:4px; }
+.cs-sheet .hdr-grid.inline .spec { display:contents; border:0; }
+.cs-sheet .hdr-grid.inline .spec > div { display:flex; align-items:baseline; gap:8px; padding:0; border:0; min-width:0; }
+.cs-sheet .hdr-grid.inline .spec dt { align-self:baseline; }
 /* Table | 220px rail. A GRID on purpose: as a flex box it inherited .blk's column
    direction and the photo wrapped underneath. Under 900px the rail goes ABOVE the
    table as a short strip, so a phone never has the picture between it and Add fabric. */
@@ -2730,6 +2943,24 @@ const CSS = `
 .cs-sheet .tpanel .tri > * { flex:1 1 auto; min-width:0; }
 /* Fabric tab: row 1 is consumption + the photo; row 2 (.fabblk) is the processing table alone, full width. */
 .cs-sheet .tpanel .fabblk { grid-template-columns:minmax(0,1fr); }
+.cs-sheet .fabstack { width:min(100%, 54rem); display:flex; flex-direction:column; gap:14px; }
+.cs-sheet .fabstack > .blk { width:100%; max-width:none; margin:0; }
+/* …except Component consumption, whose table is exactly the sum of its columns (narrowed
+   the same day, "why this much"): its card hugs that table, or the table stopped part-way
+   across a wider card and left a white gap beside it (screenshot 2026-10-17 15:08). */
+.cs-sheet .fabstack > .blk.cons { width:fit-content; max-width:100%; }
+.cs-sheet .blk.cons .scroll table { table-layout:fixed; }
+.cs-sheet .blk.cons td input { height:28px !important; font-size:12px; }
+/* The grams box is DRAWN as a box, like the Component and Fabric pickers beside it — the
+   sheet's borderless paper cell read as an empty, unfinished column (same day). */
+.cs-sheet .blk.cons .scroll td:has(> input.cs-ed) { padding:3px 6px; }
+.cs-sheet .blk.cons .scroll td > input.cs-ed { width:100%; border-color:revert-layer !important; border-radius:revert-layer !important; background:revert-layer !important; box-shadow:revert-layer !important; }
+.cs-sheet .detrow { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+/* The fields keep their one row (user 2026-10-17, screenshot 3611: Currency had wrapped
+   under SMP Number once the photo joined the tab); the photo follows them, and drops
+   under them only when the pane is too narrow for both. */
+.cs-sheet .detrow > :first-child { flex:0 1 auto; }
+.cs-sheet .detrow > .rail { flex:0 0 230px; }
 .cs-sheet .fabrow { display:grid; grid-template-columns:minmax(0,1fr) 230px; gap:12px; align-items:start; }
 @media (max-width:900px){ .cs-sheet .fabrow { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:900px){ .cs-sheet .tpanel .fabblk { grid-template-columns:minmax(0,1fr); } }
@@ -3026,6 +3257,7 @@ const CSS = `
 .cs-sheet .fband tbody + tbody tr.band td { border-top:2px solid #c8dce9; }
 .cs-sheet .fband tr.band:hover td { background:#eef4f9; }
 .cs-sheet .fband td.bandname { padding:3px 0 3px 0; vertical-align:middle; }
+.cs-sheet .fband td.bandname.clickable { cursor:pointer; user-select:none; }
 .cs-sheet .fband .bandhead { display:flex; align-items:center; gap:2px; }
 .cs-sheet .fband .bandhead :is(input, select) { font-weight:700; }
 .cs-sheet .fband .caret { flex:none; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-left:4px; border-radius:4px; color:var(--cs-muted); transition:transform .15s; }
@@ -3035,16 +3267,28 @@ const CSS = `
 .cs-sheet .fband .toglabel { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cs-muted); }
 .cs-sheet .fband td.tog { text-align:left; }
 .cs-sheet .fband .bandprice { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:13.5px; font-weight:700; color:#3f7d17; }
-.cs-sheet .fband tr.grp td { height:24px; padding-left:30px; font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--cs-muted); background:#fff; }
-.cs-sheet .fband tr.grp.p td { color:#8a6512; }
-.cs-sheet .fband tr.grp .gsum { float:right; padding-right:3.5rem; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:12px; letter-spacing:0; text-transform:none; font-weight:600; color:var(--cs-ink); }
-.cs-sheet .fband tr.line > td:first-child { padding-left:22px; }
-.cs-sheet .fband tr.line > td.in:first-child { padding-left:22px; }
-.cs-sheet .fband tr.line.p > td:not(.in) { background:#fcf8ee; }
-.cs-sheet .fband tr.addln td { height:26px; padding-left:22px; background:#fff; }
-.cs-sheet .fband tr.work td { height:30px; padding-left:30px; font-size:12px; color:var(--cs-muted); background:#fff; }
-.cs-sheet .fband tr.work b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-weight:600; color:var(--cs-ink); }
-.cs-sheet .fband tr.work .eq b { color:#3f7d17; }
+.cs-sheet .fband table.fbands { width:100%; }
+.cs-sheet .fband th.c, .cs-sheet .fband td.tog { text-align:center; }
+.cs-sheet .fband .fsrc { margin-left:6px; font-size:10.5px; font-weight:500; color:var(--cs-muted); }
+/* OPEN FABRIC, OPTION B (plan "Fabric Processing Layout", 2026-10-17): Yarn left,
+   Processes right, each a table of only its own columns — no blank cells — and the
+   working line across both. Below 900px the two stack. */
+.cs-sheet .fband tr.fopen > td { padding:12px 12px 10px 30px; background:#f7f9fb; white-space:normal; }
+.cs-sheet .fband .fsplit { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:12px; align-items:stretch; }
+@media (max-width:900px) { .cs-sheet .fband .fsplit { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .fband .fpart { display:flex; flex-direction:column; gap:6px; min-width:0; padding:8px 10px 6px; background:#fff; border:1px solid var(--cs-rule); border-radius:8px; }
+.cs-sheet .fband .fpart > .faddrow, .cs-sheet .fband .fpart > .fnote { margin-top:auto; }
+.cs-sheet .fband .fnote { font-size:11px; color:var(--cs-muted); padding:2px 0; }
+.cs-sheet .fband .fpart table.ftab { width:100%; }
+.cs-sheet .fband .grp { display:flex; justify-content:space-between; align-items:baseline; font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:#037bb8; }
+.cs-sheet .fband .grp.p { color:#8a6512; }
+.cs-sheet .fband .grp .gsum { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:12px; letter-spacing:0; text-transform:none; font-weight:600; color:var(--cs-ink); }
+.cs-sheet .fband .fpart.p th { background:#fcf8ee; }
+.cs-sheet .fband .work { margin-top:10px; padding:8px 10px; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:4px; font-size:12px; color:var(--cs-muted); background:#fff; border:1px solid var(--cs-rule); border-radius:8px; }
+.cs-sheet .fband .work b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-weight:600; color:var(--cs-ink); }
+.cs-sheet .fband .work .eq b { color:#3f7d17; }
+.cs-sheet .fband .work .lossbox { width:3.5rem !important; height:24px !important; min-height:0 !important; padding:0 6px !important; font-size:12px !important; color:#037bb8; }
+.cs-sheet .fempty { margin:0; padding:10px 0; font-size:12.5px; color:var(--cs-muted); }
 @media (prefers-reduced-motion: reduce) { .cs-sheet .fband .caret { transition:none; } }
 
 /* OPERATIONS & TRIMS, COMPACT (user 2026-10-15, screenshot 3551: "next compact the fields").
@@ -3053,15 +3297,32 @@ const CSS = `
    Pricing 250, Piece 120, actions 4.5rem — and the add line's boxes are 28px, cell-wide. */
 .cs-sheet .tpanel .tri > * { flex:0 1 auto; }
 .cs-sheet .tri .scroll table { width:auto; table-layout:fixed; }
-.cs-sheet .tri th.c-name { width:200px; }
-.cs-sheet .tri th.c-num { width:88px; }
-/* No ÷ between pack price and pack size (user 2026-10-15: "hide the divide icon"), so
-   tick + "Direct" + an 80px price + a 64px size fit 250. */
-.cs-sheet .tri th.c-price { width:250px; }
-.cs-sheet .tri td.dim > span { white-space:nowrap; }
+/* ONE ROW (user 2026-10-17, screenshot 3610: "these three tables into a single row,
+   compact the fields"). This REPLACES the same day's 3608 layout — Garment processes and
+   CMT half-and-half over a full-width Trims — which spread three short tables over two
+   rows of a wide tab. Each section hugs its own columns and the three sit side by side;
+   they wrap only when the pane is too narrow to hold them. Narrower columns too: a name
+   160, a figure 80, Trims' quantities 64. */
+.cs-sheet .tpanel .tri { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start; }
+.cs-sheet .tpanel .tri > * { flex:0 0 auto; max-width:100%; }
+.cs-sheet .tri th.c-name { width:160px; }
+.cs-sheet .tri th.c-num { width:80px; }
+.cs-sheet .tri th.c-tick { width:56px; text-align:center; white-space:normal; }
+.cs-sheet .tri td.c { text-align:center; }
+.cs-sheet .tri th.c-qty { width:64px; white-space:normal; }
+.cs-sheet .tri th.c-stage { width:96px; }
 .cs-sheet .tri th.c-piece { width:120px; }
 .cs-sheet .tri tr.ready td { padding-top:2px; padding-bottom:2px; }
 .cs-sheet .tri tr.ready :is(input, select) { height:28px !important; width:100%; min-width:0; }
+/* THE ENTRY IN ONE ROW TOO (user 2026-10-17: "in cost entry … update it also in single
+   row"). A cell's box follows its column: the rate box (Ed, w-24 = 96px) and a picker's
+   own min-width made each column wider than its heading, so the three tables no longer
+   fitted side by side while editing and wrapped. */
+.cs-sheet .tpanel .tri td > * { min-width:0; max-width:100%; }
+/* Not a checkbox (user 2026-10-17, screenshot 3613): stretched to the cell it became a
+   56 x 28px tick on Trims' Direct Rate. A tick keeps its own 16px. */
+.cs-sheet .tpanel .tri td :is(input:not([type="checkbox"]), select) { width:100% !important; min-width:0 !important; height:28px !important; font-size:12px; }
+.cs-sheet .tpanel .tri td input[type="checkbox"] { width:16px; height:16px; margin:0; vertical-align:middle; }
 
 /* The Quoted FOB card's "show in" pick, beside the price (2026-10-15). */
 .cs-sheet .qbigrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -3073,6 +3334,7 @@ const CSS = `
    reports' own four colours (report-kit.tsx SheetMasthead); the card is the one block
    of strong colour, and it carries the price. ===== */
 .cs-sheet .lh { background:#fff; border-bottom:1px solid var(--cs-rule); }
+@media screen { .cs-sheet .lh[data-screen-hide] { display:none; } }
 .cs-sheet .lh-stripe { display:flex; height:5px; }
 .cs-sheet .lh-stripe span { flex:1; }
 .cs-sheet .lh-stripe span:nth-child(1) { background:#d98e04; } .cs-sheet .lh-stripe span:nth-child(2) { background:#6b7480; }
@@ -3094,14 +3356,30 @@ const CSS = `
    600–700 — the loudest block on the page, and its label and rupee line the hardest to
    read. Now the sheet's own light brand tint, a thin brand edge, and dark brand ink at
    700–800, so the price leads by weight rather than by a coloured slab. */
-.cs-sheet .lh-card { background:var(--cs-brand-tint); color:var(--cs-brand-ink); border:1px solid #b9dff2; border-radius:12px; padding:10px 14px; min-width:220px; align-self:start; display:flex; flex-direction:column; gap:2px; }
+.cs-sheet .lh-card { background:var(--cs-brand-tint); color:var(--cs-brand-ink); border:1px solid #b9dff2; border-radius:12px; padding:8px 12px; min-width:220px; align-self:start; display:flex; flex-direction:column; gap:2px; }
 .cs-sheet .lh-card .top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .cs-sheet .lh-card .k { font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--cs-brand-ink); font-weight:800; opacity:.8; }
-.cs-sheet .lh-card .big { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:24px; font-weight:800; line-height:1.15; color:var(--cs-brand-ink); }
+.cs-sheet .lh-card .big { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:22px; font-weight:800; line-height:1.15; color:var(--cs-brand-ink); }
 .cs-sheet .lh-card .row { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:12px; color:var(--cs-ink); font-weight:700; white-space:nowrap; }
 .cs-sheet .lh-card .row b { color:var(--cs-ink); font-weight:800; }
 .cs-sheet .lh-card .marg { flex:none; font-size:11.5px; font-weight:800; color:var(--cs-good); background:var(--cs-good-tint); border:1px solid #bfe3cc; padding:1px 8px; border-radius:999px; }
-.cs-sheet .lh-card .marg[data-low] { color:var(--cs-bad); background:var(--cs-bad-tint); border-color:#f2c6c0; }
+.cs-sheet .lh-card .marg[data-tone="warn"] { color:var(--cs-warn); background:var(--cs-warn-tint); border-color:#f0d9a8; }
+.cs-sheet .lh-card .marg[data-tone="bad"] { color:var(--cs-bad); background:var(--cs-bad-tint); border-color:#f2c6c0; }
+/* the margin meter */
+.cs-sheet .lh-card { position:relative; overflow:hidden; }
+.cs-sheet .lh-card .mid { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.cs-sheet .lh-meter { display:flex; align-items:center; gap:8px; margin-top:3px; --c:var(--cs-good); }
+.cs-sheet .lh-card[data-tone="warn"] .lh-meter { --c:var(--cs-warn); }
+.cs-sheet .lh-card[data-tone="bad"] .lh-meter { --c:var(--cs-bad); }
+.cs-sheet .lh-meter .bar { position:relative; display:block; flex:1; min-width:80px; height:5px; border-radius:999px; background:linear-gradient(90deg, #f6d4cf 0 var(--f), #f7e3b8 var(--f) var(--t), #cfeadb var(--t) 100%); }
+.cs-sheet .lh-meter .fill { position:absolute; left:0; top:0; bottom:0; width:var(--m); border-radius:999px; background:var(--c); animation:lhGrow .9s cubic-bezier(.2,.8,.2,1) .15s both; }
+.cs-sheet .lh-meter .tick { position:absolute; top:-3px; bottom:-3px; left:var(--t); width:2px; margin-left:-1px; border-radius:1px; background:var(--cs-brand-ink); opacity:.6; }
+.cs-sheet .lh-meter .say { font-size:11px; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-weight:800; color:var(--c); white-space:nowrap; }
+.cs-sheet .lh-card[data-tone="good"]::after { content:""; position:absolute; inset:0; pointer-events:none; background:linear-gradient(105deg, transparent 35%, rgba(255,255,255,.75) 50%, transparent 65%); transform:translateX(-110%); animation:lhShine 1.3s ease-out 1s 1 both; }
+@keyframes lhGrow { from { width:0; } }
+@keyframes lhShine { to { transform:translateX(110%); } }
+@media (prefers-reduced-motion: reduce) { .cs-sheet .lh-meter .fill { animation:none; } .cs-sheet .lh-card[data-tone="good"]::after { display:none; } }
+@media print { .cs-sheet .lh-meter .fill { animation:none; } .cs-sheet .lh-card[data-tone="good"]::after { display:none; } }
 @media (max-width:640px) { .cs-sheet .lh-head { grid-template-columns:minmax(0,1fr); } .cs-sheet .lh-card { min-width:0; } }
 
 /* Option B's TABS: small cards on a pale band, each topped in its cost colour

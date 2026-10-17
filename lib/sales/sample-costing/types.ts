@@ -11,6 +11,7 @@
  * computes the summary snapshot itself, so a figure the client could tamper
  * with never decides whether a costing goes to the MD.
  */
+import type { CmtStage } from "@/lib/masters/process-types";
 import { z } from "zod";
 import { capsTextNullable } from "@/lib/validation/formats";
 import {
@@ -114,7 +115,11 @@ export type PieceDraft = {
 };
 
 export type PieceLineKind = "cmt" | "embellishment";
-export type PieceLineDraft = { key: string; kind: PieceLineKind; process_id: string | null; process_name: string; rate: string };
+/** `stage` is DRAFT-ONLY (0734): the CMT stage picked on a line before its
+ *  operation, so the operation picker can narrow to it. Never saved — a saved
+ *  line's stage is its process's `cmt_stage` — and not part of the blank test,
+ *  so a line with only a stage picked is still blank and is dropped on save. */
+export type PieceLineDraft = { key: string; kind: PieceLineKind; process_id: string | null; process_name: string; rate: string; stage?: CmtStage };
 
 export type FabricProcessDraft = { key: string; process_id: string | null; process_name: string; rate: string };
 

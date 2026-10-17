@@ -5,6 +5,7 @@ import { sortBySize } from "@/lib/masters/size-order";
 import { withCreators } from "@/lib/created-by";
 import type { Currency } from "@/lib/masters/types";
 import type { Deactivatable } from "@/lib/masters/inactive";
+import type { CmtStage } from "@/lib/masters/process-types";
 import { quoteKey } from "./calc";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
@@ -25,6 +26,10 @@ import { coverOf, isImageFile } from "@/lib/orders/amendments/style-gallery";
  */
 
 export type PickerRow = { id: string; code: string | null; name: string } & Deactivatable;
+/** A Process-master row with a garment kind (0691) — plus, since 0734, the CMT
+ *  stage the costing narrows its operation picker by, and the standard rate it
+ *  pre-fills a blank line's rate from. */
+export type GarmentProcessRow = PickerRow & { garment_kind: "cmt" | "embellishment"; cmt_stage: CmtStage | null; standard_rate: number | null };
 
 /** A style line of a sample enquiry, as the header offers it. */
 export type CostingStyleOption = {
@@ -96,7 +101,7 @@ export type SampleCostingFormData = {
   /** Garment processes classified on the Process master (0691): CMT operations
    *  (Cutting, Stitching, Checking …) and Embellishments (Print, Embroidery, Wash …).
    *  A process with no kind is in neither picker. */
-  garmentProcesses: (PickerRow & { garment_kind: "cmt" | "embellishment" })[];
+  garmentProcesses: GarmentProcessRow[];
   /** Garment components (Body, Rib, Pocketing …). */
   components: PickerRow[];
   /** SEW + PACK items — the trims picker. */
@@ -158,6 +163,32 @@ async function itemsOfClasses(codes: string[]): Promise<(PickerRow & { category_
   const { data, error } = await s.from("items").select("id, code, name, is_active, category_id").in("item_class_id", ids).order("name");
   if (error) throw new Error(`Could not load ${codes.join("/")} items: ${error.message}`);
   return (data ?? []) as (PickerRow & { category_id: string | null })[];
+}
+
+/**
+ * The trims picker: SEW + PACK items named WITHOUT their category (user 2026-10-17:
+ * "only show the item name, hide the category name"). An accessory's stored name is
+ * composed "CATEGORY ‹sep› answers" (material-master-screen), so "CARTON BOX / MASTER
+ * CARTON" offers "MASTER CARTON". Only a leading copy of the item's OWN category is cut,
+ * with whatever separator follows it; a name that does not start with it is left whole,
+ * and a name that is nothing but the category keeps it rather than going blank.
+ */
+async function trimItems(): Promise<(PickerRow & { category_id: string | null })[]> {
+  const ids = await classIds(["SEW", "PACK"]);
+  if (!ids.length) return [];
+  const s = await createClient();
+  const { data, error } = await s.from("items").select("id, code, name, is_active, category_id, category:categories(name)").in("item_class_id", ids).order("name");
+  if (error) throw new Error(`Could not load SEW/PACK items: ${error.message}`);
+  type Row = PickerRow & { category_id: string | null; category: { name: string | null } | { name: string | null }[] | null };
+  return ((data ?? []) as unknown as Row[])
+    .map(({ category, ...r }) => {
+      const cat = (Array.isArray(category) ? category[0] : category)?.name?.trim().toUpperCase() ?? "";
+      const name = r.name ?? "";
+      if (!cat || !name.toUpperCase().startsWith(cat)) return r;
+      const rest = name.slice(cat.length).replace(/^\s*[/\-|,:>›·]+\s*/, "");
+      return rest && rest !== name.slice(cat.length) ? { ...r, name: rest } : r;
+    })
+    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 }
 
 /** 0726: a structure's composition, embedded through its one FK. */
@@ -341,20 +372,22 @@ async function getProcesses(): Promise<PickerRow[]> {
     .map((p) => ({ id: p.id, code: null, name: p.name, inactive: p.inactive }));
 }
 
-async function getGarmentProcesses(): Promise<(PickerRow & { garment_kind: "cmt" | "embellishment" })[]> {
+async function getGarmentProcesses(): Promise<GarmentProcessRow[]> {
   const s = await createClient();
   const { data, error } = await s
     .from("processes")
-    .select("id, name, inactive, garment_kind")
+    .select("id, name, inactive, garment_kind, cmt_stage, standard_rate")
     .not("garment_kind", "is", null)
     .order("name");
   if (error) throw new Error(`Could not load garment processes: ${error.message}`);
-  return ((data ?? []) as { id: string; name: string; inactive: boolean | null; garment_kind: "cmt" | "embellishment" }[]).map((p) => ({
+  return ((data ?? []) as { id: string; name: string; inactive: boolean | null; garment_kind: "cmt" | "embellishment"; cmt_stage: CmtStage | null; standard_rate: number | string | null }[]).map((p) => ({
     id: p.id,
     code: null,
     name: p.name,
     inactive: p.inactive,
     garment_kind: p.garment_kind,
+    cmt_stage: p.cmt_stage,
+    standard_rate: p.standard_rate == null ? null : Number(p.standard_rate),
   }));
 }
 
@@ -386,7 +419,7 @@ export async function getSampleCostingFormData(): Promise<SampleCostingFormData>
     getProcesses(),
     getGarmentProcesses(),
     getComponents(),
-    itemsOfClasses(["SEW", "PACK"]),
+    trimItems(),
     listCurrencies(),
     getCostingMemory(),
     getQuoteRates(),

@@ -150,14 +150,12 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
   );
   // 4 · THE THREE PANELS: fabric & garment processes · CMT · trims
   card(
-    "Fabric & garment processes (₹ / pc)",
+    // No Fabric cost line (client 2026-10-17) — the fabric card and the summary carry it.
+    "Garment processes (₹ / pc)",
     [...(multi ? ["Piece"] : []), "Line", "Rate ₹"],
-    [
-      [...(multi ? [""] : []), `Fabric cost${m.sizes.length > 1 ? ` · ${s.label}` : ""}`, fx(s.fabric)],
-      ...m.ops.filter((o) => o.kind !== "CMT").map((o) => [...(multi ? [o.piece] : []), o.name, fx(o.rate)]),
-    ],
+    m.ops.filter((o) => o.kind !== "CMT").map((o) => [...(multi ? [o.piece] : []), o.name, fx(o.rate)]),
     [multi ? 2 : 1],
-    fx(s.fabric + s.process + s.testing),
+    fx(s.process + s.testing),
   );
   card(
     "CMT operations (₹ / pc)",
@@ -168,9 +166,9 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
   );
   card(
     "Trims & accessories",
-    [...(multi ? ["Piece"] : []), "Trim", "Pricing", "Consumption", "Cost ₹"],
-    m.trims.map((t) => [...(multi ? [t.piece] : []), t.name, t.pricing, t.qty, fx(t.cost)]),
-    [multi ? 3 : 2, multi ? 4 : 3],
+    [...(multi ? ["Piece"] : []), "Trim", "Direct Rate", "No of Items", "No of Pcs", "Cons Qty", "Rate ₹", "Cost ₹"],
+    m.trims.map((t) => [...(multi ? [t.piece] : []), t.name, t.direct ? "Yes" : "No", t.items, t.pcs, t.consQty.toFixed(3), fx(t.rate), fx(t.cost)]),
+    [multi ? 3 : 2, multi ? 4 : 3, multi ? 5 : 4, multi ? 6 : 5, multi ? 7 : 6],
     fx(s.trims),
   );
   // 5 · GARMENT COST — one column per size
@@ -326,8 +324,8 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   add(["CMT & EMBELLISHMENT", "Kind", "Rate ₹"]);
   m.ops.forEach((o) => add([[o.piece, o.name].filter(Boolean).join(" · "), o.kind, fx(o.rate)]));
   blank();
-  add(["TRIMS", "Pricing", "Consumption", "Cost ₹"]);
-  m.trims.forEach((t) => add([[t.piece, t.name].filter(Boolean).join(" · "), t.pricing, t.qty, fx(t.cost)]));
+  add(["TRIMS", "Direct Rate", "No of Items", "No of Pcs", "Cons Qty", "Rate ₹", "Cost ₹"]);
+  m.trims.forEach((t) => add([[t.piece, t.name].filter(Boolean).join(" · "), t.direct ? "Yes" : "No", t.items, t.pcs, t.consQty.toFixed(3), fx(t.rate), fx(t.cost)]));
   blank();
   add(["OVERHEADS & EXTRA CHARGES", "Type", "Value", ...m.sizes.map((x) => `${x.label} ₹`)]);
   m.overheads.forEach((o) => add([`${o.name}${o.side === "price" ? " (price)" : ""}`, o.type, o.value, ...o.perSize.map((v) => fx(v))]));

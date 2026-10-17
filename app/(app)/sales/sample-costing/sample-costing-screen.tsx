@@ -72,7 +72,7 @@ import { RowIconAction } from "@/components/ui/row-actions";
 import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { ToggleGroup } from "@/components/ui/segmented";
+import { Segmented, ToggleGroup } from "@/components/ui/segmented";
 import { Field, FieldRow} from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import {
@@ -358,6 +358,9 @@ export function SampleCostingScreen({
   const [listDecision, setListDecision] = useState<{ id: string; label: string; decision: CustomerDecision } | null>(null);
   /** "Copied from CST/…" until the first save (P2.2). */
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null);
+  /** Size-Wise "Yes" picked while no size is added yet — once a size is on the sheet,
+   *  the sizes themselves say Yes. Reset per record (the editor does not remount). */
+  const [sizeWiseAsked, setSizeWiseAsked] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   /** Revision compare (P3.1): the other revision, loaded. */
   const [compare, setCompare] = useState<{ id: string; record: CostingRecord } | null>(null);
@@ -585,6 +588,7 @@ export function SampleCostingScreen({
     setExtras(d.extras);
     setQuotes(d.quotes);
     setCopiedFrom(null);
+    setSizeWiseAsked(false);
     setCompare(null);
     setDirty(false);
     setMode("edit");
@@ -745,6 +749,17 @@ export function SampleCostingScreen({
     if (perms.canCreate) openNew();
   });
 
+  /* THE COSTING'S OWN REVISE (0725, spec v8 §1 / §8.1: "Revise" for the
+     quotation, "Revision" only for Sample Info and the plans). The server copies
+     the stored sheet into version + 1 and supersedes this one — Under Progress
+     stays Under Progress (each counter-offer is a Rev), Approved re-opens the
+     negotiation, Rejected comes back as a new Draft. Then the new Rev opens.
+     DECLARED ABOVE `openById`, which calls it: the React Compiler refuses a
+     function read before its declaration (react-hooks/immutability). */
+  function reviseNow(id: string) {
+    startOpening(() => router.push(raiseReviseHref(id)));
+  }
+
   function openById(id: string, opts?: { revise?: boolean }) {
     start(async () => {
       const res = await loadSampleCosting(id);
@@ -902,15 +917,6 @@ export function SampleCostingScreen({
     if (editId) reviseNow(editId);
   }
 
-  /* THE COSTING'S OWN REVISE (0725, spec v8 §1 / §8.1: "Revise" for the
-     quotation, "Revision" only for Sample Info and the plans). The server copies
-     the stored sheet into version + 1 and supersedes this one — Under Progress
-     stays Under Progress (each counter-offer is a Rev), Approved re-opens the
-     negotiation, Rejected comes back as a new Draft. Then the new Rev opens. */
-  function reviseNow(id: string) {
-    startOpening(() => router.push(raiseReviseHref(id)));
-  }
-
   // ---- validity ---------------------------------------------------------------
   const problems = costingProblems(draft);
   const asProblem = (p: CostingProblem): Problem => ({
@@ -1032,7 +1038,14 @@ export function SampleCostingScreen({
    */
   const head = summary.groups[0]?.total ?? null;
 
+  /* SMP NUMBER AND STYLE ARE ASKED ONLY ON A NEW SHEET (user 2026-10-17: "no need this
+     two field, show the SMP number in the details section"). A saved costing or a
+     revision cannot change either — the boxes were disabled pickers repeating a fact —
+     so they become the first two facts of the line below. */
+  const pickSample = !editId && !revisingFrom;
   const inherited: { label: string; value: string }[] = [
+    { label: "SMP Number", value: pickSample ? "" : (enquiry?.code ?? "") },
+    { label: "Style", value: pickSample ? "" : (style?.name ?? "") },
     { label: "Customer", value: enquiry?.customer_name ?? "" },
     { label: "Season", value: [enquiry?.season, enquiry?.season_year].filter(Boolean).join(" ") },
     { label: "Description", value: style?.description ?? "" },
@@ -1049,6 +1062,8 @@ export function SampleCostingScreen({
                 Style row leads, so a new sheet's cursor lands on Sample No —
                 the one question to answer before anything else. */}
             <FieldRow gap="row" align="start">
+              {pickSample ? (
+              <>
               <Field label="SMP Number" required w="party" htmlFor={costingFieldId.sample}>
                 <RecordPicker
                   id={costingFieldId.sample}
@@ -1100,6 +1115,8 @@ export function SampleCostingScreen({
                   }}
                 />
               </Field>
+              </>
+              ) : null}
               {/* No Costing No box (user 2026-10-15, duplicates on the page): the
                   number is generated and read-only, and the header already shows it. */}
               <Field label="Costing Date" required w="code" htmlFor={costingFieldId.date}>
@@ -1196,10 +1213,44 @@ export function SampleCostingScreen({
     );
     setDirty(true);
   };
+  /* SIZE-WISE YES / NO (client 2026-10-17). No = one medium piece's weight costs every
+     size (the "All sizes" column, headed Avg Pcs Wgt); Yes = a column per size added
+     here, averaged in Component consumption. Turning it off keeps the MEDIUM size's
+     weights — the middle of the sizes added, so S·M·L·XL keeps M — as that one column. */
+  const sizeWise = sizeWiseAsked || sheetSizes.length > 0;
+  const setSizeWise = (on: boolean) => {
+    setSizeWiseAsked(on);
+    /* YES SHOWS THE SIZES AT ONCE (user 2026-10-17, screenshot 3593): the style's own
+       sizes become the columns, each starting from the Pcs Wgt already typed, and the
+       Pcs Wgt column goes. A style with no sizes leaves the "+ Add size" pick. */
+    if (on) {
+      const names = offeredFromStyle;
+      if (!sheetSizes.length && names.length) {
+        setWeights((ws) => names.flatMap((name) => ws.map((w) => ({ ...w, key: w.size_name == null && name === names[0] ? w.key : newKey(), size_name: name }))));
+        setDirty(true);
+      }
+      return;
+    }
+    if (!sheetSizes.length) return;
+    const mid = sheetSizes[Math.floor((sheetSizes.length - 1) / 2)];
+    setWeights((ws) => ws.filter((w) => w.size_name === mid || w.size_name == null).map((w) => ({ ...w, size_name: null })));
+    setDirty(true);
+  };
   const sizesBar = (
     <div className="mb-3 flex flex-wrap items-center gap-2">
-      <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Sizes</span>
-      {sheetSizes.length ? (
+      <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Size-Wise</span>
+      <Segmented<"yes" | "no">
+        name="costing-size-wise"
+        value={sizeWise ? "yes" : "no"}
+        onChange={(v) => setSizeWise(v === "yes")}
+        options={[
+          { value: "no", label: "No" },
+          { value: "yes", label: "Yes" },
+        ]}
+      />
+      {!sizeWise ? (
+        <span className="text-sm text-muted-foreground">One average piece weight for every size</span>
+      ) : sheetSizes.length ? (
         sheetSizes.map((z) => (
           <span key={z} className="inline-flex items-center gap-1 rounded-control border border-border bg-surface px-2 py-1 text-sm font-medium">
             {z}
@@ -1215,9 +1266,9 @@ export function SampleCostingScreen({
           </span>
         ))
       ) : (
-        <span className="text-sm text-muted-foreground">All sizes</span>
+        <span className="text-sm text-muted-foreground">Add the sizes to weigh</span>
       )}
-      {sizeOrder.length ? (
+      {sizeWise && sizeOrder.length ? (
         <Select aria-label="Add a size" className="w-40" value="" onChange={(e) => addSize(e.target.value)}>
           <option value="">+ Add size…</option>
           {sizeOrder.map((z) => (
@@ -1277,9 +1328,10 @@ export function SampleCostingScreen({
     processes: liveOpts(data.processes),
     garmentProcesses: data.garmentProcesses
       .filter((r) => !isInactive(r))
-      .map((r) => ({ id: r.id, name: r.name, garment_kind: r.garment_kind })),
+      .map((r) => ({ id: r.id, name: r.name, garment_kind: r.garment_kind, cmt_stage: r.cmt_stage, standard_rate: r.standard_rate })),
     components: liveOpts(data.components),
     trims: liveOpts(data.trims),
+    lockedFabrics: style?.structures.map((x) => x.id) ?? [],
   };
   /** One edit in a tab writes the whole draft back into this editor's state. */
   const applyDraft = (next: CostingDraft) => {
@@ -1302,11 +1354,14 @@ export function SampleCostingScreen({
       ) : null}
       <CostSheetDocument
         model={sheetModel}
+        // The cost ENTRY: no letterhead, no Print / Download (user 2026-10-17).
+        // Reports and Revise keep both.
+        entry
         // Nothing unsaved is downloaded or printed — the file would not match the record.
         locked={dirty || !editId}
         edit={
           editable
-            ? { draft, onChange: applyDraft, options: editOptions, details: detailsBlock, sizes: sizesBar, terms: termsBar, pickFabric: pickedFabric }
+            ? { draft, onChange: applyDraft, options: editOptions, details: detailsBlock, sizes: sizesBar, sizeWise, terms: termsBar, pickFabric: pickedFabric }
             : undefined
         }
       />
