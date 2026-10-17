@@ -14,8 +14,9 @@ import {
   costingSummary,
   dimensionalGrams,
   extraChargeAmount,
+  fabricBySize,
+  fabricKgFor,
   fabricPricePerKg,
-  gramsOf,
   num,
   pieceCmt,
   pieceEmbellishment,
@@ -59,9 +60,8 @@ export type SizeFigures = {
   delta: number | null;
   deltaPct: number | null;
   effectiveMarginPct: number | null;
-  /** Grams of fabric a piece takes, and the same with each component's loss. */
+  /** Grams of fabric a piece takes. */
   grams: number;
-  gramsWithLoss: number;
 };
 
 export type CostSheetModel = {
@@ -122,15 +122,16 @@ export type CostSheetModel = {
   }[];
   weights: {
     sizeLabels: string[];
+    /** Each size's fabric cost, aligned to `sizeLabels` — the Fabric tab's total row only. */
+    fabricBySize: number[];
     rows: {
       piece: string;
       component: string;
       fabric: string;
       grams: (number | null)[];
-      lossPct: string;
       /** The draft weight behind each size cell (null = none), and whether it is length × width × gsm — so a cell edited on the report writes back. */
       cells: ({ key: string; dim: boolean } | null)[];
-      /** Every draft weight on this line: where the Loss % is written. */
+      /** Every draft weight on this line: what an edit or a ✕ on it reaches. */
       wkeys: string[];
       /** What the line IS, so the editor can re-pick its piece, component and fabric. */
       pieceKey: string;
@@ -193,9 +194,8 @@ export function buildCostSheetModel(
 
   const sizes: SizeFigures[] = summary.groups.map((g: GroupFigures) => {
     const t = g.total;
-    const rows = live.weights.filter((w) => w.size_name == null || w.size_name === g.size);
-    const grams = rows.reduce((s, w) => s + (gramsOf(w) ?? 0), 0);
-    const gramsWithLoss = rows.reduce((s, w) => s + (gramsOf(w) ?? 0) * (1 + (num(w.wastage_pct) ?? 0) / 100), 0);
+    // The AVERAGE piece weight across the Fabric tab's sizes — the weight the costing uses.
+    const grams = fabricKgFor(input.weights, g.size) * 1000;
     return {
       size: g.size,
       label: sizeLabel(g.size),
@@ -220,7 +220,6 @@ export function buildCostSheetModel(
       deltaPct: t.deltaPct,
       effectiveMarginPct: t.effectiveMarginPct,
       grams: Math.round(grams * 100) / 100,
-      gramsWithLoss: Math.round(gramsWithLoss * 100) / 100,
     };
   });
 
@@ -249,14 +248,16 @@ export function buildCostSheetModel(
     };
   });
 
-  // One line per (piece, component, fabric): grams in each size column.
-  const sizeCols = sizes.map((s) => s.size);
+  // One line per (piece, component, fabric): grams in each size column. The size columns
+  // are the FABRIC TAB'S own — the summary holds one averaged group (calc.ts, SIZES).
+  const fabricSizes = fabricBySize(input);
+  const sizeCols = fabricSizes.map((s) => s.size);
   const lineKey = (w: { piece_key: string; component_ids: string[]; fabric_key: string | null }) =>
     [w.piece_key, w.component_ids.join(","), w.fabric_key ?? ""].join("|");
   // Built from EVERY draft weight, blanks included, so a line keeps all its size cells
   // while only some are typed and a line just added is on the editable table; a line
   // whose weights are ALL blank is flagged and left out of `rows`.
-  const lines = new Map<string, { piece: string; pieceKey: string; componentIds: string[]; fabricKey: string | null; component: string; fabric: string; grams: (number | null)[]; loss: Set<string>; cells: ({ key: string; dim: boolean } | null)[]; wkeys: string[]; blank: boolean }>();
+  const lines = new Map<string, { piece: string; pieceKey: string; componentIds: string[]; fabricKey: string | null; component: string; fabric: string; grams: (number | null)[]; cells: ({ key: string; dim: boolean } | null)[]; wkeys: string[]; blank: boolean }>();
   for (const w of d.weights) {
     const k = lineKey(w);
     let line = lines.get(k);
@@ -274,7 +275,6 @@ export function buildCostSheetModel(
           .join(" + "),
         fabric: fi >= 0 ? fabrics[fi].name : "",
         grams: sizeCols.map(() => null),
-        loss: new Set(),
         cells: sizeCols.map(() => null),
         wkeys: [],
       };
@@ -287,7 +287,6 @@ export function buildCostSheetModel(
     });
     line.wkeys.push(w.key);
     if (!isBlankWeight(w)) line.blank = false;
-    if (num(w.wastage_pct) != null) line.loss.add(String(num(w.wastage_pct)));
   }
 
   const weightLines = [...lines.values()];
@@ -296,7 +295,6 @@ export function buildCostSheetModel(
     component: l.component,
     fabric: l.fabric,
     grams: l.grams,
-    lossPct: [...l.loss].join(" / "),
     cells: l.cells,
     wkeys: l.wkeys,
     pieceKey: l.pieceKey,
@@ -324,8 +322,7 @@ export function buildCostSheetModel(
     return {
       key: t.key,
       piece: pieceName(t.piece_key),
-      // The picked item's name first (category already cut, service trimItems), so a line
-      // saved before 2026-10-17 with "CATEGORY / NAME" in its description reads short too.
+      // The picked item's full name (category included), falling back to the saved description.
       name: lookups.trims.find((x) => x.id === t.item_id)?.name || t.description || "",
       /* THE OLD RP COLUMNS (client 2026-10-17: "field labels same as old"): Direct Rate ·
          No of Items · No of Pcs · Cons Qty · Rate · Cost. A pack is No of Items (the stored
@@ -409,7 +406,8 @@ export function buildCostSheetModel(
     lowestSize,
     fabrics,
     weights: {
-      sizeLabels: sizes.map((s) => s.label),
+      sizeLabels: fabricSizes.map((s) => sizeLabel(s.size)),
+      fabricBySize: fabricSizes.map((s) => s.fabric),
       rows: weightRows.filter((_, i) => !weightLines[i].blank),
       editRows: weightRows,
     },

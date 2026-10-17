@@ -102,5 +102,5 @@ export const newWeightRows = (pieceKey: string, componentIds: string[], fabricKe
     length_cm: "",
     width_cm: "",
     gsm: "",
-    wastage_pct: "3",
+    wastage_pct: "",
   }));

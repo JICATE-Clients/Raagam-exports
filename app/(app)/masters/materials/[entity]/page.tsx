@@ -25,6 +25,8 @@ import { ProcessMasterScreen } from "@/components/masters/process-master-screen"
 import { listProcesses } from "@/lib/masters/process-service";
 import { ComponentMasterScreen } from "@/components/masters/component-master-screen";
 import { listComponents } from "@/lib/masters/component-service";
+import { CmtProcessMasterScreen } from "@/components/masters/cmt-process-master-screen";
+import { listCmtProcesses } from "@/lib/masters/cmt-process-service";
 import { GaugeMasterScreen } from "@/components/masters/gauge-master-screen";
 import { KnittingDiaMasterScreen } from "@/components/masters/knitting-dia-master-screen";
 import { OutDocumentTermMasterScreen } from "@/components/masters/out-document-term-master-screen";
@@ -220,6 +222,9 @@ export default async function MaterialEntityPage({
           perms={perms}
         />
       );
+    } else if (child.custom === "cmt_processes") {
+      const rows = await listCmtProcesses();
+      screen = <CmtProcessMasterScreen rows={rows} perms={perms} />;
     } else if (child.custom === "components") {
       const components = await listComponents();
       screen = <ComponentMasterScreen rows={components} perms={perms} />;

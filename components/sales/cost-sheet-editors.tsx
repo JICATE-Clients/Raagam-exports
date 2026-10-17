@@ -1,6 +1,6 @@
 "use client";
 
-import type { CmtStage } from "@/lib/masters/process-types";
+import type { CmtStage } from "@/lib/masters/cmt-process-types";
 import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
@@ -26,7 +26,8 @@ export type EditOptions = {
   fabrics: readonly Opt[];
   yarns: readonly Opt[];
   processes: readonly Opt[];
-  /** `cmt_stage` narrows the CMT operation picker; `standard_rate` pre-fills a
+  /** `cmt_stage` is carried for production tracking (the costing lists CMT
+   *  operations flat, client 2026-10-17); `standard_rate` pre-fills a
    *  blank rate (0734). */
   garmentProcesses: readonly (Opt & { garment_kind: "cmt" | "embellishment"; cmt_stage: CmtStage | null; standard_rate: number | null })[];
   components: readonly Opt[];

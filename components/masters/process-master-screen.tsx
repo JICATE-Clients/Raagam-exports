@@ -19,21 +19,18 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createProcess, updateProcess, deleteProcess } from "@/lib/masters/process-actions";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
-import { baseStageProblem, cmtStageProblem } from "@/lib/masters/process-types";
+import { baseStageProblem } from "@/lib/masters/process-types";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { PROCESS_NAMES } from "@/lib/masters/name-vocabularies";
 import {
   BILLING_ON,
-  CMT_STAGES,
-  CMT_STAGE_LABEL,
   GARMENT_KINDS,
   GARMENT_KIND_LABEL,
   PROCESS_LAYOUTS,
   PROCESS_LAYOUT_LABEL,
   type BillingOn,
-  type CmtStage,
   type GarmentKind,
   type ProcessLayout,
   type Process,
@@ -65,7 +62,6 @@ const BLANK = {
   for_garments: false,
   for_components: false,
   garment_kind: "" as "" | GarmentKind,
-  cmt_stage: "" as "" | CmtStage,
   standard_rate: "",
   layout: "" as "" | ProcessLayout,
   no_planning: false,
@@ -108,7 +104,6 @@ const FIELD_W = {
   name: "name", //     288px — free text
   billing: "term", //  176px — "Outward Qty/Wt"
   hsn: "range", //     112px — an HSN code
-  stage: "code", //    144px — CHECKING, the longest stage word
   rate: "range", //    112px — a ₹/piece figure
 } satisfies Record<string, FieldWidth>;
 
@@ -264,7 +259,6 @@ export function ProcessMasterScreen({
       for_garments: r.for_garments,
       for_components: r.for_components,
       garment_kind: r.garment_kind ?? "",
-      cmt_stage: r.cmt_stage ?? "",
       standard_rate: r.standard_rate == null ? "" : String(r.standard_rate),
       layout: r.layout ?? "",
       no_planning: r.no_planning,
@@ -328,12 +322,6 @@ export function ProcessMasterScreen({
   /* DERIVED, NEVER HAND-ASSEMBLED (AGENTS.md, the Save footer's `canSave`):
      the same function the server action refuses with, so the button and the
      save cannot disagree about what a base tick may be. */
-  /* Same function the actions refuse with (0734): a CMT operation with no stage
-     would sit in no stage's list on the costing. */
-  const stageProblem = cmtStageProblem({
-    garment_kind: form.garment_kind || null,
-    cmt_stage: form.cmt_stage || null,
-  });
   const baseProblem = baseStageProblem({
     for_fabric: form.for_fabric,
     for_yarn: form.for_yarn,
@@ -375,8 +363,6 @@ export function ProcessMasterScreen({
         for_garments: form.for_garments,
         for_components: form.for_components,
         garment_kind: form.garment_kind ? form.garment_kind : null,
-        // Stage only on a CMT operation (0734's check); the rate on any garment kind.
-        cmt_stage: form.garment_kind === "cmt" && form.cmt_stage ? form.cmt_stage : null,
         standard_rate: form.garment_kind && form.standard_rate.trim() ? Number(form.standard_rate) : null,
         layout: form.layout ? form.layout : null,
         no_planning: form.no_planning,
@@ -433,9 +419,6 @@ export function ProcessMasterScreen({
 
   function forSummary(r: Process): string {
     const on = FOR_FLAGS.filter((f) => r[f.key as keyof Process]).map((f) => f.label);
-    // A CMT operation's stage reads in the same cell (0734), so the listing
-    // shows which stage each operation is offered under without a new column.
-    if (r.cmt_stage) on.push(`CMT ▸ ${CMT_STAGE_LABEL[r.cmt_stage]}`);
     return on.length ? on.join(", ") : "—";
   }
 
@@ -630,7 +613,7 @@ export function ProcessMasterScreen({
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.name.trim() || !!dupError || !!baseProblem || !!stageProblem}
+              disabled={isPending || !form.name.trim() || !!dupError || !!baseProblem}
               onClick={submit}
             >
               {isPending ? "Saving…" : "Save"}
@@ -707,12 +690,12 @@ export function ProcessMasterScreen({
                   onChange={(v) => toggleFor(f.key, v)}
                 />
               ))}
-              {/* WHAT KIND OF GARMENT PROCESS (0691) — sorts Sample Costing's
-                  pickers: CMT operations vs Embellishments. Two more switches in
+              {/* WHAT KIND OF GARMENT PROCESS (0691) — an Embellishment is
+                  offered in Sample Costing's Embellishment picker. A switch in
                   the same row as the For flags (client 2026-10-08: "add
-                  embellishment as a process kind, not a dropdown"). One column
-                  holds the kind, so the two switches are mutually exclusive:
-                  turning one on turns the other off. Shown while Garments is
+                  embellishment as a process kind, not a dropdown"). The CMT
+                  operation switch left in 0735: CMT operations are their own
+                  master (Materials ▸ CMT Processes). Shown while Garments is
                   ticked, or while a kind is already held (the seeded Print /
                   Embroidery / Wash rows carry one without the tick). */}
               {form.for_garments || form.garment_kind
@@ -747,31 +730,13 @@ export function ProcessMasterScreen({
             </FieldRow>
           </DetailSection>
 
-          {/* CMT STAGE AND STANDARD RATE (0734, the CMT Process Master spec).
-              Shown once the process is a garment process with a kind. Stage
-              only for a CMT operation — it decides which stage's list the
-              costing offers it under, so it is required there. The rate is
-              optional: it pre-fills a costing line's blank rate and is never a
-              price the costing is bound to. */}
+          {/* STANDARD RATE (0734). Shown on an Embellishment. Optional: it
+              pre-fills a costing line's blank rate and is never a price the
+              costing is bound to. CMT operations carry their own on the CMT
+              Process master (0735). */}
           {form.garment_kind ? (
             <DetailSection label="Costing" cols={1} className={FORM_W}>
               <FieldRow>
-                {form.garment_kind === "cmt" ? (
-                  <Field label="Production Stage" required w={FIELD_W.stage} htmlFor="pr-cmt-stage">
-                    <Select
-                      id="pr-cmt-stage"
-                      value={form.cmt_stage}
-                      onChange={(e) => set({ cmt_stage: e.target.value as "" | CmtStage })}
-                    >
-                      <option value=""></option>
-                      {CMT_STAGES.map((st) => (
-                        <option key={st} value={st}>
-                          {CMT_STAGE_LABEL[st]}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                ) : null}
                 <Field label="Standard Rate ₹/pc" w={FIELD_W.rate} htmlFor="pr-std-rate">
                   <Input
                     id="pr-std-rate"

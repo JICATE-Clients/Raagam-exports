@@ -5,7 +5,6 @@ import { flushSync } from "react-dom";
 import Link from "next/link";
 import { ChevronRight, Plus, Printer } from "lucide-react";
 import { AddCharge, CellPick, Ed, EdText, Pick, RemoveX, type EditOptions } from "@/components/sales/cost-sheet-editors";
-import { CMT_STAGES, CMT_STAGE_LABEL, type CmtStage } from "@/lib/masters/process-types";
 import { Button } from "@/components/ui/button";
 import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { Toggle } from "@/components/ui/toggle";
@@ -20,8 +19,8 @@ import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
 import { GlassRing } from "@/components/orders/budget-breakdown-chart";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
-import { MARGIN_TARGET_PCT, hasYarnMix, quoteKey, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
-import { isBlankExtra, isBlankPieceLine, isBlankTrim, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type PieceLineDraft, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
+import { MARGIN_TARGET_PCT, hasYarnMix, quoteKey, sizesOf, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
+import { isBlankExtra, isBlankFabric, isBlankPieceLine, isBlankTrim, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
 import { changeText } from "@/lib/sales/sample-costing/revision-history";
 
 /**
@@ -416,7 +415,23 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
     : [];
   const pickLineFabric = (r: (typeof weightRows)[number], v: { id: string | null; name: string }) => {
     if (!edit || (!v.id && !v.name.trim())) return;
-    const fabrics = edit.draft.fabrics;
+    /* THE CELL REPORTS EVERY KEYSTROKE (`TypeOrPick` writes typed text as the value), so
+       a name that matches nothing must RENAME the line's own typed fabric, never add one:
+       adding one per keystroke left a band each for S, SI, SIN … SINGLE S (client
+       2026-10-17, screenshot 3620), and each band's name then matched the typed text
+       exactly, which unfiltered the list. "Its own" = typed (no structure id) and on no
+       other line. Moving a line off such a fabric drops it once nothing but its name is
+       on it, so a half-typed name never survives as a band. */
+    const cur = edit.draft.fabrics.find((x) => x.key === r.fabricKey);
+    const ownTyped = !!cur && !cur.fabric_id && edit.draft.weights.every((x) => x.fabric_key !== cur.key || r.wkeys.includes(x.key));
+    const nameOnly = ownTyped && v.id !== `q:${cur.key}` && isBlankFabric({ ...cur, quality: "" });
+    const typedName = v.name.trim().toUpperCase();
+    const sameName = (x: FabricDraft) => !x.fabric_id && x.quality.trim().toUpperCase() === typedName;
+    if (!v.id && ownTyped && !edit.draft.fabrics.some((x) => x.key !== cur.key && sameName(x))) {
+      edit.onChange({ ...edit.draft, fabrics: edit.draft.fabrics.map((x) => (x.key === cur.key ? { ...x, quality: v.name } : x)) });
+      return;
+    }
+    const fabrics = nameOnly ? edit.draft.fabrics.filter((x) => x.key !== cur!.key) : edit.draft.fabrics;
     let target = v.id?.startsWith("q:")
       ? fabrics.find((x) => `q:${x.key}` === v.id)
       : fabrics.find((x) => (v.id ? x.fabric_id === v.id : !x.fabric_id && x.quality.trim().toUpperCase() === v.name.trim().toUpperCase()));
@@ -443,7 +458,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
       row?.querySelector<HTMLElement>("input, select")?.focus();
       return;
     }
-    edit.onChange({ ...edit.draft, weights: [...edit.draft.weights, ...newWeightRows(edit.draft.pieces[0]?.key ?? "", [], null, model.sizes.map((x) => x.size))] });
+    edit.onChange({ ...edit.draft, weights: [...edit.draft.weights, ...newWeightRows(edit.draft.pieces[0]?.key ?? "", [], null, sizesOf(edit.draft.weights))] });
   };
   /* SIZE-WISE YES / NO (client 2026-10-17). No = the one "All sizes" column, headed
      "Avg Pcs Wgt": one piece weight costs every size. Yes = a column per size,
@@ -459,8 +474,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
   const consumptionCols = (model.pieceCount > 1 ? 1 : 0) + 2 + (noWeightCol ? 0 : model.weights.sizeLabels.length) + (sizeWise ? 1 : 0) + (edit ? 1 : 0);
 
   /* NO LOSS % COLUMN AFTER THE SIZES (client 2026-10-17): the cutting-waste allowance is
-     no longer shown or typed here. Each line keeps the wastage it carries — a new line
-     the spec's 3 % (`newWeightRows`) — and the price still includes it. */
+     no longer shown or typed here, and since the same day it is not priced either —
+     cutting waste is the summary's Garment Rejection % (see calc.ts `WeightInput`). */
   const secConsumption = (
         <section className="blk cons" aria-label="Component consumption">
           <details open>
@@ -527,7 +542,9 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                         {edit?.options ? (
                           <CellPick
                             label="Fabric"
-                            options={fabricChoices}
+                            // Not the line's OWN typed name: it equals the text being typed, and an
+                            // exact hit makes TypeOrPick show the whole list instead of filtering.
+                            options={fabricChoices.filter((o) => o.id !== `q:${r.fabricKey}`)}
                             value={(() => {
                               const cur = edit.draft.fabrics.find((x) => x.key === r.fabricKey);
                               return { id: cur ? (cur.fabric_id ?? `q:${cur.key}`) : null, name: r.fabric };
@@ -567,12 +584,14 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                   ) : null}
                   <tr className="total">
                     <td colSpan={(model.pieceCount > 1 ? 1 : 0) + 2}>Fabric cost {SYM} / {model.unitWord}</td>
-                    {(noWeightCol ? [] : model.sizes).map((x) => (
-                      <td key={x.label} className="r">{money(x.fabric)}</td>
+                    {/* Each size's own fabric cost lives HERE only; the Avg is the one figure
+                        every later tab is costed on (calc.ts SIZES, client 2026-10-17). */}
+                    {(noWeightCol ? [] : model.weights.fabricBySize).map((v, j) => (
+                      <td key={model.weights.sizeLabels[j]} className="r">{money(v)}</td>
                     ))}
                     {sizeWise ? (
-                      <td className="r" title="Avg Piece Rate / PCS — the sizes' fabric cost over the size count">
-                        {money(avgOf(model.sizes.map((x) => x.fabric)))}
+                      <td className="r" title="Avg Piece Rate / PCS — the sizes' fabric cost over the size count, carried to every other tab">
+                        {money(s.fabric)}
                       </td>
                     ) : null}
                     {actGap}
@@ -788,12 +807,12 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                   : null;
               const open = !d.is_direct && openKey === f.key;
               const fromEntry = !!(d.fabric_id && opts?.lockedFabrics?.includes(d.fabric_id));
-              /* THE YARN IS SAMPLE ENTRY'S TOO (client 2026-10-17, screenshot 3598: "restrict
-                 it, it's fetched from the top section"). A Sample Entry fabric whose
-                 composition seeded its yarn lines shows yarn and Mix % as text — no list, no
-                 "+ Add yarn", no ✕ — and only the rate is typed. Change the composition in
-                 Sample Entry. A Sample Entry fabric with no composition stays open. */
-              const yarnLocked = fromEntry && named.length > 0;
+              /* YARN AND MIX % ARE EDITABLE (client 2026-10-17, screenshot 3616: "allow to
+                 user edit also"), reversing the same day's lock (screenshot 3598). Sample
+                 Entry's composition only PREFILLS them — once, when the style is picked
+                 (`pickStyle` seeds while every fabric line is blank) — so the operator can
+                 change a yarn, its Mix %, add one or remove one, like any other fabric.
+                 "from Sample Entry" on the band still says where the fabric came from. */
               const addYarn = () => setFabric(f.key, { yarns: [...(d.yarns.length ? d.yarns : [newYarnMix()]), newYarnMix()] });
               const addProc = () => setFabric(f.key, { processes: [...(d.processes.length ? d.processes : [newFabricProcess()]), newFabricProcess()] });
               return (
@@ -856,7 +875,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                                 <col style={{ width: "4.5rem" }} />
                                 <col style={{ width: "6rem" }} />
                                 <col style={{ width: "6rem" }} />
-                                {yarnLocked ? null : <col style={{ width: "2.5rem" }} />}
+                                <col style={{ width: "2.5rem" }} />
                               </colgroup>
                               <thead>
                                 <tr>
@@ -864,15 +883,12 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                                   <th className="r">Mix %</th>
                                   <th className="r">Rate / KG</th>
                                   <th className="r">Amount</th>
-                                  {yarnLocked ? null : <th className="act"><span className="sr-only">Actions</span></th>}
+                                  <th className="act"><span className="sr-only">Actions</span></th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {yarnLines.map((y, i) => (
                                   <tr key={y?.key ?? `${f.key}-y`} data-grid-row data-hover-row>
-                                    {yarnLocked ? (
-                                      <td title="From Sample Entry's composition">{y?.yarn_name}</td>
-                                    ) : (
                                     <td className="in">
                                       <TypeOrPick
                                         label="Yarn"
@@ -888,18 +904,13 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                                         uppercase
                                       />
                                     </td>
-                                    )}
-                                    {yarnLocked ? (
-                                      <td className="r fig">{y?.mix_pct}</td>
-                                    ) : (
-                                      <td className="in">
-                                        <NumInput
-                                          aria-label="Mix percent"
-                                          value={y?.mix_pct ?? ""}
-                                          onChange={(e) => (y ? setY(y.key, { mix_pct: e.target.value }) : setFabric(f.key, { yarns: [{ ...newYarnMix(), mix_pct: e.target.value }] }))}
-                                        />
-                                      </td>
-                                    )}
+                                    <td className="in">
+                                      <NumInput
+                                        aria-label="Mix percent"
+                                        value={y?.mix_pct ?? ""}
+                                        onChange={(e) => (y ? setY(y.key, { mix_pct: e.target.value }) : setFabric(f.key, { yarns: [{ ...newYarnMix(), mix_pct: e.target.value }] }))}
+                                      />
+                                    </td>
                                     <td className="in">
                                       {perYarn && y ? (
                                         <ShownAmount rate={rate} value={y.rate} onChange={(v) => setY(y.key, { rate: v })}>{(v, set) => <NumInput aria-label="Yarn rate per KG" value={v} onChange={(e) => set(e.target.value)} />}</ShownAmount>
@@ -908,20 +919,18 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                                       ) : null}
                                     </td>
                                     <td className="r fig">{perYarn && y ? yarnFig(y) : i === 0 ? money(f.yarn) : ""}</td>
-                                    {yarnLocked ? null : (
-                                      <td className="act">
-                                        <span className="acts">
-                                          {y && d.yarns.length > 1 ? (
-                                            <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
-                                          ) : null}
-                                        </span>
-                                      </td>
-                                    )}
+                                    <td className="act">
+                                      <span className="acts">
+                                        {y && d.yarns.length > 1 ? (
+                                          <RemoveX label={y.yarn_name || "yarn"} onClick={() => setFabric(f.key, { yarns: d.yarns.filter((x) => x.key !== y.key) })} />
+                                        ) : null}
+                                      </span>
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
-                            {yarnLocked ? <span className="fnote">Yarn and mix from Sample Entry&apos;s composition</span> : addLink("Add yarn", addYarn)}
+                            {addLink("Add yarn", addYarn)}
                           </div>
 
                           <div className="fpart p">
@@ -1099,17 +1108,14 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
     return piece && line ? { piece, line } : null;
   };
   const procOf = (id: string | null) => (id ? edit?.options?.garmentProcesses.find((x) => x.id === id) : undefined);
-  /** A CMT line's stage (0734): the one picked on the draft, else its operation's
-   *  own `cmt_stage` from the Process master. */
-  const lineStage = (line: PieceLineDraft): CmtStage | null => line.stage ?? procOf(line.process_id)?.cmt_stage ?? null;
   const opName = (o: OpRow) => {
     const pl = edit?.options ? lineOf(o) : null;
     if (!edit?.options || !pl) return o.name;
     const { piece, line } = pl;
-    // A picked stage narrows the CMT list to that stage's operations; with no
-    // stage yet every CMT operation is offered, and picking one fills the stage.
-    const stage = line.kind === "cmt" ? lineStage(line) : null;
-    const list = edit.options.garmentProcesses.filter((x) => x.garment_kind === line.kind && (!stage || x.cmt_stage === stage));
+    // ONE FLAT LIST, no stage to pick first (client 2026-10-17): the CMT Process
+    // master's stages are for production tracking, not for the costing — every
+    // CMT operation is offered directly.
+    const list = edit.options.garmentProcesses.filter((x) => x.garment_kind === line.kind);
     return (
       <CellPick
         label={line.kind === "cmt" ? "CMT operation" : "Process"}
@@ -1120,31 +1126,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
           // The master's standard rate is a STARTING figure: it fills a blank rate
           // and never overwrites one the operator typed.
           const prefill = p?.standard_rate != null && !line.rate.trim() ? { rate: String(p.standard_rate) } : {};
-          const staged = p?.cmt_stage ? { stage: p.cmt_stage } : {};
-          setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { process_id: v.id, process_name: v.name, ...staged, ...prefill }) });
-        }}
-      />
-    );
-  };
-  /** The Stage cell of a CMT line. Re-picking a stage clears an operation that
-   *  is not in it (AGENTS.md, Cascading filters: clear a held value only when it
-   *  really falls out of scope). */
-  const opStage = (o: OpRow) => {
-    const pl = edit?.options ? lineOf(o) : null;
-    if (!pl) return null;
-    const { piece, line } = pl;
-    return (
-      <Pick
-        label="Stage"
-        value={lineStage(line)}
-        options={STAGE_OPTS}
-        empty="Stage"
-        w="w-28"
-        onPick={(id) => {
-          const st = id as CmtStage;
-          const held = procOf(line.process_id);
-          const keep = !line.process_id || held?.cmt_stage === st;
-          setPiece(piece.key, { lines: patchBy(piece.lines, line.key, keep ? { stage: st } : { stage: st, process_id: null, process_name: "" }) });
+          setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { process_id: v.id, process_name: v.name, ...prefill }) });
         }}
       />
     );
@@ -1210,9 +1192,6 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
     </tr>
   );
   const opCols = (model.pieceCount > 1 ? 1 : 0) + 2 + (edit ? 1 : 0);
-  /** The CMT table's Stage column (0734) — while editing only: the stage comes
-   *  from the Process master, which the read-only sheet does not carry. */
-  const stageCol = !!edit?.options;
   const trimCols = (model.pieceCount > 1 ? 1 : 0) + 7 + (edit ? 1 : 0);
 
   const secTri = (
@@ -1262,7 +1241,6 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                   <thead>
                     <tr>
                       {model.pieceCount > 1 ? <th className="c-piece">Piece</th> : null}
-                      {stageCol ? <th className="c-stage">Stage</th> : null}
                       <th className="c-name">Operation</th>
                       <th className="r c-num">Rate {SYM}</th>
                       {actHead}
@@ -1272,13 +1250,12 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                     {[...model.ops.filter((o) => o.kind === "CMT"), ...blankOps("cmt")].map((o, i) => (
                       <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
                         {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
-                        {stageCol ? <td>{opStage(o)}</td> : null}
                         <td>{opName(o)}</td>
                         <td className="r">{opRate(o)}</td>
                         {opRemove(o)}
                       </tr>
                     ))}
-                    {edit?.options ? addRow(opCols + (stageCol ? 1 : 0), () => addOpLine("cmt")) : null}
+                    {edit?.options ? addRow(opCols, () => addOpLine("cmt")) : null}
                     {/* No total row (user 2026-10-17): the band's header already carries the
                         same figure, so a footer total printed it twice. */}
                   </tbody>
@@ -1388,7 +1365,6 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                       [`Overhead ${model.terms.overhead}%`, (x: SizeFigures) => x.overhead, false],
                       ["Bank charges & other overheads", (x: SizeFigures) => x.bank + x.extraOverhead, false],
                       ["Total cost", (x: SizeFigures) => x.grossCost, true],
-                      [`Profit ${model.terms.margin}%`, (x: SizeFigures) => x.margin, false],
                     ] as const
                   ).map(([label, pick, strong]) => (
                     <tr key={label} className={strong ? "total" : undefined}>
@@ -1398,28 +1374,9 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                       ))}
                     </tr>
                   ))}
-                  {model.terms.freight + model.terms.insurance > 0 ? (
-                    <tr>
-                      <td>Freight &amp; insurance <span className="dim">(on the price, not earned)</span></td>
-                      {model.sizes.map((x) => (
-                        <td key={x.label} className="r">{money((model.terms.freight + model.terms.insurance) * model.pieceCount)}</td>
-                      ))}
-                    </tr>
-                  ) : null}
-                  {model.sizes.some((x) => x.priceAdj - x.discount !== 0) ? (
-                    <tr>
-                      <td>Price charges &amp; discount</td>
-                      {model.sizes.map((x) => (
-                        <td key={x.label} className="r">{x.priceAdj - x.discount >= 0 ? "+" : "−"}{money(Math.abs(x.priceAdj - x.discount))}</td>
-                      ))}
-                    </tr>
-                  ) : null}
-                  <tr className="total">
-                    <td>Price {SYM}</td>
-                    {model.sizes.map((x) => (
-                      <td key={x.label} className="r">{money(x.price)}</td>
-                    ))}
-                  </tr>
+                  {/* THE TABLE ENDS AT TOTAL COST (client 2026-10-17, screenshot 3621): Profit,
+                      freight, price charges and Price are the SELLING side, and the Quotation
+                      tab's price build already shows them — margin, selling price, quote. */}
                 </tbody>
               </table>
             </div>
@@ -1558,8 +1515,9 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
       })}
     </tr>
   );
-  /** A Terms row: label · value (typed while revising) · what it applies to. */
-  const termRow = (label: string, field: TermField, shown: number | null, note: string, always = false) =>
+  /** A Terms row: label · value (typed while revising). The "Applies to" column was
+   *  removed (user 2026-10-17). */
+  const termRow = (label: string, field: TermField, shown: number | null, always = false) =>
     edit ? (
       <tr data-grid-row key={field}>
         <td>{label}</td>
@@ -1568,13 +1526,11 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
             {(v, set) => <Ed label={label} value={v} onChange={set} />}
           </ShownAmount>
         </td>
-        <td className="dim">{note}</td>
       </tr>
     ) : always || (shown != null && shown !== 0) ? (
       <tr data-grid-row key={field}>
         <td>{label}</td>
         <td className="r fig">{shown == null ? "—" : field === "freight_per_pc" || field === "insurance_per_pc" ? money(shown) : fx(shown, 2)}</td>
-        <td className="dim">{note}</td>
       </tr>
     ) : null;
 
@@ -1587,6 +1543,98 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
           ) : null}
           <div className="qgrid">
             <div className="qtables">
+              {/* Terms with the Quote under it, then Price build (user 2026-10-17): the FOB
+                  price on its own, drawn the same way as the cost table. */}
+              <div className="qcol">
+                <div className="qt">
+                  <table aria-label="Terms">
+                    <thead>
+                      <tr data-grid-row>
+                        <th>Terms</th>
+                        <th className="r fig">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody data-grid-body data-grid-axis="sheet" onKeyDown={gridKeyNav}>
+                      {termRow(`Buyer target ${ccy}`.trim(), "buyer_target_price", model.targetPrice)}
+                      {termRow("Margin %", "margin_pct", model.terms.margin, true)}
+                      {termRow(`Exchange rate ₹ / ${ccy || "FOB"}`, "exchange_rate", model.exchangeRate, true)}
+                      {termRow("Commission %", "commission_pct", model.commissionPct)}
+                      {termRow("LC discount %", "discount_pct", model.terms.discount)}
+                      {termRow("Freight / pc", "freight_per_pc", model.terms.freight)}
+                      {termRow("Insurance / pc", "insurance_per_pc", model.terms.insurance)}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="qt">
+                  <table aria-label="FOB price per size">
+                    <thead>
+                      <tr data-grid-row>
+                        <th>Quote</th>
+                        {sizeHead}
+                      </tr>
+                    </thead>
+                    <tbody data-grid-body data-grid-axis="sheet" onKeyDown={gridKeyNav}>
+                      <tr data-grid-row className="grp">
+                        <td colSpan={model.sizes.length + 1}>
+                          Price · {ccy || "FOB"} per {model.unitWord}
+                          {model.exchangeRate != null ? <span className="why"> · at ₹ {fx(model.exchangeRate)} / {ccy}</span> : null}
+                        </td>
+                      </tr>
+                      {/* 4 decimals (user 2026-10-17, screenshot 3597): the calculated USD
+                          price is the exact figure the quote is rounded FROM, so it shows
+                          the digits a 2dp round hides. The typed quote stays as typed. */}
+                      {figRow("Calculated", (x) => x.calc, { digits: 4 })}
+                      {edit
+                        ? edit.draft.pieces.map((p) => (
+                            <tr data-grid-row key={p.key}>
+                              <td>Quoted{edit.draft.pieces.length > 1 ? ` · ${p.piece_name || "piece"}` : " price"}</td>
+                              {model.sizes.map((x, i) => {
+                                const k = quoteKey(p.key, x.size);
+                                return (
+                                  <td key={k} className={`in${i === idx ? " sel" : ""}`}>
+                                    <Ed
+                                      label={`Quoted price${edit.draft.pieces.length > 1 ? ` ${p.piece_name || "piece"}` : ""} ${x.label}`}
+                                      value={edit.draft.quotes[k] ?? ""}
+                                      onChange={(v) => {
+                                        edit.onQuote?.(k);
+                                        edit.onChange({ ...edit.draft, quotes: { ...edit.draft.quotes, [k]: v } });
+                                      }}
+                                    />
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))
+                        : null}
+                      {!edit || edit.draft.pieces.length > 1 ? figRow(edit ? "Quoted · total" : "Quoted price", (x) => x.quoted, { sum: !edit }) : null}
+                      {target != null ? (
+                        <tr data-grid-row>
+                          <td>
+                            vs target <span className="why">· + over, − under</span>
+                          </td>
+                          {model.sizes.map((x, i) => {
+                            const q = quotedOf(x);
+                            const gap = q == null ? null : Math.round((q - target) * 100) / 100;
+                            return (
+                              <td key={x.label} className={`r fig ${gap == null ? "" : gap > 0 ? "bad" : "good"}${i === idx ? " sel" : ""}`}>
+                                {gap == null ? "—" : `${gap > 0 ? "+" : gap < 0 ? "−" : ""}${fx(Math.abs(gap), 2)}`}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ) : null}
+                      <tr data-grid-row className="sum">
+                        <td>Margin on quote</td>
+                        {model.sizes.map((x, i) => (
+                          <td key={x.label} className={`r fig ${marginTone(x.effectiveMarginPct)}${i === idx ? " sel" : ""}`}>
+                            {x.effectiveMarginPct == null ? "—" : `${x.effectiveMarginPct.toFixed(1)}%`}
+                          </td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
               <div className="qt">
                 <table aria-label="Price build per size">
                   <thead>
@@ -1605,83 +1653,6 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                     {figRow("Gross cost", (x) => x.grossCost, { sum: true, amount: true })}
                     {figRow(`Margin · ${edit ? Number(edit.draft.header.margin_pct) || 0 : model.terms.margin}% of net`, (x) => x.margin, { amount: true })}
                     {figRow(`Selling price ${SYM}`, (x) => x.price, { sum: true, amount: true })}
-                    <tr data-grid-row className="grp">
-                      <td colSpan={model.sizes.length + 1}>
-                        Price · {ccy || "FOB"} per {model.unitWord}
-                        {model.exchangeRate != null ? <span className="why"> · at ₹ {fx(model.exchangeRate)} / {ccy}</span> : null}
-                      </td>
-                    </tr>
-                    {/* 4 decimals (user 2026-10-17, screenshot 3597): the calculated USD
-                        price is the exact figure the quote is rounded FROM, so it shows
-                        the digits a 2dp round hides. The typed quote stays as typed. */}
-                    {figRow("Calculated", (x) => x.calc, { digits: 4 })}
-                    {edit
-                      ? edit.draft.pieces.map((p) => (
-                          <tr data-grid-row key={p.key}>
-                            <td>Quoted{edit.draft.pieces.length > 1 ? ` · ${p.piece_name || "piece"}` : " price"}</td>
-                            {model.sizes.map((x, i) => {
-                              const k = quoteKey(p.key, x.size);
-                              return (
-                                <td key={k} className={`in${i === idx ? " sel" : ""}`}>
-                                  <Ed
-                                    label={`Quoted price${edit.draft.pieces.length > 1 ? ` ${p.piece_name || "piece"}` : ""} ${x.label}`}
-                                    value={edit.draft.quotes[k] ?? ""}
-                                    onChange={(v) => {
-                                      edit.onQuote?.(k);
-                                      edit.onChange({ ...edit.draft, quotes: { ...edit.draft.quotes, [k]: v } });
-                                    }}
-                                  />
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))
-                      : null}
-                    {!edit || edit.draft.pieces.length > 1 ? figRow(edit ? "Quoted · total" : "Quoted price", (x) => x.quoted, { sum: !edit }) : null}
-                    {target != null ? (
-                      <tr data-grid-row>
-                        <td>
-                          vs target <span className="why">· + over, − under</span>
-                        </td>
-                        {model.sizes.map((x, i) => {
-                          const q = quotedOf(x);
-                          const gap = q == null ? null : Math.round((q - target) * 100) / 100;
-                          return (
-                            <td key={x.label} className={`r fig ${gap == null ? "" : gap > 0 ? "bad" : "good"}${i === idx ? " sel" : ""}`}>
-                              {gap == null ? "—" : `${gap > 0 ? "+" : gap < 0 ? "−" : ""}${fx(Math.abs(gap), 2)}`}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ) : null}
-                    <tr data-grid-row className="sum">
-                      <td>Margin on quote</td>
-                      {model.sizes.map((x, i) => (
-                        <td key={x.label} className={`r fig ${marginTone(x.effectiveMarginPct)}${i === idx ? " sel" : ""}`}>
-                          {x.effectiveMarginPct == null ? "—" : `${x.effectiveMarginPct.toFixed(1)}%`}
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div className="qt">
-                <table aria-label="Terms">
-                  <thead>
-                    <tr data-grid-row>
-                      <th>Terms</th>
-                      <th className="r fig">Value</th>
-                      <th>Applies to</th>
-                    </tr>
-                  </thead>
-                  <tbody data-grid-body data-grid-axis="sheet" onKeyDown={gridKeyNav}>
-                    {termRow(`Buyer target ${ccy}`.trim(), "buyer_target_price", model.targetPrice, "compared with every size")}
-                    {termRow("Margin %", "margin_pct", model.terms.margin, "of net cost", true)}
-                    {termRow(`Exchange rate ₹ / ${ccy || "FOB"}`, "exchange_rate", model.exchangeRate, "converts the price", true)}
-                    {termRow("Commission %", "commission_pct", model.commissionPct, "added to the price")}
-                    {termRow("LC discount %", "discount_pct", model.terms.discount, "taken off the price")}
-                    {termRow("Freight / pc", "freight_per_pc", model.terms.freight, "added per piece")}
-                    {termRow("Insurance / pc", "insurance_per_pc", model.terms.insurance, "added per piece")}
                   </tbody>
                 </table>
               </div>
@@ -2166,11 +2137,11 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
  * column is a stack of its own, as on `person-profile-view.tsx`, so no column
  * waits on another's height and nothing sits over empty space — but the CHARTS
  * lead, and the stacks are balanced to one height so the tab fits a screen:
- *  - How the price is built (the waterfall as floating bars);
+ *  - How the price is built (one bar per step, all from the left edge);
  *  - Where the price goes (THE APPROVAL'S `GlassRing`, not a copy) · Price
  *    across revisions (see `revInC` for when it moves);
- *  - Margin vs target (with quoted vs the buyer's target) · Fabric rate per kg ·
- *    Cost by size — a size row is a button that switches the whole sheet's size.
+ *  - Cost by size — a size row is a button that switches the whole sheet's size.
+ *    (Margin vs target and Fabric rate per kg were removed 2026-10-17.)
  *
  * NO TILE ROW, NO "THIS QUOTATION" CARD (user 2026-10-17, screenshot 3586: "fit
  * the screen … remove duplicated or least used section"). Every tile repeated a
@@ -2199,12 +2170,9 @@ type Tone = keyof typeof TONE_VAR;
 type Zone = "good" | "warn" | "bad";
 const zoneOf = (e: number | null): Zone | null =>
   e == null ? null : e >= MARGIN_TARGET_PCT ? "good" : e >= FLOOR_PCT ? "warn" : "bad";
-const ZONE_WORD: Record<Zone, string> = { good: "On target", warn: "Below target", bad: "Below floor" };
 const ZONE_TEXT: Record<Zone, string> = { good: "text-success", warn: "text-warning", bad: "text-danger" };
 /** The gauge's right edge — a margin past 30% pins to it. */
 const GAUGE_MAX = 30;
-/** The five CMT stages as picker options, in the floor's order (0734). */
-const STAGE_OPTS = CMT_STAGES.map((st) => ({ id: st, name: CMT_STAGE_LABEL[st] }));
 
 /** The two steps from the calculated rupee price to the FOB the header shows, both exact
  *  from the engine's own figures (`calc` = (price + freight + insurance) / rate):
@@ -2264,30 +2232,26 @@ function CostCharts({
   const pctOf = (v: number) => (v / partTotal) * 100;
   const maxShare = Math.max(1, ...parts.map((p) => pctOf(p.value)));
   const marginPart = parts.find((p) => p.tone === "margin");
-  const scaleMax = Math.max(1, ...rows.map((r) => r.start + r.width));
+  /* A PLAIN BAR CHART, NOT A FLOATING WATERFALL (user 2026-10-17: "need proper bar chart,
+     now looks not clear, alignment in that bar"). Every bar starts at the left edge and is
+     as long as its own rupees against the longest row, so the bars share one baseline and
+     compare by length. Floating each step from the running total left small costs as
+     slivers mid-track beside totals that restarted at zero. `start` is still computed by
+     the caller and simply not drawn. */
+  const scaleMax = Math.max(1, ...rows.map((r) => r.width));
   const focus = active ? parts.find((p) => p.tone === active) : null;
-  const fob = s.quoted ?? s.calc;
 
   const centre = focus
     ? { label: focus.label.replace("Embellishment & testing", "Emb. & test"), value: `${pctOf(focus.value).toFixed(1)}%`, sub: `${SYM} ${money(focus.value)}`, color: TONE_VAR[focus.tone] }
     : { label: "Margin", value: eff == null ? "—" : `${eff.toFixed(1)}%`, sub: marginPart ? `${SYM} ${money(marginPart.value)}` : "", tone: zone ? ZONE_TEXT[zone] : "" };
 
-  const gaugeAt = (v: number) => (Math.min(Math.max(v, 0), GAUGE_MAX) / GAUGE_MAX) * 100;
-  // Margin is a share of NET cost (the engine's `net × margin%`), so the rupees short are too.
-  const short = eff != null && eff < MARGIN_TARGET_PCT ? ((MARGIN_TARGET_PCT - eff) / 100) * s.net : null;
-
-  /* WHICH STACK TAKES THE REVISION LINE (user 2026-10-17, screenshot 3590). The ring is
-     a short card and Fabric rate grows a band per fabric, so a fixed home always leaves
-     one column ending early: at the bottom of the third stack it left blank space under
-     the ring beside three fabrics. It goes under the ring, and drops to the third stack
-     only when that stack is the short one — one fabric and no size breakdown. */
-  const revInC = model.fabrics.length <= 1 && model.sizes.length <= 1;
+  /* WHICH STACK TAKES THE REVISION LINE (user 2026-10-17, screenshot 3590): under the
+     ring, unless the third stack is the short one. Since the margin and fabric-rate cards
+     left (same day) that stack holds only Cost by size, so it is short exactly when there
+     is no size breakdown. */
+  const revInC = model.sizes.length <= 1;
   const sizeMax = Math.max(1, ...model.sizes.map((x) => fobSteps(x, rate).fob));
   const hist = model.history;
-
-  /* Quoted vs the buyer's target — the margin card's last line. */
-  const target = model.targetPrice;
-  const gap = fob != null && target != null && target > 0 ? fob - target : null;
 
   return (
     <section
@@ -2323,7 +2287,7 @@ function CostCharts({
                       <span>{r.label}</span>
                     </span>
                     <span className="tr">
-                      <span className="b cg-gloss" style={{ left: `${(r.start / scaleMax) * 100}%`, width: `${Math.max((r.width / scaleMax) * 100, 0.6)}%`, backgroundColor: fill }} />
+                      <span className="b cg-gloss" style={{ left: 0, width: `${Math.max((r.width / scaleMax) * 100, 0.6)}%`, backgroundColor: fill }} />
                     </span>
                     <span className={`a${r.value < 0 ? " neg" : ""}`}>
                       {r.value < 0 ? "−" : ""}
@@ -2412,103 +2376,9 @@ function CostCharts({
 
         {/* 3 · the margin, the fabric and the sizes */}
         <div className="cg-col cg-c">
-          {/* 4 · MARGIN VS TARGET — red under the floor, amber to the target, green past it. */}
-          <div className="cg-card cg-glass">
-            <div className="cg-cap">
-              <h4>Margin vs target</h4>
-              {zone ? <span className={`cg-tag ${zone}`}>{ZONE_WORD[zone]}</span> : <span>no margin yet</span>}
-            </div>
-            <div className="cg-track" aria-hidden>
-              <i className="cg-gloss" style={{ width: `${gaugeAt(FLOOR_PCT)}%`, backgroundColor: "#e88a82" }} />
-              <i className="cg-gloss" style={{ width: `${gaugeAt(MARGIN_TARGET_PCT) - gaugeAt(FLOOR_PCT)}%`, backgroundColor: "#efbd4f" }} />
-              <i className="cg-gloss" style={{ width: `${100 - gaugeAt(MARGIN_TARGET_PCT)}%`, backgroundColor: "#4fb377" }} />
-            </div>
-            <div className="cg-pin">
-              {eff != null ? (
-                <span className="m" style={{ left: `${gaugeAt(eff)}%` }}>
-                  <b>{eff.toFixed(1)}%</b>
-                </span>
-              ) : null}
-            </div>
-            <div className="cg-ax">
-              <span style={{ left: 0 }}>0%</span>
-              <span style={{ left: `${gaugeAt(FLOOR_PCT)}%`, transform: "translateX(-100%)", paddingRight: 3 }}>floor {FLOOR_PCT}</span>
-              <span style={{ left: `${gaugeAt(MARGIN_TARGET_PCT)}%`, paddingLeft: 3 }}>target {MARGIN_TARGET_PCT}</span>
-              <span style={{ right: 0 }}>{GAUGE_MAX}%</span>
-            </div>
-            {eff != null ? (
-              <p className="cg-msg">
-                {short == null ? (
-                  <>
-                    Clears the target by <b>{(eff - MARGIN_TARGET_PCT).toFixed(1)} pts</b>.
-                  </>
-                ) : (
-                  <>
-                    Needs <b>{SYM} {money(short)}</b> more per {model.unitWord} to reach {MARGIN_TARGET_PCT}%.
-                  </>
-                )}
-              </p>
-            ) : null}
-            {/* The one line "This quotation" carried that nothing else on the sheet does. */}
-            {target != null && target > 0 ? (
-              <p className="cg-msg">
-                Quoted <b>{fob == null ? "—" : `${ccy} ${fx(fob, 2)}`.trim()}</b> vs buyer target <b>{`${ccy} ${fx(target, 2)}`.trim()}</b>
-                {gap != null && Math.abs(gap) >= 0.005 ? <span className={`cg-tag ${gap > 0 ? "warn" : "good"}`}>{fx(Math.abs(gap), 2)} {gap > 0 ? "over" : "under"}</span> : null}
-              </p>
-            ) : null}
-          </div>
-          {/* 6 · FABRIC RATE — what a kilo is made of; hover a colour for its amount. */}
-          <div className="cg-card cg-glass">
-            <div className="cg-cap">
-              <h4>Fabric rate</h4>
-              <span>{SYM} per kg</span>
-            </div>
-            <div className="cg-fab">
-              {model.fabrics.length ? null : <p className="cg-empty">No fabric on this costing yet.</p>}
-              {model.fabrics.map((f) => {
-                const fin = f.finishing + f.special;
-                const sub = f.yarn + f.knitting + f.dyeing + fin;
-                const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
-                const segs = (
-                  [
-                    ["Yarn", f.yarn, "var(--cs-fabric)"],
-                    ["Knitting", f.knitting, "var(--cs-cmt)"],
-                    ["Dyeing", f.dyeing, "var(--cs-over)"],
-                    [f.special ? "Finishing + special" : "Finishing", fin, "var(--cs-trims)"],
-                    [f.lossPct ? `Loss ${f.lossPct}%` : "Loss", loss, "#b8c3cd"],
-                  ] as const
-                ).filter(([, v]) => v > 0);
-                const tot = segs.reduce((t, [, v]) => t + v, 0) || 1;
-                return (
-                  <div key={f.key || f.name}>
-                    <div className="top">
-                      <span>{f.name}</span>
-                      <span>{SYM} {money(f.price)}</span>
-                    </div>
-                    {f.direct || !segs.length ? (
-                      <div className="keys">Direct rate (bought-in)</div>
-                    ) : (
-                      <>
-                        <div className="st">
-                          {segs.map(([l, v, c]) => (
-                            <i key={l} className="cg-gloss" title={`${l} · ${SYM} ${money(v)} · ${((v / tot) * 100).toFixed(0)}%`} style={{ flex: v, backgroundColor: c }} />
-                          ))}
-                        </div>
-                        <div className="keys">
-                          {segs.map(([l, v, c]) => (
-                            <span key={l}>
-                              <i style={{ background: c }} />
-                              {l} <b>{money(v)}</b>
-                            </span>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          {/* NO MARGIN VS TARGET, NO FABRIC RATE (client 2026-10-17): both cards are gone.
+              The margin is the ring's centre and each size's tag below; a kilo's make-up is
+              the Fabric tab's own working line (Yarn + Processes … + loss = ₹/kg). */}
           {/* 5 · COST BY SIZE — a row IS the size switch, so the sheet follows the click. */}
           {model.sizes.length > 1 ? (
             <div className="cg-card cg-glass">
@@ -2709,7 +2579,9 @@ const CSS = `
 .cs-sheet .rail { display:flex; flex-direction:column; gap:10px; position:sticky; top:8px; }
 .cs-sheet .rail .photo { min-height:0; }
 .cs-sheet .rail .photo a { display:block; width:100%; }
-.cs-sheet .rail .photo img { width:100%; aspect-ratio:4/3; height:auto; object-fit:cover; max-height:none; }
+/* CONTAIN, NEVER COVER (user 2026-10-17, screenshot 3622: an uploaded picture was cropped
+   to a 4:3 box). The whole sketch or photo shows, scaled to fit the box. */
+.cs-sheet .rail .photo img { width:100%; height:auto; max-height:240px; object-fit:contain; }
 @media (max-width:900px){
   .cs-sheet .fabblk { grid-template-columns:minmax(0,1fr); }
   .cs-sheet .rail { order:-1; position:static; flex-direction:row; align-items:stretch; }
@@ -2795,17 +2667,17 @@ const CSS = `
 
 /* 2 · build-up */
 .cs-sheet .cg-wf { display:grid; gap:1px; font-size:12.5px; }
-.cs-sheet .cg-row { display:grid; grid-template-columns:132px minmax(0,1fr) 58px 42px; align-items:center; gap:8px; height:24px; padding:0 6px; border-radius:7px;
+.cs-sheet .cg-row { display:grid; grid-template-columns:150px minmax(0,1fr) 64px 44px; align-items:center; gap:8px; height:24px; padding:0 6px; border-radius:7px;
   border:0; background:transparent; text-align:left; cursor:pointer; transition:background-color .15s, opacity .2s; }
 @media (max-width:560px){ .cs-sheet .cg-row { grid-template-columns:100px minmax(0,1fr) 56px; } .cs-sheet .cg-row .p { display:none; } }
 .cs-sheet .cg-row:hover, .cs-sheet .cg-row.on { background:var(--glass-strong); }
 .cs-sheet .cg-row .l { display:flex; gap:6px; align-items:center; min-width:0; font-weight:500; }
 .cs-sheet .cg-row .l span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cs-sheet .cg-row .sw { width:8px; height:8px; border-radius:2px; flex:none; }
-.cs-sheet .cg-row .tr { position:relative; height:12px; border-radius:4px; background:rgba(15,27,38,.045); }
+.cs-sheet .cg-row .tr { position:relative; height:14px; border-radius:4px; background:rgba(15,27,38,.045); }
 .cs-sheet .cg-row .b { position:absolute; top:0; bottom:0; border-radius:4px; transition:left .45s cubic-bezier(.22,.8,.3,1), width .45s cubic-bezier(.22,.8,.3,1); }
-.cs-sheet .cg-row .a { text-align:right; font-weight:600; } .cs-sheet .cg-row .a.neg { color:var(--cs-bad); }
-.cs-sheet .cg-row .p { text-align:right; color:var(--cs-muted); font-size:11px; }
+.cs-sheet .cg-row .a { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; } .cs-sheet .cg-row .a.neg { color:var(--cs-bad); }
+.cs-sheet .cg-row .p { text-align:right; color:var(--cs-muted); font-size:11px; font-variant-numeric:tabular-nums; }
 .cs-sheet .cg-row.tot { cursor:default; border-top:1px solid rgba(15,27,38,.08); border-radius:0; margin-top:2px; height:27px; }
 .cs-sheet .cg-row.tot .l, .cs-sheet .cg-row.tot .a { font-weight:800; }
 .cs-sheet .cg-row.final .a { font-size:13.5px; color:var(--cs-brand-ink); }
@@ -2955,12 +2827,15 @@ const CSS = `
    sheet's borderless paper cell read as an empty, unfinished column (same day). */
 .cs-sheet .blk.cons .scroll td:has(> input.cs-ed) { padding:3px 6px; }
 .cs-sheet .blk.cons .scroll td > input.cs-ed { width:100%; border-color:revert-layer !important; border-radius:revert-layer !important; background:revert-layer !important; box-shadow:revert-layer !important; }
-.cs-sheet .detrow { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
-/* The fields keep their one row (user 2026-10-17, screenshot 3611: Currency had wrapped
-   under SMP Number once the photo joined the tab); the photo follows them, and drops
-   under them only when the pane is too narrow for both. */
-.cs-sheet .detrow > :first-child { flex:0 1 auto; }
-.cs-sheet .detrow > .rail { flex:0 0 230px; }
+/* GRID WITH A DEFINITE TRACK, NOT A CONTENT-SIZED FLEX ITEM (user 2026-10-17, screenshot
+   3622: Currency "updating continuously", jumping between the first and second row). The
+   fields sit in a FieldRow, which is a size container (@container/section) and so has no
+   width of its own: as a flex:0 1 auto item the column took its width from whatever
+   else was in it — the facts line, a picker's chosen text — and the field row wrapped or
+   unwrapped as that changed. Same trap as .fhead below. The track is DETAILS_W's 67rem,
+   shrinking when the pane is narrower; the photo follows it, and goes under at 900px. */
+.cs-sheet .detrow { display:grid; grid-template-columns:minmax(0,67rem) 230px; gap:16px; align-items:start; }
+@media (max-width:900px){ .cs-sheet .detrow { grid-template-columns:minmax(0,1fr); } }
 .cs-sheet .fabrow { display:grid; grid-template-columns:minmax(0,1fr) 230px; gap:12px; align-items:start; }
 @media (max-width:900px){ .cs-sheet .fabrow { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:900px){ .cs-sheet .tpanel .fabblk { grid-template-columns:minmax(0,1fr); } }
@@ -3057,6 +2932,7 @@ const CSS = `
    and Terms sit side by side, the Quoted FOB column beside them — ~350 + 570 + 250px. A
    narrow pane wraps Terms under Price build rather than squeezing either. */
 .cs-sheet .qtables { display:flex; flex-direction:row; flex-wrap:wrap; gap:12px; align-items:flex-start; min-width:0; }
+.cs-sheet .qcol { display:flex; flex-direction:column; gap:12px; min-width:0; max-width:100%; }
 .cs-sheet .qt { border:1px solid var(--cs-rule); border-radius:8px; overflow:hidden; width:fit-content; max-width:100%; background:#fff; }
 @media (max-width:700px){ .cs-sheet .qt { overflow-x:auto; } }
 .cs-sheet .qt table { border-collapse:collapse; width:auto; font-size:12.5px; font-variant-numeric:tabular-nums; }
@@ -3207,7 +3083,12 @@ const CSS = `
 .cs-sheet .neg table td { padding:1px 4px; }
 .cs-sheet .neg input.cs-ed { height:24px !important; }
 .cs-sheet .tpanel { display:flex; flex-direction:column; gap:12px; }
-.cs-sheet .tpanel section[aria-label="Garment cost"] { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:12px; align-items:start; }
+.cs-sheet .tpanel section[aria-label="Garment cost"] { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr); gap:12px; align-items:start; }
+/* OVERHEADS LEFT, GARMENT COST RIGHT (user 2026-10-17, screenshot 3624). The charges are
+   what the operator types; the cost build is the read-only answer they feed. Moved by
+   order, not in the markup, so the printout keeps its Garment cost first. Garment cost
+   holds no field, so Tab order is unaffected. */
+.cs-sheet .tpanel section[aria-label="Garment cost"] > details:nth-of-type(2) { order:-1; }
 @media (max-width:900px){ .cs-sheet .tpanel section[aria-label="Garment cost"] { grid-template-columns:1fr; } }
 @media print {
   .cs-sheet { border:0; border-radius:0; }
@@ -3310,7 +3191,6 @@ const CSS = `
 .cs-sheet .tri th.c-tick { width:56px; text-align:center; white-space:normal; }
 .cs-sheet .tri td.c { text-align:center; }
 .cs-sheet .tri th.c-qty { width:64px; white-space:normal; }
-.cs-sheet .tri th.c-stage { width:96px; }
 .cs-sheet .tri th.c-piece { width:120px; }
 .cs-sheet .tri tr.ready td { padding-top:2px; padding-bottom:2px; }
 .cs-sheet .tri tr.ready :is(input, select) { height:28px !important; width:100%; min-width:0; }

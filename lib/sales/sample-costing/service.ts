@@ -5,7 +5,7 @@ import { sortBySize } from "@/lib/masters/size-order";
 import { withCreators } from "@/lib/created-by";
 import type { Currency } from "@/lib/masters/types";
 import type { Deactivatable } from "@/lib/masters/inactive";
-import type { CmtStage } from "@/lib/masters/process-types";
+import type { CmtStage } from "@/lib/masters/cmt-process-types";
 import { quoteKey } from "./calc";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
@@ -26,9 +26,10 @@ import { coverOf, isImageFile } from "@/lib/orders/amendments/style-gallery";
  */
 
 export type PickerRow = { id: string; code: string | null; name: string } & Deactivatable;
-/** A Process-master row with a garment kind (0691) — plus, since 0734, the CMT
- *  stage the costing narrows its operation picker by, and the standard rate it
- *  pre-fills a blank line's rate from. */
+/** A garment charge the costing can pick: an Embellishment from the Process
+ *  master (0691), or — since 0735 — a CMT operation from its own CMT Process
+ *  master, carrying the stage the costing narrows its operation picker by. Both
+ *  carry the standard rate a blank line's rate is pre-filled from. */
 export type GarmentProcessRow = PickerRow & { garment_kind: "cmt" | "embellishment"; cmt_stage: CmtStage | null; standard_rate: number | null };
 
 /** A style line of a sample enquiry, as the header offers it. */
@@ -163,32 +164,6 @@ async function itemsOfClasses(codes: string[]): Promise<(PickerRow & { category_
   const { data, error } = await s.from("items").select("id, code, name, is_active, category_id").in("item_class_id", ids).order("name");
   if (error) throw new Error(`Could not load ${codes.join("/")} items: ${error.message}`);
   return (data ?? []) as (PickerRow & { category_id: string | null })[];
-}
-
-/**
- * The trims picker: SEW + PACK items named WITHOUT their category (user 2026-10-17:
- * "only show the item name, hide the category name"). An accessory's stored name is
- * composed "CATEGORY ‹sep› answers" (material-master-screen), so "CARTON BOX / MASTER
- * CARTON" offers "MASTER CARTON". Only a leading copy of the item's OWN category is cut,
- * with whatever separator follows it; a name that does not start with it is left whole,
- * and a name that is nothing but the category keeps it rather than going blank.
- */
-async function trimItems(): Promise<(PickerRow & { category_id: string | null })[]> {
-  const ids = await classIds(["SEW", "PACK"]);
-  if (!ids.length) return [];
-  const s = await createClient();
-  const { data, error } = await s.from("items").select("id, code, name, is_active, category_id, category:categories(name)").in("item_class_id", ids).order("name");
-  if (error) throw new Error(`Could not load SEW/PACK items: ${error.message}`);
-  type Row = PickerRow & { category_id: string | null; category: { name: string | null } | { name: string | null }[] | null };
-  return ((data ?? []) as unknown as Row[])
-    .map(({ category, ...r }) => {
-      const cat = (Array.isArray(category) ? category[0] : category)?.name?.trim().toUpperCase() ?? "";
-      const name = r.name ?? "";
-      if (!cat || !name.toUpperCase().startsWith(cat)) return r;
-      const rest = name.slice(cat.length).replace(/^\s*[/\-|,:>›·]+\s*/, "");
-      return rest && rest !== name.slice(cat.length) ? { ...r, name: rest } : r;
-    })
-    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 }
 
 /** 0726: a structure's composition, embedded through its one FK. */
@@ -374,21 +349,36 @@ async function getProcesses(): Promise<PickerRow[]> {
 
 async function getGarmentProcesses(): Promise<GarmentProcessRow[]> {
   const s = await createClient();
-  const { data, error } = await s
-    .from("processes")
-    .select("id, name, inactive, garment_kind, cmt_stage, standard_rate")
-    .not("garment_kind", "is", null)
-    .order("name");
-  if (error) throw new Error(`Could not load garment processes: ${error.message}`);
-  return ((data ?? []) as { id: string; name: string; inactive: boolean | null; garment_kind: "cmt" | "embellishment"; cmt_stage: CmtStage | null; standard_rate: number | string | null }[]).map((p) => ({
-    id: p.id,
-    code: null,
-    name: p.name,
-    inactive: p.inactive,
-    garment_kind: p.garment_kind,
-    cmt_stage: p.cmt_stage,
-    standard_rate: p.standard_rate == null ? null : Number(p.standard_rate),
-  }));
+  // Two masters since 0735: Embellishments on the Process master, CMT operations
+  // on the CMT Process master. One list for the pickers, told apart by kind.
+  const [emb, cmt] = await Promise.all([
+    s.from("processes").select("id, name, inactive, garment_kind, standard_rate").eq("garment_kind", "embellishment").order("name"),
+    s.from("cmt_processes").select("id, name, inactive, cmt_stage, standard_rate").order("name"),
+  ]);
+  if (emb.error) throw new Error(`Could not load embellishment processes: ${emb.error.message}`);
+  if (cmt.error) throw new Error(`Could not load CMT processes: ${cmt.error.message}`);
+  type Row = { id: string; name: string; inactive: boolean | null; standard_rate: number | string | null };
+  const rate = (v: number | string | null) => (v == null ? null : Number(v));
+  return [
+    ...((cmt.data ?? []) as (Row & { cmt_stage: CmtStage })[]).map((p) => ({
+      id: p.id,
+      code: null,
+      name: p.name,
+      inactive: p.inactive,
+      garment_kind: "cmt" as const,
+      cmt_stage: p.cmt_stage,
+      standard_rate: rate(p.standard_rate),
+    })),
+    ...((emb.data ?? []) as Row[]).map((p) => ({
+      id: p.id,
+      code: null,
+      name: p.name,
+      inactive: p.inactive,
+      garment_kind: "embellishment" as const,
+      cmt_stage: null,
+      standard_rate: rate(p.standard_rate),
+    })),
+  ];
 }
 
 async function getComponents(): Promise<PickerRow[]> {
@@ -419,7 +409,9 @@ export async function getSampleCostingFormData(): Promise<SampleCostingFormData>
     getProcesses(),
     getGarmentProcesses(),
     getComponents(),
-    trimItems(),
+    // Full stored name, category included (user 2026-10-17 reversed the same day's
+    // "hide the category name": "previously the trims listed with category name, restore it").
+    itemsOfClasses(["SEW", "PACK"]),
     listCurrencies(),
     getCostingMemory(),
     getQuoteRates(),
@@ -598,7 +590,7 @@ type RecordDb = Record<string, unknown> & {
         piece_name: string;
         coordinate_id: string | null;
         cmt_direct: boolean | null;
-        lines: { sno: number; kind: "cmt" | "embellishment"; process_id: string | null; process_name: string | null; rate: Num }[] | null;
+        lines: { sno: number; kind: "cmt" | "embellishment"; process_id: string | null; cmt_process_id: string | null; process_name: string | null; rate: Num }[] | null;
       })[]
     | null;
   fabrics:
@@ -637,7 +629,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     .select(
       "id, code, version, status, is_draft, parent_cost_sheet_id, decision_remark, opportunity_id, style_id, costing_date, " +
         "currency_code, exchange_rate, margin_pct, garment_waste_pct, overhead_pct, discount_pct, ship_mode, freight_per_pc, insurance_per_pc, buyer_target_price, commission_pct, notes, extra_charges, " +
-        "pieces:sample_costing_pieces(*, lines:sample_costing_piece_processes(sno, kind, process_id, process_name, rate)), " +
+        "pieces:sample_costing_pieces(*, lines:sample_costing_piece_processes(sno, kind, process_id, cmt_process_id, process_name, rate)), " +
         "fabrics:sample_costing_fabrics(*, processes:sample_costing_fabric_processes(sno, process_id, process_name, rate), " +
         "yarns:sample_costing_fabric_yarns(sno, item_id, yarn_name, mix_pct, rate)), " +
         "weights:sample_costing_component_weights(*, group:size_groups!size_group_id(size_group_name)), trims:sample_costing_trims(*), " +
@@ -661,7 +653,9 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     lines: bySno(p.lines).map((l, i) => ({
       key: `${p.id}-l${i}`,
       kind: l.kind,
-      process_id: l.process_id,
+      // A CMT line's operation is on the CMT Process master (0735); the draft
+      // keeps one `process_id` for both kinds, and the save trigger routes it back.
+      process_id: l.kind === "cmt" ? l.cmt_process_id : l.process_id,
       process_name: l.process_name ?? "",
       rate: str(l.rate),
     })),
@@ -726,9 +720,29 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     value: x.value == null ? "" : String(x.value),
     sign: x.sign === "deduct" ? "deduct" : "add",
   }));
-  const quotes = Object.fromEntries(
-    (r.quotes ?? []).map((q) => [quoteKey(q.piece_id, q.size_name ?? q.group?.size_group_name?.trim() ?? null), str(q.quoted_price)]),
-  );
+  /* ONE QUOTE PER PIECE (client 2026-10-17: sizes live in the Fabric tab only). A sheet
+     saved with a quote per size is read as the AVERAGE of that piece's quotes, and when
+     they differed the note says what was converted, so a reopened revision shows where
+     its price came from. Every sheet live on the day carried one quote per piece. */
+  const byPiece = new Map<string, { label: string; price: number }[]>();
+  for (const q of r.quotes ?? []) {
+    const price = q.quoted_price == null ? null : Number(q.quoted_price);
+    if (price == null || !Number.isFinite(price)) continue;
+    const label = q.size_name ?? q.group?.size_group_name?.trim() ?? "All sizes";
+    byPiece.set(q.piece_id, [...(byPiece.get(q.piece_id) ?? []), { label, price }]);
+  }
+  const quotes: Record<string, string> = {};
+  const converted: string[] = [];
+  for (const [pieceId, qs] of byPiece) {
+    const avg = Math.round((qs.reduce((t, q) => t + q.price, 0) / qs.length) * 10000) / 10000;
+    quotes[quoteKey(pieceId, null)] = String(avg);
+    if (new Set(qs.map((q) => q.price)).size > 1) {
+      converted.push(`${qs.map((q) => `${q.label} ${q.price.toFixed(2)}`).join(" · ")} → ${avg.toFixed(2)}`);
+    }
+  }
+  const legacyNote = converted.length ? `Converted from legacy size-wise quote: ${converted.join("; ")}` : "";
+  const saved = g("notes");
+  const notes = legacyNote && !saved.includes(legacyNote) ? [saved, legacyNote].filter(Boolean).join(" · ") : saved;
 
   return {
     id: r.id,
@@ -754,7 +768,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
         insurance_per_pc: gnum("insurance_per_pc"),
         buyer_target_price: gnum("buyer_target_price"),
         commission_pct: gnum("commission_pct"),
-        notes: g("notes"),
+        notes,
       },
       pieces,
       fabrics,

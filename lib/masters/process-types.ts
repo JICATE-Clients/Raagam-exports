@@ -64,39 +64,17 @@ export interface ProcessFabricStage {
   /** Is this process the stage's MANDATORY entry step? */
   is_base: boolean;
 }
-/** What kind of GARMENT process this is (0691) — sorts the Sample Costing
- *  pickers: CMT operations (Cutting, Stitching, Checking, Ironing, Packing …)
- *  versus Embellishments (Print, Embroidery, Wash, Sequin …). Optional: a
- *  process with no kind is simply in neither picker. */
-export const GARMENT_KINDS = ["cmt", "embellishment"] as const;
+/** What kind of GARMENT process this is (0691) — an Embellishment (Print,
+ *  Embroidery, Wash, Sequin …) is offered in Sample Costing's Embellishment
+ *  picker. Optional: a process with no kind is in no costing picker.
+ *  CMT OPERATIONS LEFT THIS MASTER IN 0735 (user 2026-10-17, "CMT is separate
+ *  process not inside process"): they live on Master Data ▸ Materials ▸ CMT
+ *  Processes (`cmt-process-types.ts`), so 'cmt' is no longer a kind here. */
+export const GARMENT_KINDS = ["embellishment"] as const;
 export type GarmentKind = (typeof GARMENT_KINDS)[number];
 export const GARMENT_KIND_LABEL: Record<GarmentKind, string> = {
-  cmt: "CMT operation",
   embellishment: "Embellishment",
 };
-
-/** Which CMT production STAGE an operation belongs to (0734) — the five stages
- *  of the CMT Process Master spec. Sample Costing ▸ CMT operations narrows its
- *  operation picker to the stage picked beside it. Meaningful only while the
- *  garment kind is `cmt`; the order here is the floor's order, and the order
- *  every stage list is drawn in. */
-export const CMT_STAGES = ["cutting", "sewing", "checking", "ironing", "packing"] as const;
-export type CmtStage = (typeof CMT_STAGES)[number];
-export const CMT_STAGE_LABEL: Record<CmtStage, string> = {
-  cutting: "Cutting",
-  sewing: "Sewing",
-  checking: "Checking",
-  ironing: "Ironing",
-  packing: "Packing",
-};
-
-/** THE ONE RULE for a CMT operation's stage, read by the form (Save gate and
- *  the field's hold) and by both actions — a CMT operation with no stage would
- *  sit in no stage's list on the costing, reachable by nobody. */
-export function cmtStageProblem(input: { garment_kind?: GarmentKind | null; cmt_stage?: CmtStage | null }): string | null {
-  if (input.garment_kind === "cmt" && !input.cmt_stage) return "Pick the production stage this CMT operation belongs to.";
-  return null;
-}
 
 /** Which cloth LAYOUT a process is for (0696) — the same two words as
  *  `order_fabric_bom_lines.layout_type` / `manual_entries.width_form`. Absent
@@ -114,8 +92,6 @@ export interface Process {
   name: string;
   /** See `GARMENT_KINDS`. Meaningful only while `for_garments` is ticked. */
   garment_kind: GarmentKind | null;
-  /** See `CMT_STAGES` (0734). Set only on a CMT operation. */
-  cmt_stage: CmtStage | null;
   /** ₹ per piece (0734), optional — pre-fills a costing line's blank rate. */
   standard_rate: number | null;
   /** See `PROCESS_LAYOUTS`. Meaningful only while `for_fabric` is ticked. */
@@ -281,9 +257,8 @@ export const processInput = z.object({
      (a `lib/data-io` import) must leave the stored kind alone, exactly as the
      system kind flags below are left alone. Only the Process form names it. */
   garment_kind: z.enum(GARMENT_KINDS).nullable().optional(),
-  /* `.optional()` for the same reason: an import that names neither leaves the
-     stored stage and rate alone (0734). */
-  cmt_stage: z.enum(CMT_STAGES).nullable().optional(),
+  /* `.optional()` for the same reason: an import that does not name it leaves
+     the stored rate alone (0734). */
   standard_rate: z.coerce.number().nonnegative("Standard rate cannot be negative").nullable().optional(),
   /* `.optional()` for the same reason as `garment_kind`: an import that does not
      name the key leaves the stored layout alone. */
