@@ -745,6 +745,17 @@ export function SampleCostingScreen({
     if (perms.canCreate) openNew();
   });
 
+  /* THE COSTING'S OWN REVISE (0725, spec v8 §1 / §8.1: "Revise" for the
+     quotation, "Revision" only for Sample Info and the plans). The server copies
+     the stored sheet into version + 1 and supersedes this one — Under Progress
+     stays Under Progress (each counter-offer is a Rev), Approved re-opens the
+     negotiation, Rejected comes back as a new Draft. Then the new Rev opens.
+     DECLARED ABOVE `openById`, which calls it: the React Compiler refuses a
+     function read before its declaration (react-hooks/immutability). */
+  function reviseNow(id: string) {
+    startOpening(() => router.push(raiseReviseHref(id)));
+  }
+
   function openById(id: string, opts?: { revise?: boolean }) {
     start(async () => {
       const res = await loadSampleCosting(id);
@@ -900,15 +911,6 @@ export function SampleCostingScreen({
    */
   function revise() {
     if (editId) reviseNow(editId);
-  }
-
-  /* THE COSTING'S OWN REVISE (0725, spec v8 §1 / §8.1: "Revise" for the
-     quotation, "Revision" only for Sample Info and the plans). The server copies
-     the stored sheet into version + 1 and supersedes this one — Under Progress
-     stays Under Progress (each counter-offer is a Rev), Approved re-opens the
-     negotiation, Rejected comes back as a new Draft. Then the new Rev opens. */
-  function reviseNow(id: string) {
-    startOpening(() => router.push(raiseReviseHref(id)));
   }
 
   // ---- validity ---------------------------------------------------------------
