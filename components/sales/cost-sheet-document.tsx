@@ -3,7 +3,7 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
-import { ChartPie, ChevronRight, Layers, Plus, Printer, Tag, TrendingUp } from "lucide-react";
+import { ChevronRight, Plus, Printer } from "lucide-react";
 import { AddCharge, CellPick, Ed, EdText, RemoveX, type EditOptions } from "@/components/sales/cost-sheet-editors";
 import { Button } from "@/components/ui/button";
 import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
@@ -228,6 +228,15 @@ export function CostSheetDocument({
         ) : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {error ? <span className="text-sm text-danger">{error}</span> : null}
+          {/* THE REVISION PAIR FIRST, THEN THE OUTPUTS (user 2026-10-17): the revision
+              picker and Revise are one job and sit together; Print and Download close the
+              row, Download last as the filled step. */}
+          {trail ? (
+            <>
+              {trail}
+              {locked ? null : <span aria-hidden className="mx-1 h-6 w-px bg-border" />}
+            </>
+          ) : null}
           {locked ? (
             null
           ) : (
@@ -254,7 +263,6 @@ export function CostSheetDocument({
               />
             </>
           )}
-          {trail}
         </div>
       </div>
       ) : null}
@@ -304,6 +312,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
 
   // The waterfall: costs climb to Net, extras to Gross cost, margin and charges to the Price.
   type WfRow = { label: string; value: number; tone: keyof typeof TONE_VAR | null };
+  const steps = fobSteps(s, model.exchangeRate);
   const wf: WfRow[] = ([
     { label: "Fabric", value: s.fabric, tone: "fabric" },
     { label: "CMT", value: s.cmt, tone: "cmt" },
@@ -317,7 +326,15 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
     { label: `Margin ${model.terms.margin}%`, value: s.margin, tone: "margin" },
     ...(s.discount ? [{ label: "Discount", value: -s.discount, tone: "margin" as const }] : []),
     ...(s.priceAdj ? [{ label: "Price charges", value: s.priceAdj, tone: "margin" as const }] : []),
-    { label: "Price", value: s.price, tone: null },
+    /* THE BUILD-UP ENDS ON THE HEADER'S PRICE (user 2026-10-17, screenshot 3586: the
+       header read ₹427.50 and this chart ₹441.37). `s.price` is the CALCULATED rupee price
+       — gross cost + the target margin, freight left out — while the header shows the
+       FOB (quoted, else calculated) × the rate, freight and insurance in. Both are right;
+       the chart just stopped two steps short. `fobSteps` supplies those two steps. */
+    { label: steps.fi || steps.qa ? "Calculated price" : "Price", value: s.price, tone: null },
+    ...(steps.fi ? [{ label: "Freight & insurance", value: steps.fi, tone: "over" as const }] : []),
+    ...(steps.qa ? [{ label: "Quoted vs calculated", value: steps.qa, tone: "margin" as const }] : []),
+    ...(steps.fi || steps.qa ? [{ label: `${s.quoted != null ? "Quoted" : "Calculated"} FOB`, value: steps.fob, tone: null }] : []),
   ] as WfRow[]).filter((r) => r.tone === null || r.value !== 0);
   let run = 0;
   const wfRows = wf.map((r) => {
@@ -1675,42 +1692,49 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
           </div>
   );
 
-  const specGrid = (
-          <div className="hdr-grid">
-            <dl className="spec">
-              {(
-                [
-                  ["Buyer / importer", model.customer],
-                  ["SMP Number", model.enquiryNo],
-                  ["Style", model.style && model.description && model.style !== model.description ? model.style : null],
-                  ["Fabric", model.fabricFacts.structure],
-                  ["GSM / counts", model.fabricFacts.gsm],
-                  ["Composition", model.fabricFacts.composition],
-                ] as const
-              ).map(([k, v]) => (v ? (
-                <div key={k}>
-                  <dt>{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ) : null))}
-            </dl>
-            <dl className="spec">
-              {(
-                [
-                  ["Date", model.date ? fmtDate(model.date) : null],
-                  ["Currency", ccy ? `${ccy}${model.exchangeRate ? ` @ ₹ ${fx(model.exchangeRate)}` : ""}` : null],
-                  ["Size group", model.sizeGroup],
-                  ["Pieces", model.pieceCount > 1 ? String(model.pieceCount) : null],
-                ] as const
-              ).map(([k, v]) => (v ? (
-                <div key={k}>
-                  <dt>{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ) : null))}
-            </dl>
+  /* IN THE EDITOR the fields above already ask SMP Number, Style, Date and Currency, and the line
+     under them names the buyer, season and unit — so the grid drops those rows there
+     (user 2026-10-17, screenshot 3587: a second DATE box under Costing Date, beside an
+     empty one). A column left with no rows is not drawn: an empty bordered box reads as
+     a field nobody filled. The report and print keep every row. */
+  const inEditor = !!edit?.details;
+  const specCol = (rows: readonly (readonly [string, string | null, boolean?])[]) => {
+    const shown = rows.filter(([, v, editorHas]) => v && !(inEditor && editorHas));
+    return shown.length ? (
+      <dl className="spec">
+        {shown.map(([k, v]) => (
+          <div key={k}>
+            <dt>{k}</dt>
+            <dd>{v}</dd>
           </div>
-  );
+        ))}
+      </dl>
+    ) : null;
+  };
+  const specLeft = specCol([
+    ["Buyer / importer", model.customer, true],
+    ["SMP Number", model.enquiryNo, true],
+    ["Style", model.style && model.description && model.style !== model.description ? model.style : null, true],
+    ["Fabric", model.fabricFacts.structure],
+    ["GSM / counts", model.fabricFacts.gsm],
+    ["Composition", model.fabricFacts.composition],
+  ]);
+  const specRight = specCol([
+    ["Date", model.date ? fmtDate(model.date) : null, true],
+    ["Season", model.season, true],
+    ["Ship", model.shipMode],
+    ["Unit", model.isSet ? "SET" : null, true],
+    ["Currency", ccy ? `${ccy}${model.exchangeRate ? ` @ ₹ ${fx(model.exchangeRate)}` : ""}` : null, true],
+    ["Size group", model.sizeGroup],
+    ["Pieces", model.pieceCount > 1 ? String(model.pieceCount) : null],
+  ]);
+  const specGrid =
+    specLeft || specRight ? (
+      <div className="hdr-grid">
+        {specLeft}
+        {specRight}
+      </div>
+    ) : null;
 
   /* `tone` — the cost colour a tab's card is topped in (Option B, 2026-10-16), the
      same `--cs-*` family as the section bars inside it. A tab that is not one cost
@@ -1766,61 +1790,53 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
                 {model.company.unit ? <span>{model.company.unit}</span> : null}
               </div>
             </div>
+            {/* ON SCREEN the "Sample Cost Sheet" word and the style · buyer line are gone
+                (user 2026-10-17, screenshot 3585: "the titles no need") — the tab bar
+                already says what this is, and Details carries the style and the buyer.
+                PAPER keeps both: a printout has no tab bar to name the document. */}
             <div className="lh-title">
-              <span className="lh-kind">Sample Cost Sheet</span>
+              {view === "report" ? <span className="lh-kind">Sample Cost Sheet</span> : null}
               <span className="lh-no">
                 {model.costingNo ?? "—"} · {model.revision}
               </span>
               <span className={`pill ${stateClass}`}>{model.statusLabel}</span>
             </div>
-            <h2 className="lh-style">
-              {model.description || model.style || "—"}
-              {model.customer ? <span> · {model.customer}</span> : null}
-            </h2>
+            {view === "report" ? (
+              <h2 className="lh-style">
+                {model.description || model.style || "—"}
+                {model.customer ? <span> · {model.customer}</span> : null}
+              </h2>
+            ) : null}
           </div>
+          {/* COMPACT (user 2026-10-17): five stacked lines became three — the margin chip
+              shares the label's line, and rupees + rate share one muted line whose ₹ and
+              @ say what the dropped words "Rupees" / "Exchange rate" did. */}
           <div className="lh-card">
-            <span className="k">
-              {s.quoted != null ? "Quoted" : "Calculated"} FOB / {model.unitWord}
-              {model.sizes.length > 1 ? ` · ${s.label}` : ""}
+            <span className="top">
+              <span className="k">
+                {s.quoted != null ? "Quoted" : "Calculated"} FOB / {model.unitWord}
+                {model.sizes.length > 1 ? ` · ${s.label}` : ""}
+              </span>
+              {eff != null ? (
+                <span className="marg" data-low={eff < 0 || undefined}>
+                  Margin {eff.toFixed(1)}%
+                </span>
+              ) : null}
             </span>
             <span className="big">{fobShown == null ? "—" : `${ccy} ${fx(fobShown, 2)}`.trim()}</span>
-            {fobInr != null && ccy && ccy !== "INR" ? (
+            {ccy && ccy !== "INR" && (fobInr != null || model.exchangeRate != null) ? (
               <span className="row">
-                Rupees <b>₹ {fx(fobInr)}</b>
-              </span>
-            ) : null}
-            {model.exchangeRate != null && ccy && ccy !== "INR" ? (
-              <span className="row">
-                Exchange rate <b>{fx(model.exchangeRate)}</b>
-              </span>
-            ) : null}
-            {eff != null ? (
-              <span className="marg" data-low={eff < 0 || undefined}>
-                Margin {eff.toFixed(1)}%
+                {fobInr != null ? <b>₹ {fx(fobInr)}</b> : null}
+                {fobInr != null && model.exchangeRate != null ? <span aria-hidden> · </span> : null}
+                {model.exchangeRate != null ? <span title="Exchange rate">@ {fx(model.exchangeRate)}</span> : null}
               </span>
             ) : null}
           </div>
         </div>
-        <dl className="lh-facts">
-          {(
-            [
-              ["SMP No", model.enquiryNo],
-              ["Style", model.style && model.description && model.style !== model.description ? model.style : null],
-              ["Season", model.season],
-              ["Fabric", [model.fabricFacts.structure, model.fabricFacts.gsm].filter(Boolean).join(" · ") || null],
-              ["Unit", model.isSet ? "SET" : null],
-              ["Ship", model.shipMode],
-              ["Date", model.date ? fmtDate(model.date) : null],
-            ] as const
-          ).map(([k, v]) =>
-            v ? (
-              <div key={k}>
-                <dt>{k}</dt>
-                <dd>{v}</dd>
-              </div>
-            ) : null,
-          )}
-        </dl>
+        {/* The facts strip that sat here (SMP No · Style · Season · Fabric · Ship · Date)
+            repeated the Details grid word for word (user 2026-10-17, screenshot 3583:
+            "remove this one this duplicated"). Season, Ship and Unit lived only in the
+            strip, so they moved into the Details grid rather than being lost. */}
       </header>
 
       {/* THE APPROVAL LINE (client 2026-10-09: "where is the approver") — how this
@@ -1832,13 +1848,20 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
         {/* 1 · HEADER — the RAAGAM COSTING FORMAT's top block (client 2026-10-09). Only the
             lines this costing has a value for print: an empty "Buying Agent" row is chrome. */}
         {/* THE LETTERHEAD NOW CARRIES WHAT THIS BAR DID (Option B, 2026-10-16): number,
-            status, style, season, ship and date are all above, on screen and in print, so
-            the bar that repeated them is gone. What is left is the one line the letterhead
+            status and style are above; season, ship and date are in the Details grid
+            (2026-10-17), so the bar that repeated them is gone. What is left is the one line the letterhead
             does not say — who approved it — and the full spec grid when printing. */}
-        {model.approval.tone !== "muted" || view === "report" ? (
+        {/* A muted line (Draft, Superseded) only repeats the status pill — dropped. So
+            does the warn line's headline: "Under Progress — with the buyer since …" is the
+            pill again (user 2026-10-17, "remove"); only its below-floor margin warning,
+            when there is one, says something the pill does not. */}
+        {(model.approval.tone !== "muted" && (model.approval.tone !== "warn" || model.approval.detail)) || view === "report" ? (
           <section className="blk hdrblk" aria-label="Header">
-            {/* A muted line (Draft, Superseded) only repeats the status pill — dropped. */}
-            {model.approval.tone !== "muted" ? (
+            {model.approval.tone === "warn" && model.approval.detail ? (
+              <div className="apv" data-tone="warn">
+                <b>{model.approval.detail}</b>
+              </div>
+            ) : model.approval.tone !== "muted" && model.approval.tone !== "warn" ? (
               <div className="apv" data-tone={model.approval.tone}>
                 <b>{model.approval.text}</b>
                 {model.approval.detail ? <span>{model.approval.detail}</span> : null}
@@ -1902,7 +1925,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
               {/* CHARTS IS A TAB, NOT A VIEW (user 2026-10-15: "Charts is one of the tabs
                   after Revisions — remove Tabs and Charts from the top, Tabs is default"). */}
               {tab === 6 ? (
-                <CostCharts model={model} s={s} idx={idx} onSize={onSize} rows={wfRows} money={money} SYM={SYM} ccy={ccy} shownCode={cur ? cur.code : "INR"} />
+                <CostCharts model={model} s={s} idx={idx} onSize={onSize} rows={wfRows} money={money} SYM={SYM} ccy={ccy} />
               ) : null}
             </div>
           </>
@@ -1933,13 +1956,27 @@ function Sheet({ model, s, edit, view, cur, show, onSize }: { model: CostSheetMo
  * This REPLACES the 2026-10-15 receipt (design E, "light aa plain aa … neat aa").
  * The later instruction governs; restoring the receipt needs a new decision.
  *
- * FOUR TILES, THEN THE PRICE STORY, THEN THE DRILL-DOWNS:
- *  - Price · Gross cost · Margin (zoned against MARGIN_TARGET_PCT / FLOOR_PCT) ·
- *    the biggest cost group;
- *  - How the price is built (the waterfall as floating bars) · Where the price
- *    goes (THE APPROVAL'S `GlassRing`, not a copy) · Margin vs target, and Cost
- *    by size — a size row is a button that switches the whole sheet's size;
- *  - Fabric rate per kg · Price across revisions (only once there IS a history).
+ * THE TILES, THEN THREE STACKED COLUMNS (user 2026-10-17, screenshot 3584: the
+ * old rows left a blank pane under the short cards — "plan it based like hr
+ * profile tab alignment"; then "the chart went bottom … i need it in top"). Each
+ * column is a stack of its own, as on `person-profile-view.tsx`, so no column
+ * waits on another's height and nothing sits over empty space — but the CHARTS
+ * lead, and the stacks are balanced to one height so the tab fits a screen:
+ *  - How the price is built (the waterfall as floating bars);
+ *  - Where the price goes (THE APPROVAL'S `GlassRing`, not a copy) · Price
+ *    across revisions (see `revInC` for when it moves);
+ *  - Margin vs target (with quoted vs the buyer's target) · Fabric rate per kg ·
+ *    Cost by size — a size row is a button that switches the whole sheet's size.
+ *
+ * NO TILE ROW, NO "THIS QUOTATION" CARD (user 2026-10-17, screenshot 3586: "fit
+ * the screen … remove duplicated or least used section"). Every tile repeated a
+ * chart — FOB and gross cost are build-up rows, margin is the ring's centre AND
+ * the gauge, biggest cost is the ring's largest slice — and the quotation card
+ * repeated the header (costing no, rev, status) and the Revisions tab. Its one
+ * unique line, quoted vs buyer target, moved under the margin gauge.
+ * Fabric rate and Price across revisions ALWAYS draw, saying why when they have
+ * nothing to plot: a card that hid itself left the column a different shape on
+ * every costing, and read as missing rather than empty.
  *
  * ONE HIGHLIGHT, THREE PLACES. Hover previews a cost group in the build-up, the
  * ring and the legend at once; a click pins it (again, or Escape, lets go) —
@@ -1959,10 +1996,30 @@ type Zone = "good" | "warn" | "bad";
 const zoneOf = (e: number | null): Zone | null =>
   e == null ? null : e >= MARGIN_TARGET_PCT ? "good" : e >= FLOOR_PCT ? "warn" : "bad";
 const ZONE_WORD: Record<Zone, string> = { good: "On target", warn: "Below target", bad: "Below floor" };
-const ZONE_INK: Record<Zone, string> = { good: "var(--cs-good)", warn: "var(--cs-warn)", bad: "var(--cs-bad)" };
 const ZONE_TEXT: Record<Zone, string> = { good: "text-success", warn: "text-warning", bad: "text-danger" };
 /** The gauge's right edge — a margin past 30% pins to it. */
 const GAUGE_MAX = 30;
+
+/** The two steps from the calculated rupee price to the FOB the header shows, both exact
+ *  from the engine's own figures (`calc` = (price + freight + insurance) / rate):
+ *  fi = freight & insurance = calc × rate − price; qa = the quote's difference =
+ *  (quoted − calc) × rate. A step under half a paisa is no step. */
+function fobSteps(x: SizeFigures, rate: number | null): { fi: number; qa: number; fob: number } {
+  const ok = rate != null && rate > 0 && x.calc != null;
+  const fi = ok ? x.calc! * rate! - x.price : 0;
+  const qa = ok && x.quoted != null ? (x.quoted - x.calc!) * rate! : 0;
+  const z = (v: number) => (Math.abs(v) < 0.005 ? 0 : v);
+  return { fi: z(fi), qa: z(qa), fob: x.price + z(fi) + z(qa) };
+}
+
+/** `priceParts`, carried on to the header's FOB: freight joins Overheads and the quote's
+ *  difference lands on Margin — so the ring, its legend and the size bars share one total. */
+function shownParts(x: SizeFigures, rate: number | null) {
+  const { fi, qa } = fobSteps(x, rate);
+  return priceParts(x).map((p) =>
+    p.tone === "over" ? { ...p, value: p.value + fi } : p.tone === "margin" ? { ...p, value: Math.max(p.value + qa, 0) } : p,
+  );
+}
 
 type ChartRow = { label: string; value: number; tone: Tone | null; total: boolean; start: number; width: number };
 
@@ -1975,7 +2032,6 @@ function CostCharts({
   money,
   SYM,
   ccy,
-  shownCode,
 }: {
   model: CostSheetModel;
   s: SizeFigures;
@@ -1985,8 +2041,6 @@ function CostCharts({
   money: (v: number | null | undefined) => string;
   SYM: string;
   ccy: string;
-  /** The currency the sheet is shown in — the price tile adds the quoted currency only when it differs. */
-  shownCode: string;
 }) {
   const [hover, setHover] = useState<Tone | null>(null);
   const [pinned, setPinned] = useState<Tone | null>(null);
@@ -1996,11 +2050,13 @@ function CostCharts({
 
   const eff = s.effectiveMarginPct;
   const zone = zoneOf(eff);
-  const parts = priceParts(s);
+  const rate = model.exchangeRate;
+  const parts = shownParts(s, rate);
+  /** What every % on the tab is a share of — the FOB the header shows. */
+  const base = fobSteps(s, rate).fob;
   const partTotal = parts.reduce((t, p) => t + p.value, 0) || 1;
   const pctOf = (v: number) => (v / partTotal) * 100;
   const maxShare = Math.max(1, ...parts.map((p) => pctOf(p.value)));
-  const biggest = parts.filter((p) => p.tone !== "margin").sort((a, b) => b.value - a.value)[0];
   const marginPart = parts.find((p) => p.tone === "margin");
   const scaleMax = Math.max(1, ...rows.map((r) => r.start + r.width));
   const focus = active ? parts.find((p) => p.tone === active) : null;
@@ -2011,10 +2067,21 @@ function CostCharts({
     : { label: "Margin", value: eff == null ? "—" : `${eff.toFixed(1)}%`, sub: marginPart ? `${SYM} ${money(marginPart.value)}` : "", tone: zone ? ZONE_TEXT[zone] : "" };
 
   const gaugeAt = (v: number) => (Math.min(Math.max(v, 0), GAUGE_MAX) / GAUGE_MAX) * 100;
-  const short = eff != null && eff < MARGIN_TARGET_PCT ? (MARGIN_TARGET_PCT / 100) * s.price - (marginPart?.value ?? 0) : null;
+  // Margin is a share of NET cost (the engine's `net × margin%`), so the rupees short are too.
+  const short = eff != null && eff < MARGIN_TARGET_PCT ? ((MARGIN_TARGET_PCT - eff) / 100) * s.net : null;
 
-  const sizeMax = Math.max(1, ...model.sizes.map((x) => x.price));
+  /* WHICH STACK TAKES THE REVISION LINE (user 2026-10-17, screenshot 3590). The ring is
+     a short card and Fabric rate grows a band per fabric, so a fixed home always leaves
+     one column ending early: at the bottom of the third stack it left blank space under
+     the ring beside three fabrics. It goes under the ring, and drops to the third stack
+     only when that stack is the short one — one fabric and no size breakdown. */
+  const revInC = model.fabrics.length <= 1 && model.sizes.length <= 1;
+  const sizeMax = Math.max(1, ...model.sizes.map((x) => fobSteps(x, rate).fob));
   const hist = model.history;
+
+  /* Quoted vs the buyer's target — the margin card's last line. */
+  const target = model.targetPrice;
+  const gap = fob != null && target != null && target > 0 ? fob - target : null;
 
   return (
     <section
@@ -2027,147 +2094,118 @@ function CostCharts({
         }
       }}
     >
-      {/* 1 · THE FOUR TILES */}
-      <div className="cg-kpis">
-        <div className="cg-kpi cg-glass" style={{ ["--c" as string]: "var(--cs-brand)" }}>
-          <span className="dot"><Tag aria-hidden /></span>
-          <span className="k">
-            {s.quoted != null ? "Quoted" : "Calculated"} FOB{model.sizes.length > 1 ? ` · ${s.label}` : ""}
-          </span>
-          <span className="v">
-            {SYM} {money(s.price)}
-            {fob != null && ccy && shownCode !== ccy ? <small>{`${ccy} ${fx(fob, 2)}`}</small> : null}
-          </span>
-        </div>
-        <div className="cg-kpi cg-glass" style={{ ["--c" as string]: "var(--cs-over)" }}>
-          <span className="dot"><Layers aria-hidden /></span>
-          <span className="k">Gross cost</span>
-          <span className="v">
-            {SYM} {money(s.grossCost)}
-            <small>net {money(s.net)}</small>
-          </span>
-        </div>
-        <div className="cg-kpi cg-glass" style={{ ["--c" as string]: zone ? ZONE_INK[zone] : "var(--cs-muted)" }}>
-          <span className="dot"><TrendingUp aria-hidden /></span>
-          <span className="k">Margin</span>
-          <span className="v">
-            <span style={{ color: zone ? ZONE_INK[zone] : undefined }}>{eff == null ? "—" : `${eff.toFixed(1)}%`}</span>
-            {zone ? <span className={`cg-tag ${zone}`}>{ZONE_WORD[zone]}</span> : null}
-          </span>
-        </div>
-        <div className="cg-kpi cg-glass" style={{ ["--c" as string]: biggest ? TONE_VAR[biggest.tone] : "var(--cs-muted)" }}>
-          <span className="dot"><ChartPie aria-hidden /></span>
-          <span className="k">Biggest cost</span>
-          <span className="v">
-            {biggest?.label ?? "—"}
-            {biggest && s.price ? <small>{((biggest.value / s.price) * 100).toFixed(1)}% of price</small> : null}
-          </span>
-        </div>
-      </div>
-
-      <div className="cg-main">
-        {/* 2 · HOW THE PRICE IS BUILT — each cost climbs from where the last one ended. */}
-        <div className="cg-card cg-glass">
-          <div className="cg-cap">
-            <h4>How the price is built</h4>
-            <span>
-              {SYM} / {model.unitWord}
-              {model.sizes.length > 1 ? ` · ${s.label}` : ""}
-            </span>
-          </div>
-          <div className={`cg-wf${active ? " hot" : ""}`}>
-            {rows.map((r, i) => {
-              const last = i === rows.length - 1;
-              const fill = r.tone ? TONE_VAR[r.tone] : last ? "var(--cs-brand)" : "#3a5068";
-              const bar = (
-                <>
-                  <span className="l">
-                    {r.tone ? <i className="sw" style={{ background: fill }} /> : null}
-                    <span>{r.label}</span>
-                  </span>
-                  <span className="tr">
-                    <span className="b cg-gloss" style={{ left: `${(r.start / scaleMax) * 100}%`, width: `${Math.max((r.width / scaleMax) * 100, 0.6)}%`, backgroundColor: fill }} />
-                  </span>
-                  <span className={`a${r.value < 0 ? " neg" : ""}`}>
-                    {r.value < 0 ? "−" : ""}
-                    {money(r.width)}
-                  </span>
-                  <span className="p">{s.price ? `${((r.width / s.price) * 100).toFixed(1)}%` : ""}</span>
-                </>
-              );
-              return r.tone ? (
-                // button-shape: exempt -- a waterfall bar you can point at, not a pick-one switch
-                <button
-                  key={r.label}
-                  type="button"
-                  className={`cg-row${lift(r.tone)}`}
-                  aria-pressed={pinned === r.tone}
-                  onPointerEnter={(e) => e.pointerType === "mouse" && setHover(r.tone)}
-                  onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
-                  onFocus={() => setHover(r.tone)}
-                  onBlur={() => setHover(null)}
-                  onClick={() => pick(r.tone as Tone)}
-                >
-                  {bar}
-                </button>
-              ) : (
-                <div key={r.label} className={`cg-row tot${last ? " final" : ""}`}>
-                  {bar}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 3 · WHERE THE PRICE GOES — the order budget approval's ring. */}
-        <div className="cg-card cg-glass">
-          <div className="cg-cap">
-            <h4>Where the price goes</h4>
-            <span>share of the price</span>
-          </div>
-          <div className="cg-mix">
-            <GlassRing
-              className="size-[8.75rem]"
-              discClassName="size-[5rem] [&>span:nth-child(2)]:text-[1.15rem]"
-              slices={parts.map((p) => ({ key: p.tone, amount: p.value, color: TONE_VAR[p.tone] }))}
-              base={partTotal}
-              active={active}
-              onHover={(k) => setHover(k as Tone | null)}
-              onPick={(k) => pick(k as Tone)}
-              centre={centre}
-            />
-            <div className="cg-lg">
-              {parts.map((p) => {
-                const pct = pctOf(p.value);
-                return (
-                  // button-shape: exempt -- a legend row linked to its ring slice, not a pick-one switch
-                  <button
-                    key={p.tone}
-                    type="button"
-                    className={lift(p.tone).trim()}
-                    style={{ ["--c" as string]: TONE_VAR[p.tone] }}
-                    aria-pressed={pinned === p.tone}
-                    onPointerEnter={(e) => e.pointerType === "mouse" && setHover(p.tone)}
-                    onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
-                    onFocus={() => setHover(p.tone)}
-                    onBlur={() => setHover(null)}
-                    onClick={() => pick(p.tone)}
-                    title={`${p.label}: ${SYM} ${money(p.value)}`}
-                  >
-                    <i className="dot" />
-                    <span className="nm">{p.label}</span>
-                    <span className="sh" aria-hidden>
-                      <i style={{ width: `${(pct / maxShare) * 100}%` }} />
+      <div className="cg-cols">
+        {/* 1 · the price story */}
+        <div className="cg-col cg-a">
+          {/* 2 · HOW THE PRICE IS BUILT — each cost climbs from where the last one ended. */}
+          <div className="cg-card cg-glass">
+            <div className="cg-cap">
+              <h4>How the price is built</h4>
+              <span>
+                {SYM} / {model.unitWord}
+                {model.sizes.length > 1 ? ` · ${s.label}` : ""}
+              </span>
+            </div>
+            <div className={`cg-wf${active ? " hot" : ""}`}>
+              {rows.map((r, i) => {
+                const last = i === rows.length - 1;
+                const fill = r.tone ? TONE_VAR[r.tone] : last ? "var(--cs-brand)" : "#3a5068";
+                const bar = (
+                  <>
+                    <span className="l">
+                      {r.tone ? <i className="sw" style={{ background: fill }} /> : null}
+                      <span>{r.label}</span>
                     </span>
-                    <b>{pct.toFixed(1)}%</b>
+                    <span className="tr">
+                      <span className="b cg-gloss" style={{ left: `${(r.start / scaleMax) * 100}%`, width: `${Math.max((r.width / scaleMax) * 100, 0.6)}%`, backgroundColor: fill }} />
+                    </span>
+                    <span className={`a${r.value < 0 ? " neg" : ""}`}>
+                      {r.value < 0 ? "−" : ""}
+                      {money(r.width)}
+                    </span>
+                    <span className="p">{base ? `${((r.width / base) * 100).toFixed(1)}%` : ""}</span>
+                  </>
+                );
+                return r.tone ? (
+                  // button-shape: exempt -- a waterfall bar you can point at, not a pick-one switch
+                  <button
+                    key={r.label}
+                    type="button"
+                    className={`cg-row${lift(r.tone)}`}
+                    aria-pressed={pinned === r.tone}
+                    onPointerEnter={(e) => e.pointerType === "mouse" && setHover(r.tone)}
+                    onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+                    onFocus={() => setHover(r.tone)}
+                    onBlur={() => setHover(null)}
+                    onClick={() => pick(r.tone as Tone)}
+                  >
+                    {bar}
                   </button>
+                ) : (
+                  <div key={r.label} className={`cg-row tot${last ? " final" : ""}`}>
+                    {bar}
+                  </div>
                 );
               })}
             </div>
           </div>
         </div>
 
-        <div className="cg-col">
+        {/* 2 · where it goes, and how it moved */}
+        <div className="cg-col cg-b">
+          {/* 3 · WHERE THE PRICE GOES — the order budget approval's ring. */}
+          <div className="cg-card cg-glass">
+            <div className="cg-cap">
+              <h4>Where the price goes</h4>
+              <span>share of the price</span>
+            </div>
+            <div className="cg-mix">
+              <GlassRing
+                className="size-[8.75rem]"
+                discClassName="size-[5rem] [&>span:nth-child(2)]:text-[1.15rem]"
+                slices={parts.map((p) => ({ key: p.tone, amount: p.value, color: TONE_VAR[p.tone] }))}
+                base={partTotal}
+                active={active}
+                onHover={(k) => setHover(k as Tone | null)}
+                onPick={(k) => pick(k as Tone)}
+                centre={centre}
+              />
+              <div className="cg-lg">
+                {parts.map((p) => {
+                  const pct = pctOf(p.value);
+                  return (
+                    // button-shape: exempt -- a legend row linked to its ring slice, not a pick-one switch
+                    <button
+                      key={p.tone}
+                      type="button"
+                      className={lift(p.tone).trim()}
+                      style={{ ["--c" as string]: TONE_VAR[p.tone] }}
+                      aria-pressed={pinned === p.tone}
+                      onPointerEnter={(e) => e.pointerType === "mouse" && setHover(p.tone)}
+                      onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+                      onFocus={() => setHover(p.tone)}
+                      onBlur={() => setHover(null)}
+                      onClick={() => pick(p.tone)}
+                      title={`${p.label}: ${SYM} ${money(p.value)}`}
+                    >
+                      <i className="dot" />
+                      <span className="nm">{p.label}</span>
+                      <span className="sh" aria-hidden>
+                        <i style={{ width: `${(pct / maxShare) * 100}%` }} />
+                      </span>
+                      <b>{pct.toFixed(1)}%</b>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          {/* 7 · PRICE ACROSS REVISIONS — under the ring, unless the third stack is the short one. */}
+          {revInC ? null : <RevisionTrend hist={hist} ccy={ccy} />}
+        </div>
+
+        {/* 3 · the margin, the fabric and the sizes */}
+        <div className="cg-col cg-c">
           {/* 4 · MARGIN VS TARGET — red under the floor, amber to the target, green past it. */}
           <div className="cg-card cg-glass">
             <div className="cg-cap">
@@ -2205,8 +2243,66 @@ function CostCharts({
                 )}
               </p>
             ) : null}
+            {/* The one line "This quotation" carried that nothing else on the sheet does. */}
+            {target != null && target > 0 ? (
+              <p className="cg-msg">
+                Quoted <b>{fob == null ? "—" : `${ccy} ${fx(fob, 2)}`.trim()}</b> vs buyer target <b>{`${ccy} ${fx(target, 2)}`.trim()}</b>
+                {gap != null && Math.abs(gap) >= 0.005 ? <span className={`cg-tag ${gap > 0 ? "warn" : "good"}`}>{fx(Math.abs(gap), 2)} {gap > 0 ? "over" : "under"}</span> : null}
+              </p>
+            ) : null}
           </div>
-
+          {/* 6 · FABRIC RATE — what a kilo is made of; hover a colour for its amount. */}
+          <div className="cg-card cg-glass">
+            <div className="cg-cap">
+              <h4>Fabric rate</h4>
+              <span>{SYM} per kg</span>
+            </div>
+            <div className="cg-fab">
+              {model.fabrics.length ? null : <p className="cg-empty">No fabric on this costing yet.</p>}
+              {model.fabrics.map((f) => {
+                const fin = f.finishing + f.special;
+                const sub = f.yarn + f.knitting + f.dyeing + fin;
+                const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
+                const segs = (
+                  [
+                    ["Yarn", f.yarn, "var(--cs-fabric)"],
+                    ["Knitting", f.knitting, "var(--cs-cmt)"],
+                    ["Dyeing", f.dyeing, "var(--cs-over)"],
+                    [f.special ? "Finishing + special" : "Finishing", fin, "var(--cs-trims)"],
+                    [f.lossPct ? `Loss ${f.lossPct}%` : "Loss", loss, "#b8c3cd"],
+                  ] as const
+                ).filter(([, v]) => v > 0);
+                const tot = segs.reduce((t, [, v]) => t + v, 0) || 1;
+                return (
+                  <div key={f.key || f.name}>
+                    <div className="top">
+                      <span>{f.name}</span>
+                      <span>{SYM} {money(f.price)}</span>
+                    </div>
+                    {f.direct || !segs.length ? (
+                      <div className="keys">Direct rate (bought-in)</div>
+                    ) : (
+                      <>
+                        <div className="st">
+                          {segs.map(([l, v, c]) => (
+                            <i key={l} className="cg-gloss" title={`${l} · ${SYM} ${money(v)} · ${((v / tot) * 100).toFixed(0)}%`} style={{ flex: v, backgroundColor: c }} />
+                          ))}
+                        </div>
+                        <div className="keys">
+                          {segs.map(([l, v, c]) => (
+                            <span key={l}>
+                              <i style={{ background: c }} />
+                              {l} <b>{money(v)}</b>
+                            </span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           {/* 5 · COST BY SIZE — a row IS the size switch, so the sheet follows the click. */}
           {model.sizes.length > 1 ? (
             <div className="cg-card cg-glass">
@@ -2225,11 +2321,11 @@ function CostCharts({
                       aria-pressed={i === idx}
                       disabled={!onSize}
                       onClick={() => onSize?.(i)}
-                      title={`Size ${x.label}: ${SYM} ${money(x.price)}`}
+                      title={`Size ${x.label}: ${SYM} ${money(fobSteps(x, rate).fob)}`}
                     >
                       <span className="n">{x.label}</span>
-                      <span className="st" style={{ width: `${(x.price / sizeMax) * 100}%` }}>
-                        {priceParts(x).map((p) => (
+                      <span className="st" style={{ width: `${(fobSteps(x, rate).fob / sizeMax) * 100}%` }}>
+                        {shownParts(x, rate).map((p) => (
                           <i key={p.tone} className="cg-gloss" style={{ flex: Math.max(p.value, 0), backgroundColor: TONE_VAR[p.tone] }} />
                         ))}
                       </span>
@@ -2242,69 +2338,9 @@ function CostCharts({
               </div>
             </div>
           ) : null}
+          {revInC ? <RevisionTrend hist={hist} ccy={ccy} /> : null}
         </div>
       </div>
-
-      {model.fabrics.length || hist.length > 1 ? (
-        <div className={`cg-low${model.fabrics.length && hist.length > 1 ? "" : " one"}`}>
-          {/* 6 · FABRIC RATE — what a kilo is made of; hover a colour for its amount. */}
-          {model.fabrics.length ? (
-            <div className="cg-card cg-glass">
-              <div className="cg-cap">
-                <h4>Fabric rate</h4>
-                <span>{SYM} per kg</span>
-              </div>
-              <div className="cg-fab">
-                {model.fabrics.map((f) => {
-                  const fin = f.finishing + f.special;
-                  const sub = f.yarn + f.knitting + f.dyeing + fin;
-                  const loss = f.price != null && !f.direct ? Math.max(f.price - sub, 0) : 0;
-                  const segs = (
-                    [
-                      ["Yarn", f.yarn, "var(--cs-fabric)"],
-                      ["Knitting", f.knitting, "var(--cs-cmt)"],
-                      ["Dyeing", f.dyeing, "var(--cs-over)"],
-                      [f.special ? "Finishing + special" : "Finishing", fin, "var(--cs-trims)"],
-                      [f.lossPct ? `Loss ${f.lossPct}%` : "Loss", loss, "#b8c3cd"],
-                    ] as const
-                  ).filter(([, v]) => v > 0);
-                  const tot = segs.reduce((t, [, v]) => t + v, 0) || 1;
-                  return (
-                    <div key={f.key || f.name}>
-                      <div className="top">
-                        <span>{f.name}</span>
-                        <span>{SYM} {money(f.price)}</span>
-                      </div>
-                      {f.direct || !segs.length ? (
-                        <div className="keys">Direct rate (bought-in)</div>
-                      ) : (
-                        <>
-                          <div className="st">
-                            {segs.map(([l, v, c]) => (
-                              <i key={l} className="cg-gloss" title={`${l} · ${SYM} ${money(v)} · ${((v / tot) * 100).toFixed(0)}%`} style={{ flex: v, backgroundColor: c }} />
-                            ))}
-                          </div>
-                          <div className="keys">
-                            {segs.map(([l, v, c]) => (
-                              <span key={l}>
-                                <i style={{ background: c }} />
-                                {l} <b>{money(v)}</b>
-                              </span>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          {/* 7 · PRICE ACROSS REVISIONS — only once the costing has been revised. */}
-          {hist.length > 1 ? <RevisionTrend hist={hist} ccy={ccy} /> : null}
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -2312,7 +2348,19 @@ function CostCharts({
 /** The quoted price per revision as a line, each point's margin printed under it in its zone colour. */
 function RevisionTrend({ hist, ccy }: { hist: CostSheetModel["history"]; ccy: string }) {
   const pts = hist.filter((h) => h.price != null) as (CostSheetModel["history"][number] & { price: number })[];
-  if (pts.length < 2) return null;
+  // Drawn even with nothing to plot (user 2026-10-17): a card that vanished read as missing.
+  // ONE LINE, NOT A BLOCK (user 2026-10-17): still drawn, but a first revision's card was
+  // a padded paragraph saying there was nothing to see — the tallest nothing on the tab.
+  if (pts.length < 2) {
+    return (
+      <div className="cg-card cg-glass cg-thin">
+        <div className="cg-cap">
+          <h4>Price across revisions</h4>
+          <span>{hist.length < 2 ? "first revision — nothing to compare yet" : "earlier revisions carry no price"}</span>
+        </div>
+      </div>
+    );
+  }
   const W = 320, H = 118, L = 34, R = 18, T = 18, B = 26;
   const prices = pts.map((p) => p.price);
   const pad = Math.max((Math.max(...prices) - Math.min(...prices)) * 0.25, 0.05);
@@ -2509,25 +2557,23 @@ const CSS = `
 .cs-sheet .cg-tag.good { background:var(--cs-good-tint); color:var(--cs-good); } .cs-sheet .cg-tag.warn { background:var(--cs-warn-tint); color:var(--cs-warn); }
 .cs-sheet .cg-tag.bad { background:var(--cs-bad-tint); color:var(--cs-bad); }
 
-/* 1 · tiles */
-.cs-sheet .cg-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
-@media (max-width:900px){ .cs-sheet .cg-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-.cs-sheet .cg-kpi { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:10px; align-items:center; padding:9px 12px; }
-.cs-sheet .cg-kpi .dot { grid-row:span 2; width:30px; height:30px; border-radius:9px; display:grid; place-items:center; color:#fff;
-  background:linear-gradient(160deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c)); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 4px 10px -4px var(--c); }
-.cs-sheet .cg-kpi .dot svg { width:15px; height:15px; }
-.cs-sheet .cg-kpi .k { font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--cs-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.cs-sheet .cg-kpi .v { font-size:18px; font-weight:800; letter-spacing:-.02em; color:#13304a; display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; min-width:0; }
-.cs-sheet .cg-kpi .v small { font-size:11px; font-weight:600; color:var(--cs-muted); letter-spacing:0; }
-
 /* panels */
-.cs-sheet .cg-main { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1.2fr) minmax(0,.85fr); gap:10px; }
-.cs-sheet .cg-low { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; }
-.cs-sheet .cg-low.one { grid-template-columns:minmax(0,1fr); }
-@media (max-width:1080px){ .cs-sheet .cg-main { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .cs-sheet .cg-main > :first-child { grid-column:1 / -1; } }
-@media (max-width:700px){ .cs-sheet .cg-main, .cs-sheet .cg-low { grid-template-columns:minmax(0,1fr); } }
+/* THREE INDEPENDENT STACKS, THE HR PROFILE'S RULE (person-profile-view.tsx), CHARTS
+   ON TOP (user 2026-10-17: "the chart went bottom … i need it in top like plan …
+   fitting into the screen"). Each column is a stack of its own, top-aligned, and the
+   three are balanced to about one height — the build-up (~14 rows) against the ring +
+   the revision line against the quote + margin + fabric — so the tab reads in one
+   screen under the tiles. Narrower, the third stack goes full width under the two
+   charts; a phone reads them in order. */
+.cs-sheet .cg-cols { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1.2fr) minmax(0,.95fr); grid-template-areas:"a b c"; gap:10px; align-items:start; }
+.cs-sheet .cg-a { grid-area:a; } .cs-sheet .cg-b { grid-area:b; } .cs-sheet .cg-c { grid-area:c; }
+@media (max-width:1180px){ .cs-sheet .cg-cols { grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-template-areas:"a b" "c c"; } }
+@media (max-width:700px){ .cs-sheet .cg-cols { grid-template-columns:minmax(0,1fr); grid-template-areas:"a" "b" "c"; } }
 .cs-sheet .cg-card { padding:10px 12px 12px; min-width:0; display:grid; gap:8px; align-content:start; }
 .cs-sheet .cg-col { display:grid; gap:10px; align-content:start; min-width:0; }
+.cs-sheet .cg-card.cg-thin { padding:8px 12px; }
+.cs-sheet .cg-empty { margin:0; padding:14px 4px; text-align:center; font-size:12px; color:var(--cs-muted); }
+
 .cs-sheet .cg-cap { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
 .cs-sheet .cg-cap h4 { margin:0; font-size:12.5px; font-weight:700; color:#13304a; }
 .cs-sheet .cg-cap > span { font-size:11px; color:var(--cs-muted); }
@@ -2680,7 +2726,7 @@ const CSS = `
 .cs-sheet .tpanel { width:fit-content; max-width:100%; align-items:stretch; }
 .cs-sheet .tpanel details { width:auto; }
 /* Charts have no width of their own to shrink-wrap to, so the Charts tab takes the full width. */
-.cs-sheet .tpanel:has(> .dash) { width:auto; }
+.cs-sheet .tpanel:has(> .cg) { width:auto; }
 .cs-sheet .tpanel .tri > * { flex:1 1 auto; min-width:0; }
 /* Fabric tab: row 1 is consumption + the photo; row 2 (.fabblk) is the processing table alone, full width. */
 .cs-sheet .tpanel .fabblk { grid-template-columns:minmax(0,1fr); }
@@ -3043,16 +3089,19 @@ const CSS = `
 .cs-sheet .lh-no { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:16px; font-weight:600; color:var(--cs-ink); }
 .cs-sheet .lh-style { font-size:19px; font-weight:800; letter-spacing:-.01em; line-height:1.2; }
 .cs-sheet .lh-style span { color:var(--cs-muted); font-weight:600; font-size:15px; }
-.cs-sheet .lh-card { background:linear-gradient(160deg,#037bb8,#024f78); color:#fff; border-radius:12px; padding:12px 16px; min-width:200px; display:flex; flex-direction:column; justify-content:center; gap:3px; }
-.cs-sheet .lh-card .k { font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:#bfe0f2; font-weight:700; }
-.cs-sheet .lh-card .big { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:26px; font-weight:700; line-height:1.1; }
-.cs-sheet .lh-card .row { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:#d8ecf7; }
-.cs-sheet .lh-card .row b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; color:#fff; font-weight:600; }
-.cs-sheet .lh-card .marg { margin-top:4px; align-self:flex-start; font-size:12px; font-weight:700; color:#1d3b06; background:#c9ec8e; padding:2px 9px; border-radius:999px; }
-.cs-sheet .lh-card .marg[data-low] { color:#7a1a14; background:#fbd5d1; }
-.cs-sheet .lh-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px 18px; margin:0; padding:10px 18px; background:var(--cs-soft); }
-.cs-sheet .lh-facts dt { font-size:10.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--cs-muted); }
-.cs-sheet .lh-facts dd { margin:0; font-size:13.5px; font-weight:600; color:var(--cs-ink); }
+/* THE FOB CARD IS SETTLED, ITS TEXT IS BOLD (user 2026-10-17: "settle bg colour and the
+   text should be bold"). It was a saturated blue gradient carrying pale-blue text at
+   600–700 — the loudest block on the page, and its label and rupee line the hardest to
+   read. Now the sheet's own light brand tint, a thin brand edge, and dark brand ink at
+   700–800, so the price leads by weight rather than by a coloured slab. */
+.cs-sheet .lh-card { background:var(--cs-brand-tint); color:var(--cs-brand-ink); border:1px solid #b9dff2; border-radius:12px; padding:10px 14px; min-width:220px; align-self:start; display:flex; flex-direction:column; gap:2px; }
+.cs-sheet .lh-card .top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.cs-sheet .lh-card .k { font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--cs-brand-ink); font-weight:800; opacity:.8; }
+.cs-sheet .lh-card .big { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:24px; font-weight:800; line-height:1.15; color:var(--cs-brand-ink); }
+.cs-sheet .lh-card .row { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:12px; color:var(--cs-ink); font-weight:700; white-space:nowrap; }
+.cs-sheet .lh-card .row b { color:var(--cs-ink); font-weight:800; }
+.cs-sheet .lh-card .marg { flex:none; font-size:11.5px; font-weight:800; color:var(--cs-good); background:var(--cs-good-tint); border:1px solid #bfe3cc; padding:1px 8px; border-radius:999px; }
+.cs-sheet .lh-card .marg[data-low] { color:var(--cs-bad); background:var(--cs-bad-tint); border-color:#f2c6c0; }
 @media (max-width:640px) { .cs-sheet .lh-head { grid-template-columns:minmax(0,1fr); } .cs-sheet .lh-card { min-width:0; } }
 
 /* Option B's TABS: small cards on a pale band, each topped in its cost colour

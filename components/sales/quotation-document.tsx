@@ -82,6 +82,13 @@ export function QuotationDocument({
         ) : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {error ? <span className="text-sm text-danger">{error}</span> : null}
+          {/* Same order as the Cost Sheet (2026-10-17): the revision pair, then the outputs. */}
+          {trail ? (
+            <>
+              {trail}
+              {locked || model.blocked ? null : <span aria-hidden className="mx-1 h-6 w-px bg-border" />}
+            </>
+          ) : null}
           {locked ? (
             null
           ) : model.blocked ? null : (
@@ -97,7 +104,6 @@ export function QuotationDocument({
               </Button>
             </>
           )}
-          {trail}
         </div>
       </div>
 

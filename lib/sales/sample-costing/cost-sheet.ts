@@ -160,6 +160,9 @@ export type CostSheetModel = {
   history: RevisionHistoryRow[];
   /** How this costing was approved, and by whom. INTERNAL — the buyer's copy says only "Approved". */
   approval: ApprovalLine;
+  /** The quotation's own dates — when it went to the buyer and when they answered.
+   *  Drawn by the Charts tab's "This quotation" card. INTERNAL, like `approval`. */
+  quote: { submittedAt: string | null; decidedAt: string | null; decidedByName: string | null; remark: string | null };
 };
 
 const sizeLabel = (s: string | null) => s ?? "All sizes";
@@ -424,6 +427,12 @@ export function buildCostSheetModel(
         lowestMarginPct: summary.lowestMarginPct,
       },
     ),
+    quote: {
+      submittedAt: approvalFacts?.submittedAt ?? null,
+      decidedAt: approvalFacts?.decidedAt ?? approvalFacts?.approvedAt ?? null,
+      decidedByName: approvalFacts?.decidedByName ?? null,
+      remark: approvalFacts?.remark ?? record.decision_remark,
+    },
   };
 }
 

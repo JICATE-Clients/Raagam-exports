@@ -189,23 +189,26 @@ export function CostingReports({
           revision is its own saved costing, so choosing one opens THAT
           revision's report on the tab already open. */}
       {cost.history.length > 1 ? (
-        <Select value={cost.id} disabled={going} onChange={(e) => go(`/sales/sample-costing/${e.target.value}/reports?tab=${tab}`)} aria-label="Revision shown" className="w-56">
+        /* "(shown)" is gone (user 2026-10-17, "the rev look duplicated"): the closed
+           picker already says which revision is shown, and the open list marks it. */
+        <Select value={cost.id} disabled={going} onChange={(e) => go(`/sales/sample-costing/${e.target.value}/reports?tab=${tab}`)} aria-label="Revision shown" className="w-44">
           {cost.history.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.label}
+              {r.label.replace("Original (Rev 0)", "Rev 0")}
               {r.price != null ? ` · ${cost.currency ?? ""} ${r.price.toFixed(2)}` : ""}
-              {r.current ? "  (shown)" : ""}
             </option>
           ))}
         </Select>
       ) : null}
       {revise ? (
-        <Tooltip label={revise.reason ?? "Change fabric rate, CMT or margin right here and watch the report update"}>
+        /* The button says "Revise" alone — "Revise → Rev 2" beside "Rev 1 · USD 4.50" read
+           Rev twice (user 2026-10-17). The next number moves into the tooltip. */
+        <Tooltip label={revise.reason ?? `Make ${revise.nextLabel}: change fabric rate, CMT or margin right here and watch the report update`}>
           {/* A disabled button swallows the hover, so it lets the pointer through to
               the Tooltip's own wrapper — otherwise the reason it is greyed never shows. */}
           <Button variant="outline" size="md" className={revise.reason ? "pointer-events-none" : undefined} disabled={!!revise.reason || going} onClick={startRevising}>
             <GitBranchPlus className="h-4 w-4" />
-            {revise.reason ? "Revise" : `Revise → ${revise.nextLabel}`}
+            Revise
           </Button>
         </Tooltip>
       ) : null}
