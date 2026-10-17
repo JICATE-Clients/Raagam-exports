@@ -122,7 +122,7 @@ export function Segmented<T extends string>({
             <span
               aria-hidden
               className={cn(
-                "pointer-events-none absolute inset-0 rounded-control-inner transition-colors",
+                "pointer-events-none absolute inset-0 rounded-control transition-colors",
                 "peer-checked:bg-(--primary) peer-checked:shadow-sm",
                 "peer-focus-visible:ring-2 peer-focus-visible:ring-ring",
               )}
@@ -156,8 +156,11 @@ export function Segmented<T extends string>({
  *
  * - The track: 36px (32px inside a dense editor, like every field), a 1px
  *   border, `rounded-control` — the fixed 8px radius every Button takes too.
- * - A segment: the track's height less its 2px padding, nested at
- *   `rounded-control-inner`, icon + word + optional count.
+ * - A segment: the track's height less its 2px padding, at `rounded-control`
+ *   — THE BUTTON'S OWN 8px (user 2026-10-16, screenshot 3582: the lit
+ *   "Updated" did not match the button shape). It was `rounded-control-inner`
+ *   (6px), nested 2px inside the track; the lit word is read as a button, so
+ *   it takes a button's corner. Icon + word + optional count.
  * - The lit segment wears the PRIMARY BUTTON'S OWN MARKERS (`ty-btn-solid
  *   ty-btn-primary`), so it follows every colour preset, gradient or flat,
  *   exactly as the queue box has since 2026-09-22 — `bg-(--primary)` rather
@@ -173,7 +176,7 @@ export function Segmented<T extends string>({
 export const SEG_TRACK =
   "inline-flex h-9 @2xl/editor:h-8 w-fit max-w-full shrink-0 items-center gap-0.5 overflow-x-auto scrollbar-none rounded-control border border-border bg-surface p-0.5 text-xs font-medium";
 export const SEG_ITEM =
-  "inline-flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control-inner px-2.5 transition-colors [&_svg]:size-3.5 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
+  "inline-flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2.5 transition-colors [&_svg]:size-3.5 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 export const SEG_LIT =
   "ty-btn-solid ty-btn-primary bg-(--primary) hover:bg-(--primary-hover) font-semibold text-primary-foreground shadow-sm";
 export const SEG_IDLE = "text-muted-foreground hover:bg-surface-muted hover:text-foreground";

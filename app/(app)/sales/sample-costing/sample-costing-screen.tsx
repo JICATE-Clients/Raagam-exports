@@ -723,8 +723,26 @@ export function SampleCostingScreen({
     setPreview(nextCostingNo);
     seedAndOpen({ header: blankHeader(), pieces: [blankPiece("GARMENT", null)], fabrics: [], weights: [], trims: [], quotes: {}, extras: [] });
   }
+  /**
+   * NEW SAMPLE COSTING STARTS ON A SAMPLE (user 2026-10-17, screenshot 3587: "already
+   * we will fetch smp numbers why its again asking here so default fetch that"). The
+   * button used to open with SMP Number blank; it now takes the NEWEST saved sample
+   * that still has a style to cost — the one a merchandiser is about to cost — with
+   * its style when it has only one, exactly as "Start costing" on a row does. The
+   * picker stays live, so a different sample is one pick away.
+   */
+  function openNew() {
+    openAdd();
+    // `data.enquiries` is in entry order (oldest first), so the last eligible is the newest.
+    const pick = [...data.enquiries].reverse().find((e) => !e.all_costed && !e.is_draft);
+    if (!pick) return;
+    const only = data.styles.filter((st) => st.opportunity_id === pick.id && !st.costed);
+    setHeader((h) => ({ ...h, opportunity_id: pick.id, style_id: only.length === 1 ? only[0].id : null }));
+    if (only.length === 1) applyStyle(only[0]);
+    fillFromCustomer(pick.id);
+  }
   useCreateIntent(() => {
-    if (perms.canCreate) openAdd();
+    if (perms.canCreate) openNew();
   });
 
   function openById(id: string, opts?: { revise?: boolean }) {
@@ -1060,7 +1078,9 @@ export function SampleCostingScreen({
                   }}
                 />
               </Field>
-              <Field label="Style" required w="name" htmlFor={costingFieldId.style}>
+              {/* `term`, not `name` (user 2026-10-17, "compact the fields"): a style is a
+                  short code — 8547656D01 — and 288px left a wide empty box. */}
+              <Field label="Style" required w="term" htmlFor={costingFieldId.style}>
                 <RecordPicker
                   id={costingFieldId.style}
                   label="Style"
@@ -1093,6 +1113,18 @@ export function SampleCostingScreen({
                   }}
                 />
               </Field>
+              {/* CURRENCY BESIDE THE DATE (user 2026-10-17, screenshot 3589: "move the
+                  currency field also near to the costing date"). It was asked on the
+                  Quotation tab and echoed here as a read-only box; it is one of the
+                  questions a sheet answers before any rate is typed, so it joins the row
+                  and the Quotation tab no longer asks it. */}
+              <Field label="Currency" required w="range">
+                <CurrencyPicker label="Currency" compact currencies={data.currencies} value={header.currency_code} canCreate={false} canEdit={false} onChange={onCurrency} />
+              </Field>
+              {/* ONLY WHEN THERE IS ANOTHER REVISION TO OPEN (user 2026-10-17: "rev no
+                  need that blank field"). A new sheet showed an empty, dead box here; the
+                  header already reads "Rev 0". */}
+              {editId && revisions.length > 1 && !revisingFrom ? (
               <Field label="Revision" w="term" htmlFor="sc-rev">
                 <Select
                   id="sc-rev"
@@ -1116,6 +1148,7 @@ export function SampleCostingScreen({
                   ))}
                 </Select>
               </Field>
+              ) : null}
             </FieldRow>
           </div>
           {/* Inherited from Sample Entry — label · value, only what exists (precedent §2b). */}
@@ -1197,14 +1230,12 @@ export function SampleCostingScreen({
     </div>
   );
 
-  /* CURRENCY AND SHIP MODE — the Quotation tab's terms table edits the margin,
-     exchange rate, commission, discount, freight and insurance itself. */
+  /* SHIP MODE and the rate fetch — Currency moved to the Details row (2026-10-17); the
+     Quotation tab's terms table edits the margin, exchange rate, commission, discount,
+     freight and insurance itself. */
   const termsBar = (
     <div className="mb-3">
       <FieldRow gap="row" align="end">
-        <Field label="Currency" required w="range">
-          <CurrencyPicker label="Currency" compact currencies={data.currencies} value={header.currency_code} canCreate={false} canEdit={false} onChange={onCurrency} />
-        </Field>
         <Field label="Ship Mode" w="range" htmlFor="sc-ship">
           <Select id="sc-ship" value={header.ship_mode} onChange={(e) => setH({ ship_mode: e.target.value })}>
             <option value=""></option>
@@ -1641,7 +1672,7 @@ export function SampleCostingScreen({
       <PageHeader
         title="Costing"
         description="Cost a sample style — fabric, consumption, CMT, trims — quote the buyer, and record the buyer's answer."
-        actions={perms.canCreate ? <Button onClick={openAdd}>New Sample Costing</Button> : undefined}
+        actions={perms.canCreate ? <Button onClick={openNew}>New Sample Costing</Button> : undefined}
       />
       <FilterBar
         trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}

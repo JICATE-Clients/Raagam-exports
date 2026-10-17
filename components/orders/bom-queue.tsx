@@ -1,7 +1,7 @@
 "use client";
 
 import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
-import { StatusMark } from "@/components/ui/status-mark";
+import { StatusMark, type StatusMarkKind } from "@/components/ui/status-mark";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
 import { BadgeCheck, Check, Clock, Hourglass, Pencil } from "lucide-react";
@@ -248,6 +248,10 @@ const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
   progress: { text: "Under Progress", icon: Hourglass },
   approved: { text: "Approved", icon: BadgeCheck },
 };
+/** A card's icon on a four-word queue — one per tab word (components/ui/status-mark.tsx). */
+const QUICK_MARK: Record<QuickWord, StatusMarkKind> = { pending: "todo", updated: "done", draft: "todo", progress: "wait", approved: "done" };
+// status-tone: exempt -- maps a queue TAB word to its card icon's colour, not a status
+const QUICK_TONE: Record<QuickWord, StatusTone> = { pending: "danger", updated: "success", draft: "warning", progress: "info", approved: "success" };
 /* THE PRIMARY BUTTON'S OWN MARKERS, NOT JUST ITS TOKENS (user 2026-09-22,
    screenshot 145813 under Steel: "steel colour set aagi appo pending update
    draft um steel colour la button change aaganum"). `bg-primary` alone is the
@@ -959,7 +963,17 @@ export function BomQueue({
           </>
         )}
         // An ICON on the card, the word in its tooltip — the tab already says it (components/ui/status-mark.tsx).
-        pill={(t) => <StatusMark word={bomStatusText(t.status)} tone={queueTone(t.status)} />}
+        // ON A FOUR-WORD QUEUE THE ICON FOLLOWS THE TAB'S WORD, never the BOM's own
+        // (user 2026-10-16, screenshot 3581): there "Updated" means saved, NOT
+        // approved, and the ✔ it drew put a green tick on every Under Progress card.
+        pill={(t) => {
+          const w = isApproved ? queueWordOf(t) : null;
+          return w ? (
+            <StatusMark word={QUICK[w].text} mark={QUICK_MARK[w]} tone={QUICK_TONE[w]} />
+          ) : (
+            <StatusMark word={bomStatusText(t.status)} tone={queueTone(t.status)} />
+          );
+        }}
         stats={(t) => bomCardStats(t, stat(t))}
         /* THE QUEUE CARD (operator, 2026-09-18, reference screenshot) — see
            `queue` on `MobileCardList`. A tap opens the BOM straight away; no
