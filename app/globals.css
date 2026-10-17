@@ -568,6 +568,23 @@
   }
 }
 
+/* The pause after Enter flips a `Toggle`, drawn (lib/focus.ts `ENTER_TIMED`). The
+ * bar is the input's sibling and `--enter-ms` is set on their shared label. */
+input[data-enter-pending] ~ .enter-bar {
+  animation: enter-fill var(--enter-ms, 2000ms) linear forwards;
+}
+@keyframes enter-fill {
+  to {
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  input[data-enter-pending] ~ .enter-bar {
+    transform: scaleX(1);
+    animation: none;
+  }
+}
+
 @keyframes grow {
   from {
     transform: scaleY(0.001);
@@ -1846,14 +1863,11 @@ body {
   }
 }
 
-/* THE FOCUSED FIELD IS THE BLUE. `--ring` is already the brand blue, so this
-   only widens the halo so a curved field shows it — at 0.75rem radius a 1px
-   ring disappears into the corner. */
-[data-skin="raagam"] input:focus-visible,
-[data-skin="raagam"] select:focus-visible,
-[data-skin="raagam"] textarea:focus-visible {
-  box-shadow: 0 0 0 3px #d4ecf9;
-}
+/* NO BLUE HALO OUTSIDE A FOCUSED FIELD (user 2026-10-17, Order Info Customer:
+   "field box ku veliya intha blue colour therira mari" — fix it for all fields).
+   This used to widen a pale-blue halo (`0 0 0 3px #d4ecf9`) around the box, and
+   the compact scale below added a second 15% one. Both are gone: the field's
+   own border/ring is the focus mark, and nothing paints outside it. */
 
 
 
@@ -2286,9 +2300,7 @@ html[data-type-scale="compact"]
     [data-field-trigger]
   ):focus-visible:not([aria-invalid="true"]):not([data-dup-error]):not([data-required-empty]) {
   outline: none;
-  box-shadow:
-    0 0 0 2px var(--ring),
-    0 0 0 5px color-mix(in srgb, var(--ring) 15%, transparent);
+  box-shadow: 0 0 0 2px var(--ring);
 }
 
 /* ---- Status badges: tinted 1px border, faint top sheen, leading icon ----- */
@@ -2914,4 +2926,55 @@ html[data-type-scale="compact"] [data-sheet-row="head"] > :is(.text-foreground, 
 }
 [data-grid-style="sheet"] tbody:not(:last-child) > tr:last-child > :last-child {
   border-bottom-right-radius: var(--radius-control, 0.5rem);
+}
+
+/* ---------------------------------------------------------------------------
+ * A FOCUSED FIELD WEARS ONE LOOK EVERYWHERE: THE FIELD GREEN BORDER AND A PALE
+ * BLUE HALO OUTSIDE IT (user 2026-10-17, Order Info ▸ Customer — "global aa ellam
+ * field kku intha blue colour aa set pannu"; then "oru sila place la intha dark
+ * blue ring irukku, adhu vendam" — the 2px ring on a grid cell, Fabric Colour, is
+ * the look that is NOT wanted).
+ * ---------------------------------------------------------------------------
+ * The look existed on the Raagam skin alone (`0 0 0 3px #d4ecf9`); every other
+ * place drew its own ring — `ring-2 ring-ring` on the primitives, the base
+ * outline floor, the compact scale and three sheet-grid rules (2px / inset 2px of
+ * `--ring`, the dark-blue ring above). A per-source fix leaves a remainder, so
+ * this is ONE rule at the end of the file, `!important` because it has to beat
+ * Tailwind's ring utilities and every grid rule: green border (#79b023, the
+ * colour every field box already has at rest) plus the 3px pale-blue halo.
+ *
+ * THE FIRST CUT EXCLUDED `[data-field-style="lines"] *`, and that left the dark
+ * ring alive wherever a sheet grid sat under a lines-style screen (Fabric BOM's
+ * colour panels). No exclusion for it now: a field in that style gets the same
+ * focus look as every other field.
+ *
+ * A BLANK MANDATORY FIELD IS INCLUDED (Fabric Allocation ▸ Fabric, user
+ * 2026-10-17). The first cut skipped `[data-required-empty]` to leave it "red",
+ * but the red only exists on a sheet-grid cell at REST — focused, nothing took
+ * over and the base outline plus the primitive's `ring-2 ring-ring` drew the
+ * dark-blue ring. A new record opens with every mandatory field blank, so that
+ * was the ring on the first field the operator touched. The hold itself
+ * (Tab / Enter refuse) is untouched; only the paint is.
+ *
+ * Left alone on purpose: an error / duplicate field keeps its own treatment (a
+ * focus colour must never paint over "this is wrong").
+ */
+:is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+    select,
+    textarea,
+    [data-field-trigger]
+  ):is(:focus-visible, :focus-within):not([aria-invalid="true"]):not([data-dup-error]) {
+  outline: none !important;
+  border-color: #79b023 !important;
+  box-shadow: 0 0 0 3px #d4ecf9 !important;
+}
+.dark
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+    select,
+    textarea,
+    [data-field-trigger]
+  ):is(:focus-visible, :focus-within):not([aria-invalid="true"]):not([data-dup-error]) {
+  box-shadow: 0 0 0 3px color-mix(in srgb, #79b023 35%, transparent) !important;
 }

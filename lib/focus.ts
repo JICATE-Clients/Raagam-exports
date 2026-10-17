@@ -759,6 +759,13 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
     e.preventDefault();
     tickBox?.click(); // same path Space and a mouse take, so onChange fires normally
   };
+  // A `Toggle` (data-enter-timed) ticks AND then moves on by itself — see
+  // `startTimedAdvance`. Armed only where a field follows and the surface can
+  // commit; the last field keeps the save ladder, a filter bar keeps "toggle only".
+  const tickThenAdvance = (nextField: HTMLElement | undefined) => {
+    tick();
+    if (tickBox?.matches(ENTER_TIMED) && nextField && root) startTimedAdvance(tickBox, root);
+  };
 
   // NOT OUR KEY unless this surface could actually commit. A list page's filter
   // box has no footer, no registered "save" and no submit button — Enter there
@@ -800,7 +807,7 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
       optIn: t instanceof HTMLElement && isOffTabPath(t),
     })
   ) {
-    tick();
+    tickThenAdvance(next);
     return;
   }
   if (next) {
@@ -841,6 +848,61 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   // inside a <form> is an implicit browser submit. A tick box's Enter must never
   // reach the browser, whether or not our save found anywhere to land.
   if (submitSurface(root, hooks) || tickBox) e.preventDefault();
+}
+
+/**
+ * `[data-enter-timed]` — A SWITCH THAT TICKS ON ENTER AND THEN MOVES ON BY ITSELF
+ * (user 2026-10-17, chosen from the "Toggle on the Enter key only" options: Enter
+ * alone must set Pack / Multi Style, no Shift, no mouse).
+ *
+ * Enter flips it, as it always did, and a bar runs for `ENTER_TOGGLE_MS`; with
+ * nothing pressed the cursor then moves to the next field. Enter again while the
+ * bar runs flips it BACK and restarts the bar, so one key covers yes, no and
+ * "next". Any other key (Tab, an arrow, Space) or leaving the field cancels it —
+ * a timer must never move a cursor the operator has already moved. Declared on
+ * `Toggle`'s input; a plain tick box keeps "Enter ticks, stays".
+ */
+const ENTER_TIMED = "[data-enter-timed]";
+export const ENTER_TOGGLE_MS = 2000;
+
+let timedAdvance: { el: HTMLElement; timer: ReturnType<typeof setTimeout>; cancel: () => void } | null = null;
+
+function cancelTimedAdvance() {
+  timedAdvance?.cancel();
+}
+
+function startTimedAdvance(el: HTMLElement, root: HTMLElement) {
+  cancelTimedAdvance();
+  const cancel = () => {
+    if (!timedAdvance) return;
+    clearTimeout(timedAdvance.timer);
+    el.removeAttribute("data-enter-pending");
+    el.removeEventListener("keydown", onKey, true);
+    el.removeEventListener("blur", cancel);
+    timedAdvance = null;
+  };
+  // Enter is the restart (it arrives here again through `enterAdvances`); every
+  // other key is the operator taking over.
+  const onKey = (ev: KeyboardEvent) => {
+    if (ev.key !== "Enter") cancel();
+  };
+  // On the wrapper, not the input: the bar is the input's SIBLING, so a custom
+  // property set on the input would never reach it.
+  el.parentElement?.style.setProperty("--enter-ms", `${ENTER_TOGGLE_MS}ms`);
+  el.removeAttribute("data-enter-pending");
+  void el.offsetWidth; // restart the bar's animation on a second Enter
+  el.setAttribute("data-enter-pending", "");
+  el.addEventListener("keydown", onKey, true);
+  el.addEventListener("blur", cancel);
+  const timer = setTimeout(() => {
+    cancel();
+    if (document.activeElement !== el) return;
+    const next = itemsAfter(regionItems(root, el), el).find((x) => isFieldLike(x) && !isOffTabPath(x));
+    if (!next) return;
+    if (regionOf(el) === "content" && contentEdgeFor(root, el, next)?.(1)) return;
+    focusField(next);
+  }, ENTER_TOGGLE_MS);
+  timedAdvance = { el, timer, cancel };
 }
 
 /** Does Enter TICK this control rather than move on from it?

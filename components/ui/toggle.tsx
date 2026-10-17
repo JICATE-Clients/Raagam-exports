@@ -99,7 +99,7 @@ export function Toggle({
         // `min-h-9` so the switch centres against the 36px control height every
         // other field on the row uses — the same reason the tick boxes it
         // replaced carried it. Without this the row reads as ragged.
-        "inline-flex min-h-9 w-fit cursor-pointer items-center gap-2 text-sm",
+        "relative inline-flex min-h-9 w-fit cursor-pointer items-center gap-2 text-sm",
         disabled && "cursor-not-allowed opacity-60",
         className,
       )}
@@ -116,6 +116,9 @@ export function Toggle({
         id={id}
         type="checkbox"
         className="peer sr-only"
+        // Enter flips it, then the cursor moves on after a short pause
+        // (`ENTER_TIMED`, lib/focus.ts); the bar below is that pause drawn.
+        data-enter-timed=""
         aria-label={ariaLabel}
         checked={checked}
         disabled={ownDisabled}
@@ -128,6 +131,7 @@ export function Toggle({
           if (!locked) onChange(e.target.checked);
         }}
       />
+      <span aria-hidden className="enter-bar pointer-events-none absolute inset-x-0 -bottom-0.5 h-0.5 origin-left scale-x-0 rounded-full bg-primary" />
       <span
         aria-hidden
         className={cn(
