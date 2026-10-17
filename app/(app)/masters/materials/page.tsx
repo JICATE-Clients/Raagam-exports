@@ -8,6 +8,7 @@ import { listStockUnits } from "@/lib/masters/stock-unit-service";
 import { listMaterials } from "@/lib/masters/material-service";
 import { listProcesses } from "@/lib/masters/process-service";
 import { listComponents } from "@/lib/masters/component-service";
+import { listCmtProcesses } from "@/lib/masters/cmt-process-service";
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { listBins } from "@/lib/masters/bin-service";
 import { listGarmentRejectionRules } from "@/lib/masters/garment-rejection-rule-service";
@@ -41,11 +42,12 @@ export default async function MaterialsMastersPage() {
       listOutDocumentTerms(),
       listBins(),
     ]);
-  const [rejectionRules, defectGroups, defectDetails, sizeGroups] = await Promise.all([
+  const [rejectionRules, defectGroups, defectDetails, sizeGroups, cmtProcesses] = await Promise.all([
     listGarmentRejectionRules(),
     listDefectGroupsSimple(),
     listDefectDetails(),
     listSizeGroups(),
+    listCmtProcesses(),
   ]);
   const counts = new Map<string, number>();
   for (const l of lookups) counts.set(l.kind, (counts.get(l.kind) ?? 0) + 1);
@@ -83,6 +85,7 @@ export default async function MaterialsMastersPage() {
     compositions: compositionCount,
     materials: materialCount,
     processes: processCount,
+    cmt_processes: cmtProcesses.length,
     components: componentCount,
     gauges: counts.get("gauge") ?? 0,
     knitting_dias: counts.get("knitting_dia") ?? 0,

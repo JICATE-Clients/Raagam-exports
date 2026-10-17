@@ -10,8 +10,10 @@
  *   Fabric Price / KG  = (Yarn + Knitting + Dyeing + Finishing + Σ special processes)
  *                        × (1 + Process Loss % / 100)          — or the Direct Rate
  *   Grams              = typed, or L(cm) × W(cm) × GSM / 10 000 once all three are in
- *   Fabric cost        = Σ  Price/KG ÷ 1000 × grams × (1 + Wastage Allowance % / 100)
- *                                                             over the piece's components
+ *   Fabric cost        = Σ  Price/KG ÷ 1000 × grams        over the piece's components
+ *                        No cutting allowance on the row (2026-10-17): the mill's loss is
+ *                        already in Price/KG, and cutting waste is the Garment Rejection %
+ *                        below — a 3 % here on top charged the same loss twice.
  *   Net cost           = Fabric + CMT + Print + Embroidery + Wash + Trims
  *                        + Testing & FOB + Bank charges
  *   Margin / Wastage / Overhead / Discount = Net × their %
@@ -32,9 +34,17 @@
  * SIZES (0693). A component weight row names a SIZE — one of the style's own
  * ticked sizes (S, M, L …), stored by name — or none, meaning "every size": a
  * rib that is 40 g in every size is typed once, and a legacy row saved before
- * 0693 carries none. A piece is costed once per size the sheet uses; a row with
- * no size adds to every size. A sheet that names no size at all is costed once,
- * as "All sizes".
+ * 0693 carries none. A row with no size adds to every size.
+ *
+ * SIZES LIVE IN THE FABRIC TAB ONLY (client 2026-10-17). The piece's fabric cost
+ * is worked out per size and then AVERAGED — a simple mean, every size counting
+ * once (S + M + L + XL ÷ 4): sample quantities are a handful of pieces, not a
+ * ratio order. Everything downstream — CMT, trims, overheads, margin, price, the
+ * quote and the approval floor — is costed ONCE on that average, so a summary
+ * always holds exactly one group, `size: null`. Processing, trims and overheads
+ * do not vary by size, and size columns on every tab were clutter. The Fabric
+ * tab still shows each size's own figure: `fabricBySize`. Averaging the cost is
+ * the same as costing the average grams, since cost is linear in grams.
  *
  * A BLANK IS NOT A ZERO where the figure is a price the operator owes us: a
  * missing exchange rate leaves the calc price `null` (shown as a dash and as a
@@ -108,8 +118,10 @@ export type WeightInput = {
   length_cm: string;
   width_cm: string;
   gsm: string;
-  /** The component's Wastage Allowance % (0690) — cutting loss on THIS
-   *  component's fabric, applied to its grams. Blank = none. */
+  /** The component's Wastage Allowance % (0690). STORED, NOT PRICED since
+   *  2026-10-17 — cutting waste is the Garment Rejection % on the summary,
+   *  so a per-row allowance counted it twice (240 g at ₹529.10 read ₹130.79,
+   *  not ₹126.98). Rows saved before then still carry the old default 3. */
   wastage_pct: string;
 };
 /**
@@ -280,14 +292,41 @@ export function componentCost(w: WeightInput, fabrics: readonly FabricInput[]): 
   const price = f ? fabricPricePerKg(f) : null;
   const grams = gramsOf(w);
   if (price == null || grams == null) return null;
-  return round((price / 1000) * grams * (1 + z(w.wastage_pct) / 100), 4);
+  return round((price / 1000) * grams, 4);
 }
 
-/** The sizes the sheet is costed for, in first-use order; [null] = all sizes. */
+/** The sizes the Fabric tab is entered in, in first-use order; [null] = all sizes. */
 export function sizesOf(weights: readonly WeightInput[]): (string | null)[] {
   const seen: string[] = [];
   for (const w of weights) if (w.size_name && !seen.includes(w.size_name)) seen.push(w.size_name);
   return seen.length ? seen : [null];
+}
+
+/** One piece's fabric cost in one size: Σ its rows of that size plus its every-size rows. */
+function pieceFabricIn(input: Pick<CostingInput, "weights" | "fabrics">, pieceKey: string, size: string | null): number {
+  return round(
+    input.weights
+      .filter((w) => w.piece_key === pieceKey && (w.size_name == null || w.size_name === size))
+      .reduce((s, w) => s + (componentCost(w, input.fabrics) ?? 0), 0),
+    4,
+  );
+}
+
+/** A piece's fabric cost averaged over the sheet's sizes — what every later tab is costed on. */
+export function pieceFabricAvg(input: Pick<CostingInput, "weights" | "fabrics">, pieceKey: string): number {
+  const sizes = sizesOf(input.weights);
+  return round(sizes.reduce((t, s) => t + pieceFabricIn(input, pieceKey, s), 0) / sizes.length, 4);
+}
+
+/**
+ * The Fabric tab's per-size row: each size's fabric cost for the piece (or the set),
+ * in `sizesOf` order. Nothing after the Fabric tab reads it — they read the average.
+ */
+export function fabricBySize(input: Pick<CostingInput, "weights" | "fabrics" | "pieces">): { size: string | null; fabric: number }[] {
+  return sizesOf(input.weights).map((size) => ({
+    size,
+    fabric: round(input.pieces.reduce((t, p) => t + pieceFabricIn(input, p.key, size), 0), 4),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -379,12 +418,11 @@ export function costingSummary(input: CostingInput): CostingSummary {
   const rateRaw = num(t.exchange_rate);
   const rate = rateRaw != null && rateRaw > 0 ? rateRaw : null;
 
-  const groups = sizesOf(input.weights).map((size): GroupFigures => {
+  // One group, costed on each piece's AVERAGE fabric cost across the sizes (see SIZES above).
+  const size = null;
+  const group = ((): GroupFigures => {
     const pieces = input.pieces.map((p): PieceFigures => {
-      const rows = input.weights.filter(
-        (w) => w.piece_key === p.key && (w.size_name == null || w.size_name === size),
-      );
-      const fabric = round(rows.reduce((s, w) => s + (componentCost(w, input.fabrics) ?? 0), 0), 4);
+      const fabric = pieceFabricAvg(input, p.key);
       const trims = round(
         input.trims.filter((x) => x.piece_key === p.key).reduce((s, x) => s + trimCostPerPiece(x).cost, 0),
         4,
@@ -471,7 +509,8 @@ export function costingSummary(input: CostingInput): CostingSummary {
         effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead + extraOverhead, discount, freight * n + priceAdj, insurance * n, rate),
       },
     };
-  });
+  })();
+  const groups = [group];
 
   const margins = groups.flatMap((g) => g.pieces.map((p) => p.effectiveMarginPct)).filter((m): m is number => m != null);
   const lowestMarginPct = margins.length ? Math.min(...margins) : null;
@@ -487,14 +526,14 @@ export function costingSummary(input: CostingInput): CostingSummary {
 // first; this answers "what margin does it leave, and how much cost has to
 // come out to reach the floor?" — read-only, it never edits a figure.
 // ---------------------------------------------------------------------------
-/** KG of fabric one piece (or set) consumes in a size, allowance included. */
+/** KG of fabric one piece (or set) consumes in a size — the grams `componentCost` prices.
+ *  `null` on a sheet entered in sizes is the AVERAGE over them, matching the costing. */
 export function fabricKgFor(weights: readonly WeightInput[], size: string | null): number {
-  return round(
-    weights
-      .filter((w) => w.size_name == null || w.size_name === size)
-      .reduce((t, w) => t + ((gramsOf(w) ?? 0) * (1 + z(w.wastage_pct) / 100)) / 1000, 0),
-    4,
-  );
+  const kgIn = (sz: string | null) =>
+    weights.filter((w) => w.size_name == null || w.size_name === sz).reduce((t, w) => t + (gramsOf(w) ?? 0) / 1000, 0);
+  if (size != null) return round(kgIn(size), 4);
+  const sizes = sizesOf(weights);
+  return round(sizes.reduce((t, sz) => t + kgIn(sz), 0) / sizes.length, 4);
 }
 
 export type TargetSolve = {

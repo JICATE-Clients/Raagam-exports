@@ -343,6 +343,13 @@ export const ACTIVE_ENTITIES: Record<string, ActiveEntity> = {
     label: "Component",
     revalidate: ["/masters", "/masters/materials", "/masters/materials/components"],
   },
+  cmt_process: {
+    table: "cmt_processes",
+    column: "inactive",
+    module: "masters",
+    label: "CMT Process",
+    revalidate: ["/masters", "/masters/materials", "/masters/materials/cmt-processes", "/sales/sample-costing"],
+  },
   bin: {
     table: "bins",
     column: "inactive",

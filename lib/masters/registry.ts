@@ -40,7 +40,7 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "bins" | "garment_rejection_rules" | "defect_groups" | "defect_details" | "size_groups";
+  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "cmt_processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "bins" | "garment_rejection_rules" | "defect_groups" | "defect_details" | "size_groups";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
@@ -61,6 +61,9 @@ export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "compositions", label: "Compositions", singular: "Composition", description: "Fibre blends (e.g. 100% Cotton)", custom: "compositions" },
   { slug: "materials", label: "Materials", singular: "Material", description: "Material master — class-driven specs, UOM & budget", custom: "materials" },
   { slug: "processes", label: "Processes", singular: "Process", description: "Sub-contract processes", custom: "processes" },
+  // 0735: the garment floor's CMT operations, by production stage — a master of
+  // their own, not a kind of Process (user 2026-10-17).
+  { slug: "cmt-processes", label: "CMT Processes", singular: "CMT Process", description: "Cutting · Sewing · Checking · Ironing · Packing operations", custom: "cmt_processes" },
   { slug: "components", label: "Components", singular: "Component", description: "Buttons, zippers, labels, thread…", custom: "components" },
   // RESTORED 2026-08-10. Withdrawn in 129c59f as a child "the business does not
   // use"; the Style master now fills a style's sizes from a group, so it does.

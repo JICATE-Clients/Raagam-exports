@@ -134,10 +134,10 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
   // 2 · COMPONENT CONSUMPTION
   card(
     "Component consumption (grams)",
-    [...(multi ? ["Piece"] : []), "Component", "Fabric", ...m.weights.sizeLabels, "Loss %"],
+    [...(multi ? ["Piece"] : []), "Component", "Fabric", ...m.weights.sizeLabels],
     [
-      ...m.weights.rows.map((r) => [...(multi ? [r.piece] : []), r.component, r.fabric, ...r.grams.map((g) => (g == null ? "" : String(g))), r.lossPct]),
-      [...(multi ? [""] : []), "Fabric cost ₹", "", ...m.sizes.map((x) => fx(x.fabric)), ""],
+      ...m.weights.rows.map((r) => [...(multi ? [r.piece] : []), r.component, r.fabric, ...r.grams.map((g) => (g == null ? "" : String(g)))]),
+      [...(multi ? [""] : []), "Fabric cost ₹", "", ...m.weights.fabricBySize.map((v) => fx(v))],
     ],
     m.weights.sizeLabels.map((_, i) => i + (multi ? 3 : 2)),
   );
@@ -318,8 +318,8 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   add(["FABRIC RATES ₹/kg", "Yarn", "Knitting", "Dyeing", "Finishing", "Special", "Loss %", "Price / kg"]);
   m.fabrics.forEach((f) => add([f.name, fx(f.yarn), fx(f.knitting), fx(f.dyeing), fx(f.finishing), fx(f.special), f.direct ? "Direct" : fx(f.lossPct), fx(f.price)]));
   blank();
-  add(["GARMENT WEIGHT g", "Fabric", ...m.weights.sizeLabels, "Loss %"]);
-  m.weights.rows.forEach((r) => add([[r.piece, r.component].filter(Boolean).join(" · "), r.fabric, ...r.grams.map((g) => (g == null ? "" : g)), r.lossPct]));
+  add(["GARMENT WEIGHT g", "Fabric", ...m.weights.sizeLabels]);
+  m.weights.rows.forEach((r) => add([[r.piece, r.component].filter(Boolean).join(" · "), r.fabric, ...r.grams.map((g) => (g == null ? "" : g))]));
   blank();
   add(["CMT & EMBELLISHMENT", "Kind", "Rate ₹"]);
   m.ops.forEach((o) => add([[o.piece, o.name].filter(Boolean).join(" · "), o.kind, fx(o.rate)]));

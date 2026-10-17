@@ -582,7 +582,7 @@ export function SampleCostingScreen({
     // Seeded in STATE before `setDirty(false)`, never by a grid's `seedRow`,
     // which would mark an untouched sheet "Unsaved".
     setFabrics(seededFabrics);
-    // A new sheet opens with one blank "All sizes" line, carrying the spec's 3 % loss.
+    // A new sheet opens with one blank "All sizes" line.
     setWeights(d.weights.length ? d.weights : newWeightRows(firstPiece, [], null, [null]));
     setTrims(d.trims.length ? d.trims : [blankTrim(firstPiece)]);
     setExtras(d.extras);

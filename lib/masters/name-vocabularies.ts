@@ -119,6 +119,20 @@ export const GARMENT_COMPONENT_NAMES: string[] = [
 ];
 
 /**
+ * CMT (cut-make-trim) floor operations, across the five production stages
+ * (0735). The garment floor's own work, NOT sub-contract processes — those are
+ * `PROCESS_NAMES` below.
+ *
+ * Used by: cmt-process-master-screen.tsx
+ */
+export const CMT_PROCESS_NAMES: string[] = [
+  "BUNDLING", "CHECKING", "CUTTING", "FOLDING", "FUSING", "IRONING", "LAYING",
+  "MEASUREMENT CHECKING", "NUMBERING", "OVERLOCK", "PACKING", "POLYBAGGING",
+  "POWERTABLE", "PRESSING", "SINGER", "SIZE STICKERING", "SPREADING", "TAGGING",
+  "THREAD TRIMMING", "FLATLOCK",
+];
+
+/**
  * Manufacturing and job-work processes.
  *
  * Used by: process-master-screen.tsx
