@@ -150,28 +150,33 @@ export function AssetsClient({ rows, locations, items, canCreate }: Props) {
               <form onSubmit={handleCreate} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="sm:col-span-2">
-                    <Label htmlFor="as-name">Name</Label>
-                    <div className="mb-2 flex flex-wrap gap-4">
-                      <label className="flex cursor-pointer items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          name="as-source"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={source === "material"}
-                          onChange={() => switchSource("material")}
-                        />
-                        <span>Capital Goods material</span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          name="as-source"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={source === "manual"}
-                          onChange={() => switchSource("manual")}
-                        />
-                        <span>One-off (type a name)</span>
-                      </label>
+                    {/* THE SOURCE SWITCH RIDES ON THE LABEL LINE (user 2026-10-21, screenshot
+                        124843): on a row of its own it pushed the Name box below Category's.
+                        Kept to the label's 16px so both boxes start level. */}
+                    <div className="flex flex-wrap items-end gap-x-4">
+                      <Label htmlFor="as-name">Name</Label>
+                      <div className="mb-0.5 flex h-4 flex-wrap items-center gap-4 @2xl/editor:mb-0">
+                        <label className="flex cursor-pointer items-center gap-1.5 text-xs leading-4">
+                          <input
+                            type="radio"
+                            name="as-source"
+                            className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                            checked={source === "material"}
+                            onChange={() => switchSource("material")}
+                          />
+                          <span>Capital Goods material</span>
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-1.5 text-xs leading-4">
+                          <input
+                            type="radio"
+                            name="as-source"
+                            className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                            checked={source === "manual"}
+                            onChange={() => switchSource("manual")}
+                          />
+                          <span>One-off (type a name)</span>
+                        </label>
+                      </div>
                     </div>
                     {source === "material" ? (
                       <>

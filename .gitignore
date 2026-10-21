@@ -34,6 +34,12 @@
 # the third, and the pattern is always an alternate dist dir that nobody added
 # to this list before running a build into it.
 /.next-shot/
+# The FOURTH (2026-10-21): a probe dev server with NEXT_DIST_DIR=.next-probe,
+# and Tailwind turned its compiled chunks into classes like `max-w-[��!]` —
+# "Parsing CSS source code failed" at app/globals.css. Four named entries
+# proved a per-name list always arrives one dir late, so every alternate dist
+# dir is now ignored by shape. Keep `.next-*`; never go back to naming them.
+/.next-*/
 /out/
 
 # serwist / PWA service worker (generated at build)
