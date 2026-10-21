@@ -962,6 +962,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         children: [
           { href: "/sales/sample-entry", label: "Sample Entry", description: "Raise a sample — customer, styles, product info, combos and quantities" },
           { href: "/sales/sample-costing", label: "Costing", description: "Cost a sample style — fabric, CMT, embellishments and trims — send it to the buyer and record their answer" },
+          // TEST ROW (user 2026-10-21): the ledger duplicate of Costing, listed so users can
+          // try it beside the real screen. Remove when one replaces the other.
+          { href: "/sales/sample-costing/ledger", label: "Costing 2", description: "Test copy of Costing with the single-screen ledger entry — same records, different editor" },
           { href: "/sales/sample-grouping", label: "Grouping", description: "Batch sample styles of one season into one fabric purchase" },
           { href: "/sales/sample-fabric-plan", label: "Fabric Plan", description: "Fabric for the sample work orders — consumption, dia and dyeing" },
           { href: "/sales/sample-accessories-plan", label: "Accessories Plan", description: "Sewing and packing accessories for the sample work orders" },
