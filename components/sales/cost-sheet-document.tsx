@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { ChevronRight, Plus, Printer } from "lucide-react";
@@ -20,7 +20,7 @@ import { GlassRing } from "@/components/orders/budget-breakdown-chart";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
 import { MARGIN_TARGET_PCT, hasYarnMix, quoteKey, sizesOf, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
-import { isBlankExtra, isBlankFabric, isBlankPieceLine, isBlankTrim, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
+import { isBlankExtra, isBlankFabric, isBlankPieceLine, isBlankTrim, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type PieceLineKind, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
 import { changeText } from "@/lib/sales/sample-costing/revision-history";
 
 /**
@@ -119,6 +119,8 @@ export type CostSheetEdit = {
   sizeWise?: boolean;
   /** Quotation tab: Currency and Ship Mode — above the terms. */
   terms?: ReactNode;
+  /** `merged` only: the line under the exchange-rate box — where the rate came from, or a newer one to use. */
+  rateNote?: ReactNode;
   /** What picking a fabric structure writes (the entry's remembered rates); default: the id and name only. */
   pickFabric?: (fabric: FabricDraft, picked: { id: string | null; name: string }) => Partial<FabricDraft>;
 };
@@ -150,6 +152,7 @@ export function CostSheetDocument({
   trail,
   quietDownload = false,
   entry = false,
+  merged = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -168,6 +171,9 @@ export function CostSheetDocument({
    *  Download ("costing entry no need this option"). Reports and Revise keep both:
    *  that is where a costing is printed and sent. */
   entry?: boolean;
+  /** COSTING 3 (user 2026-10-21): Operations, Overheads and Quotation as ONE split-screen
+   *  "Cost & Quote" tab — see `secCostQuote`. Off: the seven tabs, unchanged. */
+  merged?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -276,7 +282,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} />
     </div>
   );
 }
@@ -288,7 +294,7 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean }) {
+function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean }) {
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -471,6 +477,13 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
   const avgOf = (xs: readonly (number | null)[]) => (xs.length ? xs.reduce<number>((s, x) => s + (x ?? 0), 0) / xs.length : 0);
   /** Yes with no size added yet: the Pcs Wgt column goes; the sizes bar asks for sizes. */
   const noWeightCol = !!edit?.sizeWise && !sizeWise && model.weights.sizeLabels[0] === "All sizes";
+  /* Column widths, rem. The merged Fabric tab (Costing 3, user 2026-10-21) gives
+     Component consumption only the width its short values need — a component, a
+     fabric name, a four-digit weight — so Fabric processing cost beside it gets the rest.
+     One "All sizes" column keeps room for its "Avg Pcs Wgt" heading. */
+  const cw = merged
+    ? { piece: 6.5, comp: 9.5, fab: 10, size: sizeWise ? 4.5 : 5.5, avg: 5 }
+    : { piece: 8, comp: 16, fab: 14, size: 5.5, avg: 6.5 };
   const consumptionCols = (model.pieceCount > 1 ? 1 : 0) + 2 + (noWeightCol ? 0 : model.weights.sizeLabels.length) + (sizeWise ? 1 : 0) + (edit ? 1 : 0);
 
   /* NO LOSS % COLUMN AFTER THE SIZES (client 2026-10-17): the cutting-waste allowance is
@@ -489,15 +502,15 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                   name like NECK TAPE, so the table is the sum of its columns. An explicit
                   width, because table-layout:fixed does nothing on a width:auto table and an
                   input's intrinsic width would widen the column again. */}
-              <table style={{ width: `${(model.pieceCount > 1 ? 8 : 0) + 16 + 14 + (noWeightCol ? 0 : model.weights.sizeLabels.length) * 5.5 + (sizeWise ? 6.5 : 0) + (edit ? 2.5 : 0)}rem` }}>
+              <table style={{ width: `${(model.pieceCount > 1 ? cw.piece : 0) + cw.comp + cw.fab + (noWeightCol ? 0 : model.weights.sizeLabels.length) * cw.size + (sizeWise ? cw.avg : 0) + (edit ? 2.5 : 0)}rem` }}>
                 <colgroup>
-                  {model.pieceCount > 1 ? <col style={{ width: "8rem" }} /> : null}
-                  <col style={{ width: "16rem" }} />
-                  <col style={{ width: "14rem" }} />
+                  {model.pieceCount > 1 ? <col style={{ width: `${cw.piece}rem` }} /> : null}
+                  <col style={{ width: `${cw.comp}rem` }} />
+                  <col style={{ width: `${cw.fab}rem` }} />
                   {(noWeightCol ? [] : model.weights.sizeLabels).map((l) => (
-                    <col key={l} style={{ width: "5.5rem" }} />
+                    <col key={l} style={{ width: `${cw.size}rem` }} />
                   ))}
-                  {sizeWise ? <col style={{ width: "6.5rem" }} /> : null}
+                  {sizeWise ? <col style={{ width: `${cw.avg}rem` }} /> : null}
                   {edit ? <col style={{ width: "2.5rem" }} /> : null}
                 </colgroup>
                 <thead>
@@ -805,7 +818,9 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                 : priceMissing
                   ? "Type the price per kg."
                   : null;
-              const open = !d.is_direct && openKey === f.key;
+              // Merged (Costing 3): every fabric open — nothing on the split tabs folds.
+              const open = !d.is_direct && (merged || openKey === f.key);
+              const folds = !d.is_direct && !merged;
               const fromEntry = !!(d.fabric_id && opts?.lockedFabrics?.includes(d.fabric_id));
               /* YARN AND MIX % ARE EDITABLE (client 2026-10-17, screenshot 3616: "allow to
                  user edit also"), reversing the same day's lock (screenshot 3598). Sample
@@ -821,9 +836,9 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                     {/* The whole name cell opens the fabric (user 2026-10-17): the 22px caret
                         alone was the only target, and a click on the name did nothing. The
                         caret's own click bubbles here, so it carries no handler of its own. */}
-                    <td className={d.is_direct ? "bandname" : "bandname clickable"} onClick={d.is_direct ? undefined : () => fabFold.toggle(f.key)}>
+                    <td className={folds ? "bandname clickable" : "bandname"} onClick={folds ? () => fabFold.toggle(f.key) : undefined}>
                       <span className="bandhead">
-                        {d.is_direct ? (
+                        {!folds ? (
                           <span className="caret" aria-hidden />
                         ) : (
                           <button
@@ -1194,6 +1209,88 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
   const opCols = (model.pieceCount > 1 ? 1 : 0) + 2 + (edit ? 1 : 0);
   const trimCols = (model.pieceCount > 1 ? 1 : 0) + 7 + (edit ? 1 : 0);
 
+  /* A merged band's summary does not fold (class `cq-fixed` — NEVER `fixed`, which is
+     Tailwind's position:fixed and floated every band header off its band, screenshot 3630): nothing on Cost & Quote closes (user
+     2026-10-21: "no closing, just scrolling"). Off the Tab path — Tab lands on fields. */
+  const fixedSum = merged ? { className: "cq-fixed", tabIndex: -1, onClick: (e: ReactMouseEvent) => e.preventDefault() } : {};
+  /* Trims is its own band in both layouts: inside "Operations & trims", and on the
+     merged Cost & Quote screen's left side. */
+  const secTrims = (
+        <>
+          {model.trims.length || edit?.options ? (
+            <details open className={merged ? "cq-band" : undefined}>
+              <summary data-tone="trims" {...fixedSum}>
+                Trims &amp; accessories <span>{SYM} {money(s.trims)} / {model.unitWord}</span>
+              </summary>
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      {model.pieceCount > 1 ? <th className="c-piece">Piece</th> : null}
+                      <th className="c-name">Trim</th>
+                      {/* The old RP labels, word for word (client 2026-10-17). */}
+                      <th className="c-tick">Direct Rate</th>
+                      <th className="r c-qty">No of Items</th>
+                      <th className="r c-qty">No of Pcs</th>
+                      <th className="r c-qty">Cons Qty</th>
+                      <th className="r c-num">Rate {SYM}</th>
+                      <th className="r c-num">Cost {SYM}</th>
+                      {actHead}
+                    </tr>
+                  </thead>
+                  <tbody {...gridBody}>
+                    {[...model.trims, ...blankTrims].map((t) => (
+                      <tr key={t.key} data-grid-row data-line-key={t.key}>
+                        {model.pieceCount > 1 ? <td>{trimPiece(t)}</td> : null}
+                        <td>{trimName(t)}</td>
+                        {(() => {
+                          /* Direct Rate ticked: no pack, so No of Items / No of Pcs stay empty
+                             and Rate is the ₹ per piece. Unticked: Items over Pcs is the Cons
+                             Qty (read-only — the back end divides), Rate is the pack's price. */
+                          const d = edit?.draft.trims.find((x) => x.key === t.key);
+                          const set = (patch: Partial<NonNullable<typeof d>>) => d && edit?.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, d.key, patch) });
+                          const direct = d ? d.is_direct !== false : t.direct;
+                          return (
+                            <>
+                              <td className="c">
+                                {edit && d ? <input type="checkbox" aria-label={`${t.name || "Trim"} — direct rate`} checked={direct} onChange={(e) => set({ is_direct: e.target.checked })} /> : t.direct ? "✓" : ""}
+                              </td>
+                              <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of items`} value={d.qty} onChange={(v) => set({ qty: v })} /> : t.items}</td>
+                              <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of pcs`} value={d.pack_size} onChange={(v) => set({ pack_size: v })} /> : t.pcs}</td>
+                              <td className="r dim">{t.consQty ? t.consQty.toFixed(3) : ""}</td>
+                              <td className="r">
+                                {edit && d ? (
+                                  direct ? (
+                                    <ShownAmount rate={rate} value={d.rate} onChange={(v) => set({ rate: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
+                                  ) : (
+                                    <ShownAmount rate={rate} value={d.pack_price} onChange={(v) => set({ pack_price: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
+                                  )
+                                ) : (
+                                  money(t.rate)
+                                )}
+                              </td>
+                            </>
+                          );
+                        })()}
+                        <td className="r">{money(t.cost)}</td>
+                        {edit ? (
+                          <td className="act">
+                            <RemoveX label={t.name || "trim"} onClick={() => edit.onChange({ ...edit.draft, trims: edit.draft.trims.filter((x) => x.key !== t.key) })} />
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                    {edit?.options ? addRow(trimCols, addTrimLine) : null}
+                    {/* No total row (user 2026-10-17): the band's header already carries the
+                        same figure, so a footer total printed it twice. */}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          ) : null}
+        </>
+  );
+
   const secTri = (
         <section className="tri" aria-label="Processes, CMT and trims">
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
@@ -1263,77 +1360,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
               </div>
             </details>
           ) : null}
-          {model.trims.length || edit?.options ? (
-            <details open>
-              <summary data-tone="trims">
-                Trims &amp; accessories <span>{SYM} {money(s.trims)} / {model.unitWord}</span>
-              </summary>
-              <div className="scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      {model.pieceCount > 1 ? <th className="c-piece">Piece</th> : null}
-                      <th className="c-name">Trim</th>
-                      {/* The old RP labels, word for word (client 2026-10-17). */}
-                      <th className="c-tick">Direct Rate</th>
-                      <th className="r c-qty">No of Items</th>
-                      <th className="r c-qty">No of Pcs</th>
-                      <th className="r c-qty">Cons Qty</th>
-                      <th className="r c-num">Rate {SYM}</th>
-                      <th className="r c-num">Cost {SYM}</th>
-                      {actHead}
-                    </tr>
-                  </thead>
-                  <tbody {...gridBody}>
-                    {[...model.trims, ...blankTrims].map((t) => (
-                      <tr key={t.key} data-grid-row data-line-key={t.key}>
-                        {model.pieceCount > 1 ? <td>{trimPiece(t)}</td> : null}
-                        <td>{trimName(t)}</td>
-                        {(() => {
-                          /* Direct Rate ticked: no pack, so No of Items / No of Pcs stay empty
-                             and Rate is the ₹ per piece. Unticked: Items over Pcs is the Cons
-                             Qty (read-only — the back end divides), Rate is the pack's price. */
-                          const d = edit?.draft.trims.find((x) => x.key === t.key);
-                          const set = (patch: Partial<NonNullable<typeof d>>) => d && edit?.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, d.key, patch) });
-                          const direct = d ? d.is_direct !== false : t.direct;
-                          return (
-                            <>
-                              <td className="c">
-                                {edit && d ? <input type="checkbox" aria-label={`${t.name || "Trim"} — direct rate`} checked={direct} onChange={(e) => set({ is_direct: e.target.checked })} /> : t.direct ? "✓" : ""}
-                              </td>
-                              <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of items`} value={d.qty} onChange={(v) => set({ qty: v })} /> : t.items}</td>
-                              <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of pcs`} value={d.pack_size} onChange={(v) => set({ pack_size: v })} /> : t.pcs}</td>
-                              <td className="r dim">{t.consQty ? t.consQty.toFixed(3) : ""}</td>
-                              <td className="r">
-                                {edit && d ? (
-                                  direct ? (
-                                    <ShownAmount rate={rate} value={d.rate} onChange={(v) => set({ rate: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
-                                  ) : (
-                                    <ShownAmount rate={rate} value={d.pack_price} onChange={(v) => set({ pack_price: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
-                                  )
-                                ) : (
-                                  money(t.rate)
-                                )}
-                              </td>
-                            </>
-                          );
-                        })()}
-                        <td className="r">{money(t.cost)}</td>
-                        {edit ? (
-                          <td className="act">
-                            <RemoveX label={t.name || "trim"} onClick={() => edit.onChange({ ...edit.draft, trims: edit.draft.trims.filter((x) => x.key !== t.key) })} />
-                          </td>
-                        ) : null}
-                      </tr>
-                    ))}
-                    {edit?.options ? addRow(trimCols, addTrimLine) : null}
-                    {/* No total row (user 2026-10-17): the band's header already carries the
-                        same figure, so a footer total printed it twice. */}
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          ) : null}
+          {secTrims}
         </section>
   );
 
@@ -1760,6 +1787,439 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
         </section>
   );
 
+  /* ==========================================================================
+   * COST & QUOTE — ONE SPLIT SCREEN (`merged`, Costing 3 only; user 2026-10-21,
+   * artifact "Costing 3 Cost & Quote"). Operations & trims, Cost & overheads and
+   * Quotation were three tabs over ONE calculation: a trim rate changed on one tab
+   * moved the margin on another. Now the operator types on the LEFT — one scroll,
+   * nothing folds (the bands' summaries are inert) — and every worked-out value sits
+   * on the RIGHT, pinned, so each keystroke shows where it lands.
+   *  - Garment processes and CMT are ONE table with a Type per row; a direct CMT
+   *    rate and Testing are the piece's own fields, so their Type is fixed.
+   *  - Garment cost, Price build and the Quote figures are ONE read-only table.
+   *  - Ship Mode is on Details, and the exchange rate fills itself (the screen's
+   *    `rateNote` says where it came from) — no Fetch button.
+   * Off by default: every other caller draws the seven tabs exactly as before.
+   * ======================================================================== */
+  const allOps: OpRow[] = [...model.ops, ...blankOps("embellishment"), ...blankOps("cmt")];
+  const typeWord = (o: OpRow) => (o.kind === "CMT" ? "CMT" : o.kind === "Testing" ? "Testing" : "Garment process");
+  const opType = (o: OpRow) => {
+    const pl = edit ? lineOf(o) : null;
+    if (!edit || !pl) return typeWord(o);
+    const { piece, line } = pl;
+    return (
+      <select
+        aria-label={`${o.name || "Operation"} — type`}
+        value={line.kind}
+        autoComplete="off"
+        data-1p-ignore
+        data-lpignore="true"
+        data-form-type="other"
+        className="cq-type"
+        onChange={(e) => {
+          const kind = e.target.value as PieceLineKind;
+          if (kind === line.kind) return;
+          // The operation list is per type, so a picked operation does not survive the move; the rate does.
+          setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { kind, process_id: null, process_name: "" }) });
+        }}
+      >
+        <option value="cmt">CMT</option>
+        <option value="embellishment">Garment process</option>
+      </select>
+    );
+  };
+  const opsCols = (model.pieceCount > 1 ? 1 : 0) + 3 + (edit ? 1 : 0);
+  const cqOps =
+    allOps.length || edit?.options ? (
+      <details open className="cq-band">
+        <summary data-tone="cmt" {...fixedSum}>
+          Operations{" "}
+          <span>
+            {SYM} {money(s.cmt + s.process + s.testing)} / {model.unitWord} · CMT {SYM} {money(s.cmt)} · Process &amp; testing {SYM} {money(s.process + s.testing)}
+          </span>
+        </summary>
+        <div className="scroll">
+          <table aria-label="Operations">
+            <thead>
+              <tr>
+                {model.pieceCount > 1 ? <th className="c-piece">Piece</th> : null}
+                <th className="c-type">Type</th>
+                <th className="c-name">Operation</th>
+                <th className="r c-num">Rate {SYM}</th>
+                {actHead}
+              </tr>
+            </thead>
+            <tbody {...gridBody}>
+              {allOps.map((o, i) => (
+                <tr key={o.lineKey ?? `${o.field}-${o.pieceKey}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
+                  {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
+                  <td>{opType(o)}</td>
+                  <td>{opName(o)}</td>
+                  <td className="r">{opRate(o)}</td>
+                  {opRemove(o)}
+                </tr>
+              ))}
+              {edit?.options ? addRow(opsCols, () => addOpLine("embellishment")) : null}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    ) : null;
+
+  /** One labelled box of the left side's field grids: a typed box while editing, the value otherwise. */
+  const cqField = (key: string, label: string, box: ReactNode, note?: ReactNode) => (
+    <div className="cq-f" key={key}>
+      <span className="cq-l">{label}</span>
+      {box}
+      {note ? <span className="cq-note">{note}</span> : null}
+    </div>
+  );
+  const ro = (v: string) => <span className="cq-ro">{v}</span>;
+  const setHdr = (patch: Partial<CostingDraft["header"]>) => edit?.onChange({ ...edit.draft, header: { ...edit.draft.header, ...patch } });
+  const extraRows = overheadRows.filter((o) => o.edit.kind === "extra");
+  const cqOver = (
+    <details open className="cq-band">
+      <summary data-tone="over" {...fixedSum}>
+        Overheads &amp; charges{" "}
+        <span>
+          {SYM} {money(s.bank + s.wastage + s.overhead + s.extraOverhead)} / {model.unitWord}
+          {model.sizes.length > 1 ? ` · ${s.label}` : ""}
+        </span>
+      </summary>
+      <div className="cq-grid">
+        {cqField("waste", "Rejection %", edit ? <Ed w="w-full" label="Rejection %" value={edit.draft.header.garment_waste_pct} onChange={(v) => setHdr({ garment_waste_pct: v })} /> : ro(fx(model.terms.wastage, 2)))}
+        {cqField("overhead", "Overhead %", edit ? <Ed w="w-full" label="Overhead %" value={edit.draft.header.overhead_pct} onChange={(v) => setHdr({ overhead_pct: v })} /> : ro(fx(model.terms.overhead, 2)))}
+        {edit
+          ? edit.draft.pieces.map((p) =>
+              cqField(
+                `bank-${p.key}`,
+                `Bank charges ${SYM}${edit.draft.pieces.length > 1 ? ` · ${p.piece_name || "piece"}` : ""}`,
+                <ShownAmount rate={rate} value={p.bank_cost} onChange={(v) => setPiece(p.key, { bank_cost: v })}>
+                  {(v, set) => <Ed w="w-full" label={`Bank charges ${p.piece_name || ""}`.trim()} value={v} onChange={set} />}
+                </ShownAmount>,
+              ),
+            )
+          : cqField("bank", `Bank charges ${SYM}`, ro(money(s.bank)))}
+      </div>
+      {extraRows.length ? (
+        <div className="scroll">
+          <table aria-label="Extra charges">
+            <thead>
+              <tr>
+                <th>Extra charge</th>
+                <th>Type</th>
+                <th className="r">Value</th>
+                {actHead}
+              </tr>
+            </thead>
+            <tbody {...gridBody}>
+              {extraRows.map((o, i) => {
+                const x = edit && o.edit.kind === "extra" ? edit.draft.extras.find((e) => e.key === o.edit.key) : null;
+                if (!edit || !x) {
+                  return (
+                    <tr key={i}>
+                      <td>
+                        {o.name.toUpperCase()}
+                        {o.side === "price" ? <span className="dim"> (price)</span> : null}
+                      </td>
+                      <td className="dim">{o.type}</td>
+                      <td className="r">{o.value}</td>
+                    </tr>
+                  );
+                }
+                const set = (patch: Partial<typeof x>) => edit.onChange({ ...edit.draft, extras: patchBy(edit.draft.extras, x.key, patch) });
+                return (
+                  <tr key={x.key} data-grid-row>
+                    <td>
+                      <EdText label="Charge name" value={x.name} onChange={(v) => set({ name: v })} />
+                    </td>
+                    <td>
+                      <select
+                        aria-label="Charge type"
+                        value={x.kind}
+                        autoComplete="off"
+                        data-1p-ignore
+                        data-lpignore="true"
+                        data-form-type="other"
+                        className="cq-type"
+                        onChange={(e) => set({ kind: e.target.value as "flat" | "pct" })}
+                      >
+                        <option value="flat">Flat ₹</option>
+                        <option value="pct">Percent</option>
+                      </select>
+                    </td>
+                    <td className="r">
+                      <ShownAmount rate={x.kind === "pct" ? null : rate} value={x.value} onChange={(v) => set({ value: v })}>
+                        {(v, setV) => <Ed w="w-20" label={`${x.name || "Charge"} — ${x.kind === "pct" ? "%" : "₹"}`} value={v} onChange={setV} />}
+                      </ShownAmount>
+                    </td>
+                    <td className="act">
+                      <RemoveX label={x.name || "charge"} onClick={() => edit.onChange({ ...edit.draft, extras: edit.draft.extras.filter((e) => e.key !== x.key) })} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {edit ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
+    </details>
+  );
+
+  const isAmount = (field: TermField) => field === "freight_per_pc" || field === "insurance_per_pc";
+  const termBox = (label: string, field: TermField, shown: number | null, note?: ReactNode) =>
+    cqField(
+      field,
+      label,
+      edit ? (
+        <ShownAmount rate={isAmount(field) ? rate : null} value={edit.draft.header[field]} onChange={(v) => setHeader(field, v)}>
+          {(v, set) => <Ed w="w-full" label={label} value={v} onChange={set} />}
+        </ShownAmount>
+      ) : (
+        ro(shown == null ? "—" : isAmount(field) ? money(shown) : fx(shown, 2))
+      ),
+      note,
+    );
+  const cqTerms = (
+    <details open className="cq-band">
+      <summary data-tone="margin" {...fixedSum}>
+        Terms{" "}
+        <span>
+          Margin {edit ? Number(edit.draft.header.margin_pct) || 0 : model.terms.margin}%
+          {model.exchangeRate != null ? ` · ₹ ${fx(model.exchangeRate)} / ${ccy || "FOB"}` : ""}
+        </span>
+      </summary>
+      <div className="cq-grid">
+        {termBox(`Buyer target ${ccy}`.trim(), "buyer_target_price", model.targetPrice)}
+        {termBox("Margin %", "margin_pct", model.terms.margin)}
+        {termBox(`Exchange ₹ / ${ccy || "FOB"}`, "exchange_rate", model.exchangeRate, edit?.rateNote)}
+        {termBox("Commission %", "commission_pct", model.commissionPct)}
+        {termBox("LC discount %", "discount_pct", model.terms.discount)}
+        {termBox(`Freight / pc ${SYM}`, "freight_per_pc", model.terms.freight)}
+        {termBox(`Insurance / pc ${SYM}`, "insurance_per_pc", model.terms.insurance)}
+      </div>
+    </details>
+  );
+
+  const cqQuote = (
+    <details open className="cq-band">
+      <summary data-tone="margin" {...fixedSum}>
+        Quoted price <span>{ccy || "FOB"} per {model.unitWord}</span>
+      </summary>
+      <div className="qt cq-qt">
+        <table aria-label="Quoted price per size">
+          <thead>
+            <tr data-grid-row>
+              <th>Size</th>
+              <th className="r fig">Calculated</th>
+              {edit ? (
+                edit.draft.pieces.map((p) => (
+                  <th key={p.key} className="r fig">
+                    Quoted{edit.draft.pieces.length > 1 ? ` · ${p.piece_name || "piece"}` : ""}
+                  </th>
+                ))
+              ) : (
+                <th className="r fig">Quoted</th>
+              )}
+            </tr>
+          </thead>
+          <tbody data-grid-body data-grid-axis="sheet" onKeyDown={gridKeyNav}>
+            {model.sizes.map((x, i) => (
+              <tr data-grid-row key={x.label} className={i === idx ? "cur" : undefined}>
+                <td>{model.sizes.length > 1 ? x.label : `Per ${model.unitWord}`}</td>
+                {/* 4 decimals: the exact figure the quote is rounded FROM (2026-10-17). */}
+                <td className="r fig">{x.calc == null ? "—" : fx(x.calc, 4)}</td>
+                {edit ? (
+                  edit.draft.pieces.map((p) => {
+                    const k = quoteKey(p.key, x.size);
+                    return (
+                      <td key={k} className="in">
+                        <Ed
+                          label={`Quoted price${edit.draft.pieces.length > 1 ? ` ${p.piece_name || "piece"}` : ""} ${x.label}`}
+                          value={edit.draft.quotes[k] ?? ""}
+                          onChange={(v) => {
+                            edit.onQuote?.(k);
+                            edit.onChange({ ...edit.draft, quotes: { ...edit.draft.quotes, [k]: v } });
+                          }}
+                        />
+                      </td>
+                    );
+                  })
+                ) : (
+                  <td className="r fig">{x.quoted == null ? "—" : fx(x.quoted, 2)}</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {edit ? <p className="cq-hint">Leave a box blank to quote the calculated price.</p> : null}
+    </details>
+  );
+
+  /* THE RIGHT SIDE: nothing typed. One Price build table for every size — fabric down to
+     the margin on the quote — then where the price goes, then the warnings. A size's
+     header picks that size for the whole sheet. */
+  const swatch = (t: Tone) => <i className="cq-sw" style={{ background: TONE_VAR[t] }} aria-hidden />;
+  const pbRow = (label: ReactNode, pick: (x: SizeFigures) => ReactNode, cls?: string) => (
+    <tr className={cls}>
+      <td>{label}</td>
+      {model.sizes.map((x, i) => (
+        <td key={x.label} className={`r fig${i === idx ? " sel" : ""}`}>
+          {pick(x)}
+        </td>
+      ))}
+    </tr>
+  );
+  const pbHead = (t: string) => (
+    <tr className="grp">
+      <td colSpan={model.sizes.length + 1}>{t}</td>
+    </tr>
+  );
+  const fiOf = (x: SizeFigures) => fobSteps(x, model.exchangeRate).fi;
+  const anyDisc = model.sizes.some((x) => x.discount);
+  const anyAdj = model.sizes.some((x) => x.priceAdj);
+  const anyExtra = model.sizes.some((x) => x.extraOverhead);
+  const parts = shownParts(s, model.exchangeRate);
+  const partsTotal = parts.reduce((a, p) => a + Math.max(p.value, 0), 0) || 1;
+  const cqValues = (
+    <aside className="cq-values" aria-label="Worked-out values">
+      <div className="qt cq-pb">
+        <table aria-label="Price build per size">
+          <thead>
+            <tr>
+              <th>
+                Price build · {SYM} per {model.unitWord}
+              </th>
+              {model.sizes.map((x, i) => (
+                <th key={x.label} className={`r fig${i === idx ? " sel" : ""}`}>
+                  {model.sizes.length > 1 ? (
+                    <button type="button" tabIndex={-1} className="cq-size" aria-current={i === idx ? "true" : undefined} title={`Show size ${x.label}`} onClick={() => onSize?.(i)}>
+                      {x.label}
+                    </button>
+                  ) : (
+                    SYM
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pbHead("Cost")}
+            {pbRow(<>{swatch("fabric")}Fabric</>, (x) => money(x.fabric))}
+            {pbRow(<>{swatch("cmt")}CMT</>, (x) => money(x.cmt))}
+            {pbRow(<>{swatch("emb")}Process &amp; testing</>, (x) => money(x.process + x.testing))}
+            {pbRow(<>{swatch("trims")}Trims</>, (x) => money(x.trims))}
+            {pbRow(<>{swatch("over")}Bank charges</>, (x) => money(x.bank))}
+            {pbRow("Factory base cost", (x) => money(x.net), "sum")}
+            {pbRow(<>{swatch("over")}Rejection {model.terms.wastage}%</>, (x) => money(x.wastage))}
+            {pbRow(<>{swatch("over")}Overhead {model.terms.overhead}%</>, (x) => money(x.overhead))}
+            {anyExtra ? pbRow(<>{swatch("over")}Extra charges</>, (x) => money(x.extraOverhead)) : null}
+            {pbRow("Total cost", (x) => money(x.grossCost), "sum")}
+            {pbHead("Price")}
+            {pbRow(<>{swatch("margin")}Margin {model.terms.margin}%</>, (x) => money(x.margin))}
+            {anyDisc ? pbRow("Discount", (x) => `−${money(x.discount)}`) : null}
+            {anyAdj ? pbRow("Price charges", (x) => money(x.priceAdj)) : null}
+            {pbRow(`Selling price ${SYM}`, (x) => money(x.price), "sum")}
+            {pbRow("Freight & insurance", (x) => money(fiOf(x)))}
+            {pbHead(`Quote · ${ccy || "FOB"}${model.exchangeRate != null ? ` at ₹ ${fx(model.exchangeRate)}` : ""}`)}
+            {pbRow("Calculated FOB", (x) => (x.calc == null ? "—" : fx(x.calc, 4)))}
+            {pbRow("Quoted FOB", (x) => (x.quoted == null ? <span className="dim">{x.calc == null ? "—" : fx(x.calc, 2)}</span> : fx(x.quoted, 2)), "cur")}
+            {target != null
+              ? pbRow("vs target", (x) => {
+                  const q = quotedOf(x);
+                  const gap = q == null ? null : Math.round((q - target) * 100) / 100;
+                  return gap == null ? "—" : <span className={gap > 0 ? "bad" : "good"}>{`${gap > 0 ? "+" : gap < 0 ? "−" : ""}${fx(Math.abs(gap), 2)}`}</span>;
+                })
+              : null}
+            {pbRow("Margin on quote", (x) => (x.effectiveMarginPct == null ? "—" : <span className={marginTone(x.effectiveMarginPct)}>{x.effectiveMarginPct.toFixed(1)}%</span>), "sum")}
+          </tbody>
+        </table>
+      </div>
+      <div className="qcard">
+        <span className="cq-k">Where the price goes{model.sizes.length > 1 ? ` · ${s.label}` : ""}</span>
+        <div className="cq-stack" aria-hidden>
+          {parts.map((p) => (
+            <span key={p.label} style={{ width: `${(Math.max(p.value, 0) / partsTotal) * 100}%`, background: TONE_VAR[p.tone] }} />
+          ))}
+        </div>
+        <div className="cq-legend">
+          {parts.map((p) => (
+            <div key={p.label} className="cq-lg">
+              {swatch(p.tone)}
+              <span>{p.label}</span>
+              <span className="r">
+                {SYM} {money(p.value)}
+              </span>
+              <span className="r dim">{((Math.max(p.value, 0) / partsTotal) * 100).toFixed(0)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <dl className="qcard qkv">
+        {model.sizes.length > 1 ? (
+          <>
+            <dt>Lowest margin</dt>
+            <dd className={marginTone(model.sizes[lowestIdx]?.effectiveMarginPct ?? null)}>
+              {model.sizes[lowestIdx]?.effectiveMarginPct == null ? "—" : `${model.sizes[lowestIdx].effectiveMarginPct!.toFixed(1)}% (${model.sizes[lowestIdx].label})`}
+            </dd>
+          </>
+        ) : null}
+        {target != null ? (
+          <>
+            <dt>Sizes over buyer target</dt>
+            <dd className={overTarget ? "bad" : "good"}>
+              {overTarget} of {model.sizes.length}
+            </dd>
+          </>
+        ) : null}
+        {thisRev && model.history.length > 1 ? (
+          <>
+            <dt>vs previous revision</dt>
+            <dd>{changeText(thisRev.changePct)}</dd>
+          </>
+        ) : null}
+        <dt>Total cost{model.sizes.length > 1 ? ` · ${s.label}` : ""}</dt>
+        <dd>
+          {SYM} {money(s.grossCost)}
+        </dd>
+      </dl>
+    </aside>
+  );
+  const secCostQuote = (
+    <section className="cq" aria-label="Cost and quote">
+      {model.status === "rejected" && model.decisionRemark ? (
+        <div className="banner">
+          <b>Sent back for rework:</b> {model.decisionRemark}
+        </div>
+      ) : null}
+      <div className="cq-split">
+        <div className="cq-work">
+          {cqOps}
+          {secTrims}
+          {cqOver}
+          {cqTerms}
+          {cqQuote}
+        </div>
+        {cqValues}
+      </div>
+    </section>
+  );
+  /** The tab bar's end (user 2026-10-21, screenshot 115349): the FOB, its rupees and the margin, one line. */
+  const tabFob = (
+    <div className="cq-fob" aria-label="Quoted FOB">
+      <span className="cq-k">
+        {s.quoted != null ? "Quoted" : "Calculated"} FOB{model.sizes.length > 1 ? ` · ${s.label}` : ""}
+      </span>
+      <b>{fobShown == null ? "—" : `${ccy} ${fx(fobShown, 2)}`.trim()}</b>
+      {ccy && ccy !== "INR" && fobInr != null ? <span className="dim">₹ {fx(fobInr)}</span> : null}
+      <span className={`cq-chip ${marginTone(eff)}`} title={`Floor ${FLOOR_PCT}% · target ${MARGIN_TARGET_PCT}%`}>
+        Margin {eff == null ? "—" : `${eff.toFixed(1)}%`}
+      </span>
+    </div>
+  );
+
   /* REVISION HISTORY IS ITS OWN TAB (user 2026-10-15) — it sat under the quote and made
      the Quotation tab the most crowded one. */
   const secHistory =
@@ -1863,7 +2323,15 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
   /* `tone` — the cost colour a tab's card is topped in (Option B, 2026-10-16), the
      same `--cs-*` family as the section bars inside it. A tab that is not one cost
      takes none and stays neutral. */
-  const tabDefs = [
+  const tabDefs = merged
+    ? [
+        { label: "Details", hint: "buyer & style" },
+        { label: "Fabric", hint: `${SYM} ${money(s.fabric)} / ${model.unitWord}`, tone: "fabric" },
+        { label: "Cost & Quote", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}`, tone: "margin" },
+        { label: "Revisions", hint: model.history.length > 1 ? `${model.history.length} revisions` : "first revision" },
+        { label: "Charts", hint: "price at a glance" },
+      ]
+    : [
     { label: "Details", hint: "buyer & style" },
     { label: "Fabric", hint: `${SYM} ${money(s.fabric)} / ${model.unitWord}`, tone: "fabric" },
     { label: "Operations & trims", hint: `${SYM} ${money(s.cmt + s.process + s.testing + s.trims)} / ${model.unitWord}`, tone: "cmt" },
@@ -1872,6 +2340,10 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
     { label: "Revisions", hint: model.history.length > 1 ? `${model.history.length} revisions` : "first revision" },
     { label: "Charts", hint: "price at a glance" },
   ];
+  /** The tab that closes the document (its footer), and the Revisions / Charts tabs, by layout. */
+  const quoteTab = merged ? 2 : 4;
+  const historyTab = merged ? 3 : 5;
+  const chartsTab = merged ? 4 : 6;
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
@@ -2061,8 +2533,9 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                   <small>{t.hint}</small>
                 </button>
               ))}
+              {merged && tab === 2 ? tabFob : null}
             </div>
-            <div className="tpanel" role="tabpanel" id="cs-tabpanel" aria-labelledby={`cs-tab-${tab}`}>
+            <div className={merged && (tab === 1 || tab === 2) ? "tpanel cq-panel" : "tpanel"} role="tabpanel" id="cs-tabpanel" aria-labelledby={`cs-tab-${tab}`}>
               {/* THE STYLE PHOTO IS ON DETAILS (user 2026-10-17: "the fabric picture field move
                   to the details tab"), beside the sample, style and fabric facts it shows;
                   the Fabric tab gives Component consumption the whole row. */}
@@ -2075,7 +2548,19 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                   {photoRail}
                 </div>
               ) : null}
-              {tab === 1 ? (
+              {/* THE FABRIC TAB SPLIT (Costing 3, user 2026-10-21, artifact "Costing 3 Fabric
+                  Split"): Size-Wise and Component consumption on the left, hugging their
+                  columns; Fabric processing cost on the right, in the half that stood empty. */}
+              {merged && tab === 1 ? (
+                <div className="cq-fab">
+                  <div className="cq-fabL">
+                    {edit?.sizes}
+                    {secConsumption}
+                  </div>
+                  <div className="cq-fabR">{secFabric}</div>
+                </div>
+              ) : null}
+              {!merged && tab === 1 ? (
                 <>
                   {edit?.sizes}
                   {/* ONE COLUMN, ONE WIDTH (user 2026-10-17, screenshot 3607: "in report we align
@@ -2088,18 +2573,19 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
                   </div>
                 </>
               ) : null}
-              {tab === 2 ? secTri : null}
-              {tab === 3 ? secGarment : null}
-              {tab === 4 ? (
+              {merged && tab === 2 ? secCostQuote : null}
+              {!merged && tab === 2 ? secTri : null}
+              {!merged && tab === 3 ? secGarment : null}
+              {!merged && tab === 4 ? (
                 <>
                   {edit?.terms}
                   {secCommercial}
                 </>
               ) : null}
-              {tab === 5 ? secHistory : null}
+              {tab === historyTab ? secHistory : null}
               {/* CHARTS IS A TAB, NOT A VIEW (user 2026-10-15: "Charts is one of the tabs
                   after Revisions — remove Tabs and Charts from the top, Tabs is default"). */}
-              {tab === 6 ? (
+              {tab === chartsTab ? (
                 <CostCharts model={model} s={s} idx={idx} onSize={onSize} rows={wfRows} money={money} SYM={SYM} ccy={ccy} />
               ) : null}
             </div>
@@ -2112,7 +2598,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true }: {
           layum katta venda, quote and sign off la mattum") — it closes the document,
           and under Details or Fabric it is a closing line in the middle. The full
           page keeps it, where it really is the end. */}
-      {view !== "tabs" || tab === 4 ? (
+      {view !== "tabs" || tab === quoteTab ? (
         <footer className="foot">
           <span>Internal document. For the buyer, use the Quotation.</span>
           <span>{model.costingNo ?? ""} · {model.revision}</span>
@@ -3282,4 +3768,61 @@ const CSS = `
 .cs-sheet summary[data-tone="trims"] { --tone:var(--cs-trims); --tint:#fcf3df; --ink:#8a5a00; }
 .cs-sheet summary[data-tone="over"] { --tone:var(--cs-over); --tint:#efebfa; --ink:#5a44a8; }
 .cs-sheet details.plain > summary[data-tone] { padding:6px 10px; border-radius:6px; margin-bottom:6px; }
+/* COST & QUOTE — the merged split screen (Costing 3, 2026-10-21). Left: entry, one scroll.
+   Right: values, pinned while the left scrolls; past a screen's height it scrolls itself. */
+.cs-sheet .tpanel.cq-panel { width:auto; }
+.cs-sheet .ctabs .cq-fob { margin-left:auto; align-self:center; display:flex; align-items:baseline; gap:10px; padding:0 6px 0 16px; white-space:nowrap; }
+.cs-sheet .cq-k { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--cs-muted); }
+.cs-sheet .cq-fob b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:17px; font-weight:600; color:var(--cs-ink); }
+.cs-sheet .cq-fob .dim { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:12.5px; }
+.cs-sheet .cq-chip { font-size:12px; font-weight:700; padding:2px 9px; border-radius:999px; background:var(--cs-soft); font-variant-numeric:tabular-nums; }
+.cs-sheet .cq-chip.good { background:var(--cs-good-tint); color:var(--cs-good); } .cs-sheet .cq-chip.warn { background:var(--cs-warn-tint); color:var(--cs-warn); } .cs-sheet .cq-chip.bad { background:var(--cs-bad-tint); color:var(--cs-bad); }
+.cs-sheet .cq-split { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); gap:18px; align-items:start; }
+@media (max-width:1100px){ .cs-sheet .cq-split { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cq-work { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.cs-sheet .cq-values { display:flex; flex-direction:column; gap:12px; min-width:0; position:sticky; top:8px; max-height:calc(100vh - 16px); overflow:auto; }
+@media (max-width:1100px){ .cs-sheet .cq-values { position:static; max-height:none; overflow:visible; } }
+@media print { .cs-sheet .cq-values { position:static; max-height:none; overflow:visible; } }
+.cs-sheet .cq-band { min-width:0; }
+.cs-sheet summary.cq-fixed { cursor:default; list-style:none; }
+.cs-sheet summary.cq-fixed::-webkit-details-marker { display:none; }
+.cs-sheet summary.cq-fixed::marker { content:""; }
+.cs-sheet summary[data-tone="margin"] { --tone:var(--cs-margin); --tint:#e5f4ea; --ink:#1f6b3e; }
+/* One even grid of boxes: same width, labels on one line; a note under a box hangs in the row gap. */
+.cs-sheet .cq-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(132px,1fr)); gap:22px 14px; align-items:start; padding:10px 12px 14px; max-width:640px; }
+.cs-sheet .cq-f { display:flex; flex-direction:column; gap:3px; position:relative; min-width:0; }
+.cs-sheet .cq-l { font-size:11.5px; color:var(--cs-muted); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cs-sheet .cq-ro { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-weight:600; height:28px; display:flex; align-items:center; }
+.cs-sheet .cq-note { position:absolute; top:100%; left:0; margin-top:2px; font-size:10.5px; line-height:1.3; color:var(--cs-muted); white-space:nowrap; }
+.cs-sheet .cq-note button { font:inherit; font-weight:700; color:var(--cs-brand); background:none; border:0; padding:0; cursor:pointer; text-decoration:underline; }
+.cs-sheet .cq-type { height:28px; border-radius:6px; border:1px solid #037bb8; background:#fff; padding:0 6px; font-size:12px; font-weight:600; color:#0f1b26; }
+.cs-sheet .cq-hint { font-size:12px; color:var(--cs-muted); margin:6px 12px 0; }
+.cs-sheet .cq-qt { margin:10px 12px 0; }
+.cs-sheet .cq-pb { width:100%; }
+.cs-sheet .cq-pb table { width:100%; }
+.cs-sheet .cq-pb tr > :first-child { width:auto; min-width:170px; }
+.cs-sheet .cq-pb td .dim { color:var(--cs-muted); }
+.cs-sheet .cq-size { font:inherit; font-weight:700; color:inherit; background:none; border:0; padding:2px 6px; border-radius:6px; cursor:pointer; }
+.cs-sheet .cq-size:hover { color:var(--cs-brand); }
+.cs-sheet .cq-size[aria-current="true"] { background:var(--cs-brand); color:#fff; }
+.cs-sheet .cq-sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:6px; vertical-align:baseline; }
+.cs-sheet .cq-stack { display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--cs-soft); }
+.cs-sheet .cq-stack span { display:block; height:100%; }
+.cs-sheet .cq-legend { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:3px 8px; font-size:12px; align-items:center; }
+.cs-sheet .cq-lg { display:contents; }
+.cs-sheet .cq-legend .r { text-align:right; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; }
+.cs-sheet .cq-legend .dim { color:var(--cs-muted); }
+/* The merged Fabric tab: the left hugs Component consumption, the right takes the rest. */
+.cs-sheet .cq-fab { display:grid; grid-template-columns:fit-content(46%) minmax(0,1fr); gap:18px; align-items:start; }
+@media (max-width:1100px){ .cs-sheet .cq-fab { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cq-fabL { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.cs-sheet .cq-fabL > .blk { width:fit-content; max-width:100%; margin:0; }
+.cs-sheet .cq-fabR { min-width:0; container-type:inline-size; }
+.cs-sheet .cq-fabR > .blk { width:100%; max-width:none; margin:0; }
+/* Processes hug their two columns; Yarn takes the rest of the band (user 2026-10-21). */
+.cs-sheet .cq-fabR .fband .fsplit { grid-template-columns:minmax(0,1fr) auto; }
+.cs-sheet .cq-fabR .fband .fpart.p .ftab { width:auto; table-layout:fixed; }
+.cs-sheet .cq-fabR .fband .fpart.p .ftab col:first-child { width:10rem; }
+.cs-sheet .cq-fabR .fband .fpart.p .ftab col:nth-child(2) { width:6rem; }
+@container (max-width:640px){ .cs-sheet .cq-fabR .fband .fsplit { grid-template-columns:minmax(0,1fr); } }
 `;
