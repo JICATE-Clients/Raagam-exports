@@ -114,6 +114,14 @@ The actions that left the Tab path each keep a key, and the shortcuts sheet says
   needed only for a nested grid, and is now what Enter steers by. The eleven hand-rolled
   grids were swept on 2026-08-19; three of them (Attendance, GRN) legitimately cannot grow
   and pass nothing.
+- **A table may keep a blank end row INSTEAD of a "+ Add" button** (Costing 5, user
+  2026-10-21: "no more add row concept, using only the Enter key"). The row is always there
+  (`withTrailingRows`, `lib/sales/sample-costing/trailing-rows.ts`), typing into it makes it a
+  line and a fresh blank appears under it, and it is marked `data-row-tail` while untouched —
+  **Enter on a `data-row-tail` row skips its other cells and lands on whatever follows the
+  table** (`enterAdvances`). So Enter still never creates a row by itself, and the 2026-08-19
+  complaint stays fixed. Opt-in per table by the marker and the blank row; every other grid
+  keeps "+ Add". The save must drop the blank (it does for every cost-sheet table).
 - **Either way the cursor lands in the new row** (`landOnAddedRow`, one document
   listener). Only the
   keyboard half was ever built: the button added the row and kept the caret on itself, and

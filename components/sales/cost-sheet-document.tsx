@@ -8,6 +8,9 @@ import { AddCharge, CellPick, Ed, EdText, Pick, RemoveX, type EditOptions } from
 import { Button } from "@/components/ui/button";
 import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { Toggle } from "@/components/ui/toggle";
+import { Sheet as Overlay, type SheetOrigin } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
+import { Field, FieldRow } from "@/components/ui/field";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import { Input } from "@/components/ui/input";
@@ -20,8 +23,9 @@ import { GlassRing } from "@/components/orders/budget-breakdown-chart";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
 import { MARGIN_TARGET_PCT, hasYarnMix, quoteKey, sizesOf, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
-import { isBlankExtra, isBlankFabric, isBlankPieceLine, isBlankTrim, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type PieceLineKind, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
+import { isBlankExtra, isBlankFabric, isBlankPieceLine, isBlankProcess, isBlankTrim, isBlankWeight, isBlankYarn, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type PieceLineKind, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
 import { changeText } from "@/lib/sales/sample-costing/revision-history";
+import { withTrailingRows } from "@/lib/sales/sample-costing/trailing-rows";
 
 /**
  * THE SAMPLE COST SHEET — the page (2026-10-08, "think more modern and visual").
@@ -155,6 +159,10 @@ export function CostSheetDocument({
   merged = false,
   narrowValues = false,
   opsRow = false,
+  opsStack = false,
+  trimsByTick = false,
+  chargesTable = false,
+  enterFlow = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -185,6 +193,26 @@ export function CostSheetDocument({
    *  tables Costing 1 draws (no Type dropdown), then Overheads & charges | Terms. Off:
    *  Costing 3's one Operations table, each band on its own line. */
   opsRow?: boolean;
+  /** COSTING 5 (user 2026-10-21: "CMT operations — move this under Garment processes"):
+   *  with `opsRow`, row 1 is two columns — Garment processes with CMT operations under it,
+   *  and Trims beside the pair, the full height of both. Off: the three side by side. */
+  opsStack?: boolean;
+  /** COSTING 5 (user 2026-10-21, artifact "Trims Direct Rate" v4 — "the unticked item inside
+   *  a pop box"): Trims is four columns, Trim · Direct Rate · Rate · Cost. Ticked: Rate is the
+   *  ₹ / pc box. Unticked: Rate is a pack button ("1 per 12 @ ₹ 30 · 2.50 /pc") that opens a
+   *  small box with No of Items, No of Pcs, Cons Qty and Rate per pack; unticking opens it.
+   *  Off: every row shows every column, as today. */
+  trimsByTick?: boolean;
+  /** COSTING 5 (user 2026-10-21, artifact "Charges, Terms & Quote"): Overheads & charges,
+   *  Terms and Quoted price are ONE table — Item · Type · Value headed once, a shaded band
+   *  row per section. Off: three boxes side by side (`opsRow`) or stacked. */
+  chargesTable?: boolean;
+  /** COSTING 5 (user 2026-10-21: "no more add row concept, using only the Enter key the user
+   *  should work in costing entry end to end"): every table ends with one blank row
+   *  (`withTrailingRows`), no "+ Add" button is drawn, Enter on the untouched blank row
+   *  leaves the table (`data-row-tail`), and Trims' Direct Rate tick is off the Enter path.
+   *  Off: the "+ Add row" buttons, as today. */
+  enterFlow?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -293,7 +321,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} opsStack={opsStack} trimsByTick={trimsByTick} chargesTable={chargesTable} enterFlow={enterFlow} />
     </div>
   );
 }
@@ -305,7 +333,12 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean }) {
+function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false, trimsByTick = false, chargesTable = false, enterFlow = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean; /** See `CostSheetDocument`'s `trimsByTick`. */ trimsByTick?: boolean; /** See `CostSheetDocument`'s `chargesTable`. */ chargesTable?: boolean; /** See `CostSheetDocument`'s `enterFlow`. */ enterFlow?: boolean }) {
+  /* enterFlow: the sheet draws (and every edit writes back) the draft with one blank row at
+     the end of each table. Same draft in, same blanks out — the keys are deterministic. */
+  const edit = enterFlow && editIn ? { ...editIn, draft: withTrailingRows(editIn.draft) } : editIn;
+  /** enterFlow: marks a table's blank end row — Enter there before typing leaves the table. */
+  const tailIf = (blank: boolean) => (enterFlow && blank ? { "data-row-tail": "" } : {});
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -320,6 +353,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   // it as first details tab") — reverses 10-14's Quotation default. The sheet
   // reads left to right from who and what is being costed.
   const [tab, setTab] = useState(0);
+  /** trimsByTick: the trim whose pack box is open, and the button it grows out of. */
+  const [pack, setPack] = useState<{ key: string; origin: SheetOrigin | null } | null>(null);
   /* Fabric bands fold (plan "Fabric Cost Single Table", 2026-10-16): ONE fabric open at a
      time, the first one to begin with — the shared accordion (AGENTS "Folds are accordions"). */
   const fabFold = useAccordion(edit?.draft.fabrics[0]?.key ?? null);
@@ -538,7 +573,11 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                 </thead>
                 <tbody {...gridBody}>
                   {weightRows.map((r, i) => (
-                    <tr key={r.wkeys[0] ?? i} data-grid-row>
+                    <tr
+                      key={r.wkeys[0] ?? i}
+                      data-grid-row
+                      {...tailIf(r.componentIds.length === 0 && !r.fabricKey && (edit?.draft.weights.filter((w) => r.wkeys.includes(w.key)) ?? []).every(isBlankWeight))}
+                    >
                       {model.pieceCount > 1 ? <td>{edit?.options ? <CellPick label="Piece" options={edit.draft.pieces.map((p) => ({ id: p.key, name: p.piece_name || "GARMENT" }))} value={{ id: r.pieceKey, name: r.piece }} onPick={(v) => v.id && setLine(r, { piece_key: v.id })} /> : r.piece}</td> : null}
                       <td>
                         {/* SEVERAL COMPONENTS ON ONE LINE (client 2026-10-17): Front, Back and
@@ -596,7 +635,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                       ) : null}
                     </tr>
                   ))}
-                  {edit?.options ? (
+                  {edit?.options && !enterFlow ? (
                     <tr className="addrow">
                       <td colSpan={consumptionCols}>
                         <Button type="button" variant="outline" size="sm" data-row-add onClick={addWeightLine}>
@@ -774,12 +813,13 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
        chose by folding stays null. */
     const held = fabFold.openKey;
     const openKey = held !== null && !shown.some((x) => x.key === held) ? (shown[0]?.key ?? null) : held;
-    const addLink = (label: string, onClick: () => void) => (
-      <button type="button" data-row-add className="faddrow" onClick={onClick}>
-        <Plus className="h-3.5 w-3.5" aria-hidden />
-        {label}
-      </button>
-    );
+    const addLink = (label: string, onClick: () => void) =>
+      enterFlow ? null : (
+        <button type="button" data-row-add className="faddrow" onClick={onClick}>
+          <Plus className="h-3.5 w-3.5" aria-hidden />
+          {label}
+        </button>
+      );
     if (!shown.length) return <p className="fempty">Pick a fabric in Component consumption above. It is priced here.</p>;
     return (
       <div className="appgrid fsheet fband">
@@ -914,7 +954,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                               </thead>
                               <tbody>
                                 {yarnLines.map((y, i) => (
-                                  <tr key={y?.key ?? `${f.key}-y`} data-grid-row data-hover-row>
+                                  <tr key={y?.key ?? `${f.key}-y`} data-grid-row data-hover-row {...tailIf(!!y && isBlankYarn(y))}>
                                     <td className="in">
                                       <TypeOrPick
                                         label="Yarn"
@@ -979,7 +1019,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                               </thead>
                               <tbody>
                                 {procLines.map((q) => (
-                                  <tr key={q?.key ?? `${f.key}-p`} data-grid-row data-hover-row>
+                                  <tr key={q?.key ?? `${f.key}-p`} data-grid-row data-hover-row {...tailIf(!!q && isBlankProcess(q))}>
                                     <td className="in">
                                       <TypeOrPick
                                         label="Process"
@@ -1207,7 +1247,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
     if (open) return focusLine(open.key);
     edit.onChange({ ...edit.draft, trims: [...edit.draft.trims, newTrim(edit.draft.pieces[0]?.key ?? "")] });
   };
-  const addRow = (cols: number, onClick: () => void) => (
+  const addRow = (cols: number, onClick: () => void) =>
+    enterFlow ? null : (
     <tr className="addrow">
       <td colSpan={cols}>
         <Button type="button" variant="outline" size="sm" data-row-add onClick={onClick}>
@@ -1218,7 +1259,16 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
     </tr>
   );
   const opCols = (model.pieceCount > 1 ? 1 : 0) + 2 + (edit ? 1 : 0);
-  const trimCols = (model.pieceCount > 1 ? 1 : 0) + 7 + (edit ? 1 : 0);
+  /** enterFlow: the operation lines still blank — each table's end row. */
+  const blankLineKeys = new Set((edit?.draft.pieces ?? []).flatMap((p) => p.lines.filter(isBlankPieceLine).map((l) => l.key)));
+  /** A trim row's Direct Rate: the draft's tick while editing, the saved one otherwise. */
+  const trimDirect = (t: TrimRow) => {
+    const d = edit?.draft.trims.find((x) => x.key === t.key);
+    return d ? d.is_direct !== false : t.direct;
+  };
+  // trimsByTick: No of Items / No of Pcs / Cons Qty live in the pack box, never as columns.
+  const packCols = !trimsByTick;
+  const trimCols = (model.pieceCount > 1 ? 1 : 0) + (packCols ? 7 : 4) + (edit ? 1 : 0);
 
   /* A merged band's summary does not fold (class `cq-fixed` — NEVER `fixed`, which is
      Tailwind's position:fixed and floated every band header off its band, screenshot 3630): nothing on Cost & Quote closes (user
@@ -1226,10 +1276,66 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   const fixedSum = merged ? { className: "cq-fixed", tabIndex: -1, onClick: (e: ReactMouseEvent) => e.preventDefault() } : {};
   /* Trims is its own band in both layouts: inside "Operations & trims", and on the
      merged Cost & Quote screen's left side. */
+  /** A pack in short, for the pack button: "1 per 12 @ ₹ 30.00". */
+  const packSummary = (qty: string, pcs: string, price: string) =>
+    !qty && !pcs && !price ? "Fill pack details" : `${qty || 0} per ${pcs || 0} @ ${SYM} ${money(Number(price) || 0)}`;
+  const packD = pack ? edit?.draft.trims.find((x) => x.key === pack.key) : undefined;
+  const packRow = pack ? [...model.trims, ...blankTrims].find((x) => x.key === pack.key) : undefined;
+  const setPackTrim = (patch: Partial<NonNullable<typeof packD>>) => packD && edit?.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, packD.key, patch) });
+  /** Done / Esc: back to the row — its pack button, or Rate if the trim was ticked meanwhile. */
+  const closePack = () => {
+    const key = pack?.key;
+    setPack(null);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-line-key="${key}"] :is(.cq-pack, input[aria-label*="— rate"])`)?.focus());
+  };
+  /* THE PACK BOX (Costing 5). A [Click] sub-detail of the open costing with no save of its
+     own, so the shape AGENTS.md "A sub-detail Sheet's size" names: `sm`, centred over the
+     pane, grown from the button, Done in the footer. The figures write straight into the
+     draft and save with the costing's Save. */
+  const packBox = (
+    <Overlay
+      open={!!(pack && packD)}
+      onClose={closePack}
+      size="sm"
+      alignToPane
+      origin={pack?.origin ?? null}
+      title={`Pack — ${packRow?.name || "trim"}`}
+      footer={<SubSheetFooter onDone={closePack} parent="costing" />}
+    >
+      {packD ? (
+        <div className="flex flex-col gap-4">
+          {/* One row (user 2026-10-21, screenshot 3639): Items · Pcs · Cons Qty · Rate per pack. */}
+          <FieldRow>
+            <Field label="No of Items" w="range" htmlFor="cs-pack-items">
+              <NumInput id="cs-pack-items" autoFocus value={packD.qty} onChange={(e) => setPackTrim({ qty: e.target.value })} />
+            </Field>
+            <Field label="No of Pcs" w="range" htmlFor="cs-pack-pcs">
+              <NumInput id="cs-pack-pcs" value={packD.pack_size} onChange={(e) => setPackTrim({ pack_size: e.target.value })} />
+            </Field>
+            <Field label="Cons Qty" w="range" htmlFor="cs-pack-cons">
+              <Input id="cs-pack-cons" readOnly className="text-right tabular-nums" value={packRow?.consQty ? packRow.consQty.toFixed(3) : ""} />
+            </Field>
+            <Field label={`Rate ${SYM} per pack`} w="range" htmlFor="cs-pack-rate">
+              <ShownAmount rate={rate} value={packD.pack_price} onChange={(v) => setPackTrim({ pack_price: v })}>
+                {(v, setV) => <NumInput id="cs-pack-rate" value={v} onChange={(e) => setV(e.target.value)} />}
+              </ShownAmount>
+            </Field>
+          </FieldRow>
+          <p className="rounded-md bg-[var(--surface-2,#f7f9fb)] px-3 py-2 text-sm text-[var(--muted-foreground,#5d6b79)] tabular-nums">
+            {packD.qty || 0} ÷ {packD.pack_size || 0} = {(packRow?.consQty ?? 0).toFixed(3)} × {SYM} {money(Number(packD.pack_price) || 0)} ={" "}
+            <b className="text-[var(--foreground,#0f1b26)]">
+              {SYM} {money(packRow?.cost ?? 0)}
+            </b>{" "}
+            a piece
+          </p>
+        </div>
+      ) : null}
+    </Overlay>
+  );
   const secTrims = (
         <>
           {model.trims.length || edit?.options ? (
-            <details open className={merged ? "cq-band" : undefined}>
+            <details open className={merged ? "cq-band cq-op-trims" : undefined}>
               <summary data-tone="trims" {...fixedSum}>
                 Trims &amp; accessories <span>{SYM} {money(s.trims)} / {model.unitWord}</span>
               </summary>
@@ -1241,17 +1347,21 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                       <th className="c-name">Trim</th>
                       {/* The old RP labels, word for word (client 2026-10-17). */}
                       <th className="c-tick">Direct Rate</th>
-                      <th className="r c-qty">No of Items</th>
-                      <th className="r c-qty">No of Pcs</th>
-                      <th className="r c-qty">Cons Qty</th>
-                      <th className="r c-num">Rate {SYM}</th>
+                      {packCols ? (
+                        <>
+                          <th className={trimsByTick ? "r c-qty c-pack" : "r c-qty"}>No of Items</th>
+                          <th className={trimsByTick ? "r c-qty c-pack" : "r c-qty"}>No of Pcs</th>
+                          <th className={trimsByTick ? "r c-qty c-pack" : "r c-qty"}>Cons Qty</th>
+                        </>
+                      ) : null}
+                      <th className={trimsByTick ? "r c-num c-rate" : "r c-num"}>Rate {SYM}</th>
                       <th className="r c-num">Cost {SYM}</th>
                       {actHead}
                     </tr>
                   </thead>
                   <tbody {...gridBody}>
                     {[...model.trims, ...blankTrims].map((t) => (
-                      <tr key={t.key} data-grid-row data-line-key={t.key}>
+                      <tr key={t.key} data-grid-row data-line-key={t.key} {...tailIf(blankTrims.some((b) => b.key === t.key))}>
                         {model.pieceCount > 1 ? <td>{trimPiece(t)}</td> : null}
                         <td>{trimName(t)}</td>
                         {(() => {
@@ -1260,16 +1370,66 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                              Qty (read-only — the back end divides), Rate is the pack's price. */
                           const d = edit?.draft.trims.find((x) => x.key === t.key);
                           const set = (patch: Partial<NonNullable<typeof d>>) => d && edit?.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, d.key, patch) });
-                          const direct = d ? d.is_direct !== false : t.direct;
+                          const direct = trimDirect(t);
+                          /* trimsByTick: a tick moves the cursor to the box that now matters — No of
+                             Items when the pack fields appear, Rate when they go. */
+                          const onTick = (checked: boolean, el: HTMLElement) => {
+                            set({ is_direct: checked });
+                            if (!trimsByTick) return;
+                            if (!checked) {
+                              setPack({ key: t.key, origin: el.getBoundingClientRect() });
+                              return;
+                            }
+                            requestAnimationFrame(() => {
+                              document.querySelector<HTMLInputElement>(`tr[data-line-key="${t.key}"] input[aria-label*="— rate"]`)?.focus();
+                            });
+                          };
                           return (
                             <>
-                              <td className="c">
-                                {edit && d ? <input type="checkbox" aria-label={`${t.name || "Trim"} — direct rate`} checked={direct} onChange={(e) => set({ is_direct: e.target.checked })} /> : t.direct ? "✓" : ""}
+                              {/* enterFlow: the tick changes what the row means, so it is reached on
+                                  purpose (← from Rate, or the mouse), never by Enter's rhythm — Enter on
+                                  a tick box toggles it, which would untick every trim walked past. */}
+                              <td className="c" data-focus-optional={enterFlow ? "" : undefined}>
+                                {edit && d ? <input type="checkbox" aria-label={`${t.name || "Trim"} — direct rate`} checked={direct} onChange={(e) => onTick(e.target.checked, e.currentTarget)} /> : t.direct ? "✓" : ""}
                               </td>
-                              <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of items`} value={d.qty} onChange={(v) => set({ qty: v })} /> : t.items}</td>
-                              <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of pcs`} value={d.pack_size} onChange={(v) => set({ pack_size: v })} /> : t.pcs}</td>
-                              <td className="r dim">{t.consQty ? t.consQty.toFixed(3) : ""}</td>
-                              <td className="r">
+                              {!packCols ? null : trimsByTick && direct ? (
+                                <>
+                                  {/* Hidden, not greyed (user 2026-10-21): a direct trim has no pack. */}
+                                  <td />
+                                  <td />
+                                  <td />
+                                </>
+                              ) : (
+                                <>
+                                  <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of items`} value={d.qty} onChange={(v) => set({ qty: v })} /> : t.items}</td>
+                                  <td className="r">{edit && d && !direct ? <Ed w="w-16" label={`${t.name} — no of pcs`} value={d.pack_size} onChange={(v) => set({ pack_size: v })} /> : t.pcs}</td>
+                                  <td className="r dim">{t.consQty ? t.consQty.toFixed(3) : ""}</td>
+                                </>
+                              )}
+                              {trimsByTick && !direct ? (
+                                <td className="cq-packcell">
+                                  {edit && d ? (
+                                    <button
+                                      type="button"
+                                      className="cq-pack"
+                                      aria-haspopup="dialog"
+                                      aria-label={`${t.name || "Trim"} — pack details`}
+                                      onClick={(e) => setPack({ key: t.key, origin: e.currentTarget.getBoundingClientRect() })}
+                                    >
+                                      <span className="cq-packsum">{packSummary(d.qty, d.pack_size, d.pack_price)}</span>
+                                      <span className="cq-packrt">
+                                        {money(t.cost)}
+                                        <small>/pc</small>
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <span className="cq-packview">
+                                      {t.items} per {t.pcs} @ {SYM} {money(t.rate)} · {money(t.cost)} /pc
+                                    </span>
+                                  )}
+                                </td>
+                              ) : (
+                              <td className={trimsByTick ? "r cq-unit" : "r"} data-unit={trimsByTick ? "/pc" : undefined}>
                                 {edit && d ? (
                                   direct ? (
                                     <ShownAmount rate={rate} value={d.rate} onChange={(v) => set({ rate: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
@@ -1280,6 +1440,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                                   money(t.rate)
                                 )}
                               </td>
+                              )}
                             </>
                           );
                         })()}
@@ -1299,13 +1460,14 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
               </div>
             </details>
           ) : null}
+          {trimsByTick ? packBox : null}
         </>
   );
 
   const secTri = (
         <section className="tri" aria-label="Processes, CMT and trims">
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
-            <details open>
+            <details open className="cq-op-proc">
               <summary data-tone="fabric" {...fixedSum}>
                 Garment processes <span>{SYM} {money(s.process + s.testing)} / {model.unitWord}</span>
               </summary>
@@ -1324,7 +1486,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                       made this band's total disagree with the "Operations & trims" chip above. */}
                   <tbody {...gridBody}>
                     {[...model.ops.filter((o) => o.kind !== "CMT"), ...blankOps("embellishment")].map((o, i) => (
-                      <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
+                      <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined} {...tailIf(!!o.lineKey && blankLineKeys.has(o.lineKey))}>
                         {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
                         <td>{opName(o)}</td>
                         <td className="r">{opRate(o)}</td>
@@ -1340,7 +1502,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
             </details>
           ) : null}
           {model.ops.some((o) => o.kind === "CMT") || edit?.options ? (
-            <details open>
+            <details open className="cq-op-cmt">
               <summary data-tone="cmt" {...fixedSum}>
                 CMT operations <span>{SYM} {money(s.cmt)} / {model.unitWord}</span>
               </summary>
@@ -1356,7 +1518,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                   </thead>
                   <tbody {...gridBody}>
                     {[...model.ops.filter((o) => o.kind === "CMT"), ...blankOps("cmt")].map((o, i) => (
-                      <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
+                      <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined} {...tailIf(!!o.lineKey && blankLineKeys.has(o.lineKey))}>
                         {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
                         <td>{opName(o)}</td>
                         <td className="r">{opRate(o)}</td>
@@ -1510,7 +1672,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                   ))}
                 </tbody>
               </table>
-              {edit ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
+              {edit && !enterFlow ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
             </div>
           </details>
         </section>
@@ -1862,7 +2024,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
             </thead>
             <tbody {...gridBody}>
               {allOps.map((o, i) => (
-                <tr key={o.lineKey ?? `${o.field}-${o.pieceKey}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
+                <tr key={o.lineKey ?? `${o.field}-${o.pieceKey}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined} {...tailIf(!!o.lineKey && blankLineKeys.has(o.lineKey))}>
                   {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
                   <td>{opType(o)}</td>
                   <td>{opName(o)}</td>
@@ -1940,7 +2102,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                 }
                 const set = (patch: Partial<typeof x>) => edit.onChange({ ...edit.draft, extras: patchBy(edit.draft.extras, x.key, patch) });
                 return (
-                  <tr key={x.key} data-grid-row>
+                  <tr key={x.key} data-grid-row {...tailIf(isBlankExtra(x))}>
                     <td>
                       <EdText label="Charge name" value={x.name} onChange={(v) => set({ name: v })} />
                     </td>
@@ -1974,7 +2136,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           </table>
         </div>
       ) : null}
-      {edit ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
+      {edit && !enterFlow ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
     </details>
   );
 
@@ -2232,7 +2394,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           {opsRow ? (
             <>
               {/* Costing 4: Costing 1's three tables in one row, then Overheads | Terms | Quoted price. */}
-              <div className="cq-row3">{secTri}</div>
+              <div className={opsStack ? "cq-row3 cq-opstack" : "cq-row3"}>{secTri}</div>
               <div className="cq-row2">
                 {cqOver}
                 {cqTerms}
@@ -3922,6 +4084,29 @@ const CSS = `
    tracking and padding), and the three boxes stretch to one height. */
 .cs-sheet .cq-row3 summary[data-tone] { padding:7px 10px; letter-spacing:.03em; gap:8px; white-space:nowrap; }
 .cs-sheet .cq-row3 summary[data-tone] span { white-space:nowrap; }
+/* Costing 5 (user 2026-10-21): CMT operations under Garment processes, Trims beside the
+   pair at the full height of both — and with Trims' seven columns given the wider side.
+   NOT "cq-stack": that is the price bar's class (height 12px, overflow hidden), and reusing
+   it squeezed this whole row to a 12px strip (screenshot 3637). */
+.cs-sheet .cq-row3.cq-opstack .tri { grid-template-columns:minmax(0,1fr) minmax(0,1.8fr); grid-template-areas:"proc trims" "cmt trims"; align-items:start; }
+.cs-sheet .cq-row3.cq-opstack .cq-op-proc { grid-area:proc; }
+.cs-sheet .cq-row3.cq-opstack .cq-op-cmt { grid-area:cmt; }
+.cs-sheet .cq-row3.cq-opstack .cq-op-trims { grid-area:trims; align-self:stretch; }
+/* trimsByTick (Costing 5): the pack group's headings carry a light shade; the Rate box names
+   its unit (/pc or /pack) in its own right padding. */
+.cs-sheet .tri th.c-pack { background:#f7f9fb; }
+/* The pack button (Costing 5): an unticked trim's Rate cell, reading its pack in short. */
+.cs-sheet .tri td.cq-packcell { padding:2px 4px; }
+.cs-sheet .cq-pack { width:100%; height:26px; display:flex; align-items:center; justify-content:space-between; gap:6px; font:inherit; font-size:12px; background:#f7f9fb; color:var(--cs-ink); border:1px dashed #9fcbe6; border-radius:6px; padding:0 8px; cursor:pointer; }
+.cs-sheet .cq-pack:hover, .cs-sheet .cq-pack:focus-visible { border-style:solid; border-color:#037bb8; outline:none; }
+.cs-sheet .cq-packsum { color:var(--cs-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs-sheet .cq-packrt { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-weight:600; white-space:nowrap; }
+.cs-sheet .cq-packrt small { font-family:inherit; font-weight:500; color:var(--cs-muted); margin-left:3px; font-size:10.5px; }
+.cs-sheet .cq-packview { font-size:12px; color:var(--cs-muted); white-space:nowrap; }
+.cs-sheet .tri th.c-rate { width:7rem; }
+.cs-sheet .tri td.cq-unit { position:relative; padding-right:2.6rem !important; }
+.cs-sheet .tri td.cq-unit::after { content:attr(data-unit); position:absolute; right:6px; top:50%; transform:translateY(-50%); font-size:10.5px; font-weight:500; color:var(--cs-muted); pointer-events:none; }
+@media (max-width:900px){ .cs-sheet .cq-row3.cq-opstack .tri { grid-template-columns:minmax(0,1fr); grid-template-areas:"proc" "cmt" "trims"; } }
 .cs-sheet .cq-row2 .cq-grid { grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:22px 12px; max-width:none; }
 /* The merged Fabric tab: the left hugs Component consumption, the right takes the rest. */
 .cs-sheet .cq-fab { display:grid; grid-template-columns:fit-content(46%) minmax(0,1fr); gap:18px; align-items:start; }

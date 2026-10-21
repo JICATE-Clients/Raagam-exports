@@ -963,10 +963,11 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/sales/sample-entry", label: "Sample Entry", description: "Raise a sample — customer, styles, product info, combos and quantities" },
           { href: "/sales/sample-costing", label: "Costing", description: "Cost a sample style — fabric, CMT, embellishments and trims — send it to the buyer and record their answer" },
           // TEST ROWS (user 2026-10-21): Costing 2 is the ledger duplicate, Costing 3 a verbatim
-          // copy of Costing, Costing 4 a copy of Costing 3, listed so users can try them beside the real screen. Remove when one replaces the other.
+          // copy of Costing, Costing 4 a copy of Costing 3, Costing 5 of Costing 4, listed so users can try them beside the real screen. Remove when one replaces the other.
           { href: "/sales/sample-costing/ledger", label: "Costing 2", description: "Test copy of Costing with the single-screen ledger entry — same records, different editor" },
           { href: "/sales/sample-costing/costing-3", label: "Costing 3", description: "Test copy of Costing — same records, the original screen unchanged" },
           { href: "/sales/sample-costing/costing-4", label: "Costing 4", description: "Test copy of Costing 3 — same records, Costing 3 unchanged" },
+          { href: "/sales/sample-costing/costing-5", label: "Costing 5", description: "Test copy of Costing 4 with CMT under Garment processes — same records, Costing 4 unchanged" },
           { href: "/sales/sample-grouping", label: "Grouping", description: "Batch sample styles of one season into one fabric purchase" },
           { href: "/sales/sample-fabric-plan", label: "Fabric Plan", description: "Fabric for the sample work orders — consumption, dia and dyeing" },
           { href: "/sales/sample-accessories-plan", label: "Accessories Plan", description: "Sewing and packing accessories for the sample work orders" },
