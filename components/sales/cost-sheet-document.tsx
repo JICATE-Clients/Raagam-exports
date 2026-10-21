@@ -153,6 +153,8 @@ export function CostSheetDocument({
   quietDownload = false,
   entry = false,
   merged = false,
+  narrowValues = false,
+  opsRow = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -174,6 +176,15 @@ export function CostSheetDocument({
   /** COSTING 3 (user 2026-10-21): Operations, Overheads and Quotation as ONE split-screen
    *  "Cost & Quote" tab — see `secCostQuote`. Off: the seven tabs, unchanged. */
   merged?: boolean;
+  /** COSTING 4 (user 2026-10-21: "compact the section, make it 25% of the screen"): with
+   *  `merged`, the Price build side takes a quarter of the width, set tight. Off: Costing 3's
+   *  even split. */
+  narrowValues?: boolean;
+  /** COSTING 4 (user 2026-10-21, artifact "Costing 4 Operations"): with `merged`, Cost &
+   *  Quote's left side is two rows — Garment processes | CMT operations | Trims as the three
+   *  tables Costing 1 draws (no Type dropdown), then Overheads & charges | Terms. Off:
+   *  Costing 3's one Operations table, each band on its own line. */
+  opsRow?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -282,7 +293,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} />
     </div>
   );
 }
@@ -294,7 +305,7 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean }) {
+function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean }) {
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -1295,7 +1306,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
         <section className="tri" aria-label="Processes, CMT and trims">
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
             <details open>
-              <summary data-tone="fabric">
+              <summary data-tone="fabric" {...fixedSum}>
                 Garment processes <span>{SYM} {money(s.process + s.testing)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
@@ -1330,7 +1341,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           ) : null}
           {model.ops.some((o) => o.kind === "CMT") || edit?.options ? (
             <details open>
-              <summary data-tone="cmt">
+              <summary data-tone="cmt" {...fixedSum}>
                 CMT operations <span>{SYM} {money(s.cmt)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
@@ -2194,12 +2205,25 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           <b>Sent back for rework:</b> {model.decisionRemark}
         </div>
       ) : null}
-      <div className="cq-split">
+      <div className={narrowValues ? "cq-split cq-narrow" : "cq-split"}>
         <div className="cq-work">
-          {cqOps}
-          {secTrims}
-          {cqOver}
-          {cqTerms}
+          {opsRow ? (
+            <>
+              {/* Costing 4: Costing 1's three tables in one row, then Overheads beside Terms. */}
+              {secTri}
+              <div className="cq-row2">
+                {cqOver}
+                {cqTerms}
+              </div>
+            </>
+          ) : (
+            <>
+              {cqOps}
+              {secTrims}
+              {cqOver}
+              {cqTerms}
+            </>
+          )}
           {cqQuote}
         </div>
         {cqValues}
@@ -3812,6 +3836,28 @@ const CSS = `
 .cs-sheet .cq-lg { display:contents; }
 .cs-sheet .cq-legend .r { text-align:right; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; }
 .cs-sheet .cq-legend .dim { color:var(--cs-muted); }
+/* Costing 4 (user 2026-10-21): the values side is a quarter of the width, so everything in
+   it is set tight — smaller type, slimmer cells, a label column that wraps rather than
+   pushing the sizes off the edge. Below 1100px the split stacks as before. */
+.cs-sheet .cq-split.cq-narrow { grid-template-columns:minmax(0,3fr) minmax(0,1fr); gap:14px; }
+@media (max-width:1100px){ .cs-sheet .cq-split.cq-narrow { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cq-narrow .cq-values { gap:8px; }
+.cs-sheet .cq-narrow .cq-pb table { font-size:11.5px; }
+.cs-sheet .cq-narrow .cq-pb th { padding:4px 5px; font-size:11px; }
+.cs-sheet .cq-narrow .cq-pb td { height:23px; padding:0 5px; }
+.cs-sheet .cq-narrow .cq-pb tr > :first-child { min-width:0; white-space:normal; line-height:1.2; }
+.cs-sheet .cq-narrow .cq-pb tr.grp td { height:20px; }
+.cs-sheet .cq-narrow .cq-size { padding:1px 4px; }
+.cs-sheet .cq-narrow .cq-sw { width:8px; height:8px; margin-right:4px; }
+.cs-sheet .cq-narrow .qcard { padding:8px; gap:5px; }
+.cs-sheet .cq-narrow .cq-legend { font-size:11px; gap:2px 6px; }
+.cs-sheet .cq-narrow .qkv { font-size:11.5px; gap:3px 8px; }
+/* Costing 4 (user 2026-10-21): Overheads & charges and Terms share one row, even halves;
+   a narrow pane stacks them. The three operation tables above use Costing 1's .tri row. */
+.cs-sheet .cq-row2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; align-items:stretch; min-width:0; }
+@media (max-width:900px){ .cs-sheet .cq-row2 { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cq-row2 > .cq-band { margin:0; }
+.cs-sheet .cq-row2 .cq-grid { grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:22px 12px; max-width:none; }
 /* The merged Fabric tab: the left hugs Component consumption, the right takes the rest. */
 .cs-sheet .cq-fab { display:grid; grid-template-columns:fit-content(46%) minmax(0,1fr); gap:18px; align-items:start; }
 @media (max-width:1100px){ .cs-sheet .cq-fab { grid-template-columns:minmax(0,1fr); } }
