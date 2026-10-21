@@ -2094,9 +2094,23 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   const anyExtra = model.sizes.some((x) => x.extraOverhead);
   const parts = shownParts(s, model.exchangeRate);
   const partsTotal = parts.reduce((a, p) => a + Math.max(p.value, 0), 0) || 1;
+  /* COSTING 4's right side holds the Price build and nothing that repeats it (user 2026-10-21):
+     no "Where the price goes" list (its six figures are the Price build's own — a thin bar
+     under the heading keeps the split), no Total cost card (the table's own row), and
+     Freight & insurance only when some size carries it. The warnings stay, each shown only
+     when it has something to say. */
+  const anyFi = model.sizes.some((x) => fiOf(x));
+  const showKv = !narrowValues || model.sizes.length > 1 || target != null || !!(thisRev && model.history.length > 1);
   const cqValues = (
     <aside className="cq-values" aria-label="Worked-out values">
       <div className="qt cq-pb">
+        {narrowValues ? (
+          <div className="cq-bar" role="img" aria-label={`Where the price goes${model.sizes.length > 1 ? `, size ${s.label}` : ""}: ${parts.map((p) => `${p.label} ${((Math.max(p.value, 0) / partsTotal) * 100).toFixed(0)}%`).join(", ")}`}>
+            {parts.map((p) => (
+              <span key={p.label} title={`${p.label} · ${SYM} ${money(p.value)} · ${((Math.max(p.value, 0) / partsTotal) * 100).toFixed(0)}%`} style={{ width: `${(Math.max(p.value, 0) / partsTotal) * 100}%`, background: TONE_VAR[p.tone] }} />
+            ))}
+          </div>
+        ) : null}
         <table aria-label="Price build per size">
           <thead>
             <tr>
@@ -2133,7 +2147,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
             {anyDisc ? pbRow("Discount", (x) => `−${money(x.discount)}`) : null}
             {anyAdj ? pbRow("Price charges", (x) => money(x.priceAdj)) : null}
             {pbRow(`Selling price ${SYM}`, (x) => money(x.price), "sum")}
-            {pbRow("Freight & insurance", (x) => money(fiOf(x)))}
+            {!narrowValues || anyFi ? pbRow("Freight & insurance", (x) => money(fiOf(x))) : null}
             {pbHead(`Quote · ${ccy || "FOB"}${model.exchangeRate != null ? ` at ₹ ${fx(model.exchangeRate)}` : ""}`)}
             {pbRow("Calculated FOB", (x) => (x.calc == null ? "—" : fx(x.calc, 4)))}
             {pbRow("Quoted FOB", (x) => (x.quoted == null ? <span className="dim">{x.calc == null ? "—" : fx(x.calc, 2)}</span> : fx(x.quoted, 2)), "cur")}
@@ -2148,6 +2162,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           </tbody>
         </table>
       </div>
+      {narrowValues ? null : (
       <div className="qcard">
         <span className="cq-k">Where the price goes{model.sizes.length > 1 ? ` · ${s.label}` : ""}</span>
         <div className="cq-stack" aria-hidden>
@@ -2168,6 +2183,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           ))}
         </div>
       </div>
+      )}
+      {showKv ? (
       <dl className="qcard qkv">
         {model.sizes.length > 1 ? (
           <>
@@ -2191,11 +2208,16 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
             <dd>{changeText(thisRev.changePct)}</dd>
           </>
         ) : null}
-        <dt>Total cost{model.sizes.length > 1 ? ` · ${s.label}` : ""}</dt>
-        <dd>
-          {SYM} {money(s.grossCost)}
-        </dd>
+        {narrowValues ? null : (
+          <>
+            <dt>Total cost{model.sizes.length > 1 ? ` · ${s.label}` : ""}</dt>
+            <dd>
+              {SYM} {money(s.grossCost)}
+            </dd>
+          </>
+        )}
       </dl>
+      ) : null}
     </aside>
   );
   const secCostQuote = (
@@ -3853,6 +3875,8 @@ const CSS = `
 .cs-sheet .cq-narrow .qcard { padding:8px; gap:5px; }
 .cs-sheet .cq-narrow .cq-legend { font-size:11px; gap:2px 6px; }
 .cs-sheet .cq-narrow .qkv { font-size:11.5px; gap:3px 8px; }
+.cs-sheet .cq-bar { display:flex; height:6px; background:var(--cs-soft); }
+.cs-sheet .cq-bar span { display:block; height:100%; }
 /* Costing 4 (user 2026-10-21): Overheads & charges | Terms | Quoted price in one row. Terms
    carries seven boxes (four to a line), Overheads three, the Quote a three-column table —
    so 3.2 : 4.3 : 3. A narrow pane stacks them. */
