@@ -1889,7 +1889,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   const setHdr = (patch: Partial<CostingDraft["header"]>) => edit?.onChange({ ...edit.draft, header: { ...edit.draft.header, ...patch } });
   const extraRows = overheadRows.filter((o) => o.edit.kind === "extra");
   const cqOver = (
-    <details open className="cq-band">
+    <details open className="cq-band cq-over">
       <summary data-tone="over" {...fixedSum}>
         Overheads &amp; charges{" "}
         <span>
@@ -3888,6 +3888,10 @@ const CSS = `
    Quote table lost its Quoted column — both carry column widths sized for a full-width
    band. In this row each table fills its box: the name column takes what the fixed
    figure columns leave, and every box is as wide as its cell. */
+/* Rejection % · Overhead % · Bank charges ₹ on ONE line (user 2026-10-21): three even
+   columns, tighter gaps — the auto-fill grid put Bank charges on a second line whenever the
+   box was under ~380px. A second piece's Bank box wraps under them. */
+.cs-sheet .cq-row2 .cq-over .cq-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:22px 8px; }
 .cs-sheet .cq-row2 table.cq-extra { width:100%; table-layout:fixed; }
 .cs-sheet .cq-row2 table.cq-extra th:nth-child(2) { width:5.75rem; }
 .cs-sheet .cq-row2 table.cq-extra th:nth-child(3) { width:5rem; }
