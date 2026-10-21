@@ -1402,6 +1402,8 @@ export function SampleCosting5Screen({
         opsRow
         // COSTING 5: CMT operations under Garment processes, Trims beside the pair (2026-10-21).
         opsStack
+        // COSTING 5: the Direct Rate tick decides which trim fields show (2026-10-21).
+        trimsByTick
         // The cost ENTRY: no letterhead, no Print / Download (user 2026-10-17).
         // Reports and Revise keep both.
         entry
