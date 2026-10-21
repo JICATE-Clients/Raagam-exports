@@ -2237,7 +2237,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           {opsRow ? (
             <>
               {/* Costing 4: Costing 1's three tables in one row, then Overheads | Terms | Quoted price. */}
-              <div className={opsStack ? "cq-row3 cq-stack" : "cq-row3"}>{secTri}</div>
+              <div className={opsStack ? "cq-row3 cq-opstack" : "cq-row3"}>{secTri}</div>
               <div className="cq-row2">
                 {cqOver}
                 {cqTerms}
@@ -3928,12 +3928,14 @@ const CSS = `
 .cs-sheet .cq-row3 summary[data-tone] { padding:7px 10px; letter-spacing:.03em; gap:8px; white-space:nowrap; }
 .cs-sheet .cq-row3 summary[data-tone] span { white-space:nowrap; }
 /* Costing 5 (user 2026-10-21): CMT operations under Garment processes, Trims beside the
-   pair at the full height of both — and with Trims' seven columns given the wider side. */
-.cs-sheet .cq-row3.cq-stack .tri { grid-template-columns:minmax(0,1fr) minmax(0,1.8fr); grid-template-areas:"proc trims" "cmt trims"; align-items:start; }
-.cs-sheet .cq-row3.cq-stack .cq-op-proc { grid-area:proc; }
-.cs-sheet .cq-row3.cq-stack .cq-op-cmt { grid-area:cmt; }
-.cs-sheet .cq-row3.cq-stack .cq-op-trims { grid-area:trims; align-self:stretch; }
-@media (max-width:900px){ .cs-sheet .cq-row3.cq-stack .tri { grid-template-columns:minmax(0,1fr); grid-template-areas:"proc" "cmt" "trims"; } }
+   pair at the full height of both — and with Trims' seven columns given the wider side.
+   NOT "cq-stack": that is the price bar's class (height 12px, overflow hidden), and reusing
+   it squeezed this whole row to a 12px strip (screenshot 3637). */
+.cs-sheet .cq-row3.cq-opstack .tri { grid-template-columns:minmax(0,1fr) minmax(0,1.8fr); grid-template-areas:"proc trims" "cmt trims"; align-items:start; }
+.cs-sheet .cq-row3.cq-opstack .cq-op-proc { grid-area:proc; }
+.cs-sheet .cq-row3.cq-opstack .cq-op-cmt { grid-area:cmt; }
+.cs-sheet .cq-row3.cq-opstack .cq-op-trims { grid-area:trims; align-self:stretch; }
+@media (max-width:900px){ .cs-sheet .cq-row3.cq-opstack .tri { grid-template-columns:minmax(0,1fr); grid-template-areas:"proc" "cmt" "trims"; } }
 .cs-sheet .cq-row2 .cq-grid { grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:22px 12px; max-width:none; }
 /* The merged Fabric tab: the left hugs Component consumption, the right takes the rest. */
 .cs-sheet .cq-fab { display:grid; grid-template-columns:fit-content(46%) minmax(0,1fr); gap:18px; align-items:start; }
