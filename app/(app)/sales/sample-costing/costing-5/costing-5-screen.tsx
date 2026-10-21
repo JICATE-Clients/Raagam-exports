@@ -1288,9 +1288,7 @@ export function SampleCosting5Screen({
           { value: "yes", label: "Yes" },
         ]}
       />
-      {!sizeWise ? (
-        <span className="text-sm text-muted-foreground">One average piece weight for every size</span>
-      ) : sheetSizes.length ? (
+      {!sizeWise ? null : sheetSizes.length ? (
         sheetSizes.map((z) => (
           <span key={z} className="inline-flex items-center gap-1 rounded-control border border-border bg-surface px-2 py-1 text-sm font-medium">
             {z}
@@ -1404,6 +1402,10 @@ export function SampleCosting5Screen({
         opsStack
         // COSTING 5: the Direct Rate tick decides which trim fields show (2026-10-21).
         trimsByTick
+        // COSTING 5: Fabric processing cost folds one fabric at a time (2026-10-21).
+        fabricFold
+        // COSTING 5: Overheads, Terms and Quoted price as ONE table (2026-10-21).
+        chargesTable
         // COSTING 5: Enter-only entry — a blank row ends every table, no "+ Add" (2026-10-21).
         enterFlow
         // The cost ENTRY: no letterhead, no Print / Download (user 2026-10-17).

@@ -1258,9 +1258,7 @@ export function SampleCostingLedgerScreen({
           { value: "yes", label: "Yes" },
         ]}
       />
-      {!sizeWise ? (
-        <span className="text-sm text-muted-foreground">One average piece weight for every size</span>
-      ) : sheetSizes.length ? (
+      {!sizeWise ? null : sheetSizes.length ? (
         sheetSizes.map((z) => (
           <span key={z} className="inline-flex items-center gap-1 rounded-control border border-border bg-surface px-2 py-1 text-sm font-medium">
             {z}
