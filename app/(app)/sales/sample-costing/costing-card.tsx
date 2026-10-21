@@ -141,13 +141,16 @@ export function CostingCard({
           <>
             <Act label="Customer Approved" action={approve} tone="text-success hover:bg-success/10" icon={ICON.ok} />
             <Act label="Customer Rejected" action={reject} tone="text-danger hover:bg-danger/10" icon={ICON.no} />
-            <Act label="Reports" action={report} tone="text-foreground hover:bg-surface-muted" icon={ICON.doc} />
+            {/* Every icon carries its own colour (user 2026-10-21, screenshot 152304):
+                Reports was ink-black and Delete grey, the two the eye skipped. Violet
+                is the one hue not already saying approve / reject / revise. */}
+            <Act label="Reports" action={report} tone="text-violet-600 hover:bg-violet-500/10 dark:text-violet-400" icon={ICON.doc} />
             <Act label="Raise Revise" action={revise} tone="text-info hover:bg-info/10" icon={ICON.redo} />
             {del && (
               <Act
                 label="Delete"
                 action={{ reason: del.reason, onClick: () => setConfirming(true) }}
-                tone="text-muted-foreground hover:bg-danger/10 hover:text-danger"
+                tone="text-danger hover:bg-danger/10"
                 icon={ICON.bin}
               />
             )}
@@ -170,7 +173,12 @@ function Act({ label, action, tone, icon }: { label: string; action: CardAction;
         onClick={blocked ? undefined : action.onClick}
         className={cn(
           "inline-flex h-[30px] w-[34px] items-center justify-center rounded-[10px] transition-[background-color,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          blocked ? "cursor-not-allowed text-muted-foreground opacity-40" : cn(tone, "hover:-translate-y-px active:scale-95"),
+          // A blocked action keeps its OWN colour, faded (user 2026-10-21, screenshot
+          // 152705: grey here read as "no colour"). The fade, the not-allowed cursor
+          // and the tooltip's reason still say it cannot be used; only hover is dropped.
+          blocked
+            ? cn(tone.split(" ").filter((c) => !c.includes("hover:")).join(" "), "cursor-not-allowed opacity-45")
+            : cn(tone, "hover:-translate-y-px active:scale-95"),
         )}
       >
         {icon}
