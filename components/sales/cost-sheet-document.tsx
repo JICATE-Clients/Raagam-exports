@@ -1993,7 +1993,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
       note,
     );
   const cqTerms = (
-    <details open className="cq-band">
+    <details open className="cq-band cq-terms">
       <summary data-tone="margin" {...fixedSum}>
         Terms{" "}
         <span>
@@ -3892,6 +3892,10 @@ const CSS = `
    columns, tighter gaps — the auto-fill grid put Bank charges on a second line whenever the
    box was under ~380px. A second piece's Bank box wraps under them. */
 .cs-sheet .cq-row2 .cq-over .cq-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:22px 8px; }
+/* Terms' seven boxes the same way (user 2026-10-21: "compact it too"): four even columns,
+   tight gaps — Buyer target · Margin · Exchange · Commission, then LC discount · Freight ·
+   Insurance. The row gap stays 22px: the exchange rate's source note hangs in it. */
+.cs-sheet .cq-row2 .cq-terms .cq-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:22px 8px; }
 .cs-sheet .cq-row2 table.cq-extra { width:100%; table-layout:fixed; }
 .cs-sheet .cq-row2 table.cq-extra th:nth-child(2) { width:5.75rem; }
 .cs-sheet .cq-row2 table.cq-extra th:nth-child(3) { width:5rem; }
