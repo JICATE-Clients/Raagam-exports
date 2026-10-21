@@ -20,8 +20,8 @@
  * piece — and the merchandiser can switch that off to hold the old quote and watch
  * only the margin move.
  */
-import { costingSummary, quoteKey, sizesOf } from "./calc";
-import { costingInputOf, isBlankExtra, isBlankPieceLine, isBlankProcess, isBlankTrim, isBlankYarn, type CostingDraft, type ExtraChargeDraft, type FabricDraft, type FabricProcessDraft, type PieceLineDraft, type TrimDraft, type WeightDraft, type YarnMixDraft } from "./types";
+import { costingSummary, quoteKey } from "./calc";
+import { costingInputOf, type CostingDraft, type ExtraChargeDraft, type FabricDraft, type FabricProcessDraft, type PieceLineDraft, type TrimDraft, type WeightDraft, type YarnMixDraft } from "./types";
 
 /** The draft with every piece × size quoting its CALCULATED price, to the cent.
  *  A piece with nothing to calculate yet (no exchange rate) keeps what it had,
@@ -104,60 +104,3 @@ export const newWeightRows = (pieceKey: string, componentIds: string[], fabricKe
     gsm: "",
     wastage_pct: "",
   }));
-
-// ---------------------------------------------------------------------------
-// READY LINES — every table ends in ONE empty line (user 2026-10-21, Costing 5,
-// screenshot 3644: "remove that add option — using the Enter key only they will add
-// and move to the next field").
-//
-// There is no "+ Add" to press. Enter off a table's last typed field moves into the
-// empty line below it (plain Enter-advance), typing there makes it a real line, and
-// this function then puts a fresh empty line under it. So NOTHING is created by a
-// keystroke aimed at moving — the reason the client had Enter stop adding rows
-// outright on 2026-08-19 (AGENTS.md "Add a grid row") — and nothing is a button.
-//
-// Pure, and idempotent: a draft that already ends in a ready line comes back
-// unchanged (same object), so calling it on every change costs nothing. Every
-// line it adds is blank to the save-side filters (`isBlankYarn`, `isBlankProcess`,
-// `isBlankTrim`, `isBlankPieceLine`, `isBlankExtra`, `isBlankWeight`), so an untouched
-// ready line is never saved. A consumption line counts as ready while it names no
-// component and has no figure typed: the fabric is stamped onto it by the screen
-// when the first fabric is picked, which is not the operator typing a line.
-// ---------------------------------------------------------------------------
-
-const filled = (v: string | null | undefined) => (v ?? "").trim() !== "";
-const readyWeight = (w: WeightDraft) => w.component_ids.length === 0 && !filled(w.weight_g) && !filled(w.length_cm) && !filled(w.width_cm) && !filled(w.gsm);
-
-/** Garment processes and CMT operations each end in ONE empty line, on the first piece
- *  (user 2026-10-21, screenshot 3645: both tables opened with no line while Trims had
- *  one). Its own export because the screen sets pieces outside `withReadyLines` too —
- *  picking a style (`seedEmbellishments` drops the blank process line) and copying a
- *  costing (`seedPiece` drops a blank CMT line) — and each must end ready. Same object
- *  back when nothing is missing. */
-export function withReadyPieceLines<P extends { key: string; lines: PieceLineDraft[] }>(pieces: P[]): P[] {
-  const first = pieces[0];
-  if (!first) return pieces;
-  const lines = pieces.flatMap((p) => p.lines);
-  const add = (["cmt", "embellishment"] as const).filter((kind) => !lines.some((l) => l.kind === kind && isBlankPieceLine(l)));
-  if (!add.length) return pieces;
-  return pieces.map((p) => (p.key === first.key ? { ...p, lines: [...p.lines, ...add.map((kind) => newPieceLine(kind, null, ""))] } : p));
-}
-
-export function withReadyLines(d: CostingDraft): CostingDraft {
-  let changed = false;
-  const fabrics = d.fabrics.map((f) => {
-    const yarns = f.yarns.some(isBlankYarn) ? f.yarns : [...f.yarns, newYarnMix()];
-    const processes = f.processes.some(isBlankProcess) ? f.processes : [...f.processes, newFabricProcess()];
-    if (yarns === f.yarns && processes === f.processes) return f;
-    changed = true;
-    return { ...f, yarns, processes };
-  });
-  const first = d.pieces[0];
-  const pieces = withReadyPieceLines(d.pieces);
-  if (pieces !== d.pieces) changed = true;
-  const trims = d.trims.some(isBlankTrim) ? d.trims : [...d.trims, newTrim(first?.key ?? "")];
-  const extras = (d.extras ?? []).some((e) => e.section === "overhead" && isBlankExtra(e)) ? d.extras : [...(d.extras ?? []), newExtra("overhead")];
-  const weights = d.weights.some(readyWeight) ? d.weights : [...d.weights, ...newWeightRows(first?.key ?? "", [], null, sizesOf(d.weights))];
-  if (!changed && trims === d.trims && extras === d.extras && weights === d.weights) return d;
-  return { ...d, fabrics, pieces, trims, extras, weights };
-}

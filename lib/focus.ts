@@ -385,6 +385,8 @@ const ENTER_OPENS = "[data-enter-opens]";
  * described above — the arrows' `fieldsIn` is untouched and ← → still reach the box.
  */
 const OFF_TAB_PATH = "[data-focus-optional]";
+/** A table's blank end row, kept ready in place of a "+ Add" button — see `enterAdvances`. */
+const ROW_TAIL = "[data-row-tail]";
 
 /**
  * True for a control that Tab and Enter must step over. See `OFF_TAB_PATH`.
@@ -797,7 +799,14 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   // the FIRST field of Order Info, the RE No, handed over to the next section,
   // and on the last section it would have gone on to Save. Absent from the tab
   // order is not the same fact as last on the surface.
-  const next = itemsAfter(items, t).find((el) => isFieldLike(el) && !isOffTabPath(el));
+  //
+  // A TABLE'S BLANK END ROW IS LEFT IN ONE KEY (`data-row-tail`, Costing 5 2026-10-21).
+  // Where a table keeps one blank row ready instead of a "+ Add" button, Enter on that
+  // row before anything is typed skips its other cells and lands on whatever follows the
+  // table. Typing into the row makes it a line and the marker comes off, so from then on
+  // Enter walks it like any row. Opt-in by marker; nothing else changes.
+  const tail = t instanceof HTMLElement ? t.closest<HTMLElement>(ROW_TAIL) : null;
+  const next = itemsAfter(items, t).find((el) => isFieldLike(el) && !isOffTabPath(el) && !tail?.contains(el));
   if (
     enterTicks({
       tickBox: !!tickBox,

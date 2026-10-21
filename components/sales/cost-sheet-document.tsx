@@ -23,8 +23,9 @@ import { GlassRing } from "@/components/orders/budget-breakdown-chart";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
 import { MARGIN_TARGET_PCT, hasYarnMix, quoteKey, sizesOf, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
-import { isBlankExtra, isBlankFabric, isBlankPieceLine, isBlankTrim, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type PieceLineKind, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
+import { isBlankExtra, isBlankFabric, isBlankPieceLine, isBlankProcess, isBlankTrim, isBlankWeight, isBlankYarn, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type PieceLineKind, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
 import { changeText } from "@/lib/sales/sample-costing/revision-history";
+import { withTrailingRows } from "@/lib/sales/sample-costing/trailing-rows";
 
 /**
  * THE SAMPLE COST SHEET — the page (2026-10-08, "think more modern and visual").
@@ -162,7 +163,7 @@ export function CostSheetDocument({
   trimsByTick = false,
   chargesTable = false,
   fabricFold = false,
-  readyLines = false,
+  enterFlow = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -212,11 +213,12 @@ export function CostSheetDocument({
    *  cursor or a click on a band opens it and shuts the one behind. Off: every band stays open,
    *  as Costing 3 / 4 had it. */
   fabricFold?: boolean;
-  /** COSTING 5 (user 2026-10-21, screenshot 3644: "remove that add option — using the
-   *  Enter key only they will add and move to the next field"): no "+ Add" anywhere. The
-   *  screen keeps every table ending in ONE empty line (`withReadyLines`), so Enter off the
-   *  last field walks into it and typing there is what adds. Off: the buttons, as today. */
-  readyLines?: boolean;
+  /** COSTING 5 (user 2026-10-21: "no more add row concept, using only the Enter key the user
+   *  should work in costing entry end to end"): every table ends with one blank row
+   *  (`withTrailingRows`), no "+ Add" button is drawn, Enter on the untouched blank row
+   *  leaves the table (`data-row-tail`), and Trims' Direct Rate tick is off the Enter path.
+   *  Off: the "+ Add row" buttons, as today. */
+  enterFlow?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -325,7 +327,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} opsStack={opsStack} trimsByTick={trimsByTick} chargesTable={chargesTable} fabricFold={fabricFold} readyLines={readyLines} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} opsStack={opsStack} trimsByTick={trimsByTick} chargesTable={chargesTable} fabricFold={fabricFold} enterFlow={enterFlow} />
     </div>
   );
 }
@@ -337,7 +339,12 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false, trimsByTick = false, chargesTable = false, fabricFold = false, readyLines = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean; /** See `CostSheetDocument`'s `trimsByTick`. */ trimsByTick?: boolean; /** See `CostSheetDocument`'s `chargesTable`. */ chargesTable?: boolean; /** See `CostSheetDocument`'s `fabricFold`. */ fabricFold?: boolean; /** See `CostSheetDocument`'s `readyLines`. */ readyLines?: boolean }) {
+function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false, trimsByTick = false, chargesTable = false, fabricFold = false, enterFlow = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean; /** See `CostSheetDocument`'s `trimsByTick`. */ trimsByTick?: boolean; /** See `CostSheetDocument`'s `chargesTable`. */ chargesTable?: boolean; /** See `CostSheetDocument`'s `fabricFold`. */ fabricFold?: boolean; /** See `CostSheetDocument`'s `enterFlow`. */ enterFlow?: boolean }) {
+  /* enterFlow: the sheet draws (and every edit writes back) the draft with one blank row at
+     the end of each table. Same draft in, same blanks out — the keys are deterministic. */
+  const edit = enterFlow && editIn ? { ...editIn, draft: withTrailingRows(editIn.draft) } : editIn;
+  /** enterFlow: marks a table's blank end row — Enter there before typing leaves the table. */
+  const tailIf = (blank: boolean) => (enterFlow && blank ? { "data-row-tail": "" } : {});
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -572,7 +579,11 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                 </thead>
                 <tbody {...gridBody}>
                   {weightRows.map((r, i) => (
-                    <tr key={r.wkeys[0] ?? i} data-grid-row>
+                    <tr
+                      key={r.wkeys[0] ?? i}
+                      data-grid-row
+                      {...tailIf(r.componentIds.length === 0 && !r.fabricKey && (edit?.draft.weights.filter((w) => r.wkeys.includes(w.key)) ?? []).every(isBlankWeight))}
+                    >
                       {model.pieceCount > 1 ? <td>{edit?.options ? <CellPick label="Piece" options={edit.draft.pieces.map((p) => ({ id: p.key, name: p.piece_name || "GARMENT" }))} value={{ id: r.pieceKey, name: r.piece }} onPick={(v) => v.id && setLine(r, { piece_key: v.id })} /> : r.piece}</td> : null}
                       <td>
                         {/* SEVERAL COMPONENTS ON ONE LINE (client 2026-10-17): Front, Back and
@@ -630,7 +641,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                       ) : null}
                     </tr>
                   ))}
-                  {edit?.options && !readyLines ? (
+                  {edit?.options && !enterFlow ? (
                     <tr className="addrow">
                       <td colSpan={consumptionCols}>
                         <Button type="button" variant="outline" size="sm" data-row-add onClick={addWeightLine}>
@@ -808,12 +819,13 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
        chose by folding stays null. */
     const held = fabFold.openKey;
     const openKey = held !== null && !shown.some((x) => x.key === held) ? (shown[0]?.key ?? null) : held;
-    const addLink = (label: string, onClick: () => void) => readyLines ? null : (
-      <button type="button" data-row-add className="faddrow" onClick={onClick}>
-        <Plus className="h-3.5 w-3.5" aria-hidden />
-        {label}
-      </button>
-    );
+    const addLink = (label: string, onClick: () => void) =>
+      enterFlow ? null : (
+        <button type="button" data-row-add className="faddrow" onClick={onClick}>
+          <Plus className="h-3.5 w-3.5" aria-hidden />
+          {label}
+        </button>
+      );
     if (!shown.length) return <p className="fempty">Pick a fabric in Component consumption above. It is priced here.</p>;
     return (
       <div className="appgrid fsheet fband">
@@ -946,7 +958,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                               </thead>
                               <tbody>
                                 {yarnLines.map((y, i) => (
-                                  <tr key={y?.key ?? `${f.key}-y`} data-grid-row data-hover-row>
+                                  <tr key={y?.key ?? `${f.key}-y`} data-grid-row data-hover-row {...tailIf(!!y && isBlankYarn(y))}>
                                     <td className="in">
                                       <TypeOrPick
                                         label="Yarn"
@@ -1011,7 +1023,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                               </thead>
                               <tbody>
                                 {procLines.map((q) => (
-                                  <tr key={q?.key ?? `${f.key}-p`} data-grid-row data-hover-row>
+                                  <tr key={q?.key ?? `${f.key}-p`} data-grid-row data-hover-row {...tailIf(!!q && isBlankProcess(q))}>
                                     <td className="in">
                                       <TypeOrPick
                                         label="Process"
@@ -1239,7 +1251,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
     if (open) return focusLine(open.key);
     edit.onChange({ ...edit.draft, trims: [...edit.draft.trims, newTrim(edit.draft.pieces[0]?.key ?? "")] });
   };
-  const addRow = (cols: number, onClick: () => void) => readyLines ? null : (
+  const addRow = (cols: number, onClick: () => void) =>
+    enterFlow ? null : (
     <tr className="addrow">
       <td colSpan={cols}>
         <Button type="button" variant="outline" size="sm" data-row-add onClick={onClick}>
@@ -1250,6 +1263,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
     </tr>
   );
   const opCols = (model.pieceCount > 1 ? 1 : 0) + 2 + (edit ? 1 : 0);
+  /** enterFlow: the operation lines still blank — each table's end row. */
+  const blankLineKeys = new Set((edit?.draft.pieces ?? []).flatMap((p) => p.lines.filter(isBlankPieceLine).map((l) => l.key)));
   /** A trim row's Direct Rate: the draft's tick while editing, the saved one otherwise. */
   const trimDirect = (t: TrimRow) => {
     const d = edit?.draft.trims.find((x) => x.key === t.key);
@@ -1353,7 +1368,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                   </thead>
                   <tbody {...gridBody}>
                     {[...model.trims, ...blankTrims].map((t) => (
-                      <tr key={t.key} data-grid-row data-line-key={t.key}>
+                      <tr key={t.key} data-grid-row data-line-key={t.key} {...tailIf(blankTrims.some((b) => b.key === t.key))}>
                         {model.pieceCount > 1 ? <td>{trimPiece(t)}</td> : null}
                         <td>{trimName(t)}</td>
                         {(() => {
@@ -1378,7 +1393,10 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                           };
                           return (
                             <>
-                              <td className="c">
+                              {/* enterFlow: the tick changes what the row means, so it is reached on
+                                  purpose (← from Rate, or the mouse), never by Enter's rhythm — Enter on
+                                  a tick box toggles it, which would untick every trim walked past. */}
+                              <td className="c" data-focus-optional={enterFlow ? "" : undefined}>
                                 {edit && d ? <input type="checkbox" aria-label={`${t.name || "Trim"} — direct rate`} checked={direct} onChange={(e) => onTick(e.target.checked, e.currentTarget)} /> : t.direct ? "✓" : ""}
                               </td>
                               {!packCols ? null : trimsByTick && direct ? (
@@ -1475,7 +1493,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                       made this band's total disagree with the "Operations & trims" chip above. */}
                   <tbody {...gridBody}>
                     {[...model.ops.filter((o) => o.kind !== "CMT"), ...blankOps("embellishment")].map((o, i) => (
-                      <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
+                      <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined} {...tailIf(!!o.lineKey && blankLineKeys.has(o.lineKey))}>
                         {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
                         <td>{opName(o)}</td>
                         <td className="r">{opRate(o)}</td>
@@ -1507,7 +1525,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                   </thead>
                   <tbody {...gridBody}>
                     {[...model.ops.filter((o) => o.kind === "CMT"), ...blankOps("cmt")].map((o, i) => (
-                      <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
+                      <tr key={o.lineKey ?? `${o.field}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined} {...tailIf(!!o.lineKey && blankLineKeys.has(o.lineKey))}>
                         {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
                         <td>{opName(o)}</td>
                         <td className="r">{opRate(o)}</td>
@@ -1661,7 +1679,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                   ))}
                 </tbody>
               </table>
-              {edit && !readyLines ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
+              {edit && !enterFlow ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
             </div>
           </details>
         </section>
@@ -2013,7 +2031,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
             </thead>
             <tbody {...gridBody}>
               {allOps.map((o, i) => (
-                <tr key={o.lineKey ?? `${o.field}-${o.pieceKey}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined}>
+                <tr key={o.lineKey ?? `${o.field}-${o.pieceKey}-${i}`} data-grid-row data-line-key={o.lineKey ?? undefined} {...tailIf(!!o.lineKey && blankLineKeys.has(o.lineKey))}>
                   {model.pieceCount > 1 ? <td>{opPiece(o)}</td> : null}
                   <td>{opType(o)}</td>
                   <td>{opName(o)}</td>
@@ -2091,7 +2109,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                 }
                 const set = (patch: Partial<typeof x>) => edit.onChange({ ...edit.draft, extras: patchBy(edit.draft.extras, x.key, patch) });
                 return (
-                  <tr key={x.key} data-grid-row>
+                  <tr key={x.key} data-grid-row {...tailIf(isBlankExtra(x))}>
                     <td>
                       <EdText label="Charge name" value={x.name} onChange={(v) => set({ name: v })} />
                     </td>
@@ -2125,7 +2143,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           </table>
         </div>
       ) : null}
-      {edit && !readyLines ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
+      {edit && !enterFlow ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
     </details>
   );
 
@@ -2337,7 +2355,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                 </tr>
               );
             })}
-            {edit && !readyLines ? (
+            {edit && !enterFlow ? (
               <tr className="addrow">
                 <td colSpan={ctCols}>
                   <Button type="button" variant="outline" size="sm" data-row-add onClick={() => edit.onChange({ ...edit.draft, extras: [...edit.draft.extras, newExtra("overhead")] })}>

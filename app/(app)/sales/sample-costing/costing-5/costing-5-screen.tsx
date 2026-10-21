@@ -158,7 +158,7 @@ import {
   saveSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
 import { offeredSizes } from "@/lib/sales/sample-costing/style-sizes";
-import { newWeightRows, withReadyLines, withReadyPieceLines } from "@/lib/sales/sample-costing/revision-draft";
+import { newWeightRows } from "@/lib/sales/sample-costing/revision-draft";
 import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
 import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
 import type { EditOptions } from "@/components/sales/cost-sheet-editors";
@@ -542,7 +542,7 @@ export function SampleCosting5Screen({
     });
   }
   function applyStyle(st: CostingStyleOption | null) {
-    const next = withReadyPieceLines(seedEmbellishments(st, piecesFor(st, pieces)));
+    const next = seedEmbellishments(st, piecesFor(st, pieces));
     const keep = new Set(next.map((p) => p.key));
     const first = next[0].key;
     setPieces(next);
@@ -583,23 +583,16 @@ export function SampleCosting5Screen({
       yarns: f.yarns.length ? f.yarns : [blankYarn()],
       processes: f.processes.length ? f.processes : [blankProcess()],
     }));
+    setHeader(d.header);
+    setPieces(d.pieces.map(seedPiece));
     // Seeded in STATE before `setDirty(false)`, never by a grid's `seedRow`,
-    // which would mark an untouched sheet "Unsaved". A new sheet opens with one
-    // blank "All sizes" line; every table then ends in its ready line (no "+ Add").
-    const ready = withReadyLines({
-      ...d,
-      pieces: d.pieces.map(seedPiece),
-      fabrics: seededFabrics,
-      weights: d.weights.length ? d.weights : newWeightRows(firstPiece, [], null, [null]),
-      trims: d.trims.length ? d.trims : [blankTrim(firstPiece)],
-    });
-    setHeader(ready.header);
-    setPieces(ready.pieces);
-    setFabrics(ready.fabrics);
-    setWeights(ready.weights);
-    setTrims(ready.trims);
-    setExtras(ready.extras);
-    setQuotes(ready.quotes);
+    // which would mark an untouched sheet "Unsaved".
+    setFabrics(seededFabrics);
+    // A new sheet opens with one blank "All sizes" line.
+    setWeights(d.weights.length ? d.weights : newWeightRows(firstPiece, [], null, [null]));
+    setTrims(d.trims.length ? d.trims : [blankTrim(firstPiece)]);
+    setExtras(d.extras);
+    setQuotes(d.quotes);
     setCopiedFrom(null);
     setSizeWiseAsked(false);
     setCompare(null);
@@ -651,7 +644,7 @@ export function SampleCosting5Screen({
       buyer_target_price: d.header.buyer_target_price,
       commission_pct: d.header.commission_pct,
     });
-    setPieces(withReadyPieceLines(nextPieces));
+    setPieces(nextPieces);
     setFabrics(nextFabrics.length ? nextFabrics : [blankFabric()]);
     setWeights(
       d.weights.length
@@ -907,14 +900,13 @@ export function SampleCosting5Screen({
     enabled: mode === "edit" && (isEditableStatus(meta.status) || !!revisingFrom),
     value: { header, pieces, fabrics, weights, trims, quotes, extras },
     onRestore: (v) => {
-      const ready = withReadyLines({ ...v, pieces: v.pieces.map(seedPiece), extras: v.extras ?? [] });
-      setHeader(ready.header);
-      setPieces(ready.pieces);
-      setFabrics(ready.fabrics);
-      setWeights(ready.weights);
-      setTrims(ready.trims);
-      setExtras(ready.extras);
-      setQuotes(ready.quotes);
+      setHeader(v.header);
+      setPieces(v.pieces.map(seedPiece));
+      setFabrics(v.fabrics);
+      setWeights(v.weights);
+      setTrims(v.trims);
+      setExtras(v.extras ?? []);
+      setQuotes(v.quotes);
       setDirty(true);
     },
   });
@@ -1380,9 +1372,7 @@ export function SampleCosting5Screen({
     lockedFabrics: style?.structures.map((x) => x.id) ?? [],
   };
   /** One edit in a tab writes the whole draft back into this editor's state. */
-  const applyDraft = (typed: CostingDraft) => {
-    // Typing into a table's ready line makes it a real line: put a fresh one under it.
-    const next = withReadyLines(typed);
+  const applyDraft = (next: CostingDraft) => {
     setHeader(next.header);
     setPieces(next.pieces);
     setFabrics(next.fabrics);
@@ -1416,8 +1406,8 @@ export function SampleCosting5Screen({
         fabricFold
         // COSTING 5: Overheads, Terms and Quoted price as ONE table (2026-10-21).
         chargesTable
-        // COSTING 5: no "+ Add" — every table ends in an empty line; Enter walks into it (2026-10-21).
-        readyLines
+        // COSTING 5: Enter-only entry — a blank row ends every table, no "+ Add" (2026-10-21).
+        enterFlow
         // The cost ENTRY: no letterhead, no Print / Download (user 2026-10-17).
         // Reports and Revise keep both.
         entry
