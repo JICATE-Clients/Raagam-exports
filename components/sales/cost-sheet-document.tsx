@@ -8,6 +8,9 @@ import { AddCharge, CellPick, Ed, EdText, Pick, RemoveX, type EditOptions } from
 import { Button } from "@/components/ui/button";
 import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { Toggle } from "@/components/ui/toggle";
+import { Sheet as Overlay, type SheetOrigin } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
+import { Field, FieldRow } from "@/components/ui/field";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import { Input } from "@/components/ui/input";
@@ -157,6 +160,7 @@ export function CostSheetDocument({
   opsRow = false,
   opsStack = false,
   trimsByTick = false,
+  chargesTable = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -191,12 +195,16 @@ export function CostSheetDocument({
    *  with `opsRow`, row 1 is two columns — Garment processes with CMT operations under it,
    *  and Trims beside the pair, the full height of both. Off: the three side by side. */
   opsStack?: boolean;
-  /** COSTING 5 (user 2026-10-21, artifact "Trims Direct Rate"): the Direct Rate tick decides
-   *  what a trim row shows. Ticked: the Rate box only (₹ / pc). Unticked: No of Items, No of
-   *  Pcs, Cons Qty and Rate (₹ / pack). The three pack columns appear only while some trim is
-   *  unticked; on a ticked row their cells are HIDDEN (empty), never greyed. Off: every row
-   *  shows every column, as today. */
+  /** COSTING 5 (user 2026-10-21, artifact "Trims Direct Rate" v4 — "the unticked item inside
+   *  a pop box"): Trims is four columns, Trim · Direct Rate · Rate · Cost. Ticked: Rate is the
+   *  ₹ / pc box. Unticked: Rate is a pack button ("1 per 12 @ ₹ 30 · 2.50 /pc") that opens a
+   *  small box with No of Items, No of Pcs, Cons Qty and Rate per pack; unticking opens it.
+   *  Off: every row shows every column, as today. */
   trimsByTick?: boolean;
+  /** COSTING 5 (user 2026-10-21, artifact "Charges, Terms & Quote"): Overheads & charges,
+   *  Terms and Quoted price are ONE table — Item · Type · Value headed once, a shaded band
+   *  row per section. Off: three boxes side by side (`opsRow`) or stacked. */
+  chargesTable?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -305,7 +313,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} opsStack={opsStack} trimsByTick={trimsByTick} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} opsStack={opsStack} trimsByTick={trimsByTick} chargesTable={chargesTable} />
     </div>
   );
 }
@@ -317,7 +325,7 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false, trimsByTick = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean; /** See `CostSheetDocument`'s `trimsByTick`. */ trimsByTick?: boolean }) {
+function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false, trimsByTick = false, chargesTable = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean; /** See `CostSheetDocument`'s `trimsByTick`. */ trimsByTick?: boolean; /** See `CostSheetDocument`'s `chargesTable`. */ chargesTable?: boolean }) {
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -332,6 +340,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   // it as first details tab") — reverses 10-14's Quotation default. The sheet
   // reads left to right from who and what is being costed.
   const [tab, setTab] = useState(0);
+  /** trimsByTick: the trim whose pack box is open, and the button it grows out of. */
+  const [pack, setPack] = useState<{ key: string; origin: SheetOrigin | null } | null>(null);
   /* Fabric bands fold (plan "Fabric Cost Single Table", 2026-10-16): ONE fabric open at a
      time, the first one to begin with — the shared accordion (AGENTS "Folds are accordions"). */
   const fabFold = useAccordion(edit?.draft.fabrics[0]?.key ?? null);
@@ -1235,8 +1245,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
     const d = edit?.draft.trims.find((x) => x.key === t.key);
     return d ? d.is_direct !== false : t.direct;
   };
-  // trimsByTick: No of Items / No of Pcs / Cons Qty exist only while some trim is bought by the pack.
-  const packCols = !trimsByTick || [...model.trims, ...blankTrims].some((t) => !trimDirect(t));
+  // trimsByTick: No of Items / No of Pcs / Cons Qty live in the pack box, never as columns.
+  const packCols = !trimsByTick;
   const trimCols = (model.pieceCount > 1 ? 1 : 0) + (packCols ? 7 : 4) + (edit ? 1 : 0);
 
   /* A merged band's summary does not fold (class `cq-fixed` — NEVER `fixed`, which is
@@ -1245,6 +1255,62 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   const fixedSum = merged ? { className: "cq-fixed", tabIndex: -1, onClick: (e: ReactMouseEvent) => e.preventDefault() } : {};
   /* Trims is its own band in both layouts: inside "Operations & trims", and on the
      merged Cost & Quote screen's left side. */
+  /** A pack in short, for the pack button: "1 per 12 @ ₹ 30.00". */
+  const packSummary = (qty: string, pcs: string, price: string) =>
+    !qty && !pcs && !price ? "Fill pack details" : `${qty || 0} per ${pcs || 0} @ ${SYM} ${money(Number(price) || 0)}`;
+  const packD = pack ? edit?.draft.trims.find((x) => x.key === pack.key) : undefined;
+  const packRow = pack ? [...model.trims, ...blankTrims].find((x) => x.key === pack.key) : undefined;
+  const setPackTrim = (patch: Partial<NonNullable<typeof packD>>) => packD && edit?.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, packD.key, patch) });
+  /** Done / Esc: back to the row — its pack button, or Rate if the trim was ticked meanwhile. */
+  const closePack = () => {
+    const key = pack?.key;
+    setPack(null);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-line-key="${key}"] :is(.cq-pack, input[aria-label*="— rate"])`)?.focus());
+  };
+  /* THE PACK BOX (Costing 5). A [Click] sub-detail of the open costing with no save of its
+     own, so the shape AGENTS.md "A sub-detail Sheet's size" names: `sm`, centred over the
+     pane, grown from the button, Done in the footer. The figures write straight into the
+     draft and save with the costing's Save. */
+  const packBox = (
+    <Overlay
+      open={!!(pack && packD)}
+      onClose={closePack}
+      size="sm"
+      alignToPane
+      origin={pack?.origin ?? null}
+      title={`Pack — ${packRow?.name || "trim"}`}
+      footer={<SubSheetFooter onDone={closePack} parent="costing" />}
+    >
+      {packD ? (
+        <div className="flex flex-col gap-4">
+          {/* One row (user 2026-10-21, screenshot 3639): Items · Pcs · Cons Qty · Rate per pack. */}
+          <FieldRow>
+            <Field label="No of Items" w="range" htmlFor="cs-pack-items">
+              <NumInput id="cs-pack-items" autoFocus value={packD.qty} onChange={(e) => setPackTrim({ qty: e.target.value })} />
+            </Field>
+            <Field label="No of Pcs" w="range" htmlFor="cs-pack-pcs">
+              <NumInput id="cs-pack-pcs" value={packD.pack_size} onChange={(e) => setPackTrim({ pack_size: e.target.value })} />
+            </Field>
+            <Field label="Cons Qty" w="range" htmlFor="cs-pack-cons">
+              <Input id="cs-pack-cons" readOnly className="text-right tabular-nums" value={packRow?.consQty ? packRow.consQty.toFixed(3) : ""} />
+            </Field>
+            <Field label={`Rate ${SYM} per pack`} w="range" htmlFor="cs-pack-rate">
+              <ShownAmount rate={rate} value={packD.pack_price} onChange={(v) => setPackTrim({ pack_price: v })}>
+                {(v, setV) => <NumInput id="cs-pack-rate" value={v} onChange={(e) => setV(e.target.value)} />}
+              </ShownAmount>
+            </Field>
+          </FieldRow>
+          <p className="rounded-md bg-[var(--surface-2,#f7f9fb)] px-3 py-2 text-sm text-[var(--muted-foreground,#5d6b79)] tabular-nums">
+            {packD.qty || 0} ÷ {packD.pack_size || 0} = {(packRow?.consQty ?? 0).toFixed(3)} × {SYM} {money(Number(packD.pack_price) || 0)} ={" "}
+            <b className="text-[var(--foreground,#0f1b26)]">
+              {SYM} {money(packRow?.cost ?? 0)}
+            </b>{" "}
+            a piece
+          </p>
+        </div>
+      ) : null}
+    </Overlay>
+  );
   const secTrims = (
         <>
           {model.trims.length || edit?.options ? (
@@ -1286,18 +1352,21 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                           const direct = trimDirect(t);
                           /* trimsByTick: a tick moves the cursor to the box that now matters — No of
                              Items when the pack fields appear, Rate when they go. */
-                          const onTick = (checked: boolean) => {
+                          const onTick = (checked: boolean, el: HTMLElement) => {
                             set({ is_direct: checked });
                             if (!trimsByTick) return;
+                            if (!checked) {
+                              setPack({ key: t.key, origin: el.getBoundingClientRect() });
+                              return;
+                            }
                             requestAnimationFrame(() => {
-                              const row = document.querySelector(`tr[data-line-key="${t.key}"]`);
-                              row?.querySelector<HTMLInputElement>(checked ? 'input[aria-label*="— rate"]' : 'input[aria-label$="— no of items"]')?.focus();
+                              document.querySelector<HTMLInputElement>(`tr[data-line-key="${t.key}"] input[aria-label*="— rate"]`)?.focus();
                             });
                           };
                           return (
                             <>
                               <td className="c">
-                                {edit && d ? <input type="checkbox" aria-label={`${t.name || "Trim"} — direct rate`} checked={direct} onChange={(e) => onTick(e.target.checked)} /> : t.direct ? "✓" : ""}
+                                {edit && d ? <input type="checkbox" aria-label={`${t.name || "Trim"} — direct rate`} checked={direct} onChange={(e) => onTick(e.target.checked, e.currentTarget)} /> : t.direct ? "✓" : ""}
                               </td>
                               {!packCols ? null : trimsByTick && direct ? (
                                 <>
@@ -1313,7 +1382,30 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                                   <td className="r dim">{t.consQty ? t.consQty.toFixed(3) : ""}</td>
                                 </>
                               )}
-                              <td className={trimsByTick ? "r cq-unit" : "r"} data-unit={trimsByTick ? (direct ? "/pc" : "/pack") : undefined}>
+                              {trimsByTick && !direct ? (
+                                <td className="cq-packcell">
+                                  {edit && d ? (
+                                    <button
+                                      type="button"
+                                      className="cq-pack"
+                                      aria-haspopup="dialog"
+                                      aria-label={`${t.name || "Trim"} — pack details`}
+                                      onClick={(e) => setPack({ key: t.key, origin: e.currentTarget.getBoundingClientRect() })}
+                                    >
+                                      <span className="cq-packsum">{packSummary(d.qty, d.pack_size, d.pack_price)}</span>
+                                      <span className="cq-packrt">
+                                        {money(t.cost)}
+                                        <small>/pc</small>
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <span className="cq-packview">
+                                      {t.items} per {t.pcs} @ {SYM} {money(t.rate)} · {money(t.cost)} /pc
+                                    </span>
+                                  )}
+                                </td>
+                              ) : (
+                              <td className={trimsByTick ? "r cq-unit" : "r"} data-unit={trimsByTick ? "/pc" : undefined}>
                                 {edit && d ? (
                                   direct ? (
                                     <ShownAmount rate={rate} value={d.rate} onChange={(v) => set({ rate: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
@@ -1324,6 +1416,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                                   money(t.rate)
                                 )}
                               </td>
+                              )}
                             </>
                           );
                         })()}
@@ -1343,6 +1436,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
               </div>
             </details>
           ) : null}
+          {trimsByTick ? packBox : null}
         </>
   );
 
@@ -3977,6 +4071,14 @@ const CSS = `
 /* trimsByTick (Costing 5): the pack group's headings carry a light shade; the Rate box names
    its unit (/pc or /pack) in its own right padding. */
 .cs-sheet .tri th.c-pack { background:#f7f9fb; }
+/* The pack button (Costing 5): an unticked trim's Rate cell, reading its pack in short. */
+.cs-sheet .tri td.cq-packcell { padding:2px 4px; }
+.cs-sheet .cq-pack { width:100%; height:26px; display:flex; align-items:center; justify-content:space-between; gap:6px; font:inherit; font-size:12px; background:#f7f9fb; color:var(--cs-ink); border:1px dashed #9fcbe6; border-radius:6px; padding:0 8px; cursor:pointer; }
+.cs-sheet .cq-pack:hover, .cs-sheet .cq-pack:focus-visible { border-style:solid; border-color:#037bb8; outline:none; }
+.cs-sheet .cq-packsum { color:var(--cs-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs-sheet .cq-packrt { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-weight:600; white-space:nowrap; }
+.cs-sheet .cq-packrt small { font-family:inherit; font-weight:500; color:var(--cs-muted); margin-left:3px; font-size:10.5px; }
+.cs-sheet .cq-packview { font-size:12px; color:var(--cs-muted); white-space:nowrap; }
 .cs-sheet .tri th.c-rate { width:7rem; }
 .cs-sheet .tri td.cq-unit { position:relative; padding-right:2.6rem !important; }
 .cs-sheet .tri td.cq-unit::after { content:attr(data-unit); position:absolute; right:6px; top:50%; transform:translateY(-50%); font-size:10.5px; font-weight:500; color:var(--cs-muted); pointer-events:none; }
