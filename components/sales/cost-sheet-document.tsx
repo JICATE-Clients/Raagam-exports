@@ -1914,7 +1914,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
       </div>
       {extraRows.length ? (
         <div className="scroll">
-          <table aria-label="Extra charges">
+          <table aria-label="Extra charges" className="cq-extra">
             <thead>
               <tr>
                 <th>Extra charge</th>
@@ -3860,6 +3860,20 @@ const CSS = `
 .cs-sheet .cq-row2 .cq-qt { margin:10px 10px 0; max-width:calc(100% - 20px); }
 .cs-sheet .cq-row2 .cq-hint { margin:6px 10px 10px; }
 .cs-sheet .cq-row2 summary[data-tone] { padding:7px 10px; letter-spacing:.03em; gap:8px; white-space:nowrap; }
+/* Screenshot 3635: the Extra charge table scrolled sideways with Value cut off, and the
+   Quote table lost its Quoted column — both carry column widths sized for a full-width
+   band. In this row each table fills its box: the name column takes what the fixed
+   figure columns leave, and every box is as wide as its cell. */
+.cs-sheet .cq-row2 table.cq-extra { width:100%; table-layout:fixed; }
+.cs-sheet .cq-row2 table.cq-extra th:nth-child(2) { width:5.75rem; }
+.cs-sheet .cq-row2 table.cq-extra th:nth-child(3) { width:5rem; }
+.cs-sheet .cq-row2 table.cq-extra th:nth-child(4) { width:1.75rem; }
+.cs-sheet .cq-row2 table.cq-extra :is(th, td) { padding-left:4px; padding-right:4px; }
+.cs-sheet .cq-row2 table.cq-extra td :is(input, select) { width:100% !important; min-width:0 !important; height:28px !important; }
+.cs-sheet .cq-row2 .cq-qt { width:auto; }
+.cs-sheet .cq-row2 .cq-qt table { width:100%; table-layout:fixed; }
+.cs-sheet .cq-row2 .qt tr > :first-child { width:auto; min-width:0; }
+.cs-sheet .cq-row2 .qt :is(.fig, td.in) { width:5.5rem; min-width:0; max-width:none; }
 @media (max-width:900px){ .cs-sheet .cq-row2 { grid-template-columns:minmax(0,1fr); } }
 .cs-sheet .cq-row2 > .cq-band { margin:0; }
 /* Row 1 never wraps (user 2026-10-21, screenshot 3633: Trims dropped under the other two).
