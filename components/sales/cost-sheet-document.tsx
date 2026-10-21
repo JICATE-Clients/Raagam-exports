@@ -2210,7 +2210,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           {opsRow ? (
             <>
               {/* Costing 4: Costing 1's three tables in one row, then Overheads beside Terms. */}
-              {secTri}
+              <div className="cq-row3">{secTri}</div>
               <div className="cq-row2">
                 {cqOver}
                 {cqTerms}
@@ -3857,6 +3857,15 @@ const CSS = `
 .cs-sheet .cq-row2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; align-items:stretch; min-width:0; }
 @media (max-width:900px){ .cs-sheet .cq-row2 { grid-template-columns:minmax(0,1fr); } }
 .cs-sheet .cq-row2 > .cq-band { margin:0; }
+/* Row 1 never wraps (user 2026-10-21, screenshot 3633: Trims dropped under the other two).
+   Costing 1's .tri row hugs fixed column widths, which sum to more than 75% of the screen;
+   here it is a three-column grid instead and each table fills its column — the operation
+   name and the trim name take what is left after the fixed figure columns. */
+.cs-sheet .cq-row3 .tri { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,3fr) minmax(0,6.5fr); gap:12px; align-items:start; }
+@media (max-width:900px){ .cs-sheet .cq-row3 .tri { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cq-row3 .tri > * { min-width:0; max-width:none; margin:0; }
+.cs-sheet .cq-row3 .tri .scroll table { width:100%; }
+.cs-sheet .cq-row3 .tri th.c-name { width:auto; }
 .cs-sheet .cq-row2 .cq-grid { grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:22px 12px; max-width:none; }
 /* The merged Fabric tab: the left hugs Component consumption, the right takes the rest. */
 .cs-sheet .cq-fab { display:grid; grid-template-columns:fit-content(46%) minmax(0,1fr); gap:18px; align-items:start; }
