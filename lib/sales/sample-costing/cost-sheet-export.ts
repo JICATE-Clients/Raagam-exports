@@ -165,7 +165,7 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
     fx(s.cmt),
   );
   card(
-    "Trims & accessories",
+    "Trims",
     [...(multi ? ["Piece"] : []), "Trim", "Direct Rate", "No of Items", "No of Pcs", "Cons Qty", "Rate ₹", "Cost ₹"],
     m.trims.map((t) => [...(multi ? [t.piece] : []), t.name, t.direct ? "Yes" : "No", t.items, t.pcs, t.consQty.toFixed(3), fx(t.rate), fx(t.cost)]),
     [multi ? 3 : 2, multi ? 4 : 3, multi ? 5 : 4, multi ? 6 : 5, multi ? 7 : 6],

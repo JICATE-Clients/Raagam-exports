@@ -16,7 +16,7 @@ import { useAccordion } from "@/lib/ui/use-accordion";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { TypeOrPick } from "@/app/(app)/orders/_garment-order/type-or-pick";
-import { newFabric, newFabricProcess, newPieceLine, newTrim, newWeightRows, newYarnMix } from "@/lib/sales/sample-costing/revision-draft";
+import { newExtra, newFabric, newFabricProcess, newPieceLine, newTrim, newWeightRows, newYarnMix } from "@/lib/sales/sample-costing/revision-draft";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
 import { GlassRing } from "@/components/orders/budget-breakdown-chart";
@@ -161,6 +161,8 @@ export function CostSheetDocument({
   opsStack = false,
   trimsByTick = false,
   chargesTable = false,
+  fabricFold = false,
+  readyLines = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -205,6 +207,16 @@ export function CostSheetDocument({
    *  Terms and Quoted price are ONE table — Item · Type · Value headed once, a shaded band
    *  row per section. Off: three boxes side by side (`opsRow`) or stacked. */
   chargesTable?: boolean;
+  /** COSTING 5 (user 2026-10-21, "auto closing option for the section"): with `merged`, Fabric
+   *  processing cost's fabric bands fold ONE AT A TIME (AGENTS "Folds are accordions") — the
+   *  cursor or a click on a band opens it and shuts the one behind. Off: every band stays open,
+   *  as Costing 3 / 4 had it. */
+  fabricFold?: boolean;
+  /** COSTING 5 (user 2026-10-21, screenshot 3644: "remove that add option — using the
+   *  Enter key only they will add and move to the next field"): no "+ Add" anywhere. The
+   *  screen keeps every table ending in ONE empty line (`withReadyLines`), so Enter off the
+   *  last field walks into it and typing there is what adds. Off: the buttons, as today. */
+  readyLines?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -313,7 +325,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} opsStack={opsStack} trimsByTick={trimsByTick} chargesTable={chargesTable} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} opsStack={opsStack} trimsByTick={trimsByTick} chargesTable={chargesTable} fabricFold={fabricFold} readyLines={readyLines} />
     </div>
   );
 }
@@ -325,7 +337,7 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false, trimsByTick = false, chargesTable = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean; /** See `CostSheetDocument`'s `trimsByTick`. */ trimsByTick?: boolean; /** See `CostSheetDocument`'s `chargesTable`. */ chargesTable?: boolean }) {
+function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false, trimsByTick = false, chargesTable = false, fabricFold = false, readyLines = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean; /** See `CostSheetDocument`'s `trimsByTick`. */ trimsByTick?: boolean; /** See `CostSheetDocument`'s `chargesTable`. */ chargesTable?: boolean; /** See `CostSheetDocument`'s `fabricFold`. */ fabricFold?: boolean; /** See `CostSheetDocument`'s `readyLines`. */ readyLines?: boolean }) {
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -618,7 +630,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                       ) : null}
                     </tr>
                   ))}
-                  {edit?.options ? (
+                  {edit?.options && !readyLines ? (
                     <tr className="addrow">
                       <td colSpan={consumptionCols}>
                         <Button type="button" variant="outline" size="sm" data-row-add onClick={addWeightLine}>
@@ -796,7 +808,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
        chose by folding stays null. */
     const held = fabFold.openKey;
     const openKey = held !== null && !shown.some((x) => x.key === held) ? (shown[0]?.key ?? null) : held;
-    const addLink = (label: string, onClick: () => void) => (
+    const addLink = (label: string, onClick: () => void) => readyLines ? null : (
       <button type="button" data-row-add className="faddrow" onClick={onClick}>
         <Plus className="h-3.5 w-3.5" aria-hidden />
         {label}
@@ -851,16 +863,15 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                 : priceMissing
                   ? "Type the price per kg."
                   : null;
-              // Merged (Costing 3): every fabric open — nothing on the split tabs folds.
-              const open = !d.is_direct && (merged || openKey === f.key);
-              const folds = !d.is_direct && !merged;
-              const fromEntry = !!(d.fabric_id && opts?.lockedFabrics?.includes(d.fabric_id));
+              // Merged (Costing 3): every fabric open — unless `fabricFold` (Costing 5) asks for the accordion.
+              const folds = !d.is_direct && (!merged || fabricFold);
+              const open = !d.is_direct && (folds ? openKey === f.key : true);
               /* YARN AND MIX % ARE EDITABLE (client 2026-10-17, screenshot 3616: "allow to
                  user edit also"), reversing the same day's lock (screenshot 3598). Sample
                  Entry's composition only PREFILLS them — once, when the style is picked
                  (`pickStyle` seeds while every fabric line is blank) — so the operator can
                  change a yarn, its Mix %, add one or remove one, like any other fabric.
-                 "from Sample Entry" on the band still says where the fabric came from. */
+                 The band no longer tags it "from Sample Entry" (user 2026-10-21: unwanted). */
               const addYarn = () => setFabric(f.key, { yarns: [...(d.yarns.length ? d.yarns : [newYarnMix()]), newYarnMix()] });
               const addProc = () => setFabric(f.key, { processes: [...(d.processes.length ? d.processes : [newFabricProcess()]), newFabricProcess()] });
               return (
@@ -885,7 +896,6 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                           </button>
                         )}
                         <span className="px-1 font-semibold">{f.name}</span>
-                        {fromEntry ? <span className="fsrc">from Sample Entry</span> : null}
                       </span>
                       {blendText ? <span className="blend">{blendText}</span> : null}
                     </td>
@@ -1229,7 +1239,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
     if (open) return focusLine(open.key);
     edit.onChange({ ...edit.draft, trims: [...edit.draft.trims, newTrim(edit.draft.pieces[0]?.key ?? "")] });
   };
-  const addRow = (cols: number, onClick: () => void) => (
+  const addRow = (cols: number, onClick: () => void) => readyLines ? null : (
     <tr className="addrow">
       <td colSpan={cols}>
         <Button type="button" variant="outline" size="sm" data-row-add onClick={onClick}>
@@ -1283,15 +1293,18 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
     >
       {packD ? (
         <div className="flex flex-col gap-4">
-          {/* One row (user 2026-10-21, screenshot 3639): Items · Pcs · Cons Qty · Rate per pack. */}
-          <FieldRow>
-            <Field label="No of Items" w="range" htmlFor="cs-pack-items">
+          {/* One row (user 2026-10-21, screenshot 3639): Items · Pcs · Cons Qty · Rate per pack.
+              Four `range` steps (4 × 112 + gaps = 484px) did not fit the sm box's ~400px, so Rate
+              per pack wrapped under the rest (screenshot 3646). Each now takes the step its label
+              and value need — 88 · 72 · 88 · 112 = 390px with nowrap's 10px gaps. */}
+          <FieldRow nowrap>
+            <Field label="No of Items" w="hug" htmlFor="cs-pack-items">
               <NumInput id="cs-pack-items" autoFocus value={packD.qty} onChange={(e) => setPackTrim({ qty: e.target.value })} />
             </Field>
-            <Field label="No of Pcs" w="range" htmlFor="cs-pack-pcs">
+            <Field label="No of Pcs" w="num" htmlFor="cs-pack-pcs">
               <NumInput id="cs-pack-pcs" value={packD.pack_size} onChange={(e) => setPackTrim({ pack_size: e.target.value })} />
             </Field>
-            <Field label="Cons Qty" w="range" htmlFor="cs-pack-cons">
+            <Field label="Cons Qty" w="hug" htmlFor="cs-pack-cons">
               <Input id="cs-pack-cons" readOnly className="text-right tabular-nums" value={packRow?.consQty ? packRow.consQty.toFixed(3) : ""} />
             </Field>
             <Field label={`Rate ${SYM} per pack`} w="range" htmlFor="cs-pack-rate">
@@ -1316,7 +1329,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           {model.trims.length || edit?.options ? (
             <details open className={merged ? "cq-band cq-op-trims" : undefined}>
               <summary data-tone="trims" {...fixedSum}>
-                Trims &amp; accessories <span>{SYM} {money(s.trims)} / {model.unitWord}</span>
+                Trims <span>{SYM} {money(s.trims)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
                 <table>
@@ -1648,7 +1661,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
                   ))}
                 </tbody>
               </table>
-              {edit ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
+              {edit && !readyLines ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
             </div>
           </details>
         </section>
@@ -2112,7 +2125,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           </table>
         </div>
       ) : null}
-      {edit ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
+      {edit && !readyLines ? <AddCharge draft={edit.draft} onChange={edit.onChange} /> : null}
     </details>
   );
 
@@ -2205,6 +2218,198 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
       </div>
       {edit ? <p className="cq-hint">Leave a box blank to quote the calculated price.</p> : null}
     </details>
+  );
+
+  /* chargesTable (Costing 5, user 2026-10-21: "make this into single table", then screenshot
+     3641: "like Price build · ₹ per piece kind"): the three boxes above as ONE table drawn the
+     way Price build is — the `.qt` table, Item | Value, a muted capitals row per section with
+     its figure in the Value column, and every typed value an editable CELL (`td.in`, the
+     tinted cell the old Quote table used), never a box inside a cell. The unit is in the
+     label ("Rejection %"), so there is no Type column. Same fields, same setters. */
+  const ctCols = 2 + (edit ? 1 : 0);
+  const ctBand = (label: string, fig: ReactNode) => (
+    <tr className="grp">
+      <td>{label}</td>
+      <td className="fig">{fig}</td>
+      {actGap}
+    </tr>
+  );
+  /** A row of the table: the label, then the value — a typed cell while editing, the figure otherwise. */
+  const ctRow = (key: string, label: ReactNode, value: ReactNode, typed: boolean) => (
+    <tr key={key} data-grid-row={typed || undefined}>
+      <td>{label}</td>
+      <td className={typed ? "in" : "fig"}>{value}</td>
+      {actGap}
+    </tr>
+  );
+  const ctTerm = (label: string, field: TermField, shown: number | null, note?: ReactNode) =>
+    ctRow(
+      field,
+      <>
+        {label}
+        {note ? <span className="cq-note">{note}</span> : null}
+      </>,
+      edit ? (
+        <ShownAmount rate={isAmount(field) ? rate : null} value={edit.draft.header[field]} onChange={(v) => setHeader(field, v)}>
+          {(v, set) => <Ed w="w-full" label={label} value={v} onChange={set} />}
+        </ShownAmount>
+      ) : shown == null ? (
+        "—"
+      ) : isAmount(field) ? (
+        money(shown)
+      ) : (
+        fx(shown, 2)
+      ),
+      !!edit,
+    );
+  const multiPiece = !!edit && edit.draft.pieces.length > 1;
+  const cqOneTable = (
+    <div className="cq-onetable">
+      <div className="qt">
+        <table aria-label="Overheads, terms and quote">
+          <thead>
+            <tr>
+              <th>
+                Overheads, terms &amp; quote · {SYM} per {model.unitWord}
+              </th>
+              <th className="r">Value</th>
+              {actHead}
+            </tr>
+          </thead>
+          <tbody {...gridBody}>
+            {ctBand("Overheads & charges", `${money(s.bank + s.wastage + s.overhead + s.extraOverhead)}${model.sizes.length > 1 ? ` · ${s.label}` : ""}`)}
+            {ctRow("waste", "Rejection %", edit ? <Ed w="w-full" label="Rejection %" value={edit.draft.header.garment_waste_pct} onChange={(v) => setHdr({ garment_waste_pct: v })} /> : fx(model.terms.wastage, 2), !!edit)}
+            {ctRow("overhead", "Overhead %", edit ? <Ed w="w-full" label="Overhead %" value={edit.draft.header.overhead_pct} onChange={(v) => setHdr({ overhead_pct: v })} /> : fx(model.terms.overhead, 2), !!edit)}
+            {edit
+              ? edit.draft.pieces.map((p) =>
+                  ctRow(
+                    `bank-${p.key}`,
+                    `Bank charges ${SYM}${multiPiece ? ` · ${p.piece_name || "piece"}` : ""}`,
+                    <ShownAmount rate={rate} value={p.bank_cost} onChange={(v) => setPiece(p.key, { bank_cost: v })}>
+                      {(v, set) => <Ed w="w-full" label={`Bank charges ${p.piece_name || ""}`.trim()} value={v} onChange={set} />}
+                    </ShownAmount>,
+                    true,
+                  ),
+                )
+              : ctRow("bank", `Bank charges ${SYM}`, money(s.bank), false)}
+            {extraRows.map((o, i) => {
+              const x = edit && o.edit.kind === "extra" ? edit.draft.extras.find((e) => e.key === o.edit.key) : null;
+              if (!edit || !x) {
+                return ctRow(
+                  `x-${i}`,
+                  <>
+                    {o.name.toUpperCase()} <span className="dim">{o.type}</span>
+                    {o.side === "price" ? <span className="dim"> (price)</span> : null}
+                  </>,
+                  o.value,
+                  false,
+                );
+              }
+              const set = (patch: Partial<typeof x>) => edit.onChange({ ...edit.draft, extras: patchBy(edit.draft.extras, x.key, patch) });
+              return (
+                <tr key={x.key} data-grid-row>
+                  {/* A typed charge: its name and Flat ₹ / % share the Item cell. */}
+                  <td className="in">
+                    <div className="ct-extra">
+                    <EdText label="Charge name" value={x.name} onChange={(v) => set({ name: v })} />
+                    <select
+                      aria-label="Charge type"
+                      value={x.kind}
+                      autoComplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-form-type="other"
+                      onChange={(e) => set({ kind: e.target.value as "flat" | "pct" })}
+                    >
+                      <option value="flat">Flat ₹</option>
+                      <option value="pct">%</option>
+                    </select>
+                    </div>
+                  </td>
+                  <td className="in">
+                    <ShownAmount rate={x.kind === "pct" ? null : rate} value={x.value} onChange={(v) => set({ value: v })}>
+                      {(v, setV) => <Ed w="w-full" label={`${x.name || "Charge"} — ${x.kind === "pct" ? "%" : "₹"}`} value={v} onChange={setV} />}
+                    </ShownAmount>
+                  </td>
+                  <td className="act">
+                    <RemoveX label={x.name || "charge"} onClick={() => edit.onChange({ ...edit.draft, extras: edit.draft.extras.filter((e) => e.key !== x.key) })} />
+                  </td>
+                </tr>
+              );
+            })}
+            {edit && !readyLines ? (
+              <tr className="addrow">
+                <td colSpan={ctCols}>
+                  <Button type="button" variant="outline" size="sm" data-row-add onClick={() => edit.onChange({ ...edit.draft, extras: [...edit.draft.extras, newExtra("overhead")] })}>
+                    <Plus className="h-3.5 w-3.5" />
+                    Add charge
+                  </Button>
+                </td>
+              </tr>
+            ) : null}
+
+            {ctBand("Terms", `Margin ${edit ? Number(edit.draft.header.margin_pct) || 0 : model.terms.margin}%`)}
+            {ctTerm(`Buyer target ${ccy || "FOB"}`, "buyer_target_price", model.targetPrice)}
+            {ctTerm("Margin %", "margin_pct", model.terms.margin)}
+            {ctTerm(`Exchange ₹ / ${ccy || "FOB"}`, "exchange_rate", model.exchangeRate, edit?.rateNote)}
+            {ctTerm("Commission %", "commission_pct", model.commissionPct)}
+            {ctTerm("LC discount %", "discount_pct", model.terms.discount)}
+            {ctTerm(`Freight ${SYM} / pc`, "freight_per_pc", model.terms.freight)}
+            {ctTerm(`Insurance ${SYM} / pc`, "insurance_per_pc", model.terms.insurance)}
+
+            {ctBand(`Quoted price · ${ccy || "FOB"}`, "")}
+            {model.sizes.flatMap((x, i) => {
+              const sizeName = model.sizes.length > 1 ? `${x.label} · ` : "";
+              const cur = i === idx && model.sizes.length > 1 ? "cur" : undefined;
+              // 4 decimals: the exact figure the quote is rounded FROM (2026-10-17).
+              const calcRow = (
+                <tr key={`calc-${x.label}`} className={cur}>
+                  <td className="dim">{sizeName}Calculated</td>
+                  <td className="fig">{x.calc == null ? "—" : fx(x.calc, 4)}</td>
+                  {actGap}
+                </tr>
+              );
+              if (!edit) {
+                return [
+                  calcRow,
+                  <tr key={`q-${x.label}`} className={cur}>
+                    <td>{sizeName}Quoted</td>
+                    <td className="fig">{x.quoted == null ? "—" : fx(x.quoted, 2)}</td>
+                  </tr>,
+                ];
+              }
+              // A set quotes each piece: one Quoted cell per piece under the size's Calculated.
+              return [
+                calcRow,
+                ...edit.draft.pieces.map((p) => {
+                  const k = quoteKey(p.key, x.size);
+                  return (
+                    <tr key={k} data-grid-row className={cur}>
+                      <td>
+                        {sizeName}Quoted{multiPiece ? ` · ${p.piece_name || "piece"}` : ""}
+                      </td>
+                      <td className="in">
+                        <Ed
+                          w="w-full"
+                          label={`Quoted price${multiPiece ? ` ${p.piece_name || "piece"}` : ""} ${x.label}`}
+                          value={edit.draft.quotes[k] ?? ""}
+                          onChange={(v) => {
+                            edit.onQuote?.(k);
+                            edit.onChange({ ...edit.draft, quotes: { ...edit.draft.quotes, [k]: v } });
+                          }}
+                        />
+                      </td>
+                      {actGap}
+                    </tr>
+                  );
+                }),
+              ];
+            })}
+          </tbody>
+        </table>
+      </div>
+      {edit ? <p className="cq-hint">Leave Quoted blank to quote the calculated price.</p> : null}
+    </div>
   );
 
   /* THE RIGHT SIDE: nothing typed. One Price build table for every size — fabric down to
@@ -2370,20 +2575,37 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           {opsRow ? (
             <>
               {/* Costing 4: Costing 1's three tables in one row, then Overheads | Terms | Quoted price. */}
-              <div className={opsStack ? "cq-row3 cq-opstack" : "cq-row3"}>{secTri}</div>
-              <div className="cq-row2">
-                {cqOver}
-                {cqTerms}
-                {cqQuote}
-              </div>
+              {chargesTable ? (
+                /* Costing 5 (user 2026-10-21): the one charges table sits BESIDE Trims, in the
+                   same row — processes / CMT | Trims | Overheads, terms & quote. */
+                <div className="cq-withcharges">
+                  <div className={opsStack ? "cq-row3 cq-opstack" : "cq-row3"}>{secTri}</div>
+                  {cqOneTable}
+                </div>
+              ) : (
+                <div className={opsStack ? "cq-row3 cq-opstack" : "cq-row3"}>{secTri}</div>
+              )}
+              {chargesTable ? null : (
+                <div className="cq-row2">
+                  {cqOver}
+                  {cqTerms}
+                  {cqQuote}
+                </div>
+              )}
             </>
           ) : (
             <>
               {cqOps}
               {secTrims}
-              {cqOver}
-              {cqTerms}
-              {cqQuote}
+              {chargesTable ? (
+                cqOneTable
+              ) : (
+                <>
+                  {cqOver}
+                  {cqTerms}
+                  {cqQuote}
+                </>
+              )}
             </>
           )}
         </div>
@@ -2538,7 +2760,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   };
 
   return (
-    <article className="cs-sheet">
+    <article className={chargesTable ? "cs-sheet cs-qtlook" : "cs-sheet"}>
       <style>{CSS}</style>
       {/* THE LETTERHEAD — OPTION B of the "Costing Report Header" mock-ups (user
           2026-10-16: "Option B is okay"). A white letterhead under the four-colour
@@ -3821,7 +4043,6 @@ const CSS = `
 .cs-sheet .fband .bandprice { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:13.5px; font-weight:700; color:#3f7d17; }
 .cs-sheet .fband table.fbands { width:100%; }
 .cs-sheet .fband th.c, .cs-sheet .fband td.tog { text-align:center; }
-.cs-sheet .fband .fsrc { margin-left:6px; font-size:10.5px; font-weight:500; color:var(--cs-muted); }
 /* OPEN FABRIC, OPTION B (plan "Fabric Processing Layout", 2026-10-17): Yarn left,
    Processes right, each a table of only its own columns — no blank cells — and the
    working line across both. Below 900px the two stack. */
@@ -3983,9 +4204,14 @@ const CSS = `
 .cs-sheet .cq-type { height:28px; border-radius:6px; border:1px solid #037bb8; background:#fff; padding:0 6px; font-size:12px; font-weight:600; color:#0f1b26; }
 .cs-sheet .cq-hint { font-size:12px; color:var(--cs-muted); margin:6px 12px 0; }
 .cs-sheet .cq-qt { margin:10px 12px 0; }
-.cs-sheet .cq-pb { width:100%; }
-.cs-sheet .cq-pb table { width:100%; }
-.cs-sheet .cq-pb tr > :first-child { width:auto; min-width:170px; }
+/* Compact (user 2026-10-21, screenshot 172735: "compact all columns"): the Price build hugs
+   its columns instead of stretching to the pane — at 100% every spare pixel went to the
+   label column, leaving "Fabric" and its 0.00 a third of a screen apart. Labels size to the
+   longest one, figures to 5rem. */
+.cs-sheet .cq-pb { width:fit-content; max-width:100%; }
+.cs-sheet .cq-pb table { width:auto; }
+.cs-sheet .cq-pb tr > :first-child { width:auto; min-width:0; }
+.cs-sheet .cq-pb :is(.fig, td.in) { width:5rem; min-width:5rem; max-width:none; }
 .cs-sheet .cq-pb td .dim { color:var(--cs-muted); }
 .cs-sheet .cq-size { font:inherit; font-weight:700; color:inherit; background:none; border:0; padding:2px 6px; border-radius:6px; cursor:pointer; }
 .cs-sheet .cq-size:hover { color:var(--cs-brand); }
@@ -4045,6 +4271,111 @@ const CSS = `
 .cs-sheet .cq-row2 .qt tr > :first-child { width:auto; min-width:0; }
 .cs-sheet .cq-row2 .qt :is(.fig, td.in) { width:5.5rem; min-width:0; max-width:none; }
 @media (max-width:900px){ .cs-sheet .cq-row2 { grid-template-columns:minmax(0,1fr); } }
+/* chargesTable (Costing 5, user 2026-10-21, screenshot 3641: "like Price build"): the
+   charges, terms and quote as one .qt table, Price build's own look — Item | Value, the
+   Value column 7rem of right-aligned figures, every typed value a tinted cell (td.in). */
+.cs-sheet .cq-onetable { min-width:0; margin:0; }
+.cs-sheet .cq-onetable .qt { width:100%; }
+.cs-sheet .cq-onetable .qt table { width:100%; table-layout:fixed; }
+.cs-sheet .cq-onetable .qt tr > :first-child { width:auto; min-width:0; white-space:normal; line-height:1.25; }
+.cs-sheet .cq-onetable .qt :is(.fig, td.in) { width:7rem; min-width:0; max-width:none; }
+.cs-sheet .cq-onetable .qt th:nth-child(2) { width:7rem; }
+.cs-sheet .cq-onetable .qt th.act { width:1.75rem; }
+.cs-sheet .cq-onetable .qt td.act { border-left:0; }
+.cs-sheet .cq-onetable .qt tr.grp td.fig { color:var(--cs-muted); font-size:11px; letter-spacing:0; text-transform:none; font-weight:500; }
+.cs-sheet .cq-onetable .qt td.in :is(input, select) { width:100% !important; min-width:0 !important; height:28px !important; border:0 !important; border-radius:0 !important; background:transparent !important; box-shadow:none !important; font-size:12.5px; }
+.cs-sheet .cq-onetable .qt td.in input[type="number"] { text-align:right; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; }
+.cs-sheet .cq-onetable .qt td.in :is(input, select):focus { box-shadow:inset 0 0 0 2px #037bb8 !important; background:#fff !important; outline:none !important; }
+/* A typed charge's name and its Flat ₹ / % share the Item cell. */
+.cs-sheet .cq-onetable .qt td.in .ct-extra { display:flex; align-items:center; }
+.cs-sheet .cq-onetable .qt td.in .ct-extra input { flex:1 1 auto; }
+.cs-sheet .cq-onetable .qt td.in .ct-extra select { flex:0 0 4.75rem; width:4.75rem !important; border-left:1px solid #9fcbe6 !important; }
+.cs-sheet .cq-onetable .qt tr.addrow td { height:auto; padding:6px 8px; background:#fff; }
+.cs-sheet .cq-onetable .cq-note { display:block; font-size:10.5px; color:var(--cs-muted); line-height:1.2; }
+.cs-sheet .cq-onetable .cq-hint { margin:6px 2px 0; }
+/* Beside Trims (user 2026-10-21: "move this near to the trims table"): one row —
+   processes / CMT and Trims on the left (their own 1 : 1.8 grid), the charges table on the
+   right. A narrow pane stacks the table under Trims. */
+.cs-sheet .cq-withcharges { display:grid; grid-template-columns:minmax(0,2.6fr) minmax(0,1.4fr); gap:12px; align-items:start; min-width:0; }
+.cs-sheet .cq-withcharges > * { min-width:0; margin:0; }
+@media (max-width:1100px){ .cs-sheet .cq-withcharges { grid-template-columns:minmax(0,1fr); } }
+/* EVERY TABLE LOOKS LIKE PRICE BUILD (user 2026-10-21: "make every table look like this
+   one", then "for the fabric tab too"). On Costing 5 (cs-qtlook, set by chargesTable) every
+   banded table on the Fabric and Cost & Quote tabs — consumption, fabric processing,
+   processes, CMT, trims — keeps its markup and takes the .qt look the charges table has — a white heading line in muted type with
+   the band's colour as a small square (Price build's legend dot), muted column heads, 28px
+   ruled rows, and every typed value a tinted CELL rather than a box inside one. */
+.cs-sheet.cs-qtlook .cq-panel details:not(.plain) { border:1px solid var(--cs-rule); border-radius:8px; background:#fff; }
+.cs-sheet.cs-qtlook .cq-panel summary[data-tone] { background:#fff; color:var(--cs-muted); border-top:0; border-bottom:1px solid #9aa4b2; text-transform:none; letter-spacing:normal; font-size:11.5px; font-weight:600; padding:5px 8px; align-items:center; }
+.cs-sheet.cs-qtlook .cq-panel summary[data-tone]::before { content:""; width:8px; height:8px; border-radius:2px; background:var(--tone); margin-right:6px; flex:none; }
+.cs-sheet.cs-qtlook .cq-panel summary[data-tone] { justify-content:flex-start; }
+.cs-sheet.cs-qtlook .cq-panel summary[data-tone] span { margin-left:auto; color:var(--cs-muted); opacity:1; font-size:11.5px; font-weight:500; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; }
+.cs-sheet.cs-qtlook .cq-panel details th { color:var(--cs-muted); font-weight:600; font-size:11.5px; padding:5px 8px; border-bottom:1px solid var(--cs-rule) !important; background:#fff; }
+.cs-sheet.cs-qtlook .cq-panel details td { height:28px; padding:0 8px; border-bottom:1px solid var(--cs-rule); font-size:12.5px; }
+.cs-sheet.cs-qtlook .cq-panel details tr.ready td { padding-top:0; padding-bottom:0; }
+.cs-sheet.cs-qtlook .cq-panel details td:not(:has(table, .work)):has(input:not([type="checkbox"]):not([readonly]), select) { padding:0; background:#eef6fc; box-shadow:inset 0 0 0 1px #9fcbe6; }
+.cs-sheet.cs-qtlook .cq-panel details td:not(:has(table, .work)) :is(input:not([type="checkbox"]), select) { width:100% !important; min-width:0 !important; height:28px !important; border:0 !important; border-radius:0 !important; background:transparent !important; box-shadow:none !important; font-size:12.5px !important; }
+.cs-sheet.cs-qtlook .cq-panel details td.r input { text-align:right; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; }
+.cs-sheet.cs-qtlook .cq-panel details td:not(:has(table, .work)) :is(input:not([type="checkbox"]), select):focus { box-shadow:inset 0 0 0 2px #037bb8 !important; background:#fff !important; outline:none !important; }
+.cs-sheet.cs-qtlook .cq-panel details td.r { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; }
+.cs-sheet.cs-qtlook .cq-panel details tr.addrow td { height:auto; padding:6px 8px; background:#fff; box-shadow:none; }
+/* The charges table's outer box matches: same border, same corners. */
+.cs-sheet .cq-withcharges .cq-onetable .qt { border-radius:8px; }
+/* The Fabric workbench sits in a borderless (plain) band whose table draws its own box, so
+   its heading line has no rule under it; its column heads go white like Price build's. */
+.cs-sheet.cs-qtlook .cq-panel details.plain > summary[data-tone] { border-bottom:0; padding:0 0 6px; }
+.cs-sheet.cs-qtlook .cq-panel .fsheet th { background:#fff; font-size:11.5px; }
+/* A cell that HOLDS a table (a fabric's Yarn / Processes panels) or the price line is a
+   container, not a typed value: no tint, and its boxes keep their own size — screenshot
+   3642, where the loss box stretched to the full width and broke the line in three. */
+/* The fabric price line on ONE row (user 2026-10-21, screenshot 3642: "compact this into
+   single row"): Yarn 350.00 + Processes 131.00 = 481.00 · + 10 % loss 48.10 = 529.10 / kg,
+   never wrapping; a pane too narrow for it scrolls the line, never breaks it. */
+.cs-sheet.cs-qtlook .fband .work { flex-wrap:nowrap; white-space:nowrap; overflow-x:auto; margin-top:8px; padding:4px 8px; min-height:30px; }
+/* RATES ARE THREE DIGITS (user 2026-10-21: "rate field only going to handle 3 digit, so we
+   can compact it more"): 999.99 is the widest figure a rate, a cost or an amount column holds
+   on Costing 5 — six mono characters, ~45px, + 16px padding — so every one is cut to 4.5rem
+   (the "Rate / KG" heading is the real floor), Mix % to 3.5rem, the ✕ columns to 1.75rem.
+   The widths are inline <col>s the other costings share, so they are overridden here by
+   position: the fabric band table (Fabric · Bought-in · Price / KG · ✕), a fabric's Yarn
+   panel (5 cols) and its Processes panel (3 cols). */
+.cs-sheet.cs-qtlook .fbands col:nth-child(2) { width:5rem !important; }
+.cs-sheet.cs-qtlook .fbands col:nth-child(3) { width:5.5rem !important; }
+.cs-sheet.cs-qtlook .fbands col:nth-child(4) { width:1.5rem !important; }
+.cs-sheet.cs-qtlook .ftab colgroup:has(> col:nth-child(5)) > col:nth-child(2) { width:3.5rem !important; }
+.cs-sheet.cs-qtlook .ftab colgroup:has(> col:nth-child(5)) > col:is(:nth-child(3), :nth-child(4)) { width:4.5rem !important; }
+.cs-sheet.cs-qtlook .ftab colgroup:not(:has(> col:nth-child(4))) > col:nth-child(2) { width:4.5rem !important; }
+.cs-sheet.cs-qtlook .ftab col:last-child { width:1.5rem !important; }
+.cs-sheet.cs-qtlook .cq-panel .tri th.c-num { width:4.5rem; }
+/* Trims' Rate keeps room for its "/pc" tag (2.6rem) beside the figure, and the pack button. */
+.cs-sheet.cs-qtlook .cq-panel .tri th.c-rate { width:6.25rem; }
+.cs-sheet.cs-qtlook .cq-onetable .qt :is(.fig, td.in), .cs-sheet.cs-qtlook .cq-onetable .qt th:nth-child(2) { width:5rem; }
+/* THE ✕ COLUMN IS 1.5rem (user 2026-10-21: "close option field also need compact"): every
+   one holds a single 20px RowHoverRemove, so 24px with 2px each side is all it needs — down
+   from 28px, 2.5rem and 3rem across the sheet's tables. Consumption's ✕ is an inline <col>
+   (its last), overridden like the fabric ones above. */
+.cs-sheet.cs-qtlook :is(th, td).act { width:1.5rem !important; min-width:1.5rem !important; padding:0 2px !important; }
+.cs-sheet.cs-qtlook .blk.cons:has(th.act) col:last-child { width:1.5rem !important; }
+.cs-sheet.cs-qtlook .fsheet .acts { justify-content:center; }
+/* A FABRIC'S YARN AND PROCESSES ARE ONE BOX EACH (user 2026-10-21, screenshot 3643: "this
+   yarn table is inside another table, look not clear"). It was three frames deep — the
+   fabric row's grey well, a white card titled YARN · 2, and the bordered table inside the
+   card. Now the card IS the table's box, Price build's shape: one border, the title as its
+   heading line (a colour square, the name, the total on the right, a rule under it), the
+   column heads straight beneath, "+ Add yarn" closing it under a hairline. The well under
+   the fabric row goes white, so the only frames left are the two boxes. */
+.cs-sheet.cs-qtlook .fband tr.fopen > td { background:#fff; padding:8px 8px 10px 24px; }
+.cs-sheet.cs-qtlook .fband .fsplit { align-items:start; gap:10px; }
+.cs-sheet.cs-qtlook .fband .fpart { gap:0; padding:0; border:1px solid var(--cs-rule); border-radius:8px; overflow:hidden; background:#fff; }
+.cs-sheet.cs-qtlook .fband .fpart > .grp { padding:5px 8px; border-bottom:1px solid #9aa4b2; align-items:center; justify-content:flex-start; gap:6px; font-size:11.5px; font-weight:600; letter-spacing:normal; text-transform:none; color:var(--cs-muted); }
+.cs-sheet.cs-qtlook .fband .fpart > .grp::before { content:""; width:8px; height:8px; border-radius:2px; background:var(--cs-fabric); flex:none; }
+.cs-sheet.cs-qtlook .fband .fpart > .grp.p::before { background:var(--cs-trims); }
+.cs-sheet.cs-qtlook .fband .fpart > .grp .gsum { margin-left:auto; font-size:11.5px; font-weight:600; }
+.cs-sheet.cs-qtlook .fband .fpart table.ftab { border:0; border-radius:0; }
+.cs-sheet.cs-qtlook .fband .fpart table.ftab th { background:#fff; }
+.cs-sheet.cs-qtlook .fband .fpart table.ftab tr:last-child td { border-bottom:0; }
+.cs-sheet.cs-qtlook .fband .fpart > :is(.faddrow, .fnote) { margin-top:0; padding:5px 8px; border-top:1px solid var(--cs-rule); }
+.cs-sheet.cs-qtlook .fband .work .lossbox { flex:none; background:#eef6fc !important; border:1px solid #9fcbe6 !important; border-radius:4px !important; text-align:right; }
 .cs-sheet .cq-row2 > .cq-band { margin:0; }
 /* Row 1 never wraps (user 2026-10-21, screenshot 3633: Trims dropped under the other two).
    Costing 1's .tri row hugs fixed column widths, which sum to more than 75% of the screen;
@@ -4068,6 +4399,16 @@ const CSS = `
 .cs-sheet .cq-row3.cq-opstack .cq-op-proc { grid-area:proc; }
 .cs-sheet .cq-row3.cq-opstack .cq-op-cmt { grid-area:cmt; }
 .cs-sheet .cq-row3.cq-opstack .cq-op-trims { grid-area:trims; align-self:stretch; }
+/* A RATE BOX HOLDS THREE DIGITS AND GROWS (user 2026-10-21, after screenshot 3645: "space
+   … to enter a maximum of 3 digits only … any fourth number adjust it dynamically"). The
+   Rate columns no longer reserve 80px / 4.5rem / 7rem: the box starts at 3 digits plus its
+   padding and field-sizing:content (the pickers' own mechanism, data-picker.tsx) widens
+   it per digit typed. That needs the table on auto layout — a fixed table cannot be
+   widened by its content — and the box off the width:100% every .tri input otherwise
+   gets. */
+.cs-sheet .cq-row3.cq-opstack .tri .scroll table { table-layout:auto; }
+.cs-sheet .cq-row3.cq-opstack .tri :is(th.c-num, th.c-rate) { width:auto; }
+.cs-sheet .cq-row3.cq-opstack .tri td input.cs-ed[type="number"] { field-sizing:content; width:auto !important; min-width:calc(3ch + 16px) !important; max-width:none; }
 /* trimsByTick (Costing 5): the pack group's headings carry a light shade; the Rate box names
    its unit (/pc or /pack) in its own right padding. */
 .cs-sheet .tri th.c-pack { background:#f7f9fb; }

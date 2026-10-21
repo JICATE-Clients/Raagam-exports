@@ -10,7 +10,7 @@
  *   Details (always open)
  *   1 Fabric            Component consumption, then Fabric processing cost
  *   2 CMT & garment processes
- *   3 Trims & accessories
+ *   3 Trims
  *   4 Other costs & overheads
  *   5 Margin & terms
  *   6 Quote to the buyer (always open — it is the answer)
@@ -449,7 +449,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
         const named = f.yarns.filter((y) => y.yarn_name.trim() || y.item_id);
         const blend = f.is_direct ? "Bought-in" : named.map((y) => `${y.mix_pct.trim() ? `${y.mix_pct}% ` : ""}${y.yarn_name || "yarn"}`).join(" + ");
         const name = f.quality || fig?.name || "Fabric";
-        const fromEntry = !!(f.fabric_id && opts?.lockedFabrics?.includes(f.fabric_id));
         return (
           <div key={f.key} className={cn("overflow-hidden rounded-xl border bg-surface", open ? "border-info/50 shadow-sm" : "border-border")} {...fabFold.focusProps(f.key)}>
             <div className={cn("flex flex-wrap items-center gap-3 px-3.5 py-2.5", open ? "border-b border-border bg-info-soft/40" : "bg-surface-muted/50")}>
@@ -465,7 +464,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
                 <span className="min-w-0">
                   <span className="block font-semibold text-heading">
                     {name}
-                    {fromEntry ? <span className="ml-2 text-xs font-medium text-muted-foreground">from Sample Entry</span> : null}
                   </span>
                   {blend ? <Truncated text={blend} className="block text-xs text-muted-foreground" /> : null}
                 </span>
@@ -1030,7 +1028,7 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
         <Section k="making" n={2} title="CMT & garment processes" icon={Scissors} summary={summaries.making} todo={todo("making")} open={acc.isOpen("making")} onToggle={() => acc.toggle("making")} focus={acc.focusProps("making")} spine={<Spine cap="CMT & processes" value={`₹ ${money((s?.cmt ?? 0) + (s?.process ?? 0))}`} sub={`so far ₹ ${money((s?.fabric ?? 0) + (s?.cmt ?? 0) + (s?.process ?? 0))}`} />}>
           {making}
         </Section>
-        <Section k="trims" n={3} title="Trims & accessories" icon={Tag} summary={summaries.trims} todo={todo("trims")} open={acc.isOpen("trims")} onToggle={() => acc.toggle("trims")} focus={acc.focusProps("trims")} spine={<Spine cap="Trims" value={`₹ ${money(s?.trims)}`} sub={`so far ₹ ${money((s?.fabric ?? 0) + (s?.cmt ?? 0) + (s?.process ?? 0) + (s?.trims ?? 0))}`} />}>
+        <Section k="trims" n={3} title="Trims" icon={Tag} summary={summaries.trims} todo={todo("trims")} open={acc.isOpen("trims")} onToggle={() => acc.toggle("trims")} focus={acc.focusProps("trims")} spine={<Spine cap="Trims" value={`₹ ${money(s?.trims)}`} sub={`so far ₹ ${money((s?.fabric ?? 0) + (s?.cmt ?? 0) + (s?.process ?? 0) + (s?.trims ?? 0))}`} />}>
           {trims}
         </Section>
         <Section k="oh" n={4} title="Other costs & overheads" icon={Building2} summary={summaries.oh} todo={todo("oh")} open={acc.isOpen("oh")} onToggle={() => acc.toggle("oh")} focus={acc.focusProps("oh")} spine={<Spine cap="Gross cost" value={`₹ ${money(s?.grossCost)}`} sub={`net ₹ ${money(s?.net)}`} />}>
