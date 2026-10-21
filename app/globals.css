@@ -585,6 +585,36 @@ input[data-enter-pending] ~ .enter-bar {
   }
 }
 
+/* The pause after Enter on a grid's "+ Add" (lib/focus.ts `enterOnRowAdd`): a
+ * bar drains under the button; Enter again before it empties moves on instead
+ * of adding. */
+[data-enter-pending]:is(button, [role="button"]) {
+  position: relative;
+  overflow: hidden;
+}
+[data-enter-pending]:is(button, [role="button"])::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: var(--primary);
+  transform-origin: left;
+  animation: enter-drain var(--enter-ms, 500ms) linear forwards;
+}
+@keyframes enter-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-enter-pending]:is(button, [role="button"])::after {
+    animation: none;
+  }
+}
+
 @keyframes grow {
   from {
     transform: scaleY(0.001);
@@ -2609,6 +2639,16 @@ html[data-type-scale="compact"] [data-sheet-row="head"] > :is(.text-foreground, 
 [data-grid-style="sheet"] td:hover [data-field-affordance],
 [data-grid-style="sheet"] td:focus-within [data-field-affordance] {
   opacity: 1;
+}
+/* ONLY THE CELL UNDER THE POINTER (user 2026-10-21, screenshot 101816:
+   "entha line mela mouse hover pandromo athula mattum x icon … table fulla
+   katta vendam"). `td:hover` above matches an OUTER cell too, so a sheet grid
+   nested in one (Garment Order ▸ Pack type(s) ▸ Style · Combo · Qty) lit every
+   inner line's ✕ / ▼ at once. A cell between the slot and the hovered one that
+   is not itself hovered or focused hides it again — higher specificity than
+   the reveal, so order does not matter. */
+[data-grid-style="sheet"] td:is(:hover, :focus-within) td:not(:hover):not(:focus-within) [data-field-affordance] {
+  opacity: 0;
 }
 
 /* NO SCROLLBARS, AND THE TABLE FILLS ITS PANE — `data-grid-fit="fill"` beside

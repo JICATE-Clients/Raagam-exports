@@ -55,7 +55,7 @@ export function AuditBrowser({
             name="table"
             value={table}
             onChange={(e) => setTable(e.target.value)}
-            className={field}
+            inputClassName={field}
           >
             <option value="">All</option>
             {Object.entries(TABLE_LABELS).map(([k, v]) => (
@@ -71,7 +71,7 @@ export function AuditBrowser({
             name="op"
             value={op}
             onChange={(e) => setOp(e.target.value)}
-            className={field}
+            inputClassName={field}
           >
             <option value="">All</option>
             <option value="INSERT">Created</option>

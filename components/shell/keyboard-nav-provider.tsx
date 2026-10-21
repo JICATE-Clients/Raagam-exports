@@ -8,6 +8,7 @@ import {
   atCaretEdge,
   cycleTab,
   enterAdvances,
+  enterOnRowAdd,
   isEditorScope,
   isRowAddControl,
   keyFillsField,
@@ -490,6 +491,8 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
 
       if (arrowOpensPicker(e)) return;
       if (arrowNavigate(e, root)) return;
+      // Enter on a grid's "+ Add": add after a pause, or Enter Enter moves on.
+      if (enterOnRowAdd(e, root)) return;
       enterAdvances(e, root, {
         // `has` is probed BEFORE Enter claims the key at all — see the gate in
         // enterAdvances. Firing to find out would save the record.

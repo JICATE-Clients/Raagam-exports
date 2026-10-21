@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
 import { useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
@@ -110,6 +111,8 @@ export function GroupingScreen({
   const [tab, setTab] = useState<Tab>(() => (data.candidates.some((c) => !c.group_id) ? "ungrouped" : "grouped"));
   const [openId, setOpenId] = useState<string | null>(null);
   const sel = useRowSelection();
+  // Card View / List View, as the other Sample queues (PD Request, Costing).
+  const viewMode = useViewMode("sample-grouping", "cards");
 
   const scopedCandidates = data.candidates;
   const groupFacets = useFacetFilter(data.groups, GROUP_FACETS);
@@ -210,6 +213,7 @@ export function GroupingScreen({
             />
           </>
         }
+        trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
       />
 
 
@@ -288,6 +292,8 @@ export function GroupingScreen({
             ]}
             onOpen={(c) => canPick && sel.toggle(c.key)}
             selected={(c) => sel.selectedKeys.has(c.key)}
+            table={{ title: "SMP No", subtitle: "Customer · Style" }}
+            view={viewMode.view}
             empty={
               scopedCandidates.length
                 ? query || candFacets.activeCount
@@ -321,6 +327,8 @@ export function GroupingScreen({
           canDeleteRow={(g) => g.status === "draft"}
           onDelete={del}
           isPending={isPending}
+          table={{ title: "SWO No", subtitle: "Samples" }}
+          view={viewMode.view}
           empty={data.groups.length ? "Nothing matches the search or filters." : "No SWOs yet — tick samples under Ungrouped and create one."}
         />
       )}
