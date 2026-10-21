@@ -155,6 +155,7 @@ export function CostSheetDocument({
   merged = false,
   narrowValues = false,
   opsRow = false,
+  opsStack = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -185,6 +186,10 @@ export function CostSheetDocument({
    *  tables Costing 1 draws (no Type dropdown), then Overheads & charges | Terms. Off:
    *  Costing 3's one Operations table, each band on its own line. */
   opsRow?: boolean;
+  /** COSTING 5 (user 2026-10-21: "CMT operations — move this under Garment processes"):
+   *  with `opsRow`, row 1 is two columns — Garment processes with CMT operations under it,
+   *  and Trims beside the pair, the full height of both. Off: the three side by side. */
+  opsStack?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -293,7 +298,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} opsStack={opsStack} />
     </div>
   );
 }
@@ -305,7 +310,7 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean }) {
+function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean }) {
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -1229,7 +1234,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   const secTrims = (
         <>
           {model.trims.length || edit?.options ? (
-            <details open className={merged ? "cq-band" : undefined}>
+            <details open className={merged ? "cq-band cq-op-trims" : undefined}>
               <summary data-tone="trims" {...fixedSum}>
                 Trims &amp; accessories <span>{SYM} {money(s.trims)} / {model.unitWord}</span>
               </summary>
@@ -1305,7 +1310,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   const secTri = (
         <section className="tri" aria-label="Processes, CMT and trims">
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
-            <details open>
+            <details open className="cq-op-proc">
               <summary data-tone="fabric" {...fixedSum}>
                 Garment processes <span>{SYM} {money(s.process + s.testing)} / {model.unitWord}</span>
               </summary>
@@ -1340,7 +1345,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
             </details>
           ) : null}
           {model.ops.some((o) => o.kind === "CMT") || edit?.options ? (
-            <details open>
+            <details open className="cq-op-cmt">
               <summary data-tone="cmt" {...fixedSum}>
                 CMT operations <span>{SYM} {money(s.cmt)} / {model.unitWord}</span>
               </summary>
@@ -2232,7 +2237,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           {opsRow ? (
             <>
               {/* Costing 4: Costing 1's three tables in one row, then Overheads | Terms | Quoted price. */}
-              <div className="cq-row3">{secTri}</div>
+              <div className={opsStack ? "cq-row3 cq-stack" : "cq-row3"}>{secTri}</div>
               <div className="cq-row2">
                 {cqOver}
                 {cqTerms}
@@ -3922,6 +3927,13 @@ const CSS = `
    tracking and padding), and the three boxes stretch to one height. */
 .cs-sheet .cq-row3 summary[data-tone] { padding:7px 10px; letter-spacing:.03em; gap:8px; white-space:nowrap; }
 .cs-sheet .cq-row3 summary[data-tone] span { white-space:nowrap; }
+/* Costing 5 (user 2026-10-21): CMT operations under Garment processes, Trims beside the
+   pair at the full height of both — and with Trims' seven columns given the wider side. */
+.cs-sheet .cq-row3.cq-stack .tri { grid-template-columns:minmax(0,1fr) minmax(0,1.8fr); grid-template-areas:"proc trims" "cmt trims"; align-items:start; }
+.cs-sheet .cq-row3.cq-stack .cq-op-proc { grid-area:proc; }
+.cs-sheet .cq-row3.cq-stack .cq-op-cmt { grid-area:cmt; }
+.cs-sheet .cq-row3.cq-stack .cq-op-trims { grid-area:trims; align-self:stretch; }
+@media (max-width:900px){ .cs-sheet .cq-row3.cq-stack .tri { grid-template-columns:minmax(0,1fr); grid-template-areas:"proc" "cmt" "trims"; } }
 .cs-sheet .cq-row2 .cq-grid { grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:22px 12px; max-width:none; }
 /* The merged Fabric tab: the left hugs Component consumption, the right takes the rest. */
 .cs-sheet .cq-fab { display:grid; grid-template-columns:fit-content(46%) minmax(0,1fr); gap:18px; align-items:start; }
