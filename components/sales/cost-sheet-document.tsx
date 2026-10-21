@@ -153,6 +153,8 @@ export function CostSheetDocument({
   quietDownload = false,
   entry = false,
   merged = false,
+  narrowValues = false,
+  opsRow = false,
 }: {
   model: CostSheetModel;
   /** An UNSAVED revision is on screen: nothing may be downloaded or printed from it. */
@@ -174,6 +176,15 @@ export function CostSheetDocument({
   /** COSTING 3 (user 2026-10-21): Operations, Overheads and Quotation as ONE split-screen
    *  "Cost & Quote" tab — see `secCostQuote`. Off: the seven tabs, unchanged. */
   merged?: boolean;
+  /** COSTING 4 (user 2026-10-21: "compact the section, make it 25% of the screen"): with
+   *  `merged`, the Price build side takes a quarter of the width, set tight. Off: Costing 3's
+   *  even split. */
+  narrowValues?: boolean;
+  /** COSTING 4 (user 2026-10-21, artifact "Costing 4 Operations"): with `merged`, Cost &
+   *  Quote's left side is two rows — Garment processes | CMT operations | Trims as the three
+   *  tables Costing 1 draws (no Type dropdown), then Overheads & charges | Terms. Off:
+   *  Costing 3's one Operations table, each band on its own line. */
+  opsRow?: boolean;
 }) {
   // Open on the size that earns least: that is the one the reader came to check.
   const lowest = model.sizes.reduce((best, s, i) => (s.effectiveMarginPct != null && (model.sizes[best].effectiveMarginPct ?? Infinity) > s.effectiveMarginPct ? i : best), 0);
@@ -282,7 +293,7 @@ export function CostSheetDocument({
         </div>
       </div>
       ) : null}
-      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} />
+      <Sheet model={model} s={s} edit={edit} view={view} cur={cur} show={show} onSize={setIdx} letterhead={!entry} merged={merged} narrowValues={narrowValues} opsRow={opsRow} />
     </div>
   );
 }
@@ -294,7 +305,7 @@ type SheetView = "tabs" | "report";
 
 type ShowIn = { codes: string[]; code: string; quoted: string | null; onPick: (c: string) => void };
 
-function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean }) {
+function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean }) {
   /* The shown size's column, highlighted in the Quotation tables. Master (095e6a1a) stopped
      passing it as a prop; it is the same fact read off `s`. */
   const idx = Math.max(0, model.sizes.findIndex((x) => x.label === s.label));
@@ -1295,7 +1306,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
         <section className="tri" aria-label="Processes, CMT and trims">
           {model.ops.some((o) => o.kind !== "CMT") || edit?.options ? (
             <details open>
-              <summary data-tone="fabric">
+              <summary data-tone="fabric" {...fixedSum}>
                 Garment processes <span>{SYM} {money(s.process + s.testing)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
@@ -1330,7 +1341,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           ) : null}
           {model.ops.some((o) => o.kind === "CMT") || edit?.options ? (
             <details open>
-              <summary data-tone="cmt">
+              <summary data-tone="cmt" {...fixedSum}>
                 CMT operations <span>{SYM} {money(s.cmt)} / {model.unitWord}</span>
               </summary>
               <div className="scroll">
@@ -1878,7 +1889,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   const setHdr = (patch: Partial<CostingDraft["header"]>) => edit?.onChange({ ...edit.draft, header: { ...edit.draft.header, ...patch } });
   const extraRows = overheadRows.filter((o) => o.edit.kind === "extra");
   const cqOver = (
-    <details open className="cq-band">
+    <details open className="cq-band cq-over">
       <summary data-tone="over" {...fixedSum}>
         Overheads &amp; charges{" "}
         <span>
@@ -1903,7 +1914,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
       </div>
       {extraRows.length ? (
         <div className="scroll">
-          <table aria-label="Extra charges">
+          <table aria-label="Extra charges" className="cq-extra">
             <thead>
               <tr>
                 <th>Extra charge</th>
@@ -1982,7 +1993,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
       note,
     );
   const cqTerms = (
-    <details open className="cq-band">
+    <details open className="cq-band cq-terms">
       <summary data-tone="margin" {...fixedSum}>
         Terms{" "}
         <span>
@@ -2083,9 +2094,23 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
   const anyExtra = model.sizes.some((x) => x.extraOverhead);
   const parts = shownParts(s, model.exchangeRate);
   const partsTotal = parts.reduce((a, p) => a + Math.max(p.value, 0), 0) || 1;
+  /* COSTING 4's right side holds the Price build and nothing that repeats it (user 2026-10-21):
+     no "Where the price goes" list (its six figures are the Price build's own — a thin bar
+     under the heading keeps the split), no Total cost card (the table's own row), and
+     Freight & insurance only when some size carries it. The warnings stay, each shown only
+     when it has something to say. */
+  const anyFi = model.sizes.some((x) => fiOf(x));
+  const showKv = !narrowValues || model.sizes.length > 1 || target != null || !!(thisRev && model.history.length > 1);
   const cqValues = (
     <aside className="cq-values" aria-label="Worked-out values">
       <div className="qt cq-pb">
+        {narrowValues ? (
+          <div className="cq-bar" role="img" aria-label={`Where the price goes${model.sizes.length > 1 ? `, size ${s.label}` : ""}: ${parts.map((p) => `${p.label} ${((Math.max(p.value, 0) / partsTotal) * 100).toFixed(0)}%`).join(", ")}`}>
+            {parts.map((p) => (
+              <span key={p.label} title={`${p.label} · ${SYM} ${money(p.value)} · ${((Math.max(p.value, 0) / partsTotal) * 100).toFixed(0)}%`} style={{ width: `${(Math.max(p.value, 0) / partsTotal) * 100}%`, background: TONE_VAR[p.tone] }} />
+            ))}
+          </div>
+        ) : null}
         <table aria-label="Price build per size">
           <thead>
             <tr>
@@ -2122,7 +2147,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
             {anyDisc ? pbRow("Discount", (x) => `−${money(x.discount)}`) : null}
             {anyAdj ? pbRow("Price charges", (x) => money(x.priceAdj)) : null}
             {pbRow(`Selling price ${SYM}`, (x) => money(x.price), "sum")}
-            {pbRow("Freight & insurance", (x) => money(fiOf(x)))}
+            {!narrowValues || anyFi ? pbRow("Freight & insurance", (x) => money(fiOf(x))) : null}
             {pbHead(`Quote · ${ccy || "FOB"}${model.exchangeRate != null ? ` at ₹ ${fx(model.exchangeRate)}` : ""}`)}
             {pbRow("Calculated FOB", (x) => (x.calc == null ? "—" : fx(x.calc, 4)))}
             {pbRow("Quoted FOB", (x) => (x.quoted == null ? <span className="dim">{x.calc == null ? "—" : fx(x.calc, 2)}</span> : fx(x.quoted, 2)), "cur")}
@@ -2137,6 +2162,7 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           </tbody>
         </table>
       </div>
+      {narrowValues ? null : (
       <div className="qcard">
         <span className="cq-k">Where the price goes{model.sizes.length > 1 ? ` · ${s.label}` : ""}</span>
         <div className="cq-stack" aria-hidden>
@@ -2157,6 +2183,8 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           ))}
         </div>
       </div>
+      )}
+      {showKv ? (
       <dl className="qcard qkv">
         {model.sizes.length > 1 ? (
           <>
@@ -2180,11 +2208,16 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
             <dd>{changeText(thisRev.changePct)}</dd>
           </>
         ) : null}
-        <dt>Total cost{model.sizes.length > 1 ? ` · ${s.label}` : ""}</dt>
-        <dd>
-          {SYM} {money(s.grossCost)}
-        </dd>
+        {narrowValues ? null : (
+          <>
+            <dt>Total cost{model.sizes.length > 1 ? ` · ${s.label}` : ""}</dt>
+            <dd>
+              {SYM} {money(s.grossCost)}
+            </dd>
+          </>
+        )}
       </dl>
+      ) : null}
     </aside>
   );
   const secCostQuote = (
@@ -2194,13 +2227,27 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
           <b>Sent back for rework:</b> {model.decisionRemark}
         </div>
       ) : null}
-      <div className="cq-split">
+      <div className={narrowValues ? "cq-split cq-narrow" : "cq-split"}>
         <div className="cq-work">
-          {cqOps}
-          {secTrims}
-          {cqOver}
-          {cqTerms}
-          {cqQuote}
+          {opsRow ? (
+            <>
+              {/* Costing 4: Costing 1's three tables in one row, then Overheads | Terms | Quoted price. */}
+              <div className="cq-row3">{secTri}</div>
+              <div className="cq-row2">
+                {cqOver}
+                {cqTerms}
+                {cqQuote}
+              </div>
+            </>
+          ) : (
+            <>
+              {cqOps}
+              {secTrims}
+              {cqOver}
+              {cqTerms}
+              {cqQuote}
+            </>
+          )}
         </div>
         {cqValues}
       </div>
@@ -3812,6 +3859,70 @@ const CSS = `
 .cs-sheet .cq-lg { display:contents; }
 .cs-sheet .cq-legend .r { text-align:right; font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; }
 .cs-sheet .cq-legend .dim { color:var(--cs-muted); }
+/* Costing 4 (user 2026-10-21): the values side is a quarter of the width, so everything in
+   it is set tight — smaller type, slimmer cells, a label column that wraps rather than
+   pushing the sizes off the edge. Below 1100px the split stacks as before. */
+.cs-sheet .cq-split.cq-narrow { grid-template-columns:minmax(0,3fr) minmax(0,1fr); gap:14px; }
+@media (max-width:1100px){ .cs-sheet .cq-split.cq-narrow { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cq-narrow .cq-values { gap:8px; }
+.cs-sheet .cq-narrow .cq-pb table { font-size:11.5px; }
+.cs-sheet .cq-narrow .cq-pb th { padding:4px 5px; font-size:11px; }
+.cs-sheet .cq-narrow .cq-pb td { height:23px; padding:0 5px; }
+.cs-sheet .cq-narrow .cq-pb tr > :first-child { min-width:0; white-space:normal; line-height:1.2; }
+.cs-sheet .cq-narrow .cq-pb tr.grp td { height:20px; }
+.cs-sheet .cq-narrow .cq-size { padding:1px 4px; }
+.cs-sheet .cq-narrow .cq-sw { width:8px; height:8px; margin-right:4px; }
+.cs-sheet .cq-narrow .qcard { padding:8px; gap:5px; }
+.cs-sheet .cq-narrow .cq-legend { font-size:11px; gap:2px 6px; }
+.cs-sheet .cq-narrow .qkv { font-size:11.5px; gap:3px 8px; }
+.cs-sheet .cq-bar { display:flex; height:6px; background:var(--cs-soft); }
+.cs-sheet .cq-bar span { display:block; height:100%; }
+/* Costing 4 (user 2026-10-21): Overheads & charges | Terms | Quoted price in one row. Terms
+   carries seven boxes (four to a line), Overheads three, the Quote a three-column table —
+   so 3.2 : 4.3 : 3. A narrow pane stacks them. */
+.cs-sheet .cq-row2 { display:grid; grid-template-columns:minmax(0,3.2fr) minmax(0,4.3fr) minmax(0,3fr); gap:12px; align-items:stretch; min-width:0; }
+.cs-sheet .cq-row2 .cq-qt { margin:10px 10px 0; max-width:calc(100% - 20px); }
+.cs-sheet .cq-row2 .cq-hint { margin:6px 10px 10px; }
+.cs-sheet .cq-row2 summary[data-tone] { padding:7px 10px; letter-spacing:.03em; gap:8px; white-space:nowrap; }
+/* Screenshot 3635: the Extra charge table scrolled sideways with Value cut off, and the
+   Quote table lost its Quoted column — both carry column widths sized for a full-width
+   band. In this row each table fills its box: the name column takes what the fixed
+   figure columns leave, and every box is as wide as its cell. */
+/* Rejection % · Overhead % · Bank charges ₹ on ONE line (user 2026-10-21): three even
+   columns, tighter gaps — the auto-fill grid put Bank charges on a second line whenever the
+   box was under ~380px. A second piece's Bank box wraps under them. */
+.cs-sheet .cq-row2 .cq-over .cq-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:22px 8px; }
+/* Terms' seven boxes the same way (user 2026-10-21: "compact it too"): four even columns,
+   tight gaps — Buyer target · Margin · Exchange · Commission, then LC discount · Freight ·
+   Insurance. The row gap stays 22px: the exchange rate's source note hangs in it. */
+.cs-sheet .cq-row2 .cq-terms .cq-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:22px 8px; }
+.cs-sheet .cq-row2 table.cq-extra { width:100%; table-layout:fixed; }
+.cs-sheet .cq-row2 table.cq-extra th:nth-child(2) { width:5.75rem; }
+.cs-sheet .cq-row2 table.cq-extra th:nth-child(3) { width:5rem; }
+.cs-sheet .cq-row2 table.cq-extra th:nth-child(4) { width:1.75rem; }
+.cs-sheet .cq-row2 table.cq-extra :is(th, td) { padding-left:4px; padding-right:4px; }
+.cs-sheet .cq-row2 table.cq-extra td :is(input, select) { width:100% !important; min-width:0 !important; height:28px !important; }
+.cs-sheet .cq-row2 .cq-qt { width:auto; }
+.cs-sheet .cq-row2 .cq-qt table { width:100%; table-layout:fixed; }
+.cs-sheet .cq-row2 .qt tr > :first-child { width:auto; min-width:0; }
+.cs-sheet .cq-row2 .qt :is(.fig, td.in) { width:5.5rem; min-width:0; max-width:none; }
+@media (max-width:900px){ .cs-sheet .cq-row2 { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cq-row2 > .cq-band { margin:0; }
+/* Row 1 never wraps (user 2026-10-21, screenshot 3633: Trims dropped under the other two).
+   Costing 1's .tri row hugs fixed column widths, which sum to more than 75% of the screen;
+   here it is a three-column grid instead and each table fills its column — the operation
+   name and the trim name take what is left after the fixed figure columns. */
+.cs-sheet .cq-row3 .tri { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,3fr) minmax(0,6.5fr); gap:12px; align-items:stretch; }
+@media (max-width:900px){ .cs-sheet .cq-row3 .tri { grid-template-columns:minmax(0,1fr); } }
+.cs-sheet .cq-row3 .tri > * { min-width:0; max-width:none; margin:0; }
+.cs-sheet .cq-row3 .tri .scroll table { width:100%; }
+.cs-sheet .cq-row3 .tri th.c-name { width:auto; }
+/* Screenshot 3634: in the narrowest column "GARMENT PROCESSES ₹ 0.00 / piece" broke over two
+   lines and stood taller than its neighbours. Each heading holds one line here (tighter
+   tracking and padding), and the three boxes stretch to one height. */
+.cs-sheet .cq-row3 summary[data-tone] { padding:7px 10px; letter-spacing:.03em; gap:8px; white-space:nowrap; }
+.cs-sheet .cq-row3 summary[data-tone] span { white-space:nowrap; }
+.cs-sheet .cq-row2 .cq-grid { grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:22px 12px; max-width:none; }
 /* The merged Fabric tab: the left hugs Component consumption, the right takes the rest. */
 .cs-sheet .cq-fab { display:grid; grid-template-columns:fit-content(46%) minmax(0,1fr); gap:18px; align-items:start; }
 @media (max-width:1100px){ .cs-sheet .cq-fab { grid-template-columns:minmax(0,1fr); } }
