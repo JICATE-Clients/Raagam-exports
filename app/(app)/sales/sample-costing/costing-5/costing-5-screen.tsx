@@ -1404,6 +1404,8 @@ export function SampleCosting5Screen({
         opsStack
         // COSTING 5: the Direct Rate tick decides which trim fields show (2026-10-21).
         trimsByTick
+        // COSTING 5: Enter-only entry — a blank row ends every table, no "+ Add" (2026-10-21).
+        enterFlow
         // The cost ENTRY: no letterhead, no Print / Download (user 2026-10-17).
         // Reports and Revise keep both.
         entry
