@@ -2209,11 +2209,12 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
         <div className="cq-work">
           {opsRow ? (
             <>
-              {/* Costing 4: Costing 1's three tables in one row, then Overheads beside Terms. */}
+              {/* Costing 4: Costing 1's three tables in one row, then Overheads | Terms | Quoted price. */}
               <div className="cq-row3">{secTri}</div>
               <div className="cq-row2">
                 {cqOver}
                 {cqTerms}
+                {cqQuote}
               </div>
             </>
           ) : (
@@ -2222,9 +2223,9 @@ function Sheet({ model, s, edit, view, cur, show, onSize, letterhead = true, mer
               {secTrims}
               {cqOver}
               {cqTerms}
+              {cqQuote}
             </>
           )}
-          {cqQuote}
         </div>
         {cqValues}
       </div>
@@ -3852,9 +3853,13 @@ const CSS = `
 .cs-sheet .cq-narrow .qcard { padding:8px; gap:5px; }
 .cs-sheet .cq-narrow .cq-legend { font-size:11px; gap:2px 6px; }
 .cs-sheet .cq-narrow .qkv { font-size:11.5px; gap:3px 8px; }
-/* Costing 4 (user 2026-10-21): Overheads & charges and Terms share one row, even halves;
-   a narrow pane stacks them. The three operation tables above use Costing 1's .tri row. */
-.cs-sheet .cq-row2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; align-items:stretch; min-width:0; }
+/* Costing 4 (user 2026-10-21): Overheads & charges | Terms | Quoted price in one row. Terms
+   carries seven boxes (four to a line), Overheads three, the Quote a three-column table —
+   so 3.2 : 4.3 : 3. A narrow pane stacks them. */
+.cs-sheet .cq-row2 { display:grid; grid-template-columns:minmax(0,3.2fr) minmax(0,4.3fr) minmax(0,3fr); gap:12px; align-items:stretch; min-width:0; }
+.cs-sheet .cq-row2 .cq-qt { margin:10px 10px 0; max-width:calc(100% - 20px); }
+.cs-sheet .cq-row2 .cq-hint { margin:6px 10px 10px; }
+.cs-sheet .cq-row2 summary[data-tone] { padding:7px 10px; letter-spacing:.03em; gap:8px; white-space:nowrap; }
 @media (max-width:900px){ .cs-sheet .cq-row2 { grid-template-columns:minmax(0,1fr); } }
 .cs-sheet .cq-row2 > .cq-band { margin:0; }
 /* Row 1 never wraps (user 2026-10-21, screenshot 3633: Trims dropped under the other two).
