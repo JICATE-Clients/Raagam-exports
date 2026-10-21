@@ -1,7 +1,7 @@
 "use client";
 
 import type { ViewMode } from "@/components/ui/view-toggle";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import type { StatusTone } from "@/lib/ui/tone";
@@ -85,6 +85,7 @@ export function SampleCards<R>({
   actions,
   rowEdit = true,
   iconActions = false,
+  renderCard,
   view,
 }: {
   rows: R[];
@@ -103,6 +104,12 @@ export function SampleCards<R>({
   stats: (r: R) => CardStat[];
   /** A tap on the card — open the record, or (Grouping ▸ Ungrouped) tick it. */
   onOpen: (r: R) => void;
+  /**
+   * A SCREEN'S OWN CARD (Sample Costing's buyer-glow card, user 2026-10-21).
+   * Card view only: the grid, the pager and the table view stay this
+   * component's, and the card props above still name the table's columns.
+   */
+  renderCard?: (r: R) => ReactNode;
   /** A ticked card wears the theme colour down its edge. */
   selected?: (r: R) => boolean;
   footerNote?: (r: R) => ReactNode;
@@ -225,6 +232,33 @@ export function SampleCards<R>({
       </div>
     );
   }
+  const pager = pg.pageCount > 1 && (
+    <PaginationBar
+      page={pg.page}
+      pageCount={pg.pageCount}
+      total={pg.total}
+      pageSize={pg.pageSize}
+      onPageChange={pg.setPage}
+      onPageSizeChange={pg.setPageSize}
+    />
+  );
+  if (renderCard) {
+    return (
+      <div className="flex flex-col gap-3">
+        {rows.length === 0 ? (
+          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">{empty}</div>
+        ) : (
+          /* `pb-3`: room for the glow under the last row of cards. */
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 pb-3">
+            {pg.paged.map((r) => (
+              <Fragment key={getKey(r)}>{renderCard(r)}</Fragment>
+            ))}
+          </div>
+        )}
+        {pager}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-3">
     <MobileCardList<R>
@@ -258,16 +292,7 @@ export function SampleCards<R>({
       empty={empty}
     />
       {/* The bar draws only past one page, as under every DataTable. */}
-      {pg.pageCount > 1 && (
-        <PaginationBar
-          page={pg.page}
-          pageCount={pg.pageCount}
-          total={pg.total}
-          pageSize={pg.pageSize}
-          onPageChange={pg.setPage}
-          onPageSizeChange={pg.setPageSize}
-        />
-      )}
+      {pager}
     </div>
   );
 }

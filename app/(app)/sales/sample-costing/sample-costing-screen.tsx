@@ -48,7 +48,7 @@
  */
 
 import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
-import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState, useTransition} from "react";
+import { createElement, Fragment, useEffect, useEffectEvent, useMemo, useRef, useState, useTransition} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTabResume } from "@/lib/workspace-tabs";
 import {
@@ -64,11 +64,14 @@ import {
   Pencil,
   RefreshCw,
   RotateCcw,
+  TriangleAlert,
   Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RowIconAction } from "@/components/ui/row-actions";
+import { Tooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -90,6 +93,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
+import { CostingCard } from "./costing-card";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdByFacet, createdDateFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { fmtDate } from "@/lib/format";
@@ -1784,6 +1788,78 @@ export function SampleCostingScreen({
            approval stage, so a saved-not-sent sheet said "Draft" under Pending
            and a sample with no sheet said "Not costed". One word, one answer. */
         pillText={(r) => TAB_LABEL[costingTabOf(r)]}
+        /* THE BUYER-GLOW CARD (user 2026-10-21, "Card Glow Styles" option 1 +
+           the duotone action row, screenshot 095215: "apply this"). The five
+           actions sit in one fixed row on every card; one that does not apply
+           here stays greyed with its reason. Same handlers as the table's. */
+        renderCard={(r) => {
+          const t = costingTabOf(r);
+          const live = t === "progress";
+          const label = `${r.code ?? "Costing"} · ${revisionShort(r.version)}`;
+          const decideWhy = r.awaiting
+            ? "Not costed yet"
+            : !live
+              ? "Only an Under Progress costing takes the buyer's answer"
+              : perms.canEdit
+                ? null
+                : "Needs the edit permission";
+          const MarkIcon = r.awaiting ? TriangleAlert : (COSTING_TABS.find((x) => x.value === t)?.icon ?? Clock);
+          return (
+            <CostingCard
+              code={(r.awaiting ? r.enquiry_no : r.code) ?? "—"}
+              buyer={r.customer_name}
+              sub={[r.awaiting ? null : r.enquiry_no, r.style_name].filter(Boolean).join(" · ") || "—"}
+              start={!!r.awaiting && perms.canCreate}
+              mark={
+                <Tooltip label={r.awaiting ? "Not costed" : TAB_LABEL[t]}>
+                  {createElement(MarkIcon, {
+                    className: cn("h-[17px] w-[17px]", r.awaiting || live ? "text-danger" : "text-muted-foreground"),
+                    "aria-label": r.awaiting ? "Not costed" : TAB_LABEL[t],
+                  })}
+                </Tooltip>
+              }
+              figures={
+                r.awaiting
+                  ? undefined
+                  : [
+                      { label: "Quoted", value: r.target_fob != null ? `${r.currency_code ?? ""} ${money(r.target_fob)}`.trim() : "—" },
+                      { label: "Margin", value: r.profit_loss_pct != null ? `${r.profit_loss_pct.toFixed(1)}%` : "—" },
+                      { label: "Date", value: fmtDate(r.costing_date) },
+                    ]
+              }
+              onOpen={r.awaiting ? (perms.canCreate ? () => startCostingFor(r) : undefined) : () => openById(r.id)}
+              approve={{ reason: decideWhy, onClick: () => setListDecision({ id: r.id, label, decision: "approved" }) }}
+              reject={{ reason: decideWhy, onClick: () => setListDecision({ id: r.id, label, decision: "rejected" }) }}
+              report={{
+                reason: r.awaiting ? "Nothing to report on yet" : null,
+                onClick: () => router.push(`/sales/sample-costing/${r.id}/reports`),
+              }}
+              revise={{
+                reason: r.awaiting
+                  ? "Not costed yet"
+                  : !live
+                    ? "Only an Under Progress costing can be revised"
+                    : perms.canEdit
+                      ? null
+                      : "Needs the edit permission",
+                onClick: () => startOpening(() => router.push(raiseReviseHref(r.id))),
+              }}
+              del={
+                perms.canDelete
+                  ? {
+                      reason: r.awaiting
+                        ? "Not costed — nothing to delete"
+                        : isDeletableStatus(r.status)
+                          ? null
+                          : `${STATUS_LABEL[r.status]} — only a Draft can be deleted; revise it instead.`,
+                      onClick: () => del(r),
+                    }
+                  : null
+              }
+              isPending={isPending}
+            />
+          );
+        }}
         stats={(r) => [
           {
             label: "Quoted",
