@@ -90,6 +90,7 @@ import { CopySourceChooser, PreviewChip } from "@/components/orders/copy-source-
 import { CustomerDecisionSheet, type CustomerDecision } from "@/components/sales/customer-decision-sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
+import { BackLink } from "@/components/ui/back-link";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
@@ -1497,8 +1498,11 @@ export function SampleCostingScreen({
           <Button variant="ghost" size="sm" onClick={closeEditor} aria-label="Back to list" className="h-10 w-10 shrink-0 px-0 text-lg md:hidden">
             ←
           </Button>
-          {/* No desktop "← Costing" (user 2026-10-15, reversing 2026-10-14's back
-              link): the Costing tab and the footer's Cancel already leave. */}
+          {/* THE DESKTOP BACK IS BACK (user 2026-10-21, screenshot 110515: "set
+              back button this page"), reversing 2026-10-15's "no desktop ←
+              Costing". The app's own BackLink, as Sample Entry's editor draws
+              it — reads "← Back", asks before discarding unsaved work. */}
+          <BackLink onBack={closeEditor} label="Costing" className="max-md:hidden" />
           <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-wrap">
             <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {revisingFrom ? "Revise Sample Costing" : !editable ? "View Sample Costing" : editId ? "Edit Sample Costing" : "New Sample Costing"}

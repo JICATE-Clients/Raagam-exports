@@ -905,6 +905,91 @@ function startTimedAdvance(el: HTMLElement, root: HTMLElement) {
   timedAdvance = { el, timer, cancel };
 }
 
+/**
+ * ENTER ON "+ ADD" ADDS; ENTER ENTER MOVES ON (user 2026-10-21, option D of
+ * "Colour / Print ▸ Dyeing — four ways to cross with Enter").
+ *
+ * Off the last row the cursor already stands on the grid's "+ Add" (2026-08-19),
+ * and from there the only key that reached the NEXT table was Tab — Enter could
+ * only add. Now the first Enter waits `ENTER_ADD_MS` with a bar draining under
+ * the button: let it run out and the row is added exactly as a click adds it;
+ * press Enter again inside the gap and nothing is added — the cursor goes to the
+ * next field after the grid (Yarn Dyeing → Fabric Dyeing row 1), or hands over
+ * to the next pane when the grid is the last thing in it.
+ *
+ * Only where there IS somewhere to go: a "+ Add" with nothing after it adds at
+ * once, as before, so the wait is never paid for a jump that cannot happen. Any
+ * other key, or leaving the button, cancels with nothing added — a timer must
+ * never grow a grid the operator has already walked away from.
+ */
+export const ENTER_ADD_MS = 500;
+
+let pendingAdd: { el: HTMLElement; cancel: () => void } | null = null;
+
+/** Where Enter Enter on this "+ Add" goes, or null when nothing follows it. */
+function rowAddExit(root: HTMLElement, btn: HTMLElement): (() => void) | null {
+  const next = itemsAfter(regionItems(root, btn), btn).find((x) => isFieldLike(x) && !isOffTabPath(x));
+  const content = regionOf(btn) === "content";
+  if (next) {
+    return () => {
+      if (content && contentEdgeFor(root, btn, next)?.(1)) return;
+      focusField(next);
+    };
+  }
+  const edge = content ? contentEdgeFor(root, btn) : undefined;
+  return edge ? () => void edge(1) : null;
+}
+
+/** Claims Enter on a grid's "+ Add" for the add-or-move pause. True = handled. */
+export function enterOnRowAdd(e: KeyboardEvent, root: HTMLElement | null): boolean {
+  if (e.key !== "Enter" || e.defaultPrevented || e.shiftKey || e.altKey) return false;
+  const btn = e.target;
+  if (!(btn instanceof HTMLElement) || !root || !isRowAddControl(btn)) return false;
+  if ((btn as HTMLButtonElement).disabled || btn.getAttribute("aria-disabled") === "true") return false;
+
+  // The second Enter: move instead of adding.
+  if (pendingAdd?.el === btn) {
+    e.preventDefault();
+    pendingAdd.cancel();
+    rowAddExit(root, btn)?.();
+    return true;
+  }
+  if (e.repeat) {
+    e.preventDefault();
+    return true;
+  }
+  if (!rowAddExit(root, btn)) return false; // nowhere to go: native Enter adds at once
+
+  e.preventDefault();
+  pendingAdd?.cancel();
+  const cancel = () => {
+    if (pendingAdd?.el !== btn) return;
+    clearTimeout(timer);
+    btn.removeAttribute("data-enter-pending");
+    btn.removeEventListener("keydown", onKey, true);
+    btn.removeEventListener("blur", cancel);
+    pendingAdd = null;
+  };
+  const onKey = (ev: KeyboardEvent) => {
+    if (ev.key !== "Enter") cancel();
+  };
+  btn.style.setProperty("--enter-ms", `${ENTER_ADD_MS}ms`);
+  btn.setAttribute("data-enter-pending", "");
+  btn.addEventListener("keydown", onKey, true);
+  btn.addEventListener("blur", cancel);
+  const timer = setTimeout(() => {
+    cancel();
+    if (!btn.isConnected) return;
+    // The same two steps a trusted click takes (keyboard-nav-provider): snapshot
+    // the grid, then click. `.click()` is untrusted, so the provider's click
+    // listener stands down and this is the only landing.
+    landOnAddedRow(btn);
+    btn.click();
+  }, ENTER_ADD_MS);
+  pendingAdd = { el: btn, cancel };
+  return true;
+}
+
 /** Does Enter TICK this control rather than move on from it?
  *
  *  Split from the DOM so the rule can be exercised without a browser — the same

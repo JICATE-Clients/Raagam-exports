@@ -102,7 +102,11 @@ The actions that left the Tab path each keep a key, and the shortcuts sheet says
   by the arrows, `focusFirstField`, `ROW_FIELDS` and both cursor holds; a button joining it
   would put ↑↓←→ on the button and make it holdable. Enter ON the button needs no code:
   `enterAdvances` stands down on anything that is not an input/select/trigger, so the
-  browser's native click fires. **`gridKeyNav` no longer takes an `addRow` callback** — 18
+  browser's native click fires. **Since 2026-10-21 (user, option D) that Enter waits 0.5 s
+  first** (`enterOnRowAdd`, `lib/focus.ts`): a bar drains under the button and then the row
+  is added; **Enter Enter inside the gap adds nothing and moves to the next table** (Yarn
+  Dyeing → Fabric Dyeing), or the next pane. A "+ Add" with nothing after it adds at once.
+  **`gridKeyNav` no longer takes an `addRow` callback** — 18
   call sites were passing a function that could never run again; the decline-and-bubble it
   carried is now `ownAddControl` returning null (a grid with no reachable "+ Add" declines
   the key so it reaches the parent grid or Save).
