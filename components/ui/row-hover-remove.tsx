@@ -39,9 +39,19 @@ import { cn } from "@/lib/utils";
  * chip) reads this same string, so no ✕ in the app is visible at rest (user
  * 2026-10-12: "mouse hover pannamaye x theriyuthu sila table la — apdi
  * irukka kudathu").
+ *
+ * ONLY THE NEAREST ROW REVEALS (user 2026-10-21, screenshot 101816: "entha line
+ * mela mouse hover pandromo athula mattum x icon kattuna pothum, table fulla
+ * katta vendam"). `tr:hover &` matches ANY hovered ancestor row, so a grid
+ * nested in an outer row's cell (Garment Order ▸ Pack type(s) ▸ Style · Combo ·
+ * Qty) showed every line's ✕ the moment the pointer entered the OUTER row. The
+ * last clause hides the chip whenever a row between it and the hovered one is
+ * itself not hovered — one more `:not()` than any reveal clause, so it wins on
+ * specificity, not on stylesheet order. Pointer screens only: on touch nothing
+ * is `:hover` and the chip must stay shown.
  */
 export const ROW_HOVER_REVEAL =
-  "opacity-0 focus-visible:opacity-100 [tr:hover_&]:opacity-100 [[data-grid-row]:hover_&]:opacity-100 [[data-sheet-row]:hover_&]:opacity-100 [[data-hover-row]:hover_&]:opacity-100 [@media(hover:none)]:opacity-100";
+  "opacity-0 focus-visible:opacity-100 [tr:hover_&]:opacity-100 [[data-grid-row]:hover_&]:opacity-100 [[data-sheet-row]:hover_&]:opacity-100 [[data-hover-row]:hover_&]:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:hover)]:[:is(tr,[data-grid-row],[data-sheet-row],[data-hover-row]):not(:hover):not(:focus-within)_&]:opacity-0";
 
 export function RowHoverRemove({
   label,
