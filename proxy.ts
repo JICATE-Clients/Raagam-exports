@@ -38,8 +38,29 @@ export async function proxy(request: NextRequest) {
    */
   const isPublicLink = pathname.startsWith("/p/");
 
+  /**
+   * A BIOMETRIC DEVICE AT A GATE (0733) — `/iclock/*` is called by an eSSL /
+   * ZKTeco device over ADMS push, through the Cloudflare bridge. The device has
+   * no login and does not follow redirects: a 307 → /login is simply a request
+   * it never completes, and it would keep the punch and retry forever while the
+   * ERP showed nobody arriving.
+   *
+   * Same shape as the cron branch above, and the same reasoning — auth moves
+   * INTO the handler rather than going away. The route refuses any request
+   * without the shared `x-bridge-key` (only the Worker has it) and any serial
+   * number outside `ALLOWED_SN`, and it fails closed when the key is unset.
+   */
+  const isDevicePush = pathname.startsWith("/iclock/");
+
   // Unauthenticated → push to login (preserve intended destination)
-  if (!user && !isAuthPage && !isAuthCallback && !isCronJob && !isPublicLink) {
+  if (
+    !user &&
+    !isAuthPage &&
+    !isAuthCallback &&
+    !isCronJob &&
+    !isPublicLink &&
+    !isDevicePush
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", pathname);
