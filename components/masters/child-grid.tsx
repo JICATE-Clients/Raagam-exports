@@ -1293,6 +1293,9 @@ function mdListKeyNav(e: React.KeyboardEvent<HTMLElement>) {
     return;
   }
 
+  /* ←/→ (form ↔ this list ↔ the section rail) are `listHop` in lib/focus.ts —
+     one rule for this rail and every hand-built list (2026-10-22). */
+
   if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
   const pane = el.closest<HTMLElement>("[data-md-list]");
   if (!pane) return;

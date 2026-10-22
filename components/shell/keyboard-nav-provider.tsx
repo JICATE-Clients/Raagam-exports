@@ -14,6 +14,7 @@ import {
   keyFillsField,
   keyMovesBackward,
   landOnAddedRow,
+  listHop,
   rememberFocus,
   restoreFocusIfLost,
 } from "@/lib/focus";
@@ -486,6 +487,20 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
     }
 
     function onKeyDown(e: KeyboardEvent) {
+      // TEMP DIAGNOSTIC (2026-10-22, toggle Enter) — remove with lib/focus.ts's.
+      if (e.key === "Enter" && e.target instanceof HTMLInputElement && e.target.type === "checkbox") {
+        const a = document.activeElement;
+        void fetch("/api/dev-enter-log", {
+          method: "POST",
+          body: JSON.stringify({
+            at: "provider",
+            id: e.target.id,
+            prevented: e.defaultPrevented,
+            mods: [e.ctrlKey, e.metaKey, e.altKey, e.shiftKey],
+            scope: a instanceof HTMLElement ? !!scopeOf(a) : null,
+          }),
+        }).catch(() => {});
+      }
       if (e.key === "Tab") {
         onTab(e);
         return;
@@ -515,6 +530,8 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
       if (!root) return;
 
       if (arrowOpensPicker(e)) return;
+      // ←/→ between a form, its list and the section rail — see `listHop`.
+      if (listHop(e)) return;
       if (arrowNavigate(e, root)) return;
       // Enter on a grid's "+ Add": add after a pause, or Enter Enter moves on.
       if (enterOnRowAdd(e, root)) return;

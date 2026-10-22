@@ -48,6 +48,7 @@ import { NEW_ORDER_CAD } from "./cad-pending";
 import { SectionBody } from "@/components/masters/master-full-screen";
 import { DetailSection } from "@/components/masters/detail-section";
 import { AllocationSheet, DecisionSheet } from "./cad-sheets";
+import { OrderSheetAction } from "./cad-pattern-fields";
 
 /** A style as the order editor holds it before the order is saved. */
 export type DraftCadStyle = { style_ref_no: string; style_description: string; layout_type: string | null };
@@ -152,12 +153,19 @@ export function OrderCadTab({
      to hang it on, and no Fabric BOM yet. Declared above the early returns. */
   const [lock, setLock] = useState<{ forOrder: string; locked: boolean; canEdit: boolean } | null>(null);
   const [lockSaving, setLockSaving] = useState(false);
+  // The order whose lock could not be read — the row then stands down, as it
+  // did before it was drawn ahead of the answer.
+  const [lockFailedFor, setLockFailedFor] = useState<string | null>(null);
   const { error: toastError } = useToast();
   useEffect(() => {
     if (!orderId) return;
     let cancelled = false;
     void getCadPatternLock(orderId).then((r) => {
-      if (cancelled || !r.ok) return;
+      if (cancelled) return;
+      if (!r.ok) {
+        setLockFailedFor(orderId);
+        return;
+      }
       setLock({ forOrder: orderId, locked: r.locked, canEdit: r.canEdit });
     });
     return () => {
@@ -186,6 +194,27 @@ export function OrderCadTab({
   }
   if (!current) return <p className="text-sm text-muted-foreground">Loading the CAD…</p>;
 
+  /* PATTERN LOCK SITS IN THE ORDER SHEET'S HEADER, TOP RIGHT (user 2026-10-22,
+     design "Lock 2": "pattern lock mela vendam"). It decides whether Fabric BOM
+     takes its figures from THIS sheet, so it is read beside the sheet rather
+     than above the whole tab. Drawn at once and filled when the lock arrives
+     (2026-10-22: it used to wait for `getCadPatternLock`, so a second after the
+     tab opened it appeared and pushed the form down); the switch is disabled
+     until then — never a guessed state, since a wrong "off" invites a click. */
+  const lockControl =
+    orderId && lockFailedFor !== orderId ? (
+      // THE SWITCH AND ITS WORD, NOTHING UNDER IT (user 2026-10-22: "remove this
+      // text" — the "Fabric BOM takes Roll Form …" line).
+      <Toggle
+        id="cad-pattern-lock"
+        label="Pattern Lock"
+        className="min-h-6"
+        checked={lockHere?.locked ?? false}
+        onChange={(v) => void flipLock(v)}
+        disabled={!lockHere || !canEdit || !lockHere.canEdit || lockSaving}
+      />
+    ) : null;
+
   const onOrder = current.rows.filter((r) => r.on_order);
   const selected =
     onOrder.find((r) => r.key === selectedKey) ??
@@ -198,25 +227,10 @@ export function OrderCadTab({
       {/* SectionBody like every other Order Entry section (raagam-screen-layout),
           so the tab's title, spacing and full-width body match Order Info. */}
       <SectionBody title="CAD">
-        {lockHere && (
-          <FieldRow>
-            <Field label="Pattern Lock" w="term" htmlFor="cad-pattern-lock">
-              <span className="inline-flex min-h-9 items-center gap-2">
-                <Toggle
-                  id="cad-pattern-lock"
-                  checked={lockHere.locked}
-                  onChange={(v) => void flipLock(v)}
-                  disabled={!canEdit || !lockHere.canEdit || lockSaving}
-                />
-                <span className="text-sm text-muted-foreground">
-                  {lockHere.locked
-                    ? "Locked — Fabric BOM takes Roll Form, Finish Dia and weights from the Pattern Sheet"
-                    : "Unlocked — Fabric BOM is edited freely; the Pattern Sheet is not applied"}
-                </span>
-              </span>
-            </Field>
-          </FieldRow>
-        )}
+        {/* ON TOP ONLY WHEN THERE IS NO ORDER SHEET TO HOLD IT. Its place is the
+            Order Sheet's header (see `lockControl`); a style past its Send has
+            no Order Sheet here, and the switch must still be reachable. */}
+        {lockControl && !assignFormShown(selected, editable) && <div className="flex">{lockControl}</div>}
         {onOrder.length === 0 && (
           <p className="text-sm text-muted-foreground">
             This order has no styles yet — add them on Order Info ▸ Style(s), then assign each one&apos;s CAD.
@@ -253,17 +267,19 @@ export function OrderCadTab({
                 isPending={cad.isPending}
               />
             </div>
-            <InlineStep
-              key={`${selected.key}|${formNonce}`}
-              row={selected}
-              employees={current.employees}
-              editable={editable}
-              withOrderSave={withOrderSave}
-              onDone={() => {
-                setFormNonce((n) => n + 1);
-                reload();
-              }}
-            />
+            <OrderSheetAction.Provider value={lockControl}>
+              <InlineStep
+                key={`${selected.key}|${formNonce}`}
+                row={selected}
+                employees={current.employees}
+                editable={editable}
+                withOrderSave={withOrderSave}
+                onDone={() => {
+                  setFormNonce((n) => n + 1);
+                  reload();
+                }}
+              />
+            </OrderSheetAction.Provider>
           </div>
         )}
       </SectionBody>
@@ -277,6 +293,18 @@ export function OrderCadTab({
  * same forms the CAD Lifecycle list opens as sheets — `inline` swaps the frame
  * only (cad-form-frame.tsx) — so the rules and actions are the list's exactly.
  */
+/**
+ * Does `InlineStep` show the Assign form — and with it the Order Sheet that holds
+ * the Pattern Lock? Its first two branches, stated once so the tab's fallback
+ * (the lock on top) and the form can never disagree.
+ */
+function assignFormShown(row: CadStyleRow | null, editable: boolean): boolean {
+  if (!row || !editable) return false;
+  const step = cadNextStep(row.state);
+  const v = latestVersion(row.versions);
+  return step === "allocate" || step === "reallocate" || (!!v && !v.dispatch);
+}
+
 function InlineStep({
   row,
   employees,
@@ -297,7 +325,7 @@ function InlineStep({
   // and CAD Approval are the CAD team's, on Orders ▸ CAD ▸ CAD Queue.
   const meta = CAD_STATE_META[row.state];
   const ps = v ? patternStatusMeta(v.pattern_status) : null;
-  if (editable && (step === "allocate" || step === "reallocate")) {
+  if (assignFormShown(row, editable) && (step === "allocate" || step === "reallocate")) {
     return (
       <AllocationSheet
         inline
@@ -314,7 +342,7 @@ function InlineStep({
   // here"). Editable until the CAD is sent — that is also how an assignment is
   // corrected now that "Edit V1" left the menu. The status line above it says
   // where the pattern room has got to.
-  if (editable && v && !v.dispatch) {
+  if (assignFormShown(row, editable) && v) {
     return (
       <div className="space-y-2">
         {/* NO STATUS LINE ABOVE THE FORM (user 2026-10-01: "Assigned ·

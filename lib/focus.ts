@@ -26,6 +26,11 @@ export type NavKeyEvent = {
   altKey?: boolean;
   /** Only `cycleTab` reads this — Shift+Tab walks the cycle backwards. */
   shiftKey?: boolean;
+  /** Only a `Toggle`'s Enter reads this — a held key must not arm its pause twice. */
+  repeat?: boolean;
+  /** Only `listHop` reads these — a modified arrow belongs to the shortcut layer. */
+  ctrlKey?: boolean;
+  metaKey?: boolean;
 };
 
 /**
@@ -761,12 +766,24 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
     e.preventDefault();
     tickBox?.click(); // same path Space and a mouse take, so onChange fires normally
   };
-  // A `Toggle` (data-enter-timed) ticks AND then moves on by itself — see
-  // `startTimedAdvance`. Armed only where a field follows and the surface can
-  // commit; the last field keeps the save ladder, a filter bar keeps "toggle only".
+  // A `Toggle` or a tick box (ENTER_TIMED) waits before it flips, and Enter
+  // Enter moves on instead — see `startTimedTick`. Armed only where a field follows and the
+  // surface can commit; the last field keeps the save ladder, a filter bar keeps
+  // "toggle only".
   const tickThenAdvance = (nextField: HTMLElement | undefined) => {
+    if (tickBox?.matches(ENTER_TIMED) && nextField && root) {
+      e.preventDefault();
+      if (timedTick?.el === tickBox) {
+        // The second Enter inside the gap: move on, nothing flipped.
+        timedTick.cancel();
+        if (regionOf(tickBox) === "content" && contentEdgeFor(root, tickBox, nextField)?.(1)) return;
+        focusField(nextField);
+        return;
+      }
+      if (!e.repeat) startTimedTick(tickBox);
+      return;
+    }
     tick();
-    if (tickBox?.matches(ENTER_TIMED) && nextField && root) startTimedAdvance(tickBox, root);
   };
 
   // NOT OUR KEY unless this surface could actually commit. A list page's filter
@@ -774,6 +791,26 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   // must reach the browser untouched, exactly as it did before. This used to be
   // enforced at the end (preventDefault only when the save found a target);
   // advancing happens first, so the test has to happen first too.
+  // TEMP DIAGNOSTIC (2026-10-22, toggle Enter) — remove once found.
+  if (tickBox) {
+    const dbgItems = root ? regionItems(root, t) : [];
+    const dbgNext = root ? itemsAfter(dbgItems, t).find((el) => isFieldLike(el) && !isOffTabPath(el)) : undefined;
+    const dbgLine = JSON.stringify({
+      id: tickBox.id,
+      timed: tickBox.matches(ENTER_TIMED),
+      root: root ? `${root.tagName}#${root.id}.${root.className.toString().slice(0, 40)}` : null,
+      canSubmit: canSubmitSurface(root, hooks),
+      region: regionOf(t),
+      located: dbgItems.indexOf(t),
+      optIn: isOffTabPath(t),
+      next: dbgNext ? `${dbgNext.tagName}#${dbgNext.id}[${dbgNext.getAttribute("aria-label") ?? ""}]` : null,
+      pending: !!timedTick,
+      prevented: e.defaultPrevented,
+      path: typeof location !== "undefined" ? location.pathname : "",
+    });
+    console.info("[enter-toggle]", dbgLine);
+    void fetch("/api/dev-enter-log", { method: "POST", body: dbgLine }).catch(() => {});
+  }
   if (!root || !canSubmitSurface(root, hooks)) {
     // Same predicate, `canSubmit: false` — the rule lives in ONE function so the
     // vectors in `check-keyboard-holds.mts` exercise the branch that runs, not a
@@ -860,58 +897,60 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
 }
 
 /**
- * `[data-enter-timed]` — A SWITCH THAT TICKS ON ENTER AND THEN MOVES ON BY ITSELF
- * (user 2026-10-17, chosen from the "Toggle on the Enter key only" options: Enter
- * alone must set Pack / Multi Style, no Shift, no mouse).
+ * `[data-enter-timed]` — A SWITCH ANSWERS ENTER LIKE A GRID'S "+ Add" (user
+ * 2026-10-22, pointing at Colour / Print's "+ Add yarn dyeing": the same keys
+ * as `enterOnRowAdd`).
  *
- * Enter flips it, as it always did, and a bar runs for `ENTER_TOGGLE_MS`; with
- * nothing pressed the cursor then moves to the next field. Enter again while the
- * bar runs flips it BACK and restarts the bar, so one key covers yes, no and
- * "next". Any other key (Tab, an arrow, Space) or leaving the field cancels it —
- * a timer must never move a cursor the operator has already moved. Declared on
- * `Toggle`'s input; a plain tick box keeps "Enter ticks, stays".
+ * The first Enter waits `ENTER_TOGGLE_MS` with a bar draining under the switch:
+ * let it run out and the switch flips, the cursor staying on it; press Enter
+ * again inside the gap and nothing flips — the cursor goes to the next field.
+ * Any other key (Tab, an arrow, Space) or leaving the field cancels with
+ * nothing flipped — a timer must never change a switch the operator has walked
+ * away from. Declared on `Toggle`'s input.
+ *
+ * A TICK BOX ANSWERS THE SAME WAY (user 2026-10-22, Accessories Plan's size
+ * ticks: "double enter panna pakkathu field kku pora mari … one enter panna
+ * antha field tick aaganum"). One rule for every yes/no box, so a ticked grid
+ * row and a switch on a form cannot answer Enter differently. A RADIO is not
+ * in it: ↑/↓ already select in a group (see `ownsArrowKeys`).
+ *
+ * Replaces 2026-10-17's "flip at once, then move on by itself after 2 s", and
+ * the same-day "flip at once, the next Enter moves on", which the user tried
+ * and turned down for this.
  */
-const ENTER_TIMED = "[data-enter-timed]";
-export const ENTER_TOGGLE_MS = 2000;
+const ENTER_TIMED = '[data-enter-timed], input[type="checkbox"]';
+/** The same gap as `ENTER_ADD_MS`, so both double-Enters feel alike. */
+export const ENTER_TOGGLE_MS = 500;
 
-let timedAdvance: { el: HTMLElement; timer: ReturnType<typeof setTimeout>; cancel: () => void } | null = null;
+let timedTick: { el: HTMLElement; cancel: () => void } | null = null;
 
-function cancelTimedAdvance() {
-  timedAdvance?.cancel();
-}
-
-function startTimedAdvance(el: HTMLElement, root: HTMLElement) {
-  cancelTimedAdvance();
+function startTimedTick(el: HTMLElement) {
+  timedTick?.cancel();
   const cancel = () => {
-    if (!timedAdvance) return;
-    clearTimeout(timedAdvance.timer);
+    if (timedTick?.el !== el) return;
+    clearTimeout(timer);
     el.removeAttribute("data-enter-pending");
     el.removeEventListener("keydown", onKey, true);
     el.removeEventListener("blur", cancel);
-    timedAdvance = null;
+    timedTick = null;
   };
-  // Enter is the restart (it arrives here again through `enterAdvances`); every
-  // other key is the operator taking over.
+  // Enter is the second press (it arrives through `enterAdvances`); every other
+  // key is the operator taking over.
   const onKey = (ev: KeyboardEvent) => {
     if (ev.key !== "Enter") cancel();
   };
   // On the wrapper, not the input: the bar is the input's SIBLING, so a custom
   // property set on the input would never reach it.
   el.parentElement?.style.setProperty("--enter-ms", `${ENTER_TOGGLE_MS}ms`);
-  el.removeAttribute("data-enter-pending");
-  void el.offsetWidth; // restart the bar's animation on a second Enter
   el.setAttribute("data-enter-pending", "");
   el.addEventListener("keydown", onKey, true);
   el.addEventListener("blur", cancel);
   const timer = setTimeout(() => {
     cancel();
-    if (document.activeElement !== el) return;
-    const next = itemsAfter(regionItems(root, el), el).find((x) => isFieldLike(x) && !isOffTabPath(x));
-    if (!next) return;
-    if (regionOf(el) === "content" && contentEdgeFor(root, el, next)?.(1)) return;
-    focusField(next);
+    if (!el.isConnected) return;
+    el.click(); // same path Space and a mouse take, so onChange fires normally
   }, ENTER_TOGGLE_MS);
-  timedAdvance = { el, timer, cancel };
+  timedTick = { el, cancel };
 }
 
 /**
@@ -2066,4 +2105,81 @@ export function cycleTab(
     if (at === nextIdx) break; // all the way round
   }
   return true;
+}
+
+/**
+ * ←/→ BETWEEN A FORM, ITS LIST AND THE SECTION RAIL (user 2026-10-22,
+ * Accessories Plan, then Budget ▸ Purchase Rates: "left key press panna inga
+ * varanum … double left … intha field kku varanum").
+ *
+ * A screen with a list beside its form marks the list `data-md-list` and each
+ * entry `data-md-list-item`, the open one `aria-current="true"` — `ChildGrid`'s
+ * master-detail rail does, and so does any hand-built list (Budget's kind
+ * cards). One rule for all of them, here, so a list is never keyboard-correct
+ * on one screen and not on the next:
+ *
+ * - ← on a FIELD at the form's left edge — caret at the start, no field to its
+ *   left on the same line — goes to the list's open entry;
+ * - ← on a list entry goes to the editor's open section on its rail
+ *   (`MasterFullScreen`'s `nav[role="tablist"]`), so ← ← walks field → list →
+ *   section;
+ * - → on a list entry goes back into the form, to its first field.
+ *
+ * Returns true when it moved the cursor. Called by the keyboard provider ahead
+ * of the spatial arrows; a grid that moves within its own row claims the key
+ * first, so this only ever sees a ← nothing nearer wanted.
+ */
+export function listHop(e: NavKeyEvent): boolean {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
+  if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+  const t = e.target;
+  if (!(t instanceof HTMLElement)) return false;
+  const visible = (el: HTMLElement) => el.offsetParent !== null;
+
+  const item = t.closest<HTMLElement>("[data-md-list-item]");
+  if (item) {
+    if (e.key === "ArrowLeft") {
+      for (let up = item.parentElement; up; up = up.parentElement) {
+        const current = up.querySelector<HTMLElement>('nav[role="tablist"] [aria-current="true"]');
+        if (!current) continue;
+        if (!visible(current)) return false;
+        e.preventDefault();
+        current.focus();
+        return true;
+      }
+      return false;
+    }
+    const list = item.closest<HTMLElement>("[data-md-list]");
+    for (let up = list?.parentElement ?? null; up; up = up.parentElement) {
+      const first = focusablesIn(up).find(
+        (el) => !list!.contains(el) && isFieldLike(el) && !isOffTabPath(el),
+      );
+      if (!first) continue;
+      if (!focusField(first)) return false;
+      e.preventDefault();
+      return true;
+    }
+    return false;
+  }
+
+  if (e.key !== "ArrowLeft" || !isFieldLike(t) || !atCaretEdge(t, "prev")) return false;
+  // The nearest ancestor holding a list that is not this field's own.
+  for (let up = t.parentElement; up; up = up.parentElement) {
+    const list = Array.from(up.querySelectorAll<HTMLElement>("[data-md-list]")).find((l) => !l.contains(t));
+    if (!list) continue;
+    const open = list.querySelector<HTMLElement>('[data-md-list-item][aria-current="true"]');
+    if (!open || !visible(open)) return false;
+    // A field to the left on the same line? Then ← belongs to it.
+    const r = t.getBoundingClientRect();
+    const leftward = focusablesIn(up).some((f) => {
+      if (f === t || list.contains(f) || !isFieldLike(f)) return false;
+      const fr = f.getBoundingClientRect();
+      return fr.right <= r.left + 1 && fr.top < r.bottom && fr.bottom > r.top;
+    });
+    if (leftward) return false;
+    e.preventDefault();
+    open.focus();
+    return true;
+  }
+  return false;
 }

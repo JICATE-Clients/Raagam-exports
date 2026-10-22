@@ -116,8 +116,8 @@ export function Toggle({
         id={id}
         type="checkbox"
         className="peer sr-only"
-        // Enter flips it, then the cursor moves on after a short pause
-        // (`ENTER_TIMED`, lib/focus.ts); the bar below is that pause drawn.
+        // Enter flips it after a short pause; Enter Enter moves on without
+        // flipping (`ENTER_TIMED`, lib/focus.ts). The bar below is that pause drawn.
         data-enter-timed=""
         aria-label={ariaLabel}
         checked={checked}

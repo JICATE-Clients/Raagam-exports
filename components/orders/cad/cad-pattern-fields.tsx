@@ -15,13 +15,14 @@
  * and the History card reads the same words through `patternFactLines`.
  */
 
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { FIELD_WIDTH_CSS, Field, FieldRow, fieldWidthStep } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Toggle } from "@/components/ui/toggle";
 import {
   CUT_METHODS,
   CUT_TYPES,
@@ -33,6 +34,15 @@ import {
   type CutType,
   type StyleComponent,
 } from "@/lib/orders/cad-lifecycle/types";
+
+/**
+ * WHAT SITS AT THE RIGHT OF THE ORDER SHEET'S HEADER — Order Entry ▸ CAD puts
+ * its Pattern Lock there (user 2026-10-22, design "Lock 2": "pattern lock mela
+ * vendam"). A context, not a prop: the sheet is three components below the tab
+ * (`AllocationSheet` → `PatternDetailsFields` → here), and the CAD Queue's sheet
+ * renders the same form with nothing to put there.
+ */
+export const OrderSheetAction = createContext<ReactNode>(null);
 
 export type PatternDetailsValue = {
   fit_wash: boolean;
@@ -109,22 +119,22 @@ export function PatternDetailsFields({
               for a FIXED box; with no `w` the cell shrink-wraps to its label
               (~55-75px) and `min-w-full` makes the box exactly that wide, while
               `field-sizing: content` still lets a longer value widen it. */}
-          <Field label="Bit Wash" htmlFor="cad-fit-wash" className="max-sm:w-full">
-            <Select
+          {/* A SWITCH, LIKE ORDER INFO'S PACK / MULTI STYLE (user 2026-10-22,
+              screenshot 102015: "order info button mari"). It is a yes/no fact,
+              and every boolean field in the app is a `Toggle`; the word sits
+              beside the switch, as it does there. `label=""` keeps the label row
+              so the switch lines up with L. / W. Shrink % beside it. */}
+          <Field label="" className="max-sm:w-full">
+            <Toggle
               id="cad-fit-wash"
-              compact
-              inputClassName="w-auto min-w-full field-sizing-content"
-              value={value.fit_wash ? "yes" : "no"}
-              onChange={(e) => {
-                const yes = e.target.value === "yes";
-                // Switching to No drops the figures — a sheet that says No must not
+              label="Bit Wash"
+              checked={value.fit_wash}
+              onChange={(yes) =>
+                // Switching off drops the figures — a sheet that says No must not
                 // carry a shrinkage (0632 refuses it).
-                set(yes ? { fit_wash: true } : { fit_wash: false, length_shrink_pct: "", width_shrink_pct: "" });
-              }}
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </Select>
+                set(yes ? { fit_wash: true } : { fit_wash: false, length_shrink_pct: "", width_shrink_pct: "" })
+              }
+            />
           </Field>
           {value.fit_wash && (
             <>
@@ -216,6 +226,7 @@ export function OrderSheetSection({
   /** The order-wide pattern fields, drawn between Sizes and the table. */
   toolbar?: ReactNode;
 }) {
+  const headerAction = useContext(OrderSheetAction);
   // An entry saved before 0637 carries no coordinate: it still answers for its
   // component on every coordinate, until something is changed on that row.
   type Row = StyleComponent & { gone?: boolean };
@@ -340,28 +351,87 @@ export function OrderSheetSection({
     },
   ];
 
+  /** One coordinate's parts as a table — the rail's open pane, or the whole view when there is only one. */
+  const partsTable = (g: CoordRow) => (
+    /* NO `tableFrom`, Manual's sizes-grid call: inside the rail's detail
+       pane a 5xl (1,024px) threshold is never reached on a laptop, so
+       the table would fall to cards. The primitive's default (@lg,
+       512px) keeps it a table; its columns sum to 896px.
+
+       SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid` skill):
+       `data-grid-style="sheet"` rules every cell and makes the Cut
+       Method / Notes cells the editor themselves — no green box, ✕/▼
+       only on hover or focus, blue inset on the focused cell. No
+       "Actions" column: the rows are derived, there is nothing to
+       delete (`hideRemove`). `table-fixed` stops the columns
+       re-splitting as Notes are typed. */
+    <div data-grid-style="sheet" className="[&_table]:table-fixed">
+      <ChildGrid<GridRow>
+        /* grid-caption: exempt -- the rail item names this table. */
+        columns={orderSheetColumns}
+        rows={g.rows}
+        hideAdd
+        hideRemove
+        keepOne={false}
+        onAdd={() => false}
+        onRemove={() => {}}
+        renderMobileRow={(row, i) => (
+          <FieldRow align="start" gap="tight">
+            {orderSheetColumns.map((c, ci) => (
+              <Field key={ci} label={c.header} w={fieldWidthStep(c.width) ?? "hug"}>
+                {c.cell(row, i)}
+              </Field>
+            ))}
+          </FieldRow>
+        )}
+      />
+    </div>
+  );
+
   return (
     // frameless: the grid draws the one frame (ONE FRAME PER GRID).
     <DetailSection
       label="Order Sheet"
       frameless
+      action={headerAction}
     >
       {/* SIZES UNDER THE LABEL, LEFT-ALIGNED (user 2026-09-26: "need better
           place to view, now look unaligned"). It sat in the header's right-hand
           slot — the pane's far edge — while the grid below stopped ~900px in,
           so it floated beside nothing. Here it starts on the rail's own left
           edge. */}
+      {/* ONE CHIP PER SIZE (2026-10-22, CAD design option A): a dotted run of
+          "1.5/2YRS · 2/3YRS" read as one long word; a chip each is countable. */}
       {sizes.length > 0 && (
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          <span className="mr-1.5 font-semibold uppercase tracking-wide">Sizes</span>
-          <span className="font-medium text-foreground">{sizes.join(" · ")}</span>
-        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sizes</span>
+          {sizes.map((z) => (
+            <span key={z} className="inline-flex h-6 items-center rounded-md bg-muted px-2 text-xs font-medium text-foreground">
+              {z}
+            </span>
+          ))}
+        </div>
       )}
       {toolbar}
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           This style has no components yet — add them on Order Info ▸ Style Components.
         </p>
+      ) : coordRows.length === 1 ? (
+        /* ONE COORDINATE, NO RAIL (2026-10-22, CAD design option A). A rail
+           holding one item ("PIECES · 2 parts") was a 180px column with
+           nothing to switch between and a blank pane under it; the name moves
+           to a heading and the table takes the width. Two or more coordinates
+           keep the rail below (screenshot 3106). */
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-semibold text-foreground">{coordRows[0].name}</h4>
+            <span className="inline-flex h-5 items-center rounded-full bg-muted px-2 text-xs font-semibold text-muted-foreground">
+              {coordRows[0].rows.length} {coordRows[0].rows.length === 1 ? "part" : "parts"}
+            </span>
+          </div>
+          {partsTable(coordRows[0])}
+        </div>
       ) : (
         /* THE COORDINATES IN A SIDE RAIL, EACH ONE'S COMPONENTS AS A TABLE
            (user 2026-09-26, screenshot 3106: "use our side rail and with table
@@ -400,41 +470,7 @@ export function OrderSheetSection({
           keepOne={false}
           onAdd={() => false}
           onRemove={() => {}}
-          renderMobileRow={(g) => (
-            /* NO `tableFrom`, Manual's sizes-grid call: inside the rail's detail
-               pane a 5xl (1,024px) threshold is never reached on a laptop, so
-               the table would fall to cards. The primitive's default (@lg,
-               512px) keeps it a table; its columns sum to 896px.
-
-               SPREADSHEET GRID (user 2026-10-03, `erp-sheet-grid` skill):
-               `data-grid-style="sheet"` rules every cell and makes the Cut
-               Method / Notes cells the editor themselves — no green box, ✕/▼
-               only on hover or focus, blue inset on the focused cell. No
-               "Actions" column: the rows are derived, there is nothing to
-               delete (`hideRemove`). `table-fixed` stops the columns
-               re-splitting as Notes are typed. */
-            <div data-grid-style="sheet" className="[&_table]:table-fixed">
-            <ChildGrid<GridRow>
-              /* grid-caption: exempt -- the rail item names this table. */
-              columns={orderSheetColumns}
-              rows={g.rows}
-              hideAdd
-              hideRemove
-              keepOne={false}
-              onAdd={() => false}
-              onRemove={() => {}}
-              renderMobileRow={(row, i) => (
-                <FieldRow align="start" gap="tight">
-                  {orderSheetColumns.map((c, ci) => (
-                    <Field key={ci} label={c.header} w={fieldWidthStep(c.width) ?? "hug"}>
-                      {c.cell(row, i)}
-                    </Field>
-                  ))}
-                </FieldRow>
-              )}
-            />
-            </div>
-          )}
+          renderMobileRow={(g) => partsTable(g)}
         />
       )}
     </DetailSection>

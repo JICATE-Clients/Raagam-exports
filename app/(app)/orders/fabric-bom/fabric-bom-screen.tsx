@@ -840,7 +840,9 @@ function PaletteTable<T extends { key: string }>({
           red one on error. So the cells carry no padding or border classes of
           their own any more, the frame lost its rounded border, and the ✕
           column is headed "Actions" like every other sheet grid. */}
-      <div data-grid-style="sheet">
+      {/* PLAIN CELLS (user 2026-10-22, screenshot 114948: erp-sheet-grid on the
+          Fabric Plan module) — `flat` takes the green box off every cell. */}
+      <div data-grid-style="sheet" data-grid-cells="flat">
         <table className="w-full table-fixed text-sm">
           <colgroup>
             {/* 36px of ordinal and 56px of Actions — the 3.5rem "Actions"
@@ -6533,7 +6535,7 @@ export function FabricBomScreen({
                   narrower than the visible columns now runs the table past
                   it instead of squeezing — the four-column default is ~24rem,
                   far inside even the rail-reduced detail pane. */}
-              <div data-grid-style="sheet" className="[&_table]:table-fixed">
+              <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
               <ChildGrid<ManualDisplayRow>
                 /* grid-caption: exempt -- the fabric card above is the
                    caption; a second heading here would name the same thing
@@ -10004,8 +10006,9 @@ export function FabricBomScreen({
           /* ONE GRID DEFINITION, DRAWN ONCE PER STYLE on a multi-style order
              (`allocationStyleGroups`) and once in all on a single-style one.
              `styleRef` is what "+ Add fabric" stamps on the new row. */
+          // Plain cells too (2026-10-22, erp-sheet-grid on Fabric Plan).
           const allocationGrid = (rows: LineRow[], styleRef: string) => (
-          <div data-grid-style="sheet" className="[&_table]:table-fixed">
+          <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
           <ChildGrid<LineRow>
             columns={lineColumns}
             /* ONE ROW PER ALLOCATION, not per panel — see `allocationRows`.
@@ -11563,6 +11566,8 @@ export function FabricBomScreen({
           </>
         }
         header={{
+          // The way out, said on the band (user 2026-10-22: "back button venum").
+          back: "Fabric Plan",
           initials: "FB",
           title: pickedOrder?.code ?? (editId ? "Fabric Plan" : "New fabric BOM"),
           badges: dirty ? (
@@ -11631,11 +11636,13 @@ export function FabricBomScreen({
           onCancel: () => setMode("list"),
           onSave: () => submit(false),
           saveLabel: bomOverride ? "Commit Changes (Override)" : "Save fabric BOM",
+          // Next → the following tab, beside Save (user 2026-10-22).
+          nextOn: ["yarns", "process"],
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
-          /* No draft under an override: the approved version is edited in
-             place (R-6), there is no draft of it to park. */
-          onSaveDraft: perms.canCreate && !bomOverride ? () => submit(true) : undefined,
+          /* NO "Save as Draft" (user 2026-10-22: "remove save as draft"), as
+             on Material BOM the same day: every save is final. A BOM saved as a
+             draft before this stays one until it is saved again. */
           isPending,
         }}
       />

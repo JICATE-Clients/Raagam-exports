@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useRegisterShortcut } from "@/lib/shortcuts";
 import { today } from "@/lib/calendar";
 import { fmtDate } from "@/lib/format";
 import { cancelOrder } from "@/lib/orders/cancellations/actions";
@@ -190,9 +191,15 @@ export function CancellationsTable({ cancellations, orders, buyers }: Props) {
     }
   }
 
+  function focusEntry() {
+    (document.getElementById("goc-order") as HTMLElement | null)?.focus();
+  }
+
   function handleSubmit() {
+    if (isPending) return;
     if (!orderId) {
       toastError("Select the RE No");
+      focusEntry();
       return;
     }
     startTransition(async () => {
@@ -207,11 +214,22 @@ export function CancellationsTable({ cancellations, orders, buyers }: Props) {
         success("Order cancelled");
         reset();
         router.refresh();
+        // The row clears for the next one — the cursor goes back to its start.
+        focusEntry();
       } else {
         toastError(result.error);
       }
     });
   }
+
+  /* ENTER WAS A DEAD KEY ON THIS ROW (client 2026-10-22). The entry sits on a
+     LISTING — no footer, no form, no registered save — so `canSubmitSurface`
+     answered false and `enterAdvances` left the key alone in every box. Same
+     answer as the TCS / GST assign screens: register "save", and Enter walks
+     RE No → Customer → Order No → Date → Remarks and cancels off the last one
+     (Ctrl+S too). Only while the row holds something, so Enter in the search
+     box stays inert on an untouched page. */
+  useRegisterShortcut("save", handleSubmit, dirty);
 
   /* THE SAVED ROWS' CELLS — unchanged from the server-rendered table this
      replaces; only the entry row is new. */
