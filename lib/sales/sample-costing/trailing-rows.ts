@@ -34,9 +34,15 @@ export function withTrailingRows(d: CostingDraft): CostingDraft {
     f.yarns.forEach((y) => note(y.key));
     f.processes.forEach((q) => note(q.key));
   });
+  /* A base is free only when nothing is keyed by it OR UNDER it: the weight tail keys its
+     rows `${base}-${size}`, so `wtail-0` itself is never taken. Testing the bare key handed
+     the next blank row `wtail-0-0` again once the first had become a line, and typing a
+     weight into one line wrote it into the blank row too — one key, two rows (user
+     2026-10-22, screenshot 101102: "I give 50 in one, it renders in the next also"). */
+  const used = (k: string) => taken.has(k) || [...taken].some((t) => t.startsWith(`${k}-`));
   const free = (prefix: string) => {
     let i = 0;
-    while (taken.has(`${prefix}tail-${i}`)) i++;
+    while (used(`${prefix}tail-${i}`)) i++;
     const k = `${prefix}tail-${i}`;
     taken.add(k);
     return k;

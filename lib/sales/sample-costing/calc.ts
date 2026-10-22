@@ -392,6 +392,12 @@ function sumOrNull(xs: (number | null)[]): number | null {
   return round(xs.reduce<number>((t, x) => t + (x ?? 0), 0), 4);
 }
 
+/** The price a blank Quoted stands for: Calculated rounded to the cent (user 2026-10-22).
+ *  The buyer's quotation already offers that figure (`offered`, quotation.ts), so the margin
+ *  floor is tested against what is actually sent, not the 4-decimal working figure. */
+export const offeredPrice = (quoted: number | null, calc: number | null): number | null =>
+  quoted ?? (calc == null ? null : round(calc, 2));
+
 function effectiveMargin(
   quotedOrCalc: number | null,
   net: number,
@@ -465,7 +471,7 @@ export function costingSummary(input: CostingInput): CostingSummary {
         delta,
         deltaPct,
         // A price charge passes through the margin like freight and insurance do.
-        effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead + extraOverhead, discount, freight + priceAdj, insurance, rate),
+        effectiveMarginPct: effectiveMargin(offeredPrice(quoted, calc), net, wastage + overhead + extraOverhead, discount, freight + priceAdj, insurance, rate),
       };
     });
 
@@ -506,7 +512,7 @@ export function costingSummary(input: CostingInput): CostingSummary {
         delta,
         deltaPct: delta != null && calc ? round((delta / calc) * 100, 2) : null,
         // Freight and insurance are per PIECE, so a set carries them n times.
-        effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead + extraOverhead, discount, freight * n + priceAdj, insurance * n, rate),
+        effectiveMarginPct: effectiveMargin(sumOrNull(pieces.map((x) => offeredPrice(x.quoted, x.calc))), net, wastage + overhead + extraOverhead, discount, freight * n + priceAdj, insurance * n, rate),
       },
     };
   })();
