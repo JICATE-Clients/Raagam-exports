@@ -1050,8 +1050,9 @@ export function FabricProcessGrid({
   );
   /* Every column declares a width, so `table-fixed` only stops the split
      moving as values are typed (operator, 2026-09-17, the skill's note). */
+  // Plain cells too (user 2026-10-22, erp-sheet-grid on the Fabric Plan module).
   return sheet ? (
-    <div data-grid-style="sheet" className="[&_table]:table-fixed">
+    <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
       {grid}
     </div>
   ) : (

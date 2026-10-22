@@ -823,8 +823,12 @@ export function YarnProcessGrid({
         borderless in-cell pickers with the blue / red insets; the [Click] in
         For is `data-row-open`, so it is drawn as the cell. `table-fixed` so
         the declared widths hold as values are typed (Components, 2026-09-17).
-        Below `5xl` the grid still stacks into labelled cards, unaffected. */}
-    <div data-grid-style="sheet" className="[&_table]:table-fixed">
+        Below `5xl` the grid still stacks into labelled cards, unaffected.
+        PLAIN CELLS (user 2026-10-22, screenshot 112657: "erp-sheet-grid …
+        erp-table-fit apply pannu"): `flat` takes the green box off every cell,
+        the skill's target look. The table already hugs its columns — every one
+        declares a width, so `ChildGrid` sums them into the table's own width. */}
+    <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
     <ChildGrid<YarnStageRow>
       columns={columns}
       rows={rows}
@@ -920,8 +924,8 @@ export function YarnProcessGrid({
           <DetailSection label="Description Details" frameless>
             {/* Opens with a row per colour (`detailRowsOf`), never empty — the
                 "open with a row" rule met by the colours themselves. */}
-            /* The same sheet look as the process grid it opens from. */
-            <div data-grid-style="sheet" className="[&_table]:table-fixed">
+            {/* The same sheet look — plain cells too — as the process grid it opens from. */}
+            <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
             <ChildGrid<DetailGridRow>
               columns={conversionDetailColumns(looseRow)}
               rows={detailRowsOf(looseRow)}

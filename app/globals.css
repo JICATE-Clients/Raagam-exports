@@ -568,15 +568,17 @@
   }
 }
 
-/* The pause after Enter flips a `Toggle`, drawn (lib/focus.ts `ENTER_TIMED`). The
- * bar is the input's sibling and `--enter-ms` is set on their shared label. */
+/* The pause before Enter flips a `Toggle` (lib/focus.ts `ENTER_TIMED`): a bar
+ * drains under the switch, like the "+ Add" one below; Enter again before it
+ * empties moves on instead of flipping. The bar is the input's sibling and
+ * `--enter-ms` is set on their shared label. */
 input[data-enter-pending] ~ .enter-bar {
-  animation: enter-fill var(--enter-ms, 2000ms) linear forwards;
+  animation: enter-drain var(--enter-ms, 500ms) linear forwards;
 }
-@keyframes enter-fill {
-  to {
-    transform: scaleX(1);
-  }
+/* A plain tick box has no bar beside it, so the pause is a ring on the box. */
+input[type="checkbox"][data-enter-pending]:not([data-enter-timed]) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 @media (prefers-reduced-motion: reduce) {
   input[data-enter-pending] ~ .enter-bar {

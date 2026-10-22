@@ -23,6 +23,7 @@ import { z } from "zod";
 import type { StatusTone } from "@/lib/ui/tone";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import { daysBetween } from "@/lib/calendar";
+import { fmtDate } from "@/lib/format";
 
 // ============================================================================
 // VOCABULARY
@@ -718,7 +719,10 @@ export function allocationProblemAt(
   if (!a.cad_type) return { field: "type", message: "Choose the CAD Type." };
   if (!a.target_date) return { field: "target", message: "Enter the Internal Target Date." };
   if (a.target_date < today) {
-    return { field: "target", message: "The Internal Target Date cannot be before today's Allocation Date." };
+    // SHORT ENOUGH FOR ITS 144px BOX (2026-10-22, CAD design option A): the
+    // old sentence wrapped to three lines under the date and pushed the whole
+    // CAD Allocation card down. Naming the date says what "today" was.
+    return { field: "target", message: `Target Date can't be before ${fmtDate(today)}.` };
   }
   // 0632's chk_oca_shrinkage_wash_needs_fit_wash / chk_oca_fit_wash_shrinkage.
   if (a.cad_type === "shrinkage_wash" && !a.fit_wash) {

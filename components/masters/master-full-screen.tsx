@@ -14,15 +14,19 @@ import {
   type Ref,
 } from "react";
 import { ChevronLeft, Menu, X, type LucideIcon } from "lucide-react";
+import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { LockScope, UnlockScope } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
+  focusablesIn,
   focusField,
   focusFirstField,
   focusLastField,
+  isFieldLike,
+  isOffTabPath,
   registerContentEdge,
 } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
@@ -334,6 +338,7 @@ export function MasterFullScreen({
   onClose,
   modeLabel,
   footerOnLastSection = false,
+  footerAlsoOn,
   header,
   sections,
   onEnterSection,
@@ -405,6 +410,13 @@ export function MasterFullScreen({
    */
   footerOnLastSection?: boolean;
   /**
+   * With `footerOnLastSection`: other sections whose bar shows too. Pair it
+   * with `footer.stepper` and such a section's bar reads Cancel · Next — the
+   * way on to the last one (user 2026-10-22, Material BOM ▸ Requirement:
+   * "next button add pannu").
+   */
+  footerAlsoOn?: string[];
+  /**
    * The sticky identity band. OPTIONAL — omit it and the band is not rendered.
    *
    * An overlay needs it: it covers the whole screen, so without it there is
@@ -424,6 +436,15 @@ export function MasterFullScreen({
     meta?: ReactNode;
     /** Right-hand header zone (e.g. customer's applicant chips). */
     right?: ReactNode;
+    /**
+     * "← Back" at the start of the band — the app's own `BackLink`, closing the
+     * editor through `onClose` with the same discard question every Back asks.
+     * The NAME of what it returns to ("Fabric Plan"), read in its tooltip.
+     * Opt-in (user 2026-10-22, Fabric Plan: "back button venum"), the same
+     * link Order Entry's editor draws; an editor without it keeps the ✕ and
+     * Escape as its way out.
+     */
+    back?: string;
   };
   sections: FullScreenSection[];
   /**
@@ -716,6 +737,14 @@ export function MasterFullScreen({
      */
     stepper?: boolean;
     /**
+     * A NEXT BESIDE SAVE, on these sections only (user 2026-10-22, Fabric Plan:
+     * "yarn process fabric process ku next button venum"). Unlike `stepper` it
+     * takes nothing away: Save stays the filled button (and the one Enter off
+     * the last field resolves to), Next is an outline step to the following
+     * section. Ignored on the last section and while `stepper` is stepping.
+     */
+    nextOn?: string[];
+    /**
      * A "SKIP" BESIDE NEXT, IN PLACE OF CANCEL (client 2026-09-30, HR worker
      * editor: "save cancel button kku pathila next skip button"). Only while
      * `stepper` is stepping; the last section shows Cancel + Save as before.
@@ -962,6 +991,24 @@ export function MasterFullScreen({
         pane?.querySelector<HTMLElement>("[data-required-empty]");
       if (el) {
         focusField(el);
+        moved = true;
+      }
+    }
+
+    /* A SECTION WITH NOTHING TO TYPE LANDS ON THE FOOTER'S STEP (user
+       2026-10-22, Material BOM: "enter key press next tab work aaganum" on
+       Requirement, then "trims T&A la enter key kudutha save aaganum"). A
+       read-only pane gave the cursor no field, so it fell to the rail and Enter
+       re-opened the same section. On the footer's main button Enter is that
+       button's own click: Next while a section follows, Save on the last one.
+       Only forward landings; a button that is hidden or disabled is skipped. */
+    if (!moved && landing !== "last" && pane) {
+      const hasField = focusablesIn(pane).some((el) => isFieldLike(el) && !isOffTabPath(el));
+      const step = Array.from(
+        rootRef.current?.querySelectorAll<HTMLButtonElement>("[data-land-empty]") ?? [],
+      ).find((b) => !b.disabled && b.offsetParent !== null);
+      if (!hasField && step) {
+        step.focus();
         moved = true;
       }
     }
@@ -1465,6 +1512,7 @@ export function MasterFullScreen({
           className="grid gap-3 border-b border-border bg-primary-soft px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6"
         >
           <div className="flex min-w-0 items-center gap-3">
+            {header.back && <BackLink onBack={onClose} label={header.back} className="max-md:hidden" />}
             {header.avatar ?? (
               <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-primary/10 text-base font-bold text-primary">
                 {header.initials ?? "—"}
@@ -2003,7 +2051,9 @@ export function MasterFullScreen({
           part of that path. The request was about the BUTTON BAR — an operator
           who has filled the first section and presses Ctrl+S should still be
           able to save rather than be told to go and find the last tab. */}
-      {(!footerOnLastSection || active?.key === sections[sections.length - 1]?.key) && (
+      {(!footerOnLastSection ||
+        active?.key === sections[sections.length - 1]?.key ||
+        (!!active && !!footerAlsoOn?.includes(active.key))) && (
       <div
         className={cn(
           /**
@@ -2193,6 +2243,8 @@ export function MasterFullScreen({
           */}
           {stepping && (
             <Button
+              // Where a section with no fields lands the cursor — see `land`.
+              data-land-empty=""
               data-blocked={stepBlockedWhy ? true : undefined}
               className={cn(stepBlockedWhy && "opacity-60")}
               onClick={() => {
@@ -2203,6 +2255,18 @@ export function MasterFullScreen({
                 }
                 goToSection(nextSectionKey!, "first");
               }}
+            >
+              Next
+            </Button>
+          )}
+          {!stepping && nextSectionKey && footer.nextOn?.includes(section) && (
+            <Button
+              variant="outline"
+              // Ahead of Save in the DOM, so a section with nothing to type lands
+              // HERE and Enter steps on (user 2026-10-22, Fabric Plan: "enter
+              // key press panna next kku poganum") — see `land`.
+              data-land-empty=""
+              onClick={() => goToSection(nextSectionKey, "first")}
             >
               Next
             </Button>
@@ -2226,13 +2290,15 @@ export function MasterFullScreen({
               `submitTargetOf` takes the footer's last non-disabled button, so a
               disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
           {!stepping && footer.submit && (
-            <Button disabled={footer.isPending || !!locked} onClick={footer.submit.onClick}>
+            <Button data-land-empty="" disabled={footer.isPending || !!locked} onClick={footer.submit.onClick}>
               {footer.submit.label}
             </Button>
           )}
           {!stepping && (
             <Button
               variant={footer.saveQuiet ? "outline" : "primary"}
+              // Where a section with no fields lands the cursor — see `land`.
+              data-land-empty=""
               disabled={footer.isPending || (!footer.canSave && !blocked)}
               data-blocked={blocked || undefined}
               className={cn(blocked && "opacity-60", footer.submit && "hidden")}
