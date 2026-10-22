@@ -72,7 +72,8 @@ export function QuotationDocument({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm print:hidden">
         {lead}
-        {multi ? (
+        {/* The size switch picks the price card's size — one style's; a listing shows every size. */}
+        {multi && model.styles.length < 2 ? (
           <ToggleGroup<string>
             label="Size shown"
             value={String(idx)}
@@ -127,6 +128,9 @@ export function QuotationDocument({
             the internal sheet. The PDF is still drawn by `exportQuotationPdf`. */}
         <QuoteLetterhead model={model} idx={idx} />
 
+        {model.styles.length > 1 ? (
+          <StylesListing model={model} />
+        ) : (
         <SectionCard title={model.isSet ? "Price by piece" : "Price by size"}>
           <ReportTable bare>
             <thead>
@@ -143,6 +147,7 @@ export function QuotationDocument({
             </tbody>
           </ReportTable>
         </SectionCard>
+        )}
 
         {/* NO REVISION HISTORY ON THE QUOTATION (user 2026-10-16: "no need to Revision
             history, remove it from quotation report"). The buyer's document states the
@@ -166,12 +171,20 @@ function QuoteLetterhead({ model, idx }: { model: QuotationModel; idx: number })
   const multi = model.groups.length > 1;
   const grp = model.groups[idx] ?? model.groups[0];
   const price = grp ? (model.isSet ? grp.total : (grp.lines[0]?.price ?? null)) : null;
+  /* SEVERAL STYLES: the title, the Style fact and the price card speak for the whole
+     sample — the style names, and the range of their prices — and the listing below
+     carries each style's own figures. */
+  const manyStyles = model.styles.length > 1;
+  const styleNames = model.styles.map((x) => x.style).filter(Boolean).join(", ");
+  const heads = model.styles.map((x) => x.headline).filter((v): v is number => v != null);
+  const sameCcy = model.styles.every((x) => x.currency === ccy);
+  const range = heads.length && sameCcy ? { lo: Math.min(...heads), hi: Math.max(...heads) } : null;
   const facts: { label: string; value: ReactNode; mono?: boolean }[] = [
     { label: "SMP Number", value: model.sampleNo, mono: true },
-    { label: "Style", value: model.style },
+    { label: manyStyles ? `Styles (${model.styles.length})` : "Style", value: manyStyles ? styleNames : model.style },
     { label: "Season", value: model.season },
     { label: "Shipment", value: model.shipMode },
-    { label: "Quoted per", value: `${model.isSet ? "SET" : "PIECE"}${multi ? ` · ${model.groups.length} sizes` : ""}` },
+    { label: "Quoted per", value: manyStyles ? "Per style, below" : `${model.isSet ? "SET" : "PIECE"}${multi ? ` · ${model.groups.length} sizes` : ""}` },
     { label: "Dated", value: model.date ? fmtDate(model.date) : null },
   ];
   return (
@@ -213,19 +226,31 @@ function QuoteLetterhead({ model, idx }: { model: QuotationModel; idx: number })
             ) : null}
           </div>
           <h2 className="m-0 text-[19px] font-extrabold leading-tight tracking-[-.01em]">
-            {model.description || model.style || "—"}
+            {manyStyles ? `${model.styles.length} styles` : model.description || model.style || "—"}
             {model.customer ? <span className="text-[15px] font-semibold text-[#5a6a79]"> · {model.customer}</span> : null}
           </h2>
           {/* The buyer sees THAT it is approved and when, never how. */}
           {model.approvalNote ? <p className="m-0 text-[12px] text-[#5a6a79]">{model.approvalNote}</p> : null}
         </div>
         <div className="flex min-w-[200px] flex-col justify-center gap-1 rounded-xl bg-[linear-gradient(160deg,#037bb8,#024f78)] px-4 py-3 text-white">
-          <span className="text-[10.5px] font-bold uppercase tracking-[.14em] text-[#bfe0f2]">
-            {model.isSet ? "Quoted set price" : "Quoted price"}
-            {multi && grp ? ` · ${grp.label}` : ""}
-          </span>
-          <span className="font-mono text-[26px] font-bold leading-tight">{priceText(price, ccy)}</span>
-          <span className="text-[12px] text-[#d8ecf7]">per {model.unitWord}</span>
+          {manyStyles ? (
+            <>
+              <span className="text-[10.5px] font-bold uppercase tracking-[.14em] text-[#bfe0f2]">Quoted prices · {model.styles.length} styles</span>
+              <span className="font-mono text-[22px] font-bold leading-tight">
+                {range ? (range.lo === range.hi ? priceText(range.lo, ccy) : `${priceText(range.lo, ccy)} – ${range.hi.toFixed(2)}`) : "See each style"}
+              </span>
+              <span className="text-[12px] text-[#d8ecf7]">each style priced below</span>
+            </>
+          ) : (
+            <>
+              <span className="text-[10.5px] font-bold uppercase tracking-[.14em] text-[#bfe0f2]">
+                {model.isSet ? "Quoted set price" : "Quoted price"}
+                {multi && grp ? ` · ${grp.label}` : ""}
+              </span>
+              <span className="font-mono text-[26px] font-bold leading-tight">{priceText(price, ccy)}</span>
+              <span className="text-[12px] text-[#d8ecf7]">per {model.unitWord}</span>
+            </>
+          )}
           <span className="text-[12px] text-[#d8ecf7]">{ccy ? `All prices in ${ccy}` : "Currency not set"}</span>
         </div>
       </div>
@@ -246,10 +271,63 @@ function QuoteLetterhead({ model, idx }: { model: QuotationModel; idx: number })
   );
 }
 
-/** The style picture beside the facts, or the garment outline when there is none. */
-function Thumb({ url }: { url: string | null }) {
+/**
+ * THE STYLES LISTING (user 2026-10-22, screenshot 3667): every costed style of the
+ * sample, this costing's first. Each style is one band — its picture, name and
+ * description in a cell that spans its rows — then a row per piece and size with the
+ * offered price, and a Set total under a set's sizes. Bands alternate, so where one
+ * style ends is visible without a rule of its own.
+ */
+function StylesListing({ model }: { model: QuotationModel }) {
   return (
-    <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-[#f6f7f9] text-[#9aa3af]">
+    <SectionCard title={`Styles (${model.styles.length})`}>
+      <ReportTable bare>
+        <thead>
+          <tr>
+            <Th>Style</Th>
+            <Th>Piece</Th>
+            <Th>Size</Th>
+            <Th right>Price</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {model.styles.map((st, si) => {
+            const rows = st.groups.flatMap((g) => [
+              ...g.lines.map((l) => ({ key: `${g.label}-${l.piece}`, piece: l.piece, size: g.label, price: l.price, total: false })),
+              ...(st.isSet ? [{ key: `${g.label}-total`, piece: "Set total", size: g.label, price: g.total, total: true }] : []),
+            ]);
+            const band = stripeRow(si);
+            return rows.map((r, ri) => (
+              <tr key={`${st.costingId}-${r.key}`} className={r.total ? "font-semibold" : undefined} style={r.total ? totalRowStyle() : band}>
+                {ri === 0 ? (
+                  // A plain <td> in the kit's cell look: the kit's Td cannot span rows.
+                  <td rowSpan={rows.length} className="border-b border-border/60 px-2 py-1.5 text-left align-top" style={band}>
+                    <div className="flex items-start gap-2.5">
+                      <Thumb url={st.thumbUrl} size="sm" />
+                      <div className="min-w-0">
+                        <div className="font-semibold">{st.style ?? "—"}</div>
+                        {st.description ? <div className="text-[12px] text-[#5a6a79]">{st.description}</div> : null}
+                        <div className="font-mono text-[11px] text-[#5a6a79]">{[st.costingNo, st.revision].filter(Boolean).join(" · ")}</div>
+                      </div>
+                    </div>
+                  </td>
+                ) : null}
+                <Td>{r.piece}</Td>
+                <Td>{r.size}</Td>
+                <Td right mono>{priceText(r.price, st.currency)}</Td>
+              </tr>
+            ));
+          })}
+        </tbody>
+      </ReportTable>
+    </SectionCard>
+  );
+}
+
+/** The style picture beside the facts, or the garment outline when there is none. */
+function Thumb({ url, size = "md" }: { url: string | null; size?: "sm" | "md" }) {
+  return (
+    <div className={`grid ${size === "sm" ? "size-12" : "size-24"} shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-[#f6f7f9] text-[#9aa3af]`}>
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="" className="size-full object-cover" />

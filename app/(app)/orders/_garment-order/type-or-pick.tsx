@@ -108,17 +108,17 @@ export function TypeOrPick({
 
   const typed = text.trim();
   /*
-   * FILTERED BY THE TEXT, EXCEPT WHEN THE TEXT IS THE PICKED ROW.
-   *
-   * This field's input holds the VALUE, not a search box's query — so after
-   * picking NAVY BLUE the text is "NAVY BLUE", and filtering by it would leave
-   * the list showing one row: the row already chosen. Re-opening a field to
-   * change your mind has to show the alternatives, so an exact hit means "show
-   * everything".
+   * ALWAYS FILTERED BY THE TEXT (user 2026-10-22, screenshot 140326: "the data
+   * already chosen — no need to list all again; if needed the user will search").
+   * A filled field lists only what its text matches, so a chosen BIT PRINTING
+   * shows BIT PRINTING and nothing else; to change it, type over it and the
+   * list becomes the search. This REVERSES the earlier "an exact hit shows
+   * everything" rule, deliberately. Only an EMPTY field opened with ↓ lists the
+   * whole master, because ↓ is the keyboard's one route to a value it has not
+   * typed (raagam-keyboard-contract).
    */
   const exact = options.find((o) => o.name.trim().toUpperCase() === typed.toUpperCase()) ?? null;
-  const matches =
-    !typed || exact ? options : options.filter((o) => o.name.toUpperCase().includes(typed.toUpperCase()));
+  const matches = !typed ? options : options.filter((o) => o.name.toUpperCase().includes(typed.toUpperCase()));
 
   type Row =
     | { kind: "option"; option: { id: string; name: string; note?: string } }
@@ -157,8 +157,10 @@ export function TypeOrPick({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
+  /* Opens with NOTHING highlighted (same request): no row is pre-selected, so an
+     Enter before the operator has moved onto one picks nothing and moves on. */
   function openList() {
-    setHighlight(Math.max(0, rows.findIndex((r) => r.kind === "option" && r.option.id === valueId)));
+    setHighlight(-1);
     setOpen(true);
   }
 
@@ -205,13 +207,16 @@ export function TypeOrPick({
       e.stopPropagation();
       setHighlight((h) => {
         const n = rows.length;
-        if (!n) return 0;
+        if (!n) return -1;
+        if (h < 0) return e.key === "ArrowDown" ? 0 : n - 1;
         return e.key === "ArrowDown" ? (h + 1) % n : (h - 1 + n) % n;
       });
       return;
     }
     if (e.key === "Enter") {
-      if (!open || !rows.length) return; // bubbles: Enter advances
+      // Nothing highlighted: close and let Enter advance — the typed text stays the value.
+      if (open && !rows[highlight]) setOpen(false);
+      if (!open || !rows[highlight]) return; // bubbles: Enter advances
       e.preventDefault();
       e.stopPropagation();
       void commit(rows[highlight]);
@@ -276,10 +281,15 @@ export function TypeOrPick({
                operator saved with Ctrl+S from inside the field, and this screen
                saves that way. Picking a row later overwrites both halves. */
             onChange({ id: null, name: e.target.value });
+            // The list is the SEARCH: it shows while there is text to match and
+            // closes when the box is cleared. The first hit is highlighted, so
+            // Enter takes what was searched for.
             setHighlight(0);
-            setOpen(true);
+            setOpen(!!e.target.value.trim());
           }}
-          onFocus={() => openList()}
+          /* NO OPEN ON FOCUS (user 2026-10-22): arriving on a field — by Tab, Enter
+             or a click — no longer throws the whole master list over the grid.
+             Typing opens it as a search; ↓ opens it on purpose. */
           /* Closes on the way out, whichever key or click did it. Picking is
              unaffected: the list's rows commit on `mousedown` with
              `preventDefault`, so focus never leaves the input to reach here. */

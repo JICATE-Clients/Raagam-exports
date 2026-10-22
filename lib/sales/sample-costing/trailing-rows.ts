@@ -1,5 +1,5 @@
 import { newExtra, newFabricProcess, newPieceLine, newTrim, newWeightRows, newYarnMix } from "./revision-draft";
-import { sizesOf } from "./calc";
+import { sizesOf, yarnMixTotal } from "./calc";
 import { isBlankExtra, isBlankPieceLine, isBlankProcess, isBlankTrim, isBlankYarn, type CostingDraft } from "./types";
 
 /**
@@ -79,7 +79,14 @@ export function withTrailingRows(d: CostingDraft): CostingDraft {
   const fabrics = d.fabrics.map((f) => {
     if (f.is_direct || !(f.fabric_id || f.quality.trim())) return f;
     let out = f;
-    if (!f.yarns.some(isBlankYarn)) out = { ...out, yarns: [...out.yarns, { ...newYarnMix(), key: free(`y${f.key}-`) }] };
+    /* A FULL MIX HAS NO BLANK YARN ROW (user 2026-10-22, screenshot 3659: "once the field
+       reach 100 % no need to move the cursor to add yarn, move it to the next process
+       field"). At 100 % there is no share left for another yarn, so the blank row goes and
+       Enter off the last yarn lands straight on Processes. Bring a mix back under 100 and
+       the row returns. */
+    if (yarnMixTotal(f) >= 100) {
+      if (f.yarns.some(isBlankYarn)) out = { ...out, yarns: out.yarns.filter((y) => !isBlankYarn(y)) };
+    } else if (!f.yarns.some(isBlankYarn)) out = { ...out, yarns: [...out.yarns, { ...newYarnMix(), key: free(`y${f.key}-`) }] };
     if (!f.processes.some(isBlankProcess)) out = { ...out, processes: [...out.processes, { ...newFabricProcess(), key: free(`p${f.key}-`) }] };
     if (out !== f) fabricsChanged = true;
     return out;

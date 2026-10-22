@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
 import { revisionShort } from "@/lib/sales/sample-costing/types";
-import { getCostingLetterhead, getCostingApprovalFacts, getCostingRevisionSources, getSampleCostingFormData, getSampleCostingRecord } from "@/lib/sales/sample-costing/service";
+import { getCostingLetterhead, getCostingApprovalFacts, getCostingRevisionSources, getSampleCostingFormData, getSampleCostingRecord, getSiblingCostingRecords } from "@/lib/sales/sample-costing/service";
 import { buildRevisionHistory } from "@/lib/sales/sample-costing/revision-history";
 import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
 import { buildQuotationModel } from "@/lib/sales/sample-costing/quotation";
@@ -49,10 +49,15 @@ export default async function CostingReportsPage({
   if (!record) notFound();
   /* ONE ROUND, NOT TWO — the revisions and the approval are independent reads that
      only need the record's code and id, and each round trip is ~260 ms. */
-  const [revisionSources, facts] = await Promise.all([getCostingRevisionSources(record.code), getCostingApprovalFacts(record.id)]);
+  const [revisionSources, facts, siblings] = await Promise.all([
+    getCostingRevisionSources(record.code),
+    getCostingApprovalFacts(record.id),
+    // The sample's other costed styles: the Quotation lists every style (2026-10-22).
+    getSiblingCostingRecords(record.draft.header.opportunity_id, record.draft.header.style_id),
+  ]);
   const history = buildRevisionHistory(revisionSources, record.id);
   const cost = buildCostSheetModel(record, data, letterhead, history, facts);
-  const quote = buildQuotationModel(record, data, letterhead, history, facts);
+  const quote = buildQuotationModel(record, data, letterhead, history, facts, siblings);
   return (
     // FILLS <main> (a flex column of fixed height) so the revision save bar can sit
     // at the BOTTOM of the screen on a short tab — the MasterFullScreen footer's
@@ -87,7 +92,8 @@ export default async function CostingReportsPage({
              names. */
           lookups: {
             enquiries: data.enquiries.filter((e) => e.id === record.draft.header.opportunity_id),
-            styles: data.styles.filter((s) => s.id === record.draft.header.style_id),
+            // Its own style and the sample's other costed styles (the Quotation's listing).
+            styles: data.styles.filter((s) => s.id === record.draft.header.style_id || siblings.some((r) => r.draft.header.style_id === s.id)),
             components: data.components,
             trims: data.trims,
           },
@@ -102,6 +108,7 @@ export default async function CostingReportsPage({
             lockedFabrics: data.styles.find((s) => s.id === record.draft.header.style_id)?.structures.map((x) => x.id) ?? [],
           },
           history,
+          siblings,
           /* STILL REACHABLE AFTER 0728: a Rev raised from a REJECTED costing starts
              as a Draft (save_sample_costing's parent branch), so "Send to Buyer" is
              how it goes back Under Progress without reopening the editor. A Sample
