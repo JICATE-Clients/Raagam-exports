@@ -78,28 +78,68 @@ function allowedSN(sn: string) {
  * — and "a device went quiet and nobody noticed" is the most common way an
  * attendance system fails quietly.
  *
- * `onConflict: serial_no` with no other columns means a device that has never
- * been seen appears by itself, unnamed and with no unit, ready for HR to label.
- * It never overwrites the name, unit or direction a person has set.
+ * A device that has never been seen appears by itself, unnamed and with no
+ * unit, ready for HR to label.
+ *
+ * It returns what the handler needs to know about the device, so the touch and
+ * the lookup are ONE round trip rather than two: a heartbeat every 30 seconds
+ * per device is not the place to ask the same question twice.
+ *
+ * The upsert names only `last_seen` and `last_ip`, so a conflict updates only
+ * those — the name, unit, direction and watermark a person set are never
+ * overwritten by a device dialling in. On a first INSERT the rest take their
+ * column defaults, which is what makes a new device arrive as 'both',
+ * unassigned, with a '0' watermark.
  */
-async function touchDevice(sn: string, ip: string | null) {
+type DeviceState = {
+  direction: "in" | "out" | "both";
+  /** The ATTLOG watermark we last accepted. '0' = send everything. */
+  lastStamp: string;
+};
+
+async function touchDevice(
+  sn: string,
+  ip: string | null,
+): Promise<DeviceState> {
   const supabase = createAdminClient();
-  const { error } = await supabase.from("biometric_devices").upsert(
-    { serial_no: sn, last_seen: new Date().toISOString(), last_ip: ip },
-    { onConflict: "serial_no" },
-  );
+  const { data, error } = await supabase
+    .from("biometric_devices")
+    .upsert(
+      { serial_no: sn, last_seen: new Date().toISOString(), last_ip: ip },
+      { onConflict: "serial_no" },
+    )
+    .select("direction, last_attlog_stamp")
+    .maybeSingle();
+
   if (error) console.error("[iclock] device touch failed", error);
+
+  /**
+   * FALLING BACK TO '0' ON A FAILED READ IS THE SAFE DIRECTION. It asks the
+   * device for more than we need and the unique key drops the surplus; the
+   * opposite guess — a high stamp — would tell the device we already hold
+   * punches we have never seen, and it would never offer them again.
+   */
+  return {
+    direction: (data?.direction as DeviceState["direction"]) ?? "both",
+    lastStamp: data?.last_attlog_stamp ?? "0",
+  };
 }
 
-/** The direction this device's punches are recorded as, copied at punch time. */
-async function directionOf(sn: string): Promise<"in" | "out" | "both"> {
+/**
+ * Move the watermark on, and only ever FORWARDS. A device re-sending an older
+ * batch must not drag it backwards, or everything after that batch is asked
+ * for again on the next handshake.
+ */
+async function advanceStamp(sn: string, posted: string, current: string) {
+  if (!/^\d+$/.test(posted)) return; // junk stamp: leave the watermark alone
+  if (!(BigInt(posted) > BigInt(/^\d+$/.test(current) ? current : "0"))) return;
+
   const supabase = createAdminClient();
-  const { data } = await supabase
+  const { error } = await supabase
     .from("biometric_devices")
-    .select("direction")
-    .eq("serial_no", sn)
-    .maybeSingle();
-  return (data?.direction as "in" | "out" | "both") ?? "both";
+    .update({ last_attlog_stamp: posted })
+    .eq("serial_no", sn);
+  if (error) console.error("[iclock] stamp advance failed", error);
 }
 
 /**
@@ -113,7 +153,7 @@ export async function GET(req: NextRequest) {
   const sn = url.searchParams.get("SN") ?? "";
   if (!allowedSN(sn)) return text("Unknown device", 403);
 
-  await touchDevice(sn, req.headers.get("x-device-ip"));
+  const device = await touchDevice(sn, req.headers.get("x-device-ip"));
 
   if (url.pathname.endsWith("/cdata")) {
     /**
@@ -121,16 +161,25 @@ export async function GET(req: NextRequest) {
      * uploads on a timer. `Delay=30` is the heartbeat, and it is what the
      * online / offline indicator is measured against.
      *
-     * `Stamp=0` asks for everything the device still holds. The ADMS stamp is a
-     * watermark meaning "I already have records up to here", so a HIGH value
-     * tells the device to send nothing — which is the opposite of what is
-     * wanted on a first connect or after an outage. Duplicates cost nothing:
-     * the unique key on (device_sn, user_id, punch_time) drops them.
+     * `Stamp` IS A WATERMARK, NOT A SETTING: it means "I already hold records
+     * up to here, send me what came after". So the value handed back is this
+     * device's own last ACCEPTED stamp (0734), and '0' — a device we have never
+     * heard from — asks for everything it holds.
+     *
+     * Both extremes are wrong as a constant. A fixed HIGH value (the reference
+     * document sends 9999) claims we hold punches we have never seen, and the
+     * device never offers them again. A fixed '0' re-asks for the device's
+     * entire stored log on every single reconnect, leaving the unique key to
+     * silently discard thousands of rows we should not have requested.
+     *
+     * `OpStamp` stays 0 because OPERLOG is acknowledged and discarded — there
+     * is no watermark to keep when nothing is stored. The cost is that a device
+     * re-offers its operation log on each reconnect and we drop it again.
      */
     return text(
       [
         `GET OPTION FROM: ${sn}`,
-        "Stamp=0",
+        `Stamp=${device.lastStamp}`,
         "OpStamp=0",
         "ErrorDelay=60",
         "Delay=30",
@@ -161,10 +210,10 @@ export async function POST(req: NextRequest) {
   const table = (url.searchParams.get("table") ?? "").toUpperCase();
   const body = await req.text();
 
-  await touchDevice(sn, req.headers.get("x-device-ip"));
+  const device = await touchDevice(sn, req.headers.get("x-device-ip"));
 
   if (url.pathname.endsWith("/cdata") && table === "ATTLOG") {
-    const direction = await directionOf(sn);
+    const { direction } = device;
 
     // USER_ID \t YYYY-MM-DD HH:MM:SS \t STATUS \t VERIFY \t WORKCODE \t … \t …
     const rows = body
@@ -196,19 +245,36 @@ export async function POST(req: NextRequest) {
 
     if (rows.length > 0) {
       const supabase = createAdminClient();
-      const { error } = await supabase
-        .from("punches")
-        .upsert(rows, {
-          onConflict: "device_sn,user_id,punch_time",
-          ignoreDuplicates: true,
-        });
+      const { error } = await supabase.from("punches").upsert(rows, {
+        onConflict: "device_sn,user_id,punch_time",
+        ignoreDuplicates: true,
+      });
 
       if (error) {
         console.error("[iclock] punch insert failed", error);
-        // Non-200: the device keeps these punches and sends them again.
+        /**
+         * Non-200: the device keeps these punches and sends them again. The
+         * watermark is NOT advanced below, which is the half that makes the
+         * retry mean something — a stamp moved past a batch we failed to store
+         * is a batch the device will never offer again.
+         */
         return text("ERROR", 500);
       }
     }
+
+    /**
+     * THE WATERMARK ADVANCES EXACTLY WHEN WE ACCEPT THE BATCH, which is why
+     * this sits after the failure return and not inside the `rows.length`
+     * branch. A batch whose every line was unparseable stores nothing and is
+     * still ACCEPTED — we answer OK — so its stamp must move too. Leaving it
+     * behind would have the device re-send that same unparseable batch on
+     * every reconnect for as long as it keeps it.
+     */
+    await advanceStamp(
+      sn,
+      url.searchParams.get("Stamp") ?? "",
+      device.lastStamp,
+    );
     return text("OK");
   }
 

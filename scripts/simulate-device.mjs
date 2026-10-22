@@ -18,6 +18,7 @@
 //   --key    BRIDGE_KEY, only when calling the ERP directly
 //   --time   punch time in IST "YYYY-MM-DD HH:MM:SS"          [default: now]
 //   --step   all | handshake | heartbeat | punch               [default all]
+//   --stamp  ATTLOG watermark sent with the batch              [default 100]
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((pairs, cur, i, arr) => {
@@ -35,6 +36,10 @@ const base = args.url.replace(/\/$/, "");
 const sn = args.sn || "TESTSN001";
 const userId = args.user || "1001";
 const step = args.step || "all";
+// The ATTLOG watermark this batch claims. The route stores the highest one it
+// has ACCEPTED and hands it back in the next handshake, so a low value here is
+// how you check it refuses to move backwards.
+const stamp = args.stamp || "100";
 
 function nowIST() {
   // "YYYY-MM-DD HH:MM:SS" in Asia/Kolkata, like the device clock
@@ -91,7 +96,7 @@ if (step === "all" || step === "punch") {
   // ATTLOG line: USER_ID \t TIME \t STATUS \t VERIFY \t WORKCODE \t RESERVED \t RESERVED
   const line = `${userId}\t${punchTime}\t0\t15\t0\t0\t0`;
   allOk = (await call(`Punch (user ${userId} at ${punchTime} IST)`, "POST",
-    `/iclock/cdata?SN=${encodeURIComponent(sn)}&table=ATTLOG&Stamp=9999`, line + "\n")) && allOk;
+    `/iclock/cdata?SN=${encodeURIComponent(sn)}&table=ATTLOG&Stamp=${encodeURIComponent(stamp)}`, line + "\n")) && allOk;
 }
 
 console.log(allOk
