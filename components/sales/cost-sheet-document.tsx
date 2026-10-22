@@ -22,7 +22,7 @@ import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
 import { GlassRing } from "@/components/orders/budget-breakdown-chart";
 import { fmtDate } from "@/lib/format";
 import { FLOOR_PCT, fx, priceParts, type CostSheetModel, type SizeFigures } from "@/lib/sales/sample-costing/cost-sheet";
-import { MARGIN_TARGET_PCT, hasYarnMix, quoteKey, sizesOf, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
+import { MARGIN_TARGET_PCT, hasYarnMix, offeredPrice, quoteKey, sizesOf, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
 import { isBlankExtra, isBlankFabric, isBlankPieceLine, isBlankProcess, isBlankTrim, isBlankWeight, isBlankYarn, type CostingDraft, type FabricDraft, type FabricProcessDraft, type PieceDraft, type PieceLineKind, type YarnMixDraft } from "@/lib/sales/sample-costing/types";
 import { changeText } from "@/lib/sales/sample-costing/revision-history";
 import { withTrailingRows } from "@/lib/sales/sample-costing/trailing-rows";
@@ -131,6 +131,20 @@ export type CostSheetEdit = {
 
 const patchBy = <T extends { key: string }>(xs: readonly T[], key: string, patch: Partial<T>): T[] => xs.map((x) => (x.key === key ? { ...x, ...patch } : x));
 
+/**
+ * NO DUPLICATES IN A TABLE (user 2026-10-22: "each table is allowing duplicates").
+ * A line's picker offers only what no OTHER line of the same table already holds —
+ * by id, and by name for a typed value — so the second COTTON 30S or the second
+ * STITCHING is never on offer. The line's own value is not in `others`, so it stays
+ * on its field and can be re-picked. "Same table" is the caller's call: a fabric's
+ * yarns, a piece's CMT operations, a piece's trims.
+ */
+function notTaken<T extends { id: string; name: string }>(options: readonly T[], others: readonly { id: string | null; name: string | null }[]): T[] {
+  const ids = new Set(others.map((o) => o.id).filter(Boolean));
+  const names = new Set(others.map((o) => (o.name ?? "").trim().toUpperCase()).filter(Boolean));
+  return options.filter((o) => !ids.has(o.id) && !names.has(o.name.trim().toUpperCase()));
+}
+
 /** A number box on the app's own Input — the Costing editor's NumInput, so a figure typed
  *  in the open fabric looks and selects exactly as it does there. */
 function NumInput(props: React.ComponentProps<typeof Input>) {
@@ -200,7 +214,7 @@ export function CostSheetDocument({
   opsStack?: boolean;
   /** COSTING 5 (user 2026-10-21, artifact "Trims Direct Rate" v4 — "the unticked item inside
    *  a pop box"): Trims is four columns, Trim · Direct Rate · Rate · Cost. Ticked: Rate is the
-   *  ₹ / pc box. Unticked: Rate is a pack button ("1 per 12 @ ₹ 30 · 2.50 /pc") that opens a
+   *  ₹ / pc box. Unticked: Rate is a plain "Pack" button (no figures in the row) that opens a
    *  small box with No of Items, No of Pcs, Cons Qty and Rate per pack; unticking opens it.
    *  Off: every row shows every column, as today. */
   trimsByTick?: boolean;
@@ -599,7 +613,11 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                             summaryNoun="components"
                             inputClassName="h-7 text-xs"
                             panelClassName="min-w-64"
-                            options={edit.options.components.map((o) => ({ id: o.id, label: o.name }))}
+                            options={(() => {
+                              // A component already on another line of this piece is not offered again.
+                              const taken = new Set(weightRows.filter((x) => x !== r && x.pieceKey === r.pieceKey).flatMap((x) => x.componentIds));
+                              return edit.options.components.filter((o) => !taken.has(o.id)).map((o) => ({ id: o.id, label: o.name }));
+                            })()}
                             values={r.componentIds}
                             onChange={(ids) => ids.length && setLine(r, { component_ids: ids })}
                           />
@@ -962,7 +980,10 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                                     <td className="in">
                                       <TypeOrPick
                                         label="Yarn"
-                                        options={(opts?.yarns ?? []).map((o) => ({ id: o.id, name: o.name }))}
+                                        options={notTaken(
+                                          (opts?.yarns ?? []).map((o) => ({ id: o.id, name: o.name })),
+                                          d.yarns.filter((x) => x.key !== y?.key).map((x) => ({ id: x.item_id, name: x.yarn_name })),
+                                        )}
                                         valueId={y?.item_id ?? null}
                                         text={y?.yarn_name ?? ""}
                                         onChange={(v) =>
@@ -1027,7 +1048,10 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                                     <td className="in">
                                       <TypeOrPick
                                         label="Process"
-                                        options={(opts?.processes ?? []).map((o) => ({ id: o.id, name: o.name }))}
+                                        options={notTaken(
+                                          (opts?.processes ?? []).map((o) => ({ id: o.id, name: o.name })),
+                                          d.processes.filter((x) => x.key !== q?.key).map((x) => ({ id: x.process_id, name: x.process_name })),
+                                        )}
                                         valueId={q?.process_id ?? null}
                                         text={q?.process_name ?? ""}
                                         onChange={(v) =>
@@ -1132,7 +1156,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
     if (o.field === "testing") return <ShownAmount rate={rate} value={piece.testing_cost} onChange={(v) => setPiece(piece.key, { testing_cost: v })}>{(v, set) => <Ed label={label} value={v} onChange={set} />}</ShownAmount>;
     const line = piece.lines.find((l) => l.key === o.lineKey);
     return line ? (
-      <ShownAmount rate={rate} value={line.rate} onChange={(v) => setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { rate: v }) })}>{(v, set) => <Ed label={label} value={v} onChange={set} />}</ShownAmount>
+      <ShownAmount rate={rate} value={line.rate} onChange={(v) => setPiece(piece.key, { ...byOperation(line.kind), lines: patchBy(piece.lines, line.key, { rate: v }) })}>{(v, set) => <Ed label={label} value={v} onChange={set} />}</ShownAmount>
     ) : (
       money(o.rate)
     );
@@ -1178,6 +1202,12 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
     return piece && line ? { piece, line } : null;
   };
   const procOf = (id: string | null) => (id ? edit?.options?.garmentProcesses.find((x) => x.id === id) : undefined);
+  /* FILLING A CMT LINE SWITCHES THE PIECE TO "BY OPERATION" — the ledger's rule
+     (costing-ledger.tsx). A new piece starts `cmt_direct`, and the model hides CMT
+     lines on a direct piece, so without this a picked operation stopped being blank,
+     vanished from the table and a fresh blank took its place: the pick looked
+     ignored (user 2026-10-22, "cmt operation can't able to select"). */
+  const byOperation = (kind: PieceLineKind) => (kind === "cmt" ? { cmt_direct: false } : {});
   const opName = (o: OpRow) => {
     const pl = edit?.options ? lineOf(o) : null;
     if (!edit?.options || !pl) return o.name;
@@ -1185,7 +1215,10 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
     // ONE FLAT LIST, no stage to pick first (client 2026-10-17): the CMT Process
     // master's stages are for production tracking, not for the costing — every
     // CMT operation is offered directly.
-    const list = edit.options.garmentProcesses.filter((x) => x.garment_kind === line.kind);
+    const list = notTaken(
+      edit.options.garmentProcesses.filter((x) => x.garment_kind === line.kind),
+      piece.lines.filter((l) => l.kind === line.kind && l.key !== line.key).map((l) => ({ id: l.process_id, name: l.process_name })),
+    );
     return (
       <CellPick
         label={line.kind === "cmt" ? "CMT operation" : "Process"}
@@ -1196,7 +1229,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
           // The master's standard rate is a STARTING figure: it fills a blank rate
           // and never overwrites one the operator typed.
           const prefill = p?.standard_rate != null && !line.rate.trim() ? { rate: String(p.standard_rate) } : {};
-          setPiece(piece.key, { lines: patchBy(piece.lines, line.key, { process_id: v.id, process_name: v.name, ...prefill }) });
+          setPiece(piece.key, { ...byOperation(line.kind), lines: patchBy(piece.lines, line.key, { process_id: v.id, process_name: v.name, ...prefill }) });
         }}
       />
     );
@@ -1216,7 +1249,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
           edit.onChange({
             ...edit.draft,
             pieces: edit.draft.pieces.map((x) =>
-              x.key === piece.key ? { ...x, lines: x.lines.filter((l) => l.key !== line.key) } : x.key === v.id ? { ...x, lines: [...x.lines, line] } : x,
+              x.key === piece.key ? { ...x, lines: x.lines.filter((l) => l.key !== line.key) } : x.key === v.id ? { ...x, ...byOperation(line.kind), lines: [...x.lines, line] } : x,
             ),
           });
         }}
@@ -1229,7 +1262,8 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
   const trimName = (t: TrimRow) => {
     const d = trimDraft(t);
     if (!edit?.options || !d) return t.name;
-    return <CellPick label="Trim or accessory" options={edit.options.trims} value={{ id: d.item_id, name: d.description || t.name }} onPick={(v) => setTrim(d.key, { item_id: v.id, description: v.name })} />;
+    const others = edit.draft.trims.filter((x) => x.key !== d.key && x.piece_key === d.piece_key).map((x) => ({ id: x.item_id, name: x.description }));
+    return <CellPick label="Trim or accessory" options={notTaken(edit.options.trims, others)} value={{ id: d.item_id, name: d.description || t.name }} onPick={(v) => setTrim(d.key, { item_id: v.id, description: v.name })} />;
   };
   const trimPiece = (t: TrimRow) => {
     const d = trimDraft(t);
@@ -1280,9 +1314,6 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
   const fixedSum = merged ? { className: "cq-fixed", tabIndex: -1, onClick: (e: ReactMouseEvent) => e.preventDefault() } : {};
   /* Trims is its own band in both layouts: inside "Operations & trims", and on the
      merged Cost & Quote screen's left side. */
-  /** A pack in short, for the pack button: "1 per 12 @ ₹ 30.00". */
-  const packSummary = (qty: string, pcs: string, price: string) =>
-    !qty && !pcs && !price ? "Fill pack details" : `${qty || 0} per ${pcs || 0} @ ${SYM} ${money(Number(price) || 0)}`;
   const packD = pack ? edit?.draft.trims.find((x) => x.key === pack.key) : undefined;
   const packRow = pack ? [...model.trims, ...blankTrims].find((x) => x.key === pack.key) : undefined;
   const setPackTrim = (patch: Partial<NonNullable<typeof packD>>) => packD && edit?.onChange({ ...edit.draft, trims: patchBy(edit.draft.trims, packD.key, patch) });
@@ -1361,7 +1392,9 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                           <th className={trimsByTick ? "r c-qty c-pack" : "r c-qty"}>Cons Qty</th>
                         </>
                       ) : null}
-                      <th className={trimsByTick ? "r c-num c-rate" : "r c-num"}>Rate {SYM}</th>
+                      {/* trimsByTick: the unit is said once, in the heading (user 2026-10-22,
+                          screenshot 095336) — not as a "/pc" suffix in every Rate cell. */}
+                      <th className={trimsByTick ? "r c-num c-rate" : "r c-num"}>Rate {SYM}{trimsByTick ? " /pc" : ""}</th>
                       <th className="r c-num">Cost {SYM}</th>
                       {actHead}
                     </tr>
@@ -1423,11 +1456,10 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                                       aria-label={`${t.name || "Trim"} — pack details`}
                                       onClick={(e) => setPack({ key: t.key, origin: e.currentTarget.getBoundingClientRect() })}
                                     >
-                                      <span className="cq-packsum">{packSummary(d.qty, d.pack_size, d.pack_price)}</span>
-                                      <span className="cq-packrt">
-                                        {money(t.cost)}
-                                        <small>/pc</small>
-                                      </span>
+                                      {/* Just the button (client 2026-10-22, screenshot 3648): the pack's
+                                          figures live inside the box, never printed in the row — the table
+                                          keeps the ticked row's shape and Cost ₹ still says the /pc. */}
+                                      Pack
                                     </button>
                                   ) : (
                                     <span className="cq-packview">
@@ -1436,7 +1468,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                                   )}
                                 </td>
                               ) : (
-                              <td className={trimsByTick ? "r cq-unit" : "r"} data-unit={trimsByTick ? "/pc" : undefined}>
+                              <td className="r">
                                 {edit && d ? (
                                   direct ? (
                                     <ShownAmount rate={rate} value={d.rate} onChange={(v) => set({ rate: v })}>{(v, setV) => <Ed w="w-20" label={`${t.name} — rate ${SYM}`} value={v} onChange={setV} />}</ShownAmount>
@@ -1451,7 +1483,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                             </>
                           );
                         })()}
-                        <td className="r">{money(t.cost)}</td>
+                        <td className="r c-cost">{money(t.cost)}</td>
                         {edit ? (
                           <td className="act">
                             <RemoveX label={t.name || "trim"} onClick={() => edit.onChange({ ...edit.draft, trims: edit.draft.trims.filter((x) => x.key !== t.key) })} />
@@ -2410,6 +2442,10 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                         <Ed
                           w="w-full"
                           label={`Quoted price${multiPiece ? ` ${p.piece_name || "piece"}` : ""} ${x.label}`}
+                          // Blank follows Calculated, rounded to the cent (user 2026-10-22): shown
+                          // faint so the price being quoted is visible; typing overrides it. A set
+                          // carries only its total Calculated, so a piece's box shows nothing.
+                          placeholder={!multiPiece && x.calc != null ? (offeredPrice(null, x.calc) ?? 0).toFixed(2) : undefined}
                           value={edit.draft.quotes[k] ?? ""}
                           onChange={(v) => {
                             edit.onQuote?.(k);
@@ -2631,17 +2667,24 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
       </div>
     </section>
   );
-  /** The tab bar's end (user 2026-10-21, screenshot 115349): the FOB, its rupees and the margin, one line. */
+  /* The tab bar's end (user 2026-10-21, screenshot 115349): the FOB, its rupees and the
+     margin. A CARD the height of a tab (user 2026-10-22: "better alignment, eye catch but
+     compact") — label over the figure on the left, margin chip over the rupees on the
+     right, its top edge in the margin's own colour so the verdict reads at a glance. */
   const tabFob = (
-    <div className="cq-fob" aria-label="Quoted FOB">
-      <span className="cq-k">
-        {s.quoted != null ? "Quoted" : "Calculated"} FOB{model.sizes.length > 1 ? ` · ${s.label}` : ""}
-      </span>
-      <b>{fobShown == null ? "—" : `${ccy} ${fx(fobShown, 2)}`.trim()}</b>
-      {ccy && ccy !== "INR" && fobInr != null ? <span className="dim">₹ {fx(fobInr)}</span> : null}
-      <span className={`cq-chip ${marginTone(eff)}`} title={`Floor ${FLOOR_PCT}% · target ${MARGIN_TARGET_PCT}%`}>
-        Margin {eff == null ? "—" : `${eff.toFixed(1)}%`}
-      </span>
+    <div className="cq-fob" data-tone={eff == null ? undefined : marginTone(eff)} aria-label={`${s.quoted != null ? "Quoted" : "Calculated"} FOB`}>
+      <div className="cq-fob-main">
+        <span className="cq-k">
+          {s.quoted != null ? "Quoted" : "Calculated"} FOB{model.sizes.length > 1 ? ` · ${s.label}` : ""}
+        </span>
+        <b className={fobShown == null ? "nil" : undefined}>{fobShown == null ? "—" : `${ccy} ${fx(fobShown, 2)}`.trim()}</b>
+      </div>
+      <div className="cq-fob-side">
+        <span className={`cq-chip ${marginTone(eff)}`} title={`Floor ${FLOOR_PCT}% · target ${MARGIN_TARGET_PCT}%`}>
+          Margin {eff == null ? "—" : `${eff.toFixed(1)}%`}
+        </span>
+        {ccy && ccy !== "INR" && fobInr != null ? <span className="dim">₹ {fx(fobInr)}</span> : null}
+      </div>
     </div>
   );
 
@@ -2747,23 +2790,24 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
 
   /* `tone` — the cost colour a tab's card is topped in (Option B, 2026-10-16), the
      same `--cs-*` family as the section bars inside it. A tab that is not one cost
-     takes none and stays neutral. */
-  const tabDefs = merged
+     takes none and stays neutral. No line under the label (user 2026-10-22): the
+     tab is its name alone — the figures it used to repeat are inside the tab. */
+  const tabDefs: { label: string; tone?: string }[] = merged
     ? [
-        { label: "Details", hint: "buyer & style" },
-        { label: "Fabric", hint: `${SYM} ${money(s.fabric)} / ${model.unitWord}`, tone: "fabric" },
-        { label: "Cost & Quote", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}`, tone: "margin" },
-        { label: "Revisions", hint: model.history.length > 1 ? `${model.history.length} revisions` : "first revision" },
-        { label: "Charts", hint: "price at a glance" },
+        { label: "Details" },
+        { label: "Fabric", tone: "fabric" },
+        { label: "Cost & Quote", tone: "margin" },
+        { label: "Revisions" },
+        { label: "Charts" },
       ]
     : [
-    { label: "Details", hint: "buyer & style" },
-    { label: "Fabric", hint: `${SYM} ${money(s.fabric)} / ${model.unitWord}`, tone: "fabric" },
-    { label: "Operations & trims", hint: `${SYM} ${money(s.cmt + s.process + s.testing + s.trims)} / ${model.unitWord}`, tone: "cmt" },
-    { label: "Cost & overheads", hint: `${SYM} ${money(s.grossCost)} total`, tone: "over" },
-    { label: "Quotation", hint: `${s.quoted != null || s.calc != null ? `${ccy} ${fx(s.quoted ?? s.calc, 2)}`.trim() : "—"} · ${eff == null ? "—" : `${eff.toFixed(1)}%`}`, tone: "margin" },
-    { label: "Revisions", hint: model.history.length > 1 ? `${model.history.length} revisions` : "first revision" },
-    { label: "Charts", hint: "price at a glance" },
+    { label: "Details" },
+    { label: "Fabric", tone: "fabric" },
+    { label: "Operations & trims", tone: "cmt" },
+    { label: "Cost & overheads", tone: "over" },
+    { label: "Quotation", tone: "margin" },
+    { label: "Revisions" },
+    { label: "Charts" },
   ];
   /** The tab that closes the document (its footer), and the Revisions / Charts tabs, by layout. */
   const quoteTab = merged ? 2 : 4;
@@ -2955,7 +2999,6 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
               {tabDefs.map((t, i) => (
                 <button key={t.label} type="button" role="tab" id={`cs-tab-${i}`} aria-selected={tab === i} aria-controls="cs-tabpanel" tabIndex={tab === i ? 0 : -1} className="ctab" data-tone={t.tone} onClick={() => setTab(i)}>
                   <span>{t.label}</span>
-                  <small>{t.hint}</small>
                 </button>
               ))}
               {merged && tab === 2 ? tabFob : null}
@@ -4195,10 +4238,14 @@ const CSS = `
 /* COST & QUOTE — the merged split screen (Costing 3, 2026-10-21). Left: entry, one scroll.
    Right: values, pinned while the left scrolls; past a screen's height it scrolls itself. */
 .cs-sheet .tpanel.cq-panel { width:auto; }
-.cs-sheet .ctabs .cq-fob { margin-left:auto; align-self:center; display:flex; align-items:baseline; gap:10px; padding:0 6px 0 16px; white-space:nowrap; }
-.cs-sheet .cq-k { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--cs-muted); }
-.cs-sheet .cq-fob b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:17px; font-weight:600; color:var(--cs-ink); }
-.cs-sheet .cq-fob .dim { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:12.5px; }
+.cs-sheet .ctabs .cq-fob { --tone:var(--cs-rule); margin-left:auto; display:flex; align-items:center; gap:14px; padding:4px 12px 5px; background:#fff; border:1px solid var(--cs-rule); border-top:3px solid var(--tone); border-radius:8px; white-space:nowrap; }
+.cs-sheet .cq-fob[data-tone="good"] { --tone:var(--cs-good); } .cs-sheet .cq-fob[data-tone="warn"] { --tone:var(--cs-warn); } .cs-sheet .cq-fob[data-tone="bad"] { --tone:var(--cs-bad); }
+.cs-sheet .cq-fob-main { display:flex; flex-direction:column; line-height:1.15; }
+.cs-sheet .cq-fob-side { display:flex; flex-direction:column; align-items:flex-end; gap:2px; padding-left:14px; border-left:1px solid var(--cs-rule); line-height:1.15; }
+.cs-sheet .cq-k { font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--cs-muted); }
+.cs-sheet .cq-fob b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:17px; font-weight:700; color:var(--cs-brand-ink); font-variant-numeric:tabular-nums; }
+.cs-sheet .cq-fob b.nil { color:var(--cs-muted); font-weight:500; }
+.cs-sheet .cq-fob .dim { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:11.5px; color:var(--cs-muted); }
 .cs-sheet .cq-chip { font-size:12px; font-weight:700; padding:2px 9px; border-radius:999px; background:var(--cs-soft); font-variant-numeric:tabular-nums; }
 .cs-sheet .cq-chip.good { background:var(--cs-good-tint); color:var(--cs-good); } .cs-sheet .cq-chip.warn { background:var(--cs-warn-tint); color:var(--cs-warn); } .cs-sheet .cq-chip.bad { background:var(--cs-bad-tint); color:var(--cs-bad); }
 .cs-sheet .cq-split { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); gap:18px; align-items:start; }
@@ -4365,9 +4412,12 @@ const CSS = `
 .cs-sheet.cs-qtlook .ftab colgroup:not(:has(> col:nth-child(4))) > col:nth-child(2) { width:4.5rem !important; }
 .cs-sheet.cs-qtlook .ftab col:last-child { width:1.5rem !important; }
 .cs-sheet.cs-qtlook .cq-panel .tri th.c-num { width:4.5rem; }
-/* Trims' Rate keeps room for its "/pc" tag (2.6rem) beside the figure, and the pack button. */
-.cs-sheet.cs-qtlook .cq-panel .tri th.c-rate { width:6.25rem; }
-.cs-sheet.cs-qtlook .cq-onetable .qt :is(.fig, td.in), .cs-sheet.cs-qtlook .cq-onetable .qt th:nth-child(2) { width:5rem; }
+/* Trims' Rate: wide enough for the pack button and the "Rate ₹ /pc" heading (the per-cell
+   "/pc" tag is gone, user 2026-10-22). */
+.cs-sheet.cs-qtlook .cq-panel .tri th.c-rate { width:4.75rem; }
+/* 6rem, not 5 (user 2026-10-22, screenshot 100031): Calculated prints 4 decimals in mono,
+   and "4708.7300" is ~86px with padding — 5rem cut it to "4708.73…". 6rem holds 5 digits. */
+.cs-sheet.cs-qtlook .cq-onetable .qt :is(.fig, td.in), .cs-sheet.cs-qtlook .cq-onetable .qt th:nth-child(2) { width:6rem; }
 /* THE ✕ COLUMN IS 1.5rem (user 2026-10-21: "close option field also need compact"): every
    one holds a single 20px RowHoverRemove, so 24px with 2px each side is all it needs — down
    from 28px, 2.5rem and 3rem across the sheet's tables. Consumption's ✕ is an inline <col>
@@ -4425,22 +4475,34 @@ const CSS = `
    widened by its content — and the box off the width:100% every .tri input otherwise
    gets. */
 .cs-sheet .cq-row3.cq-opstack .tri .scroll table { table-layout:auto; }
-.cs-sheet .cq-row3.cq-opstack .tri :is(th.c-num, th.c-rate) { width:auto; }
-.cs-sheet .cq-row3.cq-opstack .tri td input.cs-ed[type="number"] { field-sizing:content; width:auto !important; min-width:calc(3ch + 16px) !important; max-width:none; }
-/* trimsByTick (Costing 5): the pack group's headings carry a light shade; the Rate box names
-   its unit (/pc or /pack) in its own right padding. */
+/* THE RATE COLUMN HUGS ITS BOX (user 2026-10-22: "Rate box compact it more"). "width:auto"
+   on an auto-layout table at width:100% shares the spare width among every column, so Rate
+   stood ~96px around a 3-digit box. "width:1%" + nowrap is the shrink-to-content idiom; the
+   name column, which has no width of its own, takes all the slack instead. */
+.cs-sheet .cq-row3.cq-opstack .tri :is(th.c-num, th.c-rate) { width:1%; white-space:nowrap; padding-inline:6px; }
+/* …so the "Rate ₹" LABEL is what sets the column (user 2026-10-22: "just fit rate label"):
+   the box's own floor sits under the label's width, so the box fills exactly the label's
+   cell and only a rate too long for it widens the column. */
+.cs-sheet .cq-row3.cq-opstack .tri td input.cs-ed[type="number"] { padding-inline:6px !important; }
+/* Trims' Cost ₹ hugs its figure the same way (user 2026-10-22, screenshot 101336: "this cost
+   field also need to compact"): its heading is already width:1%, so the cells' own 10px
+   padding was what still held it wide. */
+.cs-sheet .cq-row3.cq-opstack .tri td.c-cost { padding-inline:6px; white-space:nowrap; }
+/* …AND THE BOX STILL FILLS ITS CELL (user 2026-10-22, screenshot 3648: "split boxed in
+   field"). The cell is the field — painted blue by the qtlook rule — and the column is as
+   wide as its widest box or its heading, so a box sized to ITS OWN digits sat inside a wider
+   blue cell and focus drew a white box beside a blue one. field-sizing still sets what the
+   box asks of the column; min-width:100% then stretches it to the width the column got. */
+.cs-sheet .cq-row3.cq-opstack .tri td input.cs-ed[type="number"] { field-sizing:content; width:auto !important; min-width:max(100%, calc(3ch + 12px)) !important; max-width:none; }
+/* trimsByTick (Costing 5): the pack group's headings carry a light shade; the Rate heading
+   carries the unit ("Rate ₹ /pc"), so no cell repeats it. */
 .cs-sheet .tri th.c-pack { background:#f7f9fb; }
-/* The pack button (Costing 5): an unticked trim's Rate cell, reading its pack in short. */
+/* The pack button (Costing 5): an unticked trim's Rate cell — just "Pack"; the figures are inside the box. */
 .cs-sheet .tri td.cq-packcell { padding:2px 4px; }
-.cs-sheet .cq-pack { width:100%; height:26px; display:flex; align-items:center; justify-content:space-between; gap:6px; font:inherit; font-size:12px; background:#f7f9fb; color:var(--cs-ink); border:1px dashed #9fcbe6; border-radius:6px; padding:0 8px; cursor:pointer; }
+.cs-sheet .cq-pack { width:100%; height:26px; display:flex; align-items:center; justify-content:center; gap:6px; font:inherit; font-size:12px; background:#f7f9fb; color:var(--cs-ink); border:1px dashed #9fcbe6; border-radius:6px; padding:0 8px; cursor:pointer; }
 .cs-sheet .cq-pack:hover, .cs-sheet .cq-pack:focus-visible { border-style:solid; border-color:#037bb8; outline:none; }
-.cs-sheet .cq-packsum { color:var(--cs-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.cs-sheet .cq-packrt { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-weight:600; white-space:nowrap; }
-.cs-sheet .cq-packrt small { font-family:inherit; font-weight:500; color:var(--cs-muted); margin-left:3px; font-size:10.5px; }
 .cs-sheet .cq-packview { font-size:12px; color:var(--cs-muted); white-space:nowrap; }
 .cs-sheet .tri th.c-rate { width:7rem; }
-.cs-sheet .tri td.cq-unit { position:relative; padding-right:2.6rem !important; }
-.cs-sheet .tri td.cq-unit::after { content:attr(data-unit); position:absolute; right:6px; top:50%; transform:translateY(-50%); font-size:10.5px; font-weight:500; color:var(--cs-muted); pointer-events:none; }
 @media (max-width:900px){ .cs-sheet .cq-row3.cq-opstack .tri { grid-template-columns:minmax(0,1fr); grid-template-areas:"proc" "cmt" "trims"; } }
 .cs-sheet .cq-row2 .cq-grid { grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:22px 12px; max-width:none; }
 /* The merged Fabric tab: the left hugs Component consumption, the right takes the rest. */
@@ -4450,10 +4512,30 @@ const CSS = `
 .cs-sheet .cq-fabL > .blk { width:fit-content; max-width:100%; margin:0; }
 .cs-sheet .cq-fabR { min-width:0; container-type:inline-size; }
 .cs-sheet .cq-fabR > .blk { width:100%; max-width:none; margin:0; }
-/* Processes hug their two columns; Yarn takes the rest of the band (user 2026-10-21). */
-.cs-sheet .cq-fabR .fband .fsplit { grid-template-columns:minmax(0,1fr) auto; }
-.cs-sheet .cq-fabR .fband .fpart.p .ftab { width:auto; table-layout:fixed; }
-.cs-sheet .cq-fabR .fband .fpart.p .ftab col:first-child { width:10rem; }
-.cs-sheet .cq-fabR .fband .fpart.p .ftab col:nth-child(2) { width:6rem; }
-@container (max-width:640px){ .cs-sheet .cq-fabR .fband .fsplit { grid-template-columns:minmax(0,1fr); } }
+/* YARN AND PROCESSES BOTH HUG THEIR FIELDS (user 2026-10-22, screenshot 095554: "compact
+   all the field based better"). This reverses 2026-10-21's "Yarn takes the rest of the
+   band": a 100 in a 70px Mix % box and a yarn name in an 840px one left the Yarn table
+   mostly empty, while Processes, held to 10rem, cut "COMPACTING [OPEN WIDTH]" short.
+   Each column now has the width of what it holds — a yarn / process name 14rem
+   (~28 capitals), a % 4rem, a rate 5rem, an amount 5.5rem, the ✕ 1.5rem — and the
+   two tables sit side by side from the left, wrapping under each other when the band
+   is too narrow for both (Yarn 30rem + Processes 20.5rem + the 12px gap).
+   The colgroup widths are inline styles, hence !important. */
+.cs-sheet .cq-fabR .fband .fsplit { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:flex-start; }
+.cs-sheet .cq-fabR .fband .fpart { flex:0 0 auto; max-width:100%; }
+.cs-sheet .cq-fabR .fband .fpart .ftab { width:auto; table-layout:fixed; }
+.cs-sheet .cq-fabR .fband .fpart .ftab col:first-child { width:14rem !important; }
+.cs-sheet .cq-fabR .fband .fpart .ftab col:last-child { width:1.5rem !important; }
+.cs-sheet .cq-fabR .fband .fpart:not(.p) .ftab col:nth-child(2) { width:4rem !important; }
+.cs-sheet .cq-fabR .fband .fpart:not(.p) .ftab col:nth-child(3) { width:5rem !important; }
+.cs-sheet .cq-fabR .fband .fpart:not(.p) .ftab col:nth-child(4) { width:5.5rem !important; }
+.cs-sheet .cq-fabR .fband .fpart.p .ftab col:nth-child(2) { width:5rem !important; }
+/* …AND THE BAND ENDS WHERE THEY END (user 2026-10-22, screenshot 095823: "Bought-in and
+   Price / KG still in end of the screen"). The block and its fabrics table were 100% of
+   the pane, so the two figures every fabric line is read by sat a screen's width from its
+   name. Both now shrink to their content — the open line's Yarn + Processes pair is the
+   widest thing in them — and the fabric-name column takes whatever that leaves, so
+   Bought-in and Price / KG stand at the Processes table's right edge. */
+.cs-sheet .cq-fabR > .blk { width:fit-content; max-width:100%; }
+.cs-sheet .cq-fabR .fband table.fbands { width:auto; table-layout:auto; }
 `;

@@ -159,7 +159,7 @@ import {
   saveSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
 import { offeredSizes } from "@/lib/sales/sample-costing/style-sizes";
-import { newWeightRows } from "@/lib/sales/sample-costing/revision-draft";
+import { newWeightRows, weightsForFabrics } from "@/lib/sales/sample-costing/revision-draft";
 import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
 import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
 import type { EditOptions } from "@/components/sales/cost-sheet-editors";
@@ -542,8 +542,8 @@ export function SampleCosting4Screen({
       return add.length ? { ...p, lines: [...p.lines.filter((l) => !(l.kind === "embellishment" && !l.process_id)), ...add] } : p;
     });
   }
-  function applyStyle(st: CostingStyleOption | null) {
-    const next = seedEmbellishments(st, piecesFor(st, pieces));
+  function applyStyle(st: CostingStyleOption | null, fresh = false) {
+    const next = seedEmbellishments(st, piecesFor(st, fresh ? [] : pieces));
     const keep = new Set(next.map((p) => p.key));
     const first = next[0].key;
     setPieces(next);
@@ -557,7 +557,7 @@ export function SampleCosting4Screen({
     // structures the style is made in, so the costing opens with one line per
     // structure instead of asking for them again. Only while every fabric line is
     // blank, so a re-picked style never overwrites rates already typed.
-    if (st?.structures.length && fabrics.every(isBlankFabric)) {
+    if (st?.structures.length && (fresh || fabrics.every(isBlankFabric))) {
       const seeded = st.structures.map((x) => {
         const f = blankFabric();
         const picked: FabricDraft = { ...f, ...pickedFabric(f, { id: x.id, name: x.name }) };
@@ -570,8 +570,8 @@ export function SampleCosting4Screen({
         return picked;
       });
       setFabrics(seeded);
-      // A weight line with no fabric yet is the style's first (main) structure's.
-      setWeights((xs) => xs.map((w) => (w.fabric_key ? w : { ...w, fabric_key: seeded[0].key })));
+      // Each structure gets its own Component consumption line (`weightsForFabrics`).
+      setWeights((xs) => weightsForFabrics(xs, seeded.map((x) => x.key), next[0].key));
     }
     setDirty(true);
   }
@@ -749,7 +749,7 @@ export function SampleCosting4Screen({
     if (!pick) return;
     const only = data.styles.filter((st) => st.opportunity_id === pick.id && !st.costed);
     setHeader((h) => ({ ...h, opportunity_id: pick.id, style_id: only.length === 1 ? only[0].id : null }));
-    if (only.length === 1) applyStyle(only[0]);
+    if (only.length === 1) applyStyle(only[0], true);
     fillFromCustomer(pick.id);
   }
   useCreateIntent(() => {
@@ -817,7 +817,7 @@ export function SampleCosting4Screen({
     openAdd();
     const only = data.styles.filter((st) => st.opportunity_id === oppId);
     setHeader((h) => ({ ...h, opportunity_id: oppId, style_id: only.length === 1 ? only[0].id : null }));
-    if (only.length === 1) applyStyle(only[0]);
+    if (only.length === 1) applyStyle(only[0], true);
     fillFromCustomer(oppId);
   });
   /** "Start costing" on a Not costed row — a new sheet on that sample and
@@ -827,7 +827,7 @@ export function SampleCosting4Screen({
     openAdd();
     const st = r.style_id ? data.styles.find((x) => x.id === r.style_id) : undefined;
     setHeader((h) => ({ ...h, opportunity_id: r.opportunity_id, style_id: st?.id ?? null }));
-    if (st) applyStyle(st);
+    if (st) applyStyle(st, true);
     fillFromCustomer(r.opportunity_id);
   }
   /**

@@ -125,7 +125,7 @@ const BLANK: Val = { id: null, name: "" };
 /** A number cell edited in place. Paper-coloured whatever the theme: the sheet is paper.
  *  Its look is `.cs-ed` in the sheet CSS, not `!` utilities — a layered `!important`
  *  outranks every unlayered rule, so a table cell could never flatten it. */
-export function Ed({ value, onChange, label, w = "w-24" }: { value: string; onChange: (v: string) => void; label: string; w?: string }) {
+export function Ed({ value, onChange, label, w = "w-24", placeholder }: { value: string; onChange: (v: string) => void; label: string; w?: string; placeholder?: string }) {
   return (
     <Input
       type="number"
@@ -134,6 +134,7 @@ export function Ed({ value, onChange, label, w = "w-24" }: { value: string; onCh
       min={0}
       aria-label={label}
       title={label}
+      placeholder={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onFocus={(e) => e.currentTarget.select()}
