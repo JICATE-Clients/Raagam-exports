@@ -159,7 +159,7 @@ import {
   saveSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
 import { offeredSizes } from "@/lib/sales/sample-costing/style-sizes";
-import { newWeightRows, weightsForFabrics } from "@/lib/sales/sample-costing/revision-draft";
+import { newWeightRows, releaseCalculatedQuotes, weightsForFabrics } from "@/lib/sales/sample-costing/revision-draft";
 import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
 import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
 import type { EditOptions } from "@/components/sales/cost-sheet-editors";
@@ -235,7 +235,6 @@ type CostingTab = "pending" | "progress" | "rejected" | "draft" | "approved";
  *  revising on the Cost Sheet — whose inner QUOTATION tab opens first (the
  *  buyer's Quotation document itself is read-only) — update, Save, and the next
  *  Rev is written with every earlier Rev kept as history. */
-const raiseReviseHref = (id: string) => `/sales/sample-costing/${id}/reports?tab=cost-sheet&revise=1`;
 /* FABRIC PLAN'S ICONS (user 2026-10-15, screenshot 3534: "costing status need
    to ui icon like fabric plan icons"). Same glyph per word as `StatusSegment`'s
    QUICK map (components/orders/bom-queue.tsx) — Clock · Hourglass · BadgeCheck
@@ -330,11 +329,11 @@ export function SampleCosting5Screen({
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
-  /* OPENING THE REVISE REPORT IS ITS OWN TRANSITION (user 2026-10-14,
-     screenshot 3479: the footer read "Saving…" after Raise Revise). The report
-     route can take seconds to load (a dev compile, a cold fetch), and while it
-     did, the shared `isPending` drove the footer's Save into "Saving…" with
-     nothing being saved. `opening` belongs to that navigation alone. */
+  /* OPENING A REVISE IS ITS OWN TRANSITION (user 2026-10-14, screenshot 3479: the
+     footer read "Saving…" after Raise Revise). Loading the Rev into the editor
+     (2026-10-22; it used to navigate to the report) can take a moment, and the
+     shared `isPending` would drive the footer's Save into "Saving…" with nothing
+     being saved. `opening` belongs to that load alone. */
   const [opening, startOpening] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
@@ -599,7 +598,8 @@ export function SampleCosting5Screen({
     setWeights(d.weights.length ? d.weights : newWeightRows(firstPiece, [], null, [null]));
     setTrims(d.trims.length ? d.trims : [blankTrim(firstPiece)]);
     setExtras(d.extras);
-    setQuotes(d.quotes);
+    // A stored quote equal to its Calculated price follows the costs again (2026-10-22).
+    setQuotes(releaseCalculatedQuotes(d).quotes);
     setCopiedFrom(null);
     setSizeWiseAsked(false);
     // Every sheet opens on Details (user 2026-10-16), the previous one's tab is not kept.
@@ -624,7 +624,7 @@ export function SampleCosting5Screen({
       const from = d.pieces.find((x) => x.piece_name === p.piece_name) ?? d.pieces[i] ?? d.pieces[0];
       if (from) pieceMap.set(from.key, p.key);
       return from
-        ? seedPiece({ ...p, cmt: from.cmt, cmt_direct: from.cmt_direct, lines: copyPieceLines(from.lines), testing_cost: from.testing_cost, bank_cost: from.bank_cost })
+        ? seedPiece({ ...p, cmt: from.cmt, cmt_direct: from.cmt_direct, lines: copyPieceLines(from.lines), testing_cost: from.testing_cost, bank_cost: from.bank_cost, sample_cost: from.sample_cost })
         : p;
     });
     const firstPiece = nextPieces[0]?.key ?? "";
@@ -771,8 +771,40 @@ export function SampleCosting5Screen({
      negotiation, Rejected comes back as a new Draft. Then the new Rev opens.
      DECLARED ABOVE `openById`, which calls it: the React Compiler refuses a
      function read before its declaration (react-hooks/immutability). */
+  /* REVISE IN THE ENTRY SCREEN (user 2026-10-22: "we need the costing entry screen
+     for the revise also"). It used to open the Reports page's one-page sheet — an
+     older editor than the one the costing was entered in. Now the saved Rev loads
+     HERE as "Rev N (new)": every figure kept, the same tabs, tables and Next / Save
+     bar. Nothing is written until Save, which makes version + 1 under the same
+     Costing No and supersedes this one (`saveSampleCosting`'s parentId, 0688/0725);
+     Cancel leaves the old Rev exactly as it was. The `revisingFrom` branches below
+     were already in place — only this door was pointing elsewhere. */
   function reviseNow(id: string) {
-    startOpening(() => router.push(raiseReviseHref(id)));
+    if (!perms.canEdit) {
+      toastError("Revise needs the edit permission.");
+      return;
+    }
+    // Its own transition, not `start`: loading the Rev must not read "Saving…" (below).
+    startOpening(async () => {
+      const res = await loadSampleCosting(id);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      const r = res.record;
+      if (!isRevisableStatus(r.status)) {
+        toastError("Only an Under Progress, Approved or Rejected costing is revised — a Draft is edited directly, a superseded Rev is history.");
+        return;
+      }
+      setEditId(r.id);
+      setRevisingFrom(r.id);
+      setRevisions(res.revisions);
+      // The NEXT Rev's number; the status and the buyer's last answer belong to the old one.
+      setMeta({ code: r.code, version: r.version + 1, status: r.status, isDraft: false, decisionRemark: null });
+      seedAndOpen({ ...r.draft, pieces: r.draft.pieces.length ? r.draft.pieces : [blankPiece("GARMENT", null)] });
+      setDecision(null);
+      setRevOf(null);
+    });
   }
 
   function openById(id: string, opts?: { revise?: boolean }) {
@@ -855,7 +887,7 @@ export function SampleCosting5Screen({
    * `history.replaceState` — no navigation, no refetch, nothing to race. Next
    * keeps `useSearchParams` in step with it.
    */
-  const reviseFor = useEffectEvent((id: string) => openById(id, { revise: true }));
+  const reviseFor = useEffectEvent((id: string) => reviseNow(id));
   const handledIntent = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const [name, act] of [
@@ -1937,7 +1969,7 @@ export function SampleCosting5Screen({
         canReportsRow={(r) => !r.awaiting}
         /* RAISE REVISE ON AN UNDER PROGRESS CARD (user 2026-10-14) — the card's
            action slot, opening the Quotation report already revising. */
-        onSend={(r) => startOpening(() => router.push(raiseReviseHref(r.id)))}
+        onSend={(r) => reviseNow(r.id)}
         canSendRow={(r) => perms.canEdit && !r.awaiting && costingTabOf(r) === "progress"}
         sendLabel={opening ? "Opening…" : "Raise Revise"}
         cardSendLabel={opening ? "Opening…" : "Raise Revise"}

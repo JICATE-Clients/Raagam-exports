@@ -675,6 +675,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     })),
     testing_cost: str(p.testing_cost),
     bank_cost: str(p.bank_cost),
+    sample_cost: str(p.sample_cost),
   }));
   const fabrics: FabricDraft[] = bySno(r.fabrics).map((f) => ({
     key: f.id,

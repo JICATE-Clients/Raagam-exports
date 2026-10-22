@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
 import { revisionShort } from "@/lib/sales/sample-costing/types";
 import { getCostingLetterhead, getCostingApprovalFacts, getCostingRevisionSources, getSampleCostingFormData, getSampleCostingRecord, getSiblingCostingRecords } from "@/lib/sales/sample-costing/service";
@@ -6,7 +6,7 @@ import { buildRevisionHistory } from "@/lib/sales/sample-costing/revision-histor
 import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
 import { buildQuotationModel } from "@/lib/sales/sample-costing/quotation";
 import { PageHeader } from "@/components/ui/page-header";
-import { CostingReports } from "./costing-reports";
+import { CostingReports, REVISE_SCREEN } from "./costing-reports";
 import { isEditableStatus } from "@/lib/sales/sample-costing/types";
 import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 
@@ -22,7 +22,7 @@ const live = <T extends { id: string; name: string } & Deactivatable>(rows: read
  * record, so the page, its PDF and its Excel file can never disagree. It lists
  * nothing and edits nothing, so it carries no pager and no reload guard.
  *
- * `?tab=quotation` opens the Quotation; anything else opens the Cost Sheet.
+ * `?tab=quotation` opens the Quotation, `?tab=charts` the Charts; anything else the Cost Sheet.
  */
 export const metadata = { title: "Costing Reports" };
 
@@ -47,6 +47,13 @@ export default async function CostingReportsPage({
   const [{ id }, sp, canEdit] = await Promise.all([params, searchParams, can("sales", "edit")]);
   const [record, data, letterhead] = await Promise.all([getSampleCostingRecord(id), getSampleCostingFormData(), getCostingLetterhead()]);
   if (!record) notFound();
+  /* `?revise=1` — every screen's "Raise Revise" used to land here and edit the next Rev
+     in this page's sheet. Revising is done in the costing ENTRY screen now (user
+     2026-10-22, Costing 6), so the link goes straight on there; one the reader may not
+     act on (no edit permission, or a status that is not revised) shows the report. */
+  if (sp.revise === "1" && canEdit && !reviseReason(record.status, record.is_draft)) {
+    redirect(`${REVISE_SCREEN}?reviseFrom=${record.id}`);
+  }
   /* ONE ROUND, NOT TWO — the revisions and the approval are independent reads that
      only need the record's code and id, and each round trip is ~260 ms. */
   const [revisionSources, facts, siblings] = await Promise.all([
@@ -75,11 +82,11 @@ export default async function CostingReportsPage({
       <CostingReports
         cost={cost}
         quote={quote}
-        initial={sp.tab === "quotation" ? "quotation" : "cost-sheet"}
+        initial={sp.tab === "quotation" || sp.tab === "charts" ? sp.tab : "cost-sheet"}
         /* RAISE REVISE (user 2026-10-14): Costing's Under Progress "Raise Revise"
            lands here with `?revise=1` — the Quotation opens already revising; Save
            writes the next Rev and every earlier Rev stays in the history. */
-        openRevising={sp.revise === "1"}
+        openRevising={false}
         /* REVISE FROM THE REPORT (client 2026-10-09) — offered under the editor's own
            conditions: the costing is Under Progress, Approved or Rejected (0725) and
            the reader may edit. A Draft is edited in place, and a superseded revision

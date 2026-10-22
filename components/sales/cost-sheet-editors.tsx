@@ -143,8 +143,8 @@ export function Ed({ value, onChange, label, w = "w-24", placeholder }: { value:
   );
 }
 
-/** A searchable picker for a line's cell. A typed name that matches a row exactly
- *  counts as picking it, so typing "NECK" and pressing Add works. */
+/** A searchable picker for a line's cell — master rows only (`strict`): typing searches,
+ *  and an exact name counts as picking it, so typing "NECK" and pressing Enter works. */
 export function CellPick({ label, options, value, onPick }: { label: string; options: readonly (Opt & { note?: string })[]; value: Val; onPick: (v: Val) => void }) {
   return (
     <TypeOrPick
@@ -155,6 +155,7 @@ export function CellPick({ label, options, value, onPick }: { label: string; opt
       placeholder={label}
       uppercase
       inputClassName="h-7 text-xs"
+      strict
       onChange={(v) => onPick(v.id ? v : { id: options.find((o) => o.name.toUpperCase() === v.name.trim().toUpperCase())?.id ?? null, name: v.name })}
     />
   );

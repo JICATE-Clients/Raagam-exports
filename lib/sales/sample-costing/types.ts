@@ -111,6 +111,8 @@ export type PieceDraft = {
   lines: PieceLineDraft[];
   testing_cost: string;
   bank_cost: string;
+  /** 0736: Sampling cost ₹ / pc. Optional: a draft from before it reads as blank. */
+  sample_cost?: string;
 };
 
 export type PieceLineKind = "cmt" | "embellishment";
@@ -526,6 +528,7 @@ export const costingDraftSchema = z.object({
         ),
         testing_cost: numStr,
         bank_cost: numStr,
+        sample_cost: numStr.optional(),
       }),
     )
     .min(1, "A costing needs at least one garment piece."),
@@ -642,6 +645,7 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
         .map((l) => ({ kind: l.kind, process_id: l.process_id, process_name: caps(l.process_name), rate: l.rate.trim() })),
       testing_cost: p.testing_cost.trim(),
       bank_cost: p.bank_cost.trim(),
+      sample_cost: (p.sample_cost ?? "").trim(),
     })),
     fabrics: live.fabrics.map((f) => ({
       fabric_id: f.fabric_id,

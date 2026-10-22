@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardList, FileText, GitBranchPlus, Save, Send, X } from "lucide-react";
+import { BarChart3, ClipboardList, FileText, GitBranchPlus, Save, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackLink } from "@/components/ui/back-link";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -38,7 +38,11 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
  * report cannot disagree.
  */
 
-type Tab = "cost-sheet" | "quotation";
+// Charts is a tab of the report (user 2026-10-22), not a fold at the foot of the Cost Sheet.
+type Tab = "cost-sheet" | "quotation" | "charts";
+
+/** Where a costing is revised: the newest entry screen (user 2026-10-22, Costing 6). */
+export const REVISE_SCREEN = "/sales/sample-costing/costing-6";
 
 export type ReportSource = {
   /** The saved costing — what Revise copies. */
@@ -118,10 +122,13 @@ export function CostingReports({
     window.history.replaceState(null, "", url);
   };
 
+  /* REVISE OPENS THE COSTING ENTRY SCREEN (user 2026-10-22: "we need the costing entry
+     screen for the revise also" — Costing 6). The next Rev is edited where costings are
+     entered, not in this page's one-page sheet; Costing 6 loads it as "Rev N (new)" and
+     its Save writes it. This page goes back to reading, printing and downloading. */
   function startRevising() {
-    setDraft(cloneDraft(source.record.draft));
-    setHeld(new Set());
-    setMessage(null);
+    if (!revise) return;
+    router.push(`${REVISE_SCREEN}?reviseFrom=${revise.id}`);
   }
   function stopRevising() {
     setDraft(null);
@@ -177,6 +184,7 @@ export function CostingReports({
       options={[
         { value: "cost-sheet", label: "Cost Sheet", icon: ClipboardList },
         { value: "quotation", label: "Quotation", icon: FileText },
+        { value: "charts", label: "Charts", icon: BarChart3 },
       ]}
     />
     </>
@@ -189,7 +197,7 @@ export function CostingReports({
       {revise ? (
         /* The button says "Revise" alone — "Revise → Rev 2" beside "Rev 1 · USD 4.50" read
            Rev twice (user 2026-10-17). The next number moves into the tooltip. */
-        <Tooltip label={revise.reason ?? `Make ${revise.nextLabel}: change fabric rate, CMT or margin right here and watch the report update`}>
+        <Tooltip label={revise.reason ?? `Make ${revise.nextLabel} in the costing entry screen — every figure carried over, saved as the next Rev`}>
           {/* A disabled button swallows the hover, so it lets the pointer through to
               the Tooltip's own wrapper — otherwise the reason it is greyed never shows. */}
           <Button variant="outline" size="md" className={revise.reason ? "pointer-events-none" : undefined} disabled={!!revise.reason} onClick={startRevising}>
@@ -235,7 +243,7 @@ export function CostingReports({
       ) : null}
 
       <div className="flex-1">
-        {tab === "cost-sheet" ? <CostSheetDocument {...bar} onePage model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
+        {tab === "charts" ? <CostSheetDocument {...bar} onePage chartsOnly model={costShown} locked={revising} /> : tab === "cost-sheet" ? <CostSheetDocument {...bar} onePage model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
       </div>
 
       {/* THE SAVE BAR — ATTACHED TO THE BOTTOM, THE EDITOR FOOTER'S OWN BAND (user

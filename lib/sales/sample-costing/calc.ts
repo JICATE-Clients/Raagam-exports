@@ -100,6 +100,8 @@ export type PieceInput = {
   lines: readonly PieceLineInput[];
   testing_cost: string;
   bank_cost: string;
+  /** 0736: Sampling cost ₹ / pc — flat, like Testing. Optional so older drafts read as 0. */
+  sample_cost?: string;
 };
 
 /** CMT per piece: the Direct rate, or the sum of the CMT operation lines. */
@@ -340,7 +342,7 @@ export type PieceFigures = {
   /** Print + Embroidery + Wash — the garment processing of §3.3. */
   process: number;
   trims: number;
-  /** Testing & FOB + Bank charges. */
+  /** Testing & FOB + Bank charges + Sampling cost. */
   other: number;
   net: number;
   margin: number;
@@ -437,7 +439,7 @@ export function costingSummary(input: CostingInput): CostingSummary {
       );
       const cmt = pieceCmt(p);
       const process = pieceEmbellishment(p);
-      const other = z(p.testing_cost) + z(p.bank_cost);
+      const other = z(p.testing_cost) + z(p.bank_cost) + z(p.sample_cost);
       const net = round(fabric + cmt + process + trims + other, 4);
       const margin = round((net * marginPct) / 100, 4);
       const wastage = round((net * wastePct) / 100, 4);
