@@ -107,6 +107,7 @@ export function MobileCardList<Row>({
   canDeleteRow,
   deleteDisabledReason,
   extraActions,
+  extraActionsAfterReports = false,
   onDelete,
   onReports,
   canReportsRow,
@@ -170,6 +171,10 @@ export function MobileCardList<Row>({
    * (Sample ▸ PD Acknowledge, 2026-10-15). Return null for a row with none.
    */
   extraActions?: (r: Row) => ReactNode;
+  /** Draw `extraActions` AFTER Reports instead of first (user 2026-10-22, Sample Costing
+   *  card, screenshot 3661: "report first, approve next, reject third"). Opt-in, so every
+   *  other card keeps its order. */
+  extraActionsAfterReports?: boolean;
   onDelete?: (r: Row) => void;
   /**
    * A document action reachable WITHOUT opening the row for edit — a printed
@@ -363,7 +368,7 @@ export function MobileCardList<Row>({
   const named = queue && !iconActions;
   const actions = (r: Row) => (
     <>
-      {extraActions?.(r)}
+      {!extraActionsAfterReports && extraActions?.(r)}
       {onView && (
         <Button
           variant="ghost"
@@ -389,6 +394,7 @@ export function MobileCardList<Row>({
           {named && "Reports"}
         </Button>
       )}
+      {extraActionsAfterReports && extraActions?.(r)}
       {onSend && (canSendRow?.(r) ?? true) && (
         <Button
           variant="ghost"

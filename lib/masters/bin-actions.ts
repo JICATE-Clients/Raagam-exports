@@ -50,7 +50,7 @@ export async function updateBin(id: string, data: BinInput): Promise<Result> {
 export async function deleteBin(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const res = await deleteOrDeactivate(s, "bins", id, "blocked");
+  const res = await deleteOrDeactivate(s, "bins", id, "inactive");
   if (!res.ok) return fail(res.error);
   rev();
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };

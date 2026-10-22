@@ -424,6 +424,31 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("click", onClick, true);
   }, []);
 
+  /**
+   * THE MOUSE WHEEL NEVER CHANGES A NUMBER (user 2026-10-22, Sample Costing: "scrolled,
+   * the value is increasing … no need, user will type the value"). Chrome steps a FOCUSED
+   * type="number" box on every wheel notch, so scrolling past a rate rewrote it. The
+   * browser's step is cancelled here, for every number field at once, and the notch is
+   * handed to the nearest scrolling ancestor instead, so the page still scrolls and the
+   * cursor stays where it was. Non-passive: a passive listener cannot preventDefault.
+   */
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || el.type !== "number" || document.activeElement !== el) return;
+      e.preventDefault();
+      let box: HTMLElement | null = el.parentElement;
+      while (box) {
+        const oy = getComputedStyle(box).overflowY;
+        if ((oy === "auto" || oy === "scroll") && box.scrollHeight > box.clientHeight) break;
+        box = box.parentElement;
+      }
+      (box ?? document.scrollingElement ?? document.documentElement).scrollBy({ top: e.deltaY, left: e.deltaX });
+    };
+    document.addEventListener("wheel", onWheel, { passive: false });
+    return () => document.removeEventListener("wheel", onWheel);
+  }, []);
+
   useEffect(() => {
     /**
      * TAB GOES TO THE NEXT FIELD, on every surface (client 2026-08-04).

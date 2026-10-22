@@ -218,7 +218,7 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
 export async function deleteProcess(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const res = await deleteOrDeactivate(s, "processes", id, "blocked"); // sub-cats cascade
+  const res = await deleteOrDeactivate(s, "processes", id, "inactive"); // sub-cats cascade
   if (!res.ok) return fail(res.error);
   rev();
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };

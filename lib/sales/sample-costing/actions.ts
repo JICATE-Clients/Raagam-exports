@@ -300,7 +300,39 @@ export async function fetchQuoteRate(
   };
 }
 
+/**
+ * The Currency master's codes, for the Quoted FOB card's "show in" switch (user
+ * 2026-10-22). Loaded by the card itself, so none of the screens that draw the cost
+ * sheet has to carry the list in.
+ */
+export async function listQuoteCurrencies(): Promise<{ ok: true; codes: string[] } | { ok: false; error: string }> {
+  if (!(await can("sales", "view"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+  const { data, error } = await s.from("currencies").select("code").order("code");
+  if (error) return { ok: false, error: `Could not load currencies: ${error.message}` };
+  const codes = ((data ?? []) as { code: string | null }[]).map((r) => (r.code ?? "").trim().toUpperCase()).filter((c) => /^[A-Z]{3}$/.test(c));
+  return { ok: true, codes: [...new Set(codes)] };
+}
+
 const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+
+/**
+ * TODAY'S rate for the Quoted FOB card's "show in" switch (user 2026-10-22: "choose
+ * EUR — show the exchange rate of today"). Straight to the market, NOT through the
+ * Quotes / Orders register `fetchQuoteRate` prefers: that register holds the rate the
+ * business last QUOTED at, which can be weeks old, and the question here is what the
+ * costing is worth in that currency now. A view only — nothing is stored.
+ */
+export async function fetchTodayRate(
+  currency: string,
+): Promise<{ ok: true; rate: number; effectiveFrom: string | null; source: string } | { ok: false; error: string }> {
+  if (!(await can("sales", "view"))) return { ok: false, error: "Forbidden" };
+  const code = currency.trim().toUpperCase();
+  if (code === "INR") return { ok: true, rate: 1, effectiveFrom: null, source: "INR" };
+  if (!/^[A-Z]{3}$/.test(code)) return { ok: false, error: `"${currency}" is not a currency code.` };
+  const live = await marketRateToInr(code, null);
+  return live ? { ok: true, ...live } : { ok: false, error: `Could not fetch today's ${code} rate — check the connection.` };
+}
 
 /** ₹ per one `code` from the public sources above, or null when neither answers. */
 async function marketRateToInr(

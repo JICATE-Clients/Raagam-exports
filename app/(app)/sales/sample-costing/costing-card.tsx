@@ -139,12 +139,14 @@ export function CostingCard({
           </>
         ) : (
           <>
-            <Act label="Customer Approved" action={approve} tone="text-success hover:bg-success/10" icon={ICON.ok} />
-            <Act label="Customer Rejected" action={reject} tone="text-danger hover:bg-danger/10" icon={ICON.no} />
-            {/* Every icon carries its own colour (user 2026-10-21, screenshot 152304):
+            {/* REPORT FIRST, THEN APPROVE, THEN REJECT (user 2026-10-22, screenshot 3661):
+                the quote is read before the buyer's answer is recorded against it.
+                Every icon carries its own colour (user 2026-10-21, screenshot 152304):
                 Reports was ink-black and Delete grey, the two the eye skipped. Violet
                 is the one hue not already saying approve / reject / revise. */}
             <Act label="Reports" action={report} tone="text-violet-600 hover:bg-violet-500/10 dark:text-violet-400" icon={ICON.doc} />
+            <Act label="Customer Approved" action={approve} tone="text-success hover:bg-success/10" icon={ICON.ok} />
+            <Act label="Customer Rejected" action={reject} tone="text-danger hover:bg-danger/10" icon={ICON.no} />
             <Act label="Raise Revise" action={revise} tone="text-info hover:bg-info/10" icon={ICON.redo} />
             {del && (
               <Act

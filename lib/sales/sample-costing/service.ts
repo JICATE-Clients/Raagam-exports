@@ -351,8 +351,22 @@ async function getGarmentProcesses(): Promise<GarmentProcessRow[]> {
   const s = await createClient();
   // Two masters since 0735: Embellishments on the Process master, CMT operations
   // on the CMT Process master. One list for the pickers, told apart by kind.
+  // BOTH EMBELLISHMENT CATEGORIES (client 2026-10-22, screenshot 140224): the Garment
+  // processes picker lists every Component Process (`for_components`, on a cut panel) AND
+  // every Garment Process (`for_garments`, on the stitched garment) — the same two flags
+  // Sample Entry ▸ Combos ▸ Embellishments narrows by (0722) — beside the processes 0691
+  // tagged `garment_kind = 'embellishment'`. Before, only that tag counted, so 4 of the 16
+  // processes the master classifies were offered, and a line seeded from Sample Entry
+  // (BIT PRINTING) named a process its own picker could not show. A process 0691 tagged
+  // CMT stays out: CMT operations have their own picker and master (0735).
+  // Inactive rows are SELECTED, not filtered (AGENTS.md "Disabled rows"): the picker hides
+  // them, and the one a line already holds still resolves.
   const [emb, cmt] = await Promise.all([
-    s.from("processes").select("id, name, inactive, garment_kind, standard_rate").eq("garment_kind", "embellishment").order("name"),
+    s
+      .from("processes")
+      .select("id, name, inactive, garment_kind, standard_rate")
+      .or("garment_kind.eq.embellishment,and(garment_kind.is.null,for_components.eq.true),and(garment_kind.is.null,for_garments.eq.true)")
+      .order("name"),
     s.from("cmt_processes").select("id, name, inactive, cmt_stage, standard_rate").order("name"),
   ]);
   if (emb.error) throw new Error(`Could not load embellishment processes: ${emb.error.message}`);
@@ -941,6 +955,39 @@ async function getQuoteRates(): Promise<Record<string, number>> {
     if (!held || from > held.from) best.set(r.currency_code, { from, rate });
   }
   return Object.fromEntries([...best].map(([k, v]) => [k, v.rate]));
+}
+
+/**
+ * THE OTHER STYLES OF THE SAME SAMPLE, each as its latest costing (user 2026-10-22,
+ * screenshot 3667: the quotation "should be ready to adapt multi styles listing").
+ * One costing prices one style, so a sample with several styles has several sheets;
+ * the quotation lists them all. Per style, the highest revision that is not
+ * superseded and not an unsaved draft — the price in force. `style_id` is the
+ * current sheet's, left out because the quotation already has it.
+ *
+ * A failed read THROWS: a quotation that silently dropped a style would go to the
+ * buyer short a price, and look complete.
+ */
+export async function getSiblingCostingRecords(opportunityId: string | null, styleId: string | null): Promise<CostingRecord[]> {
+  if (!opportunityId) return [];
+  const s = await createClient();
+  const { data, error } = await s
+    .from("cost_sheets")
+    .select("id, style_id, version")
+    .eq("costing_type", "sample")
+    .eq("opportunity_id", opportunityId)
+    .not("style_id", "is", null)
+    .neq("status", "superseded")
+    .or("is_draft.is.null,is_draft.eq.false");
+  if (error) throw new Error(`Could not load the sample's other costings: ${error.message}`);
+  const latest = new Map<string, { id: string; version: number }>();
+  for (const r of (data ?? []) as { id: string; style_id: string; version: number | null }[]) {
+    if (r.style_id === styleId) continue;
+    const v = r.version ?? 0;
+    if ((latest.get(r.style_id)?.version ?? -1) < v) latest.set(r.style_id, { id: r.id, version: v });
+  }
+  const records = await Promise.all([...latest.values()].map((x) => getSampleCostingRecord(x.id)));
+  return records.filter((r): r is CostingRecord => r != null);
 }
 
 /**

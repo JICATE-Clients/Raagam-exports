@@ -277,17 +277,21 @@ const COSTING_FACETS: FacetGroup<CostingListRow>[] = [
   { title: "Created", icon: <Users />, facets: [createdDateFacet(), createdByFacet()] },
 ];
 
+const DEFAULT_CURRENCY = "USD";
+
 const blankHeader = (): CostingHeaderDraft => ({
   opportunity_id: null,
   style_id: null,
   costing_date: today(),
-  currency_code: null,
+  /* USD AND SEA FREIGHT ARE THE DEFAULTS (user 2026-10-22, screenshot 3660). A new
+     costing opens on them; the operator changes either like any other field. */
+  currency_code: DEFAULT_CURRENCY,
   exchange_rate: "",
   margin_pct: "",
   garment_waste_pct: "",
   overhead_pct: "",
   discount_pct: "",
-  ship_mode: "",
+  ship_mode: "sea",
   freight_per_pc: "",
   insurance_per_pc: "",
   buyer_target_price: "",
@@ -732,7 +736,14 @@ export function SampleCosting6Screen({
     setDecision(null);
     setMeta({ code: null, version: 1, status: "draft", isDraft: false, decisionRemark: null });
     setPreview(nextCostingNo);
-    seedAndOpen({ header: blankHeader(), pieces: [blankPiece("GARMENT", null)], fabrics: [], weights: [], trims: [], quotes: {}, extras: [] });
+    // The default currency's rate comes with it: the register's, else fetched at once.
+    const r = data.quoteRates[DEFAULT_CURRENCY];
+    seedAndOpen({ header: { ...blankHeader(), exchange_rate: r ? String(r) : "" }, pieces: [blankPiece("GARMENT", null)], fabrics: [], weights: [], trims: [], quotes: {}, extras: [] });
+    // Written without setDirty: a default is not an edit, so the new sheet stays clean.
+    if (!r)
+      void fetchQuoteRate(DEFAULT_CURRENCY, today()).then((res) => {
+        if (res.ok) setHeader((h) => (h.currency_code === DEFAULT_CURRENCY && !h.exchange_rate.trim() ? { ...h, exchange_rate: String(res.rate) } : h));
+      });
   }
   /**
    * NEW SAMPLE COSTING STARTS ON A SAMPLE (user 2026-10-17, screenshot 3587: "already

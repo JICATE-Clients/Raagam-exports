@@ -53,6 +53,8 @@ export type ReportSource = {
   /** The masters the sheet's row pickers list while revising. */
   options: EditOptions;
   history: RevisionHistoryRow[];
+  /** The sample's other costed styles — the Quotation lists them beside this one. */
+  siblings: CostingRecord[];
   /** A saved Draft the reader may send to the buyer (0725: → Under Progress). */
   canSubmit: boolean;
 };
@@ -106,7 +108,7 @@ export function CostingReports({
     ? { ...source.record, version: nextVersion, status: "draft", is_draft: false, decision_remark: null, draft: effective }
     : null;
   const costShown = liveRecord ? buildCostSheetModel(liveRecord, source.lookups, source.company, source.history, null) : cost;
-  const quoteShown = liveRecord ? buildQuotationModel(liveRecord, source.lookups, source.company, source.history, null) : quote;
+  const quoteShown = liveRecord ? buildQuotationModel(liveRecord, source.lookups, source.company, source.history, null, source.siblings) : quote;
 
   const pick = (t: Tab) => {
     setTab(t);
@@ -233,7 +235,7 @@ export function CostingReports({
       ) : null}
 
       <div className="flex-1">
-        {tab === "cost-sheet" ? <CostSheetDocument {...bar} model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
+        {tab === "cost-sheet" ? <CostSheetDocument {...bar} onePage model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
       </div>
 
       {/* THE SAVE BAR — ATTACHED TO THE BOTTOM, THE EDITOR FOOTER'S OWN BAND (user

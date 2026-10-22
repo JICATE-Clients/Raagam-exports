@@ -62,6 +62,7 @@ import {
   BadgeCheck,
   Calculator,
   CalendarRange,
+  ChevronRight,
   CircleX,
   Check,
   Clock,
@@ -198,6 +199,10 @@ const blankPieceLine = (kind: PieceLineKind): PieceLineDraft => ({
  * Normalised in STATE by the open handlers, never by a grid's `seedRow`, which
  * would mark an untouched sheet "Unsaved".
  */
+/** The merged sheet's tabs: Details 0 · Fabric 1 · Cost & Quote 2 · Revisions · Charts.
+ *  Cost & Quote is where entry ends, so the bottom bar's Next stops there. */
+const COST_QUOTE_TAB = 2;
+
 function seedPiece(p: PieceDraft): PieceDraft {
   const lines = (p.lines as PieceLineDraft[] | undefined) ?? [];
   return {
@@ -367,6 +372,8 @@ export function SampleCosting5Screen({
   /** Size-Wise "Yes" picked while no size is added yet — once a size is on the sheet,
    *  the sizes themselves say Yes. Reset per record (the editor does not remount). */
   const [sizeWiseAsked, setSizeWiseAsked] = useState(false);
+  /** The cost sheet's open tab — held here so the bottom bar's Next can step it. */
+  const [docTab, setDocTab] = useState(0);
   const [copyOpen, setCopyOpen] = useState(false);
   /** Revision compare (P3.1): the other revision, loaded. */
   const [compare, setCompare] = useState<{ id: string; record: CostingRecord } | null>(null);
@@ -595,6 +602,8 @@ export function SampleCosting5Screen({
     setQuotes(d.quotes);
     setCopiedFrom(null);
     setSizeWiseAsked(false);
+    // Every sheet opens on Details (user 2026-10-16), the previous one's tab is not kept.
+    setDocTab(0);
     setCompare(null);
     setDirty(false);
     setMode("edit");
@@ -1394,6 +1403,9 @@ export function SampleCosting5Screen({
         model={sheetModel}
         // COSTING 3: Operations, Overheads and Quotation as one split-screen tab (2026-10-21).
         merged
+        // The open tab is the screen's, so the bottom bar's Next can step it (2026-10-22).
+        tab={docTab}
+        onTabChange={setDocTab}
         // COSTING 4: the Price build side is a quarter of the width, set tight (2026-10-21).
         narrowValues
         // COSTING 4: processes | CMT | trims in one row, then overheads | terms (2026-10-21).
@@ -1651,17 +1663,41 @@ export function SampleCosting5Screen({
             // button plan Rule 5): a one-time notice drawn as two more buttons
             // read as part of the bar, and Discard sat beside Cancel. The bar
             // keeps the same three buttons on every visit.
-            extra: formDraft.hasDraft ? (
-              <span className="flex items-center gap-3 text-xs">
-                <span className="text-warning">Unsaved changes from an earlier visit —</span>
-                <button type="button" className="font-semibold text-primary hover:underline" onClick={formDraft.restore}>
-                  Restore
-                </button>
-                <button type="button" className="font-semibold text-muted-foreground hover:text-foreground hover:underline" onClick={formDraft.discard}>
-                  Discard
-                </button>
-              </span>
-            ) : undefined,
+            extra: (
+              <>
+                {formDraft.hasDraft ? (
+                  <span className="flex items-center gap-3 text-xs">
+                    <span className="text-warning">Unsaved changes from an earlier visit —</span>
+                    <button type="button" className="font-semibold text-primary hover:underline" onClick={formDraft.restore}>
+                      Restore
+                    </button>
+                    <button type="button" className="font-semibold text-muted-foreground hover:text-foreground hover:underline" onClick={formDraft.discard}>
+                      Discard
+                    </button>
+                  </span>
+                ) : null}
+                {/* NEXT TAB FROM THE BOTTOM BAR (user 2026-10-22: "add next option … bottom
+                    bar"). Details → Fabric → Cost & Quote, the order a costing is entered in;
+                    on Cost & Quote the next step is Save, so Next goes. A MOVE, never a check
+                    — a tab is routinely left half-filled on the way past (MasterFullScreen's
+                    stepper rule), and Save still names what is missing. OUTLINE: Save stays
+                    the one filled button and the bar's last, so Enter and Ctrl+S still save. */}
+                {docTab < COST_QUOTE_TAB ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const n = docTab + 1;
+                      setDocTab(n);
+                      requestAnimationFrame(() => document.getElementById(`cs-tab-${n}`)?.scrollIntoView({ block: "nearest" }));
+                    }}
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </>
+            ),
             isPending,
           }}
         />

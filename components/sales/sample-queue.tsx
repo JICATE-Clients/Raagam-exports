@@ -210,10 +210,12 @@ export function SampleCards<R>({
                     disabledReason={canReportsRow?.(r) === false ? "Nothing to report on yet" : null}
                   />
                 ) : null}
+                {/* Reports, then the screen's own answers (Approve, Reject), then Send /
+                    Revise — the card's order too (user 2026-10-22, screenshot 3661). */}
+                {actions?.(r)}
                 {onSend && canSendRow?.(r) !== false ? (
                   <RowIconAction label={sendLabel} icon={sendIcon} className="text-primary" onClick={() => onSend(r)} />
                 ) : null}
-                {actions?.(r)}
               </>
             ) : undefined
           }
@@ -279,6 +281,8 @@ export function SampleCards<R>({
       canDeleteRow={canDeleteRow}
       deleteDisabledReason={deleteDisabledReason}
       extraActions={actions}
+      // Report first, then Approve / Reject (user 2026-10-22, screenshot 3661).
+      extraActionsAfterReports
       onDelete={onDelete}
       onReports={onReports}
       canReportsRow={canReportsRow}
