@@ -2547,7 +2547,9 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
   const cqValues = (
     <aside className="cq-values" aria-label="Worked-out values">
       <div className="qt cq-pb">
-        {narrowValues ? (
+        {/* Not on Costing 5 / 6 (chargesTable): "remove it, no need" (user 2026-10-22,
+            screenshot 114104) — Price build already says where the price goes in figures. */}
+        {narrowValues && !chargesTable ? (
           <div className="cq-bar" role="img" aria-label={`Where the price goes${model.sizes.length > 1 ? `, size ${s.label}` : ""}: ${parts.map((p) => `${p.label} ${((Math.max(p.value, 0) / partsTotal) * 100).toFixed(0)}%`).join(", ")}`}>
             {parts.map((p) => (
               <span key={p.label} title={`${p.label} · ${SYM} ${money(p.value)} · ${((Math.max(p.value, 0) / partsTotal) * 100).toFixed(0)}%`} style={{ width: `${(Math.max(p.value, 0) / partsTotal) * 100}%`, background: TONE_VAR[p.tone] }} />
@@ -4669,18 +4671,15 @@ const CSS = `
 .cs-sheet.cs-qtlook .cq-onetable .qt td.amt { background:#f7f9fb; color:#334250; font-weight:600; font-size:12.5px; text-align:right; padding:0 8px; }
 .cs-sheet.cs-qtlook .cq-onetable .qt tr.grp td.amt { background:transparent; color:var(--ink,#5a44a8); font-weight:700; }
 .cs-sheet.cs-qtlook .cq-onetable .qt td.amt .cq-amt { color:inherit; }
+/* …but only a cell that HOLDS an amount is shaded (user 2026-10-22, screenshot 114240: the
+   empty ones read as disabled fields — "why show the blank fields"). A row with nothing to
+   work out leaves the cell plain, so it vanishes into the row. */
+.cs-sheet.cs-qtlook .cq-onetable .qt td.amt:empty { background:transparent; }
 .cs-sheet.cs-qtlook .cq-withcharges:has(.cq-live) { grid-template-columns:minmax(0,1fr) 23.25rem; }
 @media (max-width:1100px){ .cs-sheet.cs-qtlook .cq-withcharges:has(.cq-live) { grid-template-columns:minmax(0,1fr); } }
 /* Title strips are one strip: no cell dividers inside them (screenshot 112744 showed Price
    build's split in two at the "₹" head). */
 .cs-sheet.cs-qtlook .qt tr.cq-title th { border-left:0 !important; border-right:0 !important; }
-/* "Where the price goes" sat ABOVE Price build's title as a bare two-colour stripe — read as a
-   stray border. It moves under the table with a caption, where it reads as the small chart
-   it is. */
-.cs-sheet.cs-qtlook .cq-pb { display:flex; flex-direction:column; }
-.cs-sheet.cs-qtlook .cq-pb > table { order:1; }
-.cs-sheet.cs-qtlook .cq-pb::after { content:"Where the price goes"; order:2; padding:8px 10px 4px; font-size:11px; font-weight:600; color:var(--cs-muted); }
-.cs-sheet.cs-qtlook .cq-pb > .cq-bar { order:3; margin:0 14px 14px; height:8px; border-radius:4px; overflow:hidden; }
 /* PRICE BUILD, POLISHED (user 2026-10-22, screenshot 113200: "align this section … pro UI/UX
    touch"). It read as a spreadsheet: section heads at full 13px ink (the type rule above
    outranked their small-caps style), a tinted value column (one size is always the "selected"

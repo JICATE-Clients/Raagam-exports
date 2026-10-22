@@ -392,9 +392,11 @@ function sumOrNull(xs: (number | null)[]): number | null {
   return round(xs.reduce<number>((t, x) => t + (x ?? 0), 0), 4);
 }
 
-/** The price a blank Quoted stands for: Calculated rounded to the cent (user 2026-10-22).
- *  The buyer's quotation already offers that figure (`offered`, quotation.ts), so the margin
- *  floor is tested against what is actually sent, not the 4-decimal working figure. */
+/** The price a blank Quoted stands for: Calculated rounded to the cent (user 2026-10-22) —
+ *  what the buyer's quotation offers (`offered`, quotation.ts) and what the Quoted box shows
+ *  faint. DISPLAY ONLY: the margin floor stays on the exact Calculated price, because spec
+ *  §4.2 (check-sample-costing vectors) holds that with no quote the margin IS the typed
+ *  Margin % — rounding to the cent moved a 2.14 FOB's 25 % to 25.14 %. */
 export const offeredPrice = (quoted: number | null, calc: number | null): number | null =>
   quoted ?? (calc == null ? null : round(calc, 2));
 
@@ -471,7 +473,7 @@ export function costingSummary(input: CostingInput): CostingSummary {
         delta,
         deltaPct,
         // A price charge passes through the margin like freight and insurance do.
-        effectiveMarginPct: effectiveMargin(offeredPrice(quoted, calc), net, wastage + overhead + extraOverhead, discount, freight + priceAdj, insurance, rate),
+        effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead + extraOverhead, discount, freight + priceAdj, insurance, rate),
       };
     });
 
@@ -512,7 +514,7 @@ export function costingSummary(input: CostingInput): CostingSummary {
         delta,
         deltaPct: delta != null && calc ? round((delta / calc) * 100, 2) : null,
         // Freight and insurance are per PIECE, so a set carries them n times.
-        effectiveMarginPct: effectiveMargin(sumOrNull(pieces.map((x) => offeredPrice(x.quoted, x.calc))), net, wastage + overhead + extraOverhead, discount, freight * n + priceAdj, insurance * n, rate),
+        effectiveMarginPct: effectiveMargin(quoted ?? calc, net, wastage + overhead + extraOverhead, discount, freight * n + priceAdj, insurance * n, rate),
       },
     };
   })();
