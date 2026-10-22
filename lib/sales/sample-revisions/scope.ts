@@ -104,6 +104,7 @@ function rates(d: CostingDraft, keepFabric: Set<string>, keepTrim: Set<string>, 
         lines: p.lines.map((l) => ({ kind: l.kind, what: l.process_id ?? t(l.process_name), rate: n(l.rate) })),
         testing: n(p.testing_cost),
         bank: n(p.bank_cost),
+        sample: n(p.sample_cost),
       })),
     terms: {
       currency: h.currency_code,

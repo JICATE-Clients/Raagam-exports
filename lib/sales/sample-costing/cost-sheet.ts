@@ -45,6 +45,8 @@ export type SizeFigures = {
   trims: number;
   testing: number;
   bank: number;
+  /** 0736: Sampling cost ₹ / pc, all pieces. */
+  sample: number;
   net: number;
   wastage: number;
   overhead: number;
@@ -205,6 +207,7 @@ export function buildCostSheetModel(
       trims: t.trims,
       testing: d.pieces.reduce((s, p) => s + (num(p.testing_cost) ?? 0), 0),
       bank: d.pieces.reduce((s, p) => s + (num(p.bank_cost) ?? 0), 0),
+      sample: d.pieces.reduce((s, p) => s + (num(p.sample_cost) ?? 0), 0),
       net: t.net,
       wastage: t.wastage,
       overhead: t.overhead,
@@ -454,7 +457,7 @@ export function priceParts(s: SizeFigures): { label: string; value: number; tone
     { label: "CMT", value: s.cmt, tone: "cmt" },
     { label: "Embellishment & testing", value: s.process + s.testing, tone: "emb" },
     { label: "Trims", value: s.trims, tone: "trims" },
-    { label: "Overheads", value: s.bank + s.wastage + s.overhead + s.extraOverhead, tone: "over" },
+    { label: "Overheads", value: s.bank + s.sample + s.wastage + s.overhead + s.extraOverhead, tone: "over" },
     { label: "Margin", value: Math.max(s.margin + s.priceAdj - s.discount, 0), tone: "margin" },
   ];
 }

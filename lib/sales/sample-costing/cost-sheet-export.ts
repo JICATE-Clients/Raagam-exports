@@ -184,7 +184,7 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
       gc("Factory base cost", (x) => x.net),
       gc(`Rejection ${m.terms.wastage}%`, (x) => x.wastage),
       gc(`Overhead ${m.terms.overhead}%`, (x) => x.overhead),
-      gc("Bank charges & other overheads", (x) => x.bank + x.extraOverhead),
+      gc("Bank charges & other overheads", (x) => x.bank + x.sample + x.extraOverhead),
       gc("Total cost", (x) => x.grossCost),
       gc(`Profit ${m.terms.margin}%`, (x) => x.margin),
       ...(m.terms.freight + m.terms.insurance > 0 ? [gc("Freight & insurance (on the price)", () => (m.terms.freight + m.terms.insurance) * m.pieceCount)] : []),
@@ -305,6 +305,7 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   line("Testing & FOB", (x) => x.testing);
   line("Trims", (x) => x.trims);
   line("Bank charges", (x) => x.bank);
+  line("Sampling cost", (x) => x.sample);
   line("Net cost", (x) => x.net);
   line("Garment Rejection", (x) => x.wastage);
   line("Overhead", (x) => x.overhead);

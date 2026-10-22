@@ -159,7 +159,7 @@ import {
   saveSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
 import { offeredSizes } from "@/lib/sales/sample-costing/style-sizes";
-import { newWeightRows, weightsForFabrics } from "@/lib/sales/sample-costing/revision-draft";
+import { newWeightRows, releaseCalculatedQuotes, weightsForFabrics } from "@/lib/sales/sample-costing/revision-draft";
 import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
 import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
 import type { EditOptions } from "@/components/sales/cost-sheet-editors";
@@ -593,7 +593,8 @@ export function SampleCosting4Screen({
     setWeights(d.weights.length ? d.weights : newWeightRows(firstPiece, [], null, [null]));
     setTrims(d.trims.length ? d.trims : [blankTrim(firstPiece)]);
     setExtras(d.extras);
-    setQuotes(d.quotes);
+    // A stored quote equal to its Calculated price follows the costs again (2026-10-22).
+    setQuotes(releaseCalculatedQuotes(d).quotes);
     setCopiedFrom(null);
     setSizeWiseAsked(false);
     setCompare(null);
