@@ -1531,6 +1531,8 @@ export function ChildGrid<T extends { key: string }>({
   frameless = false,
   keyboardNav = true,
   hideAdd: ownHideAdd = false,
+  tailRow,
+  onTail,
   narrow = false,
   tableFrom,
   tableAlways = false,
@@ -1673,6 +1675,31 @@ export function ChildGrid<T extends { key: string }>({
   /** Hide the trailing "+ Add" button — for grids capped at a fixed row count
    *  (e.g. Single Yarn fabric = exactly one component). */
   hideAdd?: boolean;
+  /**
+   * ENTER-ONLY ENTRY — THE GRID KEEPS ONE BLANK ROW AT ITS END INSTEAD OF A
+   * "+ ADD" (user 2026-10-23, Order Entry: "add button illama costing la panna
+   * mechanism use panni … enter key focus vachi"). The row-level twin of the cost
+   * sheet's `enterFlow` (AGENTS "Tab lands on fields": "A table may keep a blank
+   * end row INSTEAD of a '+ Add' button").
+   *
+   * Pass the predicate that says a row is still BLANK — nothing the operator
+   * typed, so a row that arrives pre-filled (a style, a delivery date) still
+   * counts. While no row answers true the grid calls `onAdd` once to put one
+   * back; the blank row wears `data-row-tail`, so Enter on it untouched leaves
+   * the table (`enterAdvances`); its cells are not held as mandatory (a held
+   * blank row the operator never asked for is a cage); and no "+ Add" is drawn.
+   *
+   * THE SAVE MUST DROP THE BLANK ROW — the AGENTS "seeded row" rule, unchanged:
+   * check what the save side keeps before opting a grid in.
+   *
+   * A predicate that is wrong (the row `onAdd` makes does not answer true) adds
+   * ONE row and stops — `tailStuck` — rather than looping. Ignored under
+   * `hideAdd` / a locked record, where the row count is not the operator's.
+   */
+  tailRow?: (row: T) => boolean;
+  /** What `tailRow` calls to put the blank row back, when `onAdd` does more than
+   *  add one (opens the new row, ticks a header flag). Defaults to `onAdd`. */
+  onTail?: () => void;
   /**
    * Every column holds a SHORT value — one picker, a size, a coordinate — so cap
    * the grid's width instead of stretching it across the section.
@@ -2559,8 +2586,10 @@ export function ChildGrid<T extends { key: string }>({
   // directly would re-run the seed effect on every render. The effect wants to
   // watch `rows.length`, and nothing else.
   const onAddRef = useRef(onAdd);
+  const onTailRef = useRef(onTail);
   useEffect(() => {
     onAddRef.current = onAdd;
+    onTailRef.current = onTail;
   });
   /**
    * Which row shows its fields, when `foldRows` is on.
@@ -2587,8 +2616,29 @@ export function ChildGrid<T extends { key: string }>({
    */
   const [openRowKey, setOpenRowKey] = useState<string | null>(defaultOpenKey ?? ALL_FOLDED);
   const seeded = useRef(false);
+  /* ENTER-ONLY ENTRY — see `tailRow`. Declared here so the seed effect below can
+     stand down for it: the tail effect already fills an empty grid, and both
+     firing on one empty grid would open it on two blank rows. */
+  const enterFlow = !!tailRow && !hideAdd;
+  const hasTail = enterFlow && rows.some((r) => tailRow!(r));
+  const tailStuck = useRef(false);
   useEffect(() => {
-    if (!seedRow || hideAdd) return;
+    if (!enterFlow) return;
+    // A blank row stands — re-arm for the next time the operator types into it.
+    if (hasTail) {
+      tailStuck.current = false;
+      return;
+    }
+    if (tailStuck.current) return;
+    tailStuck.current = true;
+    if (onTailRef.current) onTailRef.current();
+    else onAddRef.current();
+  }, [enterFlow, hasTail, rows.length]);
+  /** The blank end row's marker — Enter on it untouched leaves the table. */
+  const isTail = (row: T) => enterFlow && tailRow!(row);
+  const tailAttr = (row: T) => (isTail(row) ? { "data-row-tail": "" } : {});
+  useEffect(() => {
+    if (!seedRow || hideAdd || enterFlow) return;
     // Rows arrived (seeded, loaded, or typed) — arm for the next empty spell.
     if (rows.length > 0) {
       seeded.current = false;
@@ -2597,7 +2647,7 @@ export function ChildGrid<T extends { key: string }>({
     if (seeded.current) return;
     seeded.current = true;
     onAddRef.current();
-  }, [seedRow, hideAdd, rows.length]);
+  }, [seedRow, hideAdd, enterFlow, rows.length]);
 
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   // Optional pagination (no inner scroll). When pageSize is unset we use a huge
@@ -2672,7 +2722,7 @@ export function ChildGrid<T extends { key: string }>({
    * `data-grid-body` — see the `across` prop. Rendering both gives two Adds.
    */
   const addBtn =
-    !hideAdd && mode !== "across" ? (
+    !hideAdd && !enterFlow && mode !== "across" ? (
       // `data-row-add` is the marker every key steers by, and it now buys three
       // of them: Tab LANDS here (`isRowAdd`, lib/focus.ts — reversed 2026-08-19,
       // "move to that add button, then on that button need to create"), Enter at
@@ -3164,6 +3214,7 @@ export function ChildGrid<T extends { key: string }>({
                 <tr
                   key={row.key}
                   data-grid-row
+                  {...tailAttr(row)}
                   // A ROW HIGHLIGHTS AS A ROW. With every cell drawing its own
                   // box the eye followed the boxes; a hover tint is what makes
                   // fourteen cells read as one line again.
@@ -3227,12 +3278,12 @@ export function ChildGrid<T extends { key: string }>({
                       {ci === removeCol ? (
                         cellWithRemove(
                           row,
-                          <RequiredScope required={c.required} label={c.header}>
+                          <RequiredScope required={c.required && !isTail(row)} label={c.header}>
                             {c.cell(row, i)}
                           </RequiredScope>,
                         )
                       ) : (
-                        <RequiredScope required={c.required} label={c.header}>
+                        <RequiredScope required={c.required && !isTail(row)} label={c.header}>
                           {c.cell(row, i)}
                         </RequiredScope>
                       )}
@@ -3308,6 +3359,7 @@ export function ChildGrid<T extends { key: string }>({
                 <div
                   key={row.key}
                   data-grid-row
+                  {...tailAttr(row)}
                   // `items-center`, not `items-start`: a record here is ONE short
                   // control, so there is no two-line cell to tilt the row — the
                   // case `items-start` exists for in the inline layout.
@@ -3325,7 +3377,7 @@ export function ChildGrid<T extends { key: string }>({
                           `ChildGridColumn.required` reaches the control only
                           because this wrapper is here (AGENTS.md, "a grid that
                           renders its own row must declare `required` twice"). */}
-                      <RequiredScope required={c.required} label={c.header}>
+                      <RequiredScope required={c.required && !isTail(row)} label={c.header}>
                         {c.cell(row, i)}
                       </RequiredScope>
                     </div>
@@ -3344,7 +3396,7 @@ export function ChildGrid<T extends { key: string }>({
                 </div>
               );
             })}
-            {!hideAdd && (
+            {!hideAdd && !enterFlow && (
               <Button
                 type="button"
                 variant="outline"
@@ -3461,6 +3513,7 @@ export function ChildGrid<T extends { key: string }>({
               <div
                 key={row.key}
                 data-grid-row
+                {...tailAttr(row)}
                 className={cn(
                   // `items-start`, NOT `items-center` — a cell that stacks a hint
                   // under its control (the Style pickers on Order Amendment print
@@ -3517,7 +3570,7 @@ export function ChildGrid<T extends { key: string }>({
                     )}
                     style={c.width ? { width: c.width } : undefined}
                   >
-                    <RequiredScope required={c.required} label={c.header}>
+                    <RequiredScope required={c.required && !isTail(row)} label={c.header}>
                       {c.cell(row, i)}
                     </RequiredScope>
                   </div>
@@ -4028,7 +4081,7 @@ export function ChildGrid<T extends { key: string }>({
                       {c.required && <span className="ml-0.5 text-danger">*</span>}
                     </div>
                   )}
-                  <RequiredScope required={c.required} label={c.header}>
+                  <RequiredScope required={c.required && !isTail(row)} label={c.header}>
                     {c.cell(row, i)}
                   </RequiredScope>
                 </div>
@@ -4037,6 +4090,7 @@ export function ChildGrid<T extends { key: string }>({
             <div
               key={row.key}
               data-grid-row
+              {...tailAttr(row)}
               /**
                * `data-row-box` is INERT and kept on purpose. It was the opt-out
                * from the `--row-active` row wash, narrowed twice — first to
