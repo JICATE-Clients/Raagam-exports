@@ -41,6 +41,31 @@ export const runtime = "nodejs";
 /** The uFace 302 sends IST with no offset. */
 const DEVICE_TZ = "+05:30";
 
+/**
+ * WHICH ADMS ENDPOINT THIS IS, WITH ANY FILE EXTENSION STRIPPED.
+ *
+ * THE FIRMWARE DECIDES THE SPELLING, AND THIS ONE USES `.aspx`. The eSSL
+ * uFace 302 (Push Service 2.0.32S) posts to `/iclock/cdata.aspx` and
+ * `/iclock/getrequest.aspx` — the older ZKTeco convention, from when the
+ * reference server really was an ASP.NET page. Newer firmware drops the
+ * extension entirely.
+ *
+ * Matching on `pathname.endsWith("/cdata")` therefore missed every real
+ * punch, and missed it in the worst possible way: the request fell through to
+ * the catch-all, answered `200 OK`, and the device moved on believing it had
+ * delivered. Punches were refused nowhere and stored nowhere — the exact
+ * shape of failure this file's own comments warn about, "answering OK on a
+ * failure throws the punch away silently", arriving through the routing
+ * rather than the error handling (2026-10-23, live against the real device).
+ *
+ * So the endpoint is read as the last path SEGMENT with any extension
+ * removed, and never by matching the whole path.
+ */
+function endpointOf(pathname: string) {
+  const last = pathname.split("/").filter(Boolean).pop() ?? "";
+  return last.replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+}
+
 function text(body: string, status = 200) {
   return new Response(body, {
     status,
@@ -169,7 +194,7 @@ export async function GET(req: NextRequest) {
 
   const device = await touchDevice(sn, req.headers.get("x-device-ip"));
 
-  if (url.pathname.endsWith("/cdata")) {
+  if (endpointOf(url.pathname) === "cdata") {
     /**
      * `Realtime=1` is what makes this live — without it the device batches and
      * uploads on a timer. `Delay=30` is the heartbeat, and it is what the
@@ -226,7 +251,7 @@ export async function POST(req: NextRequest) {
 
   const device = await touchDevice(sn, req.headers.get("x-device-ip"));
 
-  if (url.pathname.endsWith("/cdata") && table === "ATTLOG") {
+  if (endpointOf(url.pathname) === "cdata" && table === "ATTLOG") {
     /**
      * A READER NOBODY APPROVED DOES NOT WRITE ATTENDANCE (0735). Refused with
      * a non-200 rather than acknowledged-and-dropped, so the device KEEPS the
