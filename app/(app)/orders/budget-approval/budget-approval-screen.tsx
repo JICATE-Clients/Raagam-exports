@@ -422,43 +422,42 @@ export function BudgetApprovalScreen({
     {
       header: "Customer / Style",
       cell: (r) => (
-        <span className="block max-w-[13rem]">
-          <Truncated className="block text-sm">{cardOf(r)?.customer ?? "—"}</Truncated>
+        <span className="block max-w-[11rem]">
+          <Truncated className="block">{cardOf(r)?.customer ?? "—"}</Truncated>
           {cardOf(r)?.styles ? (
             <Truncated className="block text-[11px] text-muted-foreground">{cardOf(r)!.styles!}</Truncated>
           ) : null}
         </span>
       ),
     },
+    /* QTY OVER SHIP, one column (client 2026-10-22: "innam compacted aa
+       venum, remove scroll bar") — the Customer / Style pattern again. Two
+       hugging columns were ~210px of a row that ran past the pane. */
     {
-      header: "Qty",
+      header: "Qty / Ship",
       align: "right",
       className: HUG,
       cell: (r) => {
         const q = cardOf(r)?.orderQty;
         // The order's own unit (PCS, SETS…), never a hard-coded "Pcs".
         const u = cardOf(r)?.orderUnit;
+        const d = cardOf(r)?.earliestShipment;
         return (
-          <span className="whitespace-nowrap tabular-nums text-sm">
-            {typeof q === "number" ? fmtNumber(q) : "—"}
-            {typeof q === "number" && typeof u === "string" && u ? (
-              <span className="text-xs text-muted-foreground"> {u}</span>
-            ) : null}
+          <span className="block whitespace-nowrap tabular-nums">
+            <span className="block">
+              {typeof q === "number" ? fmtNumber(q) : "—"}
+              {typeof q === "number" && typeof u === "string" && u ? (
+                <span className="text-muted-foreground"> {u}</span>
+              ) : null}
+            </span>
+            <span className="block text-[11px] text-muted-foreground">{d ? fmtDate(d) : "—"}</span>
           </span>
         );
       },
     },
     {
-      header: "Ship",
-      className: HUG,
-      cell: (r) => {
-        const d = cardOf(r)?.earliestShipment;
-        return <span className="tabular-nums text-sm">{d ? fmtDate(d) : "—"}</span>;
-      },
-    },
-    {
       header: "Merchandiser",
-      cell: (r) => <Truncated className="block max-w-[8rem] text-sm">{cardOf(r)?.merchandiser ?? "—"}</Truncated>,
+      cell: (r) => <Truncated className="block max-w-[8rem]">{cardOf(r)?.merchandiser ?? "—"}</Truncated>,
     },
     {
       header: "Version",
@@ -466,9 +465,11 @@ export function BudgetApprovalScreen({
       cell: (r) => {
         const rev = cardOf(r)?.revision;
         return rev ? (
-          <span className="text-xs">
-            <span className="font-mono">{rev.entryNo ?? "Revision"}</span>
-            {rev.revNo ? <span className="text-muted-foreground"> · Rev #{rev.revNo}</span> : null}
+          /* STACKED, entry no over Rev # (client 2026-10-22: no sideways
+             scroll) — side by side it was the widest cell in the row. */
+          <span className="block text-xs">
+            <span className="block whitespace-nowrap font-mono">{rev.entryNo ?? "Revision"}</span>
+            {rev.revNo ? <span className="block text-[11px] text-muted-foreground">Rev #{rev.revNo}</span> : null}
           </span>
         ) : (
           <span className="text-xs text-muted-foreground">V0</span>
@@ -479,13 +480,13 @@ export function BudgetApprovalScreen({
       header: "Submitted",
       className: HUG,
       cell: (r) => (
-        <span className="block text-sm">
+        <span className="block">
           {/* DATE AND TIME, NEVER "10 mins ago": an age needs `Date.now()` in
               the render, which the React Compiler refuses and a phone with a
               wrong clock would get wrong (same reason as `is_overdue`). */}
           <span className="whitespace-nowrap tabular-nums">{r.submitted_at ? fmtDateTime(r.submitted_at) : "—"}</span>
           {cardOf(r)?.submittedBy ? (
-            <span className="block text-[11px] text-muted-foreground">by {cardOf(r)!.submittedBy}</span>
+            <Truncated className="block max-w-[9rem] text-[11px] text-muted-foreground">{`by ${cardOf(r)!.submittedBy}`}</Truncated>
           ) : null}
         </span>
       ),
@@ -499,7 +500,7 @@ export function BudgetApprovalScreen({
       cell: (r) => {
         const c = cardOf(r);
         const m = c?.breakdown.ok ? c.breakdown.current.profitPct : (c?.kpis?.profit_pct ?? null);
-        if (m == null) return <span className="text-sm text-muted-foreground">—</span>;
+        if (m == null) return <span className="text-muted-foreground">—</span>;
         if (isRefusal(m)) {
           return (
             <Tooltip label={m.refused}>
@@ -509,7 +510,7 @@ export function BudgetApprovalScreen({
         }
         const low = m < MARGIN_TARGET_PCT;
         return (
-          <span className={cn("block text-right tabular-nums text-sm font-semibold", low ? "text-warning" : "text-success")}>
+          <span className={cn("block text-right tabular-nums font-semibold", low ? "text-warning" : "text-success")}>
             {m.toFixed(1)}%
             {low && <span className="block text-[10px] font-normal">below {MARGIN_TARGET_PCT}%</span>}
           </span>
@@ -558,7 +559,7 @@ export function BudgetApprovalScreen({
                 variant="ghost"
                 size="icon"
                 aria-label={`Request rework on ${label}`}
-                className="text-warning hover:bg-warning/10 hover:text-warning disabled:text-muted-foreground"
+                className="in-data-[density=compact]:h-7 in-data-[density=compact]:w-7 text-warning hover:bg-warning/10 hover:text-warning disabled:text-muted-foreground"
                 disabled={!decidable || isPending}
                 onClick={() => openFull(r)}
               >
@@ -570,7 +571,7 @@ export function BudgetApprovalScreen({
                 variant="ghost"
                 size="icon"
                 aria-label={`Approve ${label}`}
-                className="text-success hover:bg-success/10 hover:text-success disabled:text-muted-foreground"
+                className="in-data-[density=compact]:h-7 in-data-[density=compact]:w-7 text-success hover:bg-success/10 hover:text-success disabled:text-muted-foreground"
                 disabled={!decidable || isPending}
                 onClick={() => openFull(r)}
               >
@@ -580,7 +581,8 @@ export function BudgetApprovalScreen({
           </div>
         );
       },
-      "w-32",
+      // Three 28px icons, their gaps and the px-2 cell padding.
+      "w-28",
     ),
   ];
 
@@ -620,13 +622,19 @@ export function BudgetApprovalScreen({
           right={`${filtered.length} of ${rows.length}`}
         />
 
-        {/* AS WIDE AS ITS COLUMNS, not the pane (erp-table-fit skill, client
+        {/* FULL WIDTH since 2026-10-16 (user: "the sample entry table … over all
+            application"). WAS: as wide as its columns (erp-table-fit skill, client
             2026-09-28, screenshot 145600). */}
-        <div className="w-fit max-w-full">
+        <div>
         <DataTable
           columns={hugCreated(withCreatedColumns(columns, filtered))}
           rows={filtered}
           getKey={(r) => r.id}
+          /* `dense` (client 2026-10-22, "scroll aaga kudathu, compacted aa
+             venum"): px-2 cells and text-xs. Twelve columns at the default
+             px-3 / text-sm ran past the pane and hid Created User, Status and
+             the decisions behind a sideways scrollbar. */
+          dense
           empty={
             quick.value === "pending" && facets.activeCount === 0
               ? "Nothing is waiting for approval."

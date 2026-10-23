@@ -10,6 +10,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import type { FabricConsumption } from "@/lib/planning/material-planning-types";
 import type { MpStatus } from "@/lib/planning/material-planning-types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
 
 const MP_STATUS_LABELS: Record<MpStatus, string> = {
   draft: "Draft",
@@ -19,16 +20,7 @@ const MP_STATUS_LABELS: Record<MpStatus, string> = {
 };
 
 function mpStatusTone(status: MpStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 const columns: Column<FabricConsumption>[] = [

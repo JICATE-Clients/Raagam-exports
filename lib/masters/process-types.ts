@@ -64,14 +64,15 @@ export interface ProcessFabricStage {
   /** Is this process the stage's MANDATORY entry step? */
   is_base: boolean;
 }
-/** What kind of GARMENT process this is (0691) — sorts the Sample Costing
- *  pickers: CMT operations (Cutting, Stitching, Checking, Ironing, Packing …)
- *  versus Embellishments (Print, Embroidery, Wash, Sequin …). Optional: a
- *  process with no kind is simply in neither picker. */
-export const GARMENT_KINDS = ["cmt", "embellishment"] as const;
+/** What kind of GARMENT process this is (0691) — an Embellishment (Print,
+ *  Embroidery, Wash, Sequin …) is offered in Sample Costing's Embellishment
+ *  picker. Optional: a process with no kind is in no costing picker.
+ *  CMT OPERATIONS LEFT THIS MASTER IN 0735 (user 2026-10-17, "CMT is separate
+ *  process not inside process"): they live on Master Data ▸ Materials ▸ CMT
+ *  Processes (`cmt-process-types.ts`), so 'cmt' is no longer a kind here. */
+export const GARMENT_KINDS = ["embellishment"] as const;
 export type GarmentKind = (typeof GARMENT_KINDS)[number];
 export const GARMENT_KIND_LABEL: Record<GarmentKind, string> = {
-  cmt: "CMT operation",
   embellishment: "Embellishment",
 };
 
@@ -91,6 +92,8 @@ export interface Process {
   name: string;
   /** See `GARMENT_KINDS`. Meaningful only while `for_garments` is ticked. */
   garment_kind: GarmentKind | null;
+  /** ₹ per piece (0734), optional — pre-fills a costing line's blank rate. */
+  standard_rate: number | null;
   /** See `PROCESS_LAYOUTS`. Meaningful only while `for_fabric` is ticked. */
   layout: ProcessLayout | null;
   /* NO `short_description`. IT WAS HERE AND THE CLIENT REMOVED IT (2026-09-16,
@@ -254,6 +257,9 @@ export const processInput = z.object({
      (a `lib/data-io` import) must leave the stored kind alone, exactly as the
      system kind flags below are left alone. Only the Process form names it. */
   garment_kind: z.enum(GARMENT_KINDS).nullable().optional(),
+  /* `.optional()` for the same reason: an import that does not name it leaves
+     the stored rate alone (0734). */
+  standard_rate: z.coerce.number().nonnegative("Standard rate cannot be negative").nullable().optional(),
   /* `.optional()` for the same reason as `garment_kind`: an import that does not
      name the key leaves the stored layout alone. */
   layout: z.enum(PROCESS_LAYOUTS).nullable().optional(),

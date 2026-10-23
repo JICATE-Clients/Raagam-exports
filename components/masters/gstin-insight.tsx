@@ -52,7 +52,7 @@ export function GstinInsight({
       </p>
 
       {!decoded.checksumValid && (
-        <p className="flex items-center gap-1 text-amber-600 dark:text-amber-500">
+        <p className="flex items-center gap-1 text-warning">
           <TriangleAlert className="h-4 w-4 shrink-0" />
           {/* Party-neutral wording: this strip is shown on vendor, customer,
               consignee AND our own company profile, where "verify with the

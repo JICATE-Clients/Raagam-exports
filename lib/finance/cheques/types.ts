@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const CHEQUE_DIRECTIONS = ["outgoing", "incoming"] as const;
 export type ChequeDirection = (typeof CHEQUE_DIRECTIONS)[number];
@@ -26,19 +27,12 @@ export const CHEQUE_STATUS_LABELS: Record<ChequeStatus, string> = {
   bounced: "Bounced",
 };
 
+// Issued is a cheque's starting state (written, not yet banked), so it makes
+// no claim here — elsewhere "issued" means a document already out the door.
+const CHEQUE_TONES = { issued: "neutral" } as const;
+
 export function chequeStatusTone(status: ChequeStatus): StatusTone {
-  switch (status) {
-    case "issued":
-      return "neutral";
-    case "deposited":
-      return "info";
-    case "cleared":
-      return "success";
-    case "cancelled":
-      return "warning";
-    case "bounced":
-      return "danger";
-  }
+  return statusTone(status, CHEQUE_TONES);
 }
 
 export interface Cheque {

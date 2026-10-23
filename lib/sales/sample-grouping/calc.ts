@@ -242,7 +242,12 @@ export const sameSeasonYear = (
  * season is still refused: an SWO is bought for one season's samples.
  */
 export function groupingProblem(
-  picked: readonly (GroupKey & { label: string; kg: number | null; group_code: string | null })[],
+  picked: readonly (GroupKey & {
+    label: string;
+    kg: number | null;
+    group_code: string | null;
+    customer_id: string | null;
+  })[],
 ): string | null {
   if (picked.length === 0) return "Tick the styles to batch first.";
   const grouped = picked.find((c) => c.group_code);
@@ -254,6 +259,13 @@ export function groupingProblem(
   const first = picked[0];
   if (picked.some((c) => !sameSeasonYear(c, first))) {
     return "A group is one season — every style picked must share the Season and Year.";
+  }
+  // ONE CUSTOMER PER GROUP (user 2026-10-16): an SWO batches one buyer's
+  // samples — another customer's entries are never bought in the same lot.
+  const noCustomer = picked.find((c) => !c.customer_id);
+  if (noCustomer) return `${noCustomer.label} has no Customer — set it on Sample Entry first.`;
+  if (picked.some((c) => c.customer_id !== first.customer_id)) {
+    return "A group is one customer — every sample picked must be for the same Customer.";
   }
   return null;
 }

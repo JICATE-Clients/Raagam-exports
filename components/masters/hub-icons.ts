@@ -1,4 +1,5 @@
 import {
+  Scissors,
   Anchor,
   BadgeCheck,
   Banknote,
@@ -184,6 +185,7 @@ export const MASTER_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   compositions: { icon: ChartPie, tone: "success" },
   materials: { icon: Package, tone: "warning" },
   processes: { icon: Workflow, tone: "accent" },
+  "cmt-processes": { icon: Scissors, tone: "info" },
   components: { icon: Puzzle, tone: "danger" },
   "size-groups": { icon: Shirt, tone: "primary" },
   gauges: { icon: Gauge, tone: "info" },

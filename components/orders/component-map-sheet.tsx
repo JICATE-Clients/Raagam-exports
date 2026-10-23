@@ -1865,7 +1865,7 @@ export function ComponentMapBody({
                 instead. No "Actions" header: this grid has no ✕ column
                 (`hideRemove`, see below), and no `#` (`hideIndex`). Only THIS
                 table is marked — the rail beside it is cards, not a table. */}
-            <div data-grid-style="sheet" data-grid-fit="fill">
+            <div data-grid-style="sheet" data-grid-cells="flat" data-grid-fit="fill">
             <ChildGrid<MapLine>
               /* `fill` — THE SAME LOAD-BEARING PROP THE OUTER GRID CARRIES, AND
                  ITS ABSENCE HERE IS WHAT LEFT THE ✕ STRANDED AT THE PANE'S RIGHT

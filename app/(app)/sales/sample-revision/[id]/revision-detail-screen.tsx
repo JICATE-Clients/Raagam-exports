@@ -21,7 +21,7 @@ import {
   type CostingKpis,
   type SampleRevisionRow,
 } from "@/lib/sales/sample-revisions/types";
-import type { StatusTone } from "@/lib/ui/tone";
+import { statusTone } from "@/lib/ui/status-tone";
 
 /**
  * ONE SAMPLE REVISION (0716) — what it opens, where to make the change, the
@@ -34,14 +34,6 @@ import type { StatusTone } from "@/lib/ui/tone";
  * modules. Each opens with only the ticked modules editable; the database
  * refuses the rest.
  */
-
-const TONE: Record<SampleRevisionRow["status"], StatusTone> = {
-  draft: "warning",
-  pending: "info",
-  approved: "success",
-  rejected: "danger",
-  abandoned: "neutral",
-};
 
 const money = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -145,7 +137,7 @@ export function RevisionDetailScreen({
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-mono text-lg font-semibold">{rev.revision_code}</span>
-        <StatusPill tone={TONE[rev.status]}>{REVISION_STATUS_LABEL[rev.status]}</StatusPill>
+        <StatusPill tone={statusTone(rev.status)}>{REVISION_STATUS_LABEL[rev.status]}</StatusPill>
         <span className="text-sm text-muted-foreground">
           {`${rev.smp_no ?? "—"}${rev.customer_name ? ` · ${rev.customer_name}` : ""}${rev.style_names.length ? ` · ${rev.style_names.join(", ")}` : ""} · Rev ${rev.revision_no}`}
         </span>

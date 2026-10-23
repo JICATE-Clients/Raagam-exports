@@ -88,6 +88,24 @@ export function SilentUpdater(): null {
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
 
     const sw = navigator.serviceWorker;
+
+    // DEV NEVER RUNS UNDER A SERVICE WORKER. A production `npm run build`
+    // leaves `public/sw.js` behind, `next dev` serves it, and a browser that
+    // registered it keeps it across restarts — intercepting navigations and
+    // RSC fetches with a stale build's cache. It surfaced as the root "Page
+    // not found" on routes that exist (2026-10-21, /sales/sample-entry), the
+    // same worker next.config.ts records breaking sign-in (2026-08-31).
+    // Deleting the file cannot unregister an installed worker; this does.
+    if (process.env.NODE_ENV === "development") {
+      sw.getRegistrations()
+        .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+        .then((done) => {
+          if (done.some(Boolean) && sw.controller) window.location.reload();
+        })
+        .catch(() => {});
+      return;
+    }
+
     let disposed = false;
     let pending = false;
     let lastCheckAt = 0;

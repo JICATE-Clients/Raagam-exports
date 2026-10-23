@@ -150,35 +150,6 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
   const base = Math.max(drawn, sales);
   const maxPct = Math.max(1, ...slices.map((s) => (typeof s.pct === "number" ? s.pct : 0)));
 
-  // Arc positions, clockwise from 12 o'clock (the svg is rotated -90°). Each
-  // arc starts half a trim in, so its round cap sits inside its own share.
-  //
-  // A SMALL SLICE STILL GETS ROOM TO BE SEEN (user 2026-09-30, screenshot
-  // 3164: "that green is hidden from another colour behind"). Every arc gives
-  // back TRIM for its caps and gap, so a share shorter than TRIM — Trims &
-  // Accessories at 1.0% is ~5 units of a 503-unit ring against TRIM 26 —
-  // collapsed to a bare round cap sitting on its neighbours' caps, and the
-  // colour vanished under them. Each non-zero slice now spans at least
-  // MIN_SPAN (caps + gap + a visible stretch); the others give the difference
-  // back in proportion. The legend beside the ring prints every exact figure,
-  // so the ring only has to show that a slice EXISTS, never its precise size.
-  const MIN_SPAN = TRIM + 10;
-  const raw = slices.map((s) => (base > 0 ? (s.amount / base) * C : 0));
-  const total = raw.reduce((a, n) => a + n, 0);
-  const small = raw.map((n) => n > 0 && n < MIN_SPAN);
-  const lifted = small.filter(Boolean).length * MIN_SPAN;
-  const bigTotal = raw.reduce((a, n, i) => a + (small[i] ? 0 : n), 0);
-  // What the large slices keep, scaled so the ring still sums to what it drew.
-  const scale = bigTotal > 0 ? Math.max(0, total - lifted) / bigTotal : 1;
-  const spans = raw.map((n, i) => (n <= 0 ? 0 : small[i] ? MIN_SPAN : n * scale));
-
-  const arcs: (Slice & { start: number; len: number })[] = [];
-  let at = 0;
-  slices.forEach((s, i) => {
-    arcs.push({ ...s, start: at + TRIM / 2, len: Math.max(0.1, spans[i] - TRIM) });
-    at += spans[i];
-  });
-
   const focus = active ? slices.find((s) => s.key === active) : null;
   const money = typeof b.profit === "number" ? compactInr(b.profit) : "";
   const centre = focus
@@ -222,54 +193,15 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
                 left the legend ~100px and cut every figure to "37.". Below
                 `sm` the wide chart stacks exactly like the phone card. */}
             <div className={wide ? "flex flex-col gap-3.5 sm:flex-row sm:items-center sm:gap-6" : "contents"}>
-            <div className={cn("relative shrink-0 self-center", wide ? "size-[11rem] sm:size-[9.5rem]" : "size-[11rem]")} onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}>
-              <svg viewBox="0 0 200 200" className="size-full -rotate-90 overflow-visible" aria-hidden>
-                <circle cx="100" cy="100" r={R} fill="none" strokeWidth={STROKE} style={{ stroke: "var(--glass-track)" }} />
-                {arcs.map((a) => (
-                  <circle
-                    key={a.key}
-                    cx="100"
-                    cy="100"
-                    r={R}
-                    fill="none"
-                    stroke={COLOR[a.key]}
-                    strokeWidth={active === a.key ? STROKE + 6 : STROKE}
-                    strokeLinecap="round"
-                    strokeDasharray={`${a.len} ${C}`}
-                    strokeDashoffset={-a.start}
-                    className="viz-slice cursor-pointer transition-[opacity,stroke-width] duration-200"
-                    style={{
-                      opacity: active && active !== a.key ? 0.25 : 1,
-                      filter: `drop-shadow(0 0 ${active === a.key ? 10 : 4}px ${COLOR[a.key]})`,
-                    }}
-                    onPointerEnter={(e) => e.pointerType === "mouse" && setHover(a.key)}
-                    /* The pick is the chart's own: a card that opens on click
-                       (the approval card, the desktop page) must not ALSO
-                       open when a colour is tapped. */
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      pick(a.key);
-                    }}
-                  />
-                ))}
-              </svg>
-              {/* The frosted centre: the margin at rest, the pointed-at bucket otherwise. */}
-              <div
-                className="pointer-events-none absolute left-1/2 top-1/2 flex size-[6.25rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full text-center backdrop-blur-md"
-                style={{ background: "var(--glass-disc)", border: "1px solid var(--glass-edge)", boxShadow: "var(--glass-disc-shadow)" }}
-              >
-                <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                  {centre.label}
-                </span>
-                <span
-                  className={cn("text-[1.6rem] font-bold leading-[1.1] tracking-tight tabular-nums", centre.tone)}
-                  style={centre.color ? { color: centre.color } : undefined}
-                >
-                  {centre.value}
-                </span>
-                <span className={cn("text-[11px] tabular-nums text-muted-foreground", centre.tone)}>{centre.sub}</span>
-              </div>
-            </div>
+            <GlassRing
+              className={wide ? "size-[11rem] sm:size-[9.5rem]" : "size-[11rem]"}
+              slices={slices.map((s) => ({ key: s.key, amount: s.amount, color: COLOR[s.key] }))}
+              base={base}
+              active={active}
+              onHover={(k) => setHover(k as Slice["key"] | null)}
+              onPick={(k) => pick(k as Slice["key"])}
+              centre={centre}
+            />
 
             {/* THE LEGEND — every value in text, each bucket's share as a slim
                 glowing bar on one scale. Pointing at a row lifts its slice. */}
@@ -311,7 +243,124 @@ function ShareBar({ b, wide = false }: { b: BudgetBreakdown; wide?: boolean }) {
   );
 }
 
-function LegendRow({
+/**
+ * THE GLASS RING ITSELF — round-capped arcs with a surface gap, each glowing in
+ * its own colour, and a frosted disc in the centre. Pulled out of `ShareBar`
+ * (2026-10-16) so the Sample Cost Sheet's Charts tab draws THIS ring rather than
+ * a copy of it (user, pointing at this chart: "have one chart round like this").
+ * Controlled: the caller owns hover / pin, because both callers link the ring to
+ * rows beside it. Markup and arithmetic are exactly what `ShareBar` drew.
+ */
+export type GlassRingSlice = { key: string; amount: number; color: string };
+export type GlassRingCentre = { label: string; value: string; sub: string; color?: string; tone?: string };
+
+export function GlassRing({
+  slices,
+  base,
+  active,
+  onHover,
+  onPick,
+  centre,
+  className,
+  discClassName = "size-[6.25rem]",
+}: {
+  slices: GlassRingSlice[];
+  /** What a full turn stands for — the slices may sum to less (a loss leaves bare track). */
+  base: number;
+  active: string | null;
+  onHover: (key: string | null) => void;
+  onPick: (key: string) => void;
+  centre: GlassRingCentre;
+  /** The ring's size, e.g. `size-[11rem]`. */
+  className?: string;
+  /** The frosted disc's size — 100px on the approval ring at both of its sizes. */
+  discClassName?: string;
+}) {
+  // Arc positions, clockwise from 12 o'clock (the svg is rotated -90°). Each
+  // arc starts half a trim in, so its round cap sits inside its own share.
+  //
+  // A SMALL SLICE STILL GETS ROOM TO BE SEEN (user 2026-09-30, screenshot
+  // 3164: "that green is hidden from another colour behind"). Every arc gives
+  // back TRIM for its caps and gap, so a share shorter than TRIM — Trims &
+  // Accessories at 1.0% is ~5 units of a 503-unit ring against TRIM 26 —
+  // collapsed to a bare round cap sitting on its neighbours' caps, and the
+  // colour vanished under them. Each non-zero slice now spans at least
+  // MIN_SPAN (caps + gap + a visible stretch); the others give the difference
+  // back in proportion. The legend beside the ring prints every exact figure,
+  // so the ring only has to show that a slice EXISTS, never its precise size.
+  const MIN_SPAN = TRIM + 10;
+  const raw = slices.map((s) => (base > 0 ? (s.amount / base) * C : 0));
+  const total = raw.reduce((a, n) => a + n, 0);
+  const small = raw.map((n) => n > 0 && n < MIN_SPAN);
+  const lifted = small.filter(Boolean).length * MIN_SPAN;
+  const bigTotal = raw.reduce((a, n, i) => a + (small[i] ? 0 : n), 0);
+  // What the large slices keep, scaled so the ring still sums to what it drew.
+  const scale = bigTotal > 0 ? Math.max(0, total - lifted) / bigTotal : 1;
+  const spans = raw.map((n, i) => (n <= 0 ? 0 : small[i] ? MIN_SPAN : n * scale));
+
+  const arcs: (GlassRingSlice & { start: number; len: number })[] = [];
+  let at = 0;
+  slices.forEach((s, i) => {
+    arcs.push({ ...s, start: at + TRIM / 2, len: Math.max(0.1, spans[i] - TRIM) });
+    at += spans[i];
+  });
+
+  return (
+    <div className={cn("relative shrink-0 self-center", className)} onPointerLeave={(e) => e.pointerType === "mouse" && onHover(null)}>
+      <svg viewBox="0 0 200 200" className="size-full -rotate-90 overflow-visible" aria-hidden>
+        <circle cx="100" cy="100" r={R} fill="none" strokeWidth={STROKE} style={{ stroke: "var(--glass-track)" }} />
+        {arcs.map((a) => (
+          <circle
+            key={a.key}
+            cx="100"
+            cy="100"
+            r={R}
+            fill="none"
+            stroke={a.color}
+            strokeWidth={active === a.key ? STROKE + 6 : STROKE}
+            strokeLinecap="round"
+            strokeDasharray={`${a.len} ${C}`}
+            strokeDashoffset={-a.start}
+            className="viz-slice cursor-pointer transition-[opacity,stroke-width] duration-200"
+            style={{
+              opacity: active && active !== a.key ? 0.25 : 1,
+              filter: `drop-shadow(0 0 ${active === a.key ? 10 : 4}px ${a.color})`,
+            }}
+            onPointerEnter={(e) => e.pointerType === "mouse" && onHover(a.key)}
+            /* The pick is the chart's own: a card that opens on click
+               (the approval card, the desktop page) must not ALSO
+               open when a colour is tapped. */
+            onClick={(e) => {
+              e.stopPropagation();
+              onPick(a.key);
+            }}
+          />
+        ))}
+      </svg>
+      {/* The frosted centre: the caller's resting figure, the pointed-at slice otherwise. */}
+      <div
+        className={cn(
+          "pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full text-center backdrop-blur-md",
+          discClassName,
+        )}
+        style={{ background: "var(--glass-disc)", border: "1px solid var(--glass-edge)", boxShadow: "var(--glass-disc-shadow)" }}
+      >
+        <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          {centre.label}
+        </span>
+        <span
+          className={cn("text-[1.6rem] font-bold leading-[1.1] tracking-tight tabular-nums", centre.tone)}
+          style={centre.color ? { color: centre.color } : undefined}
+        >
+          {centre.value}
+        </span>
+        <span className={cn("text-[11px] tabular-nums text-muted-foreground", centre.tone)}>{centre.sub}</span>
+      </div>
+    </div>
+  );
+}
+
+export function LegendRow({
   color,
   label,
   pct,

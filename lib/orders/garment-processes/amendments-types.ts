@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const GP_AMENDMENT_TYPES = [
   "add",
@@ -20,14 +21,7 @@ export const GP_AMENDMENT_STATUSES = ["pending", "approved", "rejected"] as cons
 export type GpAmendmentStatus = (typeof GP_AMENDMENT_STATUSES)[number];
 
 export function gpAmendmentStatusTone(status: GpAmendmentStatus): StatusTone {
-  switch (status) {
-    case "pending":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface GarmentProcessAmendment {

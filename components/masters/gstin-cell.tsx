@@ -102,7 +102,7 @@ export function GstinCell({
 
           {!decoded.checksumValid && (
             <span
-              className="flex items-center gap-0.5 text-amber-600 dark:text-amber-500"
+              className="flex items-center gap-0.5 text-warning"
               title="The check digit does not match — this number has a typo in it. Verify it against the GST certificate."
             >
               <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
@@ -116,7 +116,7 @@ export function GstinCell({
               — the field it contradicts is not editable here. */}
           {supplyMismatch && (
             <span
-              className="flex items-center gap-0.5 text-amber-600 dark:text-amber-500"
+              className="flex items-center gap-0.5 text-warning"
               title={`This GSTIN is ${
                 decoded.supply === "intra" ? "within our state" : "another state"
               }, but the record says ${expectLabel ?? "otherwise"}.`}

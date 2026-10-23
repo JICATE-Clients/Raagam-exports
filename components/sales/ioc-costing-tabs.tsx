@@ -79,7 +79,7 @@ function StyleCostsSummaryTab({ styleCosts, costSheetId, opportunityId, currency
     { header: "Trims", align: "right", cell: (r) => <span className="tabular-nums">{fmtMoney(r.trims_cost, currency)}</span> },
     { header: "CMT", align: "right", cell: (r) => <span className="tabular-nums">{fmtMoney(r.cmt_cost, currency)}</span> },
     { header: "Total", align: "right", cell: (r) => <span className="tabular-nums font-semibold">{fmtMoney(r.expenses_total, currency)}</span> },
-    { header: "P/L %", align: "right", cell: (r) => <span className={`tabular-nums ${r.profit_loss_pct >= 0 ? "text-green-600" : "text-red-600"}`}>{r.profit_loss_pct.toFixed(1)}%</span> },
+    { header: "P/L %", align: "right", cell: (r) => <span className={`tabular-nums ${r.profit_loss_pct >= 0 ? "text-success" : "text-danger"}`}>{r.profit_loss_pct.toFixed(1)}%</span> },
     ...(canEdit
       ? [
           rowActionsColumn<IocStyleCost>((r) => (

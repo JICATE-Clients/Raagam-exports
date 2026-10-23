@@ -20,17 +20,27 @@ const PRIMARY =
 
 /*
  * `ty-btn-*` are NEW LOOK markers (the topbar switch, app/globals.css): they
- * style nothing on their own. `approve` is therefore identical to `primary`
- * in the standard look and turns solid green only under New look, where green
- * is reserved for success — an Approve is the one ordinary button that says so.
+ * add sheen and press states, never the colour itself.
+ *
+ * `approve` IS GREEN IN BOTH LOOKS (2026-10-16). It used to borrow PRIMARY and
+ * turn green only under New look — and inside the Raagam skin it never turned
+ * green at all, because the skin repaints any `bg-primary` button with its
+ * pastel-blue gradient. Green is reserved for success, and an Approve is the
+ * one ordinary button that says so, so it no longer carries `bg-primary`.
+ *
+ * `danger` and `approve` fill with the `*-solid` tokens, not `bg-danger` /
+ * `bg-success`: those are TEXT colours, and dark `--danger` under white text
+ * is 2.77:1.
  */
 const variants: Record<Variant, string> = {
   primary: `ty-btn-solid ty-btn-primary ${PRIMARY}`,
-  approve: `ty-btn-solid ty-btn-approve ${PRIMARY}`,
+  approve:
+    "ty-btn-solid ty-btn-approve bg-success-solid text-white hover:bg-success-solid-hover shadow-sm font-bold",
   outline:
     "ty-btn-outline border border-border bg-surface text-foreground hover:bg-surface-muted font-semibold",
   ghost: "ty-btn-ghost text-foreground hover:bg-surface-muted",
-  danger: "ty-btn-solid ty-btn-danger bg-danger text-white hover:opacity-90 shadow-sm font-bold",
+  danger:
+    "ty-btn-solid ty-btn-danger bg-danger-solid text-white hover:bg-danger-solid-hover shadow-sm font-bold",
   subtle: "ty-btn-subtle bg-surface-muted text-foreground hover:bg-border",
 };
 

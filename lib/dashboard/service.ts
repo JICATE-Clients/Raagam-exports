@@ -560,6 +560,7 @@ export async function getTrends(
   const slices: StatusSlice[] = [];
   let total = 0;
   if (coreData) {
+    // status-tone: exempt -- chart SLICE colours (accent / primary / info), not pill tones
     const tones: Record<string, StatusSlice["tone"]> = {
       confirmed: "accent",
       in_production: "primary",

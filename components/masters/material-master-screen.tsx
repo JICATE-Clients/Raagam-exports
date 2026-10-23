@@ -14,7 +14,8 @@ import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useBlockAction } from "@/components/masters/use-block-action";
@@ -2314,7 +2315,7 @@ export function MaterialMasterScreen({
           getKey={(r) => r.id}
           title={(r) => r.name}
           meta={(r) => (r.item_class_id ? classLabel.get(r.item_class_id) ?? null : null)}
-          pill={(r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>}
+          pill={(r) => <StatusPill tone={activeTone(r.is_active)}>{r.is_active ? "Active" : "Inactive"}</StatusPill>}
           onView={(r) => setViewRow(r)}
           onEdit={perms.canEdit ? openEdit : undefined}
           canDelete={perms.canDelete}

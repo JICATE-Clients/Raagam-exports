@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, Download, FileSpreadsheet } from "lucide-react";
+import { Upload, FileSpreadsheet, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu } from "@/components/ui/download-menu";
 import { useToast } from "@/components/ui/toast";
 import { getIoEntity } from "@/lib/data-io/entities";
 import { exportEntity, downloadTemplate } from "@/lib/data-io/export";
@@ -34,7 +35,6 @@ export function DataIoToolbar({
 }) {
   const { error: toastError } = useToast();
   const [importOpen, setImportOpen] = useState(false);
-  const [downloadOpen, setDownloadOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const entity = getIoEntity(entityKey);
 
@@ -74,45 +74,16 @@ export function DataIoToolbar({
         </>
       )}
 
+      {/* The shared Download menu (user 2026-10-16, "globally fix") — this screen's
+          hand-rolled one was the shape the rest of the app now copies. */}
       {canExport && (
-        <div className="relative">
-          <Button
-            variant="outline"
-            size="md"
-            disabled={busy}
-            onClick={() => setDownloadOpen((o) => !o)}
-          >
-            <Download />
-            Download
-          </Button>
-          {downloadOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setDownloadOpen(false)} />
-              <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-md border border-border bg-surface p-1 shadow-lg">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded px-3 py-2 text-sm text-foreground hover:bg-surface-muted"
-                  onClick={() => {
-                    setDownloadOpen(false);
-                    run(() => exportEntity(entity, exportRows, "xlsx"), "export Excel");
-                  }}
-                >
-                  Excel (.xlsx)
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded px-3 py-2 text-sm text-foreground hover:bg-surface-muted"
-                  onClick={() => {
-                    setDownloadOpen(false);
-                    run(() => exportEntity(entity, exportRows, "csv"), "export CSV");
-                  }}
-                >
-                  CSV
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        <DownloadMenu
+          disabled={busy}
+          formats={[
+            { label: "Excel (.xlsx)", icon: FileSpreadsheet, run: () => run(() => exportEntity(entity, exportRows, "xlsx"), "export Excel") },
+            { label: "CSV", icon: FileText, run: () => run(() => exportEntity(entity, exportRows, "csv"), "export CSV") },
+          ]}
+        />
       )}
 
       {canImport && (

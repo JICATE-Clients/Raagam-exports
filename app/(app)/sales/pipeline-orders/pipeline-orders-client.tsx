@@ -18,10 +18,9 @@ import { Select } from "@/components/ui/select";
 import { createPipelineOrder, confirmPipelineOrder, deletePipelineOrder, createSeasonalOrder, deleteSeasonalOrder, addPipelineStyle, deletePipelineStyle, addPipelineDyeColor, deletePipelineDyeColor } from "@/lib/sales/pipeline-actions";
 import type { PipelineOrderRow } from "@/lib/sales/pipeline-service";
 import type { SeasonalOrder } from "@/lib/sales/pipeline-types";
-import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
-const STATUS_TONE: Record<string, StatusTone> = { draft: "neutral", confirmed: "success", cancelled: "danger" };
 
 function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
   const router = useRouter();
@@ -96,7 +95,7 @@ function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
     { header: "Order No", cell: (r) => r.order_no ?? "—" },
     { header: "Season", cell: (r) => [r.season, r.season_yr].filter(Boolean).join(" ") || "—" },
     { header: "Category", cell: (r) => r.order_category ?? "—" },
-    { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill> },
     /*
      * Confirm is a WORKFLOW step, not row CRUD, so it keeps its own labelled
      * column rather than hiding in the action cell's ⋮ — it is the whole point
@@ -245,7 +244,7 @@ function SeasonalTab({ rows }: { rows: SeasonalOrder[] }) {
     { header: "Style", cell: (r) => r.style_no ?? "—" },
     { header: "Season", cell: (r) => [r.season, r.season_yr].filter(Boolean).join(" ") || "—" },
     { header: "Order No", cell: (r) => r.order_no ?? "—" },
-    { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill> },
     rowActionsColumn((r) => (
       <RowActions
         label={r.order_no}

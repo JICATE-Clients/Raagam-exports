@@ -29,6 +29,7 @@
  * the same function the save calls. The preview is the stored figure.
  */
 
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Boxes, CalendarRange, ClipboardList, Layers, Users, Workflow } from "lucide-react";
@@ -56,6 +57,9 @@ import { loadSwoCostingTrims, type SwoSampleTrims } from "@/lib/orders/iwo-mater
 import { createdMeta, hasCreatedInfo, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
+import { GlowRecordCard, sharedPrefix, sharedValue } from "@/app/(app)/sales/sample-costing/costing-card";
+import { CardAction, CardDeleteAction, DUO } from "@/components/ui/card-action";
+import { GLOW_RULE } from "@/lib/ui/buyer-glow";
 import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import {
   createdByFacet,
@@ -416,8 +420,20 @@ export function IwoMaterialBomScreen({
     onPick: () => listFacets.set("bom", ""),
     countRows: base,
   });
+  /* CARD VIEW / LIST VIEW (user 2026-10-16) — the tab's own default until the
+     operator picks; then this screen keeps the pick. Above every early return. */
+  const viewMode = useViewMode("iwo-material-bom", quick.value === "updated" ? "list" : "cards");
   const qm = quick.matches;
   const listed = useMemo(() => base.filter(qm), [base, qm]);
+  /* THE COSTING CARD'S "EACH WORD ONCE" (user 2026-10-23: accessories cards like
+     Costing's): the SWO / SMP series prefix and the delivery year every card in
+     the pile shares are left off the card. A plain pass — cheap, no memo. */
+  const cardShared = {
+    swo: sharedPrefix(listed.map((t) => t.swo?.code ?? t.code)),
+    smp: sharedPrefix(listed.flatMap((t) => t.swo?.smp_nos ?? [])),
+    year: sharedValue(listed.map((t) => t.deli_date?.slice(0, 4))),
+  };
+  const stripPrefix = (v: string | null | undefined, prefix: string) => (v && prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
   const materialById = useMemo(() => new Map(data.materials.map((m) => [m.id, m])), [data.materials]);
   const uomById = useMemo(() => new Map(data.uoms.map((u) => [u.id, u])), [data.uoms]);
@@ -1635,6 +1651,7 @@ export function IwoMaterialBomScreen({
           actions={perms.canCreate ? <Button onClick={() => openNew(null)}>+ New Accessories Plan</Button> : undefined}
         />
         <FilterBar
+          trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
           leading={quick.segment}
           search={listQuery}
           onSearch={setListQuery}
@@ -1667,6 +1684,16 @@ export function IwoMaterialBomScreen({
               return "neutral";
             }}
             // A saved sample plan's word is its APPROVAL (0720).
+            // The labels are composite ("Approved · Rev 2"), so the icon reads the status itself.
+            mark={(t) =>
+              !t.bom || t.bom.is_draft || t.bom.approval_status === "returned"
+                ? "todo"
+                : t.bom.approval_status === "approved"
+                  ? "done"
+                  : t.bom.approval_status === "submitted"
+                    ? "wait"
+                    : "todo"
+            }
             pillText={(t) =>
               !t.bom ? "Not started" : t.bom.is_draft ? "Draft" : planApprovalLabel(t.bom.approval_status, t.bom.revision_no)
             }
@@ -1687,7 +1714,67 @@ export function IwoMaterialBomScreen({
             isPending={isPending}
             // Updated is done work — a table, as Orders draws it; Pending and
             // Draft stay cards (user 2026-10-13).
-            table={quick.value === "updated" ? { title: "SWO No", subtitle: "SMP No" } : undefined}
+            table={{ title: "SWO No", subtitle: "SMP No" }}
+            /* THE COSTING CARD (user 2026-10-23: "accessories plan la irukka cards um
+               costing la irukka mari venum") — `GlowRecordCard`, the body Costing's
+               card is drawn from: the SWO number in its chip, the SMP numbers beside
+               the initials, the plan's state as the sub-line (said once, in words —
+               no corner mark), the figures with no label row, and the actions as
+               one spread row of duotone tiles. A greyed tile says why. */
+            renderCard={(t) => {
+              const stateWord = !t.bom ? "Not started" : t.bom.is_draft ? "Draft" : planApprovalLabel(t.bom.approval_status, t.bom.revision_no);
+              const deli = t.deli_date ? (cardShared.year ? fmtDate(t.deli_date).slice(0, 5) : fmtDate(t.deli_date)) : "—";
+              const deleteWhy = !t.bom
+                ? "Not planned yet — nothing to delete"
+                : t.bom.approval_status === "submitted"
+                  ? "With the approver — it cannot be deleted"
+                  : t.bom.approval_status === "approved"
+                    ? "Approved — it cannot be deleted"
+                    : null;
+              return (
+                <GlowRecordCard
+                  code={stripPrefix(t.swo?.code ?? t.code, cardShared.swo) ?? "—"}
+                  title={(t.swo?.smp_nos ?? []).map((n) => stripPrefix(n, cardShared.smp)).join(" · ") || "—"}
+                  hue={t.swo?.code ?? t.code}
+                  sub={stateWord}
+                  start={!t.bom && perms.canCreate ? "Start plan" : undefined}
+                  figures={[
+                    ...(t.bom ? [{ label: "Trims", value: `${t.bom.iwo_material_bom_items.length} trims` }] : []),
+                    { label: "Delivery date", value: deli },
+                  ]}
+                  onOpen={t.bom || perms.canCreate ? () => openTask(t) : undefined}
+                  footer={
+                    <div className={cn("mx-3 flex min-h-10 items-center justify-between gap-1 py-1", GLOW_RULE)}>
+                      <CardAction
+                        label="Reports"
+                        tone="violet"
+                        icon={DUO.doc}
+                        reason={!t.bom || t.bom.is_draft ? "Nothing to report on yet — save the plan first" : null}
+                        onClick={() => t.bom && router.push(planReportHref("accessories", t.bom.id))}
+                      />
+                      <CardAction
+                        label="Send for approval"
+                        tone="primary"
+                        icon={DUO.send}
+                        reason={
+                          canSendPlan(t)
+                            ? null
+                            : !t.bom || t.bom.is_draft
+                              ? "Save the plan first"
+                              : !perms.canEdit
+                                ? "Needs the edit permission"
+                                : "Already with the approver, or approved"
+                        }
+                        disabled={isPending}
+                        onClick={() => sendPlan(t)}
+                      />
+                      {perms.canDelete ? <CardDeleteAction reason={deleteWhy} isPending={isPending} onConfirm={() => del(t)} /> : null}
+                    </div>
+                  }
+                />
+              );
+            }}
+        view={viewMode.view}
             empty={
               !tasks.length
                 ? "No accessories plans at this unit yet — + New Accessories Plan, then pick the SWO."

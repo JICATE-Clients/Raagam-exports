@@ -48,6 +48,7 @@ type StyleDb = {
     season_id: string | null;
     season_year: number | null;
     is_draft: boolean | null;
+    customer_id: string | null;
     season_row: { season_name: string | null } | { season_name: string | null }[] | null;
     customer: { name: string | null } | { name: string | null }[] | null;
     agent: { name: string | null } | { name: string | null }[] | null;
@@ -75,7 +76,9 @@ type CostDb = {
 };
 
 /** The SWO's Fabric Plan as the cutting basis reads it (0707). */
-type PlanBom = { lines: { sample_style_id: string | null; req_kgs: Num }[] | null };
+type PlanStatus = "open" | "submitted" | "approved" | "returned";
+type PlanBom = { approval_status: PlanStatus | null; lines: { sample_style_id: string | null; req_kgs: Num }[] | null };
+type AccBom = { approval_status: PlanStatus | null };
 
 type GroupDb = {
   id: string;
@@ -101,6 +104,7 @@ type GroupDb = {
     | { code: string | null; bom: PlanBom | PlanBom[] | null }
     | { code: string | null; bom: PlanBom | PlanBom[] | null }[]
     | null;
+  acc: { bom: AccBom | AccBom[] | null } | { bom: AccBom | AccBom[] | null }[] | null;
   items:
     | {
         id: string;
@@ -123,7 +127,7 @@ async function readStyles(): Promise<StyleDb[]> {
     .from("styles")
     .select(
       "id, opportunity_id, sample_no, name, sample_qty, gsm, " +
-        "opp:opportunities!opportunity_id(id, code, season, season_id, season_year, is_draft, " +
+        "opp:opportunities!opportunity_id(id, code, season, season_id, season_year, is_draft, customer_id, " +
         "season_row:seasons!season_id(season_name), customer:customers!customer_id(name), agent:master_vendors!agent_id(name)), " +
         "combos:style_combos(sizes:style_combo_sizes(garment_size, order_qty)), " +
         "files:sample_style_files(sno, storage_path, mime_type)",
@@ -170,7 +174,10 @@ async function readGroups(): Promise<GroupDb[]> {
         "cutting_waste_pct, net_required_weight_kg, moq_purchased_weight_kg, status, iwo_id, remarks, description, created_at, created_by, " +
         // The plan's SMP rows — the cutting basis (user 2026-10-12). One FK each
         // way (iwo_fabric_boms.iwo_id is unique), so the embeds are unambiguous.
-        "iwo:internal_work_orders!iwo_id(code, bom:iwo_fabric_boms(lines:iwo_fabric_bom_lines(sample_style_id, req_kgs))), " +
+        "iwo:internal_work_orders!iwo_id(code, bom:iwo_fabric_boms(approval_status, lines:iwo_fabric_bom_lines(sample_style_id, req_kgs))), " +
+        // The Accessories Plan's approval only — it locks the samples too
+        // (samplesLockedReason). Named FK: the table has two to work orders.
+        "acc:internal_work_orders!accessories_iwo_id(bom:iwo_material_boms(approval_status)), " +
         "items:sample_group_items(id, style_id, sample_entry_id, fabric_structure_id, blend_key, component_name, sample_qty_pcs, calculated_weight_kg, allocated_fabric_kg, created_at)",
     )
     .order("created_at", { ascending: true });
@@ -295,6 +302,7 @@ export async function getGroupingData(): Promise<GroupingData> {
         sample_no: st.sample_no,
         style_name: st.name ?? "",
         thumb_url: thumbs.get(st.id) ?? null,
+        customer_id: o.customer_id,
         customer: one(o.customer)?.name ?? null,
         agent: one(o.agent)?.name ?? null,
         season: seasonOf(o),
@@ -334,6 +342,7 @@ export async function getGroupingData(): Promise<GroupingData> {
           enquiry_no: st?.opp?.code ?? null,
           sample_no: st?.sample_no ?? null,
           style_name: st?.name ?? "",
+          customer_id: st?.opp?.customer_id ?? null,
           customer: one(st?.opp?.customer)?.name ?? null,
           fabric_structure_id: it.fabric_structure_id,
           fabric_structure: live?.fabric_structure ?? null,
@@ -365,6 +374,8 @@ export async function getGroupingData(): Promise<GroupingData> {
       iwo_id: g.iwo_id,
       iwo_code: one(g.iwo)?.code ?? null,
       plan_kg_by_style: planKgByStyle(one(g.iwo)?.bom ?? null),
+      fabric_plan_status: one(one(g.iwo)?.bom ?? null)?.approval_status ?? null,
+      accessories_plan_status: one(one(g.acc)?.bom ?? null)?.approval_status ?? null,
       remarks: g.remarks,
       description: g.description,
       created_at: g.created_at,

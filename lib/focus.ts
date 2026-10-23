@@ -26,6 +26,11 @@ export type NavKeyEvent = {
   altKey?: boolean;
   /** Only `cycleTab` reads this — Shift+Tab walks the cycle backwards. */
   shiftKey?: boolean;
+  /** Only a `Toggle`'s Enter reads this — a held key must not arm its pause twice. */
+  repeat?: boolean;
+  /** Only `listHop` reads these — a modified arrow belongs to the shortcut layer. */
+  ctrlKey?: boolean;
+  metaKey?: boolean;
 };
 
 /**
@@ -276,19 +281,48 @@ export function registerContentEdge(
   };
 }
 
-function contentEdgeFor(root: HTMLElement): ((dir: 1 | -1) => boolean) | undefined {
-  for (let el: HTMLElement | null = root; el; el = el.parentElement) {
+/**
+ * EVERY PANE ON THE WAY OUT, INNERMOST FIRST (2026-10-16, Enter across tabs).
+ *
+ * The walk used to start at the SCOPE and return the first registration it met,
+ * which was enough while `MasterFullScreen` was the only thing that registered —
+ * its pane IS the scope. A document's `Tabs` panel sits INSIDE a scope (Sample
+ * Entry's style tabs inside the Styles section, Order Entry's tabs inside a
+ * page), so a walk from the scope could never see it. It now starts at the FIELD
+ * (`from`), and offers the move to each pane outward until one takes it: the
+ * last field of style 1 opens style 2; off the last style, the tabs decline and
+ * the section rail opens Product Info; off the last section everything has
+ * declined and the save ladder runs, exactly as before. `from` defaults to the
+ * scope, so a caller that does not pass it walks exactly the old path.
+ *
+ * `to` IS THE FIELD THE KEY WOULD OTHERWISE REACH, and it is what makes a pane
+ * an edge when the scope still has fields after it. A tab block followed by more
+ * fields in the same section never runs out of "next field", so without this the
+ * last field of tab 1 handed Enter straight to the field BELOW the block and tabs
+ * 2…n were skipped. With it, only the panes the move would LEAVE are asked — the
+ * walk stops at the first ancestor that also holds `to` — so a move that stays
+ * inside a pane never asks that pane, and the section rail (which holds both) is
+ * never asked mid-section.
+ */
+function contentEdgeFor(
+  root: HTMLElement,
+  from: HTMLElement = root,
+  to?: HTMLElement,
+): ((dir: 1 | -1) => boolean) | undefined {
+  const fns: ((dir: 1 | -1) => boolean)[] = [];
+  for (let el: HTMLElement | null = from; el; el = el.parentElement) {
+    if (to && el.contains(to)) break;
     const fn = paneEdges.get(el);
-    if (fn) return fn;
+    if (fn) fns.push(fn);
     // AN OVERLAY OWNS ITS OWN LAST FIELD. `Sheet` and the picker panels
     // createPortal to <body>, so they are already out of reach of an editor
     // pane's registration — but a dialog rendered in place would otherwise
     // switch the section of the editor BEHIND its own scrim when the operator
     // pressed Enter off its last field. Stop at the overlay instead, and the
     // save ladder takes over as it does on any standalone surface.
-    if (el.matches('[role="dialog"], [aria-modal="true"]')) return undefined;
+    if (el.matches('[role="dialog"], [aria-modal="true"]')) break;
   }
-  return undefined;
+  return fns.length ? (dir) => fns.some((fn) => fn(dir)) : undefined;
 }
 
 /**
@@ -301,6 +335,22 @@ function contentEdgeFor(root: HTMLElement): ((dir: 1 | -1) => boolean) | undefin
  * everywhere; ↓, Space and click open the picker.
  */
 const FIELD_TRIGGER = "[data-field-trigger]";
+
+/**
+ * `[data-enter-opens]` — A FIELD WHOSE ONLY VALUE IS WHAT IT OPENS (user
+ * 2026-10-16, Sample Entry ▸ Styles ▸ Files: "I click the Enter key, it went to
+ * the next field").
+ *
+ * A picker trigger takes Enter as "next field" because it has a value to step
+ * past and ↓ to open it. An UPLOAD button has neither: there is nothing typed to
+ * move on from and no list for ↓ to unfold, so Enter is the key an operator
+ * presses on it, and moving away is the surprise. On this marker Enter is left
+ * to the browser — the button's own click opens the file dialog — and the
+ * required hold lets it through (`keyFills`), so a blank mandatory upload opens
+ * on Enter instead of caging the cursor. Tab and ↓ are unchanged: Tab still
+ * moves on, ↓ still opens. Declared on the control, never guessed from it.
+ */
+const ENTER_OPENS = "[data-enter-opens]";
 
 /**
  * `[data-focus-optional]` — AN OPT-IN CONTROL, OFF THE DEFAULT TYPING PATH.
@@ -340,6 +390,8 @@ const FIELD_TRIGGER = "[data-field-trigger]";
  * described above — the arrows' `fieldsIn` is untouched and ← → still reach the box.
  */
 const OFF_TAB_PATH = "[data-focus-optional]";
+/** A table's blank end row, kept ready in place of a "+ Add" button — see `enterAdvances`. */
+const ROW_TAIL = "[data-row-tail]";
 
 /**
  * True for a control that Tab and Enter must step over. See `OFF_TAB_PATH`.
@@ -681,6 +733,8 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   const isTrigger = t instanceof HTMLElement && t.matches(FIELD_TRIGGER);
   if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement || isTrigger)) return;
   if (t instanceof HTMLInputElement && /^(button|submit|reset)$/.test(t.type)) return;
+  // Enter OPENS this one — the native click does it (see ENTER_OPENS).
+  if (t.matches(ENTER_OPENS)) return;
   // A TICK BOX IS THE ONE FIELD WHERE ENTER DOES NOT MOVE: it ticks. Enter has no
   // native meaning on a checkbox, so "advance" would make it a dead key again —
   // which is what it was before 2026-07-28, when it instead fell through and
@@ -712,12 +766,51 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
     e.preventDefault();
     tickBox?.click(); // same path Space and a mouse take, so onChange fires normally
   };
+  // A `Toggle` or a tick box (ENTER_TIMED) waits before it flips, and Enter
+  // Enter moves on instead — see `startTimedTick`. Armed only where a field follows and the
+  // surface can commit; the last field keeps the save ladder, a filter bar keeps
+  // "toggle only".
+  const tickThenAdvance = (nextField: HTMLElement | undefined) => {
+    if (tickBox?.matches(ENTER_TIMED) && nextField && root) {
+      e.preventDefault();
+      if (timedTick?.el === tickBox) {
+        // The second Enter inside the gap: move on, nothing flipped.
+        timedTick.cancel();
+        if (regionOf(tickBox) === "content" && contentEdgeFor(root, tickBox, nextField)?.(1)) return;
+        focusField(nextField);
+        return;
+      }
+      if (!e.repeat) startTimedTick(tickBox);
+      return;
+    }
+    tick();
+  };
 
   // NOT OUR KEY unless this surface could actually commit. A list page's filter
   // box has no footer, no registered "save" and no submit button — Enter there
   // must reach the browser untouched, exactly as it did before. This used to be
   // enforced at the end (preventDefault only when the save found a target);
   // advancing happens first, so the test has to happen first too.
+  // TEMP DIAGNOSTIC (2026-10-22, toggle Enter) — remove once found.
+  if (tickBox) {
+    const dbgItems = root ? regionItems(root, t) : [];
+    const dbgNext = root ? itemsAfter(dbgItems, t).find((el) => isFieldLike(el) && !isOffTabPath(el)) : undefined;
+    const dbgLine = JSON.stringify({
+      id: tickBox.id,
+      timed: tickBox.matches(ENTER_TIMED),
+      root: root ? `${root.tagName}#${root.id}.${root.className.toString().slice(0, 40)}` : null,
+      canSubmit: canSubmitSurface(root, hooks),
+      region: regionOf(t),
+      located: dbgItems.indexOf(t),
+      optIn: isOffTabPath(t),
+      next: dbgNext ? `${dbgNext.tagName}#${dbgNext.id}[${dbgNext.getAttribute("aria-label") ?? ""}]` : null,
+      pending: !!timedTick,
+      prevented: e.defaultPrevented,
+      path: typeof location !== "undefined" ? location.pathname : "",
+    });
+    console.info("[enter-toggle]", dbgLine);
+    void fetch("/api/dev-enter-log", { method: "POST", body: dbgLine }).catch(() => {});
+  }
   if (!root || !canSubmitSurface(root, hooks)) {
     // Same predicate, `canSubmit: false` — the rule lives in ONE function so the
     // vectors in `check-keyboard-holds.mts` exercise the branch that runs, not a
@@ -743,7 +836,14 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   // the FIRST field of Order Info, the RE No, handed over to the next section,
   // and on the last section it would have gone on to Save. Absent from the tab
   // order is not the same fact as last on the surface.
-  const next = itemsAfter(items, t).find((el) => isFieldLike(el) && !isOffTabPath(el));
+  //
+  // A TABLE'S BLANK END ROW IS LEFT IN ONE KEY (`data-row-tail`, Costing 5 2026-10-21).
+  // Where a table keeps one blank row ready instead of a "+ Add" button, Enter on that
+  // row before anything is typed skips its other cells and lands on whatever follows the
+  // table. Typing into the row makes it a line and the marker comes off, so from then on
+  // Enter walks it like any row. Opt-in by marker; nothing else changes.
+  const tail = t instanceof HTMLElement ? t.closest<HTMLElement>(ROW_TAIL) : null;
+  const next = itemsAfter(items, t).find((el) => isFieldLike(el) && !isOffTabPath(el) && !tail?.contains(el));
   if (
     enterTicks({
       tickBox: !!tickBox,
@@ -753,11 +853,14 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
       optIn: t instanceof HTMLElement && isOffTabPath(t),
     })
   ) {
-    tick();
+    tickThenAdvance(next);
     return;
   }
   if (next) {
     e.preventDefault();
+    // The next field is outside the TAB this one is in: open the next tab
+    // instead of walking past the rest of them (see `contentEdgeFor`'s `to`).
+    if (regionOf(t) === "content" && contentEdgeFor(root, t, next)?.(1)) return;
     // focusField, NOT .focus() — a bare focus leaves the caret at 0 and → then
     // refuses to leave the field until the whole value has been walked. See the
     // note on focusField.
@@ -770,7 +873,7 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   //    Gated on the CONTENT region, the same condition `cycleTab` applies — a
   //    field that happens to live in a footer is at the end of the footer, not
   //    at the end of the section's data.
-  if (regionOf(t) === "content" && contentEdgeFor(root)?.(1)) {
+  if (regionOf(t) === "content" && contentEdgeFor(root, t)?.(1)) {
     e.preventDefault();
     return;
   }
@@ -791,6 +894,148 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   // inside a <form> is an implicit browser submit. A tick box's Enter must never
   // reach the browser, whether or not our save found anywhere to land.
   if (submitSurface(root, hooks) || tickBox) e.preventDefault();
+}
+
+/**
+ * `[data-enter-timed]` — A SWITCH ANSWERS ENTER LIKE A GRID'S "+ Add" (user
+ * 2026-10-22, pointing at Colour / Print's "+ Add yarn dyeing": the same keys
+ * as `enterOnRowAdd`).
+ *
+ * The first Enter waits `ENTER_TOGGLE_MS` with a bar draining under the switch:
+ * let it run out and the switch flips, the cursor staying on it; press Enter
+ * again inside the gap and nothing flips — the cursor goes to the next field.
+ * Any other key (Tab, an arrow, Space) or leaving the field cancels with
+ * nothing flipped — a timer must never change a switch the operator has walked
+ * away from. Declared on `Toggle`'s input.
+ *
+ * A TICK BOX ANSWERS THE SAME WAY (user 2026-10-22, Accessories Plan's size
+ * ticks: "double enter panna pakkathu field kku pora mari … one enter panna
+ * antha field tick aaganum"). One rule for every yes/no box, so a ticked grid
+ * row and a switch on a form cannot answer Enter differently. A RADIO is not
+ * in it: ↑/↓ already select in a group (see `ownsArrowKeys`).
+ *
+ * Replaces 2026-10-17's "flip at once, then move on by itself after 2 s", and
+ * the same-day "flip at once, the next Enter moves on", which the user tried
+ * and turned down for this.
+ */
+const ENTER_TIMED = '[data-enter-timed], input[type="checkbox"]';
+/** The same gap as `ENTER_ADD_MS`, so both double-Enters feel alike. */
+export const ENTER_TOGGLE_MS = 500;
+
+let timedTick: { el: HTMLElement; cancel: () => void } | null = null;
+
+function startTimedTick(el: HTMLElement) {
+  timedTick?.cancel();
+  const cancel = () => {
+    if (timedTick?.el !== el) return;
+    clearTimeout(timer);
+    el.removeAttribute("data-enter-pending");
+    el.removeEventListener("keydown", onKey, true);
+    el.removeEventListener("blur", cancel);
+    timedTick = null;
+  };
+  // Enter is the second press (it arrives through `enterAdvances`); every other
+  // key is the operator taking over.
+  const onKey = (ev: KeyboardEvent) => {
+    if (ev.key !== "Enter") cancel();
+  };
+  // On the wrapper, not the input: the bar is the input's SIBLING, so a custom
+  // property set on the input would never reach it.
+  el.parentElement?.style.setProperty("--enter-ms", `${ENTER_TOGGLE_MS}ms`);
+  el.setAttribute("data-enter-pending", "");
+  el.addEventListener("keydown", onKey, true);
+  el.addEventListener("blur", cancel);
+  const timer = setTimeout(() => {
+    cancel();
+    if (!el.isConnected) return;
+    el.click(); // same path Space and a mouse take, so onChange fires normally
+  }, ENTER_TOGGLE_MS);
+  timedTick = { el, cancel };
+}
+
+/**
+ * ENTER ON "+ ADD" ADDS; ENTER ENTER MOVES ON (user 2026-10-21, option D of
+ * "Colour / Print ▸ Dyeing — four ways to cross with Enter").
+ *
+ * Off the last row the cursor already stands on the grid's "+ Add" (2026-08-19),
+ * and from there the only key that reached the NEXT table was Tab — Enter could
+ * only add. Now the first Enter waits `ENTER_ADD_MS` with a bar draining under
+ * the button: let it run out and the row is added exactly as a click adds it;
+ * press Enter again inside the gap and nothing is added — the cursor goes to the
+ * next field after the grid (Yarn Dyeing → Fabric Dyeing row 1), or hands over
+ * to the next pane when the grid is the last thing in it.
+ *
+ * Only where there IS somewhere to go: a "+ Add" with nothing after it adds at
+ * once, as before, so the wait is never paid for a jump that cannot happen. Any
+ * other key, or leaving the button, cancels with nothing added — a timer must
+ * never grow a grid the operator has already walked away from.
+ */
+export const ENTER_ADD_MS = 500;
+
+let pendingAdd: { el: HTMLElement; cancel: () => void } | null = null;
+
+/** Where Enter Enter on this "+ Add" goes, or null when nothing follows it. */
+function rowAddExit(root: HTMLElement, btn: HTMLElement): (() => void) | null {
+  const next = itemsAfter(regionItems(root, btn), btn).find((x) => isFieldLike(x) && !isOffTabPath(x));
+  const content = regionOf(btn) === "content";
+  if (next) {
+    return () => {
+      if (content && contentEdgeFor(root, btn, next)?.(1)) return;
+      focusField(next);
+    };
+  }
+  const edge = content ? contentEdgeFor(root, btn) : undefined;
+  return edge ? () => void edge(1) : null;
+}
+
+/** Claims Enter on a grid's "+ Add" for the add-or-move pause. True = handled. */
+export function enterOnRowAdd(e: KeyboardEvent, root: HTMLElement | null): boolean {
+  if (e.key !== "Enter" || e.defaultPrevented || e.shiftKey || e.altKey) return false;
+  const btn = e.target;
+  if (!(btn instanceof HTMLElement) || !root || !isRowAddControl(btn)) return false;
+  if ((btn as HTMLButtonElement).disabled || btn.getAttribute("aria-disabled") === "true") return false;
+
+  // The second Enter: move instead of adding.
+  if (pendingAdd?.el === btn) {
+    e.preventDefault();
+    pendingAdd.cancel();
+    rowAddExit(root, btn)?.();
+    return true;
+  }
+  if (e.repeat) {
+    e.preventDefault();
+    return true;
+  }
+  if (!rowAddExit(root, btn)) return false; // nowhere to go: native Enter adds at once
+
+  e.preventDefault();
+  pendingAdd?.cancel();
+  const cancel = () => {
+    if (pendingAdd?.el !== btn) return;
+    clearTimeout(timer);
+    btn.removeAttribute("data-enter-pending");
+    btn.removeEventListener("keydown", onKey, true);
+    btn.removeEventListener("blur", cancel);
+    pendingAdd = null;
+  };
+  const onKey = (ev: KeyboardEvent) => {
+    if (ev.key !== "Enter") cancel();
+  };
+  btn.style.setProperty("--enter-ms", `${ENTER_ADD_MS}ms`);
+  btn.setAttribute("data-enter-pending", "");
+  btn.addEventListener("keydown", onKey, true);
+  btn.addEventListener("blur", cancel);
+  const timer = setTimeout(() => {
+    cancel();
+    if (!btn.isConnected) return;
+    // The same two steps a trusted click takes (keyboard-nav-provider): snapshot
+    // the grid, then click. `.click()` is untrusted, so the provider's click
+    // listener stands down and this is the only landing.
+    landOnAddedRow(btn);
+    btn.click();
+  }, ENTER_ADD_MS);
+  pendingAdd = { el: btn, cancel };
+  return true;
 }
 
 /** Does Enter TICK this control rather than move on from it?
@@ -1025,6 +1270,8 @@ export type FillProbe = {
   /** Inside a `data-grid-row` — where `gridKeyNav` owns all four arrows and
    *  every one of them is a MOVE. The date branch below stands down on it. */
   inGrid: boolean;
+  /** Carries `data-enter-opens` — Enter opens it rather than leaving it. */
+  enterOpens?: boolean;
 };
 
 /**
@@ -1044,6 +1291,8 @@ export function keyFills(p: FillProbe, key: string): boolean {
   if (listOpen && (arrowY || key === "Enter")) return true;
   // A CLOSED list opens on ↓ — the only keyboard route to reaching a value.
   if (hasList && key === "ArrowDown") return true;
+  // An upload opens on Enter too: opening it is filling it (ENTER_OPENS).
+  if (p.enterOpens && key === "Enter") return true;
   // A native <select> has no popup to expand: ↑/↓ change the value in place, so
   // they are its entire keyboard interface. (The touch / SSR / multiple /
   // uncontrolled branch of components/ui/select.tsx.)
@@ -1098,6 +1347,7 @@ export function probeOf(el: HTMLElement): FillProbe {
     fieldTrigger: el.matches(FIELD_TRIGGER),
     inputType: el instanceof HTMLInputElement ? el.type.toLowerCase() : null,
     inGrid: !!el.closest("[data-grid-row]"),
+    enterOpens: el.matches(ENTER_OPENS),
   };
 }
 
@@ -1411,7 +1661,7 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
    * down.
    */
   if (!next) {
-    if (regionOf(t) === "content" && contentEdgeFor(root)?.(forward ? 1 : -1)) {
+    if (regionOf(t) === "content" && contentEdgeFor(root, t)?.(forward ? 1 : -1)) {
       e.preventDefault();
       return true;
     }
@@ -1829,7 +2079,12 @@ export function cycleTab(
   // mean there is no next field in this section — which is precisely where a rail
   // editor hands over to the next one.
   const wrapped = dir === 1 ? nextIdx <= idx : nextIdx >= idx;
-  if (wrapped && regionOf(items[idx]) === "content" && contentEdgeFor(root)?.(dir)) {
+  if (wrapped && regionOf(items[idx]) === "content" && contentEdgeFor(root, items[idx])?.(dir)) {
+    return true;
+  }
+  // Not off the surface, but off the TAB this field is in — same hand-off as
+  // Enter's, so Tab and Enter cannot disagree about where a tab ends.
+  if (!wrapped && regionOf(items[idx]) === "content" && contentEdgeFor(root, items[idx], items[nextIdx])?.(dir)) {
     return true;
   }
   /**
@@ -1850,4 +2105,81 @@ export function cycleTab(
     if (at === nextIdx) break; // all the way round
   }
   return true;
+}
+
+/**
+ * ←/→ BETWEEN A FORM, ITS LIST AND THE SECTION RAIL (user 2026-10-22,
+ * Accessories Plan, then Budget ▸ Purchase Rates: "left key press panna inga
+ * varanum … double left … intha field kku varanum").
+ *
+ * A screen with a list beside its form marks the list `data-md-list` and each
+ * entry `data-md-list-item`, the open one `aria-current="true"` — `ChildGrid`'s
+ * master-detail rail does, and so does any hand-built list (Budget's kind
+ * cards). One rule for all of them, here, so a list is never keyboard-correct
+ * on one screen and not on the next:
+ *
+ * - ← on a FIELD at the form's left edge — caret at the start, no field to its
+ *   left on the same line — goes to the list's open entry;
+ * - ← on a list entry goes to the editor's open section on its rail
+ *   (`MasterFullScreen`'s `nav[role="tablist"]`), so ← ← walks field → list →
+ *   section;
+ * - → on a list entry goes back into the form, to its first field.
+ *
+ * Returns true when it moved the cursor. Called by the keyboard provider ahead
+ * of the spatial arrows; a grid that moves within its own row claims the key
+ * first, so this only ever sees a ← nothing nearer wanted.
+ */
+export function listHop(e: NavKeyEvent): boolean {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
+  if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+  const t = e.target;
+  if (!(t instanceof HTMLElement)) return false;
+  const visible = (el: HTMLElement) => el.offsetParent !== null;
+
+  const item = t.closest<HTMLElement>("[data-md-list-item]");
+  if (item) {
+    if (e.key === "ArrowLeft") {
+      for (let up = item.parentElement; up; up = up.parentElement) {
+        const current = up.querySelector<HTMLElement>('nav[role="tablist"] [aria-current="true"]');
+        if (!current) continue;
+        if (!visible(current)) return false;
+        e.preventDefault();
+        current.focus();
+        return true;
+      }
+      return false;
+    }
+    const list = item.closest<HTMLElement>("[data-md-list]");
+    for (let up = list?.parentElement ?? null; up; up = up.parentElement) {
+      const first = focusablesIn(up).find(
+        (el) => !list!.contains(el) && isFieldLike(el) && !isOffTabPath(el),
+      );
+      if (!first) continue;
+      if (!focusField(first)) return false;
+      e.preventDefault();
+      return true;
+    }
+    return false;
+  }
+
+  if (e.key !== "ArrowLeft" || !isFieldLike(t) || !atCaretEdge(t, "prev")) return false;
+  // The nearest ancestor holding a list that is not this field's own.
+  for (let up = t.parentElement; up; up = up.parentElement) {
+    const list = Array.from(up.querySelectorAll<HTMLElement>("[data-md-list]")).find((l) => !l.contains(t));
+    if (!list) continue;
+    const open = list.querySelector<HTMLElement>('[data-md-list-item][aria-current="true"]');
+    if (!open || !visible(open)) return false;
+    // A field to the left on the same line? Then ← belongs to it.
+    const r = t.getBoundingClientRect();
+    const leftward = focusablesIn(up).some((f) => {
+      if (f === t || list.contains(f) || !isFieldLike(f)) return false;
+      const fr = f.getBoundingClientRect();
+      return fr.right <= r.left + 1 && fr.top < r.bottom && fr.bottom > r.top;
+    });
+    if (leftward) return false;
+    e.preventDefault();
+    open.focus();
+    return true;
+  }
+  return false;
 }

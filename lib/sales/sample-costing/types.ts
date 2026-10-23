@@ -22,7 +22,6 @@ import {
   num,
   yarnMixTotal,
   quoteKey,
-  sizesOf,
   trimCostPerPiece,
   type CostingInput,
   type ExtraChargeInput,
@@ -105,12 +104,15 @@ export type PieceDraft = {
   cmt: string;
   /** Direct rate ticked = the flat `cmt`; unticked = the CMT operation lines. */
   cmt_direct: boolean;
-  /** CMT operations and Embellishments, picked from the Process master by
-   *  `processes.garment_kind` (0691). The old fixed Print / Embroidery / Wash
-   *  columns are no longer written or read. */
+  /** CMT operations (from the CMT Process master, 0735) and Embellishments
+   *  (from the Process master by `processes.garment_kind`, 0691). `process_id`
+   *  holds whichever master's id the line's kind names. The old fixed Print /
+   *  Embroidery / Wash columns are no longer written or read. */
   lines: PieceLineDraft[];
   testing_cost: string;
   bank_cost: string;
+  /** 0736: Sampling cost ₹ / pc. Optional: a draft from before it reads as blank. */
+  sample_cost?: string;
 };
 
 export type PieceLineKind = "cmt" | "embellishment";
@@ -149,7 +151,7 @@ export type WeightDraft = {
   length_cm: string;
   width_cm: string;
   gsm: string;
-  /** Wastage Allowance % (0690). The factory stamps the spec's 3 — see `isBlankWeight`. */
+  /** Wastage Allowance % (0690). Stored, not priced since 2026-10-17 — see calc.ts `WeightInput`. */
   wastage_pct: string;
 };
 
@@ -188,7 +190,7 @@ export type CostingDraft = {
   fabrics: FabricDraft[];
   weights: WeightDraft[];
   trims: TrimDraft[];
-  /** Quoted price per `quoteKey(piece.key, size_name)`. */
+  /** Quoted price per `quoteKey(piece.key, null)` — one per piece, for every size. */
   quotes: Record<string, string>;
   /** The Overheads and Price & quote "+ Add" rows (0695). */
   extras: ExtraChargeDraft[];
@@ -271,11 +273,11 @@ export const isBlankProcess = (p: FabricProcessDraft) => !p.process_id && !fille
 export const isBlankYarn = (y: YarnMixDraft) => !y.item_id && !filled(y.yarn_name) && !filled(y.mix_pct) && !filled(y.rate);
 
 /**
- * NOT `wastage_pct`: the factory stamps the spec's default 3 % (UI/UX spec
- * §4.3, "Default 3%"), so testing it would make every untouched row look
- * typed — the constant-`true` clause AGENTS.md "THE SEEDED ROW IS SAVED UNLESS
- * THE SAVE SIDE DROPS IT" warns about. A row is real once the operator types
- * something they have to type.
+ * NOT `wastage_pct`: rows saved before 2026-10-17 carry the old factory
+ * default of 3 %, and the column is no longer typed or priced, so testing it
+ * would make an untouched row look typed — the constant-`true` clause AGENTS.md
+ * "THE SEEDED ROW IS SAVED UNLESS THE SAVE SIDE DROPS IT" warns about. A row is
+ * real once the operator types something they have to type.
  *
  * NOT `size_name` either (0693): the sizes are COLUMNS the operator chose, and
  * every line of the sheet is written once per column, so a size on a row says
@@ -526,6 +528,7 @@ export const costingDraftSchema = z.object({
         ),
         testing_cost: numStr,
         bank_cost: numStr,
+        sample_cost: numStr.optional(),
       }),
     )
     .min(1, "A costing needs at least one garment piece."),
@@ -590,13 +593,12 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
   const pieceIndex = new Map(d.pieces.map((p, i) => [p.key, i]));
   const fabricIndex = new Map(live.fabrics.map((f, i) => [f.key, i]));
   const rate = num(d.header.exchange_rate);
-  const quotes = d.pieces.flatMap((p, pi) =>
-    sizesOf(live.weights).map((g) => ({
-      piece_index: pi,
-      size_name: g,
-      quoted_price: (d.quotes[quoteKey(p.key, g)] ?? "").trim(),
-    })),
-  );
+  // ONE quote per piece, for every size (2026-10-17): sizes live in the Fabric tab only.
+  const quotes = d.pieces.map((p, pi) => ({
+    piece_index: pi,
+    size_name: null,
+    quoted_price: (d.quotes[quoteKey(p.key, null)] ?? "").trim(),
+  }));
 
   return {
     header: {
@@ -643,6 +645,7 @@ export function toCostingPayload(d: CostingDraft, opts: { isDraft: boolean; pare
         .map((l) => ({ kind: l.kind, process_id: l.process_id, process_name: caps(l.process_name), rate: l.rate.trim() })),
       testing_cost: p.testing_cost.trim(),
       bank_cost: p.bank_cost.trim(),
+      sample_cost: (p.sample_cost ?? "").trim(),
     })),
     fabrics: live.fabrics.map((f) => ({
       fabric_id: f.fabric_id,

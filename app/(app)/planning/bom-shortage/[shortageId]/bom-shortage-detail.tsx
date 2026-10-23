@@ -29,6 +29,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { fmtDate, fmtNumber, fmtMoney } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { statusTone } from "@/lib/ui/status-tone";
 
 // ---------- types ----------
 
@@ -42,16 +43,7 @@ const BOM_STATUS_LABELS: Record<BomStatus, string> = {
 };
 
 function bomStatusTone(status: BomStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 // ---------- Item line form ----------

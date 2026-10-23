@@ -49,7 +49,7 @@ export async function updateDivision(id: string, data: DivisionInput): Promise<R
 export async function deleteDivision(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const res = await deleteOrDeactivate(s, "divisions", id, "blocked");
+  const res = await deleteOrDeactivate(s, "divisions", id, "inactive");
   if (!res.ok) return fail(res.error);
   rev();
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };

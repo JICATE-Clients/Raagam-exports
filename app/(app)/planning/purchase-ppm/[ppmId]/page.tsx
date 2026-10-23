@@ -7,6 +7,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { PpmStatus } from "@/lib/planning/ppm-types";
 import { PurchasePpmDetail } from "./purchase-ppm-detail";
+import { statusTone } from "@/lib/ui/status-tone";
 
 const PPM_STATUS_LABELS: Record<PpmStatus, string> = {
   draft: "Draft",
@@ -16,16 +17,7 @@ const PPM_STATUS_LABELS: Record<PpmStatus, string> = {
 };
 
 function ppmStatusTone(status: PpmStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export default async function PurchasePpmDetailPage({

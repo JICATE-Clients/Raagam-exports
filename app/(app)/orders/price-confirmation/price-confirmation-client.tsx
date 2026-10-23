@@ -20,10 +20,9 @@ import { ITEM_CLASS_TYPES, PROCESS_TYPES } from "@/lib/orders/pricing-types";
 import { RecordPicker } from "@/components/masters/record-picker";
 import type { OrderOption } from "@/lib/orders/order-options";
 import type { PriceConfirmationRow } from "@/lib/orders/pricing-service";
-import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
-const STATUS_TONE: Record<string, StatusTone> = { draft: "neutral", confirmed: "success", amended: "warning", cancelled: "danger" };
 
 // ---------------------------------------------------------------------------
 // Purchase Item Inline Add (reused for yarn/fabric/accessories)
@@ -211,7 +210,7 @@ export function PriceConfirmationClient({
     { header: "Code", cell: (r) => <button type="button" className="font-mono text-xs text-primary hover:underline" onClick={() => setSelectedId(selectedId === r.id ? null : r.id)}>{r.code ?? "—"}</button> },
     { header: "Order", cell: (r) => <span className="text-xs">{r.order_code ?? "—"}</span> },
     { header: "Amendment", align: "right", cell: (r) => <span className="tabular-nums">{r.amendment_sno}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill> },
     { header: "Created", cell: (r) => <span className="text-xs tabular-nums">{fmtDate(r.created_at)}</span> },
     {
       /* Confirm / Amend are workflow — labelled column, Delete moves to the

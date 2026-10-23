@@ -10,16 +10,16 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { NewRfqForm } from "./new-rfq-form";
 import type { Rfq, RfqStatus } from "@/lib/purchase/types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const RFQ_STATUS_TONE_OVERRIDES = {
+  // Open is a live document here, already in motion, not an untouched one (was info before the shared table, kept).
+  open: "info",
+  awarded: "success", // this module's own word — not in the shared table
+} as const;
 
 function rfqStatusTone(status: RfqStatus): StatusTone {
-  switch (status) {
-    case "open":
-      return "info";
-    case "closed":
-      return "neutral";
-    case "awarded":
-      return "success";
-  }
+  return statusTone(status, RFQ_STATUS_TONE_OVERRIDES);
 }
 
 const RFQ_STATUS_LABELS: Record<RfqStatus, string> = {

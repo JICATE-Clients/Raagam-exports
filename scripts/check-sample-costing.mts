@@ -21,6 +21,7 @@ import {
   yarnRateOf,
   solveTarget,
   targetImpact,
+  fabricBySize,
   fabricKgFor,
   trimCostPerPiece,
   type CostingInput,
@@ -197,16 +198,29 @@ eq(
   4,
 );
 
-// SIZES (0693) — a row with no size (the rib, or a legacy row) adds to every size
-const sized = costingSummary({
-  ...base,
-  weights: [w("top", "flat", "162", "M"), w("top", "flat", "258", "L"), w("top", "flat", "40")],
-});
-eq("sizes: two costed", sized.groups.length, 2);
-eq("sizes: M fabric = 162 + 40", sized.groups[0].pieces[0].fabric, 202);
-eq("sizes: L fabric = 258 + 40", sized.groups[1].pieces[0].fabric, 298);
-eq("sizes: the group is keyed by the size NAME", sized.groups[1].size === "L", true);
-eq("sizes: a quote is keyed by piece × size name", costingSummary({ ...base, weights: [w("top", "flat", "162", "M")], quotes: { "top|M": "5" } }).groups[0].pieces[0].quoted, 5);
+// SIZES LIVE IN THE FABRIC TAB ONLY (client 2026-10-17). A row with no size (the rib, or a
+// legacy row) adds to every size; each size's fabric is worked out, then AVERAGED — a simple
+// mean — and everything downstream is costed ONCE on it: one group, size null.
+const sizedIn = { ...base, weights: [w("top", "flat", "162", "M"), w("top", "flat", "258", "L"), w("top", "flat", "40")] };
+const sized = costingSummary(sizedIn);
+eq("sizes: ONE group, whatever the sizes", sized.groups.length, 1);
+eq("sizes: the group is every size (null)", sized.groups[0].size, null);
+eq("sizes: fabric = avg(M 162+40, L 258+40) = 250", sized.groups[0].pieces[0].fabric, 250);
+eq("sizes: Fabric tab still shows M = 202", fabricBySize(sizedIn)[0].fabric, 202);
+eq("sizes: Fabric tab still shows L = 298", fabricBySize(sizedIn)[1].fabric, 298);
+eq("sizes: CMT is costed once, not per size", sized.groups[0].pieces[0].cmt, costingSummary({ ...base, weights: [w("top", "flat", "250")] }).groups[0].pieces[0].cmt);
+eq("sizes: costing on the avg = costing the avg grams", sized.groups[0].total.net, costingSummary({ ...base, weights: [w("top", "flat", "250")] }).groups[0].total.net);
+// The meeting's own case: M 34 g, L 43 g → Avg PCS Wgt 38.50 g.
+eq("sizes: avg piece weight M 34 / L 43 = 38.5 g", fabricKgFor([w("top", "flat", "34", "M"), w("top", "flat", "43", "L")], null) * 1000, 38.5, 2);
+// Multi-size with the old 3 % saved on every row: no size is charged it.
+// M = 202, L = 298 at ₹1/g → avg 250 — not × 1.03 (257.50).
+const sized3 = costingSummary({ ...sizedIn, weights: sizedIn.weights.map((x) => ({ ...x, wastage_pct: "3" })) });
+eq("sizes + stored 3 %: avg fabric = 250", sized3.groups[0].pieces[0].fabric, 250);
+eq("sizes + stored 3 %: L fabric kg = 0.298", fabricKgFor([w("top", "flat", "258", "L"), w("top", "flat", "40")].map((x) => ({ ...x, wastage_pct: "3" })), "L"), 0.298, 3);
+// One quote per piece for every size; a size-keyed quote is no longer read by the engine
+// (the loader averages old ones onto the piece — service.ts).
+eq("sizes: the quote is keyed by piece alone", costingSummary({ ...sizedIn, quotes: { [quoteKey("top", null)]: "5" } }).groups[0].pieces[0].quoted, 5);
+eq("sizes: a size-keyed quote is not read", costingSummary({ ...sizedIn, quotes: { "top|M": "5" } }).groups[0].pieces[0].quoted, null);
 
 // UI/UX round (0690) ------------------------------------------------------------
 // Yarn Mix: 60 % @ 295 + 40 % @ 180 = 177 + 72 = 249 — and it replaces the typed rate.
@@ -214,8 +228,11 @@ const blend = fabric({ key: "b", yarn_rate: "999", yarns: [{ mix_pct: "60", rate
 eq("ui §4.2 yarn mix weighted rate", yarnRateOf(blend), 249);
 eq("ui §4.2 mix total", yarnMixTotal(blend), 100);
 eq("ui §4.2 finishing joins the subtotal", fabricSubtotal(fabric({ key: "f", yarn_rate: "100", finishing_rate: "8" })), 108);
-// Wastage allowance: 582.40 / 1000 × 162 × 1.03 = 97.18
-eq("ui §4.3 wastage allowance", componentCost({ ...w("p", "f1", "162"), wastage_pct: "3" }, [brushBack]), 97.18);
+// No cutting allowance on the fabric row (2026-10-17): cutting waste is the Garment
+// Rejection % on the summary, so a stored 3 % must NOT price — 582.40 / 1000 × 162 = 94.35,
+// not × 1.03 = 97.18. The meeting's own figure: 240 g at ₹529.10/kg = ₹126.98, not ₹130.79.
+eq("fabric row: a stored 3 % allowance does not price", componentCost({ ...w("p", "f1", "162"), wastage_pct: "3" }, [brushBack]), 94.35);
+eq("fabric row: 240 g at 529.10 / kg", componentCost({ ...w("p", "d", "240"), wastage_pct: "3" }, [fabric({ key: "d", is_direct: true, direct_rate: "529.10" })]), 126.98);
 // The UI spec's own rail: Net 175.70, Wastage 5 % 8.79, Overhead 3 % 5.27 → Gross Cost 189.76
 const rail = costingSummary({
   pieces: [piece({ key: "r", cmt: "175.70" })],
@@ -245,7 +262,7 @@ eq("P2.4 cost cut to reach 20 %", tgt?.costCut ?? null, 7.25);
 eq("P2.4 cut per kg of fabric", tgt?.perKgFabric ?? null, 61.44);
 // Feeding the solved margin back as the quoted price reproduces the target.
 eq("P2.4 round-trip", costingSummary({ ...base, quotes: { [quoteKey("top", null)]: "3.10" } }).groups[0].pieces[0].effectiveMarginPct, 15.83);
-eq("P2.4 fabric kg incl. allowance", fabricKgFor([{ ...w("p", "f", "100"), wastage_pct: "3" }], null), 0.103, 3);
+eq("P2.4 fabric kg ignores the stored allowance", fabricKgFor([{ ...w("p", "f", "100"), wastage_pct: "3" }], null), 0.1, 3);
 // 2026-10-14 negotiation read-out — calc 3.3364 at 25 %; the buyer says $3.40 at rate 83.
 // ₹/pc = (3.40 − 3.3364) × 83 = 5.28; margin at 3.40 = (282.20 − 3 − 220.42) ÷ 214 = 27.47 % → +2.47 pts.
 const imp = targetImpact({ net: 214, calc: 3.3364 }, base.terms, 3.4, 1);

@@ -18,10 +18,9 @@ import { fmtDate, fmtMoney } from "@/lib/format";
 import { createCatalogue, deleteCatalogue, createPriceList, deletePriceList, createPiEnquiry, deletePiEnquiry, addCatalogueStyle, addCataloguePackType, addPriceListStyle, addPiEnquiryStyle } from "@/lib/sales/catalogue-actions";
 import type { StyleCatalogue, StylePriceList } from "@/lib/sales/catalogue-types";
 import type { PiEnquiryRow } from "@/lib/sales/catalogue-service";
-import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
-const STATUS_TONE: Record<string, StatusTone> = { draft: "neutral", sent: "info", confirmed: "success", cancelled: "danger" };
 
 function CatalogueTab({ rows }: { rows: StyleCatalogue[] }) {
   const router = useRouter();
@@ -214,7 +213,7 @@ function PiEnquiryTab({ rows }: { rows: PiEnquiryRow[] }) {
     { header: "Customer", cell: (r) => r.buyer_name ?? "—" },
     { header: "Reference", cell: (r) => r.customer_reference ?? "—" },
     { header: "Season", cell: (r) => [r.season, r.season_yr].filter(Boolean).join(" ") || "—" },
-    { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill> },
     rowActionsColumn((r) => (
       <RowActions
         label={r.code}

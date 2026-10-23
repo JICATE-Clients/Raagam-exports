@@ -1,7 +1,8 @@
 "use client";
 
-import { Download, FileSpreadsheet, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import type { GosSheet } from "@/lib/orders/gos/types";
 import type { ReportStyleImages } from "@/lib/orders/gos/style-images";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
@@ -28,18 +29,14 @@ export function GosToolbar({
 }) {
   return (
     <div className="flex flex-wrap justify-end gap-2 print:hidden">
-      <Button variant="outline" size="md" onClick={() => exportGosCsv(sheet)}>
-        <FileSpreadsheet className="h-4 w-4" aria-hidden />
-        Excel
-      </Button>
       <Button variant="outline" size="md" onClick={() => exportGosPdf(sheet, company, styleImages, "print")}>
         <Printer className="h-4 w-4" aria-hidden />
         Print
       </Button>
-      <Button size="md" onClick={() => exportGosPdf(sheet, company, styleImages, "download")}>
-        <Download className="h-4 w-4" aria-hidden />
-        Download PDF
-      </Button>
+      <DownloadMenu
+        variant="primary"
+        formats={[asPdf(() => exportGosPdf(sheet, company, styleImages, "download")), asExcel(() => exportGosCsv(sheet))]}
+      />
     </div>
   );
 }

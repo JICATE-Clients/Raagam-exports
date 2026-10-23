@@ -11,6 +11,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { withCreators } from "@/lib/created-by";
+import { statusTone } from "@/lib/ui/status-tone";
 
 type InterdeptRow = {
   id: string;
@@ -22,13 +23,13 @@ type InterdeptRow = {
   created_at: string;
 };
 
+const INTERDEPT_STATUS_TONE_OVERRIDES = {
+  // Delivered here still waits on receipt (was warning before the shared table, kept).
+  delivered: "warning",
+} as const;
+
 function interdeptStatusTone(status: string): StatusTone {
-  switch (status) {
-    case "draft": return "neutral";
-    case "delivered": return "warning";
-    case "received": return "success";
-    default: return "neutral";
-  }
+  return statusTone(status, INTERDEPT_STATUS_TONE_OVERRIDES);
 }
 
 async function listInterdeptDeliveries(): Promise<InterdeptRow[]> {

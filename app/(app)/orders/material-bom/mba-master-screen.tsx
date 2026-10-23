@@ -5037,7 +5037,7 @@ export function MbaMasterScreen({
                     Amber and advisory — the requirement itself still computes,
                     and the consumption figure it shows is not wrong, only not
                     the purchase one. */}
-                <p className="mt-0.5 text-[10px] leading-tight text-amber-600 dark:text-amber-500">
+                <p className="mt-0.5 text-[10px] leading-tight text-warning">
                   Two pack sizes — pick one for the purchase quantity.
                 </p>
               </>
@@ -5696,24 +5696,6 @@ export function MbaMasterScreen({
   /** BOM materials with no process yet — what the "+ Add" picker offers. A
    *  material already listed is not offered again: its own "+ Add process" is
    *  how a second stage is added to it. */
-  const procAddable = (() => {
-    /* "TAKEN" NOW MEANS LISTED, WHICH IS THE UNION (0466) — carrying a row OR
-       ticked. Testing rows alone would offer a material that is already on the
-       tab waiting for its first process, and adding it a second time would put
-       a second empty group under the same heading. */
-    const taken = new Set(procs.map((pr) => pr.item_id).filter((v): v is string => !!v));
-    const seen = new Set<string>();
-    return items
-      .filter(
-        (x) =>
-          !!x.item_id &&
-          !taken.has(x.item_id) &&
-          !x.send_out &&
-          !seen.has(x.item_id) &&
-          seen.add(x.item_id) !== null,
-      )
-      .map((x) => ({ id: x.item_id as string, code: null, name: itemName(x.item_id) }));
-  })();
 
   /**
    * LEGACY'S FIVE ON ONE LINE (client 2026-08-24: "make the 5 field in single
@@ -6886,12 +6868,16 @@ export function MbaMasterScreen({
           {procGroups.length === 0 && (
             <p className="text-xs text-muted-foreground">
               {items.some((x) => !!x.item_id)
-                ? "No material is sent out for processing. Add one below if a trim has to be dyed, washed or printed before it is used."
+                ? "No material is sent out for processing. Tick Process on a material in the Accessories Plan tab if a trim has to be dyed, washed or printed before it is used."
                 : "Add a material on the Accessories Plan tab first — a process is sent out against one of this BOM's materials."}
             </p>
           )}
           {procGroups.length > 0 && (
-            procGroups.map((g, gi) => (
+            procGroups.map((g, gi) => {
+              const gCols = procColumns
+                .filter((c) => c.header !== "Material" || g.id === null)
+                .map((c) => ({ ...c, width: FIELD_WIDTH_CSS[procFieldW(c.header)] }));
+              return (
               /* SPREADSHEET LOOK (user 2026-10-03, the `erp-sheet-grid` skill:
                  "add this skill in material bom in process field"). Each
                  material's processes are now a ruled TABLE under its heading
@@ -6911,6 +6897,11 @@ export function MbaMasterScreen({
               <div
                 key={g.id ?? "__orphans"}
                 data-grid-style="sheet"
+                /* PLAIN CELLS (user 2026-10-22, screenshot 111453: "erp-sheet-grid
+                   … erp-table-fit apply pannu"). `sheet` alone keeps a boxed
+                   green field in every cell; `flat` is the Excel look the skill
+                   names as the target — the gridline is the box. */
+                data-grid-cells="flat"
                 /* `w-fit`: the group is as wide as its table, so the heading
                    band above ends where the last gridline does.
 
@@ -6928,6 +6919,16 @@ export function MbaMasterScreen({
                   "[&_[data-grid-card]]:max-w-none [&_[data-grid-card]>div]:max-w-none",
                   PROC_CARD_MAX_W,
                 )}
+                /* AS WIDE AS ITS COLUMNS, STATED (erp-table-fit, 2026-10-22).
+                   `w-fit` still sized this box to the heading band — the cycle
+                   noted above — so the band stopped ~250px short of the table
+                   under it (screenshot 111453). The width is now the same sum
+                   `ChildGrid` gives its own table (`#` 2.5rem + each column's
+                   step + the in-cell ✕ 1.75rem), so band and table end on one
+                   line and nothing is stretched. */
+                style={{
+                  width: `calc(2.5rem + ${gCols.map((c) => c.width).join(" + ")} + 1.75rem)`,
+                }}
               >
                 {/* The parent row. Numbered like legacy's S No, and the count is
                     the affordance a bare heading lacks — a material with no
@@ -6945,9 +6946,7 @@ export function MbaMasterScreen({
                      that still exists. Every column takes its `PROC_ROW_W`
                      step as a width, so the table hugs (fixed layout) at the
                      same widths the card row used. */
-                  columns={procColumns
-                    .filter((c) => c.header !== "Material" || g.id === null)
-                    .map((c) => ({ ...c, width: FIELD_WIDTH_CSS[procFieldW(c.header)] }))}
+                  columns={gCols}
                   rows={g.rows}
                   tableAlways
                   /* NO `seedRow`. One blank row per material would put a card
@@ -6964,59 +6963,15 @@ export function MbaMasterScreen({
                   addLabel="+ Add process"
                 />
               </div>
-            ))
+              );
+            })
           )}
 
-          {/* ADD A MATERIAL TO THE LIST — legacy's blank outer row (screenshot
-              2484), as a picker rather than a row because there is nothing to
-              type: the choice is always one of the BOM's own materials.
-
-              CHOOSING ONE CREATES ITS FIRST PROCESS ROW, which is what makes the
-              group appear — the group is derived from `procs`, so there is no
-              separate list to add to. It also means the operator lands on
-              something they can fill in rather than on an empty container.
-
-              `value={null}` ALWAYS: this picker performs an action, it does not
-              hold a value. Nothing is stored against it, so it resets itself.
-
-              It hides when there is nothing left to offer, rather than
-              disabling: an empty picker on a BOM whose every material already
-              has a process is a control with no purpose, and each material's own
-              "+ Add process" is how a second stage gets added. */}
-          {procAddable.length > 0 && (
-            <div className="mt-3 w-[280px]">
-              <RecordPicker
-                label=""
-                items={procAddable}
-                value={null}
-                /* IT TICKS THE MATERIAL TOO (0466). Adding a process here IS the
-                   decision the Items tab's "Process" tick records, so leaving
-                   that box un-ticked would make the two halves of the union
-                   describe the same material differently — the tab listing it
-                   because it has a row, the line saying it needs no process.
-
-                   THIS IS WHAT KEEPS THEM CONSISTENT BY CONSTRUCTION, and it is
-                   why the tick is not a gate: an operator who never visits the
-                   Items grid can still send a material out, and the flag follows
-                   them rather than having to be remembered. After this the two
-                   can only differ by an explicit un-tick — which the union
-                   already makes harmless.
-
-                   Both updates in one handler; `setItems`/`mutProcs` are
-                   functional updates, so they compose without either reading the
-                   other's stale state. */
-                onChange={(id) => {
-                  if (!id) return;
-                  mutProcs((xs) => [...xs, { ...blankProc(newKey()), item_id: id }]);
-                  setItems((xs) =>
-                    xs.map((x) => (x.item_id === id ? { ...x, send_out: true } : x)),
-                  );
-                }}
-                placeholder="+ Send a material out for processing"
-                compact
-              />
-            </div>
-          )}
+          {/* NO "+ Send a material out for processing" PICKER (user 2026-10-22,
+              screenshots 114346 / 114351: "intha field aa remove pannidu"). A
+              material reaches this tab by its "Process" tick on the Accessories
+              Plan tab — `procGroups` lists every ticked material — so the picker
+              was a second door to the same list. */}
         </SectionBody>
       ),
     },
@@ -7040,7 +6995,10 @@ export function MbaMasterScreen({
             /* AS WIDE AS ITS COLUMNS (erp-table-fit, client 2026-09-28, screenshot
                142335): the eight columns spread across the whole section with
                a gap between each. `w-fit` sizes the table to them; `max-w-full`
-               keeps a long Item Name inside the section, where it wraps. */
+               keeps a long Item Name inside the section, where it wraps.
+               listing-width: exempt -- a SECTION of the Material BOM editor (the
+               order's requirement), not a page's list; sized by the 09-28 client
+               decision above. */
             <div className="w-fit max-w-full">
               <DataTable
                 columns={reqColumns}
@@ -7165,6 +7123,10 @@ export function MbaMasterScreen({
            figure the document exists to produce, so the save sits under it.
            Ctrl+S and Enter still save from the other two. */
         footerOnLastSection
+        /* …and on Requirement, as Cancel · Next to Trims T&A (user 2026-10-22,
+           "requirement sub module kku next button add pannu"). Trims T&A came
+           after the 08-28 call, so Requirement was left with no bar at all. */
+        footerAlsoOn={["requirement"]}
         open={mode === "edit"}
         onClose={() => setMode("list")}
         modeLabel={
@@ -7174,6 +7136,8 @@ export function MbaMasterScreen({
           </>
         }
         header={{
+          // The way out, said on the band (user 2026-10-22: "back button venum").
+          back: "Accessories Plan",
           initials: "MB",
           /* FALLS BACK TO THE INTERNAL CODE, matching `code: o.sc_no ?? o.code`
              two hundred lines up (the same order feeding this screen's OWN
@@ -7241,12 +7205,16 @@ export function MbaMasterScreen({
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New material BOM",
           onCancel: () => setMode("list"),
           onSave: () => submit(false),
+          // Next on Requirement (see `footerAlsoOn`); the last section saves.
+          stepper: true,
           saveLabel: bomOverride ? "Commit Changes (Override)" : "Save material BOM",
           canSave: validity.canSave,
           onBlockedSave: revealFirstProblem,
-          /* No draft under an override: the approved version is edited in
-             place (R-6), there is no draft of it to park. */
-          onSaveDraft: perms.canCreate && !bomOverride ? () => submit(true) : undefined,
+          /* NO "Save as Draft" (user 2026-10-22: "remove save as draft
+             button"). It asked for the same mandatory fields as Save, so all it
+             did was hold a saved BOM back from Budget, the Requirement report
+             and Copy from — every save is now final. A BOM saved as a draft
+             before this stays one until it is saved again. */
           isPending,
         }}
       />
@@ -7311,6 +7279,7 @@ export function MbaMasterScreen({
         sources={copySources.filter((s) => !editId || s.bom_id !== editId)}
         onPick={pickCopySource}
         isPending={isPending}
+        customerId={customerId}
       />
     </>
   );

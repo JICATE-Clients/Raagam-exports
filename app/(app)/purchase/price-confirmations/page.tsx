@@ -16,18 +16,10 @@ import type { PcStatus, ApplicabilityType } from "@/lib/purchase/price-confirmat
 import type { PcWithVendor } from "@/lib/purchase/price-confirmation-service";
 import Link from "next/link";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
 
 function pcStatusTone(status: PcStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export default async function PriceConfirmationsPage() {

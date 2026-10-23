@@ -12,7 +12,8 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
@@ -31,14 +32,6 @@ import type {
   StyleRegisterRow,
 } from "@/lib/sales/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-
-const STATUS_TONE: Record<string, StatusTone> = {
-  draft: "neutral",
-  submitted: "info",
-  approved: "success",
-  rejected: "danger",
-  superseded: "neutral",
-};
 
 interface LineItemDraft {
   category: (typeof COST_CATEGORIES)[number];
@@ -221,7 +214,7 @@ export function PrepareCostSheetClient({
     {
       header: "Status",
       cell: (c) => (
-        <StatusPill tone={STATUS_TONE[c.status] ?? "neutral"}>
+        <StatusPill tone={statusTone(c.status)}>
           {c.status.charAt(0).toUpperCase() + c.status.slice(1)}
         </StatusPill>
       ),

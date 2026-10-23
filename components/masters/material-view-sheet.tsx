@@ -3,7 +3,8 @@
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { DetailSection } from "@/components/masters/detail-section";
 import { describeConversion } from "@/lib/uom/convert";
 import { creatorName } from "@/components/ui/created-columns";
@@ -160,7 +161,7 @@ export function MaterialViewSheet({
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-semibold text-foreground">{r.name}</h3>
-          <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
+          <StatusPill tone={activeTone(r.is_active)}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
         </div>
 
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">

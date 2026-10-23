@@ -22,7 +22,8 @@ import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
@@ -70,7 +71,7 @@ export function CostHeadsClient({
     {
       header: "Status",
       cell: (h) => (
-        <StatusPill tone={h.is_active ? "success" : "neutral"}>
+        <StatusPill tone={activeTone(h.is_active)}>
           {h.is_active ? "Active" : "Inactive"}
         </StatusPill>
       ),
@@ -107,7 +108,7 @@ export function CostHeadsClient({
     {
       header: "Status",
       cell: (i) => (
-        <StatusPill tone={i.is_active ? "success" : "neutral"}>
+        <StatusPill tone={activeTone(i.is_active)}>
           {i.is_active ? "Active" : "Inactive"}
         </StatusPill>
       ),

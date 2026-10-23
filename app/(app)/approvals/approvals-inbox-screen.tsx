@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { StatusMark } from "@/components/ui/status-mark";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -330,9 +331,10 @@ export function ApprovalsInboxScreen({
           change stops supplying them, so this cannot decay into a dash column.
 
           `hidden md:block` — the phone gets the card list below instead.
-          `w-fit max-w-full` — AS WIDE AS ITS COLUMNS, not the pane
+          FULL WIDTH since 2026-10-16 (user: Sample Entry's table everywhere). WAS
+          `w-fit max-w-full` — as wide as its columns, not the pane
           (erp-table-fit skill, client 2026-09-28). */}
-      <div className="hidden w-fit max-w-full md:block">
+      <div className="hidden md:block">
         <DataTable
           columns={hugCreated(withCreatedColumns(columns, filtered))}
           rows={filtered}
@@ -423,11 +425,8 @@ export function ApprovalsInboxScreen({
                queue already reads for state. */
             const rev = budgets[r.subject_id]?.revision;
             const word = r.is_overdue ? "Overdue" : rev ? "Pending" : "Awaiting you";
-            return (
-              <StatusPill tone={r.is_overdue ? "danger" : "warning"}>
-                {rev?.revNo ? `Rev #${rev.revNo} · ${word}` : word}
-              </StatusPill>
-            );
+            // An ICON on the card, the words in its tooltip (components/ui/status-mark.tsx).
+            return <StatusMark word={rev?.revNo ? `Rev #${rev.revNo} · ${word}` : word} mark="todo" tone={r.is_overdue ? "danger" : "warning"} />;
           }}
           meta={(r) =>
             `${budgets[r.subject_id] ? `${workflowLabel(r.workflow_key)} · ` : ""}Step ${r.step_order} · ${r.step_label} · waiting ${waited(r.waiting_hours)}`

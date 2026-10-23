@@ -402,12 +402,22 @@ export async function getCadPatternMakers(): Promise<
 // tab takes (`lib/orders/fabric-bom/pattern-fill.ts`). Read-only.
 // ---------------------------------------------------------------------------
 export type PatternForFabricBom =
-  | { ok: true; lines: PatternFillLine[]; styles: { style_ref_no: string; pattern_status: string }[] }
+  | {
+      ok: true;
+      lines: PatternFillLine[];
+      styles: { style_ref_no: string; pattern_status: string }[];
+      /** Order Entry ▸ CAD's Pattern Lock (0733). False = Fabric BOM ignores the sheet. */
+      locked: boolean;
+    }
   | { ok: false; error: string };
 
 export async function loadPatternForFabricBom(garmentOrderId: string): Promise<PatternForFabricBom> {
   try {
-    const [canView, rows] = await Promise.all([can("orders", "view"), listCadStyles([garmentOrderId])]);
+    const [canView, rows, locked] = await Promise.all([
+      can("orders", "view"),
+      listCadStyles([garmentOrderId]),
+      readPatternLock(garmentOrderId),
+    ]);
     if (!canView) return { ok: false, error: "Forbidden" };
     const lines: PatternFillLine[] = [];
     const styles: { style_ref_no: string; pattern_status: string }[] = [];
@@ -435,8 +445,61 @@ export async function loadPatternForFabricBom(garmentOrderId: string): Promise<P
         });
       }
     }
-    return { ok: true, lines, styles };
+    return { ok: true, lines, styles, locked };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not read the Pattern Sheet for this order." };
   }
+}
+
+// ---------------------------------------------------------------------------
+// CAD PATTERN LOCK (0733, user 2026-10-16) — Order Entry ▸ CAD's switch for
+// whether the Pattern Sheet locks and fills Fabric BOM. No row = locked.
+// ---------------------------------------------------------------------------
+async function readPatternLock(garmentOrderId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("order_cad_settings")
+    .select("pattern_lock")
+    .eq("garment_order_id", garmentOrderId)
+    .maybeSingle();
+  // A failed read is an error, not "unlocked" — fall back to the safe default.
+  if (error) throw new Error(error.message);
+  return data?.pattern_lock ?? true;
+}
+
+export async function getCadPatternLock(
+  garmentOrderId: string,
+): Promise<{ ok: true; locked: boolean; canEdit: boolean } | { ok: false; error: string }> {
+  try {
+    const [canView, canEdit, locked] = await Promise.all([
+      can("orders", "view"),
+      can("orders", "edit"),
+      readPatternLock(garmentOrderId),
+    ]);
+    if (!canView) return { ok: false, error: "Forbidden" };
+    return { ok: true, locked, canEdit };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not read the CAD lock." };
+  }
+}
+
+export async function setCadPatternLock(
+  garmentOrderId: string,
+  locked: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("order_cad_settings")
+    .upsert(
+      { garment_order_id: garmentOrderId, pattern_lock: locked, updated_at: new Date().toISOString() },
+      { onConflict: "garment_order_id" },
+    );
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({
+    action: locked ? "order_cad.pattern_locked" : "order_cad.pattern_unlocked",
+    entityType: "garment_order",
+    entityId: garmentOrderId,
+  });
+  return { ok: true };
 }

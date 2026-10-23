@@ -1,5 +1,7 @@
 "use client";
 
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
+import { StatusMark, type StatusMarkKind } from "@/components/ui/status-mark";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
 import { BadgeCheck, Check, Clock, Hourglass, Pencil } from "lucide-react";
@@ -13,7 +15,6 @@ import { ToggleGroup } from "@/components/ui/segmented";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
 import { DaysOut } from "@/components/orders/days-out";
-import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import {
   createdByFacet,
   urgencyFacet,
@@ -119,9 +120,8 @@ export function bomCardStats(t: BomTaskRow, middle: CardStat): CardStat[] {
  * LOCAL TO THE QUEUE ON PURPOSE. `bomStatusTone` keeps Pending amber for every
  * other reader (the garment order's status pills among them); here the queue
  * is a to-do list, where an order with no plan at all IS the work, so it takes
- * the act-on-it colour Recalculate and Unresolved already carry. The pill and
- * the stripe both read this one function, so on a card they can never
- * disagree.
+ * the act-on-it colour Recalculate and Unresolved already carry. The card's
+ * mark and the table's pill both read this one function, so they agree.
  */
 function queueTone(s: BomStatus): StatusTone {
   return s === "pending" ? "danger" : bomStatusTone(s);
@@ -141,14 +141,12 @@ function queueTone(s: BomStatus): StatusTone {
  * `dark:` ON EVERY SHADE — this app has a dark theme (the `.dark` class from
  * the topbar toggle), and a `bg-red-50` pill there is a glaring light patch.
  */
-const QUEUE_THEME: Partial<Record<BomStatus, { pill: string; edge: string }>> = {
+const QUEUE_THEME: Partial<Record<BomStatus, { pill: string }>> = {
   pending: {
     pill: "border border-red-200 bg-red-50 py-px text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300",
-    edge: "border-l-red-700 dark:border-l-red-500",
   },
   updated: {
     pill: "border border-emerald-200 bg-emerald-50 py-px text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300",
-    edge: "border-l-emerald-500",
   },
 };
 
@@ -247,6 +245,10 @@ const QUICK: Record<QuickWord, { text: string; icon: typeof Clock }> = {
   progress: { text: "Under Progress", icon: Hourglass },
   approved: { text: "Approved", icon: BadgeCheck },
 };
+/** A card's icon on a four-word queue — one per tab word (components/ui/status-mark.tsx). */
+const QUICK_MARK: Record<QuickWord, StatusMarkKind> = { pending: "todo", updated: "done", draft: "todo", progress: "wait", approved: "done" };
+// status-tone: exempt -- maps a queue TAB word to its card icon's colour, not a status
+const QUICK_TONE: Record<QuickWord, StatusTone> = { pending: "danger", updated: "success", draft: "warning", progress: "info", approved: "success" };
 /* THE PRIMARY BUTTON'S OWN MARKERS, NOT JUST ITS TOKENS (user 2026-09-22,
    screenshot 145813 under Steel: "steel colour set aagi appo pending update
    draft um steel colour la button change aaganum"). `bg-primary` alone is the
@@ -712,6 +714,12 @@ export function BomQueue({
     // An old `?status=updated` link on a four-word queue lands on Approved.
     return isApproved && w === "updated" ? "approved" : w;
   });
+  /* CARD VIEW / LIST VIEW (user 2026-10-16) — the queue's own switch, after
+     Filters. Until the operator picks, the tab decides as before (Updated /
+     Approved a list, the work still to do as cards); then this screen keeps
+     the pick. Rows, search, facets and the click are the same either way. */
+  const tableTab = quickStatus && quickFilter === (isApproved ? "approved" : "updated");
+  const viewMode = useViewMode(`bom-queue:${noun}`, tableTab ? "list" : "cards");
   const pickQuick = useCallback((v: QuickWord) => {
     setQuickFilter(v);
     writeQuickParam(QUICK_PARAM, v);
@@ -790,10 +798,6 @@ export function BomQueue({
     return tasks.length > 0 ? `Every confirmed order has a current ${noun} plan.` : null;
   }, [tasks, noun]);
 
-  /** False when the service does not select `created_at` — then the card shows
-   *  no Created line at all, rather than a dangling date. `hasCreatedInfo` is the
-   *  same guard `withCreatedColumns` applies to a table. */
-  const showCreated = hasCreatedInfo(tasks);
 
 
   return (
@@ -829,6 +833,7 @@ export function BomQueue({
         onSearch={setQuery}
         searchPlaceholder="Search RE No, PO or customer…"
         activeCount={facets.activeCount}
+        trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
         leading={
           quickStatus ? (
             isApproved ? (
@@ -875,7 +880,7 @@ export function BomQueue({
       {/* On the four-word box the table is APPROVED's — finished work. Under
           Progress keeps the cards: its rows still carry a Recalculate or
           Unresolved pill the table has no column for. */}
-      {quickStatus && quickFilter === (isApproved ? "approved" : "updated") ? (
+      {viewMode.view === "list" ? (
         <OrderQueueTable<BomTaskRow>
           fit={fitUpdated}
           rows={filtered}
@@ -954,28 +959,29 @@ export function BomQueue({
             {t.po_no ? <span className="font-mono"> · {t.po_no}</span> : null}
           </>
         )}
-        pill={(t) => <BomQueuePill status={t.status} />}
+        // An ICON on the card, the word in its tooltip — the tab already says it (components/ui/status-mark.tsx).
+        // ON A FOUR-WORD QUEUE THE ICON FOLLOWS THE TAB'S WORD, never the BOM's own
+        // (user 2026-10-16, screenshot 3581): there "Updated" means saved, NOT
+        // approved, and the ✔ it drew put a green tick on every Under Progress card.
+        pill={(t) => {
+          const w = isApproved ? queueWordOf(t) : null;
+          return w ? (
+            <StatusMark word={QUICK[w].text} mark={QUICK_MARK[w]} tone={QUICK_TONE[w]} />
+          ) : (
+            <StatusMark word={bomStatusText(t.status)} tone={queueTone(t.status)} />
+          );
+        }}
         stats={(t) => bomCardStats(t, stat(t))}
         /* THE QUEUE CARD (operator, 2026-09-18, reference screenshot) — see
            `queue` on `MobileCardList`. A tap opens the BOM straight away; no
-           drawer, no slide-over and nothing on hover. Replaces the 2026-09-04
-           floating status badge: the reference marks the state with the side
-           stripe. */
+           drawer and no slide-over. Since 2026-10-23 it is the Sample Costing
+           glow card (buyer's hue, lift on hover); the mark carries the state. */
         queue
-        /* THE STRIPE — red on Pending, green once the plan is current. The
-           same tone as the pill, from the same function: the pill is read one
-           card at a time, the stripe down a whole grid at once, and this list
-           is SORTED by `BOM_STATUS_RANK` ("what needs doing, first"). */
-        tone={(t) => queueTone(t.status)}
-        accent={(t) => QUEUE_THEME[t.status]?.edge}
-        /* THE CREATED PAIR SHARES THE DRAWER'S FOOTER WITH THE BUTTONS —
-           AGENTS.md wants it APPENDED to the screen's own meta, not
-           substituted for it. Still gated on `hasCreatedInfo`, so a service
-           that stops selecting `created_at` shows nothing rather than a
-           dangling date. */
-        /* "Created " IN WORDS — in the drawer the pair sits alone beside the
-           buttons, with no column header to say what the date is. */
-        footerNote={showCreated ? (t) => `Created ${createdMeta(t)}` : undefined}
+        /* NO "Created …" LINE ON THE CARD (user 2026-10-16, after removing it
+           from Sample ▸ Fabric Plan: "yes" to the Orders queues too). It sat in
+           the card's footer beside the buttons under AGENTS.md's mobile-card
+           rule; on these queue cards it is removed on instruction, for every
+           screen this component draws — Fabric Plan and Accessories Plan. */
         onEdit={onOpen}
         canDelete={canDelete}
         /* Only an order that HAS a BOM has anything to delete — that is the

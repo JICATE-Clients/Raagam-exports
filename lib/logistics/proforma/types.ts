@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const PROFORMA_STATUSES = [
   "draft",
@@ -17,16 +18,7 @@ export const PROFORMA_STATUS_LABELS: Record<ProformaStatus, string> = {
 };
 
 export function proformaStatusTone(status: ProformaStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "sent":
-      return "info";
-    case "accepted":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface ProformaInvoice {

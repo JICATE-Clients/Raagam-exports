@@ -10,6 +10,11 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
+
+// A statutory return FILED is the obligation met — success. The shared table's
+// "filed" is an incentive claim still waiting on the government (info).
+const STATUTORY_TONES = { filed: "success" } as const;
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
 import { createStatutory, fileStatutory, deleteStatutory } from "@/lib/hr/extras-actions";
@@ -86,7 +91,7 @@ export function StatutoryClient({ rows, employees, canCreate, canEdit, canDelete
     { header: "Form", cell: (r) => <span className="text-sm">{STATUTORY_FORM_LABELS[r.form_type]}</span> },
     { header: "Reference", cell: (r) => <span className="text-sm">{r.reference_no ?? "—"}</span> },
     { header: "Date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.doc_date)}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={r.status === "filed" ? "success" : "neutral"}>{r.status === "filed" ? "Filed" : "Draft"}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={statusTone(r.status === "filed" ? "filed" : "draft", STATUTORY_TONES)}>{r.status === "filed" ? "Filed" : "Draft"}</StatusPill> },
     {
       header: "Actions",
       cell: (r) => (

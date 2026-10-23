@@ -67,6 +67,18 @@ export interface AccentPalette {
    * legibility. White text sits on both stops, so the check tests both.
    */
   gradientTo?: string;
+  /**
+   * A FLAT FILL FOR THE SOLID SURFACES that differs from `primary` — for a
+   * colour too light to carry white text or to be read as text on white
+   * (Raagam Green's #85c325, user 2026-10-16: "I need that flat color, same
+   * shared color"). Painted on primary buttons and the skin's selected rail
+   * pill only, with `fillText` on it and NO sheen; `primary` keeps doing the
+   * jobs that need contrast against white — link text, the focus ring, tints.
+   */
+  fill?: string;
+  fillHover?: string;
+  /** The text on `fill` — dark, since a light fill fails under white. */
+  fillText?: string;
 }
 
 export interface AccentOption {
@@ -269,6 +281,50 @@ export const ACCENTS: readonly AccentOption[] = [
       cellActive: "#0a3b39",
       info: "#5eead4",
       infoSoft: "#042f2e",
+    },
+  },
+  {
+    /**
+     * THE LOGO GREEN, ASKED FOR BY NAME (user 2026-10-16: "#85c325 add this
+     * color in theme color") — and the one option that bends rule 3 of the
+     * skill ("no green SOLID option") on that instruction. It stays OPT-IN:
+     * nobody sees it until they pick it in T ▸ Colour.
+     *
+     * #85c325 ITSELF IS THE BUTTON — FLAT, WITH DARK TEXT (user, same day:
+     * "I think Raagam Green is like a gradient, I need that flat color, same
+     * shared color"). It is `fill`, not `primary`: the lime takes white text at
+     * only 2.1:1 and reads as link text on white at the same 2.1, so the jobs
+     * that sit on white — links, the focus ring, tints, the table header text —
+     * keep `primary`, the same hue at lime 700 → 800 → 900. On the button the
+     * text flips dark (#1a2e05, 6.84:1 on the fill, 5.6:1 on the hover), the
+     * way the skin drew the logo green before its blue.
+     */
+    id: "raagam-green",
+    label: "Raagam Green",
+    source: "the logo lime #85c325, deepened to Tailwind lime 700",
+    light: {
+      primary: "#4d7c0f",
+      primaryHover: "#3f6212",
+      primaryActive: "#365314",
+      primarySoft: "#f7fee7",
+      cellActive: "#f0fbdc",
+      info: "#3f6212",
+      infoSoft: "#f7fee7",
+      fill: "#85c325",
+      fillHover: "#78b021",
+      fillText: "#1a2e05",
+    },
+    dark: {
+      primary: "#4d7c0f",
+      primaryHover: "#5a8f13",
+      primaryActive: "#3f6212",
+      primarySoft: "#1a2e05",
+      cellActive: "#233d0a",
+      info: "#bef264",
+      infoSoft: "#1a2e05",
+      fill: "#85c325",
+      fillHover: "#78b021",
+      fillText: "#1a2e05",
     },
   },
   {
@@ -490,6 +546,10 @@ function pearlCss(sel: string): string {
     `${d} [data-table-frame]{box-shadow:0 10px 24px -18px rgb(0 0 0/.8)}` +
     `${sel} [data-work-panel] thead>tr{background-image:linear-gradient(180deg,#fdfdfe,#eef0f3)}` +
     `${d} [data-work-panel] thead>tr{background-image:linear-gradient(180deg,#1f242c,#1a1e25)}` +
+    // The shared DataTable's head is the soft blue band (user 2026-10-16), a
+    // flat colour — the grey sheen above would paint over it, so it stands down
+    // there. ChildGrid heads keep the sheen.
+    `${sel} [data-table-frame] thead>tr,${d} [data-table-frame] thead>tr{background-image:none}` +
     // ── overlays: solid, lifted
     `${sel} [role="menu"],${sel} [role="listbox"]{box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgb(15 20 30/.06),0 18px 44px -14px rgb(15 20 30/.32)}` +
     `${d} [role="menu"],${d} [role="listbox"]{box-shadow:0 0 0 1px rgb(255 255 255/.06),0 18px 44px -14px rgb(0 0 0/.8)}`
@@ -589,7 +649,81 @@ function paletteVars(p: AccentPalette, glow: string): string {
     `--info:${p.info}`,
     `--info-soft:${p.infoSoft}`,
     `--btn-glow:${glow}`,
+    // THE TABLE HEADER FOLLOWS THE CHOSEN COLOUR (user 2026-10-16, on Raagam
+    // Green: "why the table header … not changing colour"). The default's Soft
+    // Blue band (#eaf4fb / #24465e / #c8dce9, globals.css) is the default's own
+    // tint; any other option draws the same band from its own family — the
+    // soft tint as the ground, the deep `info` shade as the text, and a rule
+    // under it mixed from the primary. The default writes nothing, so its band
+    // stays exactly the approved values.
+    `--table-head-bg:${p.primarySoft}`,
+    `--table-head-fg:${p.info}`,
+    `--table-head-border:color-mix(in srgb,${p.primary} 28%,var(--surface))`,
   ].join(";");
+}
+
+/**
+ * THE ORDERS SKIN'S BLUE GIVES WAY TO A CHOSEN COLOUR (same report). The
+ * `[data-skin="raagam"]` screens — Orders, Masters, HR and the Sample screens —
+ * paint every primary button and the rail's selected pill with a FIXED pastel
+ * blue (`#cfe8f7 → #93c9e8`, navy text; globals.css), not with `--primary`. That
+ * is the default look and it stays; but with another colour chosen, "+ New
+ * Sample Entry" stayed blue beside green links and a green tab bar. So a chosen
+ * colour repaints those two surfaces solid in its own primary, white text —
+ * the pairs `check:themes` already proves readable. A GRADIENT option paints
+ * its own two stops here instead: this selector out-ranks `gradientCss`'s
+ * `.ty-btn-primary`, so a solid fill written here would erase the gradient on
+ * exactly the skinned screens. Its hover is `gradientCss`'s brightness filter.
+ */
+function skinCss(sel: string, p: AccentPalette): string {
+  const btn = `${sel} [data-skin="raagam"] :is(button[class*="bg-primary"]:not([disabled]),a.ty-btn-primary)`;
+  const pill = `${sel} [data-skin="raagam"] [aria-orientation="vertical"] [role="tab"][aria-selected="true"]`;
+  const fill = p.gradientTo ? `linear-gradient(135deg,${p.primary},${p.gradientTo})` : "var(--primary)";
+  return (
+    `${btn},${pill}{background:${fill};color:#fff;border-color:transparent}` +
+    /* THE LABEL AND ICON TAKE THE PILL'S TEXT COLOUR (user 2026-10-23, screenshot
+       101933: "ulla irukka text aa white aa change pannanum"). The pill said
+       white, but the rail row is also `aria-current`, and globals.css paints an
+       `[aria-current] span` in `--foreground` (the Material list's bold row) while
+       the icon carries `text-primary` — so the label and icon stayed dark on the
+       blue-green fill. Only the label span and the icon follow the pill; the
+       count badge and done dot keep their own colours. `inherit` also carries a
+       `fill` option's `fillText` (fillCss sets the pill's colour after this). */
+    `${pill}>svg,${pill}>span.flex-1{color:inherit}` +
+    (p.gradientTo ? "" : `${btn}:hover{background:var(--primary-hover)}`)
+  );
+}
+
+/**
+ * A `fill` option's flat buttons (see `AccentPalette.fill`). Emitted AFTER
+ * `skinCss` with the same skinned selectors, so equal specificity and source
+ * order hand the skinned screens to the fill too; the bare `.ty-btn-primary`
+ * covers every other screen. `background` is the shorthand on purpose — it
+ * clears New look's white sheen (`.ty-btn-solid`'s background-image) — and the
+ * box-shadow and Pearl's glass band (`::after`) go with it: flat means flat.
+ */
+function fillCss(sel: string, p: AccentPalette): string {
+  if (!p.fill) return "";
+  const btn = `${sel} .ty-btn-primary:not(:disabled),${sel} [data-skin="raagam"] :is(button[class*="bg-primary"]:not([disabled]),a.ty-btn-primary)`;
+  const hover = `${sel} .ty-btn-primary:not(:disabled):hover,${sel} [data-skin="raagam"] :is(button[class*="bg-primary"]:not([disabled]),a.ty-btn-primary):hover`;
+  const pill = `${sel} [data-skin="raagam"] [aria-orientation="vertical"] [role="tab"][aria-selected="true"]`;
+  return (
+    `${btn},${pill}{background:${p.fill};color:${p.fillText};border-color:transparent;box-shadow:none}` +
+    `${hover}{background:${p.fillHover}}` +
+    // Doubled class: Pearl's `.ty-btn-solid::after` is emitted later at the
+    // same weight, and its glass band is a sheen too.
+    `${sel} .ty-btn-primary.ty-btn-primary::after{display:none}` +
+    // THE SIDEBAR'S SELECTED ROW TOO (user 2026-10-16, screenshot 3572: "the
+    // side bar button bg color need same the green used in bg"). `SidebarItem`
+    // backs the icon rail, the module menu and its sub-rows, and draws its
+    // active row `bg-primary` + white — so under Raagam Green it was the deep
+    // lime 700 with Pearl's glass band, beside the flat #85c325 switch on the
+    // same screen. Same fill, same dark text, no band; the icon follows
+    // `currentColor`. Doubled class out-ranks Pearl's rules emitted later.
+    `${sel} .ty-sidebar.ty-sidebar[data-active]{background:${p.fill};color:${p.fillText};box-shadow:none}` +
+    `${sel} .ty-sidebar.ty-sidebar[data-active]:hover{background:${p.fillHover}}` +
+    `${sel} .ty-sidebar.ty-sidebar[data-active]::after{display:none}`
+  );
 }
 
 /**
@@ -635,6 +769,10 @@ export function appearanceCss(): string {
     const dark = paletteVars(a.dark, "rgb(0 0 0 / 0.45)");
     return (
       `${sel}{${light}}${sel}.dark{${dark}}` +
+      skinCss(sel, a.light) +
+      skinCss(`${sel}.dark`, a.dark) +
+      fillCss(sel, a.light) +
+      fillCss(`${sel}.dark`, a.dark) +
       gradientCss(sel, a.light) +
       gradientCss(`${sel}.dark`, a.dark)
     );

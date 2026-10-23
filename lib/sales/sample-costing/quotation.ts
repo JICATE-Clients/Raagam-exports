@@ -38,6 +38,27 @@ export type QuotationGroup = {
   total: number | null;
 };
 
+/**
+ * ONE STYLE OF THE QUOTATION (user 2026-10-22, screenshot 3667: "ready to adapt multi
+ * styles listing"). A sample's styles are costed one sheet each; the quotation lists
+ * every one, this costing's style first. PRICES ONLY, as the rest of the model.
+ */
+export type QuotationStyle = {
+  costingId: string;
+  costingNo: string | null;
+  revision: string;
+  style: string | null;
+  description: string | null;
+  thumbUrl: string | null;
+  /** Each style carries its own: two sheets of one sample can be priced in two. */
+  currency: string | null;
+  isSet: boolean;
+  unitWord: string;
+  groups: QuotationGroup[];
+  /** The figure a list reads first: the first size's set total, or its one piece. */
+  headline: number | null;
+};
+
 /** A revision as the BUYER sees it: price and date, never the margin it earned. */
 export type QuotationHistoryRow = Omit<RevisionHistoryRow, "marginPct">;
 
@@ -77,23 +98,21 @@ export type QuotationModel = {
   history: QuotationHistoryRow[];
   /** "Approved on 09/10/2026" — or null. Never how, by whom, or at what margin. */
   approvalNote: string | null;
+  /** Every costed style of this sample, this costing's first. One entry = today's
+   *  single-style quotation; more = the styles listing. */
+  styles: QuotationStyle[];
 };
 
-export function buildQuotationModel(
+/** One costing as a style of the quotation: its pieces' offered prices, size by size. */
+function styleOf(
   record: CostingRecord,
-  lookups: { enquiries: readonly CostingEnquiryOption[]; styles: readonly CostingStyleOption[] },
-  company: DocLetterhead,
-  history: RevisionHistoryRow[] = [],
-  approvalFacts: ApprovalFacts | null = null,
-): QuotationModel {
+  styles: readonly CostingStyleOption[],
+): QuotationStyle & { summary: CostingSummary; pieceNames: Record<string, string> } {
   const d = record.draft;
-  const h = d.header;
   const summary = costingSummary(costingInputOf(d));
-  const enq = lookups.enquiries.find((e) => e.id === h.opportunity_id) ?? null;
-  const style = lookups.styles.find((s) => s.id === h.style_id) ?? null;
+  const style = styles.find((s) => s.id === d.header.style_id) ?? null;
   const pieceNames: Record<string, string> = Object.fromEntries(d.pieces.map((p) => [p.key, p.piece_name || "GARMENT"]));
   const isSet = style?.unit_kind === "set" || d.pieces.length > 1;
-
   const groups: QuotationGroup[] = summary.groups.map((g) => {
     const lines = g.pieces.map((p) => ({ piece: pieceNames[p.pieceKey] ?? "GARMENT", price: offered(p.quoted, p.calc) }));
     return {
@@ -103,6 +122,39 @@ export function buildQuotationModel(
       total: lines.every((l) => l.price != null) ? lines.reduce((t, l) => t + (l.price ?? 0), 0) : null,
     };
   });
+  const first = groups[0];
+  return {
+    costingId: record.id,
+    costingNo: record.code,
+    revision: revisionShort(record.version),
+    style: style?.name ?? null,
+    description: style?.description ?? null,
+    thumbUrl: style?.report_image_url ?? null, // the ticked "Print on reports" picture (0731)
+    currency: d.header.currency_code,
+    isSet,
+    unitWord: isSet ? "set" : "piece",
+    groups,
+    headline: first ? (isSet ? first.total : (first.lines[0]?.price ?? null)) : null,
+    summary,
+    pieceNames,
+  };
+}
+
+export function buildQuotationModel(
+  record: CostingRecord,
+  lookups: { enquiries: readonly CostingEnquiryOption[]; styles: readonly CostingStyleOption[] },
+  company: DocLetterhead,
+  history: RevisionHistoryRow[] = [],
+  approvalFacts: ApprovalFacts | null = null,
+  /** The sample's OTHER styles, each as its latest costing (`getSiblingCostingRecords`). */
+  siblings: readonly CostingRecord[] = [],
+): QuotationModel {
+  const d = record.draft;
+  const h = d.header;
+  const enq = lookups.enquiries.find((e) => e.id === h.opportunity_id) ?? null;
+  const own = styleOf(record, lookups.styles);
+  const { summary, pieceNames, isSet, groups } = own;
+  const style = lookups.styles.find((s) => s.id === h.style_id) ?? null;
 
   const approved = record.status === "approved";
   const blocked = !h.currency_code
@@ -144,5 +196,12 @@ export function buildQuotationModel(
           approvalFacts ?? { status: record.status, isDraft: record.is_draft, submittedAt: null, approvedAt: null, decidedByName: null, decidedAt: null, remark: null, lowestMarginPct: null },
         )
       : null,
+    // This costing's style first, then the sample's other styles in their own order.
+    styles: [
+      own,
+      ...[...siblings]
+        .sort((a, b) => lookups.styles.findIndex((s) => s.id === a.draft.header.style_id) - lookups.styles.findIndex((s) => s.id === b.draft.header.style_id))
+        .map((r) => styleOf(r, lookups.styles)),
+    ].map(({ summary: _s, pieceNames: _p, ...st }) => st),
   };
 }

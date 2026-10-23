@@ -39,6 +39,7 @@ import {
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
+import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import {
   ChildGrid,
@@ -148,7 +149,7 @@ import { sectionValidity, type Problem } from "@/lib/screens/validity";
 // The two flags a field the APP fills in has to carry, derived from one boolean
 // so a bypassed field can never also hold the cursor. See the note there.
 import { autoFilledField, focusField, focusFirstField } from "@/lib/focus";
-import { Field, FieldGrid, FieldRow, FIELD_SPAN, FIELD_WIDTH_CSS, RequiredScope, UnlockScope, useLocked } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, FIELD_SPAN, FIELD_WIDTH_CSS, RequiredScope, UnlockScope } from "@/components/ui/field";
 import { openAreasOf, type OrderAmendmentState } from "@/lib/orders/amendments/amendment-entry";
 import { MultiSelect } from "@/components/ui/multi-select";
 // `sortBySize` / `sizeFamily`: the Style master orders and bands its Sizes
@@ -4843,7 +4844,20 @@ export function GarmentOrderScreen({
         // raw Postgres error.
         item_sub_type: asItemSubType(r.item_sub_type),
       })),
-      combos: combos.map((r) => ({
+      /* `withoutTail` — ENTER-ONLY ENTRY (2026-10-23). The blank end row each grid
+         keeps is dropped by its normalizer, EXCEPT where the row arrives
+         pre-filled: a one-style order's new combo / pack line carries the style
+         and a new destination carries the header's dates, and the normalizer
+         keeps any row holding those. A combo is stripped only when another combo
+         already speaks for its style, so a style listed with no colourway yet
+         (`combosForStyles`) is saved exactly as before. */
+      combos: combos
+        .filter(
+          (r) =>
+            !comboBlank(r) ||
+            !combos.some((o) => o !== r && !comboBlank(o) && styleKey(o.style_ref_no) === styleKey(r.style_ref_no)),
+        )
+        .map((r) => ({
         sno: 0,
         style_ref_no: r.style_ref_no || null,
         style: r.style || null,
@@ -4918,7 +4932,8 @@ export function GarmentOrderScreen({
          and `combos` already store it that way, and re-deriving it here from a
          master that is no longer consulted would blank the column. */
       pack_type_lines: packTypes.flatMap((r) =>
-        r.lines.map((l) => ({
+        // `withoutTail` (see combos): a blank line may carry the sole style.
+        r.lines.filter((l) => !packLineBlank(l)).map((l) => ({
           sno: 0,
           pack_type: r.pack_type || null,
           style_ref_no: l.style_ref_no || null,
@@ -4927,7 +4942,8 @@ export function GarmentOrderScreen({
           qty: numOrNull(l.qty) ?? 0,
         })),
       ),
-      quantities: quantities.map((r) => ({
+      // `withoutTail` (see combos): a blank destination carries the header's dates.
+      quantities: quantities.filter((q) => !quantityBlank(q)).map((r) => ({
         sno: 0,
         country_id: r.country_id,
         style_ref_no: r.style_ref_no || null,
@@ -7659,6 +7675,59 @@ export function GarmentOrderScreen({
     qty: "",
   });
 
+  /**
+   * ENTER-ONLY ENTRY — WHICH ROW IS STILL BLANK, PER GRID (user 2026-10-23: "order
+   * entry fulla add button illama costing la panna mechanism use panni … enter key
+   * focus vachi"). `ChildGrid`'s `tailRow` keeps one such row at the end of each
+   * grid instead of a "+ Add", and Enter on it untouched leaves the table.
+   *
+   * "BLANK" MEANS NOTHING THE OPERATOR TYPED, so a value the factory pre-fills —
+   * the sole style on a pack line or a combo, the header's delivery dates on a
+   * destination, the ±5 tolerance on a fabric — does not make a row filled. Each
+   * test is the screen-side twin of the normalizer that drops the row on save
+   * (lib/orders/amendments/actions.ts); where that normalizer would KEEP a
+   * pre-filled blank (`normalizeCombos`, `normalizePackTypeLines`,
+   * `normalizeQuantities`), `submit` strips it first — see `withoutTail` there.
+   */
+  const dyeingBlank = (r: DyeingRow) => !r.dye_type.trim() && !r.color_name.trim() && !r.color_id;
+  const printBlank = (r: PrintRow) => !r.print_id && !r.print_name.trim();
+  const comboBlank = (r: ComboRow) =>
+    !r.combo.trim() && !r.combo_description.trim() && !r.structures.some(structSaysSomething);
+  const packLineBlank = (l: PackTypeLineRow) => !l.combo.trim() && !l.qty.trim();
+  const packTypeBlank = (r: PackTypeRow) => !r.pack_type.trim() && r.lines.every(packLineBlank);
+  const quantityBlank = (q: QuantityRow) =>
+    !q.country_id &&
+    !q.style_ref_no.trim() &&
+    !q.style_no.trim() &&
+    !q.consignee_id &&
+    !q.assortment_type_id &&
+    !q.pack_type.trim() &&
+    !q.po_no.trim() &&
+    !q.po_qty.trim() &&
+    !q.warehouse_id &&
+    !q.discharge_port_id &&
+    !q.pack.trim() &&
+    q.assort_lines.length === 0;
+  /** A style line with nothing typed — `normalizeStyles`' own field list. */
+  const styleBlank = (r: StyleRow) =>
+    !r.style_ref_no.trim() &&
+    !r.style_id &&
+    !r.approved_sample_id &&
+    !r.article_no.trim() &&
+    !r.style_category_id &&
+    !r.order_unit_id &&
+    !r.plan_unit_id &&
+    !r.unit_kind &&
+    !r.layout_type &&
+    !r.packs_ordered.trim() &&
+    !r.po_qty.trim() &&
+    !r.description.trim();
+  /** The blank EXTRA style a multi-style order keeps at its end: its Style and
+   *  Category are not held (a cage on a line nobody asked for). The ONLY line of
+   *  an order is still held — an order must name a style. */
+  const styleIsTail = (r: StyleRow) => form.mult_ord && styles.length > 1 && styleBlank(r);
+  const taBlank = (r: TaRow) => !r.activity_id && !r.days_required.trim() && !r.assigned_staff_id;
+
   const addPackTypeLine = (rowKey: string) => {
     mutPackTypeLines(rowKey, (ls) => [...ls, blankPackTypeLine()]);
   };
@@ -7846,7 +7915,7 @@ export function GarmentOrderScreen({
         return (
           <Input
             aria-label="Style"
-            required
+            required={!styleIsTail(r)}
             value={r.style_ref_no}
             onChange={(e) =>
               updateStyle(r.key, { style_ref_no: e.target.value, style_id: null })
@@ -7942,7 +8011,7 @@ export function GarmentOrderScreen({
         <CategoryPicker
           label="Style Category"
           compact
-          required
+          required={!styleIsTail(r)}
           categories={styleCategoriesFor(r.style_category_id)}
           value={r.style_category_id ?? ""}
           onChange={(id) =>
@@ -9860,7 +9929,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               }
             />
             {dup ? (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+              <p className="mt-1 text-xs text-warning">
                 Already listed above; it will be saved once.
               </p>
             ) : null}
@@ -14400,6 +14469,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       tableAlways
       seedRow
       onAdd={() => addPackTypeLine(r.key)}
+      // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+      tailRow={packLineBlank}
       onRemove={(l) =>
         mutPackTypeLines(r.key, (ls) => ls.filter((x) => x.key !== l.key))
       }
@@ -17002,7 +17073,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       /* The grid's own "+ Add fabric" is off; `AddFabricButton` stands below
          the box instead — see it. `addLabel` / `addClassName` stay so the
          grid still names its row kind if `hideAdd` ever comes off. */
-      hideAdd
+      /* ENTER-ONLY ENTRY (2026-10-23): a blank fabric stands at the end instead of
+         "+ Add fabric" (`AddFabricButton` below the box is gone with it). A fabric
+         is blank while it says nothing — `structSaysSomething`, the same test
+         `writeComboTree` drops it by on save. */
+      tailRow={(st) => !structSaysSomething(st)}
       onRemove={(st) => mutStructs(r.key, (sts) => sts.filter((x) => x.key !== st.key))}
       addLabel="+ Add fabric"
       /* Same box as "+ Add component" inside it — see `STRUCTURE_ADD_W`. */
@@ -17020,7 +17095,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            TAKES `family`, REINSTATED 2026-09-05: GSM alone is conditional on
            the picked Structure's knit family (Circular Knit only), the other
            four cells are unconditional regardless of what is passed. */
-        const need = structureRequiredCells(family);
+        /* THE BLANK END FABRIC HOLDS NOTHING (2026-10-23, enter-only entry): its
+           cells are this row's own `required`, which `ChildGrid` cannot reach, so
+           the release is stated here — a held fabric the operator never asked for
+           would cage the cursor. The first thing typed makes it a fabric again. */
+        const needAll = structureRequiredCells(family);
+        const need: typeof needAll = structSaysSomething(st)
+          ? needAll
+          : (Object.fromEntries(Object.keys(needAll).map((k) => [k, false])) as typeof needAll);
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
           /**
@@ -18094,7 +18176,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       }}
     />
     </div>
-    <AddFabricButton onAdd={() => addStruct(r.key)} className={STRUCTURE_ADD_W} />
     </div>
     );
   };
@@ -18684,6 +18765,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            rows above. */
         seedRow
         onAdd={() => addStyleCoordinate(r.key)}
+        // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+        tailRow={(c) => !c.coordinate_id}
         onRemove={(c) =>
           mutCoords(r.key, (cs) => cs.filter((x) => x.key !== c.key))
         }
@@ -19125,6 +19208,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              master passes it for the same reason. */
           seedRow
           onAdd={() => addStyleComponent(r.key)}
+          // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+          tailRow={(c) => !componentRowStarted(c, impliedCoordinateId(r.unit_kind, r.coordinates))}
           onRemove={(c) =>
             mutComponents(r.key, (cs) => cs.filter((x) => x.key !== c.key))
           }
@@ -19454,6 +19539,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          */
         hideAdd={!form.mult_ord}
         onAdd={addStyle}
+        /* Enter-only entry (2026-10-23): a blank style stands at the end of a
+           multi-style order instead of "+ Add style". `onTail`, not `addStyle`:
+           that one also OPENS the new line, and the blank end row must not take
+           the open card from the line being worked on every time it reappears. */
+        tailRow={styleBlank}
+        onTail={() => setStyles((xs) => [...xs, blankStyle()])}
         onRemove={(r) => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
         addLabel="+ Add style"
         /* `ADD_BUTTON_W`'s only reader since "+ Add size" came out on 08-20 —
@@ -20134,6 +20225,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 rows={dyeings.filter((d) => d.section === "yarn")}
                 tableAlways
                 onAdd={() => addDyeing("yarn")}
+                // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+                tailRow={dyeingBlank}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add yarn dyeing"
               />
@@ -20147,6 +20240,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 rows={dyeings.filter((d) => d.section === "fabric")}
                 tableAlways
                 onAdd={() => addDyeing("fabric")}
+                // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+                tailRow={dyeingBlank}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add fabric dyeing"
               />
@@ -20161,6 +20256,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 rows={prints}
                 tableAlways
                 onAdd={addPrint}
+                // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+                tailRow={printBlank}
                 onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add roll form print"
               />
@@ -20245,6 +20342,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             keepOne
             tableAlways
             onAdd={addCombo}
+            // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+            tailRow={comboBlank}
             onRemove={(r) => setCombos((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add combo"
           />
@@ -20319,6 +20418,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 rows={packTypes}
                 tableAlways
                 onAdd={addPackType}
+                // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+                tailRow={packTypeBlank}
                 onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add pack type"
               />
@@ -21469,6 +21570,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             totalsLabel="Total PO Qty"
             tableFrom="5xl"
             onAdd={() => setQuantities((xs) => [...xs, blankQuantity()])}
+            // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+            tailRow={quantityBlank}
             onRemove={(r) => setQuantities((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add quantity"
           />
@@ -22080,7 +22183,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 LOOK ONLY, by the user's choice: the 2026-09-15 text-until-
                 clicked cells, the red critical edge, Status and the quick
                 actions are untouched. */}
-            <div data-grid-style="sheet-rows" className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
+            <div data-grid-style="sheet-rows" className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong">
             {/* THE HEADER ROW, as the mock draws it: small, uppercase, widely
                 tracked, muted, on the card's own white with a single rule
                 under it - not the grey band of 09-12, which read as a second
@@ -22177,6 +22280,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                    `taRowsDisplay` above for why that lands the new row next
                    to this button rather than at the top of the screen. */
                 onAdd={() => setTaRows((xs) => [blankTaRow(), ...xs])}
+                // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+                tailRow={taBlank}
                 onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add activity"
                 /* HEIGHT, PADDING AND TEXT TOGETHER, never one of the three.
@@ -22281,6 +22386,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 tableAlways
                 keepOne
                 onAdd={() => setTaApprovalRows((xs) => [...xs, blankTaApprovalRow()])}
+                // Enter-only entry: a blank end row instead of "+ Add" (`tailRow`, 2026-10-23).
+                tailRow={(a) => !a.approval_id}
                 onRemove={(r) => setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add approval"
               />
@@ -23771,6 +23878,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         >
           ←
         </Button>
+        {/* THE WAY OUT IS SAID ON A DESKTOP TOO (user 2026-10-17, copied from
+            Sample Entry): the app's own BackLink, same words and same
+            discard question as every other Back. */}
+        <BackLink onBack={() => setMode("list")} label="Garment Orders" className="max-md:hidden" />
         <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-col max-md:items-start max-md:gap-0">
           <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
             {viewOnly
@@ -24535,36 +24646,6 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
  * type — a hint that says "0 solid, 0 melange" is noise, and on a saved
  * amendment there is no order read to derive it from at all.
  */
-/**
- * "+ Add fabric", BELOW the Structure Details box rather than inside it (user,
- * 2026-09-21: "add fabric button a table kku kela kondu va").
- *
- * WHY IT IS NOT `ChildGrid`'s OWN BUTTON ANY MORE. That one renders inside the
- * grid's card, and the card is inside the bordered box — so it could only ever
- * sit within the border. The grid now passes `hideAdd` and this stands after
- * the box.
- *
- * THE TWO THINGS `ChildGrid` DID FOR ITS BUTTON, AND WHO DOES THEM NOW:
- * - Hide it on a LOCKED record (approved order, the read-only eye) — ChildGrid
- *   folds `useLocked()` into its `hideAdd`. This reads the same hook, which is
- *   why it is a component: the Structure Details markup is built below the
- *   editor's `if (mode === "list")` return, where a hook call would be the
- *   "hooks above every early return" crash AGENTS.md records five times.
- * - Keep the keyboard contract. `data-row-add` makes it a Tab stop after the
- *   last part (`isRowAdd`), and `landOnAddedRow` still puts the cursor in the
- *   new fabric: it walks up from the button to the first ancestor holding a
- *   `data-grid-body`, which is the wrapper around this and the box.
- */
-function AddFabricButton({ onAdd, className }: { onAdd: () => void; className?: string }) {
-  const locked = useLocked();
-  if (locked) return null;
-  return (
-    <Button type="button" variant="outline" size="sm" data-row-add className={className} onClick={onAdd}>
-      + Add fabric
-    </Button>
-  );
-}
-
 function FabricTypeHint({ counts }: { counts: FabricTypeCounts | null }) {
   if (!counts) return null;
   const named = [

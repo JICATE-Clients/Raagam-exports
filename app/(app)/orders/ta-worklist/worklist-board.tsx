@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle,
+  TriangleAlert,
   CalendarClock,
   CheckCircle2,
   Clock,
@@ -525,7 +525,7 @@ const STATUS_ICON_COLOR: Record<StatusTone, string> = {
 function StatusIcon({ row, className }: { row: WorklistRow; className?: string }) {
   const tone = rowTone(row);
   const cls = cn(STATUS_ICON_COLOR[tone], className);
-  if (tone === "danger" || tone === "warning") return <AlertTriangle className={cls} aria-hidden />;
+  if (tone === "danger" || tone === "warning") return <TriangleAlert className={cls} aria-hidden />;
   if (tone === "info") return <Clock className={cls} aria-hidden />;
   return <CalendarClock className={cls} aria-hidden />;
 }

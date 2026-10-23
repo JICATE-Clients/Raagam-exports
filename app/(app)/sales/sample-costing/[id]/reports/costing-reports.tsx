@@ -2,11 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardList, FileText, GitBranchPlus, Save, Send, X } from "lucide-react";
+import { BarChart3, ClipboardList, FileText, GitBranchPlus, Save, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackLink } from "@/components/ui/back-link";
 import { Tooltip } from "@/components/ui/tooltip";
-import { Select } from "@/components/ui/select";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
 import type { EditOptions } from "@/components/sales/cost-sheet-editors";
@@ -39,7 +38,11 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
  * report cannot disagree.
  */
 
-type Tab = "cost-sheet" | "quotation";
+// Charts is a tab of the report (user 2026-10-22), not a fold at the foot of the Cost Sheet.
+type Tab = "cost-sheet" | "quotation" | "charts";
+
+/** Where a costing is revised: the newest entry screen (user 2026-10-22, Costing 6). */
+export const REVISE_SCREEN = "/sales/sample-costing/costing-6";
 
 export type ReportSource = {
   /** The saved costing — what Revise copies. */
@@ -54,6 +57,8 @@ export type ReportSource = {
   /** The masters the sheet's row pickers list while revising. */
   options: EditOptions;
   history: RevisionHistoryRow[];
+  /** The sample's other costed styles — the Quotation lists them beside this one. */
+  siblings: CostingRecord[];
   /** A saved Draft the reader may send to the buyer (0725: → Under Progress). */
   canSubmit: boolean;
 };
@@ -85,8 +90,6 @@ export function CostingReports({
      ten seconds reads as a dead button (client 2026-10-09: "I clicked it, it is not
      opening"). Every jump this page makes goes through one transition: the control
      says so and the page dims until the next screen is ready. */
-  const [going, startGo] = useTransition();
-  const go = (href: string) => startGo(() => router.push(href));
   const [saving, startSave] = useTransition();
   const [tab, setTab] = useState<Tab>(initial);
 
@@ -109,7 +112,7 @@ export function CostingReports({
     ? { ...source.record, version: nextVersion, status: "draft", is_draft: false, decision_remark: null, draft: effective }
     : null;
   const costShown = liveRecord ? buildCostSheetModel(liveRecord, source.lookups, source.company, source.history, null) : cost;
-  const quoteShown = liveRecord ? buildQuotationModel(liveRecord, source.lookups, source.company, source.history, null) : quote;
+  const quoteShown = liveRecord ? buildQuotationModel(liveRecord, source.lookups, source.company, source.history, null, source.siblings) : quote;
 
   const pick = (t: Tab) => {
     setTab(t);
@@ -119,10 +122,13 @@ export function CostingReports({
     window.history.replaceState(null, "", url);
   };
 
+  /* REVISE OPENS THE COSTING ENTRY SCREEN (user 2026-10-22: "we need the costing entry
+     screen for the revise also" — Costing 6). The next Rev is edited where costings are
+     entered, not in this page's one-page sheet; Costing 6 loads it as "Rev N (new)" and
+     its Save writes it. This page goes back to reading, printing and downloading. */
   function startRevising() {
-    setDraft(cloneDraft(source.record.draft));
-    setHeld(new Set());
-    setMessage(null);
+    if (!revise) return;
+    router.push(`${REVISE_SCREEN}?reviseFrom=${revise.id}`);
   }
   function stopRevising() {
     setDraft(null);
@@ -178,34 +184,25 @@ export function CostingReports({
       options={[
         { value: "cost-sheet", label: "Cost Sheet", icon: ClipboardList },
         { value: "quotation", label: "Quotation", icon: FileText },
+        { value: "charts", label: "Charts", icon: BarChart3 },
       ]}
     />
     </>
   );
   const trail = revising ? null : (
     <>
-      {/* PICK A REVISION, AND THE WHOLE SHEET FOLLOWS (client 2026-10-09: "the
-          sheet will visually update — the chart, the cost, everything"). Each
-          revision is its own saved costing, so choosing one opens THAT
-          revision's report on the tab already open. */}
-      {cost.history.length > 1 ? (
-        <Select value={cost.id} disabled={going} onChange={(e) => go(`/sales/sample-costing/${e.target.value}/reports?tab=${tab}`)} aria-label="Revision shown" className="w-56">
-          {cost.history.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.label}
-              {r.price != null ? ` · ${cost.currency ?? ""} ${r.price.toFixed(2)}` : ""}
-              {r.current ? "  (shown)" : ""}
-            </option>
-          ))}
-        </Select>
-      ) : null}
+      {/* NO REVISION PICKER HERE (user 2026-10-17, screenshot 3606: "remove the top bar
+          rev option … already we have separate tab for it"). The sheet's Revisions tab
+          lists every revision and each row opens that revision's report. */}
       {revise ? (
-        <Tooltip label={revise.reason ?? "Change fabric rate, CMT or margin right here and watch the report update"}>
+        /* The button says "Revise" alone — "Revise → Rev 2" beside "Rev 1 · USD 4.50" read
+           Rev twice (user 2026-10-17). The next number moves into the tooltip. */
+        <Tooltip label={revise.reason ?? `Make ${revise.nextLabel} in the costing entry screen — every figure carried over, saved as the next Rev`}>
           {/* A disabled button swallows the hover, so it lets the pointer through to
               the Tooltip's own wrapper — otherwise the reason it is greyed never shows. */}
-          <Button variant="outline" size="md" className={revise.reason ? "pointer-events-none" : undefined} disabled={!!revise.reason || going} onClick={startRevising}>
+          <Button variant="outline" size="md" className={revise.reason ? "pointer-events-none" : undefined} disabled={!!revise.reason} onClick={startRevising}>
             <GitBranchPlus className="h-4 w-4" />
-            {revise.reason ? "Revise" : `Revise → ${revise.nextLabel}`}
+            Revise
           </Button>
         </Tooltip>
       ) : null}
@@ -245,8 +242,8 @@ export function CostingReports({
         </p>
       ) : null}
 
-      <div className={going ? "flex-1 opacity-60 transition-opacity" : "flex-1 transition-opacity"} aria-busy={going}>
-        {tab === "cost-sheet" ? <CostSheetDocument {...bar} model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
+      <div className="flex-1">
+        {tab === "charts" ? <CostSheetDocument {...bar} onePage chartsOnly model={costShown} locked={revising} /> : tab === "cost-sheet" ? <CostSheetDocument {...bar} onePage model={costShown} locked={revising} edit={effective ? { draft: effective, onChange: setDraft, onQuote: (k) => setHeld((h) => new Set(h).add(k)), options: source.options } : undefined} /> : <QuotationDocument {...bar} model={quoteShown} locked={revising} />}
       </div>
 
       {/* THE SAVE BAR — ATTACHED TO THE BOTTOM, THE EDITOR FOOTER'S OWN BAND (user

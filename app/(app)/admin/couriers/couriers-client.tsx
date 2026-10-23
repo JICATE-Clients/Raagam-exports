@@ -12,7 +12,8 @@ import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber, fmtDate } from "@/lib/format";
 import {
@@ -29,18 +30,14 @@ import { COURIER_DESPATCH_STATUS_LABELS, type CourierDespatchStatus } from "@/li
 import type { Courier } from "@/lib/admin/extras-types";
 import type { CourierDespatchWithRefs, CourierOption } from "@/lib/admin/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const D_TONE_OVERRIDES = {
+  despatched: "warning", // this module's own word — not in the shared table
+} as const;
 
 function dTone(s: CourierDespatchStatus): StatusTone {
-  switch (s) {
-    case "draft":
-      return "neutral";
-    case "despatched":
-      return "warning";
-    case "delivered":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(s, D_TONE_OVERRIDES);
 }
 
 interface Props {
@@ -119,7 +116,7 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Contact", cell: (r) => <span className="text-sm">{r.contact_person ?? "—"}</span> },
     { header: "Phone", cell: (r) => <span className="text-sm">{r.phone ?? "—"}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={r.is_active ? "success" : "neutral"}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={activeTone(r.is_active)}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
     ...(canEdit || canDelete
       ? [
           rowActionsColumn<Courier>((r) => (

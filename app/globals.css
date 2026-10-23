@@ -11,6 +11,14 @@
   --background: #f6f7f9; /* app canvas */
   --surface: #ffffff; /* cards, tables */
   --surface-muted: #f1f3f5; /* table headers, subtle fills */
+  /* SOFT BLUE TABLE HEADER (user 2026-10-16) — the shared `DataTable`'s head
+     band, its ink and the rule under it; the body stays `--surface` white.
+     Reverses the 2026-10-15 white header for DataTable only, by instruction.
+     Fixed hues, not `--primary`: a colour preset re-tints controls, and the
+     header band is not a control. Dark values in `.dark` below. */
+  --table-head-bg: #eaf4fb;
+  --table-head-fg: #24465e;
+  --table-head-border: #c8dce9;
   /* THE FLOATING WORK PANEL (2026-10-01, frame option A). The frame used to be
    * five strips — rail, module menu, top bar, tab band, page — each drawing its
    * own borders, and the lines never met (the menu's at 48px, the top bar's at
@@ -167,8 +175,31 @@
   --primary: #037bb8; /* brand blue, darkened to 4.58:1 on white */
   --primary-hover: #036ca1;
   --primary-foreground: #ffffff;
-  --accent: #0d9488; /* teal accent */
+  /* TEAL 700, DOWN FROM #0d9488 (2026-10-16, colour-hierarchy pass). #0d9488
+     measured 3.74:1 on white — under AA for the `text-accent` labels that use
+     it and under AA for its own `--accent-foreground` white. #0f766e is the
+     same hue at 5.47:1 on white and 4.86:1 on `--accent-soft`.
+     ITS ROLE IS NARROW ON PURPOSE: blue is action / selected, green is success
+     only, and teal is the SECOND data colour — a supporting icon well, a
+     runner-up bar, a secondary KPI. Never a button, never a status. */
+  --accent: #0f766e;
   --accent-foreground: #ffffff;
+  /* HEADINGS — a deep navy on the brand's 200deg hue, low enough in chroma to
+     sit beside any colour preset (2026-10-16, client: "the application looks
+     too grey, black and white"). Section, card and table-header titles take it
+     under New look, so the eye finds structure before content; body text stays
+     --foreground. Not themeable by `lib/appearance.ts` deliberately — a purple
+     preset with purple headings is every word on the screen in one hue.
+     13.55:1 on white, 12.41:1 on --primary-soft. */
+  --heading: #13304a;
+  /* SOLID FILLS THAT CARRY WHITE TEXT — the Approve and Delete buttons. Their
+     own tokens because the text tokens beside them cannot carry white in the
+     dark theme: dark --danger (#f87171) under white is 2.77:1, which is what
+     every dark-mode Delete button drew. Light: white 4.97:1 / 6.47:1. */
+  --success-solid: #547b19;
+  --success-solid-hover: #466715;
+  --danger-solid: #b91c1c;
+  --danger-solid-hover: #991b1b;
 
   /* Semantic / traffic-light (T&A dashboard) */
   /**
@@ -286,6 +317,10 @@
 }
 
 .dark {
+  /* The soft blue header at night: the same hue as a deep tint, pale ink. */
+  --table-head-bg: #15222e;
+  --table-head-fg: #b6d2e6;
+  --table-head-border: #2b4255;
   --viz-1: #3987e5;
   --viz-2: #d95926;
   --viz-3: #199e70;
@@ -354,6 +389,15 @@
   --primary-foreground: #ffffff;
   --accent: #2dd4bf;
   --accent-foreground: #04211d;
+  /* Ice on the dark ground: 14.4:1 on --surface, still a step off --foreground. */
+  --heading: #dbe8f3;
+  /* White on #4f7518 5.40:1, on #466715 6.54:1; on #dc2626 4.83:1, on
+     #b91c1c 6.47:1. A dark-theme hover goes DARKER here, not lighter, because
+     a lighter green or red is exactly what drops white below 4.5. */
+  --success-solid: #4f7518;
+  --success-solid-hover: #466715;
+  --danger-solid: #dc2626;
+  --danger-solid-hover: #b91c1c;
 
   --success: #97d636;
   --success-soft: #21310a;
@@ -423,6 +467,11 @@
   --color-danger-soft: var(--danger-soft);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
+  --color-heading: var(--heading);
+  --color-success-solid: var(--success-solid);
+  --color-success-solid-hover: var(--success-solid-hover);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-solid-hover: var(--danger-solid-hover);
   --color-shell-tabbar: var(--shell-tabbar);
 
   /* Inter, loaded by `next/font/google` in app/layout.tsx (which sets
@@ -516,6 +565,55 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* The pause before Enter flips a `Toggle` (lib/focus.ts `ENTER_TIMED`): a bar
+ * drains under the switch, like the "+ Add" one below; Enter again before it
+ * empties moves on instead of flipping. The bar is the input's sibling and
+ * `--enter-ms` is set on their shared label. */
+input[data-enter-pending] ~ .enter-bar {
+  animation: enter-drain var(--enter-ms, 500ms) linear forwards;
+}
+/* A plain tick box has no bar beside it, so the pause is a ring on the box. */
+input[type="checkbox"][data-enter-pending]:not([data-enter-timed]) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  input[data-enter-pending] ~ .enter-bar {
+    transform: scaleX(1);
+    animation: none;
+  }
+}
+
+/* The pause after Enter on a grid's "+ Add" (lib/focus.ts `enterOnRowAdd`): a
+ * bar drains under the button; Enter again before it empties moves on instead
+ * of adding. */
+[data-enter-pending]:is(button, [role="button"]) {
+  position: relative;
+  overflow: hidden;
+}
+[data-enter-pending]:is(button, [role="button"])::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: var(--primary);
+  transform-origin: left;
+  animation: enter-drain var(--enter-ms, 500ms) linear forwards;
+}
+@keyframes enter-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-enter-pending]:is(button, [role="button"])::after {
+    animation: none;
   }
 }
 
@@ -1384,12 +1482,13 @@ body {
   box-shadow: var(--elev);
 }
 
-/* THE RIGHT-HAND BUTTONS ARE THE LOGO GREEN AT FULL STRENGTH, and they can be
-   because their text is DARK. #1f3305 on #85c227 is 6.35:1; white on the same
-   fill is 2.16:1, which is why every other green in this app is a lightened
-   derivative rather than the logo colour itself. The reference design's green
-   buttons work for exactly this reason — dark text, not white — so this is the
-   one place the untouched #85c227 can be used as a fill.
+/* THE PRIMARY BUTTON IS A LIGHT-BLUE GRADIENT WITH DARK NAVY TEXT. It was once
+   the logo green (#85c227) with dark text; the fill below replaced it and this
+   comment still described the green until 2026-10-16. The rule is the same
+   either way: a light fill needs DARK text — white on these blues would fail.
+   #0b3a56 measures 9.43:1 on the lightest stop (#cfe8f7), 6.71:1 on the
+   darkest (#93c9e8) and 6.00:1 on the darkest hover stop (#83bfe2), all above
+   AA's 4.5:1. Weight is untouched: the variant's `font-bold` still applies.
    `bg-primary` is how `Button` draws its primary variant, so this catches Save
    without the screen passing anything. */
 /* `a.ty-btn-*` beside every `button[…]` here: a link drawn with
@@ -1406,8 +1505,9 @@ body {
   background: linear-gradient(135deg, #bfe0f4 0%, #9fd0ea 52%, #83bfe2 100%);
 }
 
-/* The outlined ones — "+ Add material", "Copy from…", Cancel — take the same
-   green on the border and the text. #3f6612 on white is 6.1:1. */
+/* The outlined ones — "+ Add material", "Copy from…", Cancel — take the logo
+   green on the border and the text. #3f6612 is 6.73:1 on white and 6.24:1 on
+   the #f2f9e6 hover fill. */
 /* `:not([data-field-affordance])` ON BOTH RULES, and it is the same slip twice.
    A field's ✕ is a <button> whose class list contains `border-border` — it is
    the SLOT's own left border — so an attribute selector written for outlined
@@ -1795,14 +1895,11 @@ body {
   }
 }
 
-/* THE FOCUSED FIELD IS THE BLUE. `--ring` is already the brand blue, so this
-   only widens the halo so a curved field shows it — at 0.75rem radius a 1px
-   ring disappears into the corner. */
-[data-skin="raagam"] input:focus-visible,
-[data-skin="raagam"] select:focus-visible,
-[data-skin="raagam"] textarea:focus-visible {
-  box-shadow: 0 0 0 3px #d4ecf9;
-}
+/* NO BLUE HALO OUTSIDE A FOCUSED FIELD (user 2026-10-17, Order Info Customer:
+   "field box ku veliya intha blue colour therira mari" — fix it for all fields).
+   This used to widen a pale-blue halo (`0 0 0 3px #d4ecf9`) around the box, and
+   the compact scale below added a second 15% one. Both are gone: the field's
+   own border/ring is the focus mark, and nothing paints outside it. */
 
 
 
@@ -2076,7 +2173,13 @@ html[data-type-scale="compact"] .ty-page-title { font: var(--ty-page-title); let
 html[data-type-scale="compact"] .ty-section-title { font: var(--ty-section-title); }
 html[data-type-scale="compact"] .ty-subsection { font: var(--ty-subsection); }
 html[data-type-scale="compact"] .ty-body { font: var(--ty-body); }
-html[data-type-scale="compact"] :is(.ty-tab, .ty-button, .ty-sidebar) { font: var(--ty-medium); }
+html[data-type-scale="compact"] :is(.ty-tab, .ty-sidebar) { font: var(--ty-medium); }
+/* A button takes the size and leading of --ty-medium but NOT its weight. The
+   `font` shorthand resets font-weight too, and at 0,2,1 this out-ranked the
+   variant's own `font-bold` / `font-semibold`, so under New look Save, Delete
+   and Cancel all drew at 500 — the Archivo hierarchy in button.tsx (primary
+   700, outline 600, ghost/subtle 500) erased by a type-scale rule. */
+html[data-type-scale="compact"] .ty-button { font-size: 13px; line-height: 20px; }
 html[data-type-scale="compact"] .ty-breadcrumb { font: var(--ty-small-medium); }
 html[data-type-scale="compact"] .ty-label { font-size: 12px; font-weight: 500; }
 html[data-type-scale="compact"] .ty-sidebar-group { font-size: 11px; font-weight: 500; }
@@ -2144,8 +2247,8 @@ html[data-type-scale="compact"] {
   --primary-active: #045a86;
   --info: #045a86;
   --info-soft: #eaf7fd;
-  --success-solid: #547b19;
-  --success-solid-hover: #466715;
+  /* `--success-solid` / `-hover` now live in `:root` and `.dark` (Approve is
+     green in both looks since 2026-10-16); only the pressed shade is New-look. */
   --success-solid-active: #385311;
   --placeholder: #6b7584;
   --btn-glow: rgb(3 123 184 / 0.28);
@@ -2154,8 +2257,8 @@ html[data-type-scale="compact"].dark {
   --primary-active: #036ca1;
   --info: #7cc8f0;
   --info-soft: #052c40;
-  --success-solid: #4f7518;
-  --success-solid-hover: #5d8a1d;
+  /* Was `--success-solid-hover: #5d8a1d` — white on it 4.10:1. The `.dark`
+     root value (#466715, 6.54:1) governs now. */
   --success-solid-active: #43641a;
   --placeholder: #8994a4;
   --btn-glow: rgb(0 0 0 / 0.45);
@@ -2205,7 +2308,7 @@ html[data-type-scale="compact"] .ty-btn-danger {
   --btn-glow: rgb(185 28 28 / 0.25);
 }
 html[data-type-scale="compact"] .ty-btn-danger:active:not(:disabled) {
-  background-color: var(--danger);
+  background-color: var(--danger-solid-hover);
 }
 /* Secondary = white surface with the STRONG border. */
 html[data-type-scale="compact"] .ty-btn-outline {
@@ -2229,9 +2332,7 @@ html[data-type-scale="compact"]
     [data-field-trigger]
   ):focus-visible:not([aria-invalid="true"]):not([data-dup-error]):not([data-required-empty]) {
   outline: none;
-  box-shadow:
-    0 0 0 2px var(--ring),
-    0 0 0 5px color-mix(in srgb, var(--ring) 15%, transparent);
+  box-shadow: 0 0 0 2px var(--ring);
 }
 
 /* ---- Status badges: tinted 1px border, faint top sheen, leading icon ----- */
@@ -2244,6 +2345,32 @@ html[data-type-scale="compact"].dark .ty-badge {
 }
 html[data-type-scale="compact"] .ty-badge-icon {
   display: inline-block;
+}
+
+/* ---- Headings take the navy (2026-10-16) --------------------------------- */
+/* THE COLOUR HIERARCHY, ONE STEP AT A TIME (client: "the application looks too
+   grey, black and white"). Body text stays --foreground; the words that NAME a
+   region — a sheet's title, a section, a card, a table's column heads — take
+   --heading, a deep navy on the brand's hue. That is a second ink, not a
+   second colour: at 13.55:1 it reads as dark text at arm's length and as blue
+   beside black, which is the whole effect wanted.
+   WHAT THIS DELIBERATELY DOES NOT DO is tint a surface. The client has
+   refused a tinted ground five times (see `--surface-muted` and the skin's
+   `--background`) and made the table header white on 2026-10-15; colour goes
+   on ink and controls, never behind content.
+   ONLY WHERE THE ELEMENT ASKED FOR A NEUTRAL INK. Every selector carries
+   `.text-foreground` / `.text-muted-foreground`, because this block is
+   unlayered and so out-ranks every utility: a printable sheet's hand-set
+   `text-[#7b8594]` header (gos-sheet.tsx), a band's own ink (`th[data-band]`),
+   or a title a screen deliberately paints red would all have been repainted
+   navy by a bare `thead th`. A neutral class is the call site saying "no
+   opinion"; anything else is an opinion and is left alone. DataTable heads
+   carry `text-muted-foreground`, ChildGrid's GRID_HEADER_TEXT and every
+   sheet / card / editor title `text-foreground`. */
+html[data-type-scale="compact"] :is(.ty-page-title, .ty-section-title, .ty-subsection):is(.text-foreground, .text-muted-foreground),
+html[data-type-scale="compact"] thead th:not([data-band]):is(.text-foreground, .text-muted-foreground),
+html[data-type-scale="compact"] [data-sheet-row="head"] > :is(.text-foreground, .text-muted-foreground) {
+  color: var(--heading);
 }
 
 /* THE APPROVAL CHART'S ARRIVAL (2026-09-30, "ultra modern … it should attract").
@@ -2514,6 +2641,16 @@ html[data-type-scale="compact"] .ty-badge-icon {
 [data-grid-style="sheet"] td:hover [data-field-affordance],
 [data-grid-style="sheet"] td:focus-within [data-field-affordance] {
   opacity: 1;
+}
+/* ONLY THE CELL UNDER THE POINTER (user 2026-10-21, screenshot 101816:
+   "entha line mela mouse hover pandromo athula mattum x icon … table fulla
+   katta vendam"). `td:hover` above matches an OUTER cell too, so a sheet grid
+   nested in one (Garment Order ▸ Pack type(s) ▸ Style · Combo · Qty) lit every
+   inner line's ✕ / ▼ at once. A cell between the slot and the hovered one that
+   is not itself hovered or focused hides it again — higher specificity than
+   the reveal, so order does not matter. */
+[data-grid-style="sheet"] td:is(:hover, :focus-within) td:not(:hover):not(:focus-within) [data-field-affordance] {
+  opacity: 0;
 }
 
 /* NO SCROLLBARS, AND THE TABLE FILLS ITS PANE — `data-grid-fit="fill"` beside
@@ -2831,4 +2968,55 @@ html[data-type-scale="compact"] .ty-badge-icon {
 }
 [data-grid-style="sheet"] tbody:not(:last-child) > tr:last-child > :last-child {
   border-bottom-right-radius: var(--radius-control, 0.5rem);
+}
+
+/* ---------------------------------------------------------------------------
+ * A FOCUSED FIELD WEARS ONE LOOK EVERYWHERE: THE FIELD GREEN BORDER AND A PALE
+ * BLUE HALO OUTSIDE IT (user 2026-10-17, Order Info ▸ Customer — "global aa ellam
+ * field kku intha blue colour aa set pannu"; then "oru sila place la intha dark
+ * blue ring irukku, adhu vendam" — the 2px ring on a grid cell, Fabric Colour, is
+ * the look that is NOT wanted).
+ * ---------------------------------------------------------------------------
+ * The look existed on the Raagam skin alone (`0 0 0 3px #d4ecf9`); every other
+ * place drew its own ring — `ring-2 ring-ring` on the primitives, the base
+ * outline floor, the compact scale and three sheet-grid rules (2px / inset 2px of
+ * `--ring`, the dark-blue ring above). A per-source fix leaves a remainder, so
+ * this is ONE rule at the end of the file, `!important` because it has to beat
+ * Tailwind's ring utilities and every grid rule: green border (#79b023, the
+ * colour every field box already has at rest) plus the 3px pale-blue halo.
+ *
+ * THE FIRST CUT EXCLUDED `[data-field-style="lines"] *`, and that left the dark
+ * ring alive wherever a sheet grid sat under a lines-style screen (Fabric BOM's
+ * colour panels). No exclusion for it now: a field in that style gets the same
+ * focus look as every other field.
+ *
+ * A BLANK MANDATORY FIELD IS INCLUDED (Fabric Allocation ▸ Fabric, user
+ * 2026-10-17). The first cut skipped `[data-required-empty]` to leave it "red",
+ * but the red only exists on a sheet-grid cell at REST — focused, nothing took
+ * over and the base outline plus the primitive's `ring-2 ring-ring` drew the
+ * dark-blue ring. A new record opens with every mandatory field blank, so that
+ * was the ring on the first field the operator touched. The hold itself
+ * (Tab / Enter refuse) is untouched; only the paint is.
+ *
+ * Left alone on purpose: an error / duplicate field keeps its own treatment (a
+ * focus colour must never paint over "this is wrong").
+ */
+:is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+    select,
+    textarea,
+    [data-field-trigger]
+  ):is(:focus-visible, :focus-within):not([aria-invalid="true"]):not([data-dup-error]) {
+  outline: none !important;
+  border-color: #79b023 !important;
+  box-shadow: 0 0 0 3px #d4ecf9 !important;
+}
+.dark
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+    select,
+    textarea,
+    [data-field-trigger]
+  ):is(:focus-visible, :focus-within):not([aria-invalid="true"]):not([data-dup-error]) {
+  box-shadow: 0 0 0 3px color-mix(in srgb, #79b023 35%, transparent) !important;
 }

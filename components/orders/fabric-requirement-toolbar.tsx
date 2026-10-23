@@ -1,7 +1,8 @@
 "use client";
 
-import { Download, FileSpreadsheet, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import {
   exportFabricRequirementCsv,
   exportFabricRequirementPdf,
@@ -44,18 +45,17 @@ export function FabricRequirementToolbar({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <Button variant="outline" size="md" onClick={() => exportFabricRequirementCsv(rows, yarns, meta, cloth)}>
-        <FileSpreadsheet className="h-4 w-4" />
-        Excel
-      </Button>
       <Button variant="outline" size="md" onClick={() => window.print()}>
         <Printer className="h-4 w-4" />
         Print
       </Button>
-      <Button size="md" onClick={() => void exportFabricRequirementPdf(rows, yarns, meta, cloth)}>
-        <Download className="h-4 w-4" />
-        Download PDF
-      </Button>
+      <DownloadMenu
+        variant="primary"
+        formats={[
+          asPdf(() => exportFabricRequirementPdf(rows, yarns, meta, cloth)),
+          asExcel(() => exportFabricRequirementCsv(rows, yarns, meta, cloth)),
+        ]}
+      />
     </div>
   );
 }

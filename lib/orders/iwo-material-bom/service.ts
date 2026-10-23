@@ -227,14 +227,25 @@ export async function getIwoMaterialBomFormData(): Promise<IwoMaterialBomFormDat
     .filter((r) => isAccessoryClass(r.class_code));
 
   type CatRaw = { id: string; short_name: string | null; name: string | null; inactive: boolean; item_class_id: string | null };
-  const categories: PickerRow[] = ((catRes.data ?? []) as CatRaw[])
-    .filter((c) => isAccessoryClass(codeOf(c.item_class_id)))
-    .map((c) => ({
-      id: c.id,
-      code: c.short_name,
-      name: `${classes.get(c.item_class_id ?? "")?.name ?? ""} · ${c.name ?? c.short_name ?? "(unnamed)"}`,
-      inactive: isInactive(c),
-    }));
+  /* THE CATEGORY'S OWN NAME (user 2026-10-16, screenshot 3571: "packing
+     accessories is visible … just show the item name, hide it"). Every option
+     used to read "PACKING ACCESSORIES · BULLET" — the class repeated down the
+     whole list. Now the name stands alone, and the class comes back ONLY for a
+     name that exists under both accessory classes (Sew and Pack), where two
+     identical options would leave the operator guessing. */
+  const accessoryCats = ((catRes.data ?? []) as CatRaw[]).filter((c) => isAccessoryClass(codeOf(c.item_class_id)));
+  const nameOf = (c: CatRaw) => c.name ?? c.short_name ?? "(unnamed)";
+  const nameCount = new Map<string, number>();
+  for (const c of accessoryCats) nameCount.set(nameOf(c), (nameCount.get(nameOf(c)) ?? 0) + 1);
+  const categories: PickerRow[] = accessoryCats.map((c) => ({
+    id: c.id,
+    code: c.short_name,
+    name:
+      (nameCount.get(nameOf(c)) ?? 0) > 1
+        ? `${nameOf(c)} (${classes.get(c.item_class_id ?? "")?.name ?? ""})`
+        : nameOf(c),
+    inactive: isInactive(c),
+  }));
 
   return {
     materials,

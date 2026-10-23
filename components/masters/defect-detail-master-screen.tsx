@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Sheet } from "@/components/ui/sheet";
 import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
@@ -401,7 +402,7 @@ export function DefectDetailMasterScreen({
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
-                <StatusPill tone={r.is_active ? "success" : "danger"}>
+                <StatusPill tone={activeTone(r.is_active)}>
                   {r.is_active ? "Active" : "Inactive"}
                 </StatusPill>
               </div>

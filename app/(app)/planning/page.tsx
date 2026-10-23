@@ -4,7 +4,7 @@ import {
   Scissors,
   Shirt,
   Gem,
-  AlertTriangle,
+  TriangleAlert,
   ArrowRightLeft,
   ClipboardCheck,
   RefreshCcw,
@@ -72,7 +72,7 @@ const areas = [
     href: "/planning/bom-shortage",
     label: "BOM Shortage",
     desc: "Shortage requisitions — additional material against BOM.",
-    icon: AlertTriangle,
+    icon: TriangleAlert,
   },
   {
     href: "/planning/bom-transfer",

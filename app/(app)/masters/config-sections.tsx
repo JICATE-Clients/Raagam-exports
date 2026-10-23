@@ -10,7 +10,8 @@ import { ToggleGroup } from "@/components/ui/segmented";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -191,7 +192,7 @@ export function TransportersSection({ transporters }: { transporters: Transporte
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Contact", cell: (r) => <span className="text-sm">{r.contact_person ?? "—"}</span> },
     { header: "Phone", cell: (r) => <span className="text-sm">{r.phone ?? "—"}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={r.is_active ? "success" : "neutral"}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={activeTone(r.is_active)}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
     rowActionsColumn((r) => <RowActions label={r.name} onEdit={() => openEdit(r)} />),
   ];
 
@@ -241,7 +242,7 @@ export function GstRatesSection({ gstRates }: { gstRates: GstRate[] }) {
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Rate %", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.rate_pct)}</span> },
     { header: "HSN", cell: (r) => <span className="text-sm">{r.hsn_code ?? "—"}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={r.is_active ? "success" : "neutral"}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
+    { header: "Status", cell: (r) => <StatusPill tone={activeTone(r.is_active)}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
     rowActionsColumn((r) => <RowActions label={r.name} onEdit={() => openEdit(r)} />),
   ];
 

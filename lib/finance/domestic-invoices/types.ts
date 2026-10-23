@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 
 export const DGI_STATUSES = ["draft", "issued", "paid", "cancelled"] as const;
 export type DgiStatus = (typeof DGI_STATUSES)[number];
@@ -12,16 +13,7 @@ export const DGI_STATUS_LABELS: Record<DgiStatus, string> = {
 };
 
 export function dgiStatusTone(status: DgiStatus): StatusTone {
-  switch (status) {
-    case "draft":
-      return "neutral";
-    case "issued":
-      return "info";
-    case "paid":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(status);
 }
 
 export interface DomesticInvoice {

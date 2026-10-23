@@ -142,7 +142,7 @@ export function IntegrationTabs({ approvals, crisisItems, recentExports }: Props
                 </p>
                 <Link
                   href="/integration/tally"
-                  className="text-sm font-medium text-blue-600 hover:underline"
+                  className="text-sm font-medium text-primary hover:underline"
                 >
                   Go to Tally Export →
                 </Link>

@@ -47,7 +47,8 @@
  * `if (mode === "edit")`, so every hook here is declared above it.
  */
 
-import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
+import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState, useTransition} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTabResume } from "@/lib/workspace-tabs";
 import {
@@ -57,30 +58,23 @@ import {
   CircleX,
   Check,
   Clock,
-  ChevronRight,
   Copy,
   GitCompare,
   Hourglass,
   Pencil,
   RefreshCw,
   RotateCcw,
-  Ruler,
   Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RowHoverRemove } from "@/components/ui/row-hover-remove";
+import { RowIconAction } from "@/components/ui/row-actions";
 import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
-import { MultiSelect } from "@/components/ui/multi-select";
 import { Select } from "@/components/ui/select";
 import { Segmented, ToggleGroup } from "@/components/ui/segmented";
-import { Toggle } from "@/components/ui/toggle";
-import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
+import { Field, FieldRow} from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
-import { Tooltip } from "@/components/ui/tooltip";
-import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
-import { MATRIX_HEAD, MATRIX_SIZE_TOKEN, matrixCell } from "@/components/orders/matrix-grid";
 import {
   MasterFullScreen,
   type FullScreenSection,
@@ -88,16 +82,18 @@ import {
 } from "@/components/masters/master-full-screen";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
-import { SubDetailSheet, useSubSheetOrigin } from "@/components/orders/sub-detail-sheet";
+import { SubDetailSheet} from "@/components/orders/sub-detail-sheet";
+import { CopySourceChooser, PreviewChip } from "@/components/orders/copy-source-chooser";
 import { CustomerDecisionSheet, type CustomerDecision } from "@/components/sales/customer-decision-sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
+import { BackLink } from "@/components/ui/back-link";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
+import { CostingQueueCard, costingCardShared } from "./costing-card";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdByFacet, createdDateFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
-import { TypeOrPick } from "@/app/(app)/orders/_garment-order/type-or-pick";
 import { fmtDate } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -106,48 +102,25 @@ import { useCreateIntent } from "@/lib/use-create-intent";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { costingRevisionOf } from "@/lib/sales/sample-revisions/actions";
 import type { RevisionKind } from "@/lib/sales/sample-revisions/types";
-import { focusFirstField } from "@/lib/focus";
-import { useAccordion } from "@/lib/ui/use-accordion";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
-import { isInactive } from "@/lib/masters/inactive";
-import type { StatusTone } from "@/lib/ui/tone";
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
+import { statusTone } from "@/lib/ui/status-tone";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { SampleCostingFormData, CostingStyleOption } from "@/lib/sales/sample-costing/service";
 import {
-  MARGIN_FLOOR_PCT,
-  componentCost,
-  dimensionalGrams,
-  extraChargeAmount,
-  fabricKgFor,
-  solveTarget,
-  targetImpact,
   fabricPricePerKg,
-  fabricSubtotal,
-  gramsOf,
-  hasYarnMix,
-  marginHealth,
   num,
   pieceCmt,
   pieceEmbellishment,
-  trimCostPerPiece,
-  processTotal,
-  quoteKey,
-  yarnMixTotal,
-  yarnRateOf,
   type CostingSummary,
-  type MarginHealth,
 } from "@/lib/sales/sample-costing/calc";
 import {
   SHIP_MODES,
   STATUS_LABEL,
   costingFieldId,
   costingProblems,
-  floorSentence,
   isBlankFabric,
   isBlankYarn,
-  isBlankPieceLine,
-  isBlankExtra,
-  isBlankTrim,
   isEditableStatus,
   isDeletableStatus,
   isRevisableStatus,
@@ -161,7 +134,6 @@ import {
   type CostingRecord,
   type CostingListRow,
   type CostingProblem,
-  type CostingSection,
   type CostingStatus,
   type ExtraChargeDraft,
   type FabricDraft,
@@ -171,6 +143,7 @@ import {
   type PieceLineKind,
   type RevisionRow,
   type TrimDraft,
+  type WeightDraft,
   type YarnMixDraft,
 } from "@/lib/sales/sample-costing/types";
 import {
@@ -181,17 +154,10 @@ import {
   saveSampleCosting,
 } from "@/lib/sales/sample-costing/actions";
 import { offeredSizes } from "@/lib/sales/sample-costing/style-sizes";
-import {
-  ALL_SIZES,
-  cellGrams,
-  columnsOf,
-  isBlankLine,
-  linesToWeights,
-  lossFor,
-  weightsToLines,
-  type ConsumptionLine,
-  type LossBySize,
-} from "@/lib/sales/sample-costing/matrix";
+import { newWeightRows, releaseCalculatedQuotes, weightsForFabrics } from "@/lib/sales/sample-costing/revision-draft";
+import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
+import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
+import type { EditOptions } from "@/components/sales/cost-sheet-editors";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -204,50 +170,8 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
  * gives ~1100px at 1366, so the row fits, and a narrower window wraps it.
  */
 const DETAILS_W = "max-w-[67rem]";
-/**
- * Overheads ▸ the COST adds only: Garment Rejection code 144 · Overhead
- * hug 88 · Bank range 112 per piece (a 3-piece set: ×3) = 568 + 4 × 12 =
- * 616 → 39rem.
- */
-const TERMS_W = "max-w-[39rem]";
-/**
- * Price & quote ▸ the SELLING terms, one row: Margin / Discount hug 88 ×2 ·
- * Currency / Exchange Rate / Ship Mode range 112 ×3 · Freight /
- * Insurance / Commission / Quoted Price range 112 ×4 = 960 + 8 × 12 = 1056
- * ("In ₹" moved UNDER Quoted on 2026-10-14 — Commission made it a tenth
- * column, ~1180, wider than the card beside the summary column) (Ship
- * Mode 144 → 112 on 2026-10-09: 1088 still drew a horizontal scrollbar at
- * a 1366 pane, user "scroll bar remove"; the row WRAPS since 2026-10-14 —
- * the summary column beside the card left it narrower than this) →
- * 70rem (1088 plus slack so a sub-pixel never wraps the last field; user
- * 2026-10-09: Quoted Price and "In ₹" belong on the SAME row as the other seven, "one row compact"). It was 1196 with Margin / Currency /
- * Rate / Quoted at code 144, which wrapped the last two under the first at
- * the ~1100px a 1366 pane gives.
- */
-const PRICE_W = "max-w-[70rem]";
 
-/** The spec's default Wastage Allowance on a new component line (§4.3). */
-const DEFAULT_ALLOWANCE = "3";
 
-/**
- * THE STEPS, in calculation order. The rules (`costingProblems`) name six
- * sections; the page has seven steps (Trims, Overheads and CMT apart), and `cardOf`
- * says which step holds each section's fields. A rule about wastage or
- * overhead has no field id of its own and lands on Price & quote, as before.
- */
-type CardKey = "info" | "fabrics" | "weights" | "cmt" | "trims" | "overheads" | "price";
-const CARDS: { key: CardKey; label: string }[] = [
-  { key: "info", label: "Costing details" },
-  { key: "fabrics", label: "Fabric" },
-  { key: "weights", label: "Garment weight" },
-  { key: "cmt", label: "CMT & charges" },
-  { key: "trims", label: "Trims" },
-  { key: "overheads", label: "Overheads" },
-  { key: "price", label: "Price & quote" },
-];
-const cardOf = (k: CostingSection): CardKey => (k === "consumption" ? "weights" : k === "quotation" ? "price" : k);
-/** The DOM id a card is scrolled to. */
-const cardAnchor = (k: CardKey) => `sc-card-${k}`;
 
 /** A blank CMT operation / Embellishment row — every key it stamps is blank
  *  except its kind, which `isBlankPieceLine` deliberately does not read. */
@@ -282,21 +206,6 @@ function seedPiece(p: PieceDraft): PieceDraft {
 const copyPieceLines = (lines: readonly PieceLineDraft[]): PieceLineDraft[] =>
   lines.map((l) => ({ ...l, key: `l${crypto.randomUUID()}` }));
 
-const STATUS_TONE: Record<CostingStatus, StatusTone> = {
-  draft: "neutral",
-  submitted: "warning",
-  approved: "success",
-  rejected: "danger",
-  superseded: "neutral",
-};
-
-/** Margin health → the app's own status tones (spec §4.5). */
-/** v2 §4.1 margin badges: ≥ 22 % on target · 15–21.9 % review · < 15 % low. */
-const HEALTH: Record<MarginHealth, { tone: StatusTone; text: string; label: string }> = {
-  good: { tone: "success", text: "text-success", label: "On target" },
-  tight: { tone: "warning", text: "text-warning", label: "Management review" },
-  poor: { tone: "danger", text: "text-danger", label: "Low margin — below floor" },
-};
 
 /**
  * COSTING'S OWN FIVE TABS (user 2026-10-14, screenshot 3475: "Pending is the
@@ -387,91 +296,10 @@ const money = (v: number | null | undefined, dp = 2) =>
   v == null || !Number.isFinite(v) ? "—" : v.toLocaleString("en-IN", { minimumFractionDigits: dp, maximumFractionDigits: dp });
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)}%`);
 
-/**
- * A NUMBER BOX AS THE SPEC ASKS (§6): `inputMode="decimal"` for the phone
- * keypad, and the whole value selected on focus so a typed figure REPLACES the
- * old one — the spreadsheet habit. Focus behaviour only; no key is bound here.
- */
-/** "GBP" → "£", "USD" → "$", "INR" → "₹" — the browser's own narrow symbol, so
- *  no table to keep. A code Intl does not know comes back as the code itself. */
-function currencySymbol(code: string | null | undefined): string {
-  if (!code) return "";
-  try {
-    return (
-      new Intl.NumberFormat("en", { style: "currency", currency: code, currencyDisplay: "narrowSymbol" })
-        .formatToParts(0)
-        .find((p) => p.type === "currency")?.value ?? code
-    );
-  } catch {
-    return code;
-  }
-}
 
-function NumInput(props: React.ComponentProps<typeof Input>) {
-  return (
-    <Input
-      type="number"
-      inputMode="decimal"
-      {...props}
-      className={`text-right tabular-nums ${props.className ?? ""}`}
-      onFocus={(e) => {
-        e.currentTarget.select();
-        props.onFocus?.(e);
-      }}
-    />
-  );
-}
 
-/**
- * A COMPUTED FIGURE THAT FLASHES WHEN IT CHANGES (spec §5.2 "Live Calculation
- * Pulse"). Re-keyed on its own text, so React mounts a fresh span and the
- * `recalc-flash` animation (globals.css) runs once; reduced-motion users get
- * the global clamp. `formula` is the tooltip the spec's checklist asks for.
- */
-function Flash({
-  value,
-  formula,
-  className = "",
-}: {
-  value: string;
-  formula?: string;
-  className?: string;
-}) {
-  const span = (
-    <span key={value} className={`inline-block rounded px-1 tabular-nums motion-safe:animate-recalc ${className}`}>
-      {value}
-    </span>
-  );
-  return formula ? (
-    <Tooltip label={formula} className="inline-flex justify-end">
-      {span}
-    </Tooltip>
-  ) : (
-    span
-  );
-}
 
-/** A right-aligned computed cell. */
-function Figure({ value, dp = 2, formula }: { value: number | null | undefined; dp?: number; formula?: string }) {
-  return (
-    <span className={`block text-right text-sm ${value == null ? "text-muted-foreground" : "text-foreground"}`}>
-      <Flash value={money(value, dp)} formula={formula} />
-    </span>
-  );
-}
 
-/** Δ as the spec's badge: "+0.03 / +0.9%". Green over, red under. */
-function DeltaBadge({ delta, pctValue }: { delta: number | null; pctValue: number | null }) {
-  if (delta == null) return <span className="text-xs text-muted-foreground">—</span>;
-  const tone = delta > 0.00005 ? "text-success" : delta < -0.00005 ? "text-danger" : "text-muted-foreground";
-  const sign = delta > 0 ? "+" : "";
-  return (
-    <span className={`text-xs font-medium tabular-nums ${tone}`}>
-      {`${sign}${delta.toFixed(4)}`}
-      {pctValue != null ? ` / ${sign}${pctValue.toFixed(1)}%` : ""}
-    </span>
-  );
-}
 
 export function SampleCostingScreen({
   rows,
@@ -479,6 +307,7 @@ export function SampleCostingScreen({
   data,
   perms,
   nextCostingNo,
+  letterhead,
 }: {
   rows: CostingListRow[];
   /** Saved sample styles with no costing yet — listed as "Not costed". */
@@ -516,19 +345,9 @@ export function SampleCostingScreen({
   const [header, setHeader] = useState<CostingHeaderDraft>(blankHeader);
   const [pieces, setPieces] = useState<PieceDraft[]>([]);
   const [fabrics, setFabrics] = useState<FabricDraft[]>([]);
-  /** Garment weight as a matrix (0693): lines × the style sizes the operator
-   *  chose, plus a Loss % per size. The stored `WeightDraft` rows are DERIVED
-   *  from these (matrix.ts). `sizeCols` holds size NAMES, in the order added. */
-  const [lines, setLines] = useState<ConsumptionLine[]>([]);
-  const [sizeCols, setSizeCols] = useState<string[]>([]);
-  const [loss, setLoss] = useState<LossBySize>({});
-  /** SIZE WISE YES / NO (client 2026-10-14: "make it user control, remove the
-   *  auto fetch from style tab"). No = one "All sizes" band, grams typed once;
-   *  Yes = the operator adds the style sizes they are costing. Not stored: a
-   *  sheet holding sizes IS size-wise, so this only remembers a Yes picked
-   *  before the first size was added. */
-  const [sizeWiseOn, setSizeWiseOn] = useState(false);
-  const sizeWise = sizeWiseOn || sizeCols.length > 0;
+  /** Garment weight — the stored rows themselves, one per line × size, edited in
+   *  the Fabric tab's Component consumption table exactly as Revise edits them. */
+  const [weights, setWeights] = useState<WeightDraft[]>([]);
   const [trims, setTrims] = useState<TrimDraft[]>([]);
   /** The Overheads and Price & quote "+ Add" rows (0695), both sections in one list. */
   const [extras, setExtras] = useState<ExtraChargeDraft[]>([]);
@@ -536,21 +355,14 @@ export function SampleCostingScreen({
   const [preview, setPreview] = useState<string | null>(nextCostingNo);
   /** Customer Approved / Customer Rejected sheet (0725) — the buyer's answer to an Under Progress quote. */
   const [decision, setDecision] = useState<CustomerDecision | null>(null);
-  /** A Save was attempted — a row's messages show from then on. */
-  const [tried, setTried] = useState(false);
-  /** Which size the rail shows when the sheet costs more than one. */
-  const [railGroup, setRailGroup] = useState<string>("all");
-  /** Which view of the Quotation summary is open under the waterfall. */
-  const [railTab, setRailTab] = useState<"breakdown" | "whatif" | "target" | "currency">("breakdown");
-  /** Breakdown shows Net · Gross · Price; this opens the other lines. */
-  const [railAll, setRailAll] = useState(false);
-  /** The Quotation summary's "show in" currency — a VIEW of the price, never
-   *  the costing's Currency (null = the quoted currency). User 2026-10-14. */
-  const [viewCcy, setViewCcy] = useState<string | null>(null);
-  /** CMT & charges ▸ "Hide operations": pieces whose per-operation strip is folded away. Display only — a folded strip keeps every value. */
-  const [opsHidden, setOpsHidden] = useState<Record<string, boolean>>({});
+  /** The same sheet, opened from an Under Progress CARD's ✓ / ✕ (user 2026-10-16,
+   *  screenshot 3570) — the list has no open record, so it carries its own. */
+  const [listDecision, setListDecision] = useState<{ id: string; label: string; decision: CustomerDecision } | null>(null);
   /** "Copied from CST/…" until the first save (P2.2). */
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null);
+  /** Size-Wise "Yes" picked while no size is added yet — once a size is on the sheet,
+   *  the sizes themselves say Yes. Reset per record (the editor does not remount). */
+  const [sizeWiseAsked, setSizeWiseAsked] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   /** Revision compare (P3.1): the other revision, loaded. */
   const [compare, setCompare] = useState<{ id: string; record: CostingRecord } | null>(null);
@@ -566,33 +378,6 @@ export function SampleCostingScreen({
   const shellRef = useRef<MasterFullScreenHandle>(null);
   const keySeq = useRef(0);
   const newKey = () => `n${keySeq.current++}`;
-
-  // ---- the L × W × GSM calculator (one matrix cell) ------------------------------
-  const [dimsFor, setDimsFor] = useState<{ line: string; col: string } | null>(null);
-  const [dims, setDims] = useState({ l: "", w: "", g: "" });
-  const [dimsOrigin, captureDimsOrigin] = useSubSheetOrigin();
-
-  // ---- a fabric's rate build-up — a POPUP off its row (user 2026-10-08: "card aa
-  // popup mari kondu va"). It was inline under the row; the sheet grows out of the
-  // chevron that opened it. One open at a time by construction.
-  const [buildKey, setBuildKey] = useState<string | null>(null);
-  const [buildOrigin, captureBuildOrigin] = useSubSheetOrigin();
-
-  // ---- the steps: ONE open at a time (AGENTS.md "Folds are accordions") ----------
-  // Tab or a click into a step opens it and folds the one behind.
-  const fold = useAccordion("info");
-  const scrollToCard = (k: CostingSection, land = false) => {
-    const key = cardOf(k);
-    fold.setOpenKey(key);
-    // The body mounts on the next commit; scroll and land after it.
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        const el = document.getElementById(cardAnchor(key));
-        el?.scrollIntoView({ behavior: "smooth", block: "start" });
-        if (land && el) focusFirstField(el);
-      }),
-    );
-  };
 
   // ---- the list's filters ----------------------------------------------------
   const [query, setQuery] = useState("");
@@ -619,6 +404,9 @@ export function SampleCostingScreen({
     const v = tabParams.get("status");
     return isCostingTab(v) ? v : "pending";
   });
+  /* CARD VIEW / LIST VIEW (user 2026-10-16) — the tab's own default until the
+     operator picks; then this screen keeps the pick. Above every early return. */
+  const viewMode = useViewMode("sample-costing", tab === "approved" || tab === "rejected" ? "list" : "cards");
   const pickTab = (v: CostingTab) => {
     setTab(v);
     const url = new URL(window.location.href);
@@ -631,57 +419,26 @@ export function SampleCostingScreen({
     return c;
   }, [searched]);
   const filtered = searched.filter((r) => costingTabOf(r) === tab);
+  const cardShared = costingCardShared(filtered);
 
   // ---- derived state (cheap passes over the sheet's own rows) ---------------
-  const weights = linesToWeights(lines, sizeCols, loss);
   const draft: CostingDraft = { header, pieces, fabrics, weights, trims, quotes, extras };
   const summary: CostingSummary = summaryOf(draft);
   const live = liveRows(draft);
-  const multiPiece = pieces.length > 1;
   const editable = isEditableStatus(meta.status) || !!revisingFrom;
   const enquiry = data.enquiries.find((e) => e.id === header.opportunity_id) ?? null;
   const style: CostingStyleOption | null = data.styles.find((s) => s.id === header.style_id) ?? null;
   const enquiryStyles = data.styles.filter((s) => s.opportunity_id === header.opportunity_id);
-  const isSet = style?.unit_kind === "set" || multiPiece;
   const ccy = header.currency_code;
-  const pieceName = (key: string) => pieces.find((p) => p.key === key)?.piece_name || "GARMENT";
-  /** A size's label: its name, or "All sizes" for a legacy row that names none. */
-  const sizeLabel = (size: string | null) => size ?? "All sizes";
   const fabricLabel = (f: FabricDraft, i: number) =>
     f.quality.trim() || data.fabrics.find((x) => x.id === f.fabric_id)?.name || `Fabric ${i + 1}`;
-  /** A line's components by name — "BODY + SLEEVE" when it weighs several (0699). */
-  const componentName = (ids: readonly string[]) =>
-    ids.map((id) => data.components.find((c) => c.id === id)?.name ?? "").filter(Boolean).join(" + ");
 
-  /** A piece's labour: CMT (Direct rate or operations) + embellishment + testing. */
-  const labourOf = (p: PieceDraft) => pieceCmt(p) + pieceEmbellishment(p) + (num(p.testing_cost) ?? 0);
 
   // ---- mutation helpers -------------------------------------------------------
   const setH = (patch: Partial<CostingHeaderDraft>) => {
     setHeader((h) => ({ ...h, ...patch }));
     setDirty(true);
   };
-  const mut = <T,>(set: (fn: (xs: T[]) => T[]) => void) => (fn: (xs: T[]) => T[]) => {
-    set(fn);
-    setDirty(true);
-  };
-  const mutPieces = mut<PieceDraft>(setPieces);
-  const mutFabrics = mut<FabricDraft>(setFabrics);
-  const mutLines = mut<ConsumptionLine>(setLines);
-  const mutTrims = mut<TrimDraft>(setTrims);
-  const mutExtras = mut<ExtraChargeDraft>(setExtras);
-  const patchPiece = (key: string, patch: Partial<PieceDraft>) =>
-    mutPieces((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-  const patchFabric = (key: string, patch: Partial<FabricDraft>) =>
-    mutFabrics((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-  const patchLine = (key: string, patch: Partial<ConsumptionLine>) =>
-    mutLines((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-  const setCell = (key: string, col: string, v: string) =>
-    mutLines((xs) => xs.map((x) => (x.key === key ? { ...x, cells: { ...x.cells, [col]: v } } : x)));
-  const patchExtra = (key: string, patch: Partial<ExtraChargeDraft>) =>
-    mutExtras((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-  const patchTrim = (key: string, patch: Partial<TrimDraft>) =>
-    mutTrims((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
   // ---- factories — every key a factory stamps is blank, except a row's piece
   // and the spec's 3 % allowance, neither of which `isBlank*` reads (AGENTS.md
@@ -719,22 +476,6 @@ export function SampleCostingScreen({
     is_direct: true,
     direct_rate: "",
     processes: [blankProcess()],
-  });
-  const blankLine = (pieceKey: string): ConsumptionLine => ({
-    key: newKey(),
-    piece_key: pieceKey,
-    component_ids: [],
-    fabric_key: null,
-    cells: {},
-  });
-  // `kind: "flat"` and `sign: "add"` are read by no `isBlankExtra` clause, so a row added and left untouched saves nothing.
-  const blankExtra = (section: ExtraChargeDraft["section"]): ExtraChargeDraft => ({
-    key: newKey(),
-    section,
-    name: "",
-    kind: "flat",
-    value: "",
-    sign: "add",
   });
   const blankTrim = (pieceKey: string): TrimDraft => ({
     key: newKey(),
@@ -797,12 +538,12 @@ export function SampleCostingScreen({
       return add.length ? { ...p, lines: [...p.lines.filter((l) => !(l.kind === "embellishment" && !l.process_id)), ...add] } : p;
     });
   }
-  function applyStyle(st: CostingStyleOption | null) {
-    const next = seedEmbellishments(st, piecesFor(st, pieces));
+  function applyStyle(st: CostingStyleOption | null, fresh = false) {
+    const next = seedEmbellishments(st, piecesFor(st, fresh ? [] : pieces));
     const keep = new Set(next.map((p) => p.key));
     const first = next[0].key;
     setPieces(next);
-    setLines((xs) => xs.map((l) => (keep.has(l.piece_key) ? l : { ...l, piece_key: first })));
+    setWeights((xs) => xs.map((w) => (keep.has(w.piece_key) ? w : { ...w, piece_key: first })));
     setTrims((xs) => xs.map((t) => (keep.has(t.piece_key) ? t : { ...t, piece_key: first })));
     // The style's sizes are NOT pushed into Garment weight (client 2026-10-14:
     // "make it user control remove the auto fetch from style tab"). Size wise
@@ -812,7 +553,7 @@ export function SampleCostingScreen({
     // structures the style is made in, so the costing opens with one line per
     // structure instead of asking for them again. Only while every fabric line is
     // blank, so a re-picked style never overwrites rates already typed.
-    if (st?.structures.length && fabrics.every(isBlankFabric)) {
+    if (st?.structures.length && (fresh || fabrics.every(isBlankFabric))) {
       const seeded = st.structures.map((x) => {
         const f = blankFabric();
         const picked: FabricDraft = { ...f, ...pickedFabric(f, { id: x.id, name: x.name }) };
@@ -825,17 +566,11 @@ export function SampleCostingScreen({
         return picked;
       });
       setFabrics(seeded);
-      // A weight line with no fabric yet is the style's first (main) structure's.
-      setLines((xs) => xs.map((l) => (l.fabric_key ? l : { ...l, fabric_key: seeded[0].key })));
+      // Each structure gets its own Component consumption line (`weightsForFabrics`).
+      setWeights((xs) => weightsForFabrics(xs, seeded.map((x) => x.key), next[0].key));
     }
     setDirty(true);
   }
-
-  /** The GSM Sample Entry gave this line's fabric structure, for the L × W × GSM calculator; "" when it gave none. */
-  const structureGsm = (fabricKey: string | null) => {
-    const id = fabrics.find((f) => f.key === fabricKey)?.fabric_id;
-    return (id && style?.structures.find((x) => x.id === id)?.gsm) || "";
-  };
 
   // ---- open / close -----------------------------------------------------------
   function seedAndOpen(d: CostingDraft) {
@@ -850,19 +585,15 @@ export function SampleCostingScreen({
     // Seeded in STATE before `setDirty(false)`, never by a grid's `seedRow`,
     // which would mark an untouched sheet "Unsaved".
     setFabrics(seededFabrics);
-    const m = weightsToLines(d.weights, newKey, (w) => dimensionalGrams(w));
-    setLines(m.lines.length ? m.lines : [blankLine(firstPiece)]);
-    setSizeCols(m.sizes);
-    setSizeWiseOn(false);
-    // A new sheet opens Size wise = No, so its one "All sizes" band carries the spec's 3 % Loss.
-    setLoss(d.weights.length ? m.loss : { [ALL_SIZES]: DEFAULT_ALLOWANCE });
+    // A new sheet opens with one blank "All sizes" line.
+    setWeights(d.weights.length ? d.weights : newWeightRows(firstPiece, [], null, [null]));
     setTrims(d.trims.length ? d.trims : [blankTrim(firstPiece)]);
     setExtras(d.extras);
-    setQuotes(d.quotes);
-    setRailGroup("all");
+    // A stored quote equal to its Calculated price follows the costs again (2026-10-22).
+    setQuotes(releaseCalculatedQuotes(d).quotes);
     setCopiedFrom(null);
+    setSizeWiseAsked(false);
     setCompare(null);
-    setTried(false);
     setDirty(false);
     setMode("edit");
   }
@@ -897,7 +628,6 @@ export function SampleCostingScreen({
         processes: f.processes.length ? f.processes.map((x) => ({ ...x, key: newKey() })) : [blankProcess()],
       };
     });
-    const m = weightsToLines(d.weights, newKey, (w) => dimensionalGrams(w));
     setHeader({
       ...keepHeader,
       currency_code: d.header.currency_code,
@@ -914,13 +644,11 @@ export function SampleCostingScreen({
     });
     setPieces(nextPieces);
     setFabrics(nextFabrics.length ? nextFabrics : [blankFabric()]);
-    setLines(
-      m.lines.length
-        ? m.lines.map((l) => ({ ...l, piece_key: pieceMap.get(l.piece_key) ?? firstPiece, fabric_key: l.fabric_key ? (fabricMap.get(l.fabric_key) ?? null) : null }))
-        : [blankLine(firstPiece)],
+    setWeights(
+      d.weights.length
+        ? d.weights.map((w) => ({ ...w, key: newKey(), piece_key: pieceMap.get(w.piece_key) ?? firstPiece, fabric_key: w.fabric_key ? (fabricMap.get(w.fabric_key) ?? null) : null }))
+        : newWeightRows(firstPiece, [], null, [null]),
     );
-    setSizeCols(m.sizes);
-    setLoss(m.loss);
     setTrims(
       d.trims.length ? d.trims.map((t) => ({ ...t, key: newKey(), piece_key: pieceMap.get(t.piece_key) ?? firstPiece })) : [blankTrim(firstPiece)],
     );
@@ -928,31 +656,12 @@ export function SampleCostingScreen({
     setCopiedFrom(`${src.code ?? "a costing"} · ${revisionShort(src.version)}`);
     setDirty(true);
   }
-  function copyFrom(id: string) {
+  /** Copy from… — the chooser has already loaded `src` for its preview, so
+   *  pressing Copy applies it with no second fetch. */
+  function copyFrom(src: CostingRecord) {
     setCopyOpen(false);
-    start(async () => {
-      const res = await loadSampleCosting(id);
-      if (!res.ok) {
-        toastError(res.error);
-        return;
-      }
-      applyCopy(res.record, header, pieces);
-      success(`Copied from ${res.record.code ?? "the costing"} — check the figures, then save.`);
-    });
-  }
-  /** List ▸ Duplicate (P1.5): a NEW costing pre-filled from this one, its sample
-   *  and style left to choose — the start search asks for them. */
-  function duplicateFrom(id: string) {
-    start(async () => {
-      const res = await loadSampleCosting(id);
-      if (!res.ok) {
-        toastError(res.error);
-        return;
-      }
-      openAdd();
-      const piece = blankPiece("GARMENT", null);
-      applyCopy(res.record, blankHeader(), [piece]);
-    });
+    applyCopy(src, header, pieces);
+    success(`Copied from ${src.code ?? "the costing"} — check the figures, then save.`);
   }
 
   /**
@@ -986,6 +695,9 @@ export function SampleCostingScreen({
     const r = code === "INR" ? 1 : data.quoteRates[code];
     if (code === header.currency_code) return;
     setH({ currency_code: code, exchange_rate: r ? String(r) : header.currency_code ? "" : header.exchange_rate });
+    // FETCHED, NOT TYPED (user 2026-10-16): with no register rate, the new
+    // currency's rate is fetched at once instead of leaving the box blank.
+    if (!r && code) fetchRate(code);
   }
   /** What picking fabric `v` on line `f` writes: the remembered rates when none are typed, else the structure's usual loss. */
   function pickedFabric(f: FabricDraft, v: { id: string | null; name: string }): Partial<FabricDraft> {
@@ -1009,9 +721,6 @@ export function SampleCostingScreen({
         : undefined;
     return { fabric_id: v.id, quality: v.name, ...(lossMemo ? { process_loss_pct: lossMemo.loss_pct } : {}) };
   }
-  function onFabricPick(f: FabricDraft, v: { id: string | null; name: string }) {
-    patchFabric(f.key, pickedFabric(f, v));
-  }
 
   function openAdd() {
     setEditId(null);
@@ -1022,9 +731,38 @@ export function SampleCostingScreen({
     setPreview(nextCostingNo);
     seedAndOpen({ header: blankHeader(), pieces: [blankPiece("GARMENT", null)], fabrics: [], weights: [], trims: [], quotes: {}, extras: [] });
   }
+  /**
+   * NEW SAMPLE COSTING STARTS ON A SAMPLE (user 2026-10-17, screenshot 3587: "already
+   * we will fetch smp numbers why its again asking here so default fetch that"). The
+   * button used to open with SMP Number blank; it now takes the NEWEST saved sample
+   * that still has a style to cost — the one a merchandiser is about to cost — with
+   * its style when it has only one, exactly as "Start costing" on a row does. The
+   * picker stays live, so a different sample is one pick away.
+   */
+  function openNew() {
+    openAdd();
+    // `data.enquiries` is in entry order (oldest first), so the last eligible is the newest.
+    const pick = [...data.enquiries].reverse().find((e) => !e.all_costed && !e.is_draft);
+    if (!pick) return;
+    const only = data.styles.filter((st) => st.opportunity_id === pick.id && !st.costed);
+    setHeader((h) => ({ ...h, opportunity_id: pick.id, style_id: only.length === 1 ? only[0].id : null }));
+    if (only.length === 1) applyStyle(only[0], true);
+    fillFromCustomer(pick.id);
+  }
   useCreateIntent(() => {
-    if (perms.canCreate) openAdd();
+    if (perms.canCreate) openNew();
   });
+
+  /* THE COSTING'S OWN REVISE (0725, spec v8 §1 / §8.1: "Revise" for the
+     quotation, "Revision" only for Sample Info and the plans). The server copies
+     the stored sheet into version + 1 and supersedes this one — Under Progress
+     stays Under Progress (each counter-offer is a Rev), Approved re-opens the
+     negotiation, Rejected comes back as a new Draft. Then the new Rev opens.
+     DECLARED ABOVE `openById`, which calls it: the React Compiler refuses a
+     function read before its declaration (react-hooks/immutability). */
+  function reviseNow(id: string) {
+    startOpening(() => router.push(raiseReviseHref(id)));
+  }
 
   function openById(id: string, opts?: { revise?: boolean }) {
     start(async () => {
@@ -1076,7 +814,7 @@ export function SampleCostingScreen({
     openAdd();
     const only = data.styles.filter((st) => st.opportunity_id === oppId);
     setHeader((h) => ({ ...h, opportunity_id: oppId, style_id: only.length === 1 ? only[0].id : null }));
-    if (only.length === 1) applyStyle(only[0]);
+    if (only.length === 1) applyStyle(only[0], true);
     fillFromCustomer(oppId);
   });
   /** "Start costing" on a Not costed row — a new sheet on that sample and
@@ -1086,7 +824,7 @@ export function SampleCostingScreen({
     openAdd();
     const st = r.style_id ? data.styles.find((x) => x.id === r.style_id) : undefined;
     setHeader((h) => ({ ...h, opportunity_id: r.opportunity_id, style_id: st?.id ?? null }));
-    if (st) applyStyle(st);
+    if (st) applyStyle(st, true);
     fillFromCustomer(r.opportunity_id);
   }
   /**
@@ -1137,16 +875,14 @@ export function SampleCostingScreen({
    */
   const formDraft = useFormDraft({
     // "-2": the shape changed in 0693 (sizes are names, Loss % is per size) — an older saved draft is not offered back.
-    storageKey: `sample-costing-3:${revisingFrom ? `rev-${revisingFrom}` : (editId ?? "new")}`,
+    storageKey: `sample-costing-4:${revisingFrom ? `rev-${revisingFrom}` : (editId ?? "new")}`,
     enabled: mode === "edit" && (isEditableStatus(meta.status) || !!revisingFrom),
-    value: { header, pieces, fabrics, lines, sizeCols, loss, trims, quotes, extras },
+    value: { header, pieces, fabrics, weights, trims, quotes, extras },
     onRestore: (v) => {
       setHeader(v.header);
       setPieces(v.pieces.map(seedPiece));
       setFabrics(v.fabrics);
-      setLines(v.lines);
-      setSizeCols(v.sizeCols);
-      setLoss(v.loss);
+      setWeights(v.weights);
       setTrims(v.trims);
       setExtras(v.extras ?? []);
       setQuotes(v.quotes);
@@ -1157,7 +893,6 @@ export function SampleCostingScreen({
   function closeEditor() {
     setMode("list");
     setDirty(false);
-    setDimsFor(null);
     setCopyOpen(false);
     setCompareOpen(false);
   }
@@ -1186,15 +921,6 @@ export function SampleCostingScreen({
     if (editId) reviseNow(editId);
   }
 
-  /* THE COSTING'S OWN REVISE (0725, spec v8 §1 / §8.1: "Revise" for the
-     quotation, "Revision" only for Sample Info and the plans). The server copies
-     the stored sheet into version + 1 and supersedes this one — Under Progress
-     stays Under Progress (each counter-offer is a Rev), Approved re-opens the
-     negotiation, Rejected comes back as a new Draft. Then the new Rev opens. */
-  function reviseNow(id: string) {
-    startOpening(() => router.push(raiseReviseHref(id)));
-  }
-
   // ---- validity ---------------------------------------------------------------
   const problems = costingProblems(draft);
   const asProblem = (p: CostingProblem): Problem => ({
@@ -1212,35 +938,14 @@ export function SampleCostingScreen({
     fields: [],
     extra: problems.map(asProblem),
   });
+  /* The tab screen has no step to open or field to ring: the message names the
+     field, and the tab it sits on is one click away. */
   const reveal = (p: CostingProblem | undefined) => {
-    if (!p) return;
-    toastError(p.message);
-    if (p.fieldId) {
-      const id = p.fieldId;
-      // A breakdown field lives in its fabric's build-up: open the step and the build-up first.
-      const inBuild = /^sc-fab-(?:yarn|mix)-(.+)$/.exec(id);
-      // Both tables show at once now (option A), so only the build-up opens.
-      if (inBuild) setBuildKey(inBuild[1]);
-      fold.setOpenKey(cardOf(p.section));
-      // Land on the field itself and ring it for 2 s.
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        shellRef.current?.goToSection("costing", { fieldId: id });
-        const el = document.getElementById(id);
-        if (el) {
-          el.setAttribute("data-glow", "");
-          window.setTimeout(() => el.removeAttribute("data-glow"), 2000);
-        }
-      }));
-    } else {
-      scrollToCard(p.section);
-    }
+    if (p) toastError(p.message);
   };
   const revealFirstProblem = () => {
-    setTried(true);
     reveal(problems[0]);
   };
-  /** A row's message, once a Save was attempted. */
-  const msgFor = (fieldId: string) => (tried ? (problems.find((p) => p.fieldId === fieldId)?.message ?? null) : null);
 
 
   function submit(asDraft: boolean) {
@@ -1271,21 +976,24 @@ export function SampleCostingScreen({
       );
       formDraft.clear();
       router.refresh();
-      // Re-open what was written: the stored rows get their ids back, and a
-      // Submit right after Save reads exactly what the server holds.
-      openById(res.id);
+      // SAVE CLOSES THE EDITOR (user 2026-10-16: "after saving costing it needs to
+      // automatically close"). It used to re-open the saved record; the list now
+      // shows it, and the row's pencil opens it again.
+      closeEditor();
     });
   }
 
   /* NO SEND STEP (0728, user 2026-10-14): a saved costing IS Under Progress —
      the quote is with the buyer. Their answer is Customer Approved / Rejected. */
 
-  function fetchRate() {
-    if (!header.currency_code) {
+  /** `forCode` lets a currency change fetch for the code it is switching TO,
+   *  before that choice has reached `header`. */
+  function fetchRate(forCode?: string) {
+    const code = forCode ?? header.currency_code;
+    if (!code) {
       toastError("Choose the currency first.");
       return;
     }
-    const code = header.currency_code;
     start(async () => {
       const res = await fetchQuoteRate(code, header.costing_date || null);
       if (!res.ok) {
@@ -1293,7 +1001,7 @@ export function SampleCostingScreen({
         return;
       }
       setH({ exchange_rate: String(res.rate) });
-      success(`${code} rate ${res.rate} from the Quotes / Orders register${res.effectiveFrom ? `, effective ${fmtDate(res.effectiveFrom)}` : ""}.`);
+      success(`${code} rate ${res.rate} from ${res.source}${res.effectiveFrom ? `, ${fmtDate(res.effectiveFrom)}` : ""}.`);
     });
   }
 
@@ -1314,1411 +1022,34 @@ export function SampleCostingScreen({
   const lockReason = (r: CostingListRow) =>
     isEditableStatus(r.status) ? null : `${STATUS_LABEL[r.status]} — open it to view or revise.`;
   // ==========================================================================
-  // FABRIC — ONE ROW PER FABRIC, THE RATE BUILT INLINE UNDER IT (user 2026-10-08)
+  // THE ENTRY IS THE REPORT'S TAB SCREEN (client 2026-10-16)
   // ==========================================================================
   /*
-   * THE SHOWN GROUP'S FIGURES, declared here because the fabric rows read them
-   * (the kilos a fabric takes depend on which size the summary shows) and
-   * `cardBody` below builds those rows while it is being declared. They were
-   * further down; a closure over a const that has not run yet is a TDZ error.
-   */
-  const railData =
-    summary.groups.find((g) => (g.size ?? "all") === railGroup) ?? summary.groups[0] ?? null;
-  const t = railData?.total ?? null;
-  const health = marginHealth(t?.effectiveMarginPct ?? null);
-  const unitWord = isSet ? "SET" : "PCS";
-  const heroValue = t ? (t.quoted ?? t.calc) : null;
-
-  /** Yarn Mix (spec §4.2 "Material %, Yarn Rate/kg, Weighted Cost"): Yarn term
-   *  176 · Mix % num 72 · Rate / KG hug 88 · Weighted hug 88 = 424 + 72 = 496. */
-  const mixRows = (f: FabricDraft) => f.yarns;
-  const setMix = (f: FabricDraft, fn: (xs: YarnMixDraft[]) => YarnMixDraft[]) => patchFabric(f.key, { yarns: fn(f.yarns) });
-  /**
-   * THE THREE FIELDS AS THE TABLE'S LAST ROW (user 2026-10-14, option C of
-   * "Fabric Price Footer"): Yarn / KG ₹ and Process Loss % in the totals band's
-   * label cell, Price per KG under the last column. They stood in their own
-   * block beside or under the table, spread across the popup. Both tabs use the
-   * same row, so the price reads in one place whichever part is showing; the
-   * old Blend % and Processes total are on the tab chips and in the mix message.
+   * "For the costing screen, use the report's Revise screen." The seven
+   * step-by-step cards and the Quotation summary rail are gone: a costing is
+   * entered on the same Details · Fabric · Operations & trims · Cost & overheads
+   * · Quotation · Revisions · Charts tabs that Costing ▸ Reports shows and Revise
+   * edits — one screen, one set of editable tables (`CostSheetDocument`).
    *
-   * THE BAND STAYS OFF THE GRID'S ROW AXIS — no `data-grid-row`, so ↓ and Enter
-   * off the last line still reach "+ Add" (child-grid.tsx `total`). Process
-   * Loss % is a real field and Tab reaches it in DOM order, after the last cell.
+   * The sheet draws from a model built here on every render, from this editor's
+   * own state, by the same `buildCostSheetModel` the Reports page and its PDF
+   * use — so what is typed here and what is printed cannot disagree. The few
+   * things a revision copies but a NEW costing must choose (sample, style, date,
+   * sizes, currency, ship mode) are this screen's own controls, handed into the
+   * tabs they belong on. Everything the editor did before around them still
+   * runs: the style's pieces, structures and embellishments seed on pick, the
+   * customer's last terms fill blanks, a picked fabric brings its last rates.
    */
-  const priceBand = (f: FabricDraft) => {
-    const yarnSub = yarnRateOf(f);
-    const procSub = fabricSubtotal(f) - yarnSub;
-    const mix = hasYarnMix(f);
-    return {
-      /* As drawn in option C (screenshot 110327): each label BESIDE its value.
-         ONE ROW, PACKED LEFT (user 2026-10-14, "compact … process la yum orey
-         row"): no wrap and no space-between, so the Processes tab's narrower
-         label cell reads the same line as Yarn mixing's. */
-      label: (
-        <div className="flex flex-nowrap items-center gap-4 whitespace-nowrap text-left text-sm font-normal normal-case tracking-normal text-foreground">
-          <span className="flex items-center gap-1.5">
-            <label htmlFor={mix ? undefined : costingFieldId.fabricRate(f.key)} className="text-xs text-muted-foreground">
-              Yarn / KG ₹
-            </label>
-            {mix ? (
-              // With a mix, the yarn rate IS the weighted sum — shown, not typed.
-              <span className="font-semibold tabular-nums">
-                <Flash value={money(yarnSub)} formula="Σ Mix % × Rate ÷ 100" />
-              </span>
-            ) : (
-              <span className="w-16">
-                <NumInput
-                  id={costingFieldId.fabricRate(f.key)}
-                  aria-label="Yarn rate per KG"
-                  value={f.yarn_rate}
-                  onChange={(e) => patchFabric(f.key, { yarn_rate: e.target.value })}
-                />
-              </span>
-            )}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <label htmlFor={`sc-loss-${f.key}`} className="text-xs text-muted-foreground">
-              Process Loss %
-            </label>
-            <span className="w-16">
-              <NumInput
-                id={`sc-loss-${f.key}`}
-                aria-label="Process loss percent"
-                value={f.process_loss_pct}
-                onChange={(e) => patchFabric(f.key, { process_loss_pct: e.target.value })}
-              />
-            </span>
-          </span>
-        </div>
-      ),
-      price: (
-        <div className="text-right leading-tight">
-          <div className="whitespace-nowrap text-xs font-normal text-muted-foreground">Price per KG</div>
-          <div className="whitespace-nowrap font-bold tabular-nums text-primary">
-            <Flash
-              value={`₹ ${money(fabricPricePerKg(f))}`}
-              formula={`(Yarn ${money(yarnSub)} + Processes ${money(procSub)}) × (1 + ${f.process_loss_pct || 0}% loss)`}
-            />
-          </div>
-        </div>
-      ),
-    };
-  };
+  const head = summary.groups[0]?.total ?? null;
 
-  const costingYarnColumns = (f: FabricDraft): ChildGridColumn<YarnMixDraft>[] => [
-    {
-      header: "Yarn",
-      width: FIELD_WIDTH_CSS.term,
-      cell: (y) => (
-        <TypeOrPick
-          label="Yarn"
-          options={data.yarns.filter((x) => !isInactive(x) || x.id === y.item_id).map((x) => ({ id: x.id, name: x.name }))}
-          valueId={y.item_id}
-          text={y.yarn_name || (data.yarns.find((x) => x.id === y.item_id)?.name ?? "")}
-          onChange={(v) => setMix(f, (xs) => xs.map((x) => (x.key === y.key ? { ...x, item_id: v.id, yarn_name: v.name } : x)))}
-          placeholder=""
-          uppercase
-        />
-      ),
-    },
-    {
-      header: "Mix %",
-      align: "right",
-      width: FIELD_WIDTH_CSS.num,
-      cell: (y) => (
-        <NumInput
-          aria-label="Mix percent"
-          value={y.mix_pct}
-          onChange={(e) => setMix(f, (xs) => xs.map((x) => (x.key === y.key ? { ...x, mix_pct: e.target.value } : x)))}
-        />
-      ),
-    },
-    {
-      header: "Rate / KG",
-      align: "right",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (y) => (
-        <NumInput
-          aria-label="Yarn rate per KG"
-          value={y.rate}
-          onChange={(e) => setMix(f, (xs) => xs.map((x) => (x.key === y.key ? { ...x, rate: e.target.value } : x)))}
-        />
-      ),
-    },
-    {
-      header: "Weighted",
-      align: "right",
-      width: FIELD_WIDTH_CSS.hug,
-      // The yarn SUBTOTAL (plan "Fabric Rate Layout" option A, 2026-10-15). The price row
-      // (option C, 2026-10-14) is now ONE line under both tables — see `fabricBuildUp`.
-      total: { kind: "derived", value: () => <b className="tabular-nums">{money(yarnRateOf(f))}</b> },
-      cell: (y) => <Figure value={num(y.mix_pct) != null ? ((num(y.mix_pct) ?? 0) * (num(y.rate) ?? 0)) / 100 : null} formula="Mix % × Rate ÷ 100" />,
-    },
-  ];
-
-  /** Processes (costing spec §3.1 — Knitting, Dyeing, Stentering, Brushing …), each picked from the process master:
-   *  Process 20rem 320 · Rate / KG hug 88 = 408 + 72 = 480. */
-  const setProc = (f: FabricDraft, fn: (xs: FabricProcessDraft[]) => FabricProcessDraft[]) =>
-    patchFabric(f.key, { processes: fn(f.processes) });
-  const costingProcessColumns = (f: FabricDraft): ChildGridColumn<FabricProcessDraft>[] => [
-    {
-      header: "Process",
-      // `party` 200px (option A, 2026-10-15): the price row no longer sits in this
-      // table's last row, so the cell needs only a process name ("COMPACTING [OPEN
-      // WIDTH]" fits). It was 20rem to hold that row's Yarn / KG and Loss %.
-      width: FIELD_WIDTH_CSS.party,
-      cell: (r) => (
-        <TypeOrPick
-          label="Special process"
-          options={data.processes.filter((p) => !isInactive(p) || p.id === r.process_id).map((p) => ({ id: p.id, name: p.name }))}
-          valueId={r.process_id}
-          text={r.process_name}
-          onChange={(v) => setProc(f, (xs) => xs.map((x) => (x.key === r.key ? { ...x, process_id: v.id, process_name: v.name } : x)))}
-          placeholder=""
-          uppercase
-        />
-      ),
-    },
-    {
-      header: "Rate / KG",
-      align: "right",
-      width: FIELD_WIDTH_CSS.hug,
-      total: { kind: "derived", value: () => <b className="tabular-nums">{money(fabricSubtotal(f) - yarnRateOf(f))}</b> },
-      cell: (r) => (
-        <NumInput
-          aria-label="Process rate per KG"
-          value={r.rate}
-          onChange={(e) => setProc(f, (xs) => xs.map((x) => (x.key === r.key ? { ...x, rate: e.target.value } : x)))}
-        />
-      ),
-    },
-  ];
-
-
-  /**
-   * The kilos of THIS fabric one piece (or set) takes in the shown size,
-   * wastage allowance included — read off the Component weights, the same sum
-   * `fabricKgFor` makes over every fabric. Null until a component names it.
-   * "Uses" is therefore display only: the weight is typed once, in Making.
-   */
-  const fabricKg = (f: FabricDraft): number | null => {
-    const g = railData?.size ?? null;
-    const ws = live.weights.filter((w) => w.fabric_key === f.key && (w.size_name == null || w.size_name === g));
-    if (!ws.length) return null;
-    return ws.reduce((x, w) => x + ((gramsOf(w) ?? 0) * (1 + (num(w.wastage_pct) ?? 0) / 100)) / 1000, 0);
-  };
-  const fabricRate = (f: FabricDraft): number | null => (f.is_direct ? num(f.direct_rate) : fabricPricePerKg(f));
-
-  /**
-   * THE BUILD-UP: Yarn mixing and Processes SIDE BY SIDE, then one price row —
-   * Yarn / KG · Process Loss % · Price per KG. (Until 2026-10-15 a ToggleGroup
-   * showed one part at a time; option A of plan "Fabric Rate Layout" put both
-   * in view, as on the Revise cost sheet.)
-   *
-   * PROCESSES ARE ONE LIST, EACH ROW PICKED FROM THE PROCESS MASTER (user
-   * 2026-10-08, "the way Order Entry lists processes"): KNITTING, DYEING,
-   * STENTERING … with a rate per KG, add and remove. They are the existing
-   * `sample_costing_fabric_processes` rows, which already carry process_id, and
-   * `processTotal` already sums them, so there is NO schema or calc change.
-   * The three old columns (knitting_rate / dyeing_rate / finishing_rate) stay
-   * in the model and in calc.ts, read as 0 and no longer offered here: the
-   * table holds no rows, so nothing is hidden, and the master has no FINISHING
-   * process to map the third one onto.
-   */
-  const fabricBuildUp = (f: FabricDraft) => {
-    const mix = hasYarnMix(f);
-    const mixTotal = yarnMixTotal(f);
-    const mixOk = Math.abs(mixTotal - 100) <= 0.001;
-    return (
-      <div id={`sc-build-${f.key}`} className="space-y-2">
-        {/* SIDE BY SIDE (user 2026-10-15, plan "Fabric Rate Layout" option A, then "same
-            apply for all"): Yarn mixing and Processes were a ToggleGroup showing one at a
-            time; now both tables sit in one row and wrap under only on a narrow pane. Each
-            wrapper takes a DEFINITE width (declared columns + 4.5rem of # and ✕) — never
-            w-max, which collapses a ChildGrid to its "+ Add" (screenshot 3543). Yarn: term
-            11 + num 4.5 + hug 5.5 + hug 5.5 = 26.5 + 4.5 = 31rem; Processes: party 12.5 +
-            hug 5.5 = 18 + 4.5 = 22.5rem. Each carries its SUBTOTAL; the price row (option C,
-            2026-10-14) is one line under both, so it is said once, not once per table. */}
-        <div className="flex flex-wrap items-start gap-4">
-          <div id={costingFieldId.yarnMix(f.key)} className="w-[31rem] max-w-full">
-            {/* default-row: exempt -- a fabric with no blend needs no mix line; the seeded one is dropped as blank */}
-            <div data-grid-style="sheet" className="[&_table]:table-fixed">
-              <ChildGrid<YarnMixDraft>
-                // grid-caption: exempt -- two grids share this row; the caption says which is which
-                label="Yarn mixing"
-                columns={costingYarnColumns(f)}
-                rows={mixRows(f)}
-                tableAlways
-                narrow
-                keepOne
-                totalsLabel="Yarn"
-                addLabel="+ Add yarn"
-                onAdd={() => setMix(f, (xs) => [...xs, blankYarn()])}
-                onRemove={(y) => setMix(f, (xs) => xs.filter((x) => x.key !== y.key))}
-              />
-            </div>
-            {/* Said only when the mix is WRONG (user 2026-10-14 removed the
-                "Mix adds up to 100%." confirmation and the intro line). */}
-            {mix && !mixOk ? (
-              <p className="m-0 mt-2 text-xs text-danger">
-                {mixTotal < 100
-                  ? `Mix is ${mixTotal}%. ${+(100 - mixTotal).toFixed(2)}% still to place.`
-                  : `Mix is ${mixTotal}%. ${+(mixTotal - 100).toFixed(2)}% too much.`}
-              </p>
-            ) : null}
-            <FieldError>{msgFor(costingFieldId.yarnMix(f.key))}</FieldError>
-          </div>
-          <div className="w-[22.5rem] max-w-full">
-            <div data-grid-style="sheet" className="[&_table]:table-fixed">
-              <ChildGrid<FabricProcessDraft>
-                // grid-caption: exempt -- two grids share this row; the caption says which is which
-                label="Processes"
-                columns={costingProcessColumns(f)}
-                rows={f.processes}
-                tableAlways
-                narrow
-                keepOne
-                totalsLabel="Processes"
-                addLabel="+ Add process"
-                onAdd={() => setProc(f, (xs) => [...xs, blankProcess()])}
-                onRemove={(r) => setProc(f, (xs) => xs.filter((x) => x.key !== r.key))}
-              />
-            </div>
-          </div>
-        </div>
-        {/* THE PRICE ROW, ONCE, under both tables: Yarn / KG · Process Loss % · Price per KG. */}
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-border bg-surface-muted px-3 py-2">
-          {priceBand(f).label}
-          {priceBand(f).price}
-        </div>
-        <FieldError>{msgFor(costingFieldId.fabricRate(f.key))}</FieldError>
-      </div>
-    );
-  };
-
-  /**
-   * THE FABRIC LIST — each fabric ONE row: Fabric · Uses × Price = Cost · the
-   * icons. Hand-rolled (not ChildGrid) because ChildGrid cannot carry a panel
-   * under a row; it therefore answers to the global keyboard contract (Tab,
-   * Enter, Ctrl+S) and not to the row-arrow nav a grid adds. "+ Add fabric"
-   * carries `data-row-add` so Tab reaches it and `landOnAddedRow` puts the
-   * cursor in the new row.
-   */
-  const buildFabric = buildKey ? fabrics.find((x) => x.key === buildKey && !x.is_direct) ?? null : null;
-  /**
-   * THE FABRIC LIST AS A SHEET GRID (user 2026-10-08, erp-sheet-grid): one row
-   * per fabric — Fabric · Uses × Price = Cost, then the two icons that choose
-   * how the price is known. It was a hand-rolled FieldRow per fabric with a
-   * card round each; the `×` and `=` glyphs go with the card, and the column
-   * headers say the same thing. Widths (FIELD_WIDTH_CSS): term 176 + range 112 +
-   * code 144 + range 112 + hug 88 = 632, + 72 chrome = 704.
-   */
-  const fabricColumns: ChildGridColumn<FabricDraft>[] = [
-    {
-      header: "Fabric",
-      required: true,
-      width: FIELD_WIDTH_CSS.term,
-      cell: (f) => (
-        <TypeOrPick
-          label="Fabric"
-          id={costingFieldId.fabric(f.key)}
-          options={data.fabrics.filter((x) => !isInactive(x) || x.id === f.fabric_id).map((x) => ({ id: x.id, name: x.name }))}
-          valueId={f.fabric_id}
-          text={f.quality || (data.fabrics.find((x) => x.id === f.fabric_id)?.name ?? "")}
-          onChange={(v) => onFabricPick(f, v)}
-          placeholder=""
-          uppercase
-        />
-      ),
-    },
-    {
-      header: `Uses kg / ${isSet ? "set" : "pc"}`,
-      align: "right",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (f) => {
-        const kg = fabricKg(f);
-        return (
-          <span className="block text-sm font-semibold text-foreground">
-            <Flash value={kg == null ? "—" : money(kg, 3)} formula="Component weights of this fabric, allowance included" />
-          </span>
-        );
-      },
-    },
-    {
-      header: "Price / KG ₹",
-      required: true,
-      align: "right",
-      width: FIELD_WIDTH_CSS.code,
-      cell: (f) =>
-        f.is_direct ? (
-          <div>
-            <NumInput
-              id={costingFieldId.fabricDirect(f.key)}
-              aria-label="Fabric price per KG"
-              required
-              className="font-semibold"
-              value={f.direct_rate}
-              onChange={(e) => patchFabric(f.key, { direct_rate: e.target.value })}
-            />
-            <FieldError>{msgFor(costingFieldId.fabricDirect(f.key))}</FieldError>
-          </div>
-        ) : (
-          <span className="block text-sm font-semibold text-foreground">
-            <Flash
-              value={money(fabricPricePerKg(f))}
-              formula={`(Yarn ${money(yarnRateOf(f))} + Knit + Dye + Finishing + Special ${money(processTotal(f))} = ${money(fabricSubtotal(f))}) × (1 + ${f.process_loss_pct || 0}% loss)`}
-            />
-          </span>
-        ),
-    },
-    {
-      header: `Fabric cost / ${isSet ? "set" : "pc"}`,
-      align: "right",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (f) => {
-        const kg = fabricKg(f);
-        const rate = fabricRate(f);
-        const cost = kg != null && rate != null ? kg * rate : null;
-        return (
-          <span className="block text-sm font-semibold text-foreground">
-            <Flash value={cost == null ? "—" : money(cost)} formula="Uses × Price" />
-          </span>
-        );
-      },
-    },
-    {
-      header: "Price by",
-      width: FIELD_WIDTH_CSS.hug,
-      // ONE EDIT PENCIL PER ROW (user 2026-10-09: "fabric la edit button click pannale popup
-      // card varanum", and the calculator icon is not wanted). It always opens the build-up
-      // popup; from a typed price it first switches the row to the worked-out one, exactly
-      // as the calculator did. ("Type the price instead" came out of the popup 2026-10-14.)
-      // Buttons are not fields, so it is not a Tab stop.
-      cell: (f) => {
-        return (
-          <div className="flex items-center justify-center gap-1">
-            <Tooltip label="Edit — work the price out from yarn and processes">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                aria-label="Edit the fabric price"
-                onClick={captureBuildOrigin(() => {
-                  if (f.is_direct) patchFabric(f.key, { is_direct: false });
-                  setBuildKey(f.key);
-                })}
-              >
-                <Pencil aria-hidden />
-              </Button>
-            </Tooltip>
-          </div>
-        );
-      },
-    },
-  ];
-  const fabricList = (
-    <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
-      <ChildGrid<FabricDraft>
-        // grid-caption: exempt -- the card's own title names it
-        label="Fabrics"
-        columns={fabricColumns}
-        rows={fabrics}
-        tableAlways
-        narrow
-        keepOne
-        addLabel="+ Add fabric"
-        onAdd={() => mutFabrics((xs) => [...xs, blankFabric()])}
-        onRemove={(f) => mutFabrics((xs) => xs.filter((x) => x.key !== f.key))}
-      />
-    </div>
-  );
-
-  // ==========================================================================
-  // CARD 3 — CONSUMPTION & COMPONENT WEIGHTS (spec §4.3)
-  // ==========================================================================
-  /** The Piece cell, for a SET only (a single piece needs no column — Order
-   *  Entry's Style-column rule). Width is given at the call site, because
-   *  `check:grid-budget` reads `width:` inside each named `…Columns` const. */
-  const pieceSelect = <T extends { key: string; piece_key: string }>(
-    patch: (key: string, p: { piece_key: string }) => void,
-  ): ChildGridColumn<T> => ({
-    header: "Piece",
-    required: true,
-    cell: (r) => (
-      <Select aria-label="Piece" value={r.piece_key} onChange={(e) => patch(r.key, { piece_key: e.target.value })}>
-        {pieces.map((p) => (
-          <option key={p.key} value={p.key}>
-            {p.piece_name}
-          </option>
-        ))}
-      </Select>
-    ),
-  });
-  /*
-   * THE SIZE MATRIX (0693, user 2026-10-08; orders-precedent §5 — a size-across
-   * matrix is `matrix-grid.ts`, never ChildGrid columns and never cards). The style's
-   * sizes across the top, components down the left with the fabric under each
-   * name, grams in the cells, and under the components a Loss % row — one box per
-   * size. The sizes are the OPERATOR'S CHOICE from the style's own list: nothing
-   * is pre-selected, and a size the style does not carry cannot be added. A
-   * blank grams or Loss % box takes the first size's (the placeholder shows what
-   * it takes). The identity column stays put while a long run of sizes scrolls
-   * inside the frame — the one sanctioned sideways scroll.
-   */
-  /* THE SIZES COME FROM THE SIZE MASTER, like Order Entry's Sizes field (user
-     2026-10-14: "need to list that master from order entry size listing"). It
-     was the style's own ticked sizes only (2026-10-08), which left "+ Size"
-     empty on any style ticked with one size. The style's sizes still LEAD the
-     list, so the usual pick is first. */
-  const styleSizes = style?.sizes ?? [];
-  const offered = offeredSizes([...styleSizes, ...data.sizeMaster], sizeCols);
-  const offeredFromStyle = offeredSizes(styleSizes, sizeCols);
-  /** "+ Size"'s options: the style's own sizes first, then the rest of the
-   *  master in size order. A FLAT ARRAY of `<option>`s on purpose — `Select`
-   *  reads only direct `<option>` children (select.tsx `parseOptions`), so an
-   *  `<optgroup>` or a fragment around them listed NOTHING (user 2026-10-14). */
-  const sizeOptions = [...offeredFromStyle, ...offered.filter((z) => !offeredFromStyle.includes(z))].map((z) => (
-    <option key={z} value={z}>
-      {z}
-    </option>
-  ));
-  /* A legacy sheet that holds grams under NO size shows them in one "All sizes"
-     column, so nothing typed is ever hidden; choosing its first size moves them. */
-  const holdsAllSizes = !sizeCols.length && lines.some((l) => (l.cells[ALL_SIZES] ?? "").trim() !== "");
-  const matrixCols = sizeCols.length ? sizeCols : !sizeWise || holdsAllSizes ? [ALL_SIZES] : [];
-  /**
-   * Yes → No folds the sheet onto one "All sizes" band. Every other size's cell
-   * inherits the FIRST size's grams and Loss % anyway (matrix.ts), so the first
-   * size's numbers are the ones kept; a figure typed only for a later size goes.
-   * No → Yes adds nothing: `addSize` carries the All-sizes grams into the first size picked.
-   */
-  const changeSizeWise = (yes: boolean) => {
-    if (yes) {
-      setSizeWiseOn(true);
-      return;
-    }
-    const first = sizeCols[0];
-    if (first) {
-      mutLines((xs) => xs.map((l) => ({ ...l, cells: { [ALL_SIZES]: l.cells[first] ?? "" } })));
-      setLoss((m) => ({ [ALL_SIZES]: (m[first] ?? "").trim() || DEFAULT_ALLOWANCE }));
-      setSizeCols([]);
-    }
-    setSizeWiseOn(false);
-    setDirty(true);
-  };
-  const colLabel = (c: string) => (c === ALL_SIZES ? "All sizes" : c);
-  const colSize = (c: string) => (c === ALL_SIZES ? null : c);
-  const lineCost = (l: ConsumptionLine, col: string) => {
-    const g = cellGrams(l, col, sizeCols);
-    if (!g) return null;
-    return componentCost(
-      { piece_key: l.piece_key, fabric_key: l.fabric_key, size_name: null, weight_g: g, length_cm: "", width_cm: "", gsm: "", wastage_pct: lossFor(loss, col, sizeCols) },
-      live.fabrics,
-    );
-  };
-  const colCost = (col: string) => lines.reduce((t, l) => t + (lineCost(l, col) ?? 0), 0);
-  const colGrams = (col: string) => lines.reduce((t, l) => t + (num(cellGrams(l, col, sizeCols)) ?? 0), 0);
-  /** Total grams of fabric one piece takes in this size, loss included — the engine's own figure (calc.ts). */
-  const colGramsWithLoss = (col: string) => fabricKgFor(live.weights, colSize(col)) * 1000;
-  const setLossAt = (col: string, v: string) => {
-    setLoss((m) => ({ ...m, [col]: v }));
-    setDirty(true);
-  };
-  /**
-   * Adding a size appends a column. The FIRST size added stamps the spec's 3 %
-   * Loss (what the old per-line allowance defaulted to) and takes over any
-   * grams a legacy sheet held under no size, so nothing typed is lost.
-   */
-  const addSize = (name: string) => {
-    if (!name || sizeCols.some((x) => x.trim().toUpperCase() === name.trim().toUpperCase())) return;
-    if (!sizeCols.length) {
-      mutLines((xs) =>
-        xs.map((l) => {
-          const { [ALL_SIZES]: carried, ...rest } = l.cells;
-          return carried !== undefined && carried.trim() ? { ...l, cells: { ...rest, [name]: carried } } : { ...l, cells: rest };
-        }),
-      );
-      setLoss((m) => ({ [name]: (m[ALL_SIZES] ?? "").trim() || DEFAULT_ALLOWANCE }));
-    }
-    setSizeCols((xs) => [...xs, name]);
-    setDirty(true);
-  };
-  /** Removing a size drops its column. When it was the FIRST, the next size
-   *  takes over its numbers where it has none, so inheritance still points at real grams. */
-  const removeSize = (name: string) => {
-    const rest = sizeCols.filter((x) => x !== name);
-    if (sizeCols[0] === name && rest.length) {
-      const nextFirst = rest[0];
-      mutLines((xs) =>
-        xs.map((l) => {
-          const { [name]: gone, ...cells } = l.cells;
-          return { ...l, cells: { ...cells, [nextFirst]: (cells[nextFirst] ?? "").trim() ? cells[nextFirst] : (gone ?? "") } };
-        }),
-      );
-      setLoss((m) => {
-        const { [name]: gone, ...others } = m;
-        return { ...others, [nextFirst]: (others[nextFirst] ?? "").trim() ? others[nextFirst] : (gone ?? "") };
-      });
-    } else {
-      mutLines((xs) =>
-        xs.map((l) => {
-          const { [name]: gone, ...cells } = l.cells;
-          void gone;
-          return { ...l, cells };
-        }),
-      );
-      setLoss((m) => {
-        const { [name]: gone, ...others } = m;
-        void gone;
-        return others;
-      });
-    }
-    setSizeCols(rest);
-    setDirty(true);
-  };
-  const CELL = matrixCell("min-h-10");
-  type SetRow = { key: string; n: string; piece: string; fabric: string; grams: number; cmt: number; cost: number | null };
-  const setBreakdownRows: SetRow[] = (() => {
-    const g0 = summary.groups.find((g) => (g.size ?? "all") === railGroup) ?? summary.groups[0];
-    const firstCol = columnsOf(sizeCols)[0];
-    const rowsOut = pieces.map((pc, i): SetRow => {
-      const mine = lines.filter((l) => l.piece_key === pc.key && !isBlankLine(l));
-      const fab = [...new Set(mine.map((l) => { const fi = fabrics.findIndex((f) => f.key === l.fabric_key); return fi >= 0 ? fabricLabel(fabrics[fi], fi) : ""; }).filter(Boolean))].join(" / ");
-      return {
-        key: pc.key,
-        n: `# ${i + 1}`,
-        piece: pc.piece_name,
-        fabric: fab || "—",
-        grams: mine.reduce((t, l) => t + (num(cellGrams(l, firstCol, sizeCols)) ?? 0), 0),
-        cmt: labourOf(pc),
-        cost: g0?.pieces.find((x) => x.pieceKey === pc.key)?.net ?? null,
-      };
-    });
-    return [
-      ...rowsOut,
-      {
-        key: "total",
-        n: "",
-        piece: `${pieces.length}-PIECE SET`,
-        fabric: "Combined",
-        grams: rowsOut.reduce((t, r) => t + r.grams, 0),
-        cmt: rowsOut.reduce((t, r) => t + r.cmt, 0),
-        cost: g0?.total.net ?? null,
-      },
-    ];
-  })();
-  const setBreakdownColumns: Column<SetRow>[] = [
-    { header: "Line", cell: (r) => <span className="text-xs tabular-nums">{r.n}</span> },
-    { header: "Coordinate", cell: (r) => <span className={`text-xs ${r.key === "total" ? "font-bold" : "font-medium"}`}>{r.piece}</span> },
-    { header: "Fabric", cell: (r) => <span className="text-xs">{r.fabric}</span> },
-    { header: "Weight (g)", align: "right", cell: (r) => <span className={`block text-right font-mono text-xs tabular-nums ${r.key === "total" ? "font-bold" : ""}`}>{money(r.grams, 0)}</span> },
-    { header: "CMT ₹", align: "right", cell: (r) => <span className={`block text-right font-mono text-xs tabular-nums ${r.key === "total" ? "font-bold" : ""}`}>{money(r.cmt)}</span> },
-    { header: "Cost ₹", align: "right", cell: (r) => <span className={`block text-right font-mono text-xs tabular-nums ${r.key === "total" ? "font-bold" : ""}`}>{money(r.cost)}</span> },
-  ];
-  function addLine() {
-    const added = blankLine(lines[lines.length - 1]?.piece_key ?? pieces[0]?.key ?? "");
-    mutLines((xs) => [...xs, added]);
-  }
-  const ID_COLS = multiPiece ? 2 : 1;
-
-  /*
-   * SIZE IS THE FIRST COLUMN (user 2026-10-08: "move this size as first field … add
-   * it front of the component"). One BAND of rows per size, Size · Component ·
-   * Fabric · Grams · Cost ₹, then a tinted subtotal row that holds the size's
-   * Loss % and what it adds up to. The data is still the matrix underneath
-   * (lines × sizes, one Loss % per size — matrix.ts), so nothing stored moves.
-   *
-   * The components are DEFINED in the first band only: Piece, Component and
-   * Fabric are boxes there and plain text in every later band, so a line is one
-   * set of controls however many sizes are on the sheet (one id, one ✕, one
-   * error). Every band has its own grams box, and a blank one takes the first
-   * size's number (the placeholder shows what it takes). The ✕ on a component
-   * removes it from every size. With no size yet there is one band whose grams
-   * cell asks for a size, and "Add a size" leads the step instead of trailing it.
-   */
-  const fabricNameOf = (key: string | null) => {
-    const fi = fabrics.findIndex((f) => f.key === key);
-    return fi >= 0 ? fabricLabel(fabrics[fi], fi) : "";
-  };
-  const consumptionMatrix = () => {
-    // SIZE IS THE FIRST COLUMN, EACH SIZE A BAND OF ROWS (user 2026-10-08, the
-    // "Garment weight step" mock-up): Size · [Piece] · Component · Fabric · Grams ·
-    // Cost ₹ · ✕. It was sizes across the top; the data is the same
-    // (`line.cells[size]`, `loss[size]`), only the axis is turned.
-    const track = [
-      "112px",
-      ...(multiPiece ? ["112px"] : []),
-      "168px",
-      "200px",
-      "156px",
-      "100px",
-      "minmax(12px,1fr)",
-      "44px",
-    ].join(" ");
-    const firstCol = matrixCols[0];
-    const bands: (string | null)[] = matrixCols.length ? matrixCols : [null];
-    const bandCell = "flex min-h-11 items-center border-b border-border bg-primary-soft px-2 text-xs";
-    const addSizeRow = (
-      <FieldRow gap="row" align="end">
-        {sizeWise && offered.length && !matrixCols.length ? (
-          <Field label="Add a size" w="term" htmlFor="sc-add-size">
-            <Select id="sc-add-size" value="" onChange={(e) => addSize(e.target.value)}>
-              <option value="">+ Add size…</option>
-              {sizeOptions}
-            </Select>
-          </Field>
-        ) : null}
-        <p className="m-0 pb-2 text-xs text-muted-foreground">
-          {!sizeWise
-            ? "One weight for every size."
-            : !data.sizeMaster.length && !styleSizes.length
-              ? "No sizes in the Sizes master yet."
-              : !offered.length
-                ? "Every size is on the sheet."
-                : sizeCols.length > 1
-                  ? "A blank box takes the first size's number."
-                  : "Remove any size you are not costing, then type the grams."}
-        </p>
-      </FieldRow>
-    );
-    return (
-      <div className="space-y-3">
-        <FieldRow gap="row" align="end">
-          <Field label="Size wise" w="term">
-            <Segmented<"yes" | "no">
-              name="sc-size-wise"
-              value={sizeWise ? "yes" : "no"}
-              onChange={(v) => changeSizeWise(v === "yes")}
-              options={[
-                { value: "yes", label: "Yes" },
-                { value: "no", label: "No" },
-              ]}
-            />
-          </Field>
-        </FieldRow>
-        {/* NO SIZE YET: the size is the first thing to choose, so it leads. */}
-        {!matrixCols.length ? addSizeRow : null}
-        {/* HUGS ITS COLUMNS, like every Orders table: `w-max` lets the 1fr spacer
-            settle at its 12px floor; `max-w-full` keeps the scroll. */}
-        <div className="w-fit max-w-full overflow-x-auto rounded-control border border-border">
-          <div data-grid-body className="grid w-max" style={{ gridTemplateColumns: track }} onKeyDown={(e) => gridKeyNav(e)}>
-            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Size</div>
-            {multiPiece ? <div className={`${MATRIX_HEAD} justify-start pl-2`}>Piece</div> : null}
-            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Component</div>
-            <div className={`${MATRIX_HEAD} justify-start pl-2`}>Fabric</div>
-            <div className={`${MATRIX_HEAD} justify-end pr-2`}>Grams</div>
-            <div className={`${MATRIX_HEAD} justify-end pr-2`}>Cost ₹</div>
-            <div className={MATRIX_HEAD} />
-            <div className={MATRIX_HEAD} />
-
-            {bands.map((c, bi) => (
-              <Fragment key={c ?? "no-size"}>
-                {lines.map((l, li) => {
-                  const cost = c ? lineCost(l, c) : null;
-                  return (
-                    <div key={l.key} data-grid-row className="contents">
-                      {/* THE SIZE, on the first row of its band. */}
-                      <div className={`${CELL} items-start justify-between gap-1 border-r border-border bg-surface-muted px-2 pt-2`}>
-                        {li === 0 ? (
-                          c ? (
-                            <>
-                              <span className={MATRIX_SIZE_TOKEN}>{colLabel(c)}</span>
-                              {sizeCols.length > 1 && c !== ALL_SIZES ? (
-                                // Hover ✕ (user 2026-10-12, erp-row-hover-remove).
-                                <RowHoverRemove label={`Remove size ${c}`} onClick={() => removeSize(c)} />
-                              ) : null}
-                            </>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )
-                        ) : null}
-                      </div>
-                      {multiPiece ? (
-                        <div className={`${CELL} justify-start px-1`}>
-                          {bi === 0 ? (
-                            <Select aria-label="Piece" value={l.piece_key} onChange={(e) => patchLine(l.key, { piece_key: e.target.value })}>
-                              {pieces.map((pc) => (
-                                <option key={pc.key} value={pc.key}>
-                                  {pc.piece_name}
-                                </option>
-                              ))}
-                            </Select>
-                          ) : (
-                            <span className="truncate px-1 text-xs text-muted-foreground">{pieces.find((pc) => pc.key === l.piece_key)?.piece_name ?? ""}</span>
-                          )}
-                        </div>
-                      ) : null}
-                      <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
-                        {bi === 0 ? (
-                          // Several components weighed as ONE figure (user 2026-10-09:
-                          // "allow multiple components choosing in components field").
-                          <MultiSelect
-                            label="Component"
-                            compact
-                            hideChips
-                            summarizeLabels
-                            options={data.components
-                              .filter((x) => !isInactive(x) || l.component_ids.includes(x.id))
-                              .map((x) => ({ id: x.id, label: x.name }))}
-                            values={l.component_ids}
-                            onChange={(ids) => patchLine(l.key, { component_ids: ids })}
-                            placeholder=""
-                          />
-                        ) : (
-                          <span className="truncate px-1 text-xs text-muted-foreground">{componentName(l.component_ids) || "—"}</span>
-                        )}
-                      </div>
-                      <div className={`${CELL} flex-col !items-stretch justify-center px-1`}>
-                        {bi === 0 ? (
-                          <>
-                            <Select
-                              id={costingFieldId.weightFabric(l.key)}
-                              aria-label="Fabric"
-                              required
-                              value={l.fabric_key ?? ""}
-                              onChange={(e) => patchLine(l.key, { fabric_key: e.target.value || null })}
-                            >
-                              <option value=""></option>
-                              {fabrics
-                                .filter((f) => !isBlankFabric(f))
-                                .map((f, i) => (
-                                  <option key={f.key} value={f.key}>
-                                    {fabricLabel(f, i)}
-                                  </option>
-                                ))}
-                            </Select>
-                            <FieldError>{msgFor(costingFieldId.weightFabric(l.key))}</FieldError>
-                          </>
-                        ) : (
-                          <span className="truncate px-1 text-xs text-muted-foreground">{fabricNameOf(l.fabric_key) || "—"}</span>
-                        )}
-                      </div>
-                      <div className={`${CELL} gap-1 px-1`}>
-                        {c ? (
-                          <>
-                            <div className="min-w-0 flex-1">
-                              <NumInput
-                                id={bi === 0 ? costingFieldId.weightGrams(l.key) : undefined}
-                                aria-label={`${componentName(l.component_ids) || "Component"} grams — ${colLabel(c)}`}
-                                required={bi === 0}
-                                // The INHERITED grams, as a state of the record (LAYOUT.md §3's survivor rule).
-                                placeholder={bi > 0 ? (l.cells[firstCol] ?? "") : undefined}
-                                value={l.cells[c] ?? ""}
-                                onChange={(e) => setCell(l.key, c, e.target.value)}
-                              />
-                              {bi === 0 ? <FieldError>{msgFor(costingFieldId.weightGrams(l.key))}</FieldError> : null}
-                            </div>
-                            <Tooltip label="Weight from length × width × GSM">
-                              {/* button-shape: exempt -- a 28px icon square in a matrix cell */}
-                              <button
-                                type="button"
-                                data-row-open
-                                aria-label={`Calculate ${colLabel(c)} grams from length, width and GSM`}
-                                onClick={captureDimsOrigin(() => {
-                                  setDims({ l: "", w: "", g: structureGsm(l.fabric_key) });
-                                  setDimsFor({ line: l.key, col: c });
-                                })}
-                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-muted-foreground hover:bg-primary-soft hover:text-primary"
-                              >
-                                <Ruler className="h-3.5 w-3.5" aria-hidden />
-                              </button>
-                            </Tooltip>
-                          </>
-                        ) : (
-                          <span className="px-1 text-xs text-muted-foreground">Add a size first</span>
-                        )}
-                      </div>
-                      <div className={`${CELL} justify-end pr-2 text-xs font-semibold tabular-nums ${cost == null ? "text-muted-foreground" : "text-foreground"}`}>
-                        {cost == null ? "—" : money(cost)}
-                      </div>
-                      <div className={CELL} />
-                      <div className={`${CELL} justify-end pr-1`}>
-                        {bi === 0 && lines.length > 1 ? (
-                          /* Hover ✕ (user 2026-10-12, erp-row-hover-remove); the label
-                             carries what the old tooltip said. */
-                          <RowHoverRemove
-                            label="Remove this component from every size"
-                            onClick={() => mutLines((xs) => xs.filter((x) => x.key !== l.key))}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* THE SIZE'S SUBTOTAL ROW: its Loss %, and what the band adds up to. */}
-                {c ? (
-                  <>
-                    {/* "ADD A SIZE" STANDS UNDER THE LAST SIZE, in the Size column's own cell of
-                        this band's subtotal row (user 2026-10-09: "size kku keela empty space
-                        irukkula anga venum"). That cell was blank; the dropdown now fills it, so
-                        it reads as the next size's slot. The labelled field below the table
-                        goes with it. */}
-                    <div className={`${bandCell} border-r px-1`}>
-                      {sizeWise && bi === bands.length - 1 && offered.length ? (
-                        <Select aria-label="Add a size" id="sc-add-size" value="" onChange={(e) => addSize(e.target.value)}>
-                          <option value="">+ Size</option>
-                          {sizeOptions}
-                        </Select>
-                      ) : null}
-                    </div>
-                    <div data-loss-row className={`${bandCell} gap-2 font-semibold text-muted-foreground`} style={{ gridColumn: `span ${ID_COLS}` }}>
-                      <span className="whitespace-nowrap">Loss %</span>
-                      <div className="w-16">
-                        <NumInput
-                          aria-label={`Loss percent — ${colLabel(c)}`}
-                          placeholder={bi > 0 ? (loss[firstCol] ?? "") : undefined}
-                          value={loss[c] ?? ""}
-                          onChange={(e) => setLossAt(c, e.target.value)}
-                        />
-                      </div>
-                      <span className="text-[10px] font-normal">cloth lost in making</span>
-                    </div>
-                    <div className={`${bandCell} gap-1.5 text-muted-foreground`}>
-                      Fabric used
-                      <b className="text-foreground">
-                        <Flash value={`${money(colGrams(c), 0)} g`} formula="Σ grams of the components" />
-                      </b>
-                    </div>
-                    <div className={`${bandCell} justify-end font-semibold text-foreground`}>
-                      <Flash value={`${money(colGramsWithLoss(c), 1)} g with loss`} formula="Σ grams × (1 + Loss %)" />
-                    </div>
-                    <div className={`${bandCell} justify-end text-sm font-bold text-primary`}>
-                      <Flash value={money(colCost(c))} formula={`Fabric ₹ / ${isSet ? "set" : "pc"} = Σ Price / KG ÷ 1000 × grams × (1 + Loss %)`} />
-                    </div>
-                    <div className={bandCell} />
-                    <div className={bandCell} />
-                  </>
-                ) : null}
-              </Fragment>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <Button type="button" variant="outline" size="sm" data-row-add onClick={addLine}>
-            + Add component
-          </Button>
-          {matrixCols.length ? <div className="min-w-0 flex-1">{addSizeRow}</div> : null}
-        </div>
-        {multiPiece ? (
-          // SET BREAKDOWN (v2 §5.3) — one line per coordinate and the set total;
-          // read-only, a document table (`paginate={false}`).
-          <div className="pt-2">
-            <DataTable
-              columns={setBreakdownColumns}
-              rows={setBreakdownRows}
-              compact
-              paginate={false}
-              getKey={(r) => r.key}
-              empty=""
-            />
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
-  // ==========================================================================
-  // CARD 4 — CMT & GARMENT PROCESSING (spec §4.4) · CARD 5 — TRIMS
-  // ==========================================================================
-  /*
-   * CMT OPERATIONS AND EMBELLISHMENTS ARE PICKED FROM THE PROCESS MASTER BY KIND
-   * (0691 · 0692, user 2026-10-08) — no hardcoded Cutting / Print / Embroidery /
-   * Wash columns. A piece's CMT is its DIRECT RATE (the flat box) OR the sum of
-   * its CMT operation lines; its Embellishment cost is the sum of its
-   * embellishment lines. What counts as an operation and what as an embellishment
-   * is \`processes.garment_kind\`, set on the Process master — a process with no
-   * kind is in neither list.
-   */
-  const lineItems = (kind: PieceLineKind) =>
-    data.garmentProcesses
-      .filter((x) => x.garment_kind === kind)
-      .map(({ id, code, name, inactive }) => ({ id, code, name, inactive }));
-  const setPieceLines = (pieceKey: string, fn: (xs: PieceLineDraft[]) => PieceLineDraft[]) =>
-    mutPieces((xs) => xs.map((x) => (x.key === pieceKey ? { ...x, lines: fn(x.lines) } : x)));
-  /* WHICH CMT OPERATIONS A PIECE SHOWS. They are whatever the Process master marks
-     garment_kind = 'cmt' — no names live here. A process the sheet already holds a
-     rate for stays on the strip even when it was switched off or re-kinded since,
-     never dropped. A box with a number is a sample_costing_piece_processes line
-     (kind 'cmt'); an emptied box removes it, so a blank box saves nothing. */
-  const cmtOpsOf = (pc: PieceDraft) => {
-    const held = pc.lines.filter((l) => l.kind === "cmt" && l.process_id);
-    const items = lineItems("cmt").filter((x) => !isInactive(x) || held.some((l) => l.process_id === x.id));
-    const orphans = held
-      .filter((l) => !items.some((x) => x.id === l.process_id))
-      .map((l) => ({ id: l.process_id as string, code: "", name: l.process_name || "Operation", inactive: true }));
-    return [...items, ...orphans];
-  };
-  const setCmtRate = (pc: PieceDraft, op: { id: string; name: string }, value: string) =>
-    setPieceLines(pc.key, (xs) => {
-      const has = xs.some((x) => x.kind === "cmt" && x.process_id === op.id);
-      if (value.trim() === "") return xs.filter((x) => !(x.kind === "cmt" && x.process_id === op.id));
-      if (has) return xs.map((x) => (x.kind === "cmt" && x.process_id === op.id ? { ...x, rate: value } : x));
-      return [...xs, { ...blankPieceLine("cmt"), process_id: op.id, process_name: op.name, rate: value }];
-    });
-
-  /*
-   * CMT & CHARGES IS A TABLE (user 2026-10-08, screenshot 3383: "I said update it
-   * as table, not like one next one"): the flowing FieldRow wrapped and dropped
-   * Testing onto a second line. Now one real <table>, headings once, a ROW GROUP
-   * per piece:
-   *
-   *   Piece | Direct rate | CMT ₹ / pc | Embellishment | ₹ / pc | (✕) | Testing ₹ / pc | Per piece
-   *
-   * The first row of a group carries Piece, Direct rate, CMT, Testing and Per piece
-   * with rowSpan = its embellishment rows + 1 (the "+ Add embellishment" row); each
-   * further row is one embellishment [process · ₹ / pc · ✕]. Direct rate OFF adds a
-   * full-width strip under the group with one labelled ₹ box per CMT operation.
-   *
-   * WIDTHS (frame scrolls inside itself when narrower): Piece 96 · Direct 112 ·
-   * CMT 120 · Embellishment term 176 · ₹ / pc hug 88 · ✕ 40 · Testing 112 ·
-   * Per piece 112 = 856, + 8 × 12 cell padding = ~950, inside the step's ~1100 at
-   * 1366. check:grid-budget reads <ChildGrid> only, so this table is not listed there.
-   *
-   * KEYS: Tab / Enter walk the fields in DOM order (the global contract — this is not a
-   * gridKeyNav grid, because rowSpan rows have no common column index for ↑/↓ to
-   * use). Ctrl+Del on an embellishment cell clicks that row's own ✕
-   * (data-row-remove), the same key the other grids answer. "+ Add embellishment" is a
-   * Tab stop (data-row-add), a second Enter adds, and \`data-grid-body\` on the tbody is
-   * what lets landOnAddedRow diff the fields and put the cursor in the new pair.
-   */
-  /* SPREADSHEET LOOK (erp-sheet-grid, 2026-10-09: "this field … apply this skill",
-     Embellishment): the sheet marker on the wrapper below draws the gridlines,
-     header band and flat cells, so the cells carry no border or padding of their
-     own. A row that continues a rowSpan group starts with a cell that is not the
-     row's first VISUAL column, yet the sheet's `tr > :first-child` left border
-     would stack on the spanned cell's right one — `TD_LEAD` drops it. */
-  const TH = "whitespace-nowrap px-3 text-left";
-  const TD = "align-middle";
-  const TD_LEAD = TD + " !border-l-0";
-  const ctrlDelEmbellishment = (e: React.KeyboardEvent<HTMLElement>) => {
-    if (e.key !== "Delete" || !(e.ctrlKey || e.metaKey) || e.altKey) return;
-    const t = e.target;
-    if (!(t instanceof HTMLElement)) return;
-    const btn = t.closest("[data-emb-cell]")?.querySelector<HTMLElement>("[data-row-remove]");
-    if (!btn) return;
-    e.preventDefault();
-    btn.click();
-  };
-  /* A PROCESS SAMPLE ENTRY SEEDED STAYS ON ITS LINE even when the master has
-     not marked it Embellishment (the entry offers by for_garments /
-     for_components, 0722) — the `cmtOpsOf` rule that a held value is shown,
-     never dropped. Not marked inactive: it is a live process, and the tag
-     would tell the operator the entry picked something switched off. */
-  const embItemsOf = (rows: PieceLineDraft[]) => {
-    const items = lineItems("embellishment");
-    const orphans = rows
-      .filter((l) => l.process_id && !items.some((x) => x.id === l.process_id))
-      .map((l) => ({ id: l.process_id as string, code: "", name: l.process_name || "Embellishment", inactive: false }));
-    return [...items, ...orphans];
-  };
-  const embellishmentPair = (pc: PieceDraft, r: PieceLineDraft, rows: PieceLineDraft[], lead: boolean) => (
-    <>
-      <td className={lead ? TD_LEAD : TD} data-emb-cell>
-        <div style={{ width: FIELD_WIDTH_CSS.term }}>
-          <RecordPicker
-            compact
-            label="Embellishment"
-            items={embItemsOf(rows)}
-            emptyHint="No embellishments yet. Add them in the Process master and switch on Embellishment as the process kind."
-            value={r.process_id}
-            usedIds={rows.filter((x) => x.key !== r.key).flatMap((x) => (x.process_id ? [x.process_id] : []))}
-            onChange={(id) =>
-              setPieceLines(pc.key, (xs) =>
-                xs.map((x) =>
-                  x.key === r.key
-                    ? { ...x, process_id: id, process_name: id ? (lineItems("embellishment").find((i) => i.id === id)?.name ?? "") : "" }
-                    : x,
-                ),
-              )
-            }
-          />
-        </div>
-      </td>
-      {/* NO ACTIONS COLUMN (user 2026-10-09, "cmt la action field vendam"): the remove ✕
-          rides in the ₹ / pc cell beside the rate, so the row can still be deleted with the
-          mouse and Ctrl+Del still finds `data-row-remove` inside this `data-emb-cell`. */}
-      <td className={TD} data-emb-cell>
-        <div className="flex items-center gap-1 pr-1">
-          <div style={{ width: FIELD_WIDTH_CSS.hug }}>
-            <NumInput
-              aria-label="Embellishment rate per piece"
-              placeholder="₹ / pc"
-              value={r.rate}
-              onChange={(e) => setPieceLines(pc.key, (xs) => xs.map((x) => (x.key === r.key ? { ...x, rate: e.target.value } : x)))}
-            />
-          </div>
-          {/* ✕ ON ROW HOVER only (user 2026-10-09: "delete icon remove, mouse hover panna
-              x vara mari"). THE reference for `RowHoverRemove` — every table's hover ✕
-              is this one component (erp-row-hover-remove skill, 2026-10-12). */}
-          <RowHoverRemove
-            label="Remove this embellishment"
-            onClick={() => setPieceLines(pc.key, (xs) => xs.filter((x) => x.key !== r.key))}
-          />
-        </div>
-      </td>
-    </>
-  );
-  const pieceRows = (pc: PieceDraft) => {
-    const emb = pc.lines.filter((l) => l.kind === "embellishment");
-    const addEmb = () => setPieceLines(pc.key, (xs) => [...xs, blankPieceLine("embellishment")]);
-    const span = emb.length > 0 ? emb.length + 1 : 1;
-    const ops = cmtOpsOf(pc);
-    const stripOpen = !pc.cmt_direct && !opsHidden[pc.key];
-    const addCell = (lead: boolean) => (
-      <td className={(lead ? TD_LEAD : TD) + " px-2"} colSpan={2}>
-        <div className="flex items-center gap-3">
-          {emb.length === 0 ? <span className="text-sm text-muted-foreground">None</span> : null}
-          <Button type="button" variant="outline" size="sm" data-row-add onClick={addEmb}>
-            + Add embellishment
-          </Button>
-        </div>
-      </td>
-    );
-    const groupCells = (
-      <>
-        <td className={TD + " align-top"} rowSpan={span}>
-          <div className="font-semibold text-foreground">{pc.piece_name}</div>
-          {multiPiece && pc.key !== pieces[0]?.key ? (
-            <Button type="button" variant="ghost" size="sm" tabIndex={-1} onClick={() => sameAsFirst(pc.key, "all")}>
-              {"Copy " + (pieces[0]?.piece_name ?? "first") + " →"}
-            </Button>
-          ) : null}
-        </td>
-        <td className={TD + " align-top"} rowSpan={span}>
-          <Toggle
-            id={"sc-direct-" + pc.key}
-            label={pc.cmt_direct ? "On" : "Off"}
-            checked={pc.cmt_direct}
-            onChange={(v) => patchPiece(pc.key, { cmt: pc.cmt, cmt_direct: v })}
-          />
-        </td>
-        <td className={TD + " align-top"} rowSpan={span}>
-          {pc.cmt_direct ? (
-            <div style={{ width: FIELD_WIDTH_CSS.hug }}>
-              <NumInput
-                id={"sc-cmt-" + pc.key}
-                aria-label={"CMT ₹ / pc" + (multiPiece ? " — " + pc.piece_name : "")}
-                value={pc.cmt}
-                onChange={(e) => patchPiece(pc.key, { cmt: e.target.value })}
-              />
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <div className="font-semibold tabular-nums text-foreground">{"₹ " + money(pieceCmt(pc))}</div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                tabIndex={-1}
-                onClick={() => setOpsHidden((m) => ({ ...m, [pc.key]: !m[pc.key] }))}
-              >
-                {opsHidden[pc.key] ? "Show operations" : "Hide operations"}
-              </Button>
-            </div>
-          )}
-        </td>
-      </>
-    );
-    const tailCells = (
-      <>
-        <td className={TD + " align-top"} rowSpan={span}>
-          <div style={{ width: FIELD_WIDTH_CSS.hug }}>
-            <NumInput
-              id={"sc-test-" + pc.key}
-              aria-label={"Testing ₹ / pc" + (multiPiece ? " — " + pc.piece_name : "")}
-              value={pc.testing_cost}
-              onChange={(e) => patchPiece(pc.key, { testing_cost: e.target.value })}
-            />
-          </div>
-        </td>
-        <td className={TD + " text-right align-top font-semibold tabular-nums text-primary"} rowSpan={span}>
-          {"₹ " + money(labourOf(pc))}
-        </td>
-      </>
-    );
-    const rows: React.ReactNode[] = [];
-    if (emb.length === 0) {
-      rows.push(
-        <tr key={pc.key + "-0"}>
-          {groupCells}
-          {addCell(false)}
-          {tailCells}
-        </tr>,
-      );
-    } else {
-      emb.forEach((r, i) =>
-        rows.push(
-          <tr key={r.key}>
-            {i === 0 ? groupCells : null}
-            {embellishmentPair(pc, r, emb, i > 0)}
-            {i === 0 ? tailCells : null}
-          </tr>,
-        ),
-      );
-      rows.push(<tr key={pc.key + "-add"}>{addCell(true)}</tr>);
-    }
-    if (stripOpen) {
-      rows.push(
-        <tr key={pc.key + "-ops"} className="bg-surface-muted">
-          <td className={TD + " px-3 py-2"} colSpan={7}>
-            <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-              <span className="self-center text-xs font-semibold text-muted-foreground">
-                {(multiPiece ? pc.piece_name + " · " : "") + "CMT by operation"}
-              </span>
-              {ops.map((op) => (
-                <Field key={op.id} label={op.name} w="range" htmlFor={"sc-cmt-" + pc.key + "-" + op.id}>
-                  <NumInput
-                    id={"sc-cmt-" + pc.key + "-" + op.id}
-                    value={pc.lines.find((l) => l.kind === "cmt" && l.process_id === op.id)?.rate ?? ""}
-                    onChange={(e) => setCmtRate(pc, op, e.target.value)}
-                  />
-                </Field>
-              ))}
-              {ops.length === 0 ? (
-                <span className="text-sm text-muted-foreground">
-                  No CMT operations yet. Add them in the Process master and switch on CMT operation as the process kind, or turn Direct rate on.
-                </span>
-              ) : null}
-            </div>
-          </td>
-        </tr>,
-      );
-    }
-    return rows;
-  };
-  const cmtTable = () => (
-    /* The marker the comment above promised and the wrapper never carried
-       (user 2026-10-09, "apply this artifact"): sheet + flat cells = the Excel look,
-       and the sheet CSS draws the frame, so the wrapper's own `border` / `rounded`
-       go (a second frame would double it — erp-sheet-grid). */
-    <div data-grid-style="sheet" data-grid-cells="flat" className="w-fit max-w-full overflow-x-auto">
-      <table className="border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr>
-            <th className={TH}>Piece</th>
-            <th className={TH}>Direct rate</th>
-            <th className={TH}>CMT ₹ / pc</th>
-            <th className={TH}>Embellishment</th>
-            <th className={TH}>₹ / pc</th>
-            <th className={TH}>Testing ₹ / pc</th>
-            <th className={TH + " text-right"}>Per piece</th>
-          </tr>
-        </thead>
-        <tbody data-grid-body onKeyDown={ctrlDelEmbellishment}>
-          {pieces.map((pc) => pieceRows(pc))}
-        </tbody>
-      </table>
-    </div>
-  );
-  /** "Copy TOP → …": the CMT & charges step copies the whole block (CMT, embellishment
-   *  lines, testing) and, when the piece has none of its own, its trims. */
-  function sameAsFirst(pieceKey: string, part: "cmt" | "charges" | "all") {
-    const first = pieces[0];
-    const target = pieces.find((x) => x.key === pieceKey);
-    if (!first || !target) return;
-    if (part === "cmt") {
-      patchPiece(pieceKey, {
-        cmt: first.cmt,
-        cmt_direct: first.cmt_direct,
-        lines: [...target.lines.filter((l) => l.kind !== "cmt"), ...copyPieceLines(first.lines.filter((l) => l.kind === "cmt"))],
-      });
-      return;
-    }
-    if (part === "all") {
-      patchPiece(pieceKey, { cmt: first.cmt, cmt_direct: first.cmt_direct, lines: copyPieceLines(first.lines), testing_cost: first.testing_cost });
-    } else {
-      patchPiece(pieceKey, {
-        lines: [...target.lines.filter((l) => l.kind === "cmt"), ...copyPieceLines(first.lines.filter((l) => l.kind !== "cmt"))],
-        testing_cost: first.testing_cost,
-      });
-    }
-    // Its trims too, when this piece has none of its own yet.
-    if (!live.trims.some((t) => t.piece_key === pieceKey)) {
-      const copies = live.trims.filter((t) => t.piece_key === first.key).map((t) => ({ ...t, key: newKey(), piece_key: pieceKey }));
-      if (copies.length) mutTrims((xs) => [...xs.filter((t) => !isBlankTrim(t)), ...copies]);
-    }
-  }
-
-  /** TRIMS BY CONSUMPTION (user 2026-10-08, the Trims Consumption spec; "based on Direct
-   *  enable/disable, dynamically show the fields").
-   *  [Piece range 112] · Trim party 200 · Direct hug 88 · Item Rate range 112 · No of Pcs num 72 ·
-   *  Consumption 136 · Cost ₹ / pc hug 88 = 696 (808 with Piece)
-   *  + 72 = 768 (880 with Piece) ≤ 1155 (the check's pane).
-   *
-   *  THE SWITCH DECIDES WHICH CONTROLS EXIST. Direct ON renders only the Cost ₹ / pc box; the
-   *  Package ₹ / Pack size / Consumption cells render NOTHING (no box, no tab stop). Direct OFF
-   *  renders those three, and Cost ₹ / pc becomes the computed figure as plain text (no tab
-   *  stop). Both sets stay in the draft when the
-   *  switch is flipped, so nothing typed is lost; only the active set is counted
-   *  (`trimCostPerPiece`). A hidden control is never required and carries no error. Pack size
-   *  blank = 1, so a length trim is Rate per metre × metres with Pack size empty. */
-  const costingTrimColumns: ChildGridColumn<TrimDraft>[] = [
-    ...(multiPiece ? [{ ...pieceSelect<TrimDraft>(patchTrim), width: FIELD_WIDTH_CSS.range }] : []),
-    {
-      header: "Trim / Accessory",
-      width: FIELD_WIDTH_CSS.party,
-      cell: (r) => (
-        <TypeOrPick
-          label="Trim"
-          options={data.trims.filter((t) => !isInactive(t) || t.id === r.item_id).map((t) => ({ id: t.id, name: t.name }))}
-          valueId={r.item_id}
-          text={r.description || (data.trims.find((t) => t.id === r.item_id)?.name ?? "")}
-          onChange={(v) => patchTrim(r.key, { item_id: v.id, description: v.name })}
-          placeholder=""
-          uppercase
-        />
-      ),
-    },
-    {
-      header: "Direct rate",
-      align: "center",
-      // hug, not num: the header was cut to "Direct r…" at 72px (user 2026-10-08).
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (r) => <Toggle ariaLabel="Direct rate" checked={r.is_direct} onChange={(v) => patchTrim(r.key, { is_direct: v })} />,
-    },
-    {
-      // "Item Rate", not "Pack Rate" (user 2026-10-09). Stored as `pack_price`.
-      header: "Item Rate (₹)",
-      align: "right",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (r) =>
-        r.is_direct ? null : (
-          <div>
-            <NumInput
-              id={costingFieldId.trimPackPrice(r.key)}
-              aria-label="Item rate"
-              value={r.pack_price}
-              onChange={(e) => patchTrim(r.key, { pack_price: e.target.value })}
-            />
-            <FieldError>{msgFor(costingFieldId.trimPackPrice(r.key))}</FieldError>
-          </div>
-        ),
-    },
-    {
-      header: "No of Pcs",
-      align: "right",
-      width: FIELD_WIDTH_CSS.num,
-      cell: (r) =>
-        r.is_direct ? null : (
-          <div>
-            <NumInput
-              id={costingFieldId.trimPackSize(r.key)}
-              aria-label="No of pcs"
-              value={r.pack_size}
-              onChange={(e) => patchTrim(r.key, { pack_size: e.target.value })}
-            />
-            <FieldError>{msgFor(costingFieldId.trimPackSize(r.key))}</FieldError>
-          </div>
-        ),
-    },
-    {
-      header: "Consumption Rate",
-      align: "right",
-      // "Consumption Rate" needs ~100px of text plus padding: range (112px) cuts it.
-      width: "8.5rem",
-      cell: (r) =>
-        r.is_direct ? null : (
-          <div>
-            <NumInput
-              id={costingFieldId.trimQty(r.key)}
-              aria-label="Consumption per piece"
-              value={r.qty}
-              onChange={(e) => patchTrim(r.key, { qty: e.target.value })}
-            />
-            <FieldError>{msgFor(costingFieldId.trimQty(r.key))}</FieldError>
-          </div>
-        ),
-    },
-    {
-      // ONE column for the per-piece figure (user 2026-10-09: "remove the rate or
-      // consumption field which both are doing same thing"). A Direct trim's rate IS
-      // its cost per piece (`trimCostPerPiece` returns it unchanged), so a separate
-      // "Rate ₹" box beside "Cost ₹ / pc" showed one number twice — and stood empty
-      // on every pack-priced row. Direct: type it here. Pack: computed, plain text.
-      header: "Cost ₹ / pc",
-      align: "right",
-      width: FIELD_WIDTH_CSS.hug,
-      total: { kind: "sum", of: (r) => (isBlankTrim(r) ? 0 : trimCostPerPiece(r).cost), format: (n) => money(n) },
-      cell: (r) =>
-        r.is_direct ? (
-          <div>
-            <NumInput
-              id={costingFieldId.trimRate(r.key)}
-              aria-label="Cost per piece"
-              value={r.rate}
-              onChange={(e) => patchTrim(r.key, { rate: e.target.value })}
-            />
-            <FieldError>{msgFor(costingFieldId.trimRate(r.key))}</FieldError>
-          </div>
-        ) : (
-          <Figure value={isBlankTrim(r) ? null : trimCostPerPiece(r).cost} formula="Item Rate ÷ No of Pcs × Consumption Rate" />
-        ),
-    },
-  ];
-
-  // ==========================================================================
-  // CARD 6 — OVERHEADS & COMMERCIAL: the quote matrix (a SET or > 1 size)
-  // ==========================================================================
-  type QuoteRow = { key: string; pieceKey: string; size: string | null; fig: CostingSummary["groups"][number]["pieces"][number] };
-  const quoteRows: QuoteRow[] = summary.groups.flatMap((g) =>
-    g.pieces.map((p) => ({ key: quoteKey(p.pieceKey, g.size), pieceKey: p.pieceKey, size: g.size, fig: p })),
-  );
-  const setQuote = (key: string, v: string) => {
-    setQuotes((q) => ({ ...q, [key]: v }));
-    setDirty(true);
-  };
-  /** Piece range 112 · Size range 112 · Gross Cost / Calc / Quoted hug
-   *  88 ×3 · Δ range 112 · Margin hug 88 = 688 + 72 = 760 ≤ 818. */
-  const costingQuoteColumns: ChildGridColumn<QuoteRow>[] = [
-    { header: "Piece", width: FIELD_WIDTH_CSS.range, cell: (r) => <Truncated className="text-sm font-medium">{pieceName(r.pieceKey)}</Truncated> },
-    { header: "Size", width: FIELD_WIDTH_CSS.range, cell: (r) => <span className="text-sm">{sizeLabel(r.size)}</span> },
-    { header: "Gross Cost ₹", align: "right", width: FIELD_WIDTH_CSS.hug, cell: (r) => <Figure value={r.fig.grossCost} formula="Net + Garment Rejection + Overhead" /> },
-    {
-      header: `Calc ${ccy ?? ""}`.trim(),
-      align: "right",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (r) => <Figure value={r.fig.calc} dp={4} formula="(Gross cost + Margin − Discount + Freight + Insurance) ÷ Exchange rate" />,
-    },
-    {
-      header: `Quoted ${ccy ?? ""}`.trim(),
-      align: "right",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (r) => (
-        <NumInput
-          aria-label={`Quoted price — ${pieceName(r.pieceKey)}, ${sizeLabel(r.size)}`}
-          className="font-semibold"
-          value={quotes[r.key] ?? ""}
-          onChange={(e) => setQuote(r.key, e.target.value)}
-        />
-      ),
-    },
-    {
-      header: "Δ vs Calc",
-      align: "right",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (r) => (
-        <span className="block text-right">
-          <DeltaBadge delta={r.fig.delta} pctValue={r.fig.deltaPct} />
-        </span>
-      ),
-    },
-    {
-      header: "Margin",
-      align: "right",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (r) => {
-        const h = marginHealth(r.fig.effectiveMarginPct);
-        return (
-          <span className={`block text-right text-sm font-semibold tabular-nums ${h ? HEALTH[h].text : "text-muted-foreground"}`}>
-            {pct(r.fig.effectiveMarginPct)}
-          </span>
-        );
-      },
-    },
-  ];
-
+  /* SMP NUMBER AND STYLE ARE ASKED ONLY ON A NEW SHEET (user 2026-10-17: "no need this
+     two field, show the SMP number in the details section"). A saved costing or a
+     revision cannot change either — the boxes were disabled pickers repeating a fact —
+     so they become the first two facts of the line below. */
+  const pickSample = !editId && !revisingFrom;
   const inherited: { label: string; value: string }[] = [
+    { label: "SMP Number", value: pickSample ? "" : (enquiry?.code ?? "") },
+    { label: "Style", value: pickSample ? "" : (style?.name ?? "") },
     { label: "Customer", value: enquiry?.customer_name ?? "" },
     { label: "Season", value: [enquiry?.season, enquiry?.season_year].filter(Boolean).join(" ") },
     { label: "Description", value: style?.description ?? "" },
@@ -2728,114 +1059,15 @@ export function SampleCostingScreen({
     },
   ].filter((x) => x.value);
 
-  /**
-   * THE "+ ADD" CHARGE ROWS of Overheads and Price & quote (user 2026-10-08): a name, FLAT ₹ per
-   * piece or PERCENT of net, a value, and — on a price row — Add (surcharge) or Deduct. Impact is
-   * read-only and comes from the same `extraChargeAmount` the summary uses.
-   * Charge party 200 · Type code 120 · Value hug 88 · [Effect code 120] · Impact hug 88, well inside the pane.
-   */
-  const extraImpact = (r: ExtraChargeDraft) => {
-    if (!t) return null;
-    const amt = extraChargeAmount(r, t.net);
-    return r.kind === "flat" ? amt * pieces.length : amt;
-  };
-  const extraGrid = (section: ExtraChargeDraft["section"]) => {
-    const own = extras.filter((x) => x.section === section);
-    const costingExtraColumns: ChildGridColumn<ExtraChargeDraft>[] = [
-      {
-        header: "Charge",
-        width: FIELD_WIDTH_CSS.party,
-        cell: (r) => (
-          <Input id={costingFieldId.extraName(r.key)} aria-label="Charge name" value={r.name} onChange={(e) => patchExtra(r.key, { name: e.target.value })} />
-        ),
-      },
-      {
-        header: "Type",
-        width: FIELD_WIDTH_CSS.code,
-        cell: (r) => (
-          <Select aria-label="Charge type" value={r.kind} onChange={(e) => patchExtra(r.key, { kind: e.target.value === "pct" ? "pct" : "flat" })}>
-            <option value="flat">Flat ₹</option>
-            <option value="pct">Percent %</option>
-          </Select>
-        ),
-      },
-      {
-        header: "Value",
-        align: "right",
-        width: FIELD_WIDTH_CSS.hug,
-        cell: (r) => <NumInput id={costingFieldId.extraValue(r.key)} aria-label="Charge value" value={r.value} onChange={(e) => patchExtra(r.key, { value: e.target.value })} />,
-      },
-      ...(section === "price"
-        ? [
-            {
-              header: "Effect",
-              width: FIELD_WIDTH_CSS.code,
-              cell: (r: ExtraChargeDraft) => (
-                <Select aria-label="Add to or deduct from the price" value={r.sign} onChange={(e) => patchExtra(r.key, { sign: e.target.value === "deduct" ? "deduct" : "add" })}>
-                  <option value="add">+ Add</option>
-                  <option value="deduct">− Deduct</option>
-                </Select>
-              ),
-            } satisfies ChildGridColumn<ExtraChargeDraft>,
-          ]
-        : []),
-      {
-        header: "Impact ₹",
-        align: "right",
-        width: FIELD_WIDTH_CSS.hug,
-        cell: (r) => {
-          const v = extraImpact(r);
-          return <span className="text-sm tabular-nums text-muted-foreground">{isBlankExtra(r) || v == null ? "—" : money(v)}</span>;
-        },
-      },
-    ];
-    return (
-      // Both sections share this wrapper, so the two grids stand at the same width and
-      // their first four columns line up.
-      <div className="max-w-[52rem] space-y-2">
-        <h3 className="m-0 text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Extra charges</h3>
-        {own.length === 0 ? (
-          // Nothing added yet: the button alone, no empty table header above it.
-          <div>
-            <Button type="button" variant="outline" size="sm" data-row-add onClick={() => mutExtras((xs) => [...xs, blankExtra(section)])}>
-              + Add charge
-            </Button>
-          </div>
-        ) : (
-        <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
-        {/* default-row: exempt -- optional extras: none is a real answer, and a row appears only when "+ Add charge" is used */}
-        <ChildGrid<ExtraChargeDraft>
-          columns={costingExtraColumns}
-          rows={own}
-          tableAlways
-          keepOne={false}
-          addLabel="+ Add charge"
-          onAdd={() => mutExtras((xs) => [...xs, blankExtra(section)])}
-          onRemove={(r) => mutExtras((xs) => xs.filter((x) => x.key !== r.key))}
-        />
-        </div>
-        )}
-      </div>
-    );
-  };
-
-  const head = summary.groups[0]?.total ?? null;
-
-  /* THE LEDGER COLUMN (layout plan B, user 2026-10-07): every card's header
-     carries ITS OWN ₹ per piece at the right edge, so the three cost cards'
-     figures stand in one column and add up to the Net cost in the footer —
-     the right edge of a paper cost sheet. None of them repeats another's. */
-  const testingPc = pieces.reduce((x, pc) => x + (num(pc.testing_cost) ?? 0), 0);
-  const bankPc = pieces.reduce((x, pc) => x + (num(pc.bank_cost) ?? 0), 0);
-  const cardBody: Record<Exclude<CardKey, "price">, { right?: ReactNode; content: ReactNode }> = {
-    info: {
-      content: (
+  const detailsBlock = (
         <div className="space-y-4">
           <div className={`${DETAILS_W} space-y-3`}>
             {/* WHAT IS BEING COSTED COMES FIRST (user 2026-10-07): the Sample No and
                 Style row leads, so a new sheet's cursor lands on Sample No —
                 the one question to answer before anything else. */}
             <FieldRow gap="row" align="start">
+              {pickSample ? (
+              <>
               <Field label="SMP Number" required w="party" htmlFor={costingFieldId.sample}>
                 <RecordPicker
                   id={costingFieldId.sample}
@@ -2865,7 +1097,9 @@ export function SampleCostingScreen({
                   }}
                 />
               </Field>
-              <Field label="Style" required w="name" htmlFor={costingFieldId.style}>
+              {/* `term`, not `name` (user 2026-10-17, "compact the fields"): a style is a
+                  short code — 8547656D01 — and 288px left a wide empty box. */}
+              <Field label="Style" required w="term" htmlFor={costingFieldId.style}>
                 <RecordPicker
                   id={costingFieldId.style}
                   label="Style"
@@ -2885,6 +1119,8 @@ export function SampleCostingScreen({
                   }}
                 />
               </Field>
+              </>
+              ) : null}
               {/* No Costing No box (user 2026-10-15, duplicates on the page): the
                   number is generated and read-only, and the header already shows it. */}
               <Field label="Costing Date" required w="code" htmlFor={costingFieldId.date}>
@@ -2898,6 +1134,18 @@ export function SampleCostingScreen({
                   }}
                 />
               </Field>
+              {/* CURRENCY BESIDE THE DATE (user 2026-10-17, screenshot 3589: "move the
+                  currency field also near to the costing date"). It was asked on the
+                  Quotation tab and echoed here as a read-only box; it is one of the
+                  questions a sheet answers before any rate is typed, so it joins the row
+                  and the Quotation tab no longer asks it. */}
+              <Field label="Currency" required w="range">
+                <CurrencyPicker label="Currency" compact currencies={data.currencies} value={header.currency_code} canCreate={false} canEdit={false} onChange={onCurrency} />
+              </Field>
+              {/* ONLY WHEN THERE IS ANOTHER REVISION TO OPEN (user 2026-10-17: "rev no
+                  need that blank field"). A new sheet showed an empty, dead box here; the
+                  header already reads "Rev 0". */}
+              {editId && revisions.length > 1 && !revisingFrom ? (
               <Field label="Revision" w="term" htmlFor="sc-rev">
                 <Select
                   id="sc-rev"
@@ -2921,6 +1169,7 @@ export function SampleCostingScreen({
                   ))}
                 </Select>
               </Field>
+              ) : null}
             </FieldRow>
           </div>
           {/* Inherited from Sample Entry — label · value, only what exists (precedent §2b). */}
@@ -2942,787 +1191,185 @@ export function SampleCostingScreen({
             </p>
           ) : null}
         </div>
-      ),
-    },
-    fabrics: {
-      right: head ? <Flash value={`₹${money(head.fabric)}`} formula="Rate / KG × component weights" /> : null,
-      content: fabricList,
-    },
-    weights: {
-      // The Garment weight table alone, full width (user 2026-10-08): CMT, Embellishment and
-      // Testing moved to the CMT & charges step. Many sizes scroll inside the table's own
-      // frame, never the page. No step total: the cost of a size is the table's own last row.
-      right: null,
-      content: consumptionMatrix(),
-    },
-    cmt: {
-      right: head ? <Flash value={`₹${money(head.cmt + head.process + testingPc)}`} formula="CMT + Embellishment + Testing" /> : null,
-      content: (
-        // default-row: exempt -- one block per garment piece, DERIVED from the style line's coordinates; its CMT boxes are blank until a rate is typed, Embellishment is optional and opens with a calm empty line, and a blank box saves nothing
-        cmtTable()
-      ),
-    },
-    trims: {
-      right: head ? <Flash value={`₹${money(head.trims)}`} formula="Trims" /> : null,
-      content: (
-        <div data-grid-style="sheet" data-grid-cells="flat" className="[&_table]:table-fixed">
-          <ChildGrid<TrimDraft>
-            columns={costingTrimColumns}
-            rows={trims}
-            tableAlways
-            keepOne
-            addLabel="+ Add trim"
-            onAdd={() => mutTrims((xs) => [...xs, blankTrim(xs[xs.length - 1]?.piece_key ?? pieces[0]?.key ?? "")])}
-            onRemove={(r) => mutTrims((xs) => xs.filter((x) => x.key !== r.key))}
-          />
-        </div>
-      ),
-    },
-    overheads: {
-      right: head ? (
-        <Flash value={`₹${money(bankPc + head.wastage + head.overhead + head.extraOverhead)}`} formula="Bank charges + Garment Rejection + Overhead + extra charges" />
-      ) : null,
-      content: (
-        <div className="space-y-4">
-          <div className={TERMS_W}>
-            {/* Bottom-aligned (the default): "Garment Rejection %" wraps in its hug
-                box, and top-aligning dropped its input a line below Overhead % and
-                Bank Charges. No hint/error sits under these fields, so the
-                top-aligned hazard does not apply. */}
-            <FieldRow gap="row">
-              {/* `code` (144px), not `range`: "Garment Rejection %" wrapped to two
-                  lines at 112px (user 2026-10-14, screenshot 3472). */}
-              <Field label="Garment Rejection %" w="code" htmlFor="sc-waste">
-                <NumInput id="sc-waste" value={header.garment_waste_pct} onChange={(e) => setH({ garment_waste_pct: e.target.value })} />
-              </Field>
-              <Field label="Overhead %" w="hug" htmlFor="sc-ovh">
-                <NumInput id="sc-ovh" value={header.overhead_pct} onChange={(e) => setH({ overhead_pct: e.target.value })} />
-              </Field>
-              {/* Bank charges are per PIECE (costing spec §3.4). */}
-              {pieces.map((p) => (
-                <Field key={p.key} label={multiPiece ? `Bank ₹ · ${p.piece_name}` : "Bank Charges ₹"} w="range">
-                  <NumInput aria-label={`Bank charges — ${p.piece_name}`} value={p.bank_cost} onChange={(e) => patchPiece(p.key, { bank_cost: e.target.value })} />
-                </Field>
-              ))}
-            </FieldRow>
-          </div>
-          {extraGrid("overhead")}
-          {head ? (
-            <p className="m-0 text-sm tabular-nums text-muted-foreground">
-              {"Bank "}
-              <b className="text-foreground">{`₹ ${money(bankPc)}`}</b>
-              {" + Garment Rejection "}
-              <b className="text-foreground">{`₹ ${money(head.wastage)}`}</b>
-              {" + Overhead "}
-              <b className="text-foreground">{`₹ ${money(head.overhead)}`}</b>
-              {head.extraOverhead ? (
-                <>
-                  {" + Charges "}
-                  <b className="text-foreground">{`₹ ${money(head.extraOverhead)}`}</b>
-                </>
-              ) : null}
-              {" = "}
-              <b className="text-foreground">{`₹ ${money(bankPc + head.wastage + head.overhead + head.extraOverhead)}`}</b>
-              {` per ${isSet ? "set" : "piece"}`}
-            </p>
-          ) : null}
-        </div>
-      ),
-    },
-  };
-
-  // ==========================================================================
-  // THE SUMMARY CARD (clean spec §3 right column) — one sticky card: net cost,
-  // margin, currency and rate, the FINAL FOB price, the quoted price. The
-  // breakdown and the target calculator are there but folded away.
-  // ==========================================================================
-  const single = quoteRows.length === 1 ? quoteRows[0] : null;
-  const line = (label: string, value: string, opts: { total?: boolean; formula?: string } = {}) => (
-    <div
-      className={`flex items-baseline justify-between gap-3 ${
-        opts.total ? "my-1 rounded-md bg-surface-muted px-2 py-1.5 leading-6" : "px-2 py-1 leading-6"
-      }`}
-    >
-      <dt className={`${opts.total ? "text-sm font-semibold text-foreground" : "text-[13px] font-medium text-muted-foreground"}`}>{label}</dt>
-      <dd className={`m-0 text-right tabular-nums ${opts.total ? "text-[15px] font-bold text-foreground" : "text-sm font-semibold text-foreground"}`}>
-        <Flash value={value} formula={opts.formula} />
-      </dd>
-    </div>
   );
-  /** Rupee value of the quoted price (or, with none typed, of the calculated one) and its
-   *  difference against the calculated price — null when the currency is INR or no rate yet. */
-  const inrImpact = (() => {
-    const fx = num(header.exchange_rate);
-    if (!single || fx == null || fx === 1) return null;
-    const quoted = num(quotes[single.key] ?? "");
-    const calc = t?.calc ?? null;
-    const price = quoted ?? calc;
-    if (price == null) return null;
-    return { value: price * fx, diff: quoted != null && calc != null ? (quoted - calc) * fx : null };
-  })();
-  // THE BUYER'S TARGET IS ONE STORED FIELD (user 2026-10-13): the Quotation
-  // summary's Target box edits `header.buyer_target_price`, the value the Cost
-  // Sheet prints with its "Difference to target". It used to be a second,
-  // unsaved box here, beside a saved one under Price & quote — typed twice.
-  const targetPrice = header.buyer_target_price;
-  const targetNum = num(targetPrice);
-  const solve =
-    t && targetNum != null
-      ? solveTarget(t, header, targetNum, isSet ? pieces.length : 1, fabricKgFor(liveRows(draft).weights, railData?.size ?? null), live.extras)
-      : null;
-  const impact = t && targetNum != null && targetNum > 0 ? targetImpact(t, header, targetNum, isSet ? pieces.length : 1, live.extras) : null;
 
-  /*
-   * PRICE & QUOTE (layout plan B, user 2026-10-07) — the old right-hand
-   * "Quotation summary" as the LAST card of the one column. The selling terms
-   * sit together and come last in Tab order, which is also the order the
-   * arithmetic runs; the price itself is repeated in the footer so it is in
-   * view at every scroll position without a second column beside the cards.
-   */
-  const priceBody = {
-    right:
-      heroValue == null ? null : (
-        <span className="flex items-baseline gap-2">
-          <span className="text-primary">
-            <Flash value={`${ccy ?? ""} ${heroValue.toFixed(2)}`.trim()} />
-          </span>
-          <span className="text-xs font-medium text-muted-foreground">/ {unitWord}</span>
-          <span className={`text-xs ${health ? HEALTH[health].text : "text-muted-foreground"}`}>{pct(t?.effectiveMarginPct)}</span>
-        </span>
-      ),
-    content: (
-      <div className="space-y-5">
-        <span className="sr-only" aria-live="polite">
-          {heroValue == null ? "" : `Final FOB price ${ccy ?? ""} ${heroValue.toFixed(2)} per ${unitWord}, margin ${pct(t?.effectiveMarginPct)}`}
-        </span>
-        <div className={PRICE_W}>
-          {/* WRAPS, NO LONGER `nowrap` (user 2026-10-14, screenshot 3469): beside the
-              Quotation summary column the card is narrower than the ten fields, and a
-              nowrap row pushed Quoted / "In ₹" past the card's edge. Wrapping drops the
-              Quoted + In ₹ pair (one flex item) to a second line together instead. */}
-          <FieldRow gap="row" align="start">
-            <Field label="Margin %" required w="hug" htmlFor={costingFieldId.margin}>
-              <NumInput id={costingFieldId.margin} value={header.margin_pct} onChange={(e) => setH({ margin_pct: e.target.value })} />
-            </Field>
-            <Field label="Discount %" w="hug" htmlFor="sc-disc">
-              <NumInput id="sc-disc" value={header.discount_pct} onChange={(e) => setH({ discount_pct: e.target.value })} />
-            </Field>
-            <Field label="Currency" required w="range">
-              <CurrencyPicker label="Currency" compact currencies={data.currencies} value={header.currency_code} canCreate={false} canEdit={false} onChange={onCurrency} />
-            </Field>
-            <Field label="Exchange Rate ₹" required w="range" htmlFor={costingFieldId.rate}>
-              <div className="relative">
-                <NumInput id={costingFieldId.rate} className="pr-8" value={header.exchange_rate} onChange={(e) => setH({ exchange_rate: e.target.value })} />
-                <span className="absolute inset-y-0 right-1 flex items-center">
-                  <Tooltip label="Fetch from Exchange rate (Quotes / Orders)">
-                    {/* button-shape: exempt -- a 24px icon square inside the rate box */}
-                    <button
-                      type="button"
-                      aria-label="Fetch the exchange rate from the master"
-                      onClick={fetchRate}
-                      disabled={!header.currency_code || isPending}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-control text-muted-foreground hover:bg-primary-soft hover:text-primary disabled:opacity-40"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-                    </button>
-                  </Tooltip>
-                </span>
-              </div>
-            </Field>
-            <Field label="Ship Mode" w="range" htmlFor="sc-ship">
-              <Select id="sc-ship" value={header.ship_mode} onChange={(e) => setH({ ship_mode: e.target.value })}>
-                <option value=""></option>
-                {SHIP_MODES.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Freight / pc ₹" w="range" htmlFor="sc-freight">
-              <NumInput id="sc-freight" value={header.freight_per_pc} onChange={(e) => setH({ freight_per_pc: e.target.value })} />
-            </Field>
-            <Field label="Insurance / pc ₹" w="range" htmlFor="sc-ins">
-              <NumInput id="sc-ins" value={header.insurance_per_pc} onChange={(e) => setH({ insurance_per_pc: e.target.value })} />
-            </Field>
-            {/* OPTIONAL COMMERCIAL TERMS (RAAGAM COSTING FORMAT.xlsx, 2026-10-09): the agent's
-                commission, which rides on the price. Blank = not in play. The buyer's target
-                is entered once, in the Quotation summary's Target tab (user 2026-10-13). */}
-            <Field label="Commission %" w="range" htmlFor="sc-commission">
-              <NumInput id="sc-commission" value={header.commission_pct} onChange={(e) => setH({ commission_pct: e.target.value })} />
-            </Field>
-            {/* QUOTED PRICE AND ITS "In ₹" ARE ONE UNIT (user 2026-10-09: "put it
-                beside the Quoted Price field"). The rupee readout now sits UNDER the
-                box rather than in a column of its own (user 2026-10-14, screenshot
-                3471): with Commission % on the row, a ninth column no longer fitted
-                beside the Quotation summary and the pair wrapped to a line alone. */}
-            {single ? (
-              <Field label={`Quoted ${ccy ?? ""} / ${unitWord}`.trim()} w="range" htmlFor="sc-quoted">
-                <NumInput id="sc-quoted" className="font-semibold" value={quotes[single.key] ?? ""} onChange={(e) => setQuote(single.key, e.target.value)} />
-                {/* LIVE INR IMPACT, right under the Quoted Price (client): rounding $7.2386
-                    to $7.25 looks like 1 cent but is ₹1+ a piece after the exchange rate, so the
-                    rupee value and the rupee difference against the calculated price stay in
-                    front of the merchandiser while they type. Shown only for a foreign currency
-                    (a rate of 1 would just repeat the box). Reads the same calc / rate the
-                    summary uses; nothing is stored. */}
-                {inrImpact ? (
-                  <div className="mt-1 flex flex-col whitespace-nowrap text-xs tabular-nums leading-tight" aria-live="polite">
-                    <span className="font-semibold text-foreground">{`In ₹ ${money(inrImpact.value)} / ${unitWord}`.trim()}</span>
-                    {inrImpact.diff != null && Math.abs(inrImpact.diff) >= 0.005 ? (
-                      <span className={inrImpact.diff > 0 ? "text-success" : "text-danger"}>
-                        {`${inrImpact.diff > 0 ? "+" : "−"}₹ ${money(Math.abs(inrImpact.diff))} vs calculated`}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">{inrImpact.diff == null ? "calculated price" : "same as calculated"}</span>
-                    )}
-                  </div>
-                ) : null}
-              </Field>
-            ) : null}
-          </FieldRow>
-        </div>
-        {extraGrid("price")}
-        <div>
-          {/* No figure yet → the sentence alone; a lone "— / PCS" read as a stray rule. */}
-          <div className={heroValue == null ? "hidden" : "flex items-baseline gap-2"}>
-            <span className="text-3xl font-bold leading-none tracking-tight text-primary">
-              <Flash value={heroValue == null ? "—" : `${ccy ?? ""} ${heroValue.toFixed(2)}`.trim()} />
-            </span>
-            <span className="text-sm font-medium text-muted-foreground">/ {unitWord}</span>
-          </div>
-          {heroValue == null ? (
-            <p className="m-0 text-xs text-muted-foreground">Add the fabric, weights, margin and exchange rate to see the price.</p>
-          ) : (
-            <p className="m-0 mt-2 text-xs tabular-nums text-muted-foreground">
-              {`Calculated ${t?.calc == null ? "—" : t.calc.toFixed(4)}`}
-              <span className="mx-1.5">·</span>
-              <span className={`font-semibold ${health ? HEALTH[health].text : ""}`}>{`${pct(t?.effectiveMarginPct)} margin`}</span>
-              {t?.delta != null && Math.abs(t.delta) > 0.00005 ? (
-                <>
-                  <span className="mx-1.5">·</span>
-                  <DeltaBadge delta={t.delta} pctValue={t.deltaPct} />
-                  {/* INR impact of rounding: (quoted - calculated) x exchange rate, per piece. */}
-                  {(num(header.exchange_rate) ?? 0) > 0 ? (
-                    <span className={`ml-1.5 text-xs font-medium ${t.delta > 0 ? "text-success" : "text-danger"}`}>
-                      {`₹ ${t.delta > 0 ? "+" : "−"}${money(Math.abs(t.delta) * (num(header.exchange_rate) ?? 0))}`}
-                    </span>
-                  ) : null}
-                </>
-              ) : null}
-            </p>
-          )}
-          {isSet && railData ? (
-            <ul className="m-0 mt-3 list-none space-y-0.5 p-0 text-xs">
-              {railData.pieces.map((pc) => (
-                <li key={pc.pieceKey} className="flex justify-between tabular-nums">
-                  <span className="text-muted-foreground">{pieceName(pc.pieceKey)}</span>
-                  <span className="text-foreground">{(pc.quoted ?? pc.calc)?.toFixed(2) ?? "—"}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {summary.belowFloor ? <p className="m-0 mt-2 text-xs text-danger">{floorSentence(summary.lowestMarginPct)}</p> : null}
-        </div>
-        {quoteRows.length > 1 ? (
-          // default-row: exempt -- rows are DERIVED: one per piece × size the weights table names
-          <div id="sc-quote-matrix" data-grid-style="sheet" className="[&_table]:table-fixed">
-            <ChildGrid<QuoteRow>
-              // grid-caption: exempt -- the card holds the charges above this grid
-              label="Quote matrix — a price per piece and size"
-              columns={costingQuoteColumns}
-              rows={quoteRows}
-              tableAlways
-              keepOne
-              hideAdd
-              hideRemove
-              onAdd={() => false}
-              onRemove={() => undefined}
-            />
-          </div>
-        ) : null}
-      </div>
-    ),
-  };
-
-  /* THE LOWEST MARGIN ON A QUOTE WITH THE BUYER (UX plan P3.2; since 0725 a
-     warning, not an MD gate): the lowest-margin piece, how far it sits under
-     the floor in rupees, and quoted against calculated price. */
-  const lowest = (() => {
-    let best: { piece: string; group: string | null; fig: CostingSummary["groups"][number]["pieces"][number] } | null = null;
-    for (const g of summary.groups)
-      for (const pc of g.pieces)
-        if (pc.effectiveMarginPct != null && (best == null || pc.effectiveMarginPct < (best.fig.effectiveMarginPct ?? Infinity)))
-          best = { piece: pc.pieceKey, group: g.size, fig: pc };
-    return best;
-  })();
-  const lowestGap =
-    lowest && (lowest.fig.quoted ?? lowest.fig.calc) != null
-      ? solveTarget({ net: lowest.fig.net }, header, (lowest.fig.quoted ?? lowest.fig.calc) as number, 1, 0)
-      : null;
-  const whyCard =
-    meta.status === "submitted" && lowest && (lowest.fig.effectiveMarginPct ?? Infinity) < MARGIN_FLOOR_PCT ? (
-      <section className="rounded-lg border border-warning/40 bg-warning-soft px-4 py-3 text-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <b className="text-foreground">{`This quote is under the ${MARGIN_FLOOR_PCT}% margin floor`}</b>
-          <StatusPill tone="warning">{pct(lowest.fig.effectiveMarginPct)} margin</StatusPill>
-        </div>
-        <p className="m-0 mt-1 text-foreground">
-          {`Lowest: ${pieceName(lowest.piece)}, ${sizeLabel(lowest.group)} — quoted ${ccy ?? ""} ${(lowest.fig.quoted ?? lowest.fig.calc)?.toFixed(2) ?? "—"} against a calculated ${lowest.fig.calc?.toFixed(2) ?? "—"}.`}
-          {lowestGap && !lowestGap.clearsFloor ? ` ₹${money(lowestGap.costCut)} / pc under the ${MARGIN_FLOOR_PCT}% floor.` : ""}
-        </p>
-      </section>
-    ) : null;
-
-
-  /*
-   * ONE STEP, an accordion fold (AGENTS.md "Folds are accordions"): a header that
-   * says what is inside and what it costs, and a body that mounts only while the
-   * step is open. `focusProps` on the section claims it when Tab arrives on any
-   * field — or on the header, which is a Tab stop (`data-row-open`) so tabbing off
-   * the last field of one step lands on the next header and folds the one behind.
-   *
-   * A step is HELD OPEN after a failed Save while it still has something to fix
-   * (`held`), so the blank mandatory field Save just named is never hidden behind
-   * a fold. Before a Save is tried a new sheet is blank everywhere and holding
-   * every step open would defeat the fold, so the hold waits for the attempt.
-   */
-  const stepProblem = (k: CardKey) => problems.some((p) => cardOf(p.section) === k);
-  const held = (k: CardKey) => tried && stepProblem(k);
-  const stepDone: Record<CardKey, boolean> = {
-    info: !!header.opportunity_id && !!header.style_id,
-    fabrics: live.fabrics.length > 0 && !stepProblem("fabrics"),
-    weights: live.weights.length > 0 && !stepProblem("weights"),
-    cmt: pieces.length > 0 && pieces.every((pc) => pieceCmt(pc) > 0),
-    trims: live.trims.length > 0 && !stepProblem("trims"),
-    overheads: !!(num(header.garment_waste_pct) || num(header.overhead_pct) || bankPc > 0),
-    price: !!(num(header.margin_pct) != null && header.currency_code && num(header.exchange_rate) != null) && !stepProblem("price"),
-  };
-  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-  const blurbs: Record<CardKey, string> = {
-    info: style?.name || enquiry?.name || "Choose the sample and the style",
-    fabrics: plural(live.fabrics.length, "fabric", "fabrics"),
-    weights: plural(lines.filter((l) => !isBlankLine(l)).length, "component", "components"),
-    cmt: pieces
-      .map((pc) => (pc.cmt_direct ? "Direct rate" : plural(pc.lines.filter((l) => l.kind === "cmt" && l.process_id).length, "operation", "operations")))
-      .join(" · "),
-    trims: plural(live.trims.length, "trim", "trims"),
-    overheads: `Garment Rejection ${header.garment_waste_pct || 0}% · Overhead ${header.overhead_pct || 0}%`,
-    price: `Margin ${header.margin_pct || "—"}%${ccy ? ` · ${ccy}` : ""}`,
-  };
-  const amounts: Partial<Record<CardKey, number | null>> = {
-    fabrics: head ? head.fabric : null,
-    weights: null,
-    cmt: head ? head.cmt + head.process + testingPc : null,
-    trims: head ? head.trims : null,
-    overheads: head ? bankPc + head.wastage + head.overhead : null,
-  };
-  /* Garment weight and Price & quote are not rupees, so they name their own unit. */
-  const gramsShown = live.weights
-    .filter((w) => w.size_name == null || w.size_name === (railData?.size ?? null))
-    .reduce((x, w) => x + (gramsOf(w) ?? 0), 0);
-  const amountTexts: Partial<Record<CardKey, string>> = {
-    weights: gramsShown > 0 ? `${Math.round(gramsShown)} g` : "0 g",
-    price: heroValue == null ? "—" : `${ccy ?? ""} ${heroValue.toFixed(2)}`.trim(),
-  };
-  const cardSection = (c: (typeof CARDS)[number], i: number) => {
-    const b = c.key === "price" ? priceBody : cardBody[c.key];
-    const open = fold.isOpen(c.key) || held(c.key);
-    const amount = amounts[c.key];
-    const amountText = amountTexts[c.key] ?? (amount != null ? `₹ ${money(amount)}` : null);
-    return (
-      <section
-        key={c.key}
-        id={cardAnchor(c.key)}
-        {...fold.focusProps(c.key)}
-        className={`scroll-mt-16 rounded-lg border ${open ? "border-primary/40" : "border-border"}`}
-      >
-        <h2 className="m-0">
-          {/* button-shape: exempt -- a fold header, not an action button */}
-          <button
-            type="button"
-            data-row-open
-            aria-expanded={open}
-            aria-controls={`${cardAnchor(c.key)}-body`}
-            onClick={() => fold.toggle(c.key)}
-            className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <span
-              aria-hidden
-              className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                open ? "bg-primary text-primary-foreground" : stepDone[c.key] ? "bg-success text-white" : "bg-surface-muted text-muted-foreground"
-              }`}
-            >
-              {stepDone[c.key] && !open ? <Check className="h-3.5 w-3.5" /> : i + 1}
-            </span>
-            <span className="w-44 shrink-0 text-[15px] font-semibold text-foreground">{c.label}</span>
-            {open ? null : <span className="min-w-0 max-w-[40%] flex-1 truncate text-sm font-normal text-muted-foreground lg:w-72 lg:flex-none">{blurbs[c.key]}</span>}
-            {open ? (b.right ? <span className="text-sm font-semibold tabular-nums text-foreground">{b.right}</span> : null) : amountText != null ? (
-              <span className="w-28 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">{amountText}</span>
-            ) : null}
-            <span className="flex-1" />
-            <ChevronRight aria-hidden className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-          </button>
-        </h2>
-        {open ? (
-          <div id={`${cardAnchor(c.key)}-body`} className="px-4 pb-5 pt-1">
-            {b.content}
-          </div>
-        ) : null}
-      </section>
+  /* SIZES — the columns of Component consumption. None = one "All sizes" column.
+     The first size added takes over the All-sizes rows; each later size starts
+     as a copy of the first size's lines, grams included, to be adjusted. */
+  const sheetSizes = [...new Set(weights.map((w) => w.size_name).filter((z): z is string => !!z))];
+  const styleSizes = style?.sizes ?? [];
+  const offered = offeredSizes([...styleSizes, ...data.sizeMaster], sheetSizes);
+  const offeredFromStyle = offeredSizes(styleSizes, sheetSizes);
+  const sizeOrder = [...offeredFromStyle, ...offered.filter((z) => !offeredFromStyle.includes(z))];
+  const addSize = (name: string) => {
+    if (!name || sheetSizes.some((x) => x.trim().toUpperCase() === name.trim().toUpperCase())) return;
+    const first = sheetSizes[0];
+    setWeights((ws) =>
+      first
+        ? [...ws, ...ws.filter((w) => w.size_name === first).map((w) => ({ ...w, key: newKey(), size_name: name }))]
+        : ws.map((w) => ({ ...w, size_name: name })),
     );
+    setDirty(true);
   };
-
-  /* WORK BACK FROM A TARGET (lives at the foot of the Quotation summary, user 2026-10-08). */
-  const workBack = (
-    <div className="space-y-2">
-      <div className="text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Work back from the buyer&apos;s target</div>
-      <div className="space-y-2">
-          <Field label={`Buyer's target ${ccy ?? ""} / ${unitWord}`.trim()} w="code" htmlFor="sc-target">
-            <NumInput id="sc-target" value={targetPrice} readOnly={!editable} onChange={(e) => setH({ buyer_target_price: e.target.value })} />
-          </Field>
-          {solve ? (
-            <div className="space-y-1.5 text-xs">
-              <p className="m-0 text-foreground">
-                {"It leaves "}
-                <span className={`font-semibold ${HEALTH[marginHealth(solve.marginPct) ?? "poor"].text}`}>{pct(solve.marginPct)}</span>
-                {" margin."}
-                {impact && Math.abs(impact.marginShiftPts) >= 0.005 ? (
-                  <span className="text-muted-foreground">{` (${impact.marginShiftPts > 0 ? "+" : "−"}${Math.abs(impact.marginShiftPts).toFixed(2)} pts on the calculated ${pct(impact.calcMarginPct)})`}</span>
-                ) : null}
-              </p>
-              {impact ? (
-                <>
-                  <p className="m-0 text-foreground">
-                    {`Against the calculated price: `}
-                    <span className={`font-semibold ${impact.inrPerUnit >= 0 ? "text-success" : "text-danger"}`}>
-                      {`₹ ${impact.inrPerUnit >= 0 ? "+" : "−"}${money(Math.abs(impact.inrPerUnit))}`}
-                    </span>
-                    {` / ${isSet ? "set" : "pc"}.`}
-                  </p>
-                  <p className="m-0 text-muted-foreground">
-                    {`Each ${ccy ?? ""} 0.01 = ₹ ${money(impact.perCentInr)} / ${isSet ? "set" : "pc"} · ${impact.perCentMarginPts.toFixed(2)} pts margin.`.replace("  ", " ")}
-                  </p>
-                </>
-              ) : null}
-              {solve.clearsFloor ? (
-                <p className="m-0 text-muted-foreground">{`That clears the ${MARGIN_FLOOR_PCT}% floor.`}</p>
-              ) : (
-                <p className="m-0 text-muted-foreground">
-                  {`To reach ${MARGIN_FLOOR_PCT}%: ₹${money(solve.costCut)} / ${isSet ? "set" : "pc"} less cost`}
-                  {solve.perKgFabric != null ? ` — about ₹${money(solve.perKgFabric)} / kg on fabric, or ₹${money(solve.costCut)} on CMT.` : "."}
-                </p>
-              )}
-              {single && editable ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setQuote(single.key, targetPrice.trim())}>
-                  Quote at this price
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-      </div>
-    </div>
-  );
-
-  /* THE COST WATERFALL — read off the shown group's figures; calc.ts stays the
-     only place a price is worked out. The steps add up to the price: Fabric + CMT
-     + Process (with testing) + Trims + Overheads (bank, wastage, overhead, extra
-     charges) + Margin, then any discount / price charge as one Adj. step. */
-  const waterfall = (() => {
-    if (!t) return null;
-    const adj = t.priceAdj - t.discount;
-    const steps = [
-      { label: "Fabric", v: t.fabric, bar: "bg-primary" },
-      { label: "CMT", v: t.cmt, bar: "bg-accent" },
-      { label: "Proc.", v: t.process + testingPc, bar: "bg-info" },
-      { label: "Trims", v: t.trims, bar: "bg-warning" },
-      { label: "Ovhd", v: bankPc + t.wastage + t.overhead + t.extraOverhead, bar: "bg-danger" },
-      { label: "Margin", v: t.margin, bar: "bg-success" },
-      ...(Math.abs(adj) > 0.005 ? [{ label: "Adj.", v: adj, bar: "bg-foreground/40" }] : []),
-    ];
-    let cum = 0;
-    const cols = steps.map((s) => {
-      const from = cum;
-      cum += s.v;
-      return { ...s, lo: Math.min(from, cum), hi: Math.max(from, cum) };
-    });
-    cols.push({ label: "Price", v: t.gross, bar: "bg-primary", lo: 0, hi: t.gross });
-    const top = Math.max(...cols.map((c) => c.hi), 1) * 1.15;
-    return { cols, top };
-  })();
-
-  /* WHAT-IF — the same garment at other margins. Margin is % of NET, so moving it
-     from m0 to m shifts the calc price by net × (m − m0) ÷ 100 ÷ rate; everything
-     else (freight, insurance, discount, price charges) is untouched. Read-only. */
-  const marginNow = num(header.margin_pct) ?? 0;
-  const rateNow = num(header.exchange_rate);
-  /* MULTI-CURRENCY CHECK (spec v8 §7.2, user 2026-10-14: "multi currency
-     checking option in costing … compacted without disturbing UI"). The SAME
-     price in every currency the Quotes / Orders register holds a rate for, plus
-     INR. Read-only and stored nowhere: the costing's currency is still picked in
-     Price & quote. Rupees per piece = the shown price × this sheet's own rate;
-     each other currency = those rupees ÷ its register rate. A currency with no
-     rate today says so instead of printing a number. */
-  const fxRupees = heroValue != null && rateNow != null && rateNow > 0 ? heroValue * rateNow : null;
-  const fxRows = [...new Set(["INR", ...data.currencies.map((c) => c.code).filter(Boolean)])]
-    .map((code) => {
-      const rate = code === "INR" ? 1 : code === ccy && rateNow ? rateNow : (data.quoteRates[code] ?? null);
-      return { code, rate, price: fxRupees != null && rate ? fxRupees / rate : null, current: code === (ccy ?? "INR") };
-    })
-    // The costing's own currency first, INR next, then those with a rate.
-    .sort((a, b) => Number(b.current) - Number(a.current) || Number(b.code === "INR") - Number(a.code === "INR") || Number(b.rate != null) - Number(a.rate != null) || a.code.localeCompare(b.code));
-  const fxColumns: Column<(typeof fxRows)[number]>[] = [
-    { header: "Ccy", cell: (r) => r.code },
-    {
-      header: "Rate ₹",
-      align: "right",
-      cell: (r) => <span className="tabular-nums text-muted-foreground">{r.rate == null ? "—" : r.rate === 1 ? "1" : r.rate.toFixed(2)}</span>,
-    },
-    {
-      header: `Price / ${unitWord}`,
-      align: "right",
-      cell: (r) => (r.price == null ? <span className="text-muted-foreground">no rate</span> : <span className="tabular-nums">{r.price.toFixed(2)}</span>),
-    },
-  ];
-  const whatIf = [15, 20, 25, 30].map((m) => {
-    const calc = t && t.calc != null && rateNow != null && rateNow > 0 ? t.calc + (t.net * (m - marginNow)) / 100 / rateNow : null;
-    return { m, calc, delta: calc != null && t?.calc != null ? calc - t.calc : null, current: m === marginNow };
-  });
-
-  /* THE QUOTATION SUMMARY — the 60/40 split's right side: read-only, sticky, live.
-     The selling terms stay in Price & quote, so no field lives here and Tab never
-     lands in the aside. A price card (margin ring against the floor), the cost
-     waterfall, then Breakdown · What-if · Target in one tab row so the rail stays
-     short. */
-  const marginFrac = Math.min(Math.max((t?.effectiveMarginPct ?? 0) / 35, 0), 1);
-  const marginBarColour = health === "good" ? "bg-success" : health === "tight" ? "bg-warning" : "bg-danger";
-  const hasPrice = !!t && t.gross > 0;
-  const rail = (
-    <div className="space-y-3 rounded-lg border border-border bg-background p-3 shadow-sm">
-      <div className="space-y-3 rounded-lg border border-border bg-primary-soft p-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="m-0 text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Quotation summary</h2>
-          {summary.groups.length > 1 ? (
-            <ToggleGroup<string>
-              label="Size shown"
-              value={railData ? (railData.size ?? "all") : "all"}
-              onChange={setRailGroup}
-              options={summary.groups.map((g) => ({ value: g.size ?? "all", label: sizeLabel(g.size) }))}
-            />
-          ) : null}
-        </div>
-        <div className="min-w-0">
-          <div className="text-[11px] text-muted-foreground">{t?.quoted != null ? "Final quoted FOB price" : "Calculated FOB price"}</div>
-          {/* "SHOW IN" BESIDE THE PRICE (user 2026-10-14, option B of the mockup):
-              the code next to the price is a small picker, so a merchandiser can read
-              the same quote in GBP / EUR / ₹ without touching the costing. VIEW ONLY —
-              it converts through rupees at today's Quotes / Orders rate
-              (`data.quoteRates`); the costing's own Currency is still set in Price &
-              quote, so a stray pick can never change what the buyer is quoted. */}
-          {(() => {
-            const shown = viewCcy && viewCcy !== ccy ? viewCcy : ccy;
-            const fx = num(header.exchange_rate);
-            const rateOf = (c: string) => (c === "INR" ? 1 : (data.quoteRates[c] ?? null));
-            const shownRate = shown ? rateOf(shown) : null;
-            const inrPrice = heroValue != null && fx != null ? heroValue * fx : null;
-            const converted = shown !== ccy && inrPrice != null && shownRate ? inrPrice / shownRate : heroValue;
-            const codes = [...new Set([...(ccy ? [ccy] : []), ...Object.keys(data.quoteRates), "INR"])];
-            return (
-              <>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-bold leading-tight tracking-tight text-foreground">
-                    <Flash value={converted == null ? "—" : `${currencySymbol(shown)} ${converted.toFixed(2)}`.trim()} />
-                  </span>
-                  {ccy && heroValue != null && codes.length > 1 ? (
-                    <Select
-                      id="sc-view-ccy"
-                      aria-label="Show the price in"
-                      compact
-                      value={shown ?? ""}
-                      onChange={(e) => setViewCcy(e.target.value === ccy ? null : e.target.value)}
-                      className="w-24 shrink-0"
-                      inputClassName="h-8 text-xs font-bold text-primary"
-                    >
-                      {codes.map((c) => (
-                        <option key={c} value={c} disabled={c !== ccy && (fx == null || rateOf(c) == null)}>
-                          {c === ccy ? `${c} ●` : c}
-                        </option>
-                      ))}
-                    </Select>
-                  ) : ccy ? (
-                    <span className="text-xs font-semibold text-muted-foreground">{ccy}</span>
-                  ) : null}
-                  <span className="text-xs font-medium text-muted-foreground">/ {unitWord}</span>
-                </div>
-                {shown !== ccy && heroValue != null ? (
-                  <div className="text-[11px] tabular-nums text-muted-foreground">
-                    <span className="font-semibold text-warning">View only</span>
-                    {` · quoted ${currencySymbol(ccy)} ${heroValue.toFixed(2)} ${ccy ?? ""} at ₹ ${shownRate?.toFixed(2) ?? "—"} / ${shown}`}
-                  </div>
-                ) : null}
-              </>
-            );
-          })()}
-          {/* The ₹ figure left this line (user 2026-10-15): it is the Breakdown's
-              "Price ₹" row below, so only the note on what the price excludes stays. */}
-          {t ? <div className="text-[11px] text-muted-foreground">Before freight &amp; insurance</div> : null}
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            {health && hasPrice ? <StatusPill tone={HEALTH[health].tone}>{HEALTH[health].label}</StatusPill> : <StatusPill tone="neutral">No price yet</StatusPill>}
-            <span className={`text-[15px] font-bold tabular-nums ${health && hasPrice ? HEALTH[health].text : "text-muted-foreground"}`}>
-              {hasPrice ? `${pct(t?.effectiveMarginPct)} margin` : "—"}
-            </span>
-          </div>
-          <div className="relative h-2 rounded-full border border-border bg-background" role="img" aria-label={`Margin ${pct(t?.effectiveMarginPct)}, floor ${MARGIN_FLOOR_PCT}%`}>
-            <div className={`absolute inset-y-0 left-0 rounded-full transition-[width] ${hasPrice ? marginBarColour : ""}`} style={{ width: hasPrice ? `${marginFrac * 100}%` : "0%" }} />
-            <i className="absolute -bottom-1 -top-1 w-0.5 rounded-sm bg-foreground" style={{ left: `${(MARGIN_FLOOR_PCT / 35) * 100}%` }} />
-          </div>
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>0%</span>
-            <span>{`Floor ${MARGIN_FLOOR_PCT}%`}</span>
-            <span>35%</span>
-          </div>
-        </div>
-        {summary.belowFloor ? <p className="m-0 text-xs text-danger">{floorSentence(summary.lowestMarginPct)}</p> : null}
-      </div>
-
-      {waterfall && t && t.gross > 0 ? (
-        <div className="[@media(max-height:760px)]:hidden">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">How the price builds up</div>
-          <div
-            className="grid gap-1.5"
-            style={{ gridTemplateColumns: `repeat(${waterfall.cols.length}, minmax(0, 1fr))` }}
-            role="img"
-            aria-label="Cost build-up: fabric, CMT, process, trims, overheads and margin stacking to the price"
-          >
-            {waterfall.cols.map((c) => (
-              <div key={c.label} className="flex flex-col items-stretch gap-1">
-                <div className="relative h-14 border-b border-border">
-                  <i
-                    className={`absolute inset-x-0 block rounded-sm ${c.bar}`}
-                    style={{ bottom: `${(c.lo / waterfall.top) * 100}%`, height: `${Math.max(((c.hi - c.lo) / waterfall.top) * 100, 1.5)}%` }}
-                  />
-                  <span
-                    className="absolute inset-x-0 text-center text-[9px] font-semibold tabular-nums text-foreground"
-                    style={{ bottom: `calc(${(c.hi / waterfall.top) * 100}% + 2px)` }}
-                  >
-                    {Math.round(c.v)}
-                  </span>
-                </div>
-                <span className="whitespace-nowrap text-center text-[8.5px] font-medium leading-none tracking-tight text-muted-foreground">{c.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <ToggleGroup<"breakdown" | "whatif" | "target" | "currency">
-        label="Summary view"
-        role="tablist"
-        value={railTab}
-        onChange={setRailTab}
+  const removeSize = (name: string) => {
+    setWeights((ws) =>
+      sheetSizes.length === 1 ? ws.map((w) => (w.size_name === name ? { ...w, size_name: null } : w)) : ws.filter((w) => w.size_name !== name),
+    );
+    setDirty(true);
+  };
+  /* SIZE-WISE YES / NO (client 2026-10-17). No = one medium piece's weight costs every
+     size (the "All sizes" column, headed Avg Pcs Wgt); Yes = a column per size added
+     here, averaged in Component consumption. Turning it off keeps the MEDIUM size's
+     weights — the middle of the sizes added, so S·M·L·XL keeps M — as that one column. */
+  const sizeWise = sizeWiseAsked || sheetSizes.length > 0;
+  const setSizeWise = (on: boolean) => {
+    setSizeWiseAsked(on);
+    /* YES SHOWS THE SIZES AT ONCE (user 2026-10-17, screenshot 3593): the style's own
+       sizes become the columns, each starting from the Pcs Wgt already typed, and the
+       Pcs Wgt column goes. A style with no sizes leaves the "+ Add size" pick. */
+    if (on) {
+      const names = offeredFromStyle;
+      if (!sheetSizes.length && names.length) {
+        setWeights((ws) => names.flatMap((name) => ws.map((w) => ({ ...w, key: w.size_name == null && name === names[0] ? w.key : newKey(), size_name: name }))));
+        setDirty(true);
+      }
+      return;
+    }
+    if (!sheetSizes.length) return;
+    const mid = sheetSizes[Math.floor((sheetSizes.length - 1) / 2)];
+    setWeights((ws) => ws.filter((w) => w.size_name === mid || w.size_name == null).map((w) => ({ ...w, size_name: null })));
+    setDirty(true);
+  };
+  const sizesBar = (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Size-Wise</span>
+      <Segmented<"yes" | "no">
+        name="costing-size-wise"
+        value={sizeWise ? "yes" : "no"}
+        onChange={(v) => setSizeWise(v === "yes")}
         options={[
-          { value: "breakdown", label: "Breakdown" },
-          { value: "whatif", label: "What-if" },
-          { value: "target", label: "Target" },
-          { value: "currency", label: "Currency" },
+          { value: "no", label: "No" },
+          { value: "yes", label: "Yes" },
         ]}
       />
-
-      {railTab === "breakdown" ? (
-        hasPrice ? (
-          <div>
-            <dl className="m-0">
-              {railAll ? line("Fabric", money(t?.fabric)) : null}
-              {railAll ? line("CMT & processing", money(t ? t.cmt + t.process + testingPc : null)) : null}
-              {railAll ? line("Trims & accessories", money(t?.trims)) : null}
-              {railAll ? line("Bank charges", money(t ? bankPc : null)) : null}
-              {line("Net cost ₹", money(t?.net), { total: true, formula: "Fabric + CMT & processing + Trims + Bank" })}
-              {railAll ? line(`Garment Rejection ${header.garment_waste_pct || 0}%`, money(t?.wastage)) : null}
-              {railAll ? line(`Overhead ${header.overhead_pct || 0}%`, money(t?.overhead)) : null}
-              {railAll && t?.extraOverhead ? line("Other charges", money(t.extraOverhead)) : null}
-              {line("Gross cost ₹", money(t?.grossCost), { total: true, formula: "Net + Garment Rejection + Overhead" })}
-              {railAll ? line(`Margin ${header.margin_pct || 0}%`, money(t?.margin)) : null}
-              {railAll ? line(`Discount ${header.discount_pct || 0}%`, t?.discount ? `−${money(t.discount)}` : money(0)) : null}
-              {railAll && t?.priceAdj ? line("Price charges", `${t.priceAdj < 0 ? "−" : ""}${money(Math.abs(t.priceAdj))}`) : null}
-              {line("Price ₹", money(t?.gross), { total: true, formula: "Gross cost + Margin − Discount ± price charges" })}
-            </dl>
-            {/* button-shape: exempt -- a text link that folds the list, not an action button */}
-            <button type="button" onClick={() => setRailAll((v) => !v)} className="mt-1 px-2 text-xs font-semibold text-primary hover:underline">
-              {railAll ? "Show fewer lines" : "Show all lines"}
+      {!sizeWise ? null : sheetSizes.length ? (
+        sheetSizes.map((z) => (
+          <span key={z} className="inline-flex items-center gap-1 rounded-control border border-border bg-surface px-2 py-1 text-sm font-medium">
+            {z}
+            {/* button-shape: exempt -- a 20px ✕ inside a size chip, not an action button */}
+            <button
+              type="button"
+              aria-label={`Remove size ${z}`}
+              onClick={() => removeSize(z)}
+              className="inline-flex h-5 w-5 items-center justify-center rounded-control text-muted-foreground hover:bg-danger-soft hover:text-danger"
+            >
+              <X className="h-3 w-3" aria-hidden />
             </button>
-          </div>
-        ) : (
-          <p className="m-0 px-2 text-xs text-muted-foreground">Add a fabric and a garment weight to see the price build up here.</p>
-        )
-      ) : null}
-
-      {railTab === "whatif" ? (
-        <div className="space-y-2">
-          <div className="text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Same garment, other margins</div>
-          <div className="grid grid-cols-4 gap-1.5">
-            {whatIf.map((w) => (
-              <div
-                key={w.m}
-                className={`rounded-md border px-1 py-1.5 text-center ${w.current ? "border-primary bg-primary-soft" : "border-border bg-surface-muted"}`}
-              >
-                <div className="text-[10px] font-semibold text-muted-foreground">{`${w.m}%`}</div>
-                <div className="text-[13px] font-bold tabular-nums text-foreground">{w.calc == null ? "—" : w.calc.toFixed(2)}</div>
-                <div className={`text-[10px] font-semibold tabular-nums ${w.delta == null || Math.abs(w.delta) < 0.005 ? "text-muted-foreground" : w.delta > 0 ? "text-success" : "text-danger"}`}>
-                  {w.delta == null ? "" : Math.abs(w.delta) < 0.005 ? "now" : `${w.delta > 0 ? "+" : "−"}${Math.abs(w.delta).toFixed(2)}`}
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="m-0 text-[11px] text-muted-foreground">
-            {`${ccy ?? ""} per ${isSet ? "set" : "piece"}, against the current ${marginNow}%. Under ${MARGIN_FLOOR_PCT}% is flagged red on the sheet. Change the margin in Price & quote.`.trim()}
-          </p>
-        </div>
-      ) : null}
-
-      {railTab === "target" ? workBack : null}
-
-      {railTab === "currency" ? (
-        <div className="space-y-2">
-          <div className="text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Same price, other currencies</div>
-          {fxRupees == null ? (
-            <p className="m-0 px-2 text-xs text-muted-foreground">Add the costs, margin and exchange rate to compare currencies.</p>
-          ) : (
-            <DataTable
-              columns={fxColumns}
-              rows={fxRows}
-              compact
-              paginate={false}
-              getKey={(r) => r.code}
-              rowClassName={(r) => (r.current ? "bg-primary-soft font-semibold" : undefined)}
-            />
-          )}
-          <p className="m-0 text-[11px] text-muted-foreground">
-            {`${t?.quoted != null ? "Quoted" : "Calculated"} price, at today's Quotes / Orders rates. The highlighted row is this costing's currency — change it in Price & quote.`}
-          </p>
-        </div>
+          </span>
+        ))
+      ) : (
+        <span className="text-sm text-muted-foreground">Add the sizes to weigh</span>
+      )}
+      {sizeWise && sizeOrder.length ? (
+        <Select aria-label="Add a size" className="w-40" value="" onChange={(e) => addSize(e.target.value)}>
+          <option value="">+ Add size…</option>
+          {sizeOrder.map((z) => (
+            <option key={z} value={z}>
+              {z}
+            </option>
+          ))}
+        </Select>
       ) : null}
     </div>
   );
 
+  /* SHIP MODE and the rate fetch — Currency moved to the Details row (2026-10-17); the
+     Quotation tab's terms table edits the margin, exchange rate, commission, discount,
+     freight and insurance itself. */
+  const termsBar = (
+    <div className="mb-3">
+      <FieldRow gap="row" align="end">
+        <Field label="Ship Mode" w="range" htmlFor="sc-ship">
+          <Select id="sc-ship" value={header.ship_mode} onChange={(e) => setH({ ship_mode: e.target.value })}>
+            <option value=""></option>
+            {SHIP_MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Button variant="outline" onClick={() => fetchRate()} disabled={!header.currency_code || isPending}>
+          <RefreshCw className="h-4 w-4" aria-hidden />
+          Fetch exchange rate
+        </Button>
+      </FieldRow>
+    </div>
+  );
+
+  const sheetModel = buildCostSheetModel(
+    {
+      id: editId ?? "new",
+      code: meta.code ?? preview,
+      version: meta.version,
+      status: meta.status,
+      is_draft: meta.isDraft,
+      parent_id: null,
+      decision_remark: meta.decisionRemark,
+      draft,
+    },
+    { enquiries: data.enquiries, styles: data.styles, components: data.components, trims: data.trims, quoteRates: data.quoteRates },
+    letterhead,
+  );
+  /** The masters the tables' row pickers list: live rows only (AGENTS.md "Disabled rows"). */
+  const liveOpts = <T extends { id: string; name: string } & Deactivatable>(xs: readonly T[]) =>
+    xs.filter((r) => !isInactive(r)).map((r) => ({ id: r.id, name: r.name }));
+  const editOptions: EditOptions = {
+    fabrics: liveOpts(data.fabrics),
+    yarns: liveOpts(data.yarns),
+    processes: liveOpts(data.processes),
+    garmentProcesses: data.garmentProcesses
+      .filter((r) => !isInactive(r))
+      .map((r) => ({ id: r.id, name: r.name, garment_kind: r.garment_kind, cmt_stage: r.cmt_stage, standard_rate: r.standard_rate })),
+    components: liveOpts(data.components),
+    trims: liveOpts(data.trims),
+    lockedFabrics: style?.structures.map((x) => x.id) ?? [],
+  };
+  /** One edit in a tab writes the whole draft back into this editor's state. */
+  const applyDraft = (next: CostingDraft) => {
+    setHeader(next.header);
+    setPieces(next.pieces);
+    setFabrics(next.fabrics);
+    setWeights(next.weights);
+    setTrims(next.trims);
+    setQuotes(next.quotes);
+    setExtras(next.extras);
+    setDirty(true);
+  };
+
   const workspace = (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="w-full min-w-0 flex-1 space-y-3">
-          {copiedFrom ? (
-            <p className="m-0 rounded-md border border-border bg-primary-soft px-3 py-2 text-sm text-foreground">
-              {`Copied from ${copiedFrom}. Check the figures, then save.`}
-            </p>
-          ) : null}
-          {CARDS.map((c, i) => cardSection(c, i))}
-        </div>
-        <aside
-          aria-label="Quotation summary"
-          className="w-full lg:sticky lg:top-2 lg:max-h-[calc(100dvh-14rem)] lg:w-[20rem] lg:shrink-0 lg:overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {rail}
-        </aside>
-      </div>
+    <div className="space-y-3">
+      {copiedFrom ? (
+        <p className="m-0 rounded-md border border-border bg-primary-soft px-3 py-2 text-sm text-foreground">
+          {`Copied from ${copiedFrom}. Check the figures, then save.`}
+        </p>
+      ) : null}
+      <CostSheetDocument
+        model={sheetModel}
+        // ENTER-ONLY ENTRY, AS COSTING 6 (user 2026-10-23: "costing to costing 5 varaikkum add
+        // button irukka kudathu"): a blank row ends every table, no "+ Add" (2026-10-21).
+        enterFlow
+        // The cost ENTRY: no letterhead, no Print / Download (user 2026-10-17).
+        // Reports and Revise keep both.
+        entry
+        // Nothing unsaved is downloaded or printed — the file would not match the record.
+        locked={dirty || !editId}
+        edit={
+          editable
+            ? { draft, onChange: applyDraft, options: editOptions, details: detailsBlock, sizes: sizesBar, sizeWise, terms: termsBar, pickFabric: pickedFabric }
+            : undefined
+        }
+      />
     </div>
   );
 
@@ -3763,9 +1410,10 @@ export function SampleCostingScreen({
         : "This revision has been superseded by a later one. Open the latest from Revision."
     : null;
 
-  /** Copy from… (P2.2): every other live costing, the same customer first, newest first. */
+  /** Copy from… (P2.2): every other live costing, the same customer first, newest first.
+   *  A "Not costed" row (`awaiting`) has no sheet behind it, so nothing to copy. */
   const copyCandidates = current
-    .filter((r) => r.id !== editId && r.id !== revisingFrom)
+    .filter((r) => !r.awaiting && r.id !== editId && r.id !== revisingFrom)
     .sort((a, b) => {
       const ca = a.customer_name && a.customer_name === enquiry?.customer_name ? 0 : 1;
       const cb = b.customer_name && b.customer_name === enquiry?.customer_name ? 0 : 1;
@@ -3835,17 +1483,6 @@ export function SampleCostingScreen({
     },
   ];
 
-  // ---- the L × W × GSM calculator ----------------------------------------------
-  const dimsLine = lines.find((l) => l.key === dimsFor?.line) ?? null;
-  const dimsGrams = dimensionalGrams({ length_cm: dims.l, width_cm: dims.w, gsm: dims.g });
-  const setDim = (patch: Partial<typeof dims>) => {
-    const next = { ...dims, ...patch };
-    setDims(next);
-    const g = dimensionalGrams({ length_cm: next.l, width_cm: next.w, gsm: next.g });
-    // All three in → the cell takes the grams; the figure is the record's.
-    if (g != null && dimsFor) setCell(dimsFor.line, dimsFor.col, String(g));
-  };
-
   if (mode === "edit") {
     // A Sample Revision's proposal is sent to the MD by the revision, not here.
     /** Under Progress, saved and untouched: the buyer's answer can be recorded (0725). */
@@ -3861,8 +1498,11 @@ export function SampleCostingScreen({
           <Button variant="ghost" size="sm" onClick={closeEditor} aria-label="Back to list" className="h-10 w-10 shrink-0 px-0 text-lg md:hidden">
             ←
           </Button>
-          {/* No desktop "← Costing" (user 2026-10-15, reversing 2026-10-14's back
-              link): the Costing tab and the footer's Cancel already leave. */}
+          {/* THE DESKTOP BACK IS BACK (user 2026-10-21, screenshot 110515: "set
+              back button this page"), reversing 2026-10-15's "no desktop ←
+              Costing". The app's own BackLink, as Sample Entry's editor draws
+              it — reads "← Back", asks before discarding unsaved work. */}
+          <BackLink onBack={closeEditor} label="Costing" className="max-md:hidden" />
           <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-wrap">
             <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {revisingFrom ? "Revise Sample Costing" : !editable ? "View Sample Costing" : editId ? "Edit Sample Costing" : "New Sample Costing"}
@@ -3873,7 +1513,7 @@ export function SampleCostingScreen({
                 status labels or revision flags) — the label above already
                 says "Revise Sample Costing" and the Rev number. */}
             {!revisingFrom && editId ? (
-              <StatusPill tone={meta.isDraft ? "neutral" : STATUS_TONE[meta.status]}>{meta.isDraft ? "Draft" : STATUS_LABEL[meta.status]}</StatusPill>
+              <StatusPill tone={statusTone(meta.isDraft ? "draft" : meta.status)}>{meta.isDraft ? "Draft" : STATUS_LABEL[meta.status]}</StatusPill>
             ) : null}
           </div>
           {/* The SMP · style · customer · season line stood here and was removed
@@ -3919,7 +1559,6 @@ export function SampleCostingScreen({
             (user 2026-10-14: "remove this, there is no approval, just the status
             updated as approved"). 0729 closed costing revisions; a costing's
             next Rev is its own Revise, decided by the buyer. */}
-        {whyCard}
         {decision && editId ? (
           <CustomerDecisionSheet
             decision={decision}
@@ -3981,84 +1620,84 @@ export function SampleCostingScreen({
           }}
         />
 
-        <SubDetailSheet
-          open={!!buildFabric}
-          onClose={() => setBuildKey(null)}
-          origin={buildOrigin}
-          parent="costing"
-          grid
-          // Both tables side by side (~54rem) need the wider box (option A, 2026-10-15).
-          maxWidthClass="max-w-5xl"
-          // No visible title (user 2026-10-14); the dialog still has a name.
-          title={<span className="sr-only">Fabric price</span>}
-        >
-          {buildFabric ? fabricBuildUp(buildFabric) : null}
-        </SubDetailSheet>
-
-        <SubDetailSheet
-          open={!!dimsLine}
-          onClose={() => setDimsFor(null)}
-          origin={dimsOrigin}
-          parent="costing"
-          title={`Grams from dimensions${dimsLine ? ` — ${componentName(dimsLine.component_ids) || "component"}` : ""}`}
-        >
-          {dimsLine && dimsFor ? (
-            <div className="space-y-4">
-              {matrixCols.length > 1 ? (
-                <Field label="Size" w="term" htmlFor="sc-dim-col">
-                  <Select id="sc-dim-col" value={dimsFor.col} onChange={(e) => setDimsFor({ ...dimsFor, col: e.target.value })}>
-                    {matrixCols.map((c) => (
-                      <option key={c} value={c}>
-                        {colLabel(c)}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              ) : null}
-              <FieldRow gap="row" align="start">
-                <Field label="Length (cm)" w="hug" htmlFor="sc-dim-l">
-                  <NumInput id="sc-dim-l" value={dims.l} onChange={(e) => setDim({ l: e.target.value })} />
-                </Field>
-                <Field label="Width (cm)" w="hug" htmlFor="sc-dim-w">
-                  <NumInput id="sc-dim-w" value={dims.w} onChange={(e) => setDim({ w: e.target.value })} />
-                </Field>
-                <Field label="GSM" w="hug" htmlFor="sc-dim-g">
-                  <NumInput id="sc-dim-g" value={dims.g} onChange={(e) => setDim({ g: e.target.value })} />
-                </Field>
-              </FieldRow>
-              <p className="text-sm">
-                <span className="text-muted-foreground">Grams = L × W × GSM ÷ 10 000 = </span>
-                <span className="font-semibold tabular-nums text-info">{dimsGrams == null ? "—" : `${money(dimsGrams, 1)} g`}</span>
-              </p>
-              <p className="text-xs text-muted-foreground">Once all three are in, the {colLabel(dimsFor.col)} cell takes this weight.</p>
-            </div>
-          ) : null}
-        </SubDetailSheet>
-
-        <SubDetailSheet open={copyOpen} onClose={() => setCopyOpen(false)} parent="costing" title="Copy from an earlier costing" footer={null}>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Brings over fabrics, weights, CMT, trims and terms. This sheet keeps its own sample, style, date and quotes.
-          </p>
-          <ul className="m-0 list-none space-y-2 p-0">
-            {copyCandidates.slice(0, 30).map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  onClick={() => copyFrom(r.id)}
-                  className="w-full rounded-lg border border-border px-3 py-2 text-left hover:border-primary/50 hover:bg-primary-soft"
-                >
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="font-mono text-xs font-semibold">{`${r.code ?? "—"} · ${revisionShort(r.version)}`}</span>
-                    <span className="font-mono text-xs tabular-nums">{r.target_fob != null ? `${r.currency_code ?? ""} ${money(r.target_fob)}` : "—"}</span>
+        {/* COPY FROM (user 2026-10-16): search, This customer / Approved, a
+            preview of what comes across and what it replaces, then Copy. A
+            click only selects — it used to overwrite the sheet on the spot. */}
+        <CopySourceChooser<CostingListRow, CostingRecord>
+          open={copyOpen}
+          onClose={() => setCopyOpen(false)}
+          title="Copy from an earlier costing"
+          intro="Brings over fabrics, weights, CMT, trims and terms. This sheet keeps its own sample, style, date and quotes."
+          items={copyCandidates}
+          getId={(r) => r.id}
+          searchText={(r) => [r.code, r.sample_no, r.enquiry_no, r.customer_name, r.style_name]}
+          searchPlaceholder="Search costing, sample, enquiry, customer or style…"
+          filters={[
+            ...(enquiry?.customer_name
+              ? [{ key: "customer", label: "This customer", test: (r: CostingListRow) => r.customer_name === enquiry.customer_name }]
+              : []),
+            { key: "approved", label: "Approved", test: (r: CostingListRow) => r.status === "approved" },
+          ]}
+          groups={
+            enquiry?.customer_name
+              ? [{ label: `This customer · ${enquiry.customer_name}`, test: (r) => r.customer_name === enquiry.customer_name }]
+              : undefined
+          }
+          renderRow={(r) => (
+            <>
+              <span className="flex items-baseline justify-between gap-2">
+                <span className="font-mono text-xs font-semibold">{`${r.code ?? "—"} · ${revisionShort(r.version)}`}</span>
+                <span className="font-mono text-xs tabular-nums">{r.target_fob != null ? `${r.currency_code ?? ""} ${money(r.target_fob)}` : "—"}</span>
+              </span>
+              {/* THE ROW SELECTS ON CLICK, so `touch={false}`: a press-and-hold
+                  meant to read a long style would reveal it and pick the row. */}
+              <Truncated
+                touch={false}
+                text={[r.customer_name, r.style_name].filter(Boolean).join(" · ") || "—"}
+                className="mt-0.5 block text-sm font-medium text-foreground"
+              />
+              <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <StatusPill tone={statusTone(r.is_draft ? "draft" : r.status)}>{r.is_draft ? "Draft" : STATUS_LABEL[r.status]}</StatusPill>
+                {r.sample_no ? <span className="font-mono">{r.sample_no}</span> : null}
+                {r.costing_date ? <span>{fmtDate(r.costing_date)}</span> : null}
+              </span>
+            </>
+          )}
+          loadPreview={async (id) => {
+            const res = await loadSampleCosting(id);
+            return res.ok ? { ok: true, data: res.record } : { ok: false, error: res.error };
+          }}
+          renderPreview={(_, rec) => {
+            if (!rec) return null;
+            const src = liveRows(rec.draft);
+            const cmt = rec.draft.pieces.reduce((t, p) => t + (num(p.cmt) ?? 0), 0);
+            const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+            const replacing = [
+              live.fabrics.length ? plural(live.fabrics.length, "fabric") : null,
+              live.trims.length ? plural(live.trims.length, "trim") : null,
+            ].filter(Boolean);
+            return (
+              <span className="block space-y-1.5">
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Will bring over</span>
+                <span className="flex flex-wrap gap-1">
+                  <PreviewChip>{plural(src.fabrics.length, "fabric")}</PreviewChip>
+                  <PreviewChip>{plural(src.trims.length, "trim")}</PreviewChip>
+                  {cmt > 0 ? <PreviewChip>CMT ₹ {money(cmt)}</PreviewChip> : null}
+                  {rec.draft.header.margin_pct ? <PreviewChip>Margin {rec.draft.header.margin_pct}%</PreviewChip> : null}
+                  {rec.draft.header.overhead_pct ? <PreviewChip>Overhead {rec.draft.header.overhead_pct}%</PreviewChip> : null}
+                </span>
+                {replacing.length ? (
+                  <span className="block rounded-md bg-warning-soft px-2 py-1 text-xs text-warning">
+                    Replaces the {replacing.join(" and ")} on this costing.
                   </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {[r.customer_name, r.style_name, STATUS_LABEL[r.status], fmtDate(r.costing_date)].filter(Boolean).join(" · ")}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </SubDetailSheet>
+                ) : null}
+              </span>
+            );
+          }}
+          onCopy={(_, rec) => rec && copyFrom(rec)}
+          copyLabel={(r) => `Copy from ${r.code ?? "this costing"}`}
+          emptyHint="No other costing to copy from yet."
+        />
 
         <SubDetailSheet open={compareOpen} onClose={() => setCompareOpen(false)} parent="costing" grid title="Compare revisions">
           <div className="space-y-3">
@@ -4096,9 +1735,10 @@ export function SampleCostingScreen({
       <PageHeader
         title="Costing"
         description="Cost a sample style — fabric, consumption, CMT, trims — quote the buyer, and record the buyer's answer."
-        actions={perms.canCreate ? <Button onClick={openAdd}>New Sample Costing</Button> : undefined}
+        actions={perms.canCreate ? <Button onClick={openNew}>New Sample Costing</Button> : undefined}
       />
       <FilterBar
+        trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search Costing No, SMP Number, customer or style…"
@@ -4119,18 +1759,32 @@ export function SampleCostingScreen({
           card mari … costing la yum") — the Accessories Plan's card, through the
           same `SampleCards`. Same rows, search and Pending / Updated / Draft box
           as the table; Reports and Delete ride the card's footer. */}
+      {listDecision ? (
+        <CustomerDecisionSheet
+          decision={listDecision.decision}
+          costingId={listDecision.id}
+          costingLabel={listDecision.label}
+          onClose={() => setListDecision(null)}
+          onDone={() => {
+            setListDecision(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
       <SampleCards<CostingListRow>
         rows={filtered}
         /* THE BUYER'S ANSWERED PILES ARE A TABLE (as PD Request's Updated): an
            Approved or Rejected costing is looked up, not worked, so the open
            piles keep their cards and these two read as a register. */
-        table={tab === "approved" || tab === "rejected" ? { title: "Costing No", subtitle: "SMP · Customer · Style" } : undefined}
+        table={{ title: "Costing No", subtitle: "SMP · Customer · Style" }}
+        view={viewMode.view}
         getKey={(r) => r.id}
         title={(r) => <span className="font-mono">{r.awaiting ? (r.enquiry_no ?? "—") : (r.code ?? "—")}</span>}
         subtitle={(r) => (
           <span>{[r.awaiting ? null : r.enquiry_no, r.customer_name, r.style_name].filter(Boolean).join(" · ") || "—"}</span>
         )}
         state={(r): SampleCardState =>
+          // status-tone: exempt -- maps a costing TAB to a queue CARD state, not to a tone
           ({ pending: "pending", progress: "pending", rejected: "neutral", draft: "draft", approved: "updated" } as const)[costingTabOf(r)]
         }
         /* THE PILL SAYS THE TAB THE CARD IS IN (user 2026-10-14: "draft na draft
@@ -4138,6 +1792,30 @@ export function SampleCostingScreen({
            approval stage, so a saved-not-sent sheet said "Draft" under Pending
            and a sample with no sheet said "Not costed". One word, one answer. */
         pillText={(r) => TAB_LABEL[costingTabOf(r)]}
+        /* THE BUYER-GLOW CARD (user 2026-10-21, "Card Glow Styles" option 1 +
+           the duotone action row, screenshot 095215: "apply this"). The five
+           actions sit in one fixed row on every card; one that does not apply
+           here stays greyed with its reason. Same handlers as the table's. */
+        renderCard={(r) => {
+          const label = `${r.code ?? "Costing"} · ${revisionShort(r.version)}`;
+          return (
+            <CostingQueueCard
+              r={r}
+              live={costingTabOf(r) === "progress"}
+              shared={cardShared}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isPending={isPending}
+              onStart={() => startCostingFor(r)}
+              onOpen={() => openById(r.id)}
+              onDecide={(decision) => setListDecision({ id: r.id, label, decision })}
+              onReports={() => router.push(`/sales/sample-costing/${r.id}/reports`)}
+              onRevise={() => startOpening(() => router.push(raiseReviseHref(r.id)))}
+              onDelete={() => del(r)}
+            />
+          );
+        }}
         stats={(r) => [
           {
             label: "Quoted",
@@ -4165,6 +1843,38 @@ export function SampleCostingScreen({
         }
         editDisabledReason={(r) => (r.awaiting ? null : lockReason(r))}
         onDelete={del}
+        /* THE BUYER'S ANSWER FROM THE CARD (user 2026-10-16, screenshot 3570:
+           "approval, rejected icon option in under progress"). The same two
+           decisions as the open costing's Customer Approved / Customer Rejected,
+           through the same sheet (it asks for the buyer's remark), on the card
+           the answer is about. Under Progress only — the server takes a
+           decision on a `submitted` costing and nothing else. Greyed with the
+           reason for someone who cannot edit (AGENTS "Row actions"). */
+        actions={(r) => {
+          if (r.awaiting || costingTabOf(r) !== "progress") return null;
+          const label = `${r.code ?? "Costing"} · ${revisionShort(r.version)}`;
+          const why = perms.canEdit ? null : "needs the edit permission";
+          return (
+            <>
+              <RowIconAction
+                label="Customer Approved"
+                name={r.code}
+                icon={Check}
+                className="text-success"
+                onClick={() => setListDecision({ id: r.id, label, decision: "approved" })}
+                disabledReason={why && `Customer Approved — ${why}`}
+              />
+              <RowIconAction
+                label="Customer Rejected"
+                name={r.code}
+                icon={X}
+                className="text-danger"
+                onClick={() => setListDecision({ id: r.id, label, decision: "rejected" })}
+                disabledReason={why && `Customer Rejected — ${why}`}
+              />
+            </>
+          );
+        }}
         onReports={(r) => router.push(`/sales/sample-costing/${r.id}/reports`)}
         canReportsRow={(r) => !r.awaiting}
         /* RAISE REVISE ON AN UNDER PROGRESS CARD (user 2026-10-14) — the card's

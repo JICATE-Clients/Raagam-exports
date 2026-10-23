@@ -18,20 +18,16 @@ import {
 import type { ShipmentWithBuyer } from "@/lib/logistics/service";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const SHIPMENT_STATUS_TONE_OVERRIDES = {
+  planning: "neutral", // this module's own word — not in the shared table
+  docs_ready: "info", // this module's own word — not in the shared table
+  shipped: "warning", // this module's own word — not in the shared table
+} as const;
 
 function shipmentStatusTone(status: ShipmentStatus): StatusTone {
-  switch (status) {
-    case "planning":
-      return "neutral";
-    case "docs_ready":
-      return "info";
-    case "shipped":
-      return "warning";
-    case "delivered":
-      return "success";
-    case "closed":
-      return "neutral";
-  }
+  return statusTone(status, SHIPMENT_STATUS_TONE_OVERRIDES);
 }
 
 const columns: Column<ShipmentWithBuyer>[] = [

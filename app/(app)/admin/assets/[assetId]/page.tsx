@@ -8,18 +8,15 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import { getAsset, getAssetAssignments } from "@/lib/admin/extras-service";
 import { ASSET_STATUS_LABELS, type AssetStatus } from "@/lib/admin/extras-types";
 import { AssetDetail } from "./asset-detail";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const TONE_OVERRIDES = {
+  retired: "neutral", // this module's own word — not in the shared table
+  disposed: "danger", // this module's own word — not in the shared table
+} as const;
 
 function tone(s: AssetStatus): StatusTone {
-  switch (s) {
-    case "active":
-      return "success";
-    case "assigned":
-      return "info";
-    case "retired":
-      return "neutral";
-    case "disposed":
-      return "danger";
-  }
+  return statusTone(s, TONE_OVERRIDES);
 }
 
 export default async function AssetDetailPage({

@@ -62,6 +62,7 @@ const BLANK = {
   for_garments: false,
   for_components: false,
   garment_kind: "" as "" | GarmentKind,
+  standard_rate: "",
   layout: "" as "" | ProcessLayout,
   no_planning: false,
   is_conversion: false,
@@ -103,6 +104,7 @@ const FIELD_W = {
   name: "name", //     288px — free text
   billing: "term", //  176px — "Outward Qty/Wt"
   hsn: "range", //     112px — an HSN code
+  rate: "range", //    112px — a ₹/piece figure
 } satisfies Record<string, FieldWidth>;
 
 /**
@@ -257,6 +259,7 @@ export function ProcessMasterScreen({
       for_garments: r.for_garments,
       for_components: r.for_components,
       garment_kind: r.garment_kind ?? "",
+      standard_rate: r.standard_rate == null ? "" : String(r.standard_rate),
       layout: r.layout ?? "",
       no_planning: r.no_planning,
       is_conversion: r.is_conversion,
@@ -360,6 +363,7 @@ export function ProcessMasterScreen({
         for_garments: form.for_garments,
         for_components: form.for_components,
         garment_kind: form.garment_kind ? form.garment_kind : null,
+        standard_rate: form.garment_kind && form.standard_rate.trim() ? Number(form.standard_rate) : null,
         layout: form.layout ? form.layout : null,
         no_planning: form.no_planning,
         is_conversion: form.is_conversion,
@@ -686,12 +690,12 @@ export function ProcessMasterScreen({
                   onChange={(v) => toggleFor(f.key, v)}
                 />
               ))}
-              {/* WHAT KIND OF GARMENT PROCESS (0691) — sorts Sample Costing's
-                  pickers: CMT operations vs Embellishments. Two more switches in
+              {/* WHAT KIND OF GARMENT PROCESS (0691) — an Embellishment is
+                  offered in Sample Costing's Embellishment picker. A switch in
                   the same row as the For flags (client 2026-10-08: "add
-                  embellishment as a process kind, not a dropdown"). One column
-                  holds the kind, so the two switches are mutually exclusive:
-                  turning one on turns the other off. Shown while Garments is
+                  embellishment as a process kind, not a dropdown"). The CMT
+                  operation switch left in 0735: CMT operations are their own
+                  master (Materials ▸ CMT Processes). Shown while Garments is
                   ticked, or while a kind is already held (the seeded Print /
                   Embroidery / Wash rows carry one without the tick). */}
               {form.for_garments || form.garment_kind
@@ -725,6 +729,27 @@ export function ProcessMasterScreen({
                 : null}
             </FieldRow>
           </DetailSection>
+
+          {/* STANDARD RATE (0734). Shown on an Embellishment. Optional: it
+              pre-fills a costing line's blank rate and is never a price the
+              costing is bound to. CMT operations carry their own on the CMT
+              Process master (0735). */}
+          {form.garment_kind ? (
+            <DetailSection label="Costing" cols={1} className={FORM_W}>
+              <FieldRow>
+                <Field label="Standard Rate ₹/pc" w={FIELD_W.rate} htmlFor="pr-std-rate">
+                  <Input
+                    id="pr-std-rate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.standard_rate}
+                    onChange={(e) => set({ standard_rate: e.target.value })}
+                  />
+                </Field>
+              </FieldRow>
+            </DetailSection>
+          ) : null}
 
           {/* These read as sentences, so they are allowed to wrap onto their
               own lines where "For"'s single words do not.

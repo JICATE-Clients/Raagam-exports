@@ -20,7 +20,7 @@
  * piece — and the merchandiser can switch that off to hold the old quote and watch
  * only the margin move.
  */
-import { costingSummary, quoteKey } from "./calc";
+import { costingSummary, quoteKey, sizesOf } from "./calc";
 import { costingInputOf, type CostingDraft, type ExtraChargeDraft, type FabricDraft, type FabricProcessDraft, type PieceLineDraft, type TrimDraft, type WeightDraft, type YarnMixDraft } from "./types";
 
 /** The draft with every piece × size quoting its CALCULATED price, to the cent.
@@ -38,6 +38,37 @@ export function withCalculatedQuotes(draft: CostingDraft, held: ReadonlySet<stri
     }
   }
   return { ...draft, quotes };
+}
+
+/**
+ * THE INVERSE, FOR OPENING A SAVED COSTING (user 2026-10-22: "quoted is not updating
+ * automatically based on calculated — why?"). The entry sheet follows Calculated only
+ * while a Quoted box is BLANK, but a costing comes back from the database with its
+ * quotes filled — `withCalculatedQuotes` above writes the calculated price into every
+ * quote a revision saves. So every reopened costing read as if the merchandiser had
+ * typed a price, and its quote froze while the costs moved underneath it.
+ *
+ * A stored quote that is EXACTLY its piece's Calculated price to the cent was never a
+ * decision — it is the follow-the-costs price, written down. Blank it, so it follows
+ * again. A quote that differs is someone's price and is kept. Nothing is lost: blank is
+ * what the quotation already prints as the rounded Calculated (`offered`).
+ */
+export function releaseCalculatedQuotes(draft: CostingDraft): CostingDraft {
+  const summary = costingSummary(costingInputOf({ ...draft, quotes: {} }));
+  const quotes: Record<string, string> = { ...draft.quotes };
+  let changed = false;
+  for (const g of summary.groups) {
+    for (const p of g.pieces) {
+      const k = quoteKey(p.pieceKey, g.size);
+      const stored = Number((quotes[k] ?? "").trim());
+      if (p.calc == null || !(quotes[k] ?? "").trim() || !Number.isFinite(stored)) continue;
+      if (Math.abs(stored - Math.round(p.calc * 100) / 100) < 0.000001) {
+        delete quotes[k];
+        changed = true;
+      }
+    }
+  }
+  return changed ? { ...draft, quotes } : draft;
 }
 
 /** A deep copy the workbench can edit without touching the saved record. */
@@ -102,5 +133,32 @@ export const newWeightRows = (pieceKey: string, componentIds: string[], fabricKe
     length_cm: "",
     width_cm: "",
     gsm: "",
-    wastage_pct: "3",
+    wastage_pct: "",
   }));
+
+/**
+ * EVERY STRUCTURE SAMPLE ENTRY ALLOCATED GETS ITS OWN COMPONENT CONSUMPTION LINE
+ * (user 2026-10-22, screenshot 094415). The style's structures already become the
+ * fabric lines; the weight lines used to point every fabric-less row at the FIRST of
+ * them, so a style made in SINGLE JERSEY + 1X1 LYCRA RIB showed only the jersey and
+ * the rib had to be picked again.
+ *
+ * Each piece that still has a fabric-less line keeps it, now naming the first
+ * structure, and gains one line per further structure (in the table's sizes). A
+ * structure some line already names is never added twice, so re-picking the style
+ * cannot double the table. Lines carry no weight, so the save still drops any the
+ * operator leaves untouched.
+ */
+export function weightsForFabrics(weights: WeightDraft[], fabricKeys: readonly string[], fallbackPieceKey: string): WeightDraft[] {
+  const named = new Set(weights.map((w) => w.fabric_key).filter(Boolean));
+  const todo = fabricKeys.filter((k) => !named.has(k));
+  if (!todo.length) return weights;
+  const sizes = sizesOf(weights);
+  const open = [...new Set(weights.filter((w) => !w.fabric_key).map((w) => w.piece_key))];
+  if (!open.length) return [...weights, ...todo.flatMap((k) => newWeightRows(fallbackPieceKey, [], k, sizes))];
+  const [first, ...rest] = todo;
+  return [
+    ...weights.map((w) => (w.fabric_key ? w : { ...w, fabric_key: first })),
+    ...open.flatMap((piece) => rest.flatMap((k) => newWeightRows(piece, [], k, sizes))),
+  ];
+}

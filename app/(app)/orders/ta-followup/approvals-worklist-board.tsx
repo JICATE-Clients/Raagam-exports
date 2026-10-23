@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle,
+  TriangleAlert,
   CalendarClock,
   CheckCircle2,
   Clock,
@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FIELD_WIDTH } from "@/components/ui/field";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone, TASK_PROGRESS } from "@/lib/ui/status-tone";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { acquireBusy } from "@/lib/reload-guard";
@@ -108,7 +109,7 @@ function StatusIcon({ row, className }: { row: ApprovalWorklistRow; className?: 
   const tone = rowTone(row);
   const cls = cn(STATUS_ICON_COLOR[tone], className);
   if (tone === "success") return <CheckCircle2 className={cls} aria-hidden />;
-  if (tone === "danger" || tone === "warning") return <AlertTriangle className={cls} aria-hidden />;
+  if (tone === "danger" || tone === "warning") return <TriangleAlert className={cls} aria-hidden />;
   if (tone === "info") return <Clock className={cls} aria-hidden />;
   return <CalendarClock className={cls} aria-hidden />;
 }
@@ -296,7 +297,7 @@ export function ApprovalsWorklistBoard({
                     </span>
                   )}
                   <StatusPill
-                    tone={row.status === "sent" ? "info" : row.status === "approved" ? "success" : "neutral"}
+                    tone={statusTone(row.status, TASK_PROGRESS)}
                   >
                     {row.status === "pending" ? "Pending" : row.status === "sent" ? "Sent" : row.status === "approved" ? "Approved" : row.status}
                   </StatusPill>

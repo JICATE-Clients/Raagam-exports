@@ -67,6 +67,11 @@ for (const t of ACCENTS) {
   // A gradient's second stop carries the same white text as `primary`.
   if (L.gradientTo) checks.push(["light: white on gradient end", WHITE, L.gradientTo, 4.5]);
   if (D.gradientTo) checks.push(["dark: white on gradient end", WHITE, D.gradientTo, 4.3]);
+  // A flat `fill` carries its own `fillText`, on the fill and on its hover.
+  for (const [mode, p] of [["light", L], ["dark", D]] as const) {
+    if (p.fill && p.fillText) checks.push([`${mode}: fill text on fill`, p.fillText, p.fill, 4.5]);
+    if (p.fillHover && p.fillText) checks.push([`${mode}: fill text on fill-hover`, p.fillText, p.fillHover, 4.5]);
+  }
   for (const [name, fg, bg, wcag] of checks) {
     const r = ratio(fg, bg);
     const isDefault = t.id === ACCENTS[0].id;

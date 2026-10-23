@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, FileSpreadsheet, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu, asExcel, asPdf } from "@/components/ui/download-menu";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { fmtQty } from "@/lib/uom/convert";
 import { loadMaterialBomRequirementReport } from "@/lib/orders/material-bom-amendment/report-actions";
@@ -171,18 +172,14 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap justify-end gap-2 print:hidden">
-        <Button variant="outline" size="md" onClick={() => exportMaterialBomRequirementCsv(data)}>
-          <FileSpreadsheet className="h-4 w-4" aria-hidden />
-          Excel
-        </Button>
         <Button variant="outline" size="md" onClick={() => exportMaterialBomRequirementPdf(data, "print")}>
           <Printer className="h-4 w-4" aria-hidden />
           Print
         </Button>
-        <Button size="md" onClick={() => exportMaterialBomRequirementPdf(data, "download")}>
-          <Download className="h-4 w-4" aria-hidden />
-          Download PDF
-        </Button>
+        <DownloadMenu
+          variant="primary"
+          formats={[asPdf(() => exportMaterialBomRequirementPdf(data, "download")), asExcel(() => exportMaterialBomRequirementCsv(data))]}
+        />
       </div>
 
       {/* THE SHEET FORMAT (user 2026-09-29, "this is okay apply it") — masthead,

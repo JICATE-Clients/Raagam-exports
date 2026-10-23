@@ -134,10 +134,10 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
   // 2 · COMPONENT CONSUMPTION
   card(
     "Component consumption (grams)",
-    [...(multi ? ["Piece"] : []), "Component", "Fabric", ...m.weights.sizeLabels, "Loss %"],
+    [...(multi ? ["Piece"] : []), "Component", "Fabric", ...m.weights.sizeLabels],
     [
-      ...m.weights.rows.map((r) => [...(multi ? [r.piece] : []), r.component, r.fabric, ...r.grams.map((g) => (g == null ? "" : String(g))), r.lossPct]),
-      [...(multi ? [""] : []), "Fabric cost ₹", "", ...m.sizes.map((x) => fx(x.fabric)), ""],
+      ...m.weights.rows.map((r) => [...(multi ? [r.piece] : []), r.component, r.fabric, ...r.grams.map((g) => (g == null ? "" : String(g)))]),
+      [...(multi ? [""] : []), "Fabric cost ₹", "", ...m.weights.fabricBySize.map((v) => fx(v))],
     ],
     m.weights.sizeLabels.map((_, i) => i + (multi ? 3 : 2)),
   );
@@ -150,14 +150,12 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
   );
   // 4 · THE THREE PANELS: fabric & garment processes · CMT · trims
   card(
-    "Fabric & garment processes (₹ / pc)",
+    // No Fabric cost line (client 2026-10-17) — the fabric card and the summary carry it.
+    "Garment processes (₹ / pc)",
     [...(multi ? ["Piece"] : []), "Line", "Rate ₹"],
-    [
-      [...(multi ? [""] : []), `Fabric cost${m.sizes.length > 1 ? ` · ${s.label}` : ""}`, fx(s.fabric)],
-      ...m.ops.filter((o) => o.kind !== "CMT").map((o) => [...(multi ? [o.piece] : []), o.name, fx(o.rate)]),
-    ],
+    m.ops.filter((o) => o.kind !== "CMT").map((o) => [...(multi ? [o.piece] : []), o.name, fx(o.rate)]),
     [multi ? 2 : 1],
-    fx(s.fabric + s.process + s.testing),
+    fx(s.process + s.testing),
   );
   card(
     "CMT operations (₹ / pc)",
@@ -167,10 +165,10 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
     fx(s.cmt),
   );
   card(
-    "Trims & accessories",
-    [...(multi ? ["Piece"] : []), "Trim", "Pricing", "Consumption", "Cost ₹"],
-    m.trims.map((t) => [...(multi ? [t.piece] : []), t.name, t.pricing, t.qty, fx(t.cost)]),
-    [multi ? 3 : 2, multi ? 4 : 3],
+    "Trims",
+    [...(multi ? ["Piece"] : []), "Trim", "Direct Rate", "No of Items", "No of Pcs", "Cons Qty", "Rate ₹", "Cost ₹"],
+    m.trims.map((t) => [...(multi ? [t.piece] : []), t.name, t.direct ? "Yes" : "No", t.items, t.pcs, t.consQty.toFixed(3), fx(t.rate), fx(t.cost)]),
+    [multi ? 3 : 2, multi ? 4 : 3, multi ? 5 : 4, multi ? 6 : 5, multi ? 7 : 6],
     fx(s.trims),
   );
   // 5 · GARMENT COST — one column per size
@@ -186,7 +184,7 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
       gc("Factory base cost", (x) => x.net),
       gc(`Rejection ${m.terms.wastage}%`, (x) => x.wastage),
       gc(`Overhead ${m.terms.overhead}%`, (x) => x.overhead),
-      gc("Bank charges & other overheads", (x) => x.bank + x.extraOverhead),
+      gc("Bank charges & other overheads", (x) => x.bank + x.sample + x.extraOverhead),
       gc("Total cost", (x) => x.grossCost),
       gc(`Profit ${m.terms.margin}%`, (x) => x.margin),
       ...(m.terms.freight + m.terms.insurance > 0 ? [gc("Freight & insurance (on the price)", () => (m.terms.freight + m.terms.insurance) * m.pieceCount)] : []),
@@ -307,6 +305,7 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   line("Testing & FOB", (x) => x.testing);
   line("Trims", (x) => x.trims);
   line("Bank charges", (x) => x.bank);
+  line("Sampling cost", (x) => x.sample);
   line("Net cost", (x) => x.net);
   line("Garment Rejection", (x) => x.wastage);
   line("Overhead", (x) => x.overhead);
@@ -320,14 +319,14 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   add(["FABRIC RATES ₹/kg", "Yarn", "Knitting", "Dyeing", "Finishing", "Special", "Loss %", "Price / kg"]);
   m.fabrics.forEach((f) => add([f.name, fx(f.yarn), fx(f.knitting), fx(f.dyeing), fx(f.finishing), fx(f.special), f.direct ? "Direct" : fx(f.lossPct), fx(f.price)]));
   blank();
-  add(["GARMENT WEIGHT g", "Fabric", ...m.weights.sizeLabels, "Loss %"]);
-  m.weights.rows.forEach((r) => add([[r.piece, r.component].filter(Boolean).join(" · "), r.fabric, ...r.grams.map((g) => (g == null ? "" : g)), r.lossPct]));
+  add(["GARMENT WEIGHT g", "Fabric", ...m.weights.sizeLabels]);
+  m.weights.rows.forEach((r) => add([[r.piece, r.component].filter(Boolean).join(" · "), r.fabric, ...r.grams.map((g) => (g == null ? "" : g))]));
   blank();
   add(["CMT & EMBELLISHMENT", "Kind", "Rate ₹"]);
   m.ops.forEach((o) => add([[o.piece, o.name].filter(Boolean).join(" · "), o.kind, fx(o.rate)]));
   blank();
-  add(["TRIMS", "Pricing", "Consumption", "Cost ₹"]);
-  m.trims.forEach((t) => add([[t.piece, t.name].filter(Boolean).join(" · "), t.pricing, t.qty, fx(t.cost)]));
+  add(["TRIMS", "Direct Rate", "No of Items", "No of Pcs", "Cons Qty", "Rate ₹", "Cost ₹"]);
+  m.trims.forEach((t) => add([[t.piece, t.name].filter(Boolean).join(" · "), t.direct ? "Yes" : "No", t.items, t.pcs, t.consQty.toFixed(3), fx(t.rate), fx(t.cost)]));
   blank();
   add(["OVERHEADS & EXTRA CHARGES", "Type", "Value", ...m.sizes.map((x) => `${x.label} ₹`)]);
   m.overheads.forEach((o) => add([`${o.name}${o.side === "price" ? " (price)" : ""}`, o.type, o.value, ...o.perSize.map((v) => fx(v))]));

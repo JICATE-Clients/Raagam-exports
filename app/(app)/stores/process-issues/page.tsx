@@ -6,6 +6,11 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
+
+// A stores ISSUE is complete once issued (the goods have left the store), so
+// it is success here, not the shared table's "out the door, still moving".
+const ISSUE_TONES = { issued: "success" } as const;
 import { fmtDate } from "@/lib/format";
 import type { ProcessMaterialIssue } from "@/lib/stores/process-types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -32,7 +37,7 @@ export default async function ProcessIssuesPage() {
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.status === "issued" ? "success" : "neutral"}>
+        <StatusPill tone={statusTone(r.status === "issued" ? "issued" : "draft", ISSUE_TONES)}>
           {r.status === "issued" ? "Issued" : "Draft"}
         </StatusPill>
       ),

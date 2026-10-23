@@ -5,19 +5,15 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { DcWithVendor } from "@/lib/purchase/grn-service";
 import type { DcStatus } from "@/lib/purchase/types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
-const statusTone: Record<
-  DcStatus,
-  "info" | "warning" | "success"
-> = {
-  issued: "info",
-  partially_returned: "warning",
-  closed: "success",
-};
+// A delivery challan CLOSED is every piece back from the job worker — its
+// normal completion, so success rather than the shared table's retired grey.
+const DC_TONES = { closed: "success" } as const;
 
 const statusLabel: Record<DcStatus, string> = {
   issued: "Issued",
@@ -43,7 +39,7 @@ const columns: Column<DcWithVendor>[] = [
   {
     header: "Status",
     cell: (r) => (
-      <StatusPill tone={statusTone[r.status]}>{statusLabel[r.status]}</StatusPill>
+      <StatusPill tone={statusTone(r.status, DC_TONES)}>{statusLabel[r.status]}</StatusPill>
     ),
   },
   {

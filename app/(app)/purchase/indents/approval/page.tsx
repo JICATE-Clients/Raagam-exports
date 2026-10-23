@@ -5,6 +5,11 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
+
+// This queue lists only the two states still owed something: a NEW indent is
+// moving towards stores (info) and an acknowledged one waits on fulfilment.
+const INDENT_QUEUE_TONES = { open: "info", acknowledged: "warning" } as const;
 import { fmtDate, fmtNumber } from "@/lib/format";
 import Link from "next/link";
 import { IndentApprovalActions } from "./indent-approval-actions";
@@ -103,7 +108,7 @@ export default async function IndentApprovalPage() {
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.status === "open" ? "info" : "warning"}>
+        <StatusPill tone={statusTone(r.status === "open" ? "open" : "acknowledged", INDENT_QUEUE_TONES)}>
           {r.status === "open" ? "Open" : "Acknowledged"}
         </StatusPill>
       ),

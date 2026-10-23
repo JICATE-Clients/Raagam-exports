@@ -26,6 +26,7 @@ import {
   styleFabricKg,
   type StoredWeight,
 } from "../lib/sales/sample-grouping/calc.ts";
+import { samplesLockedReason } from "../lib/sales/sample-grouping/types.ts";
 
 let failures = 0;
 function eq(label: string, got: unknown, want: unknown) {
@@ -154,6 +155,7 @@ const c = (over: Partial<Parameters<typeof groupingProblem>[0][number]> = {}) =>
   blend_key: "100% COTTON",
   kg: 2,
   group_code: null,
+  customer_id: "cust-a",
   ...over,
 });
 eq("two alike batch", groupingProblem([c(), c({ label: "PRD/26-27/0002", season: "q1 " })]), null);
@@ -162,6 +164,8 @@ eq("already grouped", groupingProblem([c({ group_code: "SWO/26-27/0001" })]), "P
 eq("no kilos", groupingProblem([c({ kg: null })]), "PRD/26-27/0001 has no garment weight on its costing, so it has no kilos to batch.");
 eq("no year", groupingProblem([c({ season_year: null })]), "PRD/26-27/0001 has no Season and Year — set them on Sample Entry first.");
 eq("two seasons", groupingProblem([c(), c({ season: "Q2" })]), "A group is one season — every style picked must share the Season and Year.");
+eq("no customer", groupingProblem([c({ customer_id: null })]), "PRD/26-27/0001 has no Customer — set it on Sample Entry first.");
+eq("two customers", groupingProblem([c(), c({ customer_id: "cust-b" })]), "A group is one customer — every sample picked must be for the same Customer.");
 // Client spec "Grouping & SWO" (2026-10-12): structure and blend are the
 // PLANNER's call — a mix is said, never refused. Only the season refuses.
 eq("two structures are allowed", groupingProblem([c(), c({ fabric_structure_id: "rib" })]), null);
@@ -243,6 +247,22 @@ eq("cutting basis: a zero plan row is 'plan unset'", cuttingBasis([{ style_id: "
     ],
   );
   eq("auto-group: a lone style with nothing to join is listed, not proposed", alone.map((x) => x.key), ["odd"]);
+}
+
+// ---- samples lock at plan APPROVAL, not before (user 2026-10-16) -----------
+{
+  const lock = (f: string | null, a: string | null) =>
+    samplesLockedReason({
+      fabric_plan_status: f as "open" | "submitted" | "approved" | "returned" | null,
+      accessories_plan_status: a as "open" | "submitted" | "approved" | "returned" | null,
+    });
+  eq("lock: no plans yet → editable", lock(null, null), null);
+  eq("lock: plans open → editable", lock("open", "open"), null);
+  eq("lock: with the approver → still editable", lock("submitted", "submitted"), null);
+  eq("lock: sent back → editable", lock("returned", null), null);
+  eq("lock: Fabric Plan approved → locked", lock("approved", "open")?.startsWith("The Fabric Plan is approved") ?? false, true);
+  eq("lock: Accessories Plan approved → locked", lock(null, "approved")?.startsWith("The Accessories Plan is approved") ?? false, true);
+  eq("lock: both approved → both named", lock("approved", "approved")?.startsWith("The Fabric Plan and Accessories Plan are approved") ?? false, true);
 }
 
 if (failures) {

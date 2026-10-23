@@ -258,23 +258,111 @@ export async function deleteSampleCosting(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-/** "Fetch rate" — the Quotes & Orders register's rate for this currency on the costing date. */
+/**
+ * "Fetch exchange rate" — ₹ per one unit of `currency` on the costing date.
+ *
+ * THE REGISTER FIRST, THE MARKET WHEN IT IS EMPTY (user 2026-10-16: "fetch the
+ * exchange rate instead of [typing it in] — there is no option in master, so do
+ * it now"). Master Data's Quotes / Orders register holds no rows, so the button
+ * used to answer "type the rate" every time. A rate the business HAS entered
+ * still wins — it is the rate they quote at — and only a miss goes outside:
+ *
+ *  1. Frankfurter (api.frankfurter.dev) — the European Central Bank's daily
+ *     reference rates, free, no key, and DATED: a costing dated last month gets
+ *     last month's rate, not today's.
+ *  2. open.er-api.com — current rates for the currencies the ECB does not
+ *     publish (AED, SAR …). Undated, and the toast says so.
+ *
+ * Only the two currency codes leave the server. The answer is rounded to 4dp,
+ * the precision the rate box keeps.
+ */
 export async function fetchQuoteRate(
   currency: string,
   onDate: string | null,
-): Promise<{ ok: true; rate: number; effectiveFrom: string | null } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; rate: number; effectiveFrom: string | null; source: string } | { ok: false; error: string }
+> {
   if (!(await can("sales", "view"))) return { ok: false, error: "Forbidden" };
-  if (currency === "INR") return { ok: true, rate: 1, effectiveFrom: null };
+  if (currency === "INR") return { ok: true, rate: 1, effectiveFrom: null, source: "INR" };
+  const code = currency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) return { ok: false, error: `"${currency}" is not a currency code.` };
   try {
-    const hit = await getQuoteExchangeRate(currency, onDate);
-    if (!hit) {
-      return {
-        ok: false,
-        error: `No ${currency} rate in Master Data ▸ Currencies ▸ Exchange rate (Quotes / Orders) on or before that date — type the rate, or add it there.`,
-      };
-    }
-    return { ok: true, rate: hit.rate, effectiveFrom: hit.effectiveFrom };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Could not read the exchange rate." };
+    const hit = await getQuoteExchangeRate(code, onDate);
+    if (hit) return { ok: true, rate: hit.rate, effectiveFrom: hit.effectiveFrom, source: "the Quotes / Orders register" };
+  } catch {
+    // An unreadable register is not a reason to refuse — the market still answers.
   }
+  const live = await marketRateToInr(code, onDate);
+  if (live) return { ok: true, ...live };
+  return {
+    ok: false,
+    error: `Could not fetch a ${code} rate right now — check the connection, or type the rate.`,
+  };
+}
+
+/**
+ * The Currency master's codes, for the Quoted FOB card's "show in" switch (user
+ * 2026-10-22). Loaded by the card itself, so none of the screens that draw the cost
+ * sheet has to carry the list in.
+ */
+export async function listQuoteCurrencies(): Promise<{ ok: true; codes: string[] } | { ok: false; error: string }> {
+  if (!(await can("sales", "view"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+  const { data, error } = await s.from("currencies").select("code").order("code");
+  if (error) return { ok: false, error: `Could not load currencies: ${error.message}` };
+  const codes = ((data ?? []) as { code: string | null }[]).map((r) => (r.code ?? "").trim().toUpperCase()).filter((c) => /^[A-Z]{3}$/.test(c));
+  return { ok: true, codes: [...new Set(codes)] };
+}
+
+const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+
+/**
+ * TODAY'S rate for the Quoted FOB card's "show in" switch (user 2026-10-22: "choose
+ * EUR — show the exchange rate of today"). Straight to the market, NOT through the
+ * Quotes / Orders register `fetchQuoteRate` prefers: that register holds the rate the
+ * business last QUOTED at, which can be weeks old, and the question here is what the
+ * costing is worth in that currency now. A view only — nothing is stored.
+ */
+export async function fetchTodayRate(
+  currency: string,
+): Promise<{ ok: true; rate: number; effectiveFrom: string | null; source: string } | { ok: false; error: string }> {
+  if (!(await can("sales", "view"))) return { ok: false, error: "Forbidden" };
+  const code = currency.trim().toUpperCase();
+  if (code === "INR") return { ok: true, rate: 1, effectiveFrom: null, source: "INR" };
+  if (!/^[A-Z]{3}$/.test(code)) return { ok: false, error: `"${currency}" is not a currency code.` };
+  const live = await marketRateToInr(code, null);
+  return live ? { ok: true, ...live } : { ok: false, error: `Could not fetch today's ${code} rate — check the connection.` };
+}
+
+/** ₹ per one `code` from the public sources above, or null when neither answers. */
+async function marketRateToInr(
+  code: string,
+  onDate: string | null,
+): Promise<{ rate: number; effectiveFrom: string | null; source: string } | null> {
+  // A future or blank date asks for the latest; a past one for that day.
+  const today = new Date().toISOString().slice(0, 10);
+  const day = onDate && /^\d{4}-\d{2}-\d{2}$/.test(onDate) && onDate < today ? onDate : "latest";
+  const get = async (url: string) => {
+    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(6000) });
+    return res.ok ? ((await res.json()) as Record<string, unknown>) : null;
+  };
+  try {
+    const j = await get(`https://api.frankfurter.dev/v1/${day}?from=${code}&to=INR`);
+    const rate = (j?.rates as Record<string, number> | undefined)?.INR;
+    if (typeof rate === "number" && rate > 0) {
+      return { rate: round4(rate), effectiveFrom: typeof j?.date === "string" ? j.date : null, source: "the ECB reference rate" };
+    }
+  } catch {
+    // fall through to the second source
+  }
+  try {
+    const j = await get(`https://open.er-api.com/v6/latest/${code}`);
+    const rate = (j?.rates as Record<string, number> | undefined)?.INR;
+    if (j?.result === "success" && typeof rate === "number" && rate > 0) {
+      return { rate: round4(rate), effectiveFrom: null, source: "today's market rate" };
+    }
+  } catch {
+    // neither answered
+  }
+  return null;
 }

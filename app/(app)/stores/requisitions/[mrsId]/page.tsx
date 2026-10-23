@@ -12,21 +12,19 @@ import {
 } from "@/lib/stores/extras-service";
 import { MRS_STATUS_LABELS, type MrsStatus } from "@/lib/stores/extras-types";
 import { RequisitionDetail } from "./requisition-detail";
+import { statusTone } from "@/lib/ui/status-tone";
+
+const TONE_OVERRIDES = {
+  // Submitted here is a hand-off that waits on no approver (was info before the shared table, kept).
+  submitted: "info",
+  // Approved is a step in this document's life, not its end — work still follows it (was warning before the shared table, kept).
+  approved: "warning",
+  // Issued is this document's completion — the goods or paper have gone (was success before the shared table, kept).
+  issued: "success",
+} as const;
 
 function tone(s: MrsStatus): StatusTone {
-  switch (s) {
-    case "draft":
-      return "neutral";
-    case "submitted":
-      return "info";
-    case "approved":
-      return "warning";
-    case "issued":
-      return "success";
-    case "rejected":
-    case "cancelled":
-      return "danger";
-  }
+  return statusTone(s, TONE_OVERRIDES);
 }
 
 export default async function RequisitionDetailPage({

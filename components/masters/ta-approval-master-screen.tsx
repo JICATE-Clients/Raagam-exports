@@ -11,6 +11,7 @@ import { SectionGrid } from "@/components/masters/section-grid";
 import { ActiveField } from "@/components/ui/active-field";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
@@ -159,7 +160,7 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
+        <StatusPill tone={activeTone(r.is_active)}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
       ),
     },
   ];
@@ -182,7 +183,7 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
           title: (r) => r.name,
           meta: (r) => CONDITION_LABEL[r.apply_condition],
           pill: (r) => (
-            <StatusPill tone={r.is_active ? "success" : "danger"}>
+            <StatusPill tone={activeTone(r.is_active)}>
               {r.is_active ? "Active" : "Inactive"}
             </StatusPill>
           ),

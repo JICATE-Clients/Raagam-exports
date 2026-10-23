@@ -1,11 +1,13 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ViewMode } from "@/components/ui/view-toggle";
+import { Fragment, type ReactNode } from "react";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import type { StatusTone } from "@/lib/ui/tone";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FileText, Send, type LucideIcon } from "lucide-react";
+import { StatusMark, type StatusMarkKind } from "@/components/ui/status-mark";
 import { RowActions, RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
@@ -29,7 +31,7 @@ import { usePagination } from "@/lib/use-pagination";
  * they were above its table.
  */
 
-/** A card's state — the stripe and the pill both read it, so they agree. */
+/** A card's state — the pill and the table's Status column both read it. */
 export type SampleCardState = "pending" | "updated" | "draft" | "neutral";
 
 /* THE ORDERS QUEUE'S OWN SHADES (`QUEUE_THEME` in bom-queue.tsx): Pending a dark
@@ -38,10 +40,6 @@ export type SampleCardState = "pending" | "updated" | "draft" | "neutral";
 const PILL: Partial<Record<SampleCardState, string>> = {
   pending: "border border-red-200 bg-red-50 py-px text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300",
   updated: "border border-emerald-200 bg-emerald-50 py-px text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300",
-};
-const EDGE: Partial<Record<SampleCardState, string>> = {
-  pending: "border-l-red-700 dark:border-l-red-500",
-  updated: "border-l-emerald-500",
 };
 const TONE: Record<SampleCardState, StatusTone> = { pending: "danger", updated: "success", draft: "warning", neutral: "neutral" };
 
@@ -59,6 +57,7 @@ export function SampleCards<R>({
   title,
   subtitle,
   state,
+  mark,
   pillText,
   stats,
   onOpen,
@@ -82,6 +81,8 @@ export function SampleCards<R>({
   actions,
   rowEdit = true,
   iconActions = false,
+  renderCard,
+  view,
 }: {
   rows: R[];
   getKey: (r: R) => string;
@@ -91,12 +92,21 @@ export function SampleCards<R>({
   /** Omit where every card would say the same word the tab already says
    *  (Grouping ▸ Ungrouped's "To group", user 2026-10-15) — no pill is drawn. */
   pillText?: (r: R) => ReactNode;
+  /** The card's icon (components/ui/status-mark.tsx) when the word alone cannot
+   *  say it — a composite label such as "Approved · Rev 2". */
+  mark?: (r: R) => StatusMarkKind | undefined;
   /** The three figures, in the Orders card's order: the main one, the count,
    *  then the date or the scope. */
   stats: (r: R) => CardStat[];
   /** A tap on the card — open the record, or (Grouping ▸ Ungrouped) tick it. */
   onOpen: (r: R) => void;
-  /** A ticked card wears the theme colour down its edge. */
+  /**
+   * A SCREEN'S OWN CARD (Sample Costing's buyer-glow card, user 2026-10-21).
+   * Card view only: the grid, the pager and the table view stay this
+   * component's, and the card props above still name the table's columns.
+   */
+  renderCard?: (r: R) => ReactNode;
+  /** A ticked card is ringed in the theme colour. */
   selected?: (r: R) => boolean;
   footerNote?: (r: R) => ReactNode;
   canDelete?: boolean;
@@ -141,13 +151,20 @@ export function SampleCards<R>({
   /** The card's Reports / Send as icons only, so they share one row with the
    *  bin (MobileCardList `iconActions`). */
   iconActions?: boolean;
+  /**
+   * CARD VIEW / LIST VIEW (user 2026-10-16, `ViewToggle`). When given, it
+   * decides the drawing and `table` only names the list's columns — so a screen
+   * offering the switch passes `table` on EVERY tab. Omitted, `table`'s presence
+   * decides as before, and a screen with no switch is unchanged.
+   */
+  view?: ViewMode;
 }) {
   /* EVERY LISTING PAGES ITSELF (AGENTS "Pagination"). The table mode's
      DataTable already does; the card grid did not, so a long Pending pile
      printed every card. Called above the table branch — hooks never sit below
      an early return. */
   const pg = usePagination(rows);
-  if (table) {
+  if (table && (view ? view === "list" : true)) {
     const figures = rows[0] ? stats(rows[0]) : [];
     const cols: Column<R>[] = [
       {
@@ -189,10 +206,12 @@ export function SampleCards<R>({
                     disabledReason={canReportsRow?.(r) === false ? "Nothing to report on yet" : null}
                   />
                 ) : null}
+                {/* Reports, then the screen's own answers (Approve, Reject), then Send /
+                    Revise — the card's order too (user 2026-10-22, screenshot 3661). */}
+                {actions?.(r)}
                 {onSend && canSendRow?.(r) !== false ? (
                   <RowIconAction label={sendLabel} icon={sendIcon} className="text-primary" onClick={() => onSend(r)} />
                 ) : null}
-                {actions?.(r)}
               </>
             ) : undefined
           }
@@ -206,8 +225,35 @@ export function SampleCards<R>({
       )),
     ];
     return (
-      <div className="w-fit max-w-full">
+      <div>
         <DataTable columns={hugCreated(withCreatedColumns(cols, rows))} rows={rows} compact getKey={getKey} empty={empty} />
+      </div>
+    );
+  }
+  const pager = pg.pageCount > 1 && (
+    <PaginationBar
+      page={pg.page}
+      pageCount={pg.pageCount}
+      total={pg.total}
+      pageSize={pg.pageSize}
+      onPageChange={pg.setPage}
+      onPageSizeChange={pg.setPageSize}
+    />
+  );
+  if (renderCard) {
+    return (
+      <div className="flex flex-col gap-3">
+        {rows.length === 0 ? (
+          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">{empty}</div>
+        ) : (
+          /* `pb-3`: room for the glow under the last row of cards. */
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 pb-3">
+            {pg.paged.map((r) => (
+              <Fragment key={getKey(r)}>{renderCard(r)}</Fragment>
+            ))}
+          </div>
+        )}
+        {pager}
       </div>
     );
   }
@@ -220,16 +266,18 @@ export function SampleCards<R>({
       getKey={getKey}
       title={title}
       subtitle={subtitle}
-      pill={pillText ? (r) => <SampleQueuePill state={state(r)}>{pillText(r)}</SampleQueuePill> : undefined}
+      // An ICON on the card, the word in its tooltip (components/ui/status-mark.tsx).
+      pill={pillText ? (r) => <StatusMark word={((x) => (typeof x === "string" ? x : ""))(pillText(r))} mark={mark?.(r)} tone={TONE[state(r)]} /> : undefined}
       stats={stats}
-      tone={(r) => TONE[state(r)]}
-      accent={(r) => (selected?.(r) ? "border-l-primary" : EDGE[state(r)])}
+      selected={selected}
       footerNote={footerNote}
       onEdit={onOpen}
       canDelete={canDelete}
       canDeleteRow={canDeleteRow}
       deleteDisabledReason={deleteDisabledReason}
       extraActions={actions}
+      // Report first, then Approve / Reject (user 2026-10-22, screenshot 3661).
+      extraActionsAfterReports
       onDelete={onDelete}
       onReports={onReports}
       canReportsRow={canReportsRow}
@@ -243,16 +291,7 @@ export function SampleCards<R>({
       empty={empty}
     />
       {/* The bar draws only past one page, as under every DataTable. */}
-      {pg.pageCount > 1 && (
-        <PaginationBar
-          page={pg.page}
-          pageCount={pg.pageCount}
-          total={pg.total}
-          pageSize={pg.pageSize}
-          onPageChange={pg.setPage}
-          onPageSizeChange={pg.setPageSize}
-        />
-      )}
+      {pager}
     </div>
   );
 }

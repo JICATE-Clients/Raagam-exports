@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { STAGE_MODES } from "./route";
 import { capsTextNullable } from "@/lib/validation/formats";
+import { statusTone, type StatusTone } from "@/lib/ui/status-tone";
 
 // ============================================================================
 // Orders ▸ Fabric Plan (0427). Step 4 of the client's order flow: the route that
@@ -284,24 +285,10 @@ export function fabricPlanStatusText(s: FabricPlanStatus): string {
   }
 }
 
-export function fabricPlanStatusTone(s: FabricPlanStatus): "neutral" | "warning" | "success" | "danger" {
-  switch (s) {
-    // NEUTRAL — `lib/ui/tone.ts`: neutral is "no claim". The order is not late
-    // on this screen's work; the work has not reached it yet.
-    case "no_bom":
-      return "neutral";
-    case "pending":
-      return "warning";
-    case "draft":
-      return "neutral";
-    case "planned":
-      return "success";
-    // DANGER, not warning. A stale route reads as done at any lighter tone, and
-    // leaving it is the failure — the same call `bom-status.ts` makes for
-    // `recalculate`.
-    default:
-      return "danger";
-  }
+// No BOM is neutral (the work has not reached this order), Replan is danger
+// (a stale route reads as done at any lighter tone) — both in the shared table.
+export function fabricPlanStatusTone(s: FabricPlanStatus): StatusTone {
+  return statusTone(s);
 }
 
 /** Order of work for the queue: what needs doing, first. */

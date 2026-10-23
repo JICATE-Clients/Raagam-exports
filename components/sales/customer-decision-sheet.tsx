@@ -87,11 +87,12 @@ export function CustomerDecisionSheet({
           <Textarea id="cd-remark" rows={3} value={remark} onChange={(e) => setRemark(e.target.value)} />
         </Field>
       </FieldRow>
-      <p className="mt-3 text-xs text-muted-foreground">
-        {approving
-          ? "Record this only once the buyer has confirmed by email. The quoted rates are locked, and so is the sample entry; Revise opens the next revision if the price has to change later."
-          : "The quote moves to Rejected. Raise Revise opens the next revision as a Draft; saving it sends it back to the buyer."}
-      </p>
+      {/* The Approved note was removed (user 2026-10-16); only a rejection explains what follows. */}
+      {!approving ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          The quote moves to Rejected. Raise Revise opens the next revision as a Draft; saving it sends it back to the buyer.
+        </p>
+      ) : null}
     </Sheet>
   );
 }

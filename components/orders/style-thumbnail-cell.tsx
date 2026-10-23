@@ -517,7 +517,7 @@ function Lightbox<F extends GalleryFile>({
         </button>
         <span className="text-xs text-muted-foreground tabular-nums">
           {at + 1} / {n}
-          {downloadError && <span className="ml-3 text-destructive">{downloadError}</span>}
+          {downloadError && <span className="ml-3 text-danger">{downloadError}</span>}
         </span>
         <button
           type="button"

@@ -8,11 +8,13 @@ import {
   atCaretEdge,
   cycleTab,
   enterAdvances,
+  enterOnRowAdd,
   isEditorScope,
   isRowAddControl,
   keyFillsField,
   keyMovesBackward,
   landOnAddedRow,
+  listHop,
   rememberFocus,
   restoreFocusIfLost,
 } from "@/lib/focus";
@@ -397,6 +399,19 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
    * calling `.click()` on its `data-row-add` and then landing in the box that
    * opens — it already owns that landing, and two handlers racing for one caret
    * is how a cursor ends up somewhere neither of them meant.
+   *
+   * CAPTURE PHASE, OR THE ROW IS ALREADY THERE (client 2026-10-16, Sample Entry
+   * ▸ Product Info: "+ Add structure" made row 2 and left the cursor on the
+   * button). `landOnAddedRow` snapshots the fields BEFORE the add and diffs
+   * after it — so the snapshot must be taken before React renders. It was not:
+   * React 19 commits a click's update in a MICROTASK, and for a trusted event
+   * the browser drains microtasks between one listener and the next. React's
+   * delegated `onClick` sits on `document` too and was registered first, so by
+   * the time a bubble-phase listener here ran, the new row was in the DOM, in
+   * `before`, and the diff came back empty on every grid in the app. Measured
+   * (a real click AND Enter on a button, microtask-appending listener first):
+   * bubble saw the row, capture did not. Capture runs before every bubble
+   * listener, so the snapshot is the page as the operator clicked it.
    */
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -406,8 +421,33 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
       if (!btn || !isRowAddControl(btn)) return;
       landOnAddedRow(btn);
     };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, []);
+
+  /**
+   * THE MOUSE WHEEL NEVER CHANGES A NUMBER (user 2026-10-22, Sample Costing: "scrolled,
+   * the value is increasing … no need, user will type the value"). Chrome steps a FOCUSED
+   * type="number" box on every wheel notch, so scrolling past a rate rewrote it. The
+   * browser's step is cancelled here, for every number field at once, and the notch is
+   * handed to the nearest scrolling ancestor instead, so the page still scrolls and the
+   * cursor stays where it was. Non-passive: a passive listener cannot preventDefault.
+   */
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || el.type !== "number" || document.activeElement !== el) return;
+      e.preventDefault();
+      let box: HTMLElement | null = el.parentElement;
+      while (box) {
+        const oy = getComputedStyle(box).overflowY;
+        if ((oy === "auto" || oy === "scroll") && box.scrollHeight > box.clientHeight) break;
+        box = box.parentElement;
+      }
+      (box ?? document.scrollingElement ?? document.documentElement).scrollBy({ top: e.deltaY, left: e.deltaX });
+    };
+    document.addEventListener("wheel", onWheel, { passive: false });
+    return () => document.removeEventListener("wheel", onWheel);
   }, []);
 
   useEffect(() => {
@@ -447,6 +487,20 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
     }
 
     function onKeyDown(e: KeyboardEvent) {
+      // TEMP DIAGNOSTIC (2026-10-22, toggle Enter) — remove with lib/focus.ts's.
+      if (e.key === "Enter" && e.target instanceof HTMLInputElement && e.target.type === "checkbox") {
+        const a = document.activeElement;
+        void fetch("/api/dev-enter-log", {
+          method: "POST",
+          body: JSON.stringify({
+            at: "provider",
+            id: e.target.id,
+            prevented: e.defaultPrevented,
+            mods: [e.ctrlKey, e.metaKey, e.altKey, e.shiftKey],
+            scope: a instanceof HTMLElement ? !!scopeOf(a) : null,
+          }),
+        }).catch(() => {});
+      }
       if (e.key === "Tab") {
         onTab(e);
         return;
@@ -476,7 +530,11 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
       if (!root) return;
 
       if (arrowOpensPicker(e)) return;
+      // ←/→ between a form, its list and the section rail — see `listHop`.
+      if (listHop(e)) return;
       if (arrowNavigate(e, root)) return;
+      // Enter on a grid's "+ Add": add after a pause, or Enter Enter moves on.
+      if (enterOnRowAdd(e, root)) return;
       enterAdvances(e, root, {
         // `has` is probed BEFORE Enter claims the key at all — see the gate in
         // enterAdvances. Firing to find out would save the record.

@@ -7,14 +7,12 @@ import { DataTable } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import type { Column } from "@/components/ui/data-table";
-import type { StatusTone } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { ExportForm } from "./export-form";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
-const exportStatusTone: Record<TallyExport["status"], StatusTone> = {
-  generated: "success",
-  failed: "danger",
-};
+// Generated is this export's own word (the file is ready); Failed is the table's.
+const EXPORT_TONES = { generated: "success" } as const;
 
 const columns: Column<TallyExport>[] = [
   { header: "Code", cell: (r) => r.code ?? "—" },
@@ -35,7 +33,7 @@ const columns: Column<TallyExport>[] = [
   {
     header: "Status",
     cell: (r) => (
-      <StatusPill tone={exportStatusTone[r.status]}>{r.status}</StatusPill>
+      <StatusPill tone={statusTone(r.status, EXPORT_TONES)}>{r.status}</StatusPill>
     ),
   },
   { header: "Created", cell: (r) => fmtDate(r.created_at) },

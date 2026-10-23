@@ -2,6 +2,7 @@ import { z } from "zod";
 import { FABRIC_BASES } from "./requirement";
 import { CONS_QTY_REFUSAL, consQtyRefused } from "./manual";
 import { capsTextNullable } from "@/lib/validation/formats";
+import { draftTone, type StatusTone } from "@/lib/ui/status-tone";
 /* The route rows' own schema lives beside their narrowing rule, in
    `./processes.ts`, which is client-safe and is imported by the grid as well —
    see that file's header for why the rule is not in SQL. */
@@ -1024,8 +1025,8 @@ export type { FabricBomProcessInput } from "./processes";
  *  question `lib/orders/bom-status.ts` answers ("has this order been planned,
  *  and is the plan still current?"). Both are shown: this one inside the editor,
  *  that one on the work queue. */
-export function fabricBomStatusTone(is_draft: boolean): "warning" | "success" {
-  return is_draft ? "warning" : "success";
+export function fabricBomStatusTone(is_draft: boolean): StatusTone {
+  return draftTone(is_draft);
 }
 export function fabricBomStatusText(is_draft: boolean): string {
   return is_draft ? "Draft" : "Recorded";

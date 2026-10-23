@@ -1,5 +1,6 @@
 import { addWorkingDays, isRefusal, subtractWorkingDays } from "@/lib/ta/schedule";
 import { daysBetween } from "@/lib/calendar";
+import { statusTone, TASK_PROGRESS, type StatusTone } from "@/lib/ui/status-tone";
 import { crossingDate, thresholdOf, MAX_TOLERANCE_PCT, type TrimDocEvent } from "@/lib/orders/trim-ta/engine";
 
 /**
@@ -470,12 +471,14 @@ export function greigeFromStages(
 }
 
 /** Same tones as the trims tracker, so a status reads the same on both boards. */
-export const FABRIC_TA_STATUS_TONE: Record<FabricTaStatus, "success" | "warning" | "danger" | "info" | "neutral"> = {
-  PENDING: "neutral",
-  IN_PROGRESS: "info",
-  COMPLETED: "success",
-  OVERDUE: "danger",
-  BYPASSED: "neutral",
+// Read from the shared table (lib/ui/status-tone) with TASK_PROGRESS: a PENDING
+// step has not started, which makes no claim — unlike a pending approval.
+export const FABRIC_TA_STATUS_TONE: Record<FabricTaStatus, StatusTone> = {
+  PENDING: statusTone("PENDING", TASK_PROGRESS),
+  IN_PROGRESS: statusTone("IN_PROGRESS"),
+  COMPLETED: statusTone("COMPLETED"),
+  OVERDUE: statusTone("OVERDUE"),
+  BYPASSED: statusTone("BYPASSED"),
 };
 
 // ---------------------------------------------------------------------------

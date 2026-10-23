@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, Package, Shirt, Truck, Users } from "lucide-react";
+import { TriangleAlert, CalendarClock, CheckCircle2, Package, Shirt, Truck, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { Truncated } from "@/components/ui/truncated";
@@ -343,7 +343,7 @@ export function Attention({ orders, today }: { orders: SeasonOrder[]; today: str
     .sort((a, b) => (a.riskLevel === b.riskLevel ? b.daysLate - a.daysLate : a.riskLevel === "late" ? -1 : 1))
     .slice(0, 6);
   return (
-    <Card title={<span className="inline-flex items-center gap-1.5"><AlertTriangle className="size-3.5" aria-hidden />Needs chasing</span>} className="lg:col-span-2" delay={260}>
+    <Card title={<span className="inline-flex items-center gap-1.5"><TriangleAlert className="size-3.5" aria-hidden />Needs chasing</span>} className="lg:col-span-2" delay={260}>
       {hot.length === 0 ? (
         <p className="flex items-center gap-2 rounded-xl px-3 py-4 text-sm font-medium" style={{ background: "color-mix(in oklab, var(--success) 12%, transparent)" }}>
           <CheckCircle2 className="size-5" style={{ color: "var(--success)" }} aria-hidden />

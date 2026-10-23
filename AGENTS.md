@@ -102,7 +102,11 @@ The actions that left the Tab path each keep a key, and the shortcuts sheet says
   by the arrows, `focusFirstField`, `ROW_FIELDS` and both cursor holds; a button joining it
   would put ↑↓←→ on the button and make it holdable. Enter ON the button needs no code:
   `enterAdvances` stands down on anything that is not an input/select/trigger, so the
-  browser's native click fires. **`gridKeyNav` no longer takes an `addRow` callback** — 18
+  browser's native click fires. **Since 2026-10-21 (user, option D) that Enter waits 0.5 s
+  first** (`enterOnRowAdd`, `lib/focus.ts`): a bar drains under the button and then the row
+  is added; **Enter Enter inside the gap adds nothing and moves to the next table** (Yarn
+  Dyeing → Fabric Dyeing), or the next pane. A "+ Add" with nothing after it adds at once.
+  **`gridKeyNav` no longer takes an `addRow` callback** — 18
   call sites were passing a function that could never run again; the decline-and-bubble it
   carried is now `ownAddControl` returning null (a grid with no reachable "+ Add" declines
   the key so it reaches the parent grid or Save).
@@ -110,6 +114,20 @@ The actions that left the Tab path each keep a key, and the shortcuts sheet says
   needed only for a nested grid, and is now what Enter steers by. The eleven hand-rolled
   grids were swept on 2026-08-19; three of them (Attendance, GRN) legitimately cannot grow
   and pass nothing.
+- **A table may keep a blank end row INSTEAD of a "+ Add" button** (Costing 5, user
+  2026-10-21: "no more add row concept, using only the Enter key"). The row is always there
+  (`withTrailingRows`, `lib/sales/sample-costing/trailing-rows.ts`), typing into it makes it a
+  line and a fresh blank appears under it, and it is marked `data-row-tail` while untouched —
+  **Enter on a `data-row-tail` row skips its other cells and lands on whatever follows the
+  table** (`enterAdvances`). So Enter still never creates a row by itself, and the 2026-08-19
+  complaint stays fixed. Opt-in per table by the marker and the blank row; every other grid
+  keeps "+ Add". The save must drop the blank (it does for every cost-sheet table).
+  **`ChildGrid` takes it as `tailRow={isBlank}`** (Order Entry, user 2026-10-23): no "+ Add",
+  one blank end row kept by calling `onAdd` (or `onTail`), the marker, and the blank row's
+  cells not held as mandatory. A grid that renders its own row (`renderMobileRow`) must
+  release its own `required` on that row. "Blank" means nothing the operator TYPED — and
+  where the factory pre-fills a value the server keeps (a style, a date), the save strips
+  the row itself (`withoutTail` in `garment-order-screen.tsx`).
 - **Either way the cursor lands in the new row** (`landOnAddedRow`, one document
   listener). Only the
   keyboard half was ever built: the button added the row and kept the caret on itself, and
@@ -399,10 +417,23 @@ fallback in that file already records: a per-screen fix leaves a remainder.
   form reads and writes the app-wide size. `ChildGrid` is the one pinned caller — a
   grid's `pageSize` prop is part of that grid's layout, not what the operator meant
   by choosing 50 on a listing. Never pass `10` to pin a listing back to a local size.
-- **The bar renders only past one page.** A listing that fits is pixel-identical to
-  before; a small table inside a sheet or a card gains nothing. Same rule `ChildGrid`
-  applies to its own pager ("1–1 of 1" is chrome explaining that the one visible row
-  is the one visible row, client 2026-08-04).
+- **A page's MAIN LISTING always shows the bar; anything else only past one page**
+  (user 2026-10-16, screenshots 3575 / 3576: "the sample entry table and pagination
+  over all application"). Sample Entry (12 rows) had the full-height card and footer
+  pager while Plan Approval (7 rows) had neither, so two lists looked like two designs.
+  `useIsListing` in `data-table-frame.tsx` decides it in the browser: not in a dialog or
+  an editor (`isEditorScope`'s markers), not `bare`, and the only table in its pane. A
+  table inside a sheet, a dashboard card or an editor section keeps the old rule, which
+  is still `ChildGrid`'s ("1–1 of 1" explains the one visible row, client 2026-08-04).
+- **A listing is FULL WIDTH** (same day): never wrap one in `w-fit`. Columns may still
+  hug (`HUG`), so the extra width goes to the one name column — Sample Entry's shape.
+  This reverses erp-table-fit's 2026-09-28 "as wide as its columns" for LISTINGS only;
+  a table inside an editor section (Material BOM's requirement table) keeps it.
+  **Enforced by `npm run check:listing-width`** (inside `build:check`): a listing tag
+  under a shrinking wrapper (`w-fit`, `inline-*`, fixed `w-…`, `max-w-…`, any breakpoint,
+  followed through `const table = …; {table}`), and `data-table-frame.tsx` losing
+  `useIsListing`. Verified by being made to FAIL first — all 9 pre-fix sites. Opt out with
+  `listing-width: exempt -- <reason>`. **Its floor:** a list hand-written as `<table>`.
 - **It is a display slice, not a query.** The server still fetches every row it did
   before; a list of 3,000 rows is now 3,000 rows in the RSC payload showing 10.
   Server-side (keyset) paging is the next step for a listing that grows past what one
@@ -412,6 +443,37 @@ fallback in that file already records: a per-screen fix leaves a remainder.
 **Not yet enforced by a script.** A new `[id]`-route table that forgets
 `paginate={false}` pages a document. Until `audit_layout.py` gains a
 `--check paginate-document`, a detail page gets this right by reading this section.
+
+## Status colours come from one table (STANDING)
+
+**A status word draws the same colour on every screen** (2026-10-16). Before
+this, `StatusPill` mapped a TONE to a colour and nothing mapped a STATUS to a
+tone, so about 140 places each wrote their own: Draft was grey on seven screens and
+amber on five, Cancelled red on five and grey on three, Inactive red across
+Master Data and grey everywhere else.
+
+- **`statusTone(status, overrides?)`** in `lib/ui/status-tone.ts` is the rule;
+  `activeTone(flag)` and `draftTone(flag)` cover the two booleans. A module's
+  `xxxStatusTone()` may stay as a NAME for its callers, but its body delegates.
+- **Exact match, never substring.** `normalizeStatus` folds only case and
+  separators; "Not Approved" and "Partially Approved" are their own keys, and an
+  unknown word is neutral — never a guess.
+- **A genuine difference is a named override**, passed as
+  `statusTone(s, NAME)` and declared beside it with the reason: a CAD sheet's
+  Submitted is its finished state (success), a requisition's Approved still
+  waits on issue. `TASK_PROGRESS` names the commonest one — "pending" on a T&A
+  step means not started (neutral), on an approval it means waiting (warning).
+- **Cancelled is danger and Inactive is neutral, everywhere** — the two calls
+  the sweep standardised rather than preserved.
+
+`npm run check:status-tone` (inside `build:check`) asserts the table and each
+module's override through its own function, and fails any `case "approved":
+return "success"` or `{ approved: "success" }` that is not a named override.
+Verified by being made to FAIL first. Opt out with
+`// status-tone: exempt -- <reason>` (a progress bucket, a chart slice, a queue
+CARD state). Three files open in a parallel session on the day are listed in
+its `EXEMPT` as PENDING MIGRATION. Live reference: Administration ▸ System ▸
+Design Reference.
 
 ## Row actions: icons, no ⋮ (STANDING)
 
@@ -1004,6 +1066,11 @@ passes `size="sm"`). Swept 2026-10-09: Sample Costing, Sample Entry, Garment
 Order, Style, TA Plan, TA Style, TA Department Assign. HR person keeps its Back
 (exempt, see above). The ten read-only `[id]` detail pages keep their plain
 "Back to list" text link — no Cancel there, so it is their only way out.
+**Sample Costing reverses the first rule, by request**: every costing editor
+(Costing, Costing 3–6, Ledger) shows a desktop `BackLink` "← Back" in its
+header (user 2026-10-21 for Costing, 2026-10-23 for the rest: "ella costing
+page layum … back button venum"). It is a `BackLink`, not a `<Button>`, so
+`check:button-plan` stays green; do not remove it as a duplicate of Cancel.
 
 Checked by `npm run check:button-plan` (inside `build:check`): a
 desktop-visible "← Back to list" `<Button>`, and a `size="sm"` button in an

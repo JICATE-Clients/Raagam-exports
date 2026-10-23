@@ -1232,7 +1232,22 @@ export function BudgetScreen({
               continue;
             }
             const u = updates.get(x.key);
-            out.push(u ? { ...rowOf(x.key, u), ...operatorFacts(x), from_bom: true } : x);
+            if (!u) {
+              out.push(x);
+              continue;
+            }
+            /* A RATE IS PER UNIT, SO A NEW UNIT VOIDS IT (2026-10-23: thread moved
+               from MTR to CONE when material lines began pulling the purchase
+               unit — ₹0.50/MTR carried onto 433 cones would cost ₹216 and
+               nobody would look). The blank holds Save until it is priced again,
+               and the "last ₹" hint offers the per-cone figure. */
+            const unitMoved = (x.uom_id || null) !== (u.uom_id ?? null);
+            out.push({
+              ...rowOf(x.key, u),
+              ...operatorFacts(x),
+              ...(unitMoved ? { rate: "" } : {}),
+              from_bom: true,
+            });
           }
           for (const [k, rows] of refits) if (!placed.has(k)) out.push(...rows);
           return reseeded([...out, ...added]);
@@ -3916,7 +3931,11 @@ export function BudgetScreen({
               every rate the approved version priced stay as approved. Lines it did not price are open for their rate.
             </p>
           )}
-          {editable && unratedLines.length > 0 && <ManualEntryNeeded lines={unratedLines} />}
+          {/* NO "⚠️ Manual Entry Needed" LIST HERE ANY MORE (user 2026-10-22:
+              "intha error a remove pannidu"). It printed the same missing rates
+              the summary bar already counts — "55 rates missing … Which lines?"
+              — eight at a time with a "Go to field" each; the bar's list and its
+              Next missing are the one way to them now. */}
 
           {revisions.length > 0 && <RevisionHistory revisions={revisions} />}
         </SectionBody>
@@ -4005,7 +4024,11 @@ export function BudgetScreen({
                   {/* THE KIND CARDS — the same box, edge, dot and blue open
                       ring as Fabric BOM ▸ Manual's fabric list (the skin's
                       `[data-md-list-item]` / `[aria-current]` rules draw it). */}
-                  <div data-focus-optional className="flex w-[180px] shrink-0 flex-col self-start max-md:w-full">
+                  {/* `data-md-list` — the list marker `listHop` (lib/focus.ts)
+                      reads: ← from a rate field's left edge lands on the open
+                      card, ← again on the section rail, → back into the grid
+                      (user 2026-10-22). */}
+                  <div data-md-list data-focus-optional className="flex w-[180px] shrink-0 flex-col self-start max-md:w-full">
                     {kinds.map((t, i) => {
                       const isOpen = t.source === current.source;
                       const problems = tabProblems(t.source);
@@ -4353,6 +4376,8 @@ export function BudgetScreen({
           </>
         }
         header={{
+          // The way out, said on the band (user 2026-10-22: "back button venum").
+          back: "Budgets",
           initials: "BG",
           // The order it budgets, now that there is no Group to name it by.
           title:
@@ -4579,37 +4604,6 @@ function RevisionHistory({ revisions }: { revisions: OrderBudget["revisions"] })
           </li>
         ))}
       </ol>
-    </div>
-  );
-}
-
-/**
- * THE SPEC'S WARNING BANNER (doc/order/amenment update.md §3.2, 0619): one
- * line per input the budget is missing, in the spec's own sentence, each with
- * a one-click jump to the exact cell — the same `go` the status line's "Next
- * missing" runs. Shown while the budget is the operator's.
- */
-function ManualEntryNeeded({ lines }: { lines: { key: string; message: string; go: () => void }[] }) {
-  const shown = lines.slice(0, 8);
-  return (
-    <div className="mt-3 rounded-md border border-warning bg-warning-soft px-3 py-2 text-xs text-warning" role="alert">
-      <ul className="space-y-1">
-        {shown.map((l) => (
-          <li key={l.key} className="flex flex-wrap items-center justify-between gap-2">
-            <span>
-              <span aria-hidden>⚠️ </span>
-              <span className="font-semibold">{l.message.split(":")[0]}:</span>
-              {l.message.slice(l.message.indexOf(":") + 1)}
-            </span>
-            <button type="button" className="font-semibold underline hover:no-underline" onClick={l.go}>
-              Go to field →
-            </button>
-          </li>
-        ))}
-      </ul>
-      {lines.length > shown.length && (
-        <p className="mt-1">…and {lines.length - shown.length} more — use Next missing in the summary bar.</p>
-      )}
     </div>
   );
 }

@@ -12,7 +12,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
@@ -31,14 +32,6 @@ import type {
 } from "@/lib/sales/service";
 import type { Uom } from "@/lib/masters/types";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-
-const STATUS_TONE: Record<SampleStatus, StatusTone> = {
-  requested: "neutral",
-  in_progress: "info",
-  sent: "warning",
-  approved: "success",
-  rejected: "danger",
-};
 
 const titleCase = (v: string) =>
   v.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
@@ -196,7 +189,7 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
     { header: "Customer Ref", cell: (s) => s.customer_reference ?? dash },
     {
       header: "Status",
-      cell: (s) => <StatusPill tone={STATUS_TONE[s.status] ?? "neutral"}>{titleCase(s.status)}</StatusPill>,
+      cell: (s) => <StatusPill tone={statusTone(s.status)}>{titleCase(s.status)}</StatusPill>,
     },
     rowActionsColumn((s) => (
       <RowActions

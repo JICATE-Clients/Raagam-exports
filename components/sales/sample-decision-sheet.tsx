@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
@@ -105,7 +105,7 @@ export function SampleDecisionColumns({
             header's action bar runs with `overrideNote={false}`. */}
         {override && (
           <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-warning">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             You are not an approver on this step — acting here is recorded as an override.
           </div>
         )}

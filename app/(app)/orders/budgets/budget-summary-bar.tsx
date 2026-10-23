@@ -90,7 +90,7 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, Clock3, IndianRupee, Scale, TrendingDown, TrendingUp, X } from "lucide-react";
+import { TriangleAlert, ArrowDown, Clock3, IndianRupee, Scale, TrendingDown, TrendingUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { FIELD_WIDTH } from "@/components/ui/field";
@@ -172,7 +172,7 @@ export function BudgetSummaryBar({
           role="status"
           className="relative flex basis-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-danger/40 bg-danger-soft px-3 py-1 text-[13px] font-semibold leading-snug text-danger"
         >
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
           {unrated ? (
             <>
               <span>

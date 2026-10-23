@@ -25,6 +25,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { statusTone } from "@/lib/ui/status-tone";
 
 type PlanDetail = NonNullable<Awaited<ReturnType<typeof getProductionPlan>>>;
 
@@ -36,12 +37,7 @@ const PP_STATUS_LABELS: Record<PpStatus, string> = {
 };
 
 function ppStatusTone(status: PpStatus): StatusTone {
-  switch (status) {
-    case "draft":     return "neutral";
-    case "submitted": return "warning";
-    case "approved":  return "success";
-    case "rejected":  return "danger";
-  }
+  return statusTone(status);
 }
 
 // ---------- Order form fields ----------

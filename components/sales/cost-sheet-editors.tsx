@@ -1,5 +1,6 @@
 "use client";
 
+import type { CmtStage } from "@/lib/masters/cmt-process-types";
 import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
@@ -25,9 +26,15 @@ export type EditOptions = {
   fabrics: readonly Opt[];
   yarns: readonly Opt[];
   processes: readonly Opt[];
-  garmentProcesses: readonly (Opt & { garment_kind: "cmt" | "embellishment" })[];
+  /** `cmt_stage` is carried for production tracking (the costing lists CMT
+   *  operations flat, client 2026-10-17); `standard_rate` pre-fills a
+   *  blank rate (0734). */
+  garmentProcesses: readonly (Opt & { garment_kind: "cmt" | "embellishment"; cmt_stage: CmtStage | null; standard_rate: number | null })[];
   components: readonly Opt[];
   trims: readonly Opt[];
+  /** The fabric structures Sample Entry named for this style: their lines are seeded
+   *  from it, so on the costing the structure is shown, not picked again. */
+  lockedFabrics?: readonly string[];
 };
 
 const PAPER = "h-7 rounded-md border border-[#037bb8] bg-white px-1.5 text-xs font-semibold text-[#0f1b26]";
@@ -118,7 +125,7 @@ const BLANK: Val = { id: null, name: "" };
 /** A number cell edited in place. Paper-coloured whatever the theme: the sheet is paper.
  *  Its look is `.cs-ed` in the sheet CSS, not `!` utilities — a layered `!important`
  *  outranks every unlayered rule, so a table cell could never flatten it. */
-export function Ed({ value, onChange, label, w = "w-24" }: { value: string; onChange: (v: string) => void; label: string; w?: string }) {
+export function Ed({ value, onChange, label, w = "w-24", placeholder }: { value: string; onChange: (v: string) => void; label: string; w?: string; placeholder?: string }) {
   return (
     <Input
       type="number"
@@ -127,6 +134,7 @@ export function Ed({ value, onChange, label, w = "w-24" }: { value: string; onCh
       min={0}
       aria-label={label}
       title={label}
+      placeholder={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onFocus={(e) => e.currentTarget.select()}
@@ -135,8 +143,8 @@ export function Ed({ value, onChange, label, w = "w-24" }: { value: string; onCh
   );
 }
 
-/** A searchable picker for a line's cell. A typed name that matches a row exactly
- *  counts as picking it, so typing "NECK" and pressing Add works. */
+/** A searchable picker for a line's cell — master rows only (`strict`): typing searches,
+ *  and an exact name counts as picking it, so typing "NECK" and pressing Enter works. */
 export function CellPick({ label, options, value, onPick }: { label: string; options: readonly (Opt & { note?: string })[]; value: Val; onPick: (v: Val) => void }) {
   return (
     <TypeOrPick
@@ -147,6 +155,7 @@ export function CellPick({ label, options, value, onPick }: { label: string; opt
       placeholder={label}
       uppercase
       inputClassName="h-7 text-xs"
+      strict
       onChange={(v) => onPick(v.id ? v : { id: options.find((o) => o.name.toUpperCase() === v.name.trim().toUpperCase())?.id ?? null, name: v.name })}
     />
   );
@@ -237,7 +246,6 @@ export function TrimReadyRow({ draft, onChange, options }: EditProps) {
           ) : (
             <>
               <Ed w="w-20" label="New trim — pack price ₹" value={packPrice} onChange={setPackPrice} />
-              <span>÷</span>
               <Ed w="w-16" label="New trim — pack size" value={packSize} onChange={setPackSize} />
             </>
           )}

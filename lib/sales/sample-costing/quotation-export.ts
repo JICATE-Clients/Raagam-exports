@@ -31,8 +31,7 @@ import {
 } from "@/lib/orders/report-pdf-kit";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
 import type { CostingSummary } from "./calc";
-import { offered, priceText, type QuotationHistoryRow } from "./quotation";
-import { changeText } from "./revision-history";
+import { offered, priceText, type QuotationHistoryRow, type QuotationStyle } from "./quotation";
 
 export type QuotationSheet = {
   costingNo: string | null;
@@ -55,6 +54,8 @@ export type QuotationSheet = {
   history?: QuotationHistoryRow[];
   /** "Approved on 09/10/2026" — approved-and-when only; null otherwise. */
   approvalNote?: string | null;
+  /** Every costed style of the sample (2026-10-22). More than one = the styles listing. */
+  styles?: QuotationStyle[];
 };
 
 /* One rule for the price a buyer is offered, shared with the on-screen quotation. */
@@ -67,6 +68,8 @@ export async function exportQuotationPdf(
 ): Promise<void> {
   // The tab opens before any await, or the browser blocks it as a popup.
   const tab = output === "print" ? window.open("", "_blank") : null;
+  const styles = q.styles ?? [];
+  const many = styles.length > 1;
 
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
@@ -93,8 +96,12 @@ export async function exportQuotationPdf(
     [
       { label: "Customer", value: q.customer },
       { label: "SMP Number", value: q.sampleNo },
-      { label: "Style", value: q.style },
-      { label: "Description", value: q.description },
+      ...(many
+        ? [{ label: `Styles (${styles.length})`, value: styles.map((x) => x.style).filter(Boolean).join(", ") }]
+        : [
+            { label: "Style", value: q.style },
+            { label: "Description", value: q.description },
+          ]),
       { label: "Season", value: q.season },
       { label: "Currency", value: q.currency },
       { label: "Shipment", value: q.shipMode },
@@ -102,6 +109,9 @@ export async function exportQuotationPdf(
     { margin: M, cols: 4 },
   );
 
+  if (many) {
+    y = drawStylesListing(doc, y, styles, M, CW);
+  } else {
   const groups = q.summary.groups;
   y = drawSheetLabel(doc, M, y + 6, q.isSet ? "Set price" : "Price");
   y = drawSummaryTiles(
@@ -162,35 +172,13 @@ export async function exportQuotationPdf(
       if (d.section === "body" && totals.has(d.row.index)) d.cell.styles.fontStyle = "bold";
     },
   });
-
-  /* WHERE THIS QUOTATION STANDS IN THE NEGOTIATION (client 2026-10-09) — Rev 0 →
-     Rev 1 → Rev 2 with the price each carried and how it moved. Prices only: the
-     model this reads has the margin stripped out. Absent for a costing that was
-     never revised. */
-  if (q.history && q.history.length > 0) {
-    const afterPrice = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-    const histTop = drawCardHeader(doc, M, afterPrice + 16, CW, BRAND, "Revision history");
-    autoTable(doc, {
-      startY: histTop,
-      margin: { left: M, right: M, top: 40 },
-      theme: "plain",
-      styles: cardTableStyles(),
-      headStyles: cardTableHead(),
-      head: [["Revision", "Date", "Status", `Price (${q.currency ?? ""})`, "Change"]],
-      body: q.history.map((r) => [
-        r.current ? `${r.label}  (this quotation)` : r.label,
-        r.date ? fmtDate(r.date) : "—",
-        r.statusLabel,
-        r.price == null ? "—" : r.price.toFixed(2),
-        changeText(r.changePct),
-      ]),
-      columnStyles: { 3: { halign: "right" }, 4: { halign: "right" } },
-      didParseCell: (d) => {
-        paintRow(d as Parameters<typeof paintRow>[0], { tone: BRAND });
-        if (d.section === "body" && q.history?.[d.row.index]?.current) d.cell.styles.fontStyle = "bold";
-      },
-    });
   }
+
+  /* NO REVISION HISTORY ON THE QUOTATION (user 2026-10-16: "no need to Revision
+     history, remove it from quotation report"). The table of Rev 0 → Rev 1 prices
+     (client 2026-10-09) came off the screen and this PDF together; the buyer's
+     document states the price in force, and the trail stays on the internal Cost
+     Sheet's Revisions tab. */
 
   const end = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   doc.setFont("helvetica", "normal");
@@ -210,4 +198,51 @@ export async function exportQuotationPdf(
   } else {
     doc.save(`${stem}.pdf`);
   }
+}
+
+/**
+ * THE STYLES LISTING ON PAPER (user 2026-10-22, screenshot 3667) — the page's listing:
+ * one price tile per style, then a Style · Piece · Size · Price table where a style's
+ * name heads its first row and a set's sizes close on a bold Set total. Each style is
+ * priced in its own currency.
+ */
+function drawStylesListing(doc: jsPDF, y: number, styles: readonly QuotationStyle[], M: number, CW: number): number {
+  y = drawSheetLabel(doc, M, y + 6, "Price by style");
+  y = drawSummaryTiles(
+    doc,
+    y,
+    styles.map((st) => ({ label: st.style ?? "Style", value: price(st.headline, st.currency), unit: `per ${st.unitWord}`, tone: BRAND })),
+    M,
+  );
+  const top = drawCardHeader(doc, M, y + 12, CW, BRAND, `Styles (${styles.length})`);
+  const body: RowInput[] = [];
+  const totals = new Set<number>();
+  for (const st of styles) {
+    let first = true;
+    for (const g of st.groups) {
+      for (const l of g.lines) {
+        body.push([first ? [st.style, st.description].filter(Boolean).join(" · ") : "", l.piece, g.label, price(l.price, st.currency)]);
+        first = false;
+      }
+      if (st.isSet) {
+        totals.add(body.length);
+        body.push(["", "Set total", g.label, price(g.total, st.currency)]);
+      }
+    }
+  }
+  autoTable(doc, {
+    startY: top,
+    margin: { left: M, right: M, top: 40 },
+    theme: "plain",
+    styles: cardTableStyles(),
+    headStyles: cardTableHead(),
+    head: [["Style", "Piece", "Size", "Price"]],
+    body,
+    columnStyles: { 0: { cellWidth: CW * 0.36 }, 3: { halign: "right" } },
+    didParseCell: (d) => {
+      paintRow(d as Parameters<typeof paintRow>[0], { tone: BRAND, totals });
+      if (d.section === "body" && totals.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+    },
+  });
+  return (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 }

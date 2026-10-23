@@ -5,6 +5,7 @@ import { sortBySize } from "@/lib/masters/size-order";
 import { withCreators } from "@/lib/created-by";
 import type { Currency } from "@/lib/masters/types";
 import type { Deactivatable } from "@/lib/masters/inactive";
+import type { CmtStage } from "@/lib/masters/cmt-process-types";
 import { quoteKey } from "./calc";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import type { DocLetterhead } from "@/lib/orders/gos/letterhead";
@@ -25,6 +26,11 @@ import { coverOf, isImageFile } from "@/lib/orders/amendments/style-gallery";
  */
 
 export type PickerRow = { id: string; code: string | null; name: string } & Deactivatable;
+/** A garment charge the costing can pick: an Embellishment from the Process
+ *  master (0691), or — since 0735 — a CMT operation from its own CMT Process
+ *  master, carrying the stage the costing narrows its operation picker by. Both
+ *  carry the standard rate a blank line's rate is pre-filled from. */
+export type GarmentProcessRow = PickerRow & { garment_kind: "cmt" | "embellishment"; cmt_stage: CmtStage | null; standard_rate: number | null };
 
 /** A style line of a sample enquiry, as the header offers it. */
 export type CostingStyleOption = {
@@ -96,7 +102,7 @@ export type SampleCostingFormData = {
   /** Garment processes classified on the Process master (0691): CMT operations
    *  (Cutting, Stitching, Checking …) and Embellishments (Print, Embroidery, Wash …).
    *  A process with no kind is in neither picker. */
-  garmentProcesses: (PickerRow & { garment_kind: "cmt" | "embellishment" })[];
+  garmentProcesses: GarmentProcessRow[];
   /** Garment components (Body, Rib, Pocketing …). */
   components: PickerRow[];
   /** SEW + PACK items — the trims picker. */
@@ -341,21 +347,52 @@ async function getProcesses(): Promise<PickerRow[]> {
     .map((p) => ({ id: p.id, code: null, name: p.name, inactive: p.inactive }));
 }
 
-async function getGarmentProcesses(): Promise<(PickerRow & { garment_kind: "cmt" | "embellishment" })[]> {
+async function getGarmentProcesses(): Promise<GarmentProcessRow[]> {
   const s = await createClient();
-  const { data, error } = await s
-    .from("processes")
-    .select("id, name, inactive, garment_kind")
-    .not("garment_kind", "is", null)
-    .order("name");
-  if (error) throw new Error(`Could not load garment processes: ${error.message}`);
-  return ((data ?? []) as { id: string; name: string; inactive: boolean | null; garment_kind: "cmt" | "embellishment" }[]).map((p) => ({
-    id: p.id,
-    code: null,
-    name: p.name,
-    inactive: p.inactive,
-    garment_kind: p.garment_kind,
-  }));
+  // Two masters since 0735: Embellishments on the Process master, CMT operations
+  // on the CMT Process master. One list for the pickers, told apart by kind.
+  // BOTH EMBELLISHMENT CATEGORIES (client 2026-10-22, screenshot 140224): the Garment
+  // processes picker lists every Component Process (`for_components`, on a cut panel) AND
+  // every Garment Process (`for_garments`, on the stitched garment) — the same two flags
+  // Sample Entry ▸ Combos ▸ Embellishments narrows by (0722) — beside the processes 0691
+  // tagged `garment_kind = 'embellishment'`. Before, only that tag counted, so 4 of the 16
+  // processes the master classifies were offered, and a line seeded from Sample Entry
+  // (BIT PRINTING) named a process its own picker could not show. A process 0691 tagged
+  // CMT stays out: CMT operations have their own picker and master (0735).
+  // Inactive rows are SELECTED, not filtered (AGENTS.md "Disabled rows"): the picker hides
+  // them, and the one a line already holds still resolves.
+  const [emb, cmt] = await Promise.all([
+    s
+      .from("processes")
+      .select("id, name, inactive, garment_kind, standard_rate")
+      .or("garment_kind.eq.embellishment,and(garment_kind.is.null,for_components.eq.true),and(garment_kind.is.null,for_garments.eq.true)")
+      .order("name"),
+    s.from("cmt_processes").select("id, name, inactive, cmt_stage, standard_rate").order("name"),
+  ]);
+  if (emb.error) throw new Error(`Could not load embellishment processes: ${emb.error.message}`);
+  if (cmt.error) throw new Error(`Could not load CMT processes: ${cmt.error.message}`);
+  type Row = { id: string; name: string; inactive: boolean | null; standard_rate: number | string | null };
+  const rate = (v: number | string | null) => (v == null ? null : Number(v));
+  return [
+    ...((cmt.data ?? []) as (Row & { cmt_stage: CmtStage })[]).map((p) => ({
+      id: p.id,
+      code: null,
+      name: p.name,
+      inactive: p.inactive,
+      garment_kind: "cmt" as const,
+      cmt_stage: p.cmt_stage,
+      standard_rate: rate(p.standard_rate),
+    })),
+    ...((emb.data ?? []) as Row[]).map((p) => ({
+      id: p.id,
+      code: null,
+      name: p.name,
+      inactive: p.inactive,
+      garment_kind: "embellishment" as const,
+      cmt_stage: null,
+      standard_rate: rate(p.standard_rate),
+    })),
+  ];
 }
 
 async function getComponents(): Promise<PickerRow[]> {
@@ -386,6 +423,8 @@ export async function getSampleCostingFormData(): Promise<SampleCostingFormData>
     getProcesses(),
     getGarmentProcesses(),
     getComponents(),
+    // Full stored name, category included (user 2026-10-17 reversed the same day's
+    // "hide the category name": "previously the trims listed with category name, restore it").
     itemsOfClasses(["SEW", "PACK"]),
     listCurrencies(),
     getCostingMemory(),
@@ -565,7 +604,7 @@ type RecordDb = Record<string, unknown> & {
         piece_name: string;
         coordinate_id: string | null;
         cmt_direct: boolean | null;
-        lines: { sno: number; kind: "cmt" | "embellishment"; process_id: string | null; process_name: string | null; rate: Num }[] | null;
+        lines: { sno: number; kind: "cmt" | "embellishment"; process_id: string | null; cmt_process_id: string | null; process_name: string | null; rate: Num }[] | null;
       })[]
     | null;
   fabrics:
@@ -604,7 +643,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     .select(
       "id, code, version, status, is_draft, parent_cost_sheet_id, decision_remark, opportunity_id, style_id, costing_date, " +
         "currency_code, exchange_rate, margin_pct, garment_waste_pct, overhead_pct, discount_pct, ship_mode, freight_per_pc, insurance_per_pc, buyer_target_price, commission_pct, notes, extra_charges, " +
-        "pieces:sample_costing_pieces(*, lines:sample_costing_piece_processes(sno, kind, process_id, process_name, rate)), " +
+        "pieces:sample_costing_pieces(*, lines:sample_costing_piece_processes(sno, kind, process_id, cmt_process_id, process_name, rate)), " +
         "fabrics:sample_costing_fabrics(*, processes:sample_costing_fabric_processes(sno, process_id, process_name, rate), " +
         "yarns:sample_costing_fabric_yarns(sno, item_id, yarn_name, mix_pct, rate)), " +
         "weights:sample_costing_component_weights(*, group:size_groups!size_group_id(size_group_name)), trims:sample_costing_trims(*), " +
@@ -628,12 +667,15 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     lines: bySno(p.lines).map((l, i) => ({
       key: `${p.id}-l${i}`,
       kind: l.kind,
-      process_id: l.process_id,
+      // A CMT line's operation is on the CMT Process master (0735); the draft
+      // keeps one `process_id` for both kinds, and the save trigger routes it back.
+      process_id: l.kind === "cmt" ? l.cmt_process_id : l.process_id,
       process_name: l.process_name ?? "",
       rate: str(l.rate),
     })),
     testing_cost: str(p.testing_cost),
     bank_cost: str(p.bank_cost),
+    sample_cost: str(p.sample_cost),
   }));
   const fabrics: FabricDraft[] = bySno(r.fabrics).map((f) => ({
     key: f.id,
@@ -693,9 +735,29 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
     value: x.value == null ? "" : String(x.value),
     sign: x.sign === "deduct" ? "deduct" : "add",
   }));
-  const quotes = Object.fromEntries(
-    (r.quotes ?? []).map((q) => [quoteKey(q.piece_id, q.size_name ?? q.group?.size_group_name?.trim() ?? null), str(q.quoted_price)]),
-  );
+  /* ONE QUOTE PER PIECE (client 2026-10-17: sizes live in the Fabric tab only). A sheet
+     saved with a quote per size is read as the AVERAGE of that piece's quotes, and when
+     they differed the note says what was converted, so a reopened revision shows where
+     its price came from. Every sheet live on the day carried one quote per piece. */
+  const byPiece = new Map<string, { label: string; price: number }[]>();
+  for (const q of r.quotes ?? []) {
+    const price = q.quoted_price == null ? null : Number(q.quoted_price);
+    if (price == null || !Number.isFinite(price)) continue;
+    const label = q.size_name ?? q.group?.size_group_name?.trim() ?? "All sizes";
+    byPiece.set(q.piece_id, [...(byPiece.get(q.piece_id) ?? []), { label, price }]);
+  }
+  const quotes: Record<string, string> = {};
+  const converted: string[] = [];
+  for (const [pieceId, qs] of byPiece) {
+    const avg = Math.round((qs.reduce((t, q) => t + q.price, 0) / qs.length) * 10000) / 10000;
+    quotes[quoteKey(pieceId, null)] = String(avg);
+    if (new Set(qs.map((q) => q.price)).size > 1) {
+      converted.push(`${qs.map((q) => `${q.label} ${q.price.toFixed(2)}`).join(" · ")} → ${avg.toFixed(2)}`);
+    }
+  }
+  const legacyNote = converted.length ? `Converted from legacy size-wise quote: ${converted.join("; ")}` : "";
+  const saved = g("notes");
+  const notes = legacyNote && !saved.includes(legacyNote) ? [saved, legacyNote].filter(Boolean).join(" · ") : saved;
 
   return {
     id: r.id,
@@ -721,7 +783,7 @@ export async function getSampleCostingRecord(id: string): Promise<CostingRecord 
         insurance_per_pc: gnum("insurance_per_pc"),
         buyer_target_price: gnum("buyer_target_price"),
         commission_pct: gnum("commission_pct"),
-        notes: g("notes"),
+        notes,
       },
       pieces,
       fabrics,
@@ -894,6 +956,39 @@ async function getQuoteRates(): Promise<Record<string, number>> {
     if (!held || from > held.from) best.set(r.currency_code, { from, rate });
   }
   return Object.fromEntries([...best].map(([k, v]) => [k, v.rate]));
+}
+
+/**
+ * THE OTHER STYLES OF THE SAME SAMPLE, each as its latest costing (user 2026-10-22,
+ * screenshot 3667: the quotation "should be ready to adapt multi styles listing").
+ * One costing prices one style, so a sample with several styles has several sheets;
+ * the quotation lists them all. Per style, the highest revision that is not
+ * superseded and not an unsaved draft — the price in force. `style_id` is the
+ * current sheet's, left out because the quotation already has it.
+ *
+ * A failed read THROWS: a quotation that silently dropped a style would go to the
+ * buyer short a price, and look complete.
+ */
+export async function getSiblingCostingRecords(opportunityId: string | null, styleId: string | null): Promise<CostingRecord[]> {
+  if (!opportunityId) return [];
+  const s = await createClient();
+  const { data, error } = await s
+    .from("cost_sheets")
+    .select("id, style_id, version")
+    .eq("costing_type", "sample")
+    .eq("opportunity_id", opportunityId)
+    .not("style_id", "is", null)
+    .neq("status", "superseded")
+    .or("is_draft.is.null,is_draft.eq.false");
+  if (error) throw new Error(`Could not load the sample's other costings: ${error.message}`);
+  const latest = new Map<string, { id: string; version: number }>();
+  for (const r of (data ?? []) as { id: string; style_id: string; version: number | null }[]) {
+    if (r.style_id === styleId) continue;
+    const v = r.version ?? 0;
+    if ((latest.get(r.style_id)?.version ?? -1) < v) latest.set(r.style_id, { id: r.id, version: v });
+  }
+  const records = await Promise.all([...latest.values()].map((x) => getSampleCostingRecord(x.id)));
+  return records.filter((r): r is CostingRecord => r != null);
 }
 
 /**

@@ -22,7 +22,8 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Ban, CalendarRange, CheckCircle2, ListChecks } from "lucide-react";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
+import { activeTone } from "@/lib/ui/status-tone";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -242,7 +243,7 @@ export function TaMastersClient({
     {
       header: "Status",
       cell: (a) => (
-        <StatusPill tone={a.is_active ? "success" : "danger"}>
+        <StatusPill tone={activeTone(a.is_active)}>
           {a.is_active ? "Active" : "Blocked"}
         </StatusPill>
       ),

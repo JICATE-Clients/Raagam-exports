@@ -42,7 +42,11 @@ export function PaginationBar({
           {start}–{end} of {total}
         </span>
         {onPageSizeChange && (
-          <label className="flex items-center gap-1.5">
+          /* `data-focus-optional`: a page size is not data, so Tab and Enter
+             step over it (the arrows and the mouse still reach it). Without it,
+             Enter off the last field of an entry row on a listing landed on
+             "Rows" instead of saving (Orders ▸ Cancellation, 2026-10-22). */
+          <label className="flex items-center gap-1.5" data-focus-optional="">
             <span className="text-xs">Rows</span>
             <Select
               value={pageSize}
