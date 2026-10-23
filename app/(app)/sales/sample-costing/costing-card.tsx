@@ -24,10 +24,11 @@ import { STATUS_LABEL, isDeletableStatus, type CostingListRow } from "@/lib/sale
  *
  * EACH WORD ONCE (user 2026-10-23, artifact "Costing Card — Duplicates
  * Removed": "apply this artifact"). What every card on the page said alike is
- * said once, in `CostingCardLegend` above the grid: the CST/ and SMP/ series
- * prefixes, the QUOTED · MARGIN · DATE labels, the currency and the year. The
- * state mark at the top right went too — the tab the card sits under already
- * names it. The card keeps what differs: number, buyer, style, the figures.
+ * left off the card: the CST/ and SMP/ series prefixes, the QUOTED · MARGIN ·
+ * DATE labels, the currency and the year. The line that said them once above the
+ * grid went too (user 2026-10-23: "remove this word in costing module"). The
+ * state mark at the top right went — the tab the card sits under already names
+ * it. The card keeps what differs: number, buyer, style, the figures.
  */
 
 /** One footer action: what a click does, or why it cannot. */
@@ -65,53 +66,15 @@ export function CostingCard({
   isPending?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const tint = buyerTint(buyer);
   return (
-    <div style={{ "--ink": tint.ink, "--glow": tint.glow } as CSSProperties} className={GLOW_CARD}>
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={!onOpen}
-        className="flex w-full flex-1 flex-col gap-2 rounded-t-2xl px-3 pb-2 pt-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-      >
-        <div className="flex w-full items-center gap-2">
-          <span className="shrink-0 rounded-md border border-border bg-surface px-1.5 py-px font-mono text-xs font-medium text-foreground">
-            {code}
-          </span>
-          {start && (
-            <span className="ml-auto flex items-center gap-1.5 whitespace-nowrap text-[12.5px] font-semibold text-[var(--ink)] transition-[gap] group-hover:gap-2.5 dark:text-[color-mix(in_srgb,var(--ink)_55%,white)]">
-              Start costing <span aria-hidden="true">→</span>
-            </span>
-          )}
-        </div>
-        <div className="flex w-full min-w-0 items-center gap-2.5">
-          <span
-            aria-hidden="true"
-            className={GLOW_AVATAR}
-          >
-            {buyerInitials(buyer)}
-          </span>
-          <span className="grid min-w-0 flex-1">
-            <Truncated className="text-sm font-semibold leading-tight text-foreground" touch={false}>
-              {buyer ?? "—"}
-            </Truncated>
-            <Truncated className="font-mono text-xs leading-snug text-muted-foreground" touch={false}>
-              {sub}
-            </Truncated>
-          </span>
-        </div>
-        {figures && figures.length > 0 && (
-          <dl className="flex w-full items-baseline justify-between gap-2 tabular-nums">
-            {figures.map((f, i) => (
-              <div key={f.label} className="min-w-0">
-                <dt className="sr-only">{f.label}</dt>
-                {/* truncate-reveal: exempt -- a figure (money, %, a date) fits a 15rem card; a tap opens the costing */}
-                <dd className={cn("truncate font-bold leading-tight text-foreground", i === 0 ? "text-lg" : "text-[15px]")}>{f.value}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </button>
+    <GlowRecordCard
+      code={code}
+      title={buyer}
+      sub={sub}
+      start={start ? "Start costing" : undefined}
+      figures={figures}
+      onOpen={onOpen}
+      footer={
       <div className={cn("mx-3 flex min-h-10 items-center justify-between gap-1 py-1", GLOW_RULE)}>
         {confirming && del ? (
           <>
@@ -155,6 +118,86 @@ export function CostingCard({
           </>
         )}
       </div>
+      }
+    />
+  );
+}
+
+/**
+ * THE GLOW CARD'S BODY, FOR EVERY SAMPLE QUEUE THAT ASKS FOR THE COSTING LOOK
+ * (user 2026-10-23: "accessories plan la irukka cards um costing la irukka mari
+ * venum"). The number in its chip, the party's initials beside its name, a muted
+ * sub-line, the figures with no label row (each label is read to a screen reader
+ * only), and the page's own footer — `CostingCard`'s five actions, or any other
+ * row of `CardAction` tiles. A page with no party passes `title` as whatever
+ * names the record; the initials and the glow follow it.
+ */
+export function GlowRecordCard({
+  code,
+  title,
+  sub,
+  hue,
+  start,
+  figures,
+  onOpen,
+  footer,
+}: {
+  code: string;
+  title: string | null;
+  sub: ReactNode;
+  /** What the glow and initials are drawn from — the title unless given. */
+  hue?: string | null;
+  /** A row with nothing behind it yet: the top line offers this word and "→". */
+  start?: string;
+  figures?: { label: string; value: string }[];
+  onOpen?: () => void;
+  footer: ReactNode;
+}) {
+  const tint = buyerTint(hue ?? title);
+  return (
+    <div style={{ "--ink": tint.ink, "--glow": tint.glow } as CSSProperties} className={GLOW_CARD}>
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={!onOpen}
+        className="flex w-full flex-1 flex-col gap-2 rounded-t-2xl px-3 pb-2 pt-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+      >
+        <div className="flex w-full items-center gap-2">
+          <span className="shrink-0 rounded-md border border-border bg-surface px-1.5 py-px font-mono text-xs font-medium text-foreground">
+            {code}
+          </span>
+          {start && (
+            <span className="ml-auto flex items-center gap-1.5 whitespace-nowrap text-[12.5px] font-semibold text-[var(--ink)] transition-[gap] group-hover:gap-2.5 dark:text-[color-mix(in_srgb,var(--ink)_55%,white)]">
+              {start} <span aria-hidden="true">→</span>
+            </span>
+          )}
+        </div>
+        <div className="flex w-full min-w-0 items-center gap-2.5">
+          <span aria-hidden="true" className={GLOW_AVATAR}>
+            {buyerInitials(hue ?? title)}
+          </span>
+          <span className="grid min-w-0 flex-1">
+            <Truncated className="text-sm font-semibold leading-tight text-foreground" touch={false}>
+              {title ?? "—"}
+            </Truncated>
+            <Truncated className="font-mono text-xs leading-snug text-muted-foreground" touch={false}>
+              {sub}
+            </Truncated>
+          </span>
+        </div>
+        {figures && figures.length > 0 && (
+          <dl className="flex w-full items-baseline justify-between gap-2 tabular-nums">
+            {figures.map((f, i) => (
+              <div key={f.label} className="min-w-0">
+                <dt className="sr-only">{f.label}</dt>
+                {/* truncate-reveal: exempt -- a figure (money, %, a count, a date) fits a 15rem card; a tap opens the record */}
+                <dd className={cn("truncate font-bold leading-tight text-foreground", i === 0 ? "text-lg" : "text-[15px]")}>{f.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </button>
+      {footer}
     </div>
   );
 }
@@ -162,23 +205,6 @@ export function CostingCard({
 /** The card's tile (`components/ui/card-action.tsx`, shared by every card since 2026-10-23). */
 function Act({ label, action, tone, icon }: { label: string; action: CardAction; tone: CardTone; icon: ReactNode }) {
   return <CardActionTile label={label} tone={tone} icon={icon} reason={action.reason} onClick={action.onClick} />;
-}
-
-/**
- * What every card on the page shares, said ONCE above the grid — the other half
- * of "each word once". Each part is shown only when every card really shares it
- * (`sharedPrefix` / `sharedValue`); where they differ the card keeps saying it.
- */
-export function CostingCardLegend({ costing, sample, currency, year }: { costing: string; sample: string; currency: string | null; year: string | null }) {
-  return (
-    <p className="text-[13px] text-muted-foreground">
-      Costing {costing && <span className="font-mono text-foreground">{costing}…</span>} · Sample{" "}
-      {sample && <span className="font-mono text-foreground">{sample}…</span>} · Style ·{" "}
-      <strong className="font-semibold text-foreground">
-        Quoted{currency ? ` (${currency})` : ""} · Margin · Date{year ? ` (${year})` : ""}
-      </strong>
-    </p>
-  );
 }
 
 /** The series prefix ("CST/26-27/") every value shares, up to its last "/" — or "". */

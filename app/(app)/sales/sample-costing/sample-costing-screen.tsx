@@ -91,7 +91,7 @@ import { BackLink } from "@/components/ui/back-link";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
-import { CostingCardLegend, CostingQueueCard, costingCardShared } from "./costing-card";
+import { CostingQueueCard, costingCardShared } from "./costing-card";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdByFacet, createdDateFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { fmtDate } from "@/lib/format";
@@ -1770,11 +1770,6 @@ export function SampleCostingScreen({
             router.refresh();
           }}
         />
-      ) : null}
-      {/* EACH WORD ONCE (user 2026-10-23, artifact "Costing Card — Duplicates Removed"):
-          what every card shares is said here, and stripped from the cards below. */}
-      {viewMode.view === "cards" && filtered.length > 0 ? (
-        <CostingCardLegend costing={cardShared.costing} sample={cardShared.sample} currency={cardShared.currency} year={cardShared.year} />
       ) : null}
       <SampleCards<CostingListRow>
         rows={filtered}

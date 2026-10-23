@@ -122,6 +122,12 @@ The actions that left the Tab path each keep a key, and the shortcuts sheet says
   table** (`enterAdvances`). So Enter still never creates a row by itself, and the 2026-08-19
   complaint stays fixed. Opt-in per table by the marker and the blank row; every other grid
   keeps "+ Add". The save must drop the blank (it does for every cost-sheet table).
+  **`ChildGrid` takes it as `tailRow={isBlank}`** (Order Entry, user 2026-10-23): no "+ Add",
+  one blank end row kept by calling `onAdd` (or `onTail`), the marker, and the blank row's
+  cells not held as mandatory. A grid that renders its own row (`renderMobileRow`) must
+  release its own `required` on that row. "Blank" means nothing the operator TYPED — and
+  where the factory pre-fills a value the server keeps (a style, a date), the save strips
+  the row itself (`withoutTail` in `garment-order-screen.tsx`).
 - **Either way the cursor lands in the new row** (`landOnAddedRow`, one document
   listener). Only the
   keyboard half was ever built: the button added the row and kept the caret on itself, and
