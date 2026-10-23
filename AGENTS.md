@@ -1060,6 +1060,11 @@ passes `size="sm"`). Swept 2026-10-09: Sample Costing, Sample Entry, Garment
 Order, Style, TA Plan, TA Style, TA Department Assign. HR person keeps its Back
 (exempt, see above). The ten read-only `[id]` detail pages keep their plain
 "Back to list" text link — no Cancel there, so it is their only way out.
+**Sample Costing reverses the first rule, by request**: every costing editor
+(Costing, Costing 3–6, Ledger) shows a desktop `BackLink` "← Back" in its
+header (user 2026-10-21 for Costing, 2026-10-23 for the rest: "ella costing
+page layum … back button venum"). It is a `BackLink`, not a `<Button>`, so
+`check:button-plan` stays green; do not remove it as a duplicate of Cancel.
 
 Checked by `npm run check:button-plan` (inside `build:check`): a
 desktop-visible "← Back to list" `<Button>`, and a `size="sm"` button in an

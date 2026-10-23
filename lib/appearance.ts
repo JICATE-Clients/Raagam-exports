@@ -681,6 +681,15 @@ function skinCss(sel: string, p: AccentPalette): string {
   const fill = p.gradientTo ? `linear-gradient(135deg,${p.primary},${p.gradientTo})` : "var(--primary)";
   return (
     `${btn},${pill}{background:${fill};color:#fff;border-color:transparent}` +
+    /* THE LABEL AND ICON TAKE THE PILL'S TEXT COLOUR (user 2026-10-23, screenshot
+       101933: "ulla irukka text aa white aa change pannanum"). The pill said
+       white, but the rail row is also `aria-current`, and globals.css paints an
+       `[aria-current] span` in `--foreground` (the Material list's bold row) while
+       the icon carries `text-primary` — so the label and icon stayed dark on the
+       blue-green fill. Only the label span and the icon follow the pill; the
+       count badge and done dot keep their own colours. `inherit` also carries a
+       `fill` option's `fillText` (fillCss sets the pill's colour after this). */
+    `${pill}>svg,${pill}>span.flex-1{color:inherit}` +
     (p.gradientTo ? "" : `${btn}:hover{background:var(--primary-hover)}`)
   );
 }

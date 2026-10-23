@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { fetchTodayRate, listQuoteCurrencies } from "@/lib/sales/sample-costing/actions";
 import { flushSync } from "react-dom";
 import Link from "next/link";
@@ -14,6 +14,7 @@ import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Field, FieldRow } from "@/components/ui/field";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { useAccordion } from "@/lib/ui/use-accordion";
+import { focusFirstField, focusLastField, registerContentEdge } from "@/lib/focus";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { TypeOrPick } from "@/app/(app)/orders/_garment-order/type-or-pick";
@@ -3174,6 +3175,42 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
     setTab(n);
     document.getElementById(`cs-tab-${n}`)?.focus();
   };
+  /* ENTER OFF A TAB'S LAST FIELD OPENS THE NEXT TAB (client 2026-10-22, Sample
+     Costing ▸ Details: "intha page kkum next field venum"). Only one panel is
+     mounted, so Currency read as the LAST field of the whole costing and Enter
+     went to Save. This is a hand-rolled strip, not `Tabs`, so it publishes the
+     same edge `Tabs` does (`registerContentEdge`) — Enter, Tab and Shift+Tab
+     then cross tabs exactly as on Sample Entry. Only the tabs that hold fields
+     take part: Revisions and Charts have nothing to land on, so off the last
+     field tab the edge declines and the save ladder runs. */
+  const panelRef = useRef<HTMLDivElement>(null);
+  const landingRef = useRef<"first" | "last" | null>(null);
+  const fieldTabs = tabDefs.flatMap((t, i) => (t.id === "cs-op-revisions" || t.id === "cs-op-charts" ? [] : [i]));
+  const tabNavRef = useRef({ tab, fieldTabs, setTab });
+  useEffect(() => {
+    tabNavRef.current = { tab, fieldTabs, setTab };
+  });
+  const tabbed = view === "tabs" && !onePage && !!editIn;
+  useEffect(() => {
+    if (!tabbed) return;
+    return registerContentEdge(panelRef.current, (dir) => {
+      const nav = tabNavRef.current;
+      const at = nav.fieldTabs.indexOf(nav.tab);
+      const next = at === -1 ? undefined : nav.fieldTabs[at + dir];
+      if (next === undefined) return false;
+      landingRef.current = dir === 1 ? "first" : "last";
+      nav.setTab(next);
+      return true;
+    });
+  }, [tabbed]);
+  // Land in the panel the hand-off just opened — same commit as the switch.
+  useEffect(() => {
+    const land = landingRef.current;
+    if (!land) return;
+    landingRef.current = null;
+    if (land === "last") focusLastField(panelRef.current);
+    else focusFirstField(panelRef.current);
+  }, [tab]);
 
   return (
     <article className={chargesTable ? "cs-sheet cs-qtlook" : "cs-sheet"}>
@@ -3454,7 +3491,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
               ))}
               {merged && tab === 2 ? tabFob : null}
             </div>
-            <div className={merged && (tab === 1 || tab === 2) ? "tpanel cq-panel" : "tpanel"} role="tabpanel" id="cs-tabpanel" aria-labelledby={`cs-tab-${tab}`}>
+            <div ref={panelRef} className={merged && (tab === 1 || tab === 2) ? "tpanel cq-panel" : "tpanel"} role="tabpanel" id="cs-tabpanel" aria-labelledby={`cs-tab-${tab}`}>
               {/* THE STYLE PHOTO IS ON DETAILS (user 2026-10-17: "the fabric picture field move
                   to the details tab"), beside the sample, style and fabric facts it shows;
                   the Fabric tab gives Component consumption the whole row. */}

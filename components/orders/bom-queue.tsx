@@ -120,9 +120,8 @@ export function bomCardStats(t: BomTaskRow, middle: CardStat): CardStat[] {
  * LOCAL TO THE QUEUE ON PURPOSE. `bomStatusTone` keeps Pending amber for every
  * other reader (the garment order's status pills among them); here the queue
  * is a to-do list, where an order with no plan at all IS the work, so it takes
- * the act-on-it colour Recalculate and Unresolved already carry. The pill and
- * the stripe both read this one function, so on a card they can never
- * disagree.
+ * the act-on-it colour Recalculate and Unresolved already carry. The card's
+ * mark and the table's pill both read this one function, so they agree.
  */
 function queueTone(s: BomStatus): StatusTone {
   return s === "pending" ? "danger" : bomStatusTone(s);
@@ -142,14 +141,12 @@ function queueTone(s: BomStatus): StatusTone {
  * `dark:` ON EVERY SHADE — this app has a dark theme (the `.dark` class from
  * the topbar toggle), and a `bg-red-50` pill there is a glaring light patch.
  */
-const QUEUE_THEME: Partial<Record<BomStatus, { pill: string; edge: string }>> = {
+const QUEUE_THEME: Partial<Record<BomStatus, { pill: string }>> = {
   pending: {
     pill: "border border-red-200 bg-red-50 py-px text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300",
-    edge: "border-l-red-700 dark:border-l-red-500",
   },
   updated: {
     pill: "border border-emerald-200 bg-emerald-50 py-px text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300",
-    edge: "border-l-emerald-500",
   },
 };
 
@@ -977,16 +974,9 @@ export function BomQueue({
         stats={(t) => bomCardStats(t, stat(t))}
         /* THE QUEUE CARD (operator, 2026-09-18, reference screenshot) — see
            `queue` on `MobileCardList`. A tap opens the BOM straight away; no
-           drawer, no slide-over and nothing on hover. Replaces the 2026-09-04
-           floating status badge: the reference marks the state with the side
-           stripe. */
+           drawer and no slide-over. Since 2026-10-23 it is the Sample Costing
+           glow card (buyer's hue, lift on hover); the mark carries the state. */
         queue
-        /* THE STRIPE — red on Pending, green once the plan is current. The
-           same tone as the pill, from the same function: the pill is read one
-           card at a time, the stripe down a whole grid at once, and this list
-           is SORTED by `BOM_STATUS_RANK` ("what needs doing, first"). */
-        tone={(t) => queueTone(t.status)}
-        accent={(t) => QUEUE_THEME[t.status]?.edge}
         /* NO "Created …" LINE ON THE CARD (user 2026-10-16, after removing it
            from Sample ▸ Fabric Plan: "yes" to the Orders queues too). It sat in
            the card's footer beside the buttons under AGENTS.md's mobile-card

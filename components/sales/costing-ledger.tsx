@@ -48,11 +48,18 @@ import { useAccordion } from "@/lib/ui/use-accordion";
 import { cn } from "@/lib/utils";
 import type { CostSheetEdit } from "@/components/sales/cost-sheet-document";
 import { FLOOR_PCT, fx, type CostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
-import { MARGIN_TARGET_PCT, dimensionalGrams, hasYarnMix, num, quoteKey, sizesOf, trimCostPerPiece, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
-import { newExtra, newFabric, newFabricProcess, newPieceLine, newTrim, newWeightRows, newYarnMix } from "@/lib/sales/sample-costing/revision-draft";
+import { MARGIN_TARGET_PCT, dimensionalGrams, hasYarnMix, num, quoteKey, trimCostPerPiece, yarnMixTotal } from "@/lib/sales/sample-costing/calc";
+import { withTrailingRows } from "@/lib/sales/sample-costing/trailing-rows";
+import { newFabric, newFabricProcess, newPieceLine, newYarnMix } from "@/lib/sales/sample-costing/revision-draft";
 import {
   costingFieldId,
+  isBlankExtra,
   isBlankFabric,
+  isBlankPieceLine,
+  isBlankProcess,
+  isBlankTrim,
+  isBlankWeight,
+  isBlankYarn,
   summaryOf,
   type CostingProblem,
   type FabricDraft,
@@ -149,12 +156,13 @@ function GramCell({ w, label, onPatch }: { w: WeightDraft; label: string; onPatc
 /** A row's ✕ — the app's hover ✕ (Ctrl+Del-able, off the Tab path). */
 const RemoveX = ({ label, onClick }: { label: string; onClick: () => void }) => <RowHoverRemove label={`Remove ${label}`} onClick={onClick} />;
 
-/** The "+ Add …" under a table: a grid's add control (`data-row-add`, AGENTS "Tab lands on fields"). */
-const AddBtn = ({ label, onClick }: { label: string; onClick: () => void }) => (
-  <Button type="button" variant="ghost" size="sm" data-row-add onClick={onClick} className="text-primary">
-    + {label}
-  </Button>
-);
+/** ENTER-ONLY ENTRY, AS COSTING 6 (user 2026-10-23: "costing 6 la irukka mari ella
+ *  costing field la irukka add buttons aayum eduthtu … enter key focus aa vachi"). No
+ *  "+ Add" under any table: every table ends with one blank row (`withTrailingRows`),
+ *  typing into it makes it a line, and Enter on it untouched leaves the table — the
+ *  `data-row-tail` marker `enterAdvances` reads. Same rule as the cost sheet's
+ *  `enterFlow`; the save already drops every blank line. */
+const tailIf = (blank: boolean) => (blank ? { "data-row-tail": "" } : {});
 
 /** One section: header row over its body, its figure on the spine. */
 function Section({
@@ -225,7 +233,7 @@ const Spine = ({ cap, value, sub }: { cap: string; value: string; sub?: string }
 const marginTone = (m: number | null) => (m == null ? "bg-surface-muted text-muted-foreground" : m < FLOOR_PCT ? "bg-danger-soft text-danger" : m < MARGIN_TARGET_PCT ? "bg-warning-soft text-warning" : "bg-success-soft text-success");
 
 export function CostingLedger({ model, edit, problems }: { model: CostSheetModel; edit: CostSheetEdit; problems: CostingProblem[] }) {
-  const d = edit.draft;
+  const d = withTrailingRows(edit.draft);
   const opts = edit.options;
   const s = model.sizes[0];
   const ccy = model.currency ?? "";
@@ -307,14 +315,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
     set({ ...d, fabrics: next, weights: d.weights.map((x) => (r.wkeys.includes(x.key) ? { ...x, fabric_key: key } : x)) });
     fabFold.setOpenKey(key);
   };
-  const addWeightLine = () => {
-    const open = weightRows.findIndex((r) => r.componentIds.length === 0 && !r.fabricKey);
-    if (open >= 0) {
-      document.querySelectorAll<HTMLElement>('[aria-label="Component consumption"] tbody tr[data-grid-row]')[open]?.querySelector<HTMLElement>("input")?.focus();
-      return;
-    }
-    set({ ...d, weights: [...d.weights, ...newWeightRows(d.pieces[0]?.key ?? "", [], null, sizesOf(d.weights))] });
-  };
   const sizeWise = model.weights.sizeLabels.length > 1;
   const noWeightCol = !!edit.sizeWise && !sizeWise && model.weights.sizeLabels[0] === "All sizes";
   const sizeCols = noWeightCol ? [] : model.weights.sizeLabels;
@@ -351,7 +351,7 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
           </thead>
           <tbody data-grid-body onKeyDown={gridKeyNav}>
             {weightRows.map((r, i) => (
-              <tr key={r.wkeys[0] ?? i} data-grid-row>
+              <tr key={r.wkeys[0] ?? i} data-grid-row {...tailIf(r.componentIds.length === 0 && !r.fabricKey && d.weights.filter((w) => r.wkeys.includes(w.key)).every(isBlankWeight))}>
                 {multi ? (
                   <td className={TD}>
                     <TypeOrPick label="Piece" options={d.pieces.map((p) => ({ id: p.key, name: p.piece_name || "GARMENT" }))} valueId={r.pieceKey} text={pieceName(r.pieceKey)} onChange={(v) => v.id && setLine(r, { piece_key: v.id })} uppercase inputClassName={CELL} />
@@ -410,7 +410,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
           <tfoot>
             <tr>
               <td className={FOOT} colSpan={multi ? 2 : 1}>
-                <AddBtn label="Add row" onClick={addWeightLine} />
               </td>
               <td className={cn(FOOT, "text-right text-xs font-bold", TONE.fabric.title)}>Fabric cost ₹ / {model.unitWord}</td>
               {sizeCols.map((l, j) => (
@@ -496,7 +495,7 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
                     </thead>
                     <tbody data-grid-body onKeyDown={gridKeyNav}>
                       {yarnLines.map((y, i) => (
-                        <tr key={y?.key ?? `${f.key}-y`} data-grid-row>
+                        <tr key={y?.key ?? `${f.key}-y`} data-grid-row {...tailIf(!!y && isBlankYarn(y))}>
                           <td className={TD}>
                             <TypeOrPick
                               label="Yarn"
@@ -533,7 +532,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
                     <tfoot>
                       <tr>
                         <td className={FOOT}>
-                          <AddBtn label="Add yarn" onClick={() => setFabric(f.key, { yarns: [...(f.yarns.length ? f.yarns : [newYarnMix()]), newYarnMix()] })} />
                         </td>
                         <td className={cn(FOOT, "text-right")}>
                           {hasYarnMix(f) ? <span className={cn("rounded-full px-2 py-0.5 font-mono text-xs font-bold", blendOff ? "bg-warning-soft text-warning" : "bg-success-soft text-success")}>{+share.toFixed(2)}%</span> : null}
@@ -562,7 +560,7 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
                     </thead>
                     <tbody data-grid-body onKeyDown={gridKeyNav}>
                       {procLines.map((q) => (
-                        <tr key={q?.key ?? `${f.key}-p`} data-grid-row>
+                        <tr key={q?.key ?? `${f.key}-p`} data-grid-row {...tailIf(!!q && isBlankProcess(q))}>
                           <td className={TD}>
                             <TypeOrPick
                               label="Process"
@@ -595,7 +593,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
                     <tfoot>
                       <tr>
                         <td className={FOOT}>
-                          <AddBtn label="Add process" onClick={() => setFabric(f.key, { processes: [...(f.processes.length ? f.processes : [newFabricProcess()]), newFabricProcess()] })} />
                         </td>
                         <td className={cn(FOOT, "text-right font-mono font-bold tabular-nums")}>{money(procT)}</td>
                         <td className={FOOT} />
@@ -653,10 +650,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
     const prefill = m?.standard_rate != null && line && !line.rate.trim() ? { rate: String(m.standard_rate) } : {};
     setPiece(p.key, { lines: patchBy(p.lines, lineKey, { process_id: v.id, process_name: v.name, ...prefill }) });
   };
-  /* "By operation" is cmt_direct off. Adding an operation turns it off for that piece, so
-     the line it adds is the one that prices (calc.ts `pieceCmt`). */
-  const addOp = (p: PieceDraft, kind: "cmt" | "embellishment") =>
-    setPiece(p.key, { ...(kind === "cmt" ? { cmt_direct: false } : {}), lines: [...p.lines, newPieceLine(kind, null, "")] });
   const opTable = (p: PieceDraft, kind: "cmt" | "embellishment") => {
     const lines = p.lines.filter((l) => l.kind === kind);
     const rows = lines.length ? lines : [null];
@@ -673,7 +666,7 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
         </thead>
         <tbody data-grid-body onKeyDown={gridKeyNav}>
           {rows.map((l) => (
-            <tr key={l?.key ?? `${p.key}-${kind}`} data-grid-row>
+            <tr key={l?.key ?? `${p.key}-${kind}`} data-grid-row {...tailIf(!!l && isBlankPieceLine(l))}>
               <td className={TD}>
                 <TypeOrPick
                   label={kind === "cmt" ? "CMT operation" : "Garment process"}
@@ -705,7 +698,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
         <tfoot>
           <tr>
             <td className={FOOT}>
-              <AddBtn label={kind === "cmt" ? "Add operation" : "Add process"} onClick={() => addOp(p, kind)} />
             </td>
             <td className={cn(FOOT, "text-right font-mono font-bold tabular-nums")}>{money(total)}</td>
             <td className={FOOT} />
@@ -786,7 +778,7 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
               const cost = trimCostPerPiece(t).cost;
               const trimLabel = opts?.trims.find((x) => x.id === t.item_id)?.name || t.description;
               return (
-                <tr key={t.key} data-grid-row>
+                <tr key={t.key} data-grid-row {...tailIf(isBlankTrim(t))}>
                   {multi ? (
                     <td className={TD}>
                       <TypeOrPick label="Piece" options={d.pieces.map((p) => ({ id: p.key, name: p.piece_name || "GARMENT" }))} valueId={t.piece_key} text={pieceName(t.piece_key)} onChange={(v) => v.id && setTrim(t.key, { piece_key: v.id })} uppercase inputClassName={CELL} />
@@ -804,7 +796,9 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
                       inputClassName={CELL}
                     />
                   </td>
-                  <td className={cn(TD, "text-center")}>
+                  {/* Off the Enter path (as Costing 6's `trimsByTick`): Enter on a tick toggles
+                      it, so walking the trims with Enter would flip every one passed. */}
+                  <td className={cn(TD, "text-center")} data-focus-optional="">
                     <input type="checkbox" aria-label={`${trimLabel || "Trim"} — direct rate`} checked={direct} onChange={(e) => setTrim(t.key, { is_direct: e.target.checked })} className="h-4 w-4 accent-[var(--color-warning)] align-middle" />
                   </td>
                   <td className={TD}>{direct ? <span className="block px-2.5 text-right text-muted-foreground">—</span> : <Num cell id={costingFieldId.trimQty(t.key)} label="No of items" value={t.qty} onChange={(v) => setTrim(t.key, { qty: v })} />}</td>
@@ -826,7 +820,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
           <tfoot>
             <tr>
               <td className={FOOT} colSpan={multi ? 7 : 6}>
-                <AddBtn label="Add trim" onClick={() => set({ ...d, trims: [...d.trims, newTrim(d.pieces[0]?.key ?? "")] })} />
               </td>
               <td className={cn(FOOT, "text-right font-mono font-bold tabular-nums")}>{money(s.trims)}</td>
               <td className={FOOT} />
@@ -885,7 +878,7 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
                 const setX = (patch: Partial<typeof x>) => set({ ...d, extras: patchBy(d.extras, x.key, patch) });
                 const sel = "h-9 w-full border-0 bg-transparent px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary";
                 return (
-                  <tr key={x.key} data-grid-row>
+                  <tr key={x.key} data-grid-row {...tailIf(isBlankExtra(x))}>
                     <td className={TD}>
                       <Input id={costingFieldId.extraName(x.key)} aria-label="Charge name" value={x.name} onChange={(e) => setX({ name: e.target.value })} className={CELL} />
                     </td>
@@ -918,13 +911,6 @@ export function CostingLedger({ model, edit, problems }: { model: CostSheetModel
               </tr>
             )}
           </tbody>
-          <tfoot>
-            <tr>
-              <td className={FOOT} colSpan={5}>
-                <AddBtn label="Add charge" onClick={() => set({ ...d, extras: [...d.extras, newExtra("overhead")] })} />
-              </td>
-            </tr>
-          </tfoot>
         </table>
       </div>
     </div>

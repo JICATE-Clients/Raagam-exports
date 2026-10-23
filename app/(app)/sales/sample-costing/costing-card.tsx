@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { Tooltip } from "@/components/ui/tooltip";
+import { CardAction as CardActionTile, DUO, type CardTone } from "@/components/ui/card-action";
 import { Truncated } from "@/components/ui/truncated";
-import { buyerInitials, buyerTint } from "@/lib/ui/buyer-glow";
+import { buyerInitials, buyerTint, GLOW_AVATAR, GLOW_CARD, GLOW_RULE } from "@/lib/ui/buyer-glow";
 import { cn } from "@/lib/utils";
+import { fmtDate } from "@/lib/format";
+import { STATUS_LABEL, isDeletableStatus, type CostingListRow } from "@/lib/sales/sample-costing/types";
 
 /**
  * A SAMPLE COSTING CARD (user 2026-10-21, "Card Glow Styles" option 1 with the
@@ -19,6 +21,13 @@ import { cn } from "@/lib/utils";
  * line up down the grid. An action that does not apply to this card stays,
  * greyed, with its reason in the tooltip (AGENTS "Row actions"); only a
  * missing PERMISSION removes one (`del` null).
+ *
+ * EACH WORD ONCE (user 2026-10-23, artifact "Costing Card — Duplicates
+ * Removed": "apply this artifact"). What every card on the page said alike is
+ * said once, in `CostingCardLegend` above the grid: the CST/ and SMP/ series
+ * prefixes, the QUOTED · MARGIN · DATE labels, the currency and the year. The
+ * state mark at the top right went too — the tab the card sits under already
+ * names it. The card keeps what differs: number, buyer, style, the figures.
  */
 
 /** One footer action: what a click does, or why it cannot. */
@@ -28,7 +37,6 @@ export function CostingCard({
   code,
   buyer,
   sub,
-  mark,
   start,
   figures,
   onOpen,
@@ -42,11 +50,10 @@ export function CostingCard({
   code: string;
   buyer: string | null;
   sub: string;
-  /** The state icon at the top right (a tooltip names it). */
-  mark: ReactNode;
   /** A sample with no sheet yet: the top line offers "Start costing →". */
   start?: boolean;
-  /** Quoted · Margin · Date — omitted while there is nothing to show. */
+  /** Quoted · Margin · Date, in that order — omitted while there is nothing to
+   *  show. The labels are read by screen readers only; the legend shows them once. */
   figures?: { label: string; value: string }[];
   onOpen?: () => void;
   approve: CardAction;
@@ -60,17 +67,7 @@ export function CostingCard({
   const [confirming, setConfirming] = useState(false);
   const tint = buyerTint(buyer);
   return (
-    <div
-      style={{ "--ink": tint.ink, "--glow": tint.glow } as CSSProperties}
-      className={cn(
-        "group flex min-w-0 flex-col rounded-2xl border bg-surface",
-        "border-[color-mix(in_srgb,var(--ink)_22%,var(--border))]",
-        "shadow-[0_14px_30px_-14px_color-mix(in_srgb,var(--glow)_80%,transparent)]",
-        "transition-[transform,box-shadow,border-color] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]",
-        "hover:-translate-y-1 hover:border-[color-mix(in_srgb,var(--ink)_50%,var(--border))] hover:shadow-[0_22px_40px_-14px_var(--glow)]",
-        "motion-reduce:transition-none motion-reduce:hover:translate-y-0",
-      )}
-    >
+    <div style={{ "--ink": tint.ink, "--glow": tint.glow } as CSSProperties} className={GLOW_CARD}>
       <button
         type="button"
         onClick={onOpen}
@@ -86,12 +83,11 @@ export function CostingCard({
               Start costing <span aria-hidden="true">→</span>
             </span>
           )}
-          <span className={cn("flex shrink-0", !start && "ml-auto")}>{mark}</span>
         </div>
         <div className="flex w-full min-w-0 items-center gap-2.5">
           <span
             aria-hidden="true"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[color-mix(in_srgb,var(--glow)_18%,var(--surface))] text-[11.5px] font-bold text-[var(--ink)] dark:text-[color-mix(in_srgb,var(--ink)_55%,white)]"
+            className={GLOW_AVATAR}
           >
             {buyerInitials(buyer)}
           </span>
@@ -105,18 +101,18 @@ export function CostingCard({
           </span>
         </div>
         {figures && figures.length > 0 && (
-          <dl className="grid w-full grid-cols-[1.2fr_1fr_1.2fr] gap-1.5">
-            {figures.map((f) => (
-              <div key={f.label} className="grid min-w-0 gap-px">
-                <dt className="text-[10.5px] font-bold uppercase leading-tight tracking-wider text-muted-foreground">{f.label}</dt>
+          <dl className="flex w-full items-baseline justify-between gap-2 tabular-nums">
+            {figures.map((f, i) => (
+              <div key={f.label} className="min-w-0">
+                <dt className="sr-only">{f.label}</dt>
                 {/* truncate-reveal: exempt -- a figure (money, %, a date) fits a 15rem card; a tap opens the costing */}
-                <dd className="truncate text-sm font-bold leading-tight tabular-nums text-foreground">{f.value}</dd>
+                <dd className={cn("truncate font-bold leading-tight text-foreground", i === 0 ? "text-lg" : "text-[15px]")}>{f.value}</dd>
               </div>
             ))}
           </dl>
         )}
       </button>
-      <div className="mx-3 flex min-h-10 items-center justify-between gap-1 border-t border-[color-mix(in_srgb,var(--ink)_15%,var(--border))] py-1">
+      <div className={cn("mx-3 flex min-h-10 items-center justify-between gap-1 py-1", GLOW_RULE)}>
         {confirming && del ? (
           <>
             <span className="text-xs text-muted-foreground">Delete this costing?</span>
@@ -144,16 +140,16 @@ export function CostingCard({
                 Every icon carries its own colour (user 2026-10-21, screenshot 152304):
                 Reports was ink-black and Delete grey, the two the eye skipped. Violet
                 is the one hue not already saying approve / reject / revise. */}
-            <Act label="Reports" action={report} tone="text-violet-600 hover:bg-violet-500/10 dark:text-violet-400" icon={ICON.doc} />
-            <Act label="Customer Approved" action={approve} tone="text-success hover:bg-success/10" icon={ICON.ok} />
-            <Act label="Customer Rejected" action={reject} tone="text-danger hover:bg-danger/10" icon={ICON.no} />
-            <Act label="Raise Revise" action={revise} tone="text-info hover:bg-info/10" icon={ICON.redo} />
+            <Act label="Reports" action={report} tone="violet" icon={DUO.doc} />
+            <Act label="Customer Approved" action={approve} tone="success" icon={DUO.ok} />
+            <Act label="Customer Rejected" action={reject} tone="danger" icon={DUO.no} />
+            <Act label="Raise Revise" action={revise} tone="info" icon={DUO.redo} />
             {del && (
               <Act
                 label="Delete"
                 action={{ reason: del.reason, onClick: () => setConfirming(true) }}
-                tone="text-danger hover:bg-danger/10"
-                icon={ICON.bin}
+                tone="danger"
+                icon={DUO.bin}
               />
             )}
           </>
@@ -163,76 +159,145 @@ export function CostingCard({
   );
 }
 
-function Act({ label, action, tone, icon }: { label: string; action: CardAction; tone: string; icon: ReactNode }) {
-  const blocked = !!action.reason;
+/** The card's tile (`components/ui/card-action.tsx`, shared by every card since 2026-10-23). */
+function Act({ label, action, tone, icon }: { label: string; action: CardAction; tone: CardTone; icon: ReactNode }) {
+  return <CardActionTile label={label} tone={tone} icon={icon} reason={action.reason} onClick={action.onClick} />;
+}
+
+/**
+ * What every card on the page shares, said ONCE above the grid — the other half
+ * of "each word once". Each part is shown only when every card really shares it
+ * (`sharedPrefix` / `sharedValue`); where they differ the card keeps saying it.
+ */
+export function CostingCardLegend({ costing, sample, currency, year }: { costing: string; sample: string; currency: string | null; year: string | null }) {
   return (
-    <Tooltip label={action.reason ?? label} touch={blocked}>
-      {/* button-shape: exempt -- a 34×30 duotone icon tile in the card's action row, the approved mock-up's shape */}
-      <button
-        type="button"
-        aria-label={blocked ? `${label} — ${action.reason}` : label}
-        aria-disabled={blocked || undefined}
-        onClick={blocked ? undefined : action.onClick}
-        className={cn(
-          "inline-flex h-[30px] w-[34px] items-center justify-center rounded-[10px] transition-[background-color,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          // A blocked action keeps its OWN colour, faded (user 2026-10-21, screenshot
-          // 152705: grey here read as "no colour"). The fade, the not-allowed cursor
-          // and the tooltip's reason still say it cannot be used; only hover is dropped.
-          blocked
-            ? cn(tone.split(" ").filter((c) => !c.includes("hover:")).join(" "), "cursor-not-allowed opacity-45")
-            : cn(tone, "hover:-translate-y-px active:scale-95"),
-        )}
-      >
-        {icon}
-      </button>
-    </Tooltip>
+    <p className="text-[13px] text-muted-foreground">
+      Costing {costing && <span className="font-mono text-foreground">{costing}…</span>} · Sample{" "}
+      {sample && <span className="font-mono text-foreground">{sample}…</span>} · Style ·{" "}
+      <strong className="font-semibold text-foreground">
+        Quoted{currency ? ` (${currency})` : ""} · Margin · Date{year ? ` (${year})` : ""}
+      </strong>
+    </p>
   );
 }
 
-/* THE DUOTONE SET (option E of the same mock-up): a soft filled shape under a
-   crisp stroke, both in the button's own colour. */
-const FILL = { fill: "currentColor", fillOpacity: 0.16, stroke: "none" } as const;
-function Duo({ children }: { children: ReactNode }) {
+/** The series prefix ("CST/26-27/") every value shares, up to its last "/" — or "". */
+export function sharedPrefix(values: (string | null | undefined)[]): string {
+  const vs = values.filter((v): v is string => !!v);
+  if (vs.length === 0) return "";
+  const cut = (v: string) => v.slice(0, v.lastIndexOf("/") + 1);
+  const p = cut(vs[0]);
+  return p && vs.every((v) => cut(v) === p) ? p : "";
+}
+
+/** The one value every entry shares, or null when they differ (or there are none). */
+export function sharedValue(values: (string | null | undefined)[]): string | null {
+  const vs = values.filter((v): v is string => !!v);
+  return vs.length > 0 && vs.every((v) => v === vs[0]) ? vs[0] : null;
+}
+
+/** Everything a pile of cards shares, worked out once for the legend and the strip. */
+export type CostingCardShared = { costing: string; sample: string; currency: string | null; year: string | null };
+
+export function costingCardShared(rows: CostingListRow[]): CostingCardShared {
+  const costed = rows.filter((r) => !r.awaiting);
+  return {
+    costing: sharedPrefix(costed.map((r) => r.code)),
+    sample: sharedPrefix(rows.map((r) => r.enquiry_no)),
+    currency: sharedValue(costed.filter((r) => r.target_fob != null).map((r) => r.currency_code)),
+    year: sharedValue(costed.map((r) => r.costing_date?.slice(0, 4))),
+  };
+}
+
+const strip = (v: string | null | undefined, prefix: string) => (v && prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v);
+const money = (v: number) => v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * ONE COSTING CARD FOR EVERY COSTING PAGE (user 2026-10-23, screenshot 101313:
+ * "intha page mariye ella costing page kku duplicate words aa remove
+ * pannaitu"). Costing, Costing 3–6 and the Ledger each built the card from
+ * the same row; this is that build, so the pages cannot drift apart again.
+ * The page passes its own handlers — Raise Revise opens a route on one page
+ * and a revision in place on another — and nothing else.
+ */
+export function CostingQueueCard({
+  r,
+  live,
+  shared,
+  canCreate,
+  canEdit,
+  canDelete,
+  isPending = false,
+  onStart,
+  onOpen,
+  onDecide,
+  onReports,
+  onRevise,
+  onDelete,
+}: {
+  r: CostingListRow;
+  /** Under Progress — the only pile that takes the buyer's answer or a revision. */
+  live: boolean;
+  shared: CostingCardShared;
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  isPending?: boolean;
+  onStart: () => void;
+  onOpen: () => void;
+  onDecide: (decision: "approved" | "rejected") => void;
+  onReports: () => void;
+  onRevise: () => void;
+  onDelete: () => void;
+}) {
+  const sampleNo = strip(r.enquiry_no, shared.sample);
+  const decideWhy = r.awaiting
+    ? "Not costed yet"
+    : !live
+      ? "Only an Under Progress costing takes the buyer's answer"
+      : canEdit
+        ? null
+        : "Needs the edit permission";
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {children}
-    </svg>
+    <CostingCard
+      code={(r.awaiting ? sampleNo : strip(r.code, shared.costing)) ?? "—"}
+      buyer={r.customer_name}
+      sub={[r.awaiting ? null : sampleNo, r.style_name].filter(Boolean).join(" · ") || "—"}
+      start={!!r.awaiting && canCreate}
+      figures={
+        r.awaiting
+          ? undefined
+          : [
+              {
+                label: "Quoted",
+                value: r.target_fob != null ? `${shared.currency ? "" : (r.currency_code ?? "")} ${money(r.target_fob)}`.trim() : "—",
+              },
+              { label: "Margin", value: r.profit_loss_pct != null ? `${r.profit_loss_pct.toFixed(1)}%` : "—" },
+              // DD/MM from fmtDate, its year in the legend when every card shares it.
+              { label: "Date", value: shared.year && r.costing_date ? fmtDate(r.costing_date).slice(0, 5) : fmtDate(r.costing_date) },
+            ]
+      }
+      onOpen={r.awaiting ? (canCreate ? onStart : undefined) : onOpen}
+      approve={{ reason: decideWhy, onClick: () => onDecide("approved") }}
+      reject={{ reason: decideWhy, onClick: () => onDecide("rejected") }}
+      report={{ reason: r.awaiting ? "Nothing to report on yet" : null, onClick: onReports }}
+      revise={{
+        reason: r.awaiting ? "Not costed yet" : !live ? "Only an Under Progress costing can be revised" : canEdit ? null : "Needs the edit permission",
+        onClick: onRevise,
+      }}
+      del={
+        canDelete
+          ? {
+              reason: r.awaiting
+                ? "Not costed — nothing to delete"
+                : isDeletableStatus(r.status)
+                  ? null
+                  : `${STATUS_LABEL[r.status]} — only a Draft can be deleted; revise it instead.`,
+              onClick: onDelete,
+            }
+          : null
+      }
+      isPending={isPending}
+    />
   );
 }
-const DOC = "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z";
-const ICON = {
-  ok: (
-    <Duo>
-      <circle cx="12" cy="12" r="10" {...FILL} />
-      <circle cx="12" cy="12" r="10" />
-      <path d="m8 12.5 2.8 2.8L16.5 9" />
-    </Duo>
-  ),
-  no: (
-    <Duo>
-      <circle cx="12" cy="12" r="10" {...FILL} />
-      <circle cx="12" cy="12" r="10" />
-      <path d="m15 9-6 6M9 9l6 6" />
-    </Duo>
-  ),
-  doc: (
-    <Duo>
-      <path d={DOC} {...FILL} />
-      <path d={DOC} />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4M16 13H8M16 17H8" />
-    </Duo>
-  ),
-  redo: (
-    <Duo>
-      <circle cx="12" cy="12" r="10" {...FILL} />
-      <path d="M7.5 12a4.5 4.5 0 1 0 1.3-3.2L7.5 10" />
-      <path d="M7.5 7v3h3" />
-    </Duo>
-  ),
-  bin: (
-    <Duo>
-      <path d="M5 6h14l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2Z" {...FILL} />
-      <path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
-    </Duo>
-  ),
-};
