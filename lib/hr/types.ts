@@ -110,6 +110,7 @@ export interface Staff {
   // employment
   employment_type: EmploymentType;
   card_no: string | null;
+  biometric_id: string | null;
   pay_frequency: PayFrequency;
   week_off: WeekDay | null;
   hostel_category_id: string | null;
@@ -611,6 +612,16 @@ export const personInput = z.object({
   // employment
   employment_type: z.enum(EMPLOYMENT_TYPES).default("Permanent"),
   card_no: optText,
+  /**
+   * The User ID enrolled on the biometric reader — SHARED, not worker-only.
+   *
+   * It lived on `workerInput` until 2026-10-23, which meant `staffInput`
+   * (which is `personInput` unextended) silently dropped it: the column
+   * existed on `staff` from 0735 and any value typed against it was stripped
+   * before the save. Office staff punch on the same readers as the factory
+   * does, so the id belongs to the PERSON, not to the wage basis.
+   */
+  biometric_id: optText,
   pay_frequency: z.enum(PAY_FREQUENCIES).default("Monthly"),
   week_off: optEnum(WEEK_DAYS),
   hostel_category_id: optUuid,
@@ -928,7 +939,6 @@ export type StaffInput = PersonInput;
 export const workerInput = personInput.extend({
   worker_type: z.enum(WORKER_TYPES),
   contractor_id: optUuid,
-  biometric_id: optText,
   shift_wage_per_day: money,
   hourly_wage: money,
   piece_rate: money,

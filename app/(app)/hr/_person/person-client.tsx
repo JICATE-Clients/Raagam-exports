@@ -356,6 +356,7 @@ type MasterOption = { id: string; name: string; inactive: boolean };
  */
 const PERSON_DEFAULTS: PersonInput = {
   name: "",
+  biometric_id: null,
   designation_id: null,
   location_id: null,
   joined_date: null,
@@ -512,7 +513,6 @@ const WORKER_DEFAULTS: WorkerInput = {
   ...PERSON_DEFAULTS,
   worker_type: "shift",
   contractor_id: null,
-  biometric_id: null,
   shift_wage_per_day: 0,
   hourly_wage: 0,
   piece_rate: 0,
@@ -2199,6 +2199,7 @@ export default function PersonClient({
         return {
           ...base,
           done: touched([
+            "biometric_id",
             "card_no",
             "employee_classification",
             "employment_type",
@@ -2307,6 +2308,25 @@ export default function PersonClient({
                   />
                 </Field>
 
+                {/*
+                  THE USER ID ENROLLED ON THE BIOMETRIC READER — read it OFF
+                  the device (Menu ▸ User Management), never assigned here. It
+                  is the device's own numbering and will not match the employee
+                  code unless somebody deliberately made them agree.
+                  Shared by staff and workers since 2026-10-23: office staff
+                  punch on the same readers the factory does.
+                */}
+                <Field label="Biometric ID" size="sm" htmlFor="st-biometric">
+                  <Input
+                    id="st-biometric"
+                    uppercase
+                    value={form.biometric_id ?? ""}
+                    onChange={(e) =>
+                      set({ biometric_id: e.target.value || null })
+                    }
+                  />
+                </Field>
+
                 <TextField
                   label="Grade"
                   size="xs"
@@ -2330,7 +2350,6 @@ export default function PersonClient({
         return {
           ...base,
           done: touched([
-            "biometric_id",
             "contractor_id",
             "ctc_per_shift",
             "hourly_wage",
@@ -2432,18 +2451,6 @@ export default function PersonClient({
                   }
                 />
 
-                <Field label="Biometric ID" size="sm" htmlFor="wk-biometric">
-                  <Input
-                    id="wk-biometric"
-                    uppercase
-                    value={(form as WorkerInput).biometric_id ?? ""}
-                    onChange={(e) =>
-                      set({
-                        biometric_id: e.target.value || null,
-                      } as Partial<PersonInput>)
-                    }
-                  />
-                </Field>
               </FieldGrid>
             </div>
           ),
