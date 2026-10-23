@@ -10,8 +10,14 @@ import {
 import { getLocations, getSettings } from "@/lib/hr/masters-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
+import {
+  listDevices,
+  listPunchesToday,
+  countPunchesToday,
+} from "@/lib/hr/punch-service";
 import AttendanceClient from "./attendance-client";
 import MusterClient from "./muster-client";
+import LiveClient from "./live-client";
 
 interface Props {
   searchParams: Promise<{
@@ -23,7 +29,8 @@ interface Props {
 }
 
 /**
- * TWO VIEWS OF ONE THING, AT ONE URL. `?view=month` is the muster roll; the
+ * THREE VIEWS OF ONE THING, AT ONE URL. `?view=month` is the muster roll,
+ * `?view=live` is what the biometric devices are sending right now, and the
  * default is the day entry sheet.
  *
  * NOT A SECOND SIDEBAR ROW, deliberately. The month grid is the same table,
@@ -37,11 +44,17 @@ export default async function AttendancePage({ searchParams }: Props) {
   const { date, location, view, month } = await searchParams;
   const locationId = location || null;
   const isMonth = view === "month";
+  const isLive = view === "live";
 
   const locationParam = locationId ? `&location=${locationId}` : "";
   const tabs = [
-    { label: "Day", href: `/hr/attendance?view=day${locationParam}`, on: !isMonth },
+    {
+      label: "Day",
+      href: `/hr/attendance?view=day${locationParam}`,
+      on: !isMonth && !isLive,
+    },
     { label: "Month", href: `/hr/attendance?view=month${locationParam}`, on: isMonth },
+    { label: "Live", href: `/hr/attendance?view=live`, on: isLive },
   ];
   const viewSwitch = (
     <div className="flex rounded-lg border border-border bg-surface p-0.5">
@@ -61,6 +74,61 @@ export default async function AttendancePage({ searchParams }: Props) {
       ))}
     </div>
   );
+
+  if (isLive) {
+    /**
+     * ADMINS ONLY (user 2026-10-23). The page above is gated on `hr_payroll`
+     * view, which is every HR user; this tab is one step tighter because what
+     * it shows is the RAW device feed — a user id as enrolled on a reader,
+     * with no person behind it yet. That is a diagnostic, not an HR record,
+     * and it is the wrong thing to put in front of someone looking for
+     * somebody's attendance.
+     *
+     * `has_permission` bypasses for a super admin, so this needs no change to
+     * 0733's RLS: an admin already reads `punches` through the `hr_payroll`
+     * policy. Widen to HR admins by also accepting `hr_payroll` edit.
+     */
+    await requirePermission("system_admin", "view");
+
+    /**
+     * The IST day boundary and the clock are both resolved HERE, on the server,
+     * and handed down as props — `live-client.tsx` must not call `Date.now()`
+     * in a render (impure, and it would be the viewer's clock rather than the
+     * one the punches were stamped against).
+     *
+     * No location filter: a punch is scoped by its DEVICE's unit through RLS,
+     * not by this screen's picker, so narrowing it here would hide rows the
+     * viewer is entitled to see.
+     */
+    const serverNowIso = new Date().toISOString();
+    const todayIst = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+    }).format(new Date(serverNowIso));
+    const todayFromIso = `${todayIst}T00:00:00+05:30`;
+
+    const [devices, punches, todayCount] = await Promise.all([
+      listDevices(),
+      listPunchesToday(todayFromIso),
+      countPunchesToday(todayFromIso),
+    ]);
+
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title="Live Punches"
+          description="What the biometric devices are sending, as it arrives."
+          actions={viewSwitch}
+        />
+        <LiveClient
+          devices={devices}
+          punches={punches}
+          todayCount={todayCount}
+          todayFromIso={todayFromIso}
+          serverNowIso={serverNowIso}
+        />
+      </div>
+    );
+  }
 
   if (isMonth) {
     // "YYYY-MM", and it stays a string: see the note on dates in
